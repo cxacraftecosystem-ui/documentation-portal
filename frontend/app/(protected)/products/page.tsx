@@ -9,11 +9,14 @@ import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { StatusBadge } from "@/components/StatusBadge";
+import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
+import { isAdmin } from "@/lib/permissions";
 import type { PageResult, ProductDocumentation } from "@/lib/types";
 
 export default function ProductsPage() {
+  const { user } = useAuth();
   const [data, setData] = useState<PageResult<ProductDocumentation> | null>(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -110,9 +113,11 @@ export default function ProductsPage() {
                       <Link className="mr-2 text-sm font-semibold text-field-700" href={`/products/${product.id}/edit`}>
                         Edit
                       </Link>
-                      <button className="text-sm font-semibold text-red-700" onClick={() => remove(product.id)}>
-                        Delete
-                      </button>
+                      {isAdmin(user) ? (
+                        <button className="text-sm font-semibold text-red-700" onClick={() => remove(product.id)}>
+                          Delete
+                        </button>
+                      ) : null}
                     </td>
                   </tr>
                 ))}

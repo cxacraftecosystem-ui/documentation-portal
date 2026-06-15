@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
-from app.core.deps import assert_owner_or_admin, get_current_user
+from app.core.deps import assert_can_delete, assert_owner_or_admin, get_current_user
 from app.schemas.records import ArtisanCreate, ArtisanUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import attach_location, clean_data, contains, require_record, visibility_where
@@ -12,6 +12,19 @@ from app.services.records import attach_location, clean_data, contains, require_
 router = APIRouter(prefix="/artisans", tags=["artisans"])
 
 INCLUDE = {"craft": True, "location": True, "createdBy": True}
+
+
+async def resolve_craft_id(data: dict[str, Any], current_user: Any) -> dict[str, Any]:
+    craft_name = data.pop("craftName", None)
+    if data.get("craftId") or not craft_name:
+        return data
+    existing = await db.craft.find_unique(where={"name": craft_name})
+    if existing:
+        data["craftId"] = existing.id
+        return data
+    created = await db.craft.create(data={"name": craft_name, "createdById": current_user.id})
+    data["craftId"] = created.id
+    return data
 
 
 @router.get("")
@@ -60,6 +73,7 @@ async def create_artisan(
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     data = clean_data(payload.model_dump())
+    data = await resolve_craft_id(data, current_user)
     data = await attach_location(data)
     data["createdById"] = current_user.id
     created = await db.artisan.create(data=data, include=INCLUDE)
@@ -70,7 +84,6 @@ async def create_artisan(
 async def get_artisan(artisan_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     artisan = await db.artisan.find_unique(where={"id": artisan_id}, include=INCLUDE)
     artisan = await require_record(db.artisan, artisan_id) if not artisan else artisan
-    assert_owner_or_admin(artisan, current_user)
     return jsonable_encoder(artisan)
 
 
@@ -83,6 +96,7 @@ async def update_artisan(
     artisan = await require_record(db.artisan, artisan_id)
     assert_owner_or_admin(artisan, current_user)
     data = clean_data(payload.model_dump(exclude_unset=True))
+    data = await resolve_craft_id(data, current_user)
     data = await attach_location(data)
     updated = await db.artisan.update(where={"id": artisan_id}, data=data, include=INCLUDE)
     return jsonable_encoder(updated)
@@ -90,6 +104,6 @@ async def update_artisan(
 
 @router.delete("/{artisan_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_artisan(artisan_id: str, current_user: Any = Depends(get_current_user)) -> None:
-    artisan = await require_record(db.artisan, artisan_id)
-    assert_owner_or_admin(artisan, current_user)
+    assert_can_delete(current_user)
+    await require_record(db.artisan, artisan_id)
     await db.artisan.delete(where={"id": artisan_id})

@@ -6,11 +6,13 @@ import { ShieldCheck } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { Field, Select, TextInput } from "@/components/FormControls";
 import { PageHeader } from "@/components/PageHeader";
+import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
 import { requiredText } from "@/lib/forms";
 import type { PageResult, User } from "@/lib/types";
 
 export default function UsersPage() {
+  const { user: currentUser } = useAuth();
   const [data, setData] = useState<PageResult<User> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -80,6 +82,7 @@ export default function UsersPage() {
           <Select name="role" defaultValue="RESEARCHER">
             <option>RESEARCHER</option>
             <option>ADMIN</option>
+            {currentUser?.role === "MASTER_ADMIN" ? <option>MASTER_ADMIN</option> : null}
           </Select>
         </Field>
         <div className="md:col-span-4">
@@ -114,13 +117,18 @@ export default function UsersPage() {
                       <select className="field-input max-w-40" value={user.role} onChange={(event) => updateRole(user, event.target.value)}>
                         <option>RESEARCHER</option>
                         <option>ADMIN</option>
+                        {currentUser?.role === "MASTER_ADMIN" ? <option>MASTER_ADMIN</option> : null}
                       </select>
                     </td>
                     <td className="px-4 py-3 text-neutral-600">{user.authProvider ?? "-"}</td>
                     <td className="px-4 py-3 text-right">
-                      <button className="text-sm font-semibold text-red-700" onClick={() => remove(user)}>
-                        Delete
-                      </button>
+                      {user.role === "MASTER_ADMIN" ? (
+                        <span className="text-xs font-semibold text-amber-700">Protected</span>
+                      ) : (
+                        <button className="text-sm font-semibold text-red-700" onClick={() => remove(user)}>
+                          Delete
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

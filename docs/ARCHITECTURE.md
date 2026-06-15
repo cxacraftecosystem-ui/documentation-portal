@@ -90,6 +90,71 @@ sequenceDiagram
   API-->>Android: Repository JWT + user
 ```
 
+## Field Capture Flow
+
+```mermaid
+flowchart TD
+  client[Web / Android capture UI]
+  geo[Precise GPS or MapTiler map point]
+  media[Images / Video / Audio / Documents]
+  api[FastAPI media API]
+  openai[OpenAI Whisper transcription]
+  gemini[Gemini grid measurement]
+  s3[(S3-compatible object storage)]
+  db[(PostgreSQL)]
+
+  client --> geo
+  client --> media
+  client -->|POST /media/presign| api
+  api -->|signed PUT URL| client
+  client -->|batch PUT uploads| s3
+  client -->|optional audio file| openai
+  client -->|optional grid image| gemini
+  client -->|POST /media/complete| api
+  api --> db
+```
+
+## Permission Model
+
+```mermaid
+flowchart LR
+  master[MASTER_ADMIN ankits1802@gmail.com]
+  admin[ADMIN junior admin]
+  researcher[RESEARCHER]
+  read[Read all records]
+  own[Edit own repository records]
+  qedit[Edit questionnaire interviews]
+  delete[Delete records]
+  users[Manage users]
+
+  master --> read
+  master --> own
+  master --> qedit
+  master --> delete
+  master --> users
+  admin --> read
+  admin --> own
+  admin --> qedit
+  admin --> delete
+  admin --> users
+  researcher --> read
+  researcher --> own
+  researcher --> qedit
+```
+
+## Questionnaire Model
+
+```mermaid
+erDiagram
+  QuestionnaireQuestion ||--o{ QuestionnaireResponse : asks
+  QuestionnaireInterview ||--o{ QuestionnaireResponse : contains
+  QuestionnaireInterview ||--o{ QuestionnaireInterviewArtisan : links
+  Artisan ||--o{ QuestionnaireInterviewArtisan : participates
+  User ||--o{ QuestionnaireInterview : creates
+  User ||--o{ QuestionnaireResponse : answers
+  QuestionnaireInterview ||--o{ MediaFile : has
+```
+
 ## Signed Media Upload Flow
 
 ```mermaid

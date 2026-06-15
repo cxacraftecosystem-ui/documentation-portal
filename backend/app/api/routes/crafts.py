@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
-from app.core.deps import assert_owner_or_admin, get_current_user
+from app.core.deps import assert_can_delete, assert_owner_or_admin, get_current_user
 from app.schemas.records import CraftCreate, CraftUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import clean_data, contains, require_record
@@ -68,6 +68,6 @@ async def update_craft(
 
 @router.delete("/{craft_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_craft(craft_id: str, current_user: Any = Depends(get_current_user)) -> None:
-    craft = await require_record(db.craft, craft_id)
-    assert_owner_or_admin(craft, current_user)
+    assert_can_delete(current_user)
+    await require_record(db.craft, craft_id)
     await db.craft.delete(where={"id": craft_id})

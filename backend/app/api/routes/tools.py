@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
-from app.core.deps import assert_owner_or_admin, get_current_user
+from app.core.deps import assert_can_delete, assert_owner_or_admin, get_current_user
 from app.schemas.records import ToolCreate, ToolUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
@@ -95,7 +95,6 @@ async def create_tool(
 async def get_tool(tool_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     tool = await db.tooldocumentation.find_unique(where={"id": tool_id}, include=INCLUDE)
     tool = await require_record(db.tooldocumentation, tool_id) if not tool else tool
-    assert_owner_or_admin(tool, current_user)
     return jsonable_encoder(tool)
 
 
@@ -115,6 +114,6 @@ async def update_tool(
 
 @router.delete("/{tool_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_tool(tool_id: str, current_user: Any = Depends(get_current_user)) -> None:
-    tool = await require_record(db.tooldocumentation, tool_id)
-    assert_owner_or_admin(tool, current_user)
+    assert_can_delete(current_user)
+    await require_record(db.tooldocumentation, tool_id)
     await db.tooldocumentation.delete(where={"id": tool_id})

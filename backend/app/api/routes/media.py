@@ -1,13 +1,14 @@
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
 
 from app.core.config import get_settings
 from app.core.db import db
-from app.core.deps import assert_owner_or_admin, get_current_user
+from app.core.deps import assert_can_delete, get_current_user
 from app.schemas.media import MediaCompleteRequest, PresignRequest, PresignResponse
+from app.services.ai import analyze_measurement_image, transcribe_audio
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
     add_date_range,
@@ -40,6 +41,22 @@ async def presign_media_upload(
         "headers": {"Content-Type": payload.mimeType},
         "publicUrl": public_url_for_key(object_key),
     }
+
+
+@router.post("/transcribe")
+async def transcribe_media_audio(
+    file: UploadFile = File(...),
+    _: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    return await transcribe_audio(file, get_settings())
+
+
+@router.post("/analyze-measurement")
+async def analyze_media_measurement(
+    file: UploadFile = File(...),
+    _: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    return await analyze_measurement_image(file, get_settings())
 
 
 @router.post("/complete", status_code=status.HTTP_201_CREATED)
@@ -99,12 +116,11 @@ async def list_media(
 async def get_media(media_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     media = await db.mediafile.find_unique(where={"id": media_id}, include=INCLUDE)
     media = await require_record(db.mediafile, media_id) if not media else media
-    assert_owner_or_admin(media, current_user, owner_field="uploadedById")
     return jsonable_encoder(media)
 
 
 @router.delete("/{media_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_media(media_id: str, current_user: Any = Depends(get_current_user)) -> None:
-    media = await require_record(db.mediafile, media_id)
-    assert_owner_or_admin(media, current_user, owner_field="uploadedById")
+    assert_can_delete(current_user)
+    await require_record(db.mediafile, media_id)
     await db.mediafile.delete(where={"id": media_id})

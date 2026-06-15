@@ -7,6 +7,7 @@ import { Field, Select, TextArea, TextInput } from "@/components/FormControls";
 import { LocationFields } from "@/components/forms/LocationFields";
 import { apiFetch, listResource } from "@/lib/api";
 import { locationFromForm, numericValue, parseJsonMetadata, requiredText, textValue } from "@/lib/forms";
+import { analyzeMeasurementImage, uploadMediaFile } from "@/lib/media";
 import type { Artisan, Craft, ProductDocumentation, Workshop } from "@/lib/types";
 import { marketDemandOptions, productTypes } from "@/lib/types";
 
@@ -15,6 +16,10 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
   const [artisans, setArtisans] = useState<Artisan[]>([]);
   const [crafts, setCrafts] = useState<Craft[]>([]);
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
+  const [measurementImage, setMeasurementImage] = useState<File | null>(null);
+  const [measurementWarning, setMeasurementWarning] = useState<string | null>(
+    "Upload a grid-sheet image for measurement support. If GEMINI_API_KEY is not configured, fill length and breadth manually."
+  );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -38,6 +43,15 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
     setError(null);
     const form = new FormData(event.currentTarget);
     try {
+      let measurementResult: Awaited<ReturnType<typeof analyzeMeasurementImage>> | null = null;
+      if (measurementImage) {
+        measurementResult = await analyzeMeasurementImage(measurementImage);
+        if (!measurementResult.available) {
+          setMeasurementWarning(measurementResult.message ?? "Gemini unavailable. Fill length and breadth manually.");
+        }
+      }
+      const analyzedLength = Number(measurementResult?.analysis?.lengthInches ?? "") || undefined;
+      const analyzedBreadth = Number(measurementResult?.analysis?.breadthInches ?? "") || undefined;
       const payload = {
         craftName: requiredText(form, "craftName"),
         place: requiredText(form, "place"),
@@ -47,6 +61,10 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         productType: requiredText(form, "productType") || "OTHER",
         timeTakenToCompleteProduct: textValue(form, "timeTakenToCompleteProduct"),
         size: textValue(form, "size"),
+        lengthInches: numericValue(form, "lengthInches") ?? analyzedLength,
+        breadthInches: numericValue(form, "breadthInches") ?? analyzedBreadth,
+        measurementAnalysis: measurementResult?.analysis ?? undefined,
+        measurementAnalysisStatus: measurementResult?.status,
         costOfMaking: numericValue(form, "costOfMaking"),
         sellingPrice: numericValue(form, "sellingPrice"),
         marketDemand: requiredText(form, "marketDemand") || "UNKNOWN",
@@ -61,10 +79,22 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         location: locationFromForm(form),
         extraMetadata: parseJsonMetadata(form.get("extraMetadata"))
       };
-      await apiFetch(initial ? `/products/${initial.id}` : "/products", {
+      const saved = await apiFetch<ProductDocumentation>(initial ? `/products/${initial.id}` : "/products", {
         method: initial ? "PATCH" : "POST",
         body: JSON.stringify(payload)
       });
+      if (measurementImage) {
+        const media = await uploadMediaFile({
+          file: measurementImage,
+          linkedRecordType: "product",
+          linkedRecordId: saved.id,
+          caption: `Measurement grid image for ${saved.productName}`
+        });
+        await apiFetch(`/products/${saved.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ measurementImageId: media.id })
+        });
+      }
       router.push("/products");
       router.refresh();
     } catch (err) {
@@ -136,6 +166,15 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         <Field label="Size">
           <TextInput name="size" defaultValue={initial?.size ?? ""} />
         </Field>
+        <Field label="Length (inches)">
+          <TextInput name="lengthInches" type="number" step="0.01" defaultValue={initial?.lengthInches ?? ""} />
+        </Field>
+        <Field label="Breadth (inches)">
+          <TextInput name="breadthInches" type="number" step="0.01" defaultValue={initial?.breadthInches ?? ""} />
+        </Field>
+        <Field label="Grid-sheet measurement image">
+          <input className="field-input" type="file" accept="image/*" capture="environment" onChange={(event) => setMeasurementImage(event.target.files?.[0] ?? null)} />
+        </Field>
         <Field label="Market demand">
           <Select name="marketDemand" defaultValue={initial?.marketDemand ?? "UNKNOWN"}>
             {marketDemandOptions.map((option) => (
@@ -157,6 +196,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           </Select>
         </Field>
       </div>
+      {measurementWarning ? <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{measurementWarning}</div> : null}
       <div className="grid gap-3 md:grid-cols-2">
         <Field label="Raw materials used">
           <TextArea name="rawMaterialsUsed" defaultValue={initial?.rawMaterialsUsed ?? ""} />

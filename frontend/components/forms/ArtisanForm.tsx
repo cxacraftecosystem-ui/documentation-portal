@@ -64,9 +64,9 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         <Field label="Local name">
           <TextInput name="localName" defaultValue={initial?.localName ?? ""} />
         </Field>
-        <Field label="Craft">
-          <Select name="craftId" defaultValue={initial?.craftId ?? ""}>
-            <option value="">Unlinked</option>
+        <Field label="Craft" required>
+          <Select name="craftId" required defaultValue={initial?.craftId ?? ""}>
+            <option value="">Select craft</option>
             {crafts.map((craft) => (
               <option value={craft.id} key={craft.id}>
                 {craft.name}

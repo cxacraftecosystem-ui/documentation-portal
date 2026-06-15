@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from app.schemas.common import APIModel, LocationInput
 
@@ -17,9 +17,16 @@ class ArtisanCreate(APIModel):
     address: str | None = None
     notes: str | None = None
     craftId: str | None = None
+    craftName: str | None = None
     status: str = "PENDING"
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def require_craft(self) -> "ArtisanCreate":
+        if not self.craftId and not self.craftName:
+            raise ValueError("Artisan must be assigned to a craft")
+        return self
 
 
 class ArtisanUpdate(APIModel):
@@ -32,6 +39,7 @@ class ArtisanUpdate(APIModel):
     address: str | None = None
     notes: str | None = None
     craftId: str | None = None
+    craftName: str | None = None
     status: str | None = None
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
@@ -88,6 +96,11 @@ class ProductCreate(APIModel):
     productType: str = "OTHER"
     timeTakenToCompleteProduct: str | None = None
     size: str | None = None
+    lengthInches: Decimal | None = None
+    breadthInches: Decimal | None = None
+    measurementImageId: str | None = None
+    measurementAnalysis: dict[str, Any] | None = None
+    measurementAnalysisStatus: str | None = None
     costOfMaking: Decimal | None = None
     sellingPrice: Decimal | None = None
     marketDemand: str = "UNKNOWN"
@@ -112,6 +125,11 @@ class ProductUpdate(APIModel):
     productType: str | None = None
     timeTakenToCompleteProduct: str | None = None
     size: str | None = None
+    lengthInches: Decimal | None = None
+    breadthInches: Decimal | None = None
+    measurementImageId: str | None = None
+    measurementAnalysis: dict[str, Any] | None = None
+    measurementAnalysisStatus: str | None = None
     costOfMaking: Decimal | None = None
     sellingPrice: Decimal | None = None
     marketDemand: str | None = None
@@ -139,6 +157,11 @@ class ToolCreate(APIModel):
     yearsInUse: int | None = Field(default=None, ge=0)
     height: Decimal | None = None
     width: Decimal | None = None
+    lengthInches: Decimal | None = None
+    breadthInches: Decimal | None = None
+    measurementImageId: str | None = None
+    measurementAnalysis: dict[str, Any] | None = None
+    measurementAnalysisStatus: str | None = None
     thickness: Decimal | None = None
     weight: Decimal | None = None
     radius: Decimal | None = None
@@ -167,6 +190,11 @@ class ToolUpdate(APIModel):
     yearsInUse: int | None = Field(default=None, ge=0)
     height: Decimal | None = None
     width: Decimal | None = None
+    lengthInches: Decimal | None = None
+    breadthInches: Decimal | None = None
+    measurementImageId: str | None = None
+    measurementAnalysis: dict[str, Any] | None = None
+    measurementAnalysisStatus: str | None = None
     thickness: Decimal | None = None
     weight: Decimal | None = None
     radius: Decimal | None = None

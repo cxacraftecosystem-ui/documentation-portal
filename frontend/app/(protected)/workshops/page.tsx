@@ -9,9 +9,11 @@ import { LocationFields } from "@/components/forms/LocationFields";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { StatusBadge } from "@/components/StatusBadge";
+import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { locationFromForm, requiredText, textValue } from "@/lib/forms";
+import { isAdmin } from "@/lib/permissions";
 import type { Artisan, PageResult, Workshop } from "@/lib/types";
 
 function toDateTimeLocal(value?: string) {
@@ -22,6 +24,7 @@ function toDateTimeLocal(value?: string) {
 }
 
 export default function WorkshopsPage() {
+  const { user } = useAuth();
   const [data, setData] = useState<PageResult<Workshop> | null>(null);
   const [artisans, setArtisans] = useState<Artisan[]>([]);
   const [search, setSearch] = useState("");
@@ -185,9 +188,11 @@ export default function WorkshopsPage() {
                       <button className="mr-2 text-sm font-semibold text-field-700" onClick={() => setEditing(workshop)}>
                         Edit
                       </button>
-                      <button className="text-sm font-semibold text-red-700" onClick={() => remove(workshop.id)}>
-                        Delete
-                      </button>
+                      {isAdmin(user) ? (
+                        <button className="text-sm font-semibold text-red-700" onClick={() => remove(workshop.id)}>
+                          Delete
+                        </button>
+                      ) : null}
                     </td>
                   </tr>
                 ))}

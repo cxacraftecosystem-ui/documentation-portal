@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
-from app.core.deps import assert_owner_or_admin, get_current_user
+from app.core.deps import assert_can_delete, assert_owner_or_admin, get_current_user
 from app.schemas.records import ProductCreate, ProductUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
@@ -94,7 +94,6 @@ async def create_product(
 async def get_product(product_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     product = await db.productdocumentation.find_unique(where={"id": product_id}, include=INCLUDE)
     product = await require_record(db.productdocumentation, product_id) if not product else product
-    assert_owner_or_admin(product, current_user)
     return jsonable_encoder(product)
 
 
@@ -114,6 +113,6 @@ async def update_product(
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_product(product_id: str, current_user: Any = Depends(get_current_user)) -> None:
-    product = await require_record(db.productdocumentation, product_id)
-    assert_owner_or_admin(product, current_user)
+    assert_can_delete(current_user)
+    await require_record(db.productdocumentation, product_id)
     await db.productdocumentation.delete(where={"id": product_id})

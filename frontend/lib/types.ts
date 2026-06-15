@@ -1,4 +1,4 @@
-export type UserRole = "ADMIN" | "RESEARCHER";
+export type UserRole = "MASTER_ADMIN" | "ADMIN" | "RESEARCHER";
 export type RecordStatus = "DRAFT" | "PENDING" | "APPROVED" | "REJECTED";
 export type MediaType = "IMAGE" | "VIDEO" | "AUDIO" | "PDF" | "DOCUMENT" | "OTHER";
 
@@ -50,6 +50,8 @@ export type Artisan = {
   status: RecordStatus;
   craftId?: string | null;
   craft?: Craft | null;
+  createdById?: string;
+  createdBy?: User;
   createdAt: string;
 };
 
@@ -62,6 +64,8 @@ export type Workshop = {
   notes?: string | null;
   status: RecordStatus;
   artisans?: Array<{ artisan: Artisan }>;
+  createdById?: string;
+  createdBy?: User;
   createdAt: string;
 };
 
@@ -77,6 +81,10 @@ export type MediaFile = {
   linkedRecordType?: string | null;
   linkedRecordId?: string | null;
   status: RecordStatus;
+  transcriptText?: string | null;
+  transcriptSummary?: string | null;
+  transcriptStatus?: string | null;
+  transcriptError?: string | null;
   createdAt: string;
 };
 
@@ -90,6 +98,11 @@ export type ProductDocumentation = {
   productType: string;
   timeTakenToCompleteProduct?: string | null;
   size?: string | null;
+  lengthInches?: string | number | null;
+  breadthInches?: string | number | null;
+  measurementImageId?: string | null;
+  measurementAnalysis?: Record<string, unknown> | null;
+  measurementAnalysisStatus?: string | null;
   costOfMaking?: string | number | null;
   sellingPrice?: string | number | null;
   marketDemand: string;
@@ -102,6 +115,8 @@ export type ProductDocumentation = {
   craftId?: string | null;
   workshopId?: string | null;
   media?: MediaFile[];
+  createdById?: string;
+  createdBy?: User;
   createdAt: string;
 };
 
@@ -118,6 +133,11 @@ export type ToolDocumentation = {
   yearsInUse?: number | null;
   height?: string | number | null;
   width?: string | number | null;
+  lengthInches?: string | number | null;
+  breadthInches?: string | number | null;
+  measurementImageId?: string | null;
+  measurementAnalysis?: Record<string, unknown> | null;
+  measurementAnalysisStatus?: string | null;
   thickness?: string | number | null;
   weight?: string | number | null;
   radius?: string | number | null;
@@ -131,6 +151,42 @@ export type ToolDocumentation = {
   craftId?: string | null;
   workshopId?: string | null;
   media?: MediaFile[];
+  createdById?: string;
+  createdBy?: User;
+  createdAt: string;
+};
+
+export type QuestionnaireQuestion = {
+  id: string;
+  sectionCode: string;
+  sectionTitle: string;
+  prompt: string;
+  sortOrder: number;
+  isActive: boolean;
+};
+
+export type QuestionnaireResponse = {
+  id: string;
+  questionId: string;
+  answerText?: string | null;
+  notes?: string | null;
+  question?: QuestionnaireQuestion;
+  answeredBy?: User;
+};
+
+export type QuestionnaireInterview = {
+  id: string;
+  title: string;
+  interviewDate?: string | null;
+  place?: string | null;
+  language?: string | null;
+  notes?: string | null;
+  status: RecordStatus;
+  artisans?: Array<{ artisan: Artisan }>;
+  responses?: QuestionnaireResponse[];
+  media?: MediaFile[];
+  createdBy?: User;
+  createdById: string;
   createdAt: string;
 };
 

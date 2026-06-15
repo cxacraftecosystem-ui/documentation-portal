@@ -1,6 +1,20 @@
 from fastapi import APIRouter
 
-from app.api.routes import artisans, auth, crafts, dashboard, export, media, products, review, search, tools, users, workshops
+from app.api.routes import (
+    artisans,
+    auth,
+    crafts,
+    dashboard,
+    export,
+    media,
+    products,
+    questionnaire,
+    review,
+    search,
+    tools,
+    users,
+    workshops,
+)
 
 api_router = APIRouter(prefix="/api")
 
@@ -13,6 +27,7 @@ api_router.include_router(workshops.router)
 api_router.include_router(products.router)
 api_router.include_router(tools.router)
 api_router.include_router(media.router)
+api_router.include_router(questionnaire.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(search.router)
 api_router.include_router(review.router)

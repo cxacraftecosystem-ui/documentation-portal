@@ -48,6 +48,9 @@ import com.fieldrepository.app.data.DashboardStats
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.GoogleAuthClient
 import com.fieldrepository.app.data.ProductCreateRequest
+import com.fieldrepository.app.data.QuestionnaireInterviewCreateRequest
+import com.fieldrepository.app.data.QuestionnaireQuestionDto
+import com.fieldrepository.app.data.QuestionnaireResponseRequest
 import com.fieldrepository.app.data.TokenStore
 import com.fieldrepository.app.data.ToolCreateRequest
 import com.fieldrepository.app.data.UserDto
@@ -80,7 +83,8 @@ private enum class EntryMode(val label: String) {
     ARTISAN("Artisan"),
     WORKSHOP("Workshop"),
     PRODUCT("Product"),
-    TOOL("Tool")
+    TOOL("Tool"),
+    QUESTIONNAIRE("Questionnaire")
 }
 
 @Composable
@@ -227,6 +231,7 @@ private fun HomeScreen(
 ) {
     val scope = rememberCoroutineScope()
     var stats by remember { mutableStateOf<DashboardStats?>(null) }
+    var questions by remember { mutableStateOf<List<QuestionnaireQuestionDto>>(emptyList()) }
     var mode by remember { mutableStateOf(EntryMode.ARTISAN) }
     var message by remember { mutableStateOf<String?>(null) }
 
@@ -238,7 +243,12 @@ private fun HomeScreen(
         }
     }
 
-    LaunchedEffect(Unit) { refresh() }
+    LaunchedEffect(Unit) {
+        refresh()
+        runCatching { repository.questionnaireQuestions() }
+            .onSuccess { questions = it }
+            .onFailure { message = it.message }
+    }
 
     Column(
         modifier = Modifier
@@ -315,6 +325,17 @@ private fun HomeScreen(
                             refresh()
                         }
                         .onFailure { message = it.message ?: "Unable to save tool" }
+                }
+            )
+            EntryMode.QUESTIONNAIRE -> QuestionnaireForm(
+                questions = questions,
+                onSubmit = { body ->
+                    runCatching { repository.createQuestionnaireInterview(body) }
+                        .onSuccess {
+                            message = "Questionnaire interview saved"
+                            refresh()
+                        }
+                        .onFailure { message = it.message ?: "Unable to save questionnaire" }
                 }
             )
         }
@@ -408,26 +429,37 @@ private fun CraftForm(onSubmit: suspend (CraftCreateRequest) -> Unit) {
 private fun ArtisanForm(onSubmit: suspend (ArtisanCreateRequest) -> Unit) {
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf("") }
+    var craftName by remember { mutableStateOf("") }
     var place by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
 
     RecordCard(title = "Add artisan") {
         TextInput("Name", name) { name = it }
+        TextInput("Craft", craftName) { craftName = it }
         TextInput("Place", place) { place = it }
         TextInput("Phone", phone) { phone = it }
         TextInput("Notes", notes, minLines = 3) { notes = it }
         Button(
             onClick = {
                 scope.launch {
-                    onSubmit(ArtisanCreateRequest(name = name.trim(), place = place.trim(), phone = phone.blankToNull(), notes = notes.blankToNull()))
+                    onSubmit(
+                        ArtisanCreateRequest(
+                            name = name.trim(),
+                            place = place.trim(),
+                            craftName = craftName.trim(),
+                            phone = phone.blankToNull(),
+                            notes = notes.blankToNull()
+                        )
+                    )
                     name = ""
+                    craftName = ""
                     place = ""
                     phone = ""
                     notes = ""
                 }
             },
-            enabled = name.isNotBlank() && place.isNotBlank(),
+            enabled = name.isNotBlank() && craftName.isNotBlank() && place.isNotBlank(),
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Save artisan")
@@ -482,12 +514,16 @@ private fun ProductForm(onSubmit: suspend (ProductCreateRequest) -> Unit) {
     var artisanName by remember { mutableStateOf("") }
     var place by remember { mutableStateOf("") }
     var remarks by remember { mutableStateOf("") }
+    var length by remember { mutableStateOf("") }
+    var breadth by remember { mutableStateOf("") }
 
     RecordCard(title = "Add product") {
         TextInput("Product name", productName) { productName = it }
         TextInput("Craft name", craftName) { craftName = it }
         TextInput("Artisan name", artisanName) { artisanName = it }
         TextInput("Place", place) { place = it }
+        TextInput("Length inches", length) { length = it }
+        TextInput("Breadth inches", breadth) { breadth = it }
         TextInput("Remarks", remarks, minLines = 3) { remarks = it }
         Button(
             onClick = {
@@ -498,6 +534,8 @@ private fun ProductForm(onSubmit: suspend (ProductCreateRequest) -> Unit) {
                             craftName = craftName.trim(),
                             artisanName = artisanName.trim(),
                             place = place.trim(),
+                            lengthInches = length.toDoubleOrNull(),
+                            breadthInches = breadth.toDoubleOrNull(),
                             remarks = remarks.blankToNull()
                         )
                     )
@@ -505,6 +543,8 @@ private fun ProductForm(onSubmit: suspend (ProductCreateRequest) -> Unit) {
                     craftName = ""
                     artisanName = ""
                     place = ""
+                    length = ""
+                    breadth = ""
                     remarks = ""
                 }
             },
@@ -525,6 +565,8 @@ private fun ToolForm(onSubmit: suspend (ToolCreateRequest) -> Unit) {
     var place by remember { mutableStateOf("") }
     var material by remember { mutableStateOf("") }
     var remarks by remember { mutableStateOf("") }
+    var length by remember { mutableStateOf("") }
+    var breadth by remember { mutableStateOf("") }
 
     RecordCard(title = "Add tool") {
         TextInput("Toolkit name", toolkitName) { toolkitName = it }
@@ -532,6 +574,8 @@ private fun ToolForm(onSubmit: suspend (ToolCreateRequest) -> Unit) {
         TextInput("Artisan name", artisanName) { artisanName = it }
         TextInput("Place", place) { place = it }
         TextInput("Material", material) { material = it }
+        TextInput("Length inches", length) { length = it }
+        TextInput("Breadth inches", breadth) { breadth = it }
         TextInput("Remarks", remarks, minLines = 3) { remarks = it }
         Button(
             onClick = {
@@ -543,6 +587,8 @@ private fun ToolForm(onSubmit: suspend (ToolCreateRequest) -> Unit) {
                             artisanName = artisanName.trim(),
                             place = place.trim(),
                             material = material.blankToNull(),
+                            lengthInches = length.toDoubleOrNull(),
+                            breadthInches = breadth.toDoubleOrNull(),
                             remarks = remarks.blankToNull()
                         )
                     )
@@ -551,6 +597,8 @@ private fun ToolForm(onSubmit: suspend (ToolCreateRequest) -> Unit) {
                     artisanName = ""
                     place = ""
                     material = ""
+                    length = ""
+                    breadth = ""
                     remarks = ""
                 }
             },
@@ -559,6 +607,75 @@ private fun ToolForm(onSubmit: suspend (ToolCreateRequest) -> Unit) {
         ) {
             Text("Save tool")
         }
+    }
+}
+
+@Composable
+private fun QuestionnaireForm(
+    questions: List<QuestionnaireQuestionDto>,
+    onSubmit: suspend (QuestionnaireInterviewCreateRequest) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var title by remember { mutableStateOf("") }
+    var artisanIds by remember { mutableStateOf("") }
+    var place by remember { mutableStateOf("") }
+    var language by remember { mutableStateOf("") }
+    var notes by remember { mutableStateOf("") }
+    val selectedQuestions = remember(questions) { questions.filter { it.sectionCode != "RESP" }.take(8) }
+    val answers = remember(selectedQuestions) {
+        selectedQuestions.associate { it.id to mutableStateOf("") }
+    }
+
+    RecordCard(title = "Add questionnaire interview") {
+        TextInput("Interview title", title) { title = it }
+        TextInput("Artisan IDs (comma-separated)", artisanIds) { artisanIds = it }
+        TextInput("Place", place) { place = it }
+        TextInput("Language", language) { language = it }
+        selectedQuestions.forEach { question ->
+            Text(
+                "${question.sectionCode}${question.sortOrder}. ${question.prompt}",
+                color = Muted,
+                fontSize = 12.sp
+            )
+            TextInput("Answer", answers[question.id]?.value.orEmpty(), minLines = 3) { value ->
+                answers[question.id]?.let { state -> state.value = value }
+            }
+        }
+        TextInput("Notes", notes, minLines = 3) { notes = it }
+        Button(
+            onClick = {
+                scope.launch {
+                    onSubmit(
+                        QuestionnaireInterviewCreateRequest(
+                            title = title.trim(),
+                            place = place.blankToNull(),
+                            language = language.blankToNull(),
+                            notes = notes.blankToNull(),
+                            artisanIds = artisanIds.split(",").map { it.trim() }.filter { it.isNotEmpty() },
+                            responses = selectedQuestions.mapNotNull { question ->
+                                val answer = answers[question.id]?.value?.trim().orEmpty()
+                                if (answer.isBlank()) null else QuestionnaireResponseRequest(questionId = question.id, answerText = answer)
+                            }
+                        )
+                    )
+                    title = ""
+                    artisanIds = ""
+                    place = ""
+                    language = ""
+                    notes = ""
+                    answers.values.forEach { it.value = "" }
+                }
+            },
+            enabled = title.isNotBlank(),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Save questionnaire")
+        }
+        Text(
+            "Media, precise GPS, camera and audio permissions are enabled for Android; use the Media page on web for full batch upload and transcription workflow.",
+            color = Muted,
+            fontSize = 12.sp
+        )
     }
 }
 

@@ -7,6 +7,7 @@ import { Field, Select, TextArea, TextInput } from "@/components/FormControls";
 import { LocationFields } from "@/components/forms/LocationFields";
 import { apiFetch, listResource } from "@/lib/api";
 import { locationFromForm, numericValue, parseJsonMetadata, requiredText, textValue } from "@/lib/forms";
+import { analyzeMeasurementImage, uploadMediaFile } from "@/lib/media";
 import type { Artisan, Craft, ToolDocumentation, Workshop } from "@/lib/types";
 import { makerOptions, traditionOptions } from "@/lib/types";
 
@@ -15,6 +16,10 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
   const [artisans, setArtisans] = useState<Artisan[]>([]);
   const [crafts, setCrafts] = useState<Craft[]>([]);
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
+  const [measurementImage, setMeasurementImage] = useState<File | null>(null);
+  const [measurementWarning, setMeasurementWarning] = useState<string | null>(
+    "Upload a grid-sheet image for measurement support. If GEMINI_API_KEY is not configured, fill length and breadth manually."
+  );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -38,6 +43,15 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
     setError(null);
     const form = new FormData(event.currentTarget);
     try {
+      let measurementResult: Awaited<ReturnType<typeof analyzeMeasurementImage>> | null = null;
+      if (measurementImage) {
+        measurementResult = await analyzeMeasurementImage(measurementImage);
+        if (!measurementResult.available) {
+          setMeasurementWarning(measurementResult.message ?? "Gemini unavailable. Fill length and breadth manually.");
+        }
+      }
+      const analyzedLength = Number(measurementResult?.analysis?.lengthInches ?? "") || undefined;
+      const analyzedBreadth = Number(measurementResult?.analysis?.breadthInches ?? "") || undefined;
       const payload = {
         craftName: requiredText(form, "craftName"),
         place: requiredText(form, "place"),
@@ -50,6 +64,10 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
         yearsInUse: numericValue(form, "yearsInUse"),
         height: numericValue(form, "height"),
         width: numericValue(form, "width"),
+        lengthInches: numericValue(form, "lengthInches") ?? analyzedLength,
+        breadthInches: numericValue(form, "breadthInches") ?? analyzedBreadth,
+        measurementAnalysis: measurementResult?.analysis ?? undefined,
+        measurementAnalysisStatus: measurementResult?.status,
         thickness: numericValue(form, "thickness"),
         weight: numericValue(form, "weight"),
         radius: numericValue(form, "radius"),
@@ -65,10 +83,22 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
         location: locationFromForm(form),
         extraMetadata: parseJsonMetadata(form.get("extraMetadata"))
       };
-      await apiFetch(initial ? `/tools/${initial.id}` : "/tools", {
+      const saved = await apiFetch<ToolDocumentation>(initial ? `/tools/${initial.id}` : "/tools", {
         method: initial ? "PATCH" : "POST",
         body: JSON.stringify(payload)
       });
+      if (measurementImage) {
+        const media = await uploadMediaFile({
+          file: measurementImage,
+          linkedRecordType: "tool",
+          linkedRecordId: saved.id,
+          caption: `Measurement grid image for ${saved.toolkitName}`
+        });
+        await apiFetch(`/tools/${saved.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ measurementImageId: media.id })
+        });
+      }
       router.push("/tools");
       router.refresh();
     } catch (err) {
@@ -145,6 +175,15 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
         <Field label="Width">
           <TextInput name="width" type="number" step="0.01" defaultValue={initial?.width ?? ""} />
         </Field>
+        <Field label="Length (inches)">
+          <TextInput name="lengthInches" type="number" step="0.01" defaultValue={initial?.lengthInches ?? ""} />
+        </Field>
+        <Field label="Breadth (inches)">
+          <TextInput name="breadthInches" type="number" step="0.01" defaultValue={initial?.breadthInches ?? ""} />
+        </Field>
+        <Field label="Grid-sheet measurement image">
+          <input className="field-input" type="file" accept="image/*" capture="environment" onChange={(event) => setMeasurementImage(event.target.files?.[0] ?? null)} />
+        </Field>
         <Field label="Thickness">
           <TextInput name="thickness" type="number" step="0.01" defaultValue={initial?.thickness ?? ""} />
         </Field>
@@ -179,6 +218,7 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
           </Select>
         </Field>
       </div>
+      {measurementWarning ? <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{measurementWarning}</div> : null}
       <div className="grid gap-3 md:grid-cols-2">
         <Field label="Suggestions for tool improvement">
           <TextArea name="suggestionsForToolImprovement" defaultValue={initial?.suggestionsForToolImprovement ?? ""} />

@@ -24,24 +24,35 @@ def enum_value(value: Any) -> str:
     return str(getattr(value, "value", value))
 
 
-async def login_with_google(token: str) -> Any:
+def role_for_email(email: str) -> str:
     settings = get_settings()
-    if not settings.google_client_id:
+    if email.lower() == settings.master_admin_email.lower():
+        return "MASTER_ADMIN"
+    return "RESEARCHER"
+
+
+def verify_google_token(token: str) -> dict[str, Any]:
+    settings = get_settings()
+    if not settings.google_client_ids:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Google OAuth is not configured on this server",
         )
-    try:
-        id_info = google_id_token.verify_oauth2_token(
-            token,
-            google_requests.Request(),
-            settings.google_client_id,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Google ID token",
-        ) from exc
+    last_error: ValueError | None = None
+    for client_id in settings.google_client_ids:
+        try:
+            return google_id_token.verify_oauth2_token(
+                token,
+                google_requests.Request(),
+                client_id,
+            )
+        except ValueError as exc:
+            last_error = exc
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google ID token") from last_error
+
+
+async def login_with_google(token: str) -> Any:
+    id_info = verify_google_token(token)
 
     if not id_info.get("email") or not id_info.get("email_verified"):
         raise HTTPException(
@@ -52,12 +63,16 @@ async def login_with_google(token: str) -> Any:
     email = id_info["email"].lower()
     name = id_info.get("name") or email.split("@")[0]
     avatar_url = id_info.get("picture")
+    role = role_for_email(email)
 
     existing = await db.user.find_unique(where={"email": email})
     if existing:
+        data = {"name": name, "avatarUrl": avatar_url, "authProvider": "GOOGLE"}
+        if role == "MASTER_ADMIN":
+            data["role"] = "MASTER_ADMIN"
         return await db.user.update(
             where={"email": email},
-            data={"name": name, "avatarUrl": avatar_url, "authProvider": "GOOGLE"},
+            data=data,
         )
     return await db.user.create(
         data={
@@ -65,7 +80,7 @@ async def login_with_google(token: str) -> Any:
             "name": name,
             "avatarUrl": avatar_url,
             "authProvider": "GOOGLE",
-            "role": "RESEARCHER",
+            "role": role,
         }
     )
 

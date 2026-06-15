@@ -5,8 +5,6 @@ from typing import Any
 from fastapi import HTTPException, status
 
 from app.core.db import db
-from app.core.deps import get_value, is_admin
-
 
 def clean_data(data: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in data.items() if value is not None}
@@ -38,9 +36,9 @@ def contains(value: str) -> dict[str, Any]:
 
 
 def visibility_where(user: Any, owner_field: str = "createdById") -> dict[str, Any]:
-    if is_admin(user):
-        return {}
-    return {owner_field: get_value(user, "id")}
+    # All authenticated users can discover all repository records. Edit and delete
+    # permissions are enforced on mutation routes.
+    return {}
 
 
 def add_date_range(where: dict[str, Any], field: str, date_from: datetime | None, date_to: datetime | None) -> None:
@@ -82,6 +80,8 @@ def media_relation_data(record_type: str | None, record_id: str | None) -> dict[
         "workshop": "workshopId",
         "product": "productId",
         "tool": "toolId",
+        "questionnaire": "questionnaireInterviewId",
+        "questionnaireinterview": "questionnaireInterviewId",
     }
     field = field_map.get(normalized)
     return {field: record_id} if field else {}

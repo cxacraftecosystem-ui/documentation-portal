@@ -149,6 +149,7 @@ For Android Google sign-in, create an Android OAuth client in Google Cloud Conso
 
 - Package name: `com.fieldrepository.app`
 - SHA-1 certificate fingerprint: the debug or release signing certificate fingerprint for the build you run
+- Android OAuth client ID: `614092441670-5rckig6t1al6plbfll8irn9prcmp446t.apps.googleusercontent.com`
 
 Get the local debug SHA-1 with:
 
@@ -157,6 +158,40 @@ keytool -list -v -keystore "$env:USERPROFILE\.android\debug.keystore" -alias and
 ```
 
 The Android app keeps the web OAuth client ID in `android/app/build.gradle.kts` as `GOOGLE_WEB_CLIENT_ID` because Credential Manager uses it as the server client ID.
+
+## Roles And Permissions
+
+- `MASTER_ADMIN`: reserved for `ankits1802@gmail.com`; has complete user, review, edit and delete rights.
+- `ADMIN`: junior admin; can review, delete records and manage users.
+- `RESEARCHER`: can create records, see all repository entries, edit their own ordinary records, and add/edit questionnaire interviews.
+
+The backend enforces these rules. The web UI hides delete controls from non-admin users.
+
+## Field Capture, AI And Media
+
+The web Media page supports:
+
+- precise browser geolocation capture;
+- MapTiler coordinate picking with `NEXT_PUBLIC_MAPTILER_API_KEY`;
+- multiple images, videos, audio files and documents in one batch;
+- camera/video capture through mobile browser file inputs;
+- browser audio recording with a live level meter;
+- optional OpenAI transcription for audio via `OPENAI_API_KEY`;
+- collapsed transcript display for completed audio transcripts.
+
+The product and tool forms support grid-sheet measurement images alongside manual `lengthInches` and `breadthInches`. If `GEMINI_API_KEY` is configured, the backend attempts a Gemini measurement estimate. If it is missing, the upload still works and the UI shows a yellow manual-entry caution.
+
+## Questionnaire
+
+The questionnaire module is seeded from `2nd Workshop_Interview Questions.docx` into reusable questions. Run this after migrations:
+
+```powershell
+cd backend
+.\.venv\Scripts\Activate.ps1
+python scripts/seed_questionnaire.py
+```
+
+Researchers can create questionnaire interviews, link one interview to many artisans, answer any subset of the questions, and edit questionnaire interviews. Admin users can delete questionnaire interviews.
 
 ## Core API Endpoints
 
@@ -206,6 +241,9 @@ Useful optional variables:
 - `AWS_S3_PUBLIC_BASE_URL` for preview/export links.
 - `BACKEND_CORS_ORIGINS` comma-separated frontend origins.
 - `GOOGLE_CLIENT_ID` to verify Google OAuth ID tokens.
+- `GOOGLE_ANDROID_CLIENT_ID` to also accept Android OAuth audience tokens if needed.
+- `MASTER_ADMIN_EMAIL` defaults to `ankits1802@gmail.com`.
+- `OPENAI_API_KEY`, `OPENAI_TRANSCRIPTION_MODEL`, `GEMINI_API_KEY`, `NEXT_PUBLIC_MAPTILER_API_KEY` for optional transcription, measurement and map picking.
 - `SUPABASE_REST_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY` only when a deployment also needs Supabase REST/Admin access. The secret key must stay in private runtime secrets.
 - `ADMIN_EMAIL`, `ADMIN_NAME`, `ADMIN_PASSWORD` for seeding the first admin.
 
@@ -217,6 +255,7 @@ Required frontend variables:
 Optional frontend variable:
 
 - `NEXT_PUBLIC_GOOGLE_CLIENT_ID`
+- `NEXT_PUBLIC_MAPTILER_API_KEY`
 
 ## Supabase Postgres
 
@@ -238,7 +277,7 @@ The Android app uses the same REST endpoints and JWT bearer auth:
 
 - Email/password and Google login both call `POST /api/auth/login`.
 - The returned access token is stored locally and sent as `Authorization: Bearer <token>` on protected API calls.
-- Create forms submit directly to `/api/crafts`, `/api/artisans`, `/api/workshops`, `/api/products`, and `/api/tools`.
+- Create forms submit directly to `/api/crafts`, `/api/artisans`, `/api/workshops`, `/api/products`, `/api/tools`, and `/api/questionnaire/interviews`.
 - For large media, follow the same presign-upload-complete sequence so files do not pass through the backend server.
 - Keep GPS capture in a separate location object and submit it with artisan/product/tool/workshop/media payloads.
 

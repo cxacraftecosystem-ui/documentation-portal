@@ -13,7 +13,9 @@ Kotlin + Jetpack Compose Android client for the same FastAPI backend used by the
 - Create workshop records with `POST /api/workshops`
 - Create product records with `POST /api/products`
 - Create tool records with `POST /api/tools`
+- Create questionnaire interviews with `POST /api/questionnaire/interviews`
 - Send `Authorization: Bearer <token>` on every protected API call
+- Requests camera, audio and location permissions for field capture workflows
 
 ## Run
 
@@ -54,3 +56,13 @@ keytool -list -v -keystore "$env:USERPROFILE\.android\debug.keystore" -alias and
 ```
 
 The app uses `GOOGLE_WEB_CLIENT_ID` from `app/build.gradle.kts` as Credential Manager's server client ID. The backend must also have the same web client ID set as `GOOGLE_CLIENT_ID` so it can verify Google ID tokens.
+
+The Android OAuth client ID configured for the package is:
+
+```text
+614092441670-5rckig6t1al6plbfll8irn9prcmp446t.apps.googleusercontent.com
+```
+
+## Capture Notes
+
+The Android manifest includes permissions for precise location, camera, audio recording and Android 13 media reads. The compact Compose UI supports field data entry, craft assignment, dimensions and questionnaire submission through the same backend used by the web app. Use the web Media Capture page for the complete batch upload, waveform recording, transcription and Gemini grid-measurement workflow.

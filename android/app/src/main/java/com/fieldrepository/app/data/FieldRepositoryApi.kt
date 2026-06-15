@@ -24,6 +24,12 @@ interface FieldRepositoryApi {
         @Query("pageSize") pageSize: Int = 20
     ): PageResponse<ArtisanDto>
 
+    @GET("crafts")
+    suspend fun crafts(
+        @Query("page") page: Int = 1,
+        @Query("pageSize") pageSize: Int = 100
+    ): PageResponse<CraftDto>
+
     @POST("artisans")
     suspend fun createArtisan(@Body body: ArtisanCreateRequest): ArtisanDto
 
@@ -38,4 +44,10 @@ interface FieldRepositoryApi {
 
     @POST("tools")
     suspend fun createTool(@Body body: ToolCreateRequest): CreatedRecordDto
+
+    @GET("questionnaire/questions")
+    suspend fun questionnaireQuestions(): List<QuestionnaireQuestionDto>
+
+    @POST("questionnaire/interviews")
+    suspend fun createQuestionnaireInterview(@Body body: QuestionnaireInterviewCreateRequest): CreatedRecordDto
 }

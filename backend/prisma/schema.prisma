@@ -11,6 +11,7 @@ datasource db {
 }
 
 enum UserRole {
+  MASTER_ADMIN
   ADMIN
   RESEARCHER
 }
@@ -96,6 +97,8 @@ model User {
   tools     ToolDocumentation[]    @relation("ToolCreatedBy")
   media     MediaFile[]            @relation("MediaUploadedBy")
   reviews   ReviewLog[]            @relation("ReviewReviewer")
+  questionnaireInterviews QuestionnaireInterview[] @relation("QuestionnaireCreatedBy")
+  questionnaireResponses QuestionnaireResponse[] @relation("QuestionnaireAnsweredBy")
 
   @@index([role])
 }
@@ -139,6 +142,7 @@ model Location {
   products  ProductDocumentation[]
   tools     ToolDocumentation[]
   media     MediaFile[]
+  questionnaireInterviews QuestionnaireInterview[]
 
   @@index([latitude, longitude])
   @@index([placeName])
@@ -172,6 +176,7 @@ model Artisan {
   products  ProductDocumentation[]
   tools     ToolDocumentation[]
   media     MediaFile[]
+  questionnaireInterviews QuestionnaireInterviewArtisan[]
 
   @@index([name])
   @@index([place])
@@ -233,6 +238,11 @@ model ProductDocumentation {
   productType                ProductType  @default(OTHER)
   timeTakenToCompleteProduct String?
   size                       String?
+  lengthInches               Decimal?     @db.Decimal(10, 2)
+  breadthInches              Decimal?     @db.Decimal(10, 2)
+  measurementImageId         String?
+  measurementAnalysis        Json?
+  measurementAnalysisStatus  String?
   costOfMaking               Decimal?     @db.Decimal(12, 2)
   sellingPrice               Decimal?     @db.Decimal(12, 2)
   marketDemand               MarketDemand @default(UNKNOWN)
@@ -284,6 +294,11 @@ model ToolDocumentation {
   yearsInUse                    Int?
   height                        Decimal?      @db.Decimal(10, 2)
   width                         Decimal?      @db.Decimal(10, 2)
+  lengthInches                  Decimal?      @db.Decimal(10, 2)
+  breadthInches                 Decimal?      @db.Decimal(10, 2)
+  measurementImageId            String?
+  measurementAnalysis           Json?
+  measurementAnalysisStatus     String?
   thickness                     Decimal?      @db.Decimal(10, 2)
   weight                        Decimal?      @db.Decimal(10, 2)
   radius                        Decimal?      @db.Decimal(10, 2)
@@ -334,6 +349,10 @@ model MediaFile {
   url              String?
   caption          String?
   checksum         String?
+  transcriptText   String?
+  transcriptSummary String?
+  transcriptStatus String?
+  transcriptError  String?
   linkedRecordType String?
   linkedRecordId   String?
   status           RecordStatus @default(PENDING)
@@ -348,6 +367,7 @@ model MediaFile {
   workshopId       String?
   productId        String?
   toolId           String?
+  questionnaireInterviewId String?
   locationId       String?
 
   uploadedBy User                  @relation("MediaUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
@@ -355,13 +375,87 @@ model MediaFile {
   workshop   Workshop?             @relation(fields: [workshopId], references: [id], onDelete: SetNull)
   product    ProductDocumentation? @relation(fields: [productId], references: [id], onDelete: SetNull)
   tool       ToolDocumentation?    @relation(fields: [toolId], references: [id], onDelete: SetNull)
+  questionnaireInterview QuestionnaireInterview? @relation("QuestionnaireMedia", fields: [questionnaireInterviewId], references: [id], onDelete: SetNull)
   location   Location?             @relation(fields: [locationId], references: [id], onDelete: SetNull)
 
   @@index([mediaType])
   @@index([uploadedById])
   @@index([linkedRecordType, linkedRecordId])
+  @@index([questionnaireInterviewId])
   @@index([createdAt])
   @@index([status])
+}
+
+model QuestionnaireQuestion {
+  id          String   @id @default(cuid())
+  sectionCode String
+  sectionTitle String
+  prompt      String
+  sortOrder   Int
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  responses QuestionnaireResponse[]
+
+  @@unique([sectionCode, sortOrder])
+  @@index([sectionCode])
+}
+
+model QuestionnaireInterview {
+  id            String       @id @default(cuid())
+  title         String
+  interviewDate DateTime?
+  place         String?
+  language      String?
+  notes         String?
+  status        RecordStatus @default(PENDING)
+  extraMetadata Json?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  createdById   String
+  locationId    String?
+
+  createdBy User                             @relation("QuestionnaireCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  location  Location?                        @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  artisans  QuestionnaireInterviewArtisan[]
+  responses QuestionnaireResponse[]
+  media     MediaFile[]                      @relation("QuestionnaireMedia")
+
+  @@index([createdById])
+  @@index([status])
+  @@index([interviewDate])
+}
+
+model QuestionnaireInterviewArtisan {
+  interviewId String
+  artisanId   String
+  createdAt   DateTime @default(now())
+
+  interview QuestionnaireInterview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  artisan   Artisan                @relation(fields: [artisanId], references: [id], onDelete: Cascade)
+
+  @@id([interviewId, artisanId])
+  @@index([artisanId])
+}
+
+model QuestionnaireResponse {
+  id          String   @id @default(cuid())
+  interviewId String
+  questionId  String
+  answerText  String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  answeredById String
+
+  interview  QuestionnaireInterview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  question   QuestionnaireQuestion  @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  answeredBy User                   @relation("QuestionnaireAnsweredBy", fields: [answeredById], references: [id], onDelete: Restrict)
+
+  @@unique([interviewId, questionId])
+  @@index([questionId])
+  @@index([answeredById])
 }
 
 model ReviewLog {

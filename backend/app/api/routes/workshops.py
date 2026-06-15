@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
-from app.core.deps import assert_owner_or_admin, get_current_user
+from app.core.deps import assert_can_delete, assert_owner_or_admin, get_current_user
 from app.schemas.records import WorkshopCreate, WorkshopUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import add_date_range, attach_location, clean_data, contains, require_record, visibility_where
@@ -72,7 +72,6 @@ async def create_workshop(
 async def get_workshop(workshop_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     workshop = await db.workshop.find_unique(where={"id": workshop_id}, include=INCLUDE)
     workshop = await require_record(db.workshop, workshop_id) if not workshop else workshop
-    assert_owner_or_admin(workshop, current_user)
     return jsonable_encoder(workshop)
 
 
@@ -96,6 +95,6 @@ async def update_workshop(
 
 @router.delete("/{workshop_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_workshop(workshop_id: str, current_user: Any = Depends(get_current_user)) -> None:
-    workshop = await require_record(db.workshop, workshop_id)
-    assert_owner_or_admin(workshop, current_user)
+    assert_can_delete(current_user)
+    await require_record(db.workshop, workshop_id)
     await db.workshop.delete(where={"id": workshop_id})

@@ -21,7 +21,11 @@ def role_value(user: Any) -> str:
 
 
 def is_admin(user: Any) -> bool:
-    return role_value(user) == "ADMIN"
+    return role_value(user) in {"MASTER_ADMIN", "ADMIN"}
+
+
+def is_master_admin(user: Any) -> bool:
+    return role_value(user) == "MASTER_ADMIN"
 
 
 async def get_current_user(
@@ -50,6 +54,15 @@ async def require_admin(current_user: Any = Depends(get_current_user)) -> Any:
     return current_user
 
 
+async def require_master_admin(current_user: Any = Depends(get_current_user)) -> Any:
+    if not is_master_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Master admin access required",
+        )
+    return current_user
+
+
 def assert_owner_or_admin(record: Any, user: Any, owner_field: str = "createdById") -> None:
     if is_admin(user):
         return
@@ -58,3 +71,12 @@ def assert_owner_or_admin(record: Any, user: Any, owner_field: str = "createdByI
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only access records you created",
         )
+
+
+def assert_admin_or_owner(record: Any, user: Any, owner_field: str = "createdById") -> None:
+    assert_owner_or_admin(record, user, owner_field)
+
+
+def assert_can_delete(user: Any) -> None:
+    if not is_admin(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required to delete records")

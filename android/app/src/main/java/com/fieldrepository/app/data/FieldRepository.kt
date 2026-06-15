@@ -28,6 +28,8 @@ class FieldRepository(
 
     suspend fun artisans(): List<ArtisanDto> = api.artisans(pageSize = 50).items
 
+    suspend fun crafts(): List<CraftDto> = api.crafts(pageSize = 100).items
+
     suspend fun createArtisan(body: ArtisanCreateRequest): ArtisanDto = api.createArtisan(body)
 
     suspend fun createCraft(body: CraftCreateRequest) {
@@ -44,5 +46,11 @@ class FieldRepository(
 
     suspend fun createTool(body: ToolCreateRequest) {
         api.createTool(body)
+    }
+
+    suspend fun questionnaireQuestions(): List<QuestionnaireQuestionDto> = api.questionnaireQuestions()
+
+    suspend fun createQuestionnaireInterview(body: QuestionnaireInterviewCreateRequest) {
+        api.createQuestionnaireInterview(body)
     }
 }

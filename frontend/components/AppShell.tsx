@@ -7,6 +7,7 @@ import {
   Boxes,
   Camera,
   ClipboardCheck,
+  ClipboardList,
   Gauge,
   Hammer,
   Landmark,
@@ -19,6 +20,7 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/components/AuthProvider";
+import { isAdmin } from "@/lib/permissions";
 
 const baseNav = [
   { href: "/dashboard", label: "Dashboard", icon: Gauge },
@@ -28,6 +30,7 @@ const baseNav = [
   { href: "/products", label: "Products", icon: Boxes },
   { href: "/tools", label: "Tools", icon: Hammer },
   { href: "/media", label: "Media", icon: Camera },
+  { href: "/questionnaire", label: "Questionnaire", icon: ClipboardList },
   { href: "/search", label: "Search", icon: Search },
   { href: "/review", label: "Review", admin: true, icon: ClipboardCheck },
   { href: "/users", label: "Users", admin: true, icon: ShieldCheck }
@@ -48,7 +51,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   if (!user) return null;
 
-  const navItems = baseNav.filter((item) => !item.admin || user.role === "ADMIN");
+  const navItems = baseNav.filter((item) => !item.admin || isAdmin(user));
 
   return (
     <div className="min-h-screen bg-field-50">

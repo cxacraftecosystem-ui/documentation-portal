@@ -7,11 +7,14 @@ import { EmptyState } from "@/components/EmptyState";
 import { Field, TextArea, TextInput } from "@/components/FormControls";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
+import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
 import { requiredText, textValue } from "@/lib/forms";
+import { isAdmin } from "@/lib/permissions";
 import type { Craft, PageResult } from "@/lib/types";
 
 export default function CraftsPage() {
+  const { user } = useAuth();
   const [data, setData] = useState<PageResult<Craft> | null>(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -135,9 +138,11 @@ export default function CraftsPage() {
                       <button className="mr-2 text-sm font-semibold text-field-700" onClick={() => setEditing(craft)}>
                         Edit
                       </button>
-                      <button className="text-sm font-semibold text-red-700" onClick={() => remove(craft.id)}>
-                        Delete
-                      </button>
+                      {isAdmin(user) ? (
+                        <button className="text-sm font-semibold text-red-700" onClick={() => remove(craft.id)}>
+                          Delete
+                        </button>
+                      ) : null}
                     </td>
                   </tr>
                 ))}

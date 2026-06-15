@@ -17,6 +17,8 @@ android {
         versionName = "1.0"
         buildConfigField("String", "DEFAULT_API_BASE_URL", "\"http://10.0.2.2:8000/api/\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"614092441670-3e5k15srupq9mfpg3aktqfkjvkavu0g3.apps.googleusercontent.com\"")
+        buildConfigField("String", "GOOGLE_ANDROID_CLIENT_ID", "\"614092441670-5rckig6t1al6plbfll8irn9prcmp446t.apps.googleusercontent.com\"")
+        buildConfigField("String", "MAPTILER_API_KEY", "\"OJJYFRqCD2HD2k3BbXGF\"")
     }
 
     buildFeatures {

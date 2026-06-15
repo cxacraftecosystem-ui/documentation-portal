@@ -33,6 +33,10 @@ class MediaCompleteRequest(APIModel):
     url: str | None = None
     caption: str | None = None
     checksum: str | None = None
+    transcriptText: str | None = None
+    transcriptSummary: str | None = None
+    transcriptStatus: str | None = None
+    transcriptError: str | None = None
     linkedRecordType: str | None = None
     linkedRecordId: str | None = None
     location: LocationInput | None = None

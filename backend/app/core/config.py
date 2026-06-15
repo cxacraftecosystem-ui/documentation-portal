@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     backend_cors_origins: str = Field(default="http://localhost:3000", alias="BACKEND_CORS_ORIGINS")
 
     google_client_id: str | None = Field(default=None, alias="GOOGLE_CLIENT_ID")
+    google_android_client_id: str | None = Field(default=None, alias="GOOGLE_ANDROID_CLIENT_ID")
+    master_admin_email: str = Field(default="ankits1802@gmail.com", alias="MASTER_ADMIN_EMAIL")
+
+    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    openai_transcription_model: str = Field(default="whisper-1", alias="OPENAI_TRANSCRIPTION_MODEL")
+    gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
+    maptiler_api_key: str | None = Field(default=None, alias="NEXT_PUBLIC_MAPTILER_API_KEY")
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -34,6 +41,10 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.backend_cors_origins.split(",") if origin.strip()]
+
+    @property
+    def google_client_ids(self) -> list[str]:
+        return [value for value in [self.google_client_id, self.google_android_client_id] if value]
 
 
 @lru_cache
