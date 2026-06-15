@@ -1,0 +1,252 @@
+# Field Documentation Repository
+
+Full-stack, API-first repository for field teams documenting artisans, crafts, workshops, products, tools, media, GPS locations and review decisions.
+
+The app is split into:
+
+- `backend/`: Python FastAPI REST API, JWT auth, Prisma ORM schema/client, PostgreSQL metadata, S3-compatible signed uploads, CSV export.
+- `frontend/`: Next.js TypeScript + Tailwind CSS web interface for admins and researchers.
+- `android/`: Kotlin + Jetpack Compose Android client using the same REST API.
+- `docker-compose.yml`: local PostgreSQL and MinIO object storage.
+
+## Architecture
+
+PostgreSQL stores structured records and media metadata. In production this can be Supabase Postgres by setting the backend `DATABASE_URL` to the Supabase PostgreSQL connection string. Images, video, audio and PDFs are uploaded directly to S3-compatible storage using signed PUT URLs. The database stores only object keys, URLs, MIME type, size, uploaded-by user, linked record IDs and optional GPS metadata.
+
+This keeps the backend API-first and reusable by both the web client and the Android client.
+
+Detailed Mermaid diagrams are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+```mermaid
+flowchart LR
+  web[Next.js Web] --> api[FastAPI REST API]
+  android[Android Kotlin] --> api
+  api --> db[(PostgreSQL)]
+  api --> s3[(S3 / MinIO)]
+  web -->|signed PUT| s3
+```
+
+## Local Setup
+
+### 1. Start Infrastructure
+
+```powershell
+docker compose up -d
+docker compose ps
+```
+
+This starts:
+
+- PostgreSQL at `localhost:55432` on the host, mapped to `5432` inside the container
+- MinIO API at `localhost:9000`
+- MinIO console at `localhost:9001`
+- A one-shot bucket initializer for `field-repository`
+
+### 2. Configure And Run Backend
+
+```powershell
+cd backend
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e .
+python -m prisma generate --schema=prisma/schema.prisma
+python -m prisma migrate dev --schema=prisma/schema.prisma --name init
+python scripts/seed_admin.py
+uvicorn app.main:app --reload --port 8000
+```
+
+Backend checks:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/health
+```
+
+Open API docs at `http://127.0.0.1:8000/docs`.
+
+### 3. Configure And Run Frontend
+
+```powershell
+cd frontend
+if (-not (Test-Path .env.local)) { Copy-Item .env.example .env.local }
+npm install
+npm run dev
+```
+
+Open the web app at `http://127.0.0.1:3000/login`.
+
+### 4. Run Both Apps In Separate Terminals
+
+Terminal A:
+
+```powershell
+cd backend
+.\.venv\Scripts\Activate.ps1
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Terminal B:
+
+```powershell
+cd frontend
+npm run dev -- -H 127.0.0.1 -p 3000
+```
+
+### 5. Open Local Tools
+
+- Web app: `http://localhost:3000`
+- API docs: `http://localhost:8000/docs`
+- MinIO console: `http://localhost:9001`
+
+Default local admin credentials come from `backend/.env`:
+
+- Email: `admin@example.com`
+- Password: `ChangeMe123!`
+
+Change them before using real data.
+
+## Android App
+
+The Kotlin Android app lives in `android/` and uses the same backend:
+
+- Emulator base URL: `http://10.0.2.2:8000/api/`
+- Physical device base URL: replace the default with your computer LAN IP, for example `http://192.168.1.20:8000/api/`
+- Package name: `com.fieldrepository.app`
+- Google sign-in: Android Credential Manager requests a Google ID token with the same web OAuth client ID used by the Next.js app, then posts it to `POST /api/auth/login`.
+
+Run from Android Studio:
+
+1. Open the `android/` folder.
+2. Let Gradle sync.
+3. Start the backend on `127.0.0.1:8000`.
+4. Run the `app` configuration on an emulator.
+5. Log in with `admin@example.com` / `ChangeMe123!`, or use Google sign-in after OAuth is configured.
+
+Command-line build, if Android SDK is installed:
+
+```powershell
+cd android
+.\gradlew.bat :app:assembleDebug
+```
+
+The Android client supports email/password login, Google login, dashboard summary, and creating craft, artisan, workshop, product, and tool records through the same REST endpoints used by the web app.
+
+## Google OAuth Setup
+
+Backend verification and web sign-in use the web OAuth client ID only. The web client secret is not required for this ID-token login flow and should not be committed.
+
+Local ignored env values:
+
+```powershell
+# backend/.env
+GOOGLE_CLIENT_ID=<google-web-client-id>
+
+# frontend/.env.local
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=<google-web-client-id>
+```
+
+For Android Google sign-in, create an Android OAuth client in Google Cloud Console with:
+
+- Package name: `com.fieldrepository.app`
+- SHA-1 certificate fingerprint: the debug or release signing certificate fingerprint for the build you run
+
+Get the local debug SHA-1 with:
+
+```powershell
+keytool -list -v -keystore "$env:USERPROFILE\.android\debug.keystore" -alias androiddebugkey -storepass android -keypass android
+```
+
+The Android app keeps the web OAuth client ID in `android/app/build.gradle.kts` as `GOOGLE_WEB_CLIENT_ID` because Credential Manager uses it as the server client ID.
+
+## Core API Endpoints
+
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/me`
+- `CRUD /api/users` for admins
+- `CRUD /api/artisans`
+- `CRUD /api/crafts`
+- `CRUD /api/workshops`
+- `CRUD /api/products`
+- `CRUD /api/tools`
+- `POST /api/media/presign`
+- `POST /api/media/complete`
+- `GET /api/media`
+- `GET /api/dashboard/stats`
+- `GET /api/search`
+- `POST /api/review/{recordType}/{recordId}/approve`
+- `POST /api/review/{recordType}/{recordId}/reject`
+- `GET /api/export/products.csv`
+- `GET /api/export/tools.csv`
+
+Researchers can create and manage their own submissions. Admins can view all records, manage users, review submissions and export CSV.
+
+## Signed Media Upload Flow
+
+1. Client calls `POST /api/media/presign` with file name, MIME type, media type and size.
+2. API returns a signed S3-compatible PUT URL and object key.
+3. Client uploads the file directly to object storage with PUT.
+4. Client calls `POST /api/media/complete` to store metadata in PostgreSQL and link it to an artisan, workshop, product or tool.
+
+## Environment Variables
+
+Required backend variables:
+
+- `DATABASE_URL`
+- `JWT_SECRET`
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `AWS_REGION`
+- `AWS_S3_BUCKET`
+- `AWS_S3_ENDPOINT`
+- `NEXT_PUBLIC_APP_URL`
+
+Useful optional variables:
+
+- `AWS_S3_PUBLIC_BASE_URL` for preview/export links.
+- `BACKEND_CORS_ORIGINS` comma-separated frontend origins.
+- `GOOGLE_CLIENT_ID` to verify Google OAuth ID tokens.
+- `SUPABASE_REST_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY` only when a deployment also needs Supabase REST/Admin access. The secret key must stay in private runtime secrets.
+- `ADMIN_EMAIL`, `ADMIN_NAME`, `ADMIN_PASSWORD` for seeding the first admin.
+
+Required frontend variables:
+
+- `NEXT_PUBLIC_API_URL`
+- `NEXT_PUBLIC_APP_URL`
+
+Optional frontend variable:
+
+- `NEXT_PUBLIC_GOOGLE_CLIENT_ID`
+
+## Supabase Postgres
+
+To use Supabase for Postgres, set `DATABASE_URL` in `backend/.env` or the deployment environment to the PostgreSQL connection string from the Supabase dashboard. Use the pooled or direct database URL supplied under database connection settings, not the Supabase REST URL.
+
+After switching `DATABASE_URL`, run:
+
+```powershell
+cd backend
+python -m prisma migrate deploy --schema=prisma/schema.prisma
+python scripts/seed_admin.py
+```
+
+Clients still call the FastAPI backend. They should not write directly to Supabase REST because backend validation, review state, role checks, media metadata and JWT authorization live in the API.
+
+## Android Data Flow Notes
+
+The Android app uses the same REST endpoints and JWT bearer auth:
+
+- Email/password and Google login both call `POST /api/auth/login`.
+- The returned access token is stored locally and sent as `Authorization: Bearer <token>` on protected API calls.
+- Create forms submit directly to `/api/crafts`, `/api/artisans`, `/api/workshops`, `/api/products`, and `/api/tools`.
+- For large media, follow the same presign-upload-complete sequence so files do not pass through the backend server.
+- Keep GPS capture in a separate location object and submit it with artisan/product/tool/workshop/media payloads.
+
+## Cost Notes
+
+- PostgreSQL stores relational data, JSONB metadata and S3 keys only.
+- Object storage holds large media files.
+- Signed uploads prevent backend bandwidth from scaling with media size.
+- Pagination is implemented for list/search endpoints.
+- Cloudflare R2, Backblaze B2, MinIO or AWS S3 can be used behind the same S3-compatible utility.
+- Add object storage lifecycle rules for old/raw media and future thumbnail/transcription worker outputs.

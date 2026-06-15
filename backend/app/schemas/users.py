@@ -1,0 +1,17 @@
+from pydantic import EmailStr, Field
+
+from app.schemas.common import APIModel
+
+
+class UserCreate(APIModel):
+    email: EmailStr
+    name: str = Field(min_length=1, max_length=160)
+    password: str = Field(min_length=8, max_length=256)
+    role: str = "RESEARCHER"
+
+
+class UserUpdate(APIModel):
+    email: EmailStr | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    password: str | None = Field(default=None, min_length=8, max_length=256)
+    role: str | None = None

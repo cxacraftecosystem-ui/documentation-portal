@@ -1,0 +1,381 @@
+generator client {
+  provider                    = "prisma-client-py"
+  interface                   = "asyncio"
+  recursive_type_depth        = 5
+  enable_experimental_decimal = true
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  RESEARCHER
+}
+
+enum AuthProvider {
+  LOCAL
+  GOOGLE
+}
+
+enum RecordStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  AUDIO
+  PDF
+  DOCUMENT
+  OTHER
+}
+
+enum ProductType {
+  FINISHED_GOOD
+  SAMPLE
+  RAW_MATERIAL
+  COMPONENT
+  PACKAGING
+  OTHER
+}
+
+enum MarketDemand {
+  LOW
+  MEDIUM
+  HIGH
+  SEASONAL
+  UNKNOWN
+}
+
+enum MakerType {
+  ARTISAN
+  LOCAL_BLACKSMITH
+  CARPENTER
+  WORKSHOP
+  FACTORY
+  UNKNOWN
+  OTHER
+}
+
+enum TraditionType {
+  TRADITIONAL
+  MODERN
+  HYBRID
+  UNKNOWN
+}
+
+enum ReviewRecordType {
+  ARTISAN
+  WORKSHOP
+  PRODUCT
+  TOOL
+  MEDIA
+}
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  name         String
+  passwordHash String?
+  avatarUrl    String?
+  role         UserRole     @default(RESEARCHER)
+  authProvider AuthProvider @default(LOCAL)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  artisans  Artisan[]              @relation("ArtisanCreatedBy")
+  crafts    Craft[]                @relation("CraftCreatedBy")
+  workshops Workshop[]             @relation("WorkshopCreatedBy")
+  products  ProductDocumentation[] @relation("ProductCreatedBy")
+  tools     ToolDocumentation[]    @relation("ToolCreatedBy")
+  media     MediaFile[]            @relation("MediaUploadedBy")
+  reviews   ReviewLog[]            @relation("ReviewReviewer")
+
+  @@index([role])
+}
+
+model Craft {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  localName     String?
+  category      String?
+  description   String?
+  place         String?
+  extraMetadata Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  createdById   String?
+
+  createdBy User?                  @relation("CraftCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  artisans  Artisan[]
+  products  ProductDocumentation[]
+  tools     ToolDocumentation[]
+
+  @@index([name])
+  @@index([place])
+}
+
+model Location {
+  id            String   @id @default(cuid())
+  latitude      Float
+  longitude     Float
+  altitude      Float?
+  accuracy      Float?
+  address       String?
+  placeName     String?
+  capturedAt    DateTime?
+  extraMetadata Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  artisans  Artisan[]
+  workshops Workshop[]
+  products  ProductDocumentation[]
+  tools     ToolDocumentation[]
+  media     MediaFile[]
+
+  @@index([latitude, longitude])
+  @@index([placeName])
+}
+
+model Artisan {
+  id            String       @id @default(cuid())
+  name          String
+  localName     String?
+  gender        String?
+  phone         String?
+  email         String?
+  place         String
+  address       String?
+  notes         String?
+  status        RecordStatus @default(PENDING)
+  reviewNotes   String?
+  reviewedById  String?
+  reviewedAt    DateTime?
+  extraMetadata Json?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  craftId       String?
+  locationId    String?
+  createdById   String
+
+  craft     Craft?                 @relation(fields: [craftId], references: [id], onDelete: SetNull)
+  location  Location?              @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  createdBy User                   @relation("ArtisanCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  workshops WorkshopArtisan[]
+  products  ProductDocumentation[]
+  tools     ToolDocumentation[]
+  media     MediaFile[]
+
+  @@index([name])
+  @@index([place])
+  @@index([craftId])
+  @@index([createdById])
+  @@index([status])
+}
+
+model Workshop {
+  id            String       @id @default(cuid())
+  title         String
+  date          DateTime
+  place         String
+  description   String?
+  notes         String?
+  status        RecordStatus @default(PENDING)
+  reviewNotes   String?
+  reviewedById  String?
+  reviewedAt    DateTime?
+  extraMetadata Json?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  locationId    String?
+  createdById   String
+
+  location  Location?              @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  createdBy User                   @relation("WorkshopCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  artisans  WorkshopArtisan[]
+  products  ProductDocumentation[]
+  tools     ToolDocumentation[]
+  media     MediaFile[]
+
+  @@index([date])
+  @@index([place])
+  @@index([createdById])
+  @@index([status])
+}
+
+model WorkshopArtisan {
+  workshopId String
+  artisanId  String
+  role       String?
+  createdAt  DateTime @default(now())
+
+  workshop Workshop @relation(fields: [workshopId], references: [id], onDelete: Cascade)
+  artisan  Artisan  @relation(fields: [artisanId], references: [id], onDelete: Cascade)
+
+  @@id([workshopId, artisanId])
+  @@index([artisanId])
+}
+
+model ProductDocumentation {
+  id                         String       @id @default(cuid())
+  craftName                  String
+  place                      String
+  artisanName                String
+  productName                String
+  localName                  String?
+  productType                ProductType  @default(OTHER)
+  timeTakenToCompleteProduct String?
+  size                       String?
+  costOfMaking               Decimal?     @db.Decimal(12, 2)
+  sellingPrice               Decimal?     @db.Decimal(12, 2)
+  marketDemand               MarketDemand @default(UNKNOWN)
+  rawMaterialsUsed           String?
+  mainToolsUsed              String?
+  productFunctionUse         String?
+  remarks                    String?
+  status                     RecordStatus @default(PENDING)
+  reviewNotes                String?
+  reviewedById               String?
+  reviewedAt                 DateTime?
+  extraMetadata              Json?
+  createdAt                  DateTime     @default(now())
+  updatedAt                  DateTime     @updatedAt
+  artisanId                  String?
+  craftId                    String?
+  workshopId                 String?
+  locationId                 String?
+  createdById                String
+
+  artisan   Artisan?    @relation(fields: [artisanId], references: [id], onDelete: SetNull)
+  craft     Craft?      @relation(fields: [craftId], references: [id], onDelete: SetNull)
+  workshop  Workshop?   @relation(fields: [workshopId], references: [id], onDelete: SetNull)
+  location  Location?   @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  createdBy User        @relation("ProductCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  media     MediaFile[]
+
+  @@index([productName])
+  @@index([craftName])
+  @@index([place])
+  @@index([artisanName])
+  @@index([artisanId])
+  @@index([craftId])
+  @@index([workshopId])
+  @@index([createdById])
+  @@index([status])
+}
+
+model ToolDocumentation {
+  id                            String        @id @default(cuid())
+  craftName                     String
+  place                         String
+  artisanName                   String
+  toolkitName                   String
+  localName                     String?
+  englishName                   String?
+  processUsedIn                 String?
+  material                      String?
+  yearsInUse                    Int?
+  height                        Decimal?      @db.Decimal(10, 2)
+  width                         Decimal?      @db.Decimal(10, 2)
+  thickness                     Decimal?      @db.Decimal(10, 2)
+  weight                        Decimal?      @db.Decimal(10, 2)
+  radius                        Decimal?      @db.Decimal(10, 2)
+  maker                         MakerType     @default(UNKNOWN)
+  traditionType                 TraditionType @default(UNKNOWN)
+  replacementCost               Decimal?      @db.Decimal(12, 2)
+  suggestionsForToolImprovement String?
+  remarks                       String?
+  status                        RecordStatus  @default(PENDING)
+  reviewNotes                   String?
+  reviewedById                  String?
+  reviewedAt                    DateTime?
+  extraMetadata                 Json?
+  createdAt                     DateTime      @default(now())
+  updatedAt                     DateTime      @updatedAt
+  artisanId                     String?
+  craftId                       String?
+  workshopId                    String?
+  locationId                    String?
+  createdById                   String
+
+  artisan   Artisan?    @relation(fields: [artisanId], references: [id], onDelete: SetNull)
+  craft     Craft?      @relation(fields: [craftId], references: [id], onDelete: SetNull)
+  workshop  Workshop?   @relation(fields: [workshopId], references: [id], onDelete: SetNull)
+  location  Location?   @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  createdBy User        @relation("ToolCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  media     MediaFile[]
+
+  @@index([toolkitName])
+  @@index([craftName])
+  @@index([place])
+  @@index([artisanName])
+  @@index([artisanId])
+  @@index([craftId])
+  @@index([workshopId])
+  @@index([createdById])
+  @@index([status])
+}
+
+model MediaFile {
+  id               String       @id @default(cuid())
+  originalFilename String
+  mediaType        MediaType
+  mimeType         String
+  sizeBytes        BigInt
+  bucket           String
+  objectKey        String       @unique
+  url              String?
+  caption          String?
+  checksum         String?
+  linkedRecordType String?
+  linkedRecordId   String?
+  status           RecordStatus @default(PENDING)
+  reviewNotes      String?
+  reviewedById     String?
+  reviewedAt       DateTime?
+  extraMetadata    Json?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  uploadedById     String
+  artisanId        String?
+  workshopId       String?
+  productId        String?
+  toolId           String?
+  locationId       String?
+
+  uploadedBy User                  @relation("MediaUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+  artisan    Artisan?              @relation(fields: [artisanId], references: [id], onDelete: SetNull)
+  workshop   Workshop?             @relation(fields: [workshopId], references: [id], onDelete: SetNull)
+  product    ProductDocumentation? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  tool       ToolDocumentation?    @relation(fields: [toolId], references: [id], onDelete: SetNull)
+  location   Location?             @relation(fields: [locationId], references: [id], onDelete: SetNull)
+
+  @@index([mediaType])
+  @@index([uploadedById])
+  @@index([linkedRecordType, linkedRecordId])
+  @@index([createdAt])
+  @@index([status])
+}
+
+model ReviewLog {
+  id         String           @id @default(cuid())
+  recordType ReviewRecordType
+  recordId   String
+  status     RecordStatus
+  notes      String?
+  reviewerId String
+  createdAt  DateTime         @default(now())
+
+  reviewer User @relation("ReviewReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+
+  @@index([recordType, recordId])
+  @@index([reviewerId])
+  @@index([createdAt])
+}

@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.env
+*.egg-info/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local files
+.DS_Store
+Thumbs.db
+*.local
+*.log
+.codegraph/
+
+# Android / Gradle
+.gradle/
+android/.gradle/
+android/app/build/
+android/build/
+local.properties

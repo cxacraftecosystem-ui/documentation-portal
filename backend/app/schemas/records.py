@@ -1,0 +1,183 @@
+from datetime import datetime
+from decimal import Decimal
+from typing import Any
+
+from pydantic import Field
+
+from app.schemas.common import APIModel, LocationInput
+
+
+class ArtisanCreate(APIModel):
+    name: str = Field(min_length=1, max_length=180)
+    localName: str | None = None
+    gender: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    place: str = Field(min_length=1, max_length=180)
+    address: str | None = None
+    notes: str | None = None
+    craftId: str | None = None
+    status: str = "PENDING"
+    location: LocationInput | None = None
+    extraMetadata: dict[str, Any] | None = None
+
+
+class ArtisanUpdate(APIModel):
+    name: str | None = Field(default=None, min_length=1, max_length=180)
+    localName: str | None = None
+    gender: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    place: str | None = Field(default=None, min_length=1, max_length=180)
+    address: str | None = None
+    notes: str | None = None
+    craftId: str | None = None
+    status: str | None = None
+    location: LocationInput | None = None
+    extraMetadata: dict[str, Any] | None = None
+
+
+class CraftCreate(APIModel):
+    name: str = Field(min_length=1, max_length=180)
+    localName: str | None = None
+    category: str | None = None
+    description: str | None = None
+    place: str | None = None
+    extraMetadata: dict[str, Any] | None = None
+
+
+class CraftUpdate(APIModel):
+    name: str | None = Field(default=None, min_length=1, max_length=180)
+    localName: str | None = None
+    category: str | None = None
+    description: str | None = None
+    place: str | None = None
+    extraMetadata: dict[str, Any] | None = None
+
+
+class WorkshopCreate(APIModel):
+    title: str = Field(min_length=1, max_length=220)
+    date: datetime
+    place: str = Field(min_length=1, max_length=180)
+    description: str | None = None
+    notes: str | None = None
+    artisanIds: list[str] = Field(default_factory=list)
+    status: str = "PENDING"
+    location: LocationInput | None = None
+    extraMetadata: dict[str, Any] | None = None
+
+
+class WorkshopUpdate(APIModel):
+    title: str | None = Field(default=None, min_length=1, max_length=220)
+    date: datetime | None = None
+    place: str | None = Field(default=None, min_length=1, max_length=180)
+    description: str | None = None
+    notes: str | None = None
+    artisanIds: list[str] | None = None
+    status: str | None = None
+    location: LocationInput | None = None
+    extraMetadata: dict[str, Any] | None = None
+
+
+class ProductCreate(APIModel):
+    craftName: str = Field(min_length=1, max_length=180)
+    place: str = Field(min_length=1, max_length=180)
+    artisanName: str = Field(min_length=1, max_length=180)
+    productName: str = Field(min_length=1, max_length=220)
+    localName: str | None = None
+    productType: str = "OTHER"
+    timeTakenToCompleteProduct: str | None = None
+    size: str | None = None
+    costOfMaking: Decimal | None = None
+    sellingPrice: Decimal | None = None
+    marketDemand: str = "UNKNOWN"
+    rawMaterialsUsed: str | None = None
+    mainToolsUsed: str | None = None
+    productFunctionUse: str | None = None
+    remarks: str | None = None
+    artisanId: str | None = None
+    craftId: str | None = None
+    workshopId: str | None = None
+    status: str = "PENDING"
+    location: LocationInput | None = None
+    extraMetadata: dict[str, Any] | None = None
+
+
+class ProductUpdate(APIModel):
+    craftName: str | None = Field(default=None, min_length=1, max_length=180)
+    place: str | None = Field(default=None, min_length=1, max_length=180)
+    artisanName: str | None = Field(default=None, min_length=1, max_length=180)
+    productName: str | None = Field(default=None, min_length=1, max_length=220)
+    localName: str | None = None
+    productType: str | None = None
+    timeTakenToCompleteProduct: str | None = None
+    size: str | None = None
+    costOfMaking: Decimal | None = None
+    sellingPrice: Decimal | None = None
+    marketDemand: str | None = None
+    rawMaterialsUsed: str | None = None
+    mainToolsUsed: str | None = None
+    productFunctionUse: str | None = None
+    remarks: str | None = None
+    artisanId: str | None = None
+    craftId: str | None = None
+    workshopId: str | None = None
+    status: str | None = None
+    location: LocationInput | None = None
+    extraMetadata: dict[str, Any] | None = None
+
+
+class ToolCreate(APIModel):
+    craftName: str = Field(min_length=1, max_length=180)
+    place: str = Field(min_length=1, max_length=180)
+    artisanName: str = Field(min_length=1, max_length=180)
+    toolkitName: str = Field(min_length=1, max_length=220)
+    localName: str | None = None
+    englishName: str | None = None
+    processUsedIn: str | None = None
+    material: str | None = None
+    yearsInUse: int | None = Field(default=None, ge=0)
+    height: Decimal | None = None
+    width: Decimal | None = None
+    thickness: Decimal | None = None
+    weight: Decimal | None = None
+    radius: Decimal | None = None
+    maker: str = "UNKNOWN"
+    traditionType: str = "UNKNOWN"
+    replacementCost: Decimal | None = None
+    suggestionsForToolImprovement: str | None = None
+    remarks: str | None = None
+    artisanId: str | None = None
+    craftId: str | None = None
+    workshopId: str | None = None
+    status: str = "PENDING"
+    location: LocationInput | None = None
+    extraMetadata: dict[str, Any] | None = None
+
+
+class ToolUpdate(APIModel):
+    craftName: str | None = Field(default=None, min_length=1, max_length=180)
+    place: str | None = Field(default=None, min_length=1, max_length=180)
+    artisanName: str | None = Field(default=None, min_length=1, max_length=180)
+    toolkitName: str | None = Field(default=None, min_length=1, max_length=220)
+    localName: str | None = None
+    englishName: str | None = None
+    processUsedIn: str | None = None
+    material: str | None = None
+    yearsInUse: int | None = Field(default=None, ge=0)
+    height: Decimal | None = None
+    width: Decimal | None = None
+    thickness: Decimal | None = None
+    weight: Decimal | None = None
+    radius: Decimal | None = None
+    maker: str | None = None
+    traditionType: str | None = None
+    replacementCost: Decimal | None = None
+    suggestionsForToolImprovement: str | None = None
+    remarks: str | None = None
+    artisanId: str | None = None
+    craftId: str | None = None
+    workshopId: str | None = None
+    status: str | None = None
+    location: LocationInput | None = None
+    extraMetadata: dict[str, Any] | None = None

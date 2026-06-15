@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --background: #faf9f5;
+  --foreground: #141413;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+@layer components {
+  .field-input {
+    @apply w-full rounded-md border border-[#e6dfd8] bg-field-50 px-3.5 py-2.5 text-sm text-ink outline-none transition placeholder:text-ink-soft focus:border-field-500 focus:ring-4 focus:ring-field-500/15;
+  }
+
+  .field-label {
+    @apply text-xs font-medium uppercase text-ink-muted;
+  }
+
+  .field-button {
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-field-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-field-600 disabled:cursor-not-allowed disabled:bg-[#e6dfd8] disabled:text-ink-muted;
+  }
+
+  .field-button-secondary {
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[#e6dfd8] bg-field-50 px-4 py-2 text-sm font-medium text-ink transition hover:bg-field-100 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .field-danger {
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-red-200 bg-field-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50;
+  }
+
+  .panel {
+    @apply rounded-xl border border-[#e6dfd8] bg-field-50 shadow-soft;
+  }
+
+  .display-title {
+    @apply font-serif font-normal text-ink;
+    letter-spacing: 0;
+  }
+
+  .surface-dark {
+    @apply rounded-xl bg-field-900 text-field-50;
+  }
+
+  .section-band {
+    @apply rounded-xl bg-field-200;
+  }
+}
