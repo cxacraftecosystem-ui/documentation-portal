@@ -22,6 +22,9 @@ Thumbs.db
 *.local
 *.log
 .codegraph/
+.agents/
+skills-lock.json
+2nd Workshop_Interview Questions.docx
 
 # Android / Gradle
 .gradle/

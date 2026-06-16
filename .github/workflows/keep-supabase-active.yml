@@ -1,0 +1,36 @@
+name: Keep Supabase Active
+
+on:
+  schedule:
+    # Run every day at 8:00 PM UTC (1:30 AM IST).
+    - cron: "0 20 * * *"
+  workflow_dispatch:
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install keep-alive dependencies
+        run: npm ci
+
+      - name: Ping Supabase Postgres
+        env:
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npm run keep-alive
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "Supabase keep-alive failed."
+          echo "Check that SUPABASE_DATABASE_URL or DATABASE_URL is present in repository secrets."

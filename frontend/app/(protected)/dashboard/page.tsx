@@ -44,29 +44,29 @@ export default function DashboardPage() {
     <>
       <PageHeader
         title="Dashboard"
-        description="Repository totals, review load and latest field submissions."
+        description="A quick view of the people, workshops, objects, tools and interviews documented by the field team."
         icon={<Gauge className="h-5 w-5" aria-hidden />}
       />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       <section className="surface-dark mb-5 grid gap-6 p-5 md:grid-cols-[1.1fr_0.9fr] md:p-6">
         <div>
           <div className="mb-3 inline-flex rounded-full bg-field-900 px-3 py-1 text-xs font-medium text-field-300 ring-1 ring-field-50/10">
-            API-first repository
+            Field archive
           </div>
-          <h2 className="font-serif text-3xl font-normal text-field-50 md:text-4xl">Field records, media, and reviews in one governed workspace.</h2>
+          <h2 className="font-serif text-3xl font-normal text-field-50 md:text-4xl">Craft stories, field notes, objects and interviews in one shared place.</h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-[#a09d96]">
-            Capture structured documentation from field visits, keep large media in object storage, and review every submission before archive export.
+            Capture what researchers see, hear and learn during fieldwork, then review each entry so the archive stays trustworthy and easy to return to.
           </p>
         </div>
-        <div className="rounded-xl bg-[#252320] p-4 font-mono text-sm text-field-50">
+        <div className="rounded-xl bg-[#252320] p-4 text-sm text-field-50">
           <div className="mb-3 flex items-center gap-2 text-xs text-[#a09d96]">
             <span className="h-2 w-2 rounded-full bg-emerald-400" />
-            backend/storage contract
+            ready for fieldwork
           </div>
-          <pre className="overflow-x-auto whitespace-pre-wrap leading-6">{`POST /api/media/presign
-PUT  s3://field-repository/media/...
-POST /api/media/complete
-GET  /api/export/products.csv`}</pre>
+          <div className="grid gap-3 leading-6 text-[#d8d2c8]">
+            <p>Start from an artisan profile, add product or tool observations, and keep interview audio with the questionnaire.</p>
+            <p>Every entry can carry time, place, photographs, recordings and researcher notes.</p>
+          </div>
         </div>
       </section>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

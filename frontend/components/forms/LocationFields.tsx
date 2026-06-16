@@ -22,6 +22,14 @@ export function LocationFields() {
   const [mapOpen, setMapOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
+  function syncMapMarker(lat: string, lng: string, zoom = 15) {
+    if (!mapInstance.current || !lat || !lng) return;
+    const next: [number, number] = [Number(lng), Number(lat)];
+    marker.current?.remove();
+    marker.current = new maplibregl.Marker({ color: "#a9583e" }).setLngLat(next).addTo(mapInstance.current);
+    mapInstance.current.flyTo({ center: next, zoom, essential: true });
+  }
+
   useEffect(() => {
     if (!mapOpen || !mapRef.current || !maptilerKey || mapInstance.current) return;
     const center: [number, number] = [Number(longitude) || 87.3105, Number(latitude) || 22.3149];
@@ -32,39 +40,51 @@ export function LocationFields() {
       zoom: latitude && longitude ? 14 : 4
     });
     mapInstance.current.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+    if (latitude && longitude) {
+      syncMapMarker(latitude, longitude, 14);
+    }
     mapInstance.current.on("click", (event) => {
       const lat = event.lngLat.lat.toFixed(7);
       const lng = event.lngLat.lng.toFixed(7);
       setLatitude(lat);
       setLongitude(lng);
-      marker.current?.remove();
-      marker.current = new maplibregl.Marker({ color: "#a9583e" }).setLngLat([Number(lng), Number(lat)]).addTo(mapInstance.current!);
+      syncMapMarker(lat, lng);
     });
   }, [latitude, longitude, mapOpen]);
 
-  function capturePreciseLocation() {
+  function capturePreciseLocation(silent = false) {
     if (!navigator.geolocation) {
-      setMessage("Precise location is not supported by this browser.");
+      if (!silent) setMessage("Precise location is not supported by this browser.");
       return;
     }
-    setMessage("Requesting precise location...");
+    if (!silent) setMessage("Requesting precise location...");
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        setLatitude(position.coords.latitude.toFixed(7));
-        setLongitude(position.coords.longitude.toFixed(7));
+        const lat = position.coords.latitude.toFixed(7);
+        const lng = position.coords.longitude.toFixed(7);
+        setLatitude(lat);
+        setLongitude(lng);
         setAltitude(position.coords.altitude == null ? "" : position.coords.altitude.toFixed(2));
         setAccuracy(position.coords.accuracy.toFixed(2));
-        setMessage("Precise location captured.");
+        syncMapMarker(lat, lng);
+        setMessage(silent ? "Precise location populated. You can edit it or point a different place on the map." : "Precise location captured.");
       },
-      (error) => setMessage(error.message),
+      (error) => {
+        if (!silent) setMessage(error.message);
+      },
       { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
     );
   }
 
+  useEffect(() => {
+    capturePreciseLocation(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <section className="grid gap-3 border-t border-[#e6dfd8] pt-4">
       <div className="flex flex-wrap gap-2">
-        <button type="button" className="field-button-secondary" onClick={capturePreciseLocation}>
+        <button type="button" className="field-button-secondary" onClick={() => capturePreciseLocation(false)}>
           <LocateFixed className="h-4 w-4" aria-hidden />
           Use precise location
         </button>

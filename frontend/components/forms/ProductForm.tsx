@@ -1,22 +1,26 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { Field, Select, TextArea, TextInput } from "@/components/FormControls";
 import { LocationFields } from "@/components/forms/LocationFields";
+import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
+import { RecordedAtField } from "@/components/forms/RecordedAtField";
 import { apiFetch, listResource } from "@/lib/api";
-import { locationFromForm, numericValue, parseJsonMetadata, requiredText, textValue } from "@/lib/forms";
-import { analyzeMeasurementImage, uploadMediaFile } from "@/lib/media";
+import { locationFromForm, numericValue, parseJsonMetadata, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue } from "@/lib/forms";
+import { analyzeMeasurementImage, appendRemarksWithExif, collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, uploadMediaFile } from "@/lib/media";
 import type { Artisan, Craft, ProductDocumentation, Workshop } from "@/lib/types";
 import { marketDemandOptions, productTypes } from "@/lib/types";
 
 export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [artisans, setArtisans] = useState<Artisan[]>([]);
   const [crafts, setCrafts] = useState<Craft[]>([]);
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
   const [measurementImage, setMeasurementImage] = useState<File | null>(null);
+  const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [measurementWarning, setMeasurementWarning] = useState<string | null>(
     "Upload a grid-sheet image for measurement support. If GEMINI_API_KEY is not configured, fill length and breadth manually."
   );
@@ -37,6 +41,12 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
       .catch(() => undefined);
   }, []);
 
+  const prefillArtisanId = searchParams.get("artisanId") ?? "";
+  const prefillArtisanName = searchParams.get("artisanName") ?? "";
+  const prefillCraftId = searchParams.get("craftId") ?? "";
+  const prefillCraftName = searchParams.get("craftName") ?? "";
+  const prefillPlace = searchParams.get("place") ?? "";
+
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
@@ -50,8 +60,14 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           setMeasurementWarning(measurementResult.message ?? "Gemini unavailable. Fill length and breadth manually.");
         }
       }
+      const exifItems = await collectExifMetadata([measurementImage, ...mediaFiles].filter(Boolean) as File[]);
+      const exifRemark = exifMetadataToRemark(exifItems);
+      const parsedMetadata = parseJsonMetadata(form.get("extraMetadata")) ?? {};
       const analyzedLength = Number(measurementResult?.analysis?.lengthInches ?? "") || undefined;
       const analyzedBreadth = Number(measurementResult?.analysis?.breadthInches ?? "") || undefined;
+      const recordedAt = recordedAtFromForm(form);
+      const recordedTimezone = recordedTimezoneFromForm(form);
+      const location = locationFromForm(form);
       const payload = {
         craftName: requiredText(form, "craftName"),
         place: requiredText(form, "place"),
@@ -71,13 +87,15 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         rawMaterialsUsed: textValue(form, "rawMaterialsUsed"),
         mainToolsUsed: textValue(form, "mainToolsUsed"),
         productFunctionUse: textValue(form, "productFunctionUse"),
-        remarks: textValue(form, "remarks"),
+        remarks: appendRemarksWithExif(textValue(form, "remarks") as string | null, exifRemark),
         artisanId: textValue(form, "artisanId"),
         craftId: textValue(form, "craftId"),
         workshopId: textValue(form, "workshopId"),
         status: requiredText(form, "status") || "PENDING",
-        location: locationFromForm(form),
-        extraMetadata: parseJsonMetadata(form.get("extraMetadata"))
+        recordedAt,
+        recordedTimezone,
+        location,
+        extraMetadata: exifItems.length ? { ...parsedMetadata, mediaExif: exifItems } : parsedMetadata
       };
       const saved = await apiFetch<ProductDocumentation>(initial ? `/products/${initial.id}` : "/products", {
         method: initial ? "PATCH" : "POST",
@@ -88,11 +106,27 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           file: measurementImage,
           linkedRecordType: "product",
           linkedRecordId: saved.id,
-          caption: `Measurement grid image for ${saved.productName}`
+          caption: `Measurement grid image for ${saved.productName}`,
+          location,
+          recordedAt,
+          recordedTimezone,
+          extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined
         });
         await apiFetch(`/products/${saved.id}`, {
           method: "PATCH",
           body: JSON.stringify({ measurementImageId: media.id })
+        });
+      }
+      if (mediaFiles.length) {
+        await uploadMediaBatch({
+          files: mediaFiles,
+          linkedRecordType: "product",
+          linkedRecordId: saved.id,
+          caption: `Field media for ${saved.productName}`,
+          location,
+          recordedAt,
+          recordedTimezone,
+          extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined
         });
       }
       router.push("/products");
@@ -122,10 +156,10 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           </Select>
         </Field>
         <Field label="Craft name" required>
-          <TextInput name="craftName" required defaultValue={initial?.craftName ?? ""} />
+          <TextInput name="craftName" required defaultValue={initial?.craftName ?? prefillCraftName} />
         </Field>
         <Field label="Linked craft">
-          <Select name="craftId" defaultValue={initial?.craftId ?? ""}>
+          <Select name="craftId" defaultValue={initial?.craftId ?? prefillCraftId}>
             <option value="">Unlinked</option>
             {crafts.map((craft) => (
               <option key={craft.id} value={craft.id}>
@@ -135,17 +169,17 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           </Select>
         </Field>
         <Field label="Place" required>
-          <TextInput name="place" required defaultValue={initial?.place ?? ""} />
+          <TextInput name="place" required defaultValue={initial?.place ?? prefillPlace} />
         </Field>
         <Field label="Artisan name" required>
-          <TextInput name="artisanName" required defaultValue={initial?.artisanName ?? ""} />
+          <TextInput name="artisanName" required defaultValue={initial?.artisanName ?? prefillArtisanName} />
         </Field>
         <Field label="Linked artisan">
-          <Select name="artisanId" defaultValue={initial?.artisanId ?? ""}>
+          <Select name="artisanId" defaultValue={initial?.artisanId ?? prefillArtisanId}>
             <option value="">Unlinked</option>
             {artisans.map((artisan) => (
               <option key={artisan.id} value={artisan.id}>
-                {artisan.name} · {artisan.place}
+                {artisan.name} - {artisan.place}
               </option>
             ))}
           </Select>
@@ -197,6 +231,12 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         </Field>
       </div>
       {measurementWarning ? <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{measurementWarning}</div> : null}
+      <MediaCaptureField
+        files={mediaFiles}
+        onFilesChange={setMediaFiles}
+        title="Product media"
+        description="Attach or capture product images, videos, audio notes, and documents. Image EXIF is retained and summarized in remarks."
+      />
       <div className="grid gap-3 md:grid-cols-2">
         <Field label="Raw materials used">
           <TextArea name="rawMaterialsUsed" defaultValue={initial?.rawMaterialsUsed ?? ""} />
@@ -211,6 +251,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           <TextArea name="remarks" defaultValue={initial?.remarks ?? ""} />
         </Field>
       </div>
+      <RecordedAtField value={initial?.recordedAt} timezone={initial?.recordedTimezone} />
       <LocationFields />
       <Field label="Extra metadata JSON">
         <TextArea name="extraMetadata" placeholder='{"motif":"floral","season":"festival"}' />

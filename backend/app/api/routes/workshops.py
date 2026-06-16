@@ -21,6 +21,16 @@ async def replace_workshop_artisans(workshop_id: str, artisan_ids: list[str]) ->
         await db.workshopartisan.create(data={"workshopId": workshop_id, "artisanId": artisan_id})
 
 
+def normalize_workshop_dates(data: dict[str, Any]) -> dict[str, Any]:
+    if not data.get("date") and data.get("startDate"):
+        data["date"] = data["startDate"]
+    if not data.get("startDate") and data.get("date"):
+        data["startDate"] = data["date"]
+    if not data.get("endDate") and data.get("startDate"):
+        data["endDate"] = data["startDate"]
+    return data
+
+
 @router.get("")
 async def list_workshops(
     current_user: Any = Depends(get_current_user),
@@ -40,14 +50,14 @@ async def list_workshops(
         where["place"] = contains(place)
     if statusFilter:
         where["status"] = statusFilter
-    add_date_range(where, "date", dateFrom, dateTo)
+    add_date_range(where, "startDate", dateFrom, dateTo)
     total = await db.workshop.count(where=where)
     items = await db.workshop.find_many(
         where=where,
         include=INCLUDE,
         skip=skip,
         take=page_size,
-        order={"date": "desc"},
+        order={"startDate": "desc"},
     )
     return page_payload(jsonable_encoder(items), total, page, page_size)
 
@@ -59,6 +69,7 @@ async def create_workshop(
 ) -> dict[str, Any]:
     data = clean_data(payload.model_dump())
     artisan_ids = data.pop("artisanIds", [])
+    data = normalize_workshop_dates(data)
     data = await attach_location(data)
     data["createdById"] = current_user.id
     created = await db.workshop.create(data=data)
@@ -85,6 +96,7 @@ async def update_workshop(
     assert_owner_or_admin(workshop, current_user)
     data = clean_data(payload.model_dump(exclude_unset=True))
     artisan_ids = data.pop("artisanIds", None)
+    data = normalize_workshop_dates(data)
     data = await attach_location(data)
     await db.workshop.update(where={"id": workshop_id}, data=data)
     if artisan_ids is not None:

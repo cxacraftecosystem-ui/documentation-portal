@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 
 from pydantic import Field
@@ -39,5 +40,7 @@ class MediaCompleteRequest(APIModel):
     transcriptError: str | None = None
     linkedRecordType: str | None = None
     linkedRecordId: str | None = None
+    recordedAt: datetime | None = None
+    recordedTimezone: str | None = None
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None

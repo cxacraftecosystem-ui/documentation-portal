@@ -1,0 +1,27 @@
+{
+  "name": "documentation-portal-root",
+  "version": "1.0.0",
+  "description": "Full-stack, API-first repository for field teams documenting artisans, crafts, workshops, products, tools, media, GPS locations and review decisions.",
+  "private": true,
+  "type": "module",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "keep-alive": "node scripts/keep-supabase-active.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cxacraftecosystem-ui/documentation-portal.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "UNLICENSED",
+  "bugs": {
+    "url": "https://github.com/cxacraftecosystem-ui/documentation-portal/issues"
+  },
+  "homepage": "https://github.com/cxacraftecosystem-ui/documentation-portal#readme",
+  "dependencies": {
+    "pg": "^8.21.0"
+  }
+}

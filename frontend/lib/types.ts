@@ -35,6 +35,9 @@ export type Craft = {
   category?: string | null;
   description?: string | null;
   place?: string | null;
+  recordedAt?: string | null;
+  recordedTimezone?: string | null;
+  createdAt?: string;
 };
 
 export type Artisan = {
@@ -50,6 +53,8 @@ export type Artisan = {
   status: RecordStatus;
   craftId?: string | null;
   craft?: Craft | null;
+  recordedAt?: string | null;
+  recordedTimezone?: string | null;
   createdById?: string;
   createdBy?: User;
   createdAt: string;
@@ -59,11 +64,15 @@ export type Workshop = {
   id: string;
   title: string;
   date: string;
+  startDate?: string | null;
+  endDate?: string | null;
   place: string;
   description?: string | null;
   notes?: string | null;
   status: RecordStatus;
   artisans?: Array<{ artisan: Artisan }>;
+  recordedAt?: string | null;
+  recordedTimezone?: string | null;
   createdById?: string;
   createdBy?: User;
   createdAt: string;
@@ -80,6 +89,8 @@ export type MediaFile = {
   caption?: string | null;
   linkedRecordType?: string | null;
   linkedRecordId?: string | null;
+  recordedAt?: string | null;
+  recordedTimezone?: string | null;
   status: RecordStatus;
   transcriptText?: string | null;
   transcriptSummary?: string | null;
@@ -111,6 +122,8 @@ export type ProductDocumentation = {
   productFunctionUse?: string | null;
   remarks?: string | null;
   status: RecordStatus;
+  recordedAt?: string | null;
+  recordedTimezone?: string | null;
   artisanId?: string | null;
   craftId?: string | null;
   workshopId?: string | null;
@@ -147,6 +160,8 @@ export type ToolDocumentation = {
   suggestionsForToolImprovement?: string | null;
   remarks?: string | null;
   status: RecordStatus;
+  recordedAt?: string | null;
+  recordedTimezone?: string | null;
   artisanId?: string | null;
   craftId?: string | null;
   workshopId?: string | null;
@@ -182,6 +197,8 @@ export type QuestionnaireInterview = {
   language?: string | null;
   notes?: string | null;
   status: RecordStatus;
+  recordedAt?: string | null;
+  recordedTimezone?: string | null;
   artisans?: Array<{ artisan: Artisan }>;
   responses?: QuestionnaireResponse[];
   media?: MediaFile[];

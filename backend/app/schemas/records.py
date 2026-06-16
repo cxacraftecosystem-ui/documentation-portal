@@ -19,6 +19,8 @@ class ArtisanCreate(APIModel):
     craftId: str | None = None
     craftName: str | None = None
     status: str = "PENDING"
+    recordedAt: datetime | None = None
+    recordedTimezone: str = "Asia/Kolkata"
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
 
@@ -41,6 +43,8 @@ class ArtisanUpdate(APIModel):
     craftId: str | None = None
     craftName: str | None = None
     status: str | None = None
+    recordedAt: datetime | None = None
+    recordedTimezone: str | None = None
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
 
@@ -51,6 +55,8 @@ class CraftCreate(APIModel):
     category: str | None = None
     description: str | None = None
     place: str | None = None
+    recordedAt: datetime | None = None
+    recordedTimezone: str = "Asia/Kolkata"
     extraMetadata: dict[str, Any] | None = None
 
 
@@ -60,17 +66,23 @@ class CraftUpdate(APIModel):
     category: str | None = None
     description: str | None = None
     place: str | None = None
+    recordedAt: datetime | None = None
+    recordedTimezone: str | None = None
     extraMetadata: dict[str, Any] | None = None
 
 
 class WorkshopCreate(APIModel):
     title: str = Field(min_length=1, max_length=220)
-    date: datetime
+    date: datetime | None = None
+    startDate: datetime | None = None
+    endDate: datetime | None = None
     place: str = Field(min_length=1, max_length=180)
     description: str | None = None
     notes: str | None = None
     artisanIds: list[str] = Field(default_factory=list)
     status: str = "PENDING"
+    recordedAt: datetime | None = None
+    recordedTimezone: str = "Asia/Kolkata"
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
 
@@ -78,11 +90,15 @@ class WorkshopCreate(APIModel):
 class WorkshopUpdate(APIModel):
     title: str | None = Field(default=None, min_length=1, max_length=220)
     date: datetime | None = None
+    startDate: datetime | None = None
+    endDate: datetime | None = None
     place: str | None = Field(default=None, min_length=1, max_length=180)
     description: str | None = None
     notes: str | None = None
     artisanIds: list[str] | None = None
     status: str | None = None
+    recordedAt: datetime | None = None
+    recordedTimezone: str | None = None
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
 
@@ -112,6 +128,8 @@ class ProductCreate(APIModel):
     craftId: str | None = None
     workshopId: str | None = None
     status: str = "PENDING"
+    recordedAt: datetime | None = None
+    recordedTimezone: str = "Asia/Kolkata"
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
 
@@ -141,6 +159,8 @@ class ProductUpdate(APIModel):
     craftId: str | None = None
     workshopId: str | None = None
     status: str | None = None
+    recordedAt: datetime | None = None
+    recordedTimezone: str | None = None
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
 
@@ -174,6 +194,8 @@ class ToolCreate(APIModel):
     craftId: str | None = None
     workshopId: str | None = None
     status: str = "PENDING"
+    recordedAt: datetime | None = None
+    recordedTimezone: str = "Asia/Kolkata"
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
 
@@ -207,5 +229,7 @@ class ToolUpdate(APIModel):
     craftId: str | None = None
     workshopId: str | None = None
     status: str | None = None
+    recordedAt: datetime | None = None
+    recordedTimezone: str | None = None
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None

@@ -77,6 +77,7 @@ def media_relation_data(record_type: str | None, record_id: str | None) -> dict[
     normalized = record_type.lower()
     field_map = {
         "artisan": "artisanId",
+        "craft": "craftId",
         "workshop": "workshopId",
         "product": "productId",
         "tool": "toolId",

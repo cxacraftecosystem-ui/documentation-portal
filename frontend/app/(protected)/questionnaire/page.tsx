@@ -1,27 +1,36 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ClipboardList, Plus } from "lucide-react";
 
 import { EmptyState } from "@/components/EmptyState";
 import { Field, Select, TextArea, TextInput } from "@/components/FormControls";
 import { LocationFields } from "@/components/forms/LocationFields";
+import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
+import { RecordedAtField } from "@/components/forms/RecordedAtField";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
-import { locationFromForm, parseJsonMetadata, textValue } from "@/lib/forms";
+import { locationFromForm, parseJsonMetadata, recordedAtFromForm, recordedTimezoneFromForm, textValue } from "@/lib/forms";
+import { uploadMediaBatch } from "@/lib/media";
 import { isAdmin } from "@/lib/permissions";
 import type { Artisan, PageResult, QuestionnaireInterview, QuestionnaireQuestion } from "@/lib/types";
+import { CalendarLume } from "@/components/ui/calendar-lume";
 
 export default function QuestionnairePage() {
   const { user } = useAuth();
+  const searchParams = useSearchParams();
   const [questions, setQuestions] = useState<QuestionnaireQuestion[]>([]);
   const [artisans, setArtisans] = useState<Artisan[]>([]);
   const [data, setData] = useState<PageResult<QuestionnaireInterview> | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [selectedArtisanId, setSelectedArtisanId] = useState(searchParams.get("artisanId") ?? "");
+  const [answerMode, setAnswerMode] = useState<"audio" | "text">("audio");
+  const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [page, setPage] = useState(1);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +42,34 @@ export default function QuestionnairePage() {
       return groups;
     }, {});
   }, [questions]);
+
+  const orderedGroups = useMemo(() => {
+    return Object.entries(groupedQuestions).sort(([left], [right]) => {
+      if (left === "RESP") return -1;
+      if (right === "RESP") return 1;
+      return left.localeCompare(right, undefined, { numeric: true });
+    });
+  }, [groupedQuestions]);
+
+  const selectedArtisan = useMemo(() => artisans.find((artisan) => artisan.id === selectedArtisanId), [artisans, selectedArtisanId]);
+
+  useEffect(() => {
+    if (!selectedArtisan || questions.length === 0) return;
+    const respondentAnswers: Record<string, string> = {};
+    questions
+      .filter((question) => question.sectionCode === "RESP")
+      .forEach((question) => {
+        const prompt = question.prompt.toLowerCase();
+        if (prompt.includes("name")) respondentAnswers[question.id] = selectedArtisan.name;
+        else if (prompt.includes("craft")) respondentAnswers[question.id] = selectedArtisan.craft?.name ?? "";
+        else if (prompt.includes("state") || prompt.includes("district") || prompt.includes("village")) respondentAnswers[question.id] = selectedArtisan.place;
+        else if (prompt.includes("gender")) respondentAnswers[question.id] = selectedArtisan.gender ?? "";
+        else if (prompt.includes("contact")) respondentAnswers[question.id] = selectedArtisan.phone ?? selectedArtisan.email ?? "";
+        else if (prompt.includes("date")) respondentAnswers[question.id] = new Date().toLocaleDateString("en-IN");
+        else if (prompt.includes("interviewer")) respondentAnswers[question.id] = user?.name ?? user?.email ?? "";
+      });
+    setAnswers((current) => ({ ...respondentAnswers, ...current }));
+  }, [questions, selectedArtisan, user]);
 
   async function load() {
     try {
@@ -60,12 +97,15 @@ export default function QuestionnairePage() {
     setSaving(true);
     setError(null);
     const form = new FormData(event.currentTarget);
-    const artisanIds = form.getAll("artisanIds").map(String).filter(Boolean);
+    const artisanIds = Array.from(new Set([selectedArtisanId, ...form.getAll("artisanIds").map(String)].filter(Boolean)));
     const responses = Object.entries(answers)
       .filter(([, answerText]) => answerText.trim())
       .map(([questionId, answerText]) => ({ questionId, answerText: answerText.trim() }));
     try {
-      await apiFetch("/questionnaire/interviews", {
+      const location = locationFromForm(form);
+      const recordedAt = recordedAtFromForm(form);
+      const recordedTimezone = recordedTimezoneFromForm(form);
+      const saved = await apiFetch<QuestionnaireInterview>("/questionnaire/interviews", {
         method: "POST",
         body: JSON.stringify({
           title: textValue(form, "title") || `Interview ${new Date().toLocaleDateString()}`,
@@ -76,12 +116,27 @@ export default function QuestionnairePage() {
           status: textValue(form, "status") || "PENDING",
           artisanIds,
           responses,
-          location: locationFromForm(form),
+          recordedAt,
+          recordedTimezone,
+          location,
           extraMetadata: parseJsonMetadata(form.get("extraMetadata"))
         })
       });
+      if (mediaFiles.length) {
+        await uploadMediaBatch({
+          files: mediaFiles,
+          linkedRecordType: "questionnaire",
+          linkedRecordId: saved.id,
+          caption: `Interview audio for ${saved.title}`,
+          location,
+          recordedAt,
+          recordedTimezone,
+          transcribeAudio: true
+        });
+      }
       event.currentTarget.reset();
       setAnswers({});
+      setMediaFiles([]);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save interview");
@@ -110,7 +165,7 @@ export default function QuestionnairePage() {
             <TextInput name="title" required />
           </Field>
           <Field label="Date">
-            <TextInput name="interviewDate" type="datetime-local" />
+            <CalendarLume name="interviewDate" value={new Date()} />
           </Field>
           <Field label="Place">
             <TextInput name="place" />
@@ -125,19 +180,62 @@ export default function QuestionnairePage() {
               ))}
             </Select>
           </Field>
-          <Field label="Artisans">
+          <Field label="Primary artisan">
+            <Select name="primaryArtisanId" value={selectedArtisanId} onChange={(event) => setSelectedArtisanId(event.target.value)}>
+              <option value="">Select artisan</option>
+              {artisans.map((artisan) => (
+                <option key={artisan.id} value={artisan.id}>
+                  {artisan.name} - {artisan.craft?.name ?? "No craft"} - {artisan.place}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Additional artisans">
             <select name="artisanIds" className="field-input min-h-32" multiple>
               {artisans.map((artisan) => (
                 <option key={artisan.id} value={artisan.id}>
-                  {artisan.name} · {artisan.craft?.name ?? "No craft"} · {artisan.place}
+                  {artisan.name} - {artisan.craft?.name ?? "No craft"} - {artisan.place}
                 </option>
               ))}
             </select>
           </Field>
         </div>
+        {selectedArtisan ? (
+          <section className="rounded-lg border border-[#e6dfd8] bg-field-100 p-4">
+            <h3 className="font-serif text-lg text-ink">RESP. Respondent Information</h3>
+            <div className="mt-2 grid gap-2 text-sm text-ink-muted sm:grid-cols-2 lg:grid-cols-3">
+              <div><span className="font-medium text-ink">Name:</span> {selectedArtisan.name}</div>
+              <div><span className="font-medium text-ink">Craft:</span> {selectedArtisan.craft?.name ?? "-"}</div>
+              <div><span className="font-medium text-ink">Place:</span> {selectedArtisan.place}</div>
+              <div><span className="font-medium text-ink">Gender:</span> {selectedArtisan.gender ?? "-"}</div>
+              <div><span className="font-medium text-ink">Contact:</span> {selectedArtisan.phone || selectedArtisan.email || "-"}</div>
+            </div>
+          </section>
+        ) : null}
+        <div className="flex flex-wrap gap-2 rounded-lg border border-[#e6dfd8] bg-field-100 p-3">
+          <button type="button" className={answerMode === "audio" ? "field-button" : "field-button-secondary"} onClick={() => setAnswerMode("audio")}>
+            Record audio answers
+          </button>
+          <button type="button" className={answerMode === "text" ? "field-button" : "field-button-secondary"} onClick={() => setAnswerMode("text")}>
+            Type answers manually
+          </button>
+        </div>
+        {answerMode === "audio" ? (
+          <MediaCaptureField
+            files={mediaFiles}
+            onFilesChange={setMediaFiles}
+            title="Interview audio"
+            description="Record or upload interview audio. The backend will transcribe it when OPENAI_API_KEY is configured; otherwise the audio is still saved."
+            allowDocuments={false}
+            defaultAudio
+            allowedTypes={["AUDIO"]}
+          />
+        ) : null}
         <LocationFields />
+        <RecordedAtField />
+        {answerMode === "text" ? (
         <div className="grid gap-3">
-          {Object.entries(groupedQuestions).map(([code, group], index) => (
+          {orderedGroups.map(([code, group], index) => (
             <details key={code} className="rounded-md border border-[#e6dfd8] bg-field-100 p-3" open={index === 0}>
               <summary className="cursor-pointer font-serif text-lg text-ink">
                 {code}. {group.title}
@@ -152,6 +250,7 @@ export default function QuestionnairePage() {
             </details>
           ))}
         </div>
+        ) : null}
         <Field label="Interview notes">
           <TextArea name="notes" />
         </Field>

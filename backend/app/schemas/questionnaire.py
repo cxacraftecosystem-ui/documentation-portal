@@ -19,6 +19,8 @@ class QuestionnaireInterviewCreate(APIModel):
     language: str | None = None
     notes: str | None = None
     status: str = "PENDING"
+    recordedAt: datetime | None = None
+    recordedTimezone: str = "Asia/Kolkata"
     artisanIds: list[str] = Field(default_factory=list)
     responses: list[QuestionnaireResponseInput] = Field(default_factory=list)
     location: LocationInput | None = None
@@ -32,6 +34,8 @@ class QuestionnaireInterviewUpdate(APIModel):
     language: str | None = None
     notes: str | None = None
     status: str | None = None
+    recordedAt: datetime | None = None
+    recordedTimezone: str | None = None
     artisanIds: list[str] | None = None
     responses: list[QuestionnaireResponseInput] | None = None
     location: LocationInput | None = None

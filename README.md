@@ -120,7 +120,7 @@ Run from Android Studio:
 2. Let Gradle sync.
 3. Start the backend on `127.0.0.1:8000`.
 4. Run the `app` configuration on an emulator.
-5. Log in with `admin@example.com` / `ChangeMe123!`, or use Google sign-in after OAuth is configured.
+5. Log in with the admin email and password from your private `.env`, or use Google sign-in after OAuth is configured.
 
 Command-line build, if Android SDK is installed:
 
@@ -169,13 +169,15 @@ The backend enforces these rules. The web UI hides delete controls from non-admi
 
 ## Field Capture, AI And Media
 
-The web Media page supports:
+Media capture is embedded in the craft, artisan, workshop, product, tool and questionnaire workflows instead of being a primary menu destination. These record forms support:
 
 - precise browser geolocation capture;
 - MapTiler coordinate picking with `NEXT_PUBLIC_MAPTILER_API_KEY`;
 - multiple images, videos, audio files and documents in one batch;
 - camera/video capture through mobile browser file inputs;
 - browser audio recording with a live level meter;
+- original-file upload so image EXIF data is retained;
+- EXIF summaries in remarks/metadata where image metadata is readable;
 - optional OpenAI transcription for audio via `OPENAI_API_KEY`;
 - collapsed transcript display for completed audio transcripts.
 
@@ -221,7 +223,7 @@ Researchers can create and manage their own submissions. Admins can view all rec
 1. Client calls `POST /api/media/presign` with file name, MIME type, media type and size.
 2. API returns a signed S3-compatible PUT URL and object key.
 3. Client uploads the file directly to object storage with PUT.
-4. Client calls `POST /api/media/complete` to store metadata in PostgreSQL and link it to an artisan, workshop, product or tool.
+4. Client calls `POST /api/media/complete` to store metadata in PostgreSQL and link it to a craft, artisan, workshop, product, tool or questionnaire interview.
 
 ## Environment Variables
 
@@ -243,9 +245,10 @@ Useful optional variables:
 - `GOOGLE_CLIENT_ID` to verify Google OAuth ID tokens.
 - `GOOGLE_ANDROID_CLIENT_ID` to also accept Android OAuth audience tokens if needed.
 - `MASTER_ADMIN_EMAIL` defaults to `ankits1802@gmail.com`.
+- `MASTER_ADMIN_NAME` defaults to `Ankit Kumar`.
 - `OPENAI_API_KEY`, `OPENAI_TRANSCRIPTION_MODEL`, `GEMINI_API_KEY`, `NEXT_PUBLIC_MAPTILER_API_KEY` for optional transcription, measurement and map picking.
 - `SUPABASE_REST_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY` only when a deployment also needs Supabase REST/Admin access. The secret key must stay in private runtime secrets.
-- `ADMIN_EMAIL`, `ADMIN_NAME`, `ADMIN_PASSWORD` for seeding the first admin.
+- `ADMIN_EMAIL`, `ADMIN_NAME`, `ADMIN_PASSWORD` for seeding the first admin. Keep the password only in private `.env` files or deployment secrets.
 
 Required frontend variables:
 
@@ -259,7 +262,7 @@ Optional frontend variable:
 
 ## Supabase Postgres
 
-To use Supabase for Postgres, set `DATABASE_URL` in `backend/.env` or the deployment environment to the PostgreSQL connection string from the Supabase dashboard. Use the pooled or direct database URL supplied under database connection settings, not the Supabase REST URL.
+To use Supabase for Postgres, set `DATABASE_URL` in `backend/.env` or the deployment environment to the PostgreSQL connection string from the Supabase dashboard. Use the pooled or direct database URL supplied under database connection settings, not the Supabase REST URL. If your direct host resolves only to IPv6, use Supabase's session/transaction pooler URL for local machines or CI runners without IPv6.
 
 After switching `DATABASE_URL`, run:
 
@@ -267,9 +270,14 @@ After switching `DATABASE_URL`, run:
 cd backend
 python -m prisma migrate deploy --schema=prisma/schema.prisma
 python scripts/seed_admin.py
+python scripts/seed_questionnaire.py
 ```
 
 Clients still call the FastAPI backend. They should not write directly to Supabase REST because backend validation, review state, role checks, media metadata and JWT authorization live in the API.
+
+### Supabase Keep-Alive
+
+The repository includes `.github/workflows/keep-supabase-active.yml`, which runs daily and calls `npm run keep-alive`. Add `SUPABASE_DATABASE_URL` as a GitHub repository secret, preferably using the Supabase pooler URL for reliable IPv4-compatible CI access. Set `SUPABASE_DB_SSL=true` only if that database endpoint requires SSL.
 
 ## Android Data Flow Notes
 

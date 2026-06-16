@@ -13,12 +13,22 @@ export async function uploadMediaFile({
   file,
   linkedRecordType,
   linkedRecordId,
-  caption
+  caption,
+  location,
+  extraMetadata,
+  recordedAt,
+  recordedTimezone,
+  transcribeAudio = true
 }: {
   file: File;
   linkedRecordType?: string;
   linkedRecordId?: string;
   caption?: string;
+  location?: unknown;
+  extraMetadata?: Record<string, unknown>;
+  recordedAt?: string;
+  recordedTimezone?: string;
+  transcribeAudio?: boolean;
 }) {
   const mediaType = inferMediaType(file);
   const presign = await apiFetch<{
@@ -44,6 +54,7 @@ export async function uploadMediaFile({
     body: file
   });
   if (!uploadResponse.ok) throw new Error(`Object storage upload failed for ${file.name}`);
+  const transcript = transcribeAudio ? await transcribeMediaFile(file, mediaType) : {};
   return apiFetch<MediaFile>("/media/complete", {
     method: "POST",
     body: JSON.stringify({
@@ -56,9 +67,72 @@ export async function uploadMediaFile({
       url: presign.publicUrl,
       caption,
       linkedRecordType,
-      linkedRecordId
+      linkedRecordId,
+      location,
+      extraMetadata,
+      recordedAt,
+      recordedTimezone,
+      ...transcript
     })
   });
+}
+
+export async function uploadMediaBatch({
+  files,
+  linkedRecordType,
+  linkedRecordId,
+  caption,
+  location,
+  extraMetadata,
+  recordedAt,
+  recordedTimezone,
+  transcribeAudio = true
+}: {
+  files: File[];
+  linkedRecordType: string;
+  linkedRecordId: string;
+  caption?: string;
+  location?: unknown;
+  extraMetadata?: Record<string, unknown>;
+  recordedAt?: string;
+  recordedTimezone?: string;
+  transcribeAudio?: boolean;
+}) {
+  const uploaded: MediaFile[] = [];
+  for (const file of files) {
+    uploaded.push(
+      await uploadMediaFile({
+        file,
+        linkedRecordType,
+        linkedRecordId,
+        caption,
+        location,
+        extraMetadata,
+        recordedAt,
+        recordedTimezone,
+        transcribeAudio
+      })
+    );
+  }
+  return uploaded;
+}
+
+export async function transcribeMediaFile(file: File, mediaType = inferMediaType(file)) {
+  if (mediaType !== "AUDIO") return {};
+  const form = new FormData();
+  form.append("file", file);
+  const result = await apiFetch<{
+    available: boolean;
+    status: string;
+    text?: string | null;
+    formattedTranscript?: string | null;
+    message?: string;
+  }>("/media/transcribe", { method: "POST", body: form });
+  return {
+    transcriptText: result.formattedTranscript ?? result.text ?? null,
+    transcriptStatus: result.status,
+    transcriptError: result.available ? null : result.message ?? "Transcription unavailable for now"
+  };
 }
 
 export async function analyzeMeasurementImage(file: File) {
@@ -70,4 +144,71 @@ export async function analyzeMeasurementImage(file: File) {
     analysis?: { lengthInches?: number | string | null; breadthInches?: number | string | null; notes?: string } | null;
     message?: string;
   }>("/media/analyze-measurement", { method: "POST", body: form });
+}
+
+export async function extractImageExifMetadata(file: File) {
+  if (!file.type.startsWith("image/")) return null;
+  try {
+    const exifr = await import("exifr");
+    const metadata = await exifr.parse(file, {
+      tiff: true,
+      exif: true,
+      gps: true,
+      reviveValues: false
+    });
+    if (!metadata) return null;
+    const keys = [
+      "Make",
+      "Model",
+      "DateTimeOriginal",
+      "CreateDate",
+      "ModifyDate",
+      "latitude",
+      "longitude",
+      "GPSLatitude",
+      "GPSLongitude",
+      "GPSAltitude",
+      "Orientation",
+      "LensModel"
+    ];
+    return Object.fromEntries(keys.filter((key) => metadata[key] !== undefined).map((key) => [key, metadata[key]]));
+  } catch {
+    return null;
+  }
+}
+
+export async function collectExifMetadata(files: File[]) {
+  const results = await Promise.all(
+    files.map(async (file) => {
+      const metadata = await extractImageExifMetadata(file);
+      return metadata ? { filename: file.name, metadata } : null;
+    })
+  );
+  return results.filter(Boolean) as Array<{ filename: string; metadata: Record<string, unknown> }>;
+}
+
+export function exifMetadataToRemark(items: Array<{ filename: string; metadata: Record<string, unknown> }>) {
+  if (!items.length) return "";
+  return items
+    .map(({ filename, metadata }) => {
+      const camera = [metadata.Make, metadata.Model].filter(Boolean).join(" ");
+      const captured = metadata.DateTimeOriginal ?? metadata.CreateDate ?? metadata.ModifyDate;
+      const latitude = metadata.latitude ?? metadata.GPSLatitude;
+      const longitude = metadata.longitude ?? metadata.GPSLongitude;
+      return [
+        `Image EXIF (${filename})`,
+        camera ? `camera: ${camera}` : null,
+        captured ? `captured: ${captured}` : null,
+        latitude && longitude ? `gps: ${latitude}, ${longitude}` : null
+      ]
+        .filter(Boolean)
+        .join("; ");
+    })
+    .join("\n");
+}
+
+export function appendRemarksWithExif(remarks: string | null, exifRemark: string) {
+  const base = remarks?.trim() ?? "";
+  if (!exifRemark) return base || null;
+  return [base, exifRemark].filter(Boolean).join("\n\n");
 }

@@ -77,18 +77,24 @@ data class CraftCreateRequest(
     val localName: String? = null,
     val category: String? = null,
     val description: String? = null,
-    val place: String? = null
+    val place: String? = null,
+    val recordedAt: String? = null,
+    val recordedTimezone: String = "Asia/Kolkata"
 )
 
 @Serializable
 data class WorkshopCreateRequest(
     val title: String,
     val date: String,
+    val startDate: String? = null,
+    val endDate: String? = null,
     val place: String,
     val description: String? = null,
     val notes: String? = null,
     val artisanIds: List<String> = emptyList(),
     val status: String = "PENDING",
+    val recordedAt: String? = null,
+    val recordedTimezone: String = "Asia/Kolkata",
     val location: LocationRequest? = null
 )
 
@@ -105,6 +111,8 @@ data class ArtisanCreateRequest(
     val craftId: String? = null,
     val craftName: String? = null,
     val status: String = "PENDING",
+    val recordedAt: String? = null,
+    val recordedTimezone: String = "Asia/Kolkata",
     val location: LocationRequest? = null
 )
 
@@ -129,6 +137,8 @@ data class ProductCreateRequest(
     val remarks: String? = null,
     val artisanId: String? = null,
     val status: String = "PENDING",
+    val recordedAt: String? = null,
+    val recordedTimezone: String = "Asia/Kolkata",
     val location: LocationRequest? = null
 )
 
@@ -157,6 +167,8 @@ data class ToolCreateRequest(
     val remarks: String? = null,
     val artisanId: String? = null,
     val status: String = "PENDING",
+    val recordedAt: String? = null,
+    val recordedTimezone: String = "Asia/Kolkata",
     val location: LocationRequest? = null
 )
 
@@ -196,5 +208,7 @@ data class QuestionnaireInterviewCreateRequest(
     val status: String = "PENDING",
     val artisanIds: List<String> = emptyList(),
     val responses: List<QuestionnaireResponseRequest> = emptyList(),
+    val recordedAt: String? = null,
+    val recordedTimezone: String = "Asia/Kolkata",
     val location: LocationRequest? = null
 )

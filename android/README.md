@@ -31,7 +31,7 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 2. Open `android/` in Android Studio.
 3. Sync Gradle.
 4. Run the `app` configuration on an emulator.
-5. Log in with `admin@example.com` / `ChangeMe123!`, or use Google sign-in after OAuth is configured.
+5. Log in with the admin email and password from your private backend `.env`, or use Google sign-in after OAuth is configured.
 
 The default emulator API base URL is `http://10.0.2.2:8000/api/`, which routes from the Android emulator to the host computer. For a physical device, change `DEFAULT_API_BASE_URL` in `app/build.gradle.kts` to your computer LAN address.
 
@@ -65,4 +65,4 @@ The Android OAuth client ID configured for the package is:
 
 ## Capture Notes
 
-The Android manifest includes permissions for precise location, camera, audio recording and Android 13 media reads. The compact Compose UI supports field data entry, craft assignment, dimensions and questionnaire submission through the same backend used by the web app. Use the web Media Capture page for the complete batch upload, waveform recording, transcription and Gemini grid-measurement workflow.
+The Android manifest includes permissions for precise location, camera, audio recording and Android 13 media reads. The compact Compose UI supports field data entry, craft assignment, dimensions, UTC record timestamps and questionnaire submission through the same backend used by the web app. The web record forms provide the complete embedded batch upload, waveform recording, transcription and Gemini grid-measurement workflow.

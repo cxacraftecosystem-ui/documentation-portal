@@ -23,7 +23,15 @@ from app.services.s3 import make_object_key, presign_put_url, public_url_for_key
 
 router = APIRouter(prefix="/media", tags=["media"])
 
-INCLUDE = {"uploadedBy": True, "location": True, "artisan": True, "workshop": True, "product": True, "tool": True}
+INCLUDE = {
+    "uploadedBy": True,
+    "location": True,
+    "artisan": True,
+    "craft": True,
+    "workshop": True,
+    "product": True,
+    "tool": True,
+}
 
 
 @router.post("/presign", response_model=PresignResponse)

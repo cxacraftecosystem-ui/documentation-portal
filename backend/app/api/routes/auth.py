@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -12,6 +13,7 @@ from app.core.security import create_access_token, verify_password
 from app.schemas.auth import LoginRequest, TokenResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+logger = logging.getLogger(__name__)
 
 
 def serialize_user(user: Any) -> dict[str, Any]:
@@ -48,6 +50,7 @@ def verify_google_token(token: str) -> dict[str, Any]:
             )
         except ValueError as exc:
             last_error = exc
+            logger.info("Google token rejected for configured audience %s: %s", client_id, exc)
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google ID token") from last_error
 
 
@@ -61,7 +64,8 @@ async def login_with_google(token: str) -> Any:
         )
 
     email = id_info["email"].lower()
-    name = id_info.get("name") or email.split("@")[0]
+    settings = get_settings()
+    name = settings.master_admin_name if role == "MASTER_ADMIN" else id_info.get("name") or email.split("@")[0]
     avatar_url = id_info.get("picture")
     role = role_for_email(email)
 

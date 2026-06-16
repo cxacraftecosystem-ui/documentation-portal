@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Database, LockKeyhole, Mail, MapPinned, Sparkle } from "lucide-react";
+import { BookOpenCheck, LockKeyhole, Mail, MapPinned, Sparkle } from "lucide-react";
 
 import { useAuth } from "@/components/AuthProvider";
 
@@ -97,7 +97,7 @@ export default function LoginPage() {
       <section className="panel w-full p-6">
         <div className="mb-6">
           <h1 className="display-title text-3xl">Sign in</h1>
-          <p className="mt-2 text-sm leading-6 text-ink-muted">Document artisans, workshops, products, tools and field media from one API-backed workspace.</p>
+          <p className="mt-2 text-sm leading-6 text-ink-muted">Document field visits, artisan knowledge, craft practices, objects, tools, conversations and locations in one shared archive.</p>
         </div>
         {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
         <form onSubmit={submit} className="grid gap-3">
@@ -145,18 +145,18 @@ export default function LoginPage() {
         <div className="surface-dark w-full max-w-xl p-8">
           <div className="mb-8 flex items-center gap-3">
             <div className="grid h-11 w-11 place-items-center rounded-xl bg-[#252320] text-field-400">
-              <Database className="h-5 w-5" aria-hidden />
+              <BookOpenCheck className="h-5 w-5" aria-hidden />
             </div>
             <div>
-              <p className="text-sm text-[#a09d96]">API-first field archive</p>
-              <h2 className="font-serif text-3xl font-normal text-field-50">Repository-grade documentation.</h2>
+              <p className="text-sm text-[#a09d96]">Field documentation archive</p>
+              <h2 className="font-serif text-3xl font-normal text-field-50">A careful place for living craft knowledge.</h2>
             </div>
           </div>
           <div className="grid gap-3">
             {[
-              "Structured PostgreSQL records for artisans, crafts, workshops, products and tools.",
-              "Signed object-storage uploads for images, video, audio and documents.",
-              "Android and web clients use the same REST contract."
+              "Create consistent notes for artisans, crafts, workshops, products and tools.",
+              "Keep photographs, videos, recordings, transcripts and field locations together.",
+              "Review and revisit entries as the documentation grows."
             ].map((item) => (
               <div key={item} className="flex gap-3 rounded-xl bg-[#252320] p-4 text-sm leading-6 text-[#d8d2c8]">
                 <MapPinned className="mt-0.5 h-4 w-4 shrink-0 text-field-400" aria-hidden />

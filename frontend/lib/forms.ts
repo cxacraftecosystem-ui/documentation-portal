@@ -1,7 +1,10 @@
-import { blankToNull, numberOrNull } from "@/lib/format";
+import { numberOrNull } from "@/lib/format";
 
 export function textValue(form: FormData, key: string) {
-  return blankToNull(form.get(key));
+  const value = form.get(key);
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
 }
 
 export function requiredText(form: FormData, key: string) {
@@ -30,6 +33,17 @@ export function locationFromForm(form: FormData) {
     address: textValue(form, "locationAddress") || undefined,
     placeName: textValue(form, "placeName") || undefined
   };
+}
+
+export function recordedAtFromForm(form: FormData) {
+  const raw = textValue(form, "recordedAt");
+  if (!raw || typeof raw !== "string") return undefined;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+}
+
+export function recordedTimezoneFromForm(form: FormData) {
+  return textValue(form, "recordedTimezone") || "Asia/Kolkata";
 }
 
 export function parseJsonMetadata(raw: FormDataEntryValue | null) {

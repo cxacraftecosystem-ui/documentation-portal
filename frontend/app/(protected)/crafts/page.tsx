@@ -5,11 +5,14 @@ import { Landmark } from "lucide-react";
 
 import { EmptyState } from "@/components/EmptyState";
 import { Field, TextArea, TextInput } from "@/components/FormControls";
+import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
+import { RecordedAtField } from "@/components/forms/RecordedAtField";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
-import { requiredText, textValue } from "@/lib/forms";
+import { parseJsonMetadata, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue } from "@/lib/forms";
+import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch } from "@/lib/media";
 import { isAdmin } from "@/lib/permissions";
 import type { Craft, PageResult } from "@/lib/types";
 
@@ -19,6 +22,7 @@ export default function CraftsPage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<Craft | null>(null);
+  const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -39,18 +43,38 @@ export default function CraftsPage() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     try {
+      const exifItems = await collectExifMetadata(mediaFiles);
+      const exifRemark = exifMetadataToRemark(exifItems);
+      const description = [textValue(form, "description"), exifRemark].filter(Boolean).join("\n\n") || null;
+      const recordedAt = recordedAtFromForm(form);
+      const recordedTimezone = recordedTimezoneFromForm(form);
       const payload = {
         name: requiredText(form, "name"),
         localName: textValue(form, "localName"),
         category: textValue(form, "category"),
         place: textValue(form, "place"),
-        description: textValue(form, "description")
+        description,
+        recordedAt,
+        recordedTimezone,
+        extraMetadata: exifItems.length ? { ...(parseJsonMetadata(form.get("extraMetadata")) ?? {}), mediaExif: exifItems } : parseJsonMetadata(form.get("extraMetadata"))
       };
-      await apiFetch(editing ? `/crafts/${editing.id}` : "/crafts", {
+      const saved = await apiFetch<Craft>(editing ? `/crafts/${editing.id}` : "/crafts", {
         method: editing ? "PATCH" : "POST",
         body: JSON.stringify(payload)
       });
+      if (mediaFiles.length) {
+        await uploadMediaBatch({
+          files: mediaFiles,
+          linkedRecordType: "craft",
+          linkedRecordId: saved.id,
+          caption: `Field media for ${saved.name}`,
+          recordedAt,
+          recordedTimezone,
+          extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined
+        });
+      }
       setEditing(null);
+      setMediaFiles([]);
       event.currentTarget.reset();
       load();
     } catch (err) {
@@ -84,6 +108,17 @@ export default function CraftsPage() {
         <div className="md:col-span-2 lg:col-span-4">
           <Field label="Description">
             <TextArea name="description" defaultValue={editing?.description ?? ""} />
+          </Field>
+        </div>
+        <div className="md:col-span-2 lg:col-span-4">
+          <MediaCaptureField files={mediaFiles} onFilesChange={setMediaFiles} title="Craft media" description="Attach or capture craft reference images, audio notes, video, and documents." />
+        </div>
+        <div className="md:col-span-2 lg:col-span-4">
+          <RecordedAtField value={editing?.recordedAt} timezone={editing?.recordedTimezone} />
+        </div>
+        <div className="md:col-span-2 lg:col-span-4">
+          <Field label="Extra metadata JSON">
+            <TextArea name="extraMetadata" placeholder='{"region":"...","materials":"..."}' />
           </Field>
         </div>
         <div className="flex gap-2 md:col-span-2 lg:col-span-4">

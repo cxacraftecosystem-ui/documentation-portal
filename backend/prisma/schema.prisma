@@ -111,6 +111,8 @@ model Craft {
   description   String?
   place         String?
   extraMetadata Json?
+  recordedAt    DateTime @default(now())
+  recordedTimezone String @default("Asia/Kolkata")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   createdById   String?
@@ -119,9 +121,11 @@ model Craft {
   artisans  Artisan[]
   products  ProductDocumentation[]
   tools     ToolDocumentation[]
+  media     MediaFile[]
 
   @@index([name])
   @@index([place])
+  @@index([recordedAt])
 }
 
 model Location {
@@ -163,6 +167,8 @@ model Artisan {
   reviewedById  String?
   reviewedAt    DateTime?
   extraMetadata Json?
+  recordedAt    DateTime     @default(now())
+  recordedTimezone String    @default("Asia/Kolkata")
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
   craftId       String?
@@ -183,12 +189,15 @@ model Artisan {
   @@index([craftId])
   @@index([createdById])
   @@index([status])
+  @@index([recordedAt])
 }
 
 model Workshop {
   id            String       @id @default(cuid())
   title         String
   date          DateTime
+  startDate     DateTime?
+  endDate       DateTime?
   place         String
   description   String?
   notes         String?
@@ -197,6 +206,8 @@ model Workshop {
   reviewedById  String?
   reviewedAt    DateTime?
   extraMetadata Json?
+  recordedAt    DateTime     @default(now())
+  recordedTimezone String    @default("Asia/Kolkata")
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
   locationId    String?
@@ -210,9 +221,12 @@ model Workshop {
   media     MediaFile[]
 
   @@index([date])
+  @@index([startDate])
+  @@index([endDate])
   @@index([place])
   @@index([createdById])
   @@index([status])
+  @@index([recordedAt])
 }
 
 model WorkshopArtisan {
@@ -255,6 +269,8 @@ model ProductDocumentation {
   reviewedById               String?
   reviewedAt                 DateTime?
   extraMetadata              Json?
+  recordedAt                 DateTime     @default(now())
+  recordedTimezone           String       @default("Asia/Kolkata")
   createdAt                  DateTime     @default(now())
   updatedAt                  DateTime     @updatedAt
   artisanId                  String?
@@ -279,6 +295,7 @@ model ProductDocumentation {
   @@index([workshopId])
   @@index([createdById])
   @@index([status])
+  @@index([recordedAt])
 }
 
 model ToolDocumentation {
@@ -312,6 +329,8 @@ model ToolDocumentation {
   reviewedById                  String?
   reviewedAt                    DateTime?
   extraMetadata                 Json?
+  recordedAt                    DateTime      @default(now())
+  recordedTimezone              String        @default("Asia/Kolkata")
   createdAt                     DateTime      @default(now())
   updatedAt                     DateTime      @updatedAt
   artisanId                     String?
@@ -336,6 +355,7 @@ model ToolDocumentation {
   @@index([workshopId])
   @@index([createdById])
   @@index([status])
+  @@index([recordedAt])
 }
 
 model MediaFile {
@@ -360,10 +380,13 @@ model MediaFile {
   reviewedById     String?
   reviewedAt       DateTime?
   extraMetadata    Json?
+  recordedAt       DateTime     @default(now())
+  recordedTimezone String       @default("Asia/Kolkata")
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
   uploadedById     String
   artisanId        String?
+  craftId          String?
   workshopId       String?
   productId        String?
   toolId           String?
@@ -372,6 +395,7 @@ model MediaFile {
 
   uploadedBy User                  @relation("MediaUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
   artisan    Artisan?              @relation(fields: [artisanId], references: [id], onDelete: SetNull)
+  craft      Craft?                @relation(fields: [craftId], references: [id], onDelete: SetNull)
   workshop   Workshop?             @relation(fields: [workshopId], references: [id], onDelete: SetNull)
   product    ProductDocumentation? @relation(fields: [productId], references: [id], onDelete: SetNull)
   tool       ToolDocumentation?    @relation(fields: [toolId], references: [id], onDelete: SetNull)
@@ -380,10 +404,12 @@ model MediaFile {
 
   @@index([mediaType])
   @@index([uploadedById])
+  @@index([craftId])
   @@index([linkedRecordType, linkedRecordId])
   @@index([questionnaireInterviewId])
   @@index([createdAt])
   @@index([status])
+  @@index([recordedAt])
 }
 
 model QuestionnaireQuestion {
@@ -411,6 +437,8 @@ model QuestionnaireInterview {
   notes         String?
   status        RecordStatus @default(PENDING)
   extraMetadata Json?
+  recordedAt    DateTime     @default(now())
+  recordedTimezone String    @default("Asia/Kolkata")
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
   createdById   String
@@ -425,6 +453,7 @@ model QuestionnaireInterview {
   @@index([createdById])
   @@index([status])
   @@index([interviewDate])
+  @@index([recordedAt])
 }
 
 model QuestionnaireInterviewArtisan {

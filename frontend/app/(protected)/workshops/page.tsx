@@ -5,23 +5,20 @@ import { MapPinned } from "lucide-react";
 
 import { EmptyState } from "@/components/EmptyState";
 import { Field, Select, TextArea, TextInput } from "@/components/FormControls";
+import { DateRangeField } from "@/components/forms/DateRangeField";
 import { LocationFields } from "@/components/forms/LocationFields";
+import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
+import { RecordedAtField } from "@/components/forms/RecordedAtField";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/format";
-import { locationFromForm, requiredText, textValue } from "@/lib/forms";
+import { locationFromForm, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue } from "@/lib/forms";
+import { uploadMediaBatch } from "@/lib/media";
 import { isAdmin } from "@/lib/permissions";
 import type { Artisan, PageResult, Workshop } from "@/lib/types";
-
-function toDateTimeLocal(value?: string) {
-  if (!value) return "";
-  const date = new Date(value);
-  const offset = date.getTimezoneOffset() * 60000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
-}
 
 export default function WorkshopsPage() {
   const { user } = useAuth();
@@ -30,6 +27,7 @@ export default function WorkshopsPage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<Workshop | null>(null);
+  const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -59,18 +57,34 @@ export default function WorkshopsPage() {
       const payload = {
         title: requiredText(form, "title"),
         date: requiredText(form, "date"),
+        startDate: requiredText(form, "startDate"),
+        endDate: requiredText(form, "endDate"),
         place: requiredText(form, "place"),
         description: textValue(form, "description"),
         notes: textValue(form, "notes"),
         status: requiredText(form, "status") || "PENDING",
         artisanIds,
+        recordedAt: recordedAtFromForm(form),
+        recordedTimezone: recordedTimezoneFromForm(form),
         location: locationFromForm(form)
       };
-      await apiFetch(editing ? `/workshops/${editing.id}` : "/workshops", {
+      const saved = await apiFetch<Workshop>(editing ? `/workshops/${editing.id}` : "/workshops", {
         method: editing ? "PATCH" : "POST",
         body: JSON.stringify(payload)
       });
+      if (mediaFiles.length) {
+        await uploadMediaBatch({
+          files: mediaFiles,
+          linkedRecordType: "workshop",
+          linkedRecordId: saved.id,
+          caption: `Field media for ${saved.title}`,
+          recordedAt: payload.recordedAt,
+          recordedTimezone: payload.recordedTimezone,
+          location: payload.location
+        });
+      }
       setEditing(null);
+      setMediaFiles([]);
       event.currentTarget.reset();
       load();
     } catch (err) {
@@ -99,9 +113,9 @@ export default function WorkshopsPage() {
           <Field label="Workshop title" required>
             <TextInput name="title" required defaultValue={editing?.title ?? ""} />
           </Field>
-          <Field label="Date" required>
-            <TextInput name="date" type="datetime-local" required defaultValue={toDateTimeLocal(editing?.date)} />
-          </Field>
+          <div className="md:col-span-2">
+            <DateRangeField start={editing?.startDate ?? editing?.date} end={editing?.endDate ?? editing?.date} />
+          </div>
           <Field label="Place" required>
             <TextInput name="place" required defaultValue={editing?.place ?? ""} />
           </Field>
@@ -128,6 +142,8 @@ export default function WorkshopsPage() {
             <TextArea name="notes" defaultValue={editing?.notes ?? ""} />
           </Field>
         </div>
+        <MediaCaptureField files={mediaFiles} onFilesChange={setMediaFiles} title="Workshop media" description="Attach workshop images, videos, audio notes, attendance references, and documents." />
+        <RecordedAtField value={editing?.recordedAt} timezone={editing?.recordedTimezone} />
         <LocationFields />
         <div className="flex gap-2">
           <button className="field-button">{editing ? "Update workshop" : "Create workshop"}</button>
@@ -177,7 +193,10 @@ export default function WorkshopsPage() {
                       <div className="font-medium text-neutral-900">{workshop.title}</div>
                       <div className="text-xs text-neutral-500">{workshop.description ?? "-"}</div>
                     </td>
-                    <td className="px-4 py-3 text-neutral-600">{formatDateTime(workshop.date)}</td>
+                    <td className="px-4 py-3 text-neutral-600">
+                      {formatDateTime(workshop.startDate ?? workshop.date)}
+                      {workshop.endDate ? <span className="block text-xs text-neutral-500">to {formatDateTime(workshop.endDate)}</span> : null}
+                    </td>
                     <td className="px-4 py-3 text-neutral-600">{workshop.place}</td>
                     <td className="px-4 py-3 text-neutral-600">{workshop.artisans?.map((item) => item.artisan.name).join(", ") || "-"}</td>
                     <td className="px-4 py-3">

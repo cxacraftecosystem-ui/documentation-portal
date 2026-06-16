@@ -5,13 +5,17 @@ import { useRouter } from "next/navigation";
 
 import { Field, Select, TextArea, TextInput } from "@/components/FormControls";
 import { LocationFields } from "@/components/forms/LocationFields";
+import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
+import { RecordedAtField } from "@/components/forms/RecordedAtField";
 import { apiFetch, listResource } from "@/lib/api";
-import { locationFromForm, parseJsonMetadata, requiredText, textValue } from "@/lib/forms";
+import { locationFromForm, parseJsonMetadata, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue } from "@/lib/forms";
+import { appendRemarksWithExif, collectExifMetadata, exifMetadataToRemark, uploadMediaBatch } from "@/lib/media";
 import type { Artisan, Craft } from "@/lib/types";
 
 export function ArtisanForm({ initial }: { initial?: Artisan }) {
   const router = useRouter();
   const [crafts, setCrafts] = useState<Craft[]>([]);
+  const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -27,6 +31,12 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
     setError(null);
     const form = new FormData(event.currentTarget);
     try {
+      const exifItems = await collectExifMetadata(mediaFiles);
+      const exifRemark = exifMetadataToRemark(exifItems);
+      const parsedMetadata = parseJsonMetadata(form.get("extraMetadata")) ?? {};
+      const recordedAt = recordedAtFromForm(form);
+      const recordedTimezone = recordedTimezoneFromForm(form);
+      const location = locationFromForm(form);
       const payload = {
         name: requiredText(form, "name"),
         localName: textValue(form, "localName"),
@@ -35,16 +45,30 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         email: textValue(form, "email"),
         place: requiredText(form, "place"),
         address: textValue(form, "address"),
-        notes: textValue(form, "notes"),
+        notes: appendRemarksWithExif(textValue(form, "notes") as string | null, exifRemark),
         craftId: textValue(form, "craftId"),
         status: requiredText(form, "status") || "PENDING",
-        location: locationFromForm(form),
-        extraMetadata: parseJsonMetadata(form.get("extraMetadata"))
+        recordedAt,
+        recordedTimezone,
+        location,
+        extraMetadata: exifItems.length ? { ...parsedMetadata, mediaExif: exifItems } : parsedMetadata
       };
-      await apiFetch(initial ? `/artisans/${initial.id}` : "/artisans", {
+      const saved = await apiFetch<Artisan>(initial ? `/artisans/${initial.id}` : "/artisans", {
         method: initial ? "PATCH" : "POST",
         body: JSON.stringify(payload)
       });
+      if (mediaFiles.length) {
+        await uploadMediaBatch({
+          files: mediaFiles,
+          linkedRecordType: "artisan",
+          linkedRecordId: saved.id,
+          caption: `Field media for ${saved.name}`,
+          location,
+          recordedAt,
+          recordedTimezone,
+          extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined
+        });
+      }
       router.push("/artisans");
       router.refresh();
     } catch (err) {
@@ -100,6 +124,13 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           <TextArea name="notes" defaultValue={initial?.notes ?? ""} />
         </Field>
       </div>
+      <MediaCaptureField
+        files={mediaFiles}
+        onFilesChange={setMediaFiles}
+        title="Artisan media"
+        description="Attach or capture artisan images, audio introductions, videos, and documents. Image EXIF is retained and summarized in notes."
+      />
+      <RecordedAtField value={initial?.recordedAt} timezone={initial?.recordedTimezone} />
       <LocationFields />
       <Field label="Extra metadata JSON">
         <TextArea name="extraMetadata" placeholder='{"language":"Hindi","cluster":"..." }' />

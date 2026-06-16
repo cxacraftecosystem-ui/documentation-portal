@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     google_client_id: str | None = Field(default=None, alias="GOOGLE_CLIENT_ID")
     google_android_client_id: str | None = Field(default=None, alias="GOOGLE_ANDROID_CLIENT_ID")
     master_admin_email: str = Field(default="ankits1802@gmail.com", alias="MASTER_ADMIN_EMAIL")
+    master_admin_name: str = Field(default="Ankit Kumar", alias="MASTER_ADMIN_NAME")
 
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_transcription_model: str = Field(default="whisper-1", alias="OPENAI_TRANSCRIPTION_MODEL")

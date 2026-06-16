@@ -5,6 +5,7 @@ from app.core.db import connect_db, db, disconnect_db
 from app.core.security import hash_password
 
 MASTER_ADMIN_EMAIL = os.getenv("MASTER_ADMIN_EMAIL", "ankits1802@gmail.com").lower()
+MASTER_ADMIN_NAME = os.getenv("MASTER_ADMIN_NAME", "Ankit Kumar")
 
 
 async def upsert_admin(email: str, name: str, password: str, role: str) -> None:
@@ -33,8 +34,10 @@ async def main() -> None:
     try:
         email = os.getenv("ADMIN_EMAIL", "admin@example.com").lower()
         name = os.getenv("ADMIN_NAME", "Repository Admin")
-        password = os.getenv("ADMIN_PASSWORD", "ChangeMe123!")
-        await upsert_admin(MASTER_ADMIN_EMAIL, "Ankit Sinha", password, "MASTER_ADMIN")
+        password = os.getenv("ADMIN_PASSWORD")
+        if not password:
+            raise RuntimeError("ADMIN_PASSWORD must be set in .env before seeding local admin accounts")
+        await upsert_admin(MASTER_ADMIN_EMAIL, MASTER_ADMIN_NAME, password, "MASTER_ADMIN")
         if email != MASTER_ADMIN_EMAIL:
             await upsert_admin(email, name, password, "ADMIN")
     finally:

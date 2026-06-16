@@ -158,8 +158,8 @@ private fun LoginScreen(
     onGoogleLogin: suspend () -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    var email by remember { mutableStateOf("admin@example.com") }
-    var password by remember { mutableStateOf("ChangeMe123!") }
+    var email by remember { mutableStateOf("ankits1802@gmail.com") }
+    var password by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
 
     Column(
@@ -175,7 +175,7 @@ private fun LoginScreen(
             color = MaterialTheme.colorScheme.onBackground
         )
         Text(
-            text = "Document artisans, products, tools and workshop knowledge through the same API used by the web app.",
+            text = "Document field visits, artisan knowledge, craft practices, objects, tools, conversations and locations in one shared archive.",
             color = Body,
             modifier = Modifier.padding(top = 8.dp, bottom = 24.dp)
         )
@@ -403,12 +403,14 @@ private fun CraftForm(onSubmit: suspend (CraftCreateRequest) -> Unit) {
         Button(
             onClick = {
                 scope.launch {
+                    val now = Instant.now().toString()
                     onSubmit(
                         CraftCreateRequest(
                             name = name.trim(),
                             category = category.blankToNull(),
                             place = place.blankToNull(),
-                            description = description.blankToNull()
+                            description = description.blankToNull(),
+                            recordedAt = now
                         )
                     )
                     name = ""
@@ -443,13 +445,15 @@ private fun ArtisanForm(onSubmit: suspend (ArtisanCreateRequest) -> Unit) {
         Button(
             onClick = {
                 scope.launch {
+                    val now = Instant.now().toString()
                     onSubmit(
                         ArtisanCreateRequest(
                             name = name.trim(),
                             place = place.trim(),
                             craftName = craftName.trim(),
                             phone = phone.blankToNull(),
-                            notes = notes.blankToNull()
+                            notes = notes.blankToNull(),
+                            recordedAt = now
                         )
                     )
                     name = ""
@@ -483,13 +487,17 @@ private fun WorkshopForm(onSubmit: suspend (WorkshopCreateRequest) -> Unit) {
         Button(
             onClick = {
                 scope.launch {
+                    val now = Instant.now().toString()
                     onSubmit(
                         WorkshopCreateRequest(
                             title = title.trim(),
-                            date = Instant.now().toString(),
+                            date = now,
+                            startDate = now,
+                            endDate = now,
                             place = place.trim(),
                             description = description.blankToNull(),
-                            notes = notes.blankToNull()
+                            notes = notes.blankToNull(),
+                            recordedAt = now
                         )
                     )
                     title = ""
@@ -528,6 +536,7 @@ private fun ProductForm(onSubmit: suspend (ProductCreateRequest) -> Unit) {
         Button(
             onClick = {
                 scope.launch {
+                    val now = Instant.now().toString()
                     onSubmit(
                         ProductCreateRequest(
                             productName = productName.trim(),
@@ -536,7 +545,8 @@ private fun ProductForm(onSubmit: suspend (ProductCreateRequest) -> Unit) {
                             place = place.trim(),
                             lengthInches = length.toDoubleOrNull(),
                             breadthInches = breadth.toDoubleOrNull(),
-                            remarks = remarks.blankToNull()
+                            remarks = remarks.blankToNull(),
+                            recordedAt = now
                         )
                     )
                     productName = ""
@@ -580,6 +590,7 @@ private fun ToolForm(onSubmit: suspend (ToolCreateRequest) -> Unit) {
         Button(
             onClick = {
                 scope.launch {
+                    val now = Instant.now().toString()
                     onSubmit(
                         ToolCreateRequest(
                             toolkitName = toolkitName.trim(),
@@ -589,7 +600,8 @@ private fun ToolForm(onSubmit: suspend (ToolCreateRequest) -> Unit) {
                             material = material.blankToNull(),
                             lengthInches = length.toDoubleOrNull(),
                             breadthInches = breadth.toDoubleOrNull(),
-                            remarks = remarks.blankToNull()
+                            remarks = remarks.blankToNull(),
+                            recordedAt = now
                         )
                     )
                     toolkitName = ""
@@ -645,6 +657,7 @@ private fun QuestionnaireForm(
         Button(
             onClick = {
                 scope.launch {
+                    val now = Instant.now().toString()
                     onSubmit(
                         QuestionnaireInterviewCreateRequest(
                             title = title.trim(),
@@ -655,7 +668,8 @@ private fun QuestionnaireForm(
                             responses = selectedQuestions.mapNotNull { question ->
                                 val answer = answers[question.id]?.value?.trim().orEmpty()
                                 if (answer.isBlank()) null else QuestionnaireResponseRequest(questionId = question.id, answerText = answer)
-                            }
+                            },
+                            recordedAt = now
                         )
                     )
                     title = ""

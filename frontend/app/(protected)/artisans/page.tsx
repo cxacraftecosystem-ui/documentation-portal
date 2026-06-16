@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Plus, Users } from "lucide-react";
+import { Boxes, ClipboardList, Hammer, Plus, Users } from "lucide-react";
 
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
@@ -19,6 +19,7 @@ export default function ArtisansPage() {
   const [data, setData] = useState<PageResult<Artisan> | null>(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [selectedArtisan, setSelectedArtisan] = useState<Artisan | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -39,6 +40,17 @@ export default function ArtisansPage() {
     if (!window.confirm("Delete this artisan record?")) return;
     await apiFetch(`/artisans/${id}`, { method: "DELETE" });
     load();
+  }
+
+  function artisanEntryHref(path: string, artisan: Artisan) {
+    const params = new URLSearchParams({
+      artisanId: artisan.id,
+      artisanName: artisan.name,
+      place: artisan.place
+    });
+    if (artisan.craftId) params.set("craftId", artisan.craftId);
+    if (artisan.craft?.name) params.set("craftName", artisan.craft.name);
+    return `${path}?${params.toString()}`;
   }
 
   return (
@@ -66,6 +78,26 @@ export default function ArtisansPage() {
         <button className="field-button-secondary">Search</button>
       </form>
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+      {selectedArtisan ? (
+        <section className="mb-5 grid gap-3 md:grid-cols-3">
+          {[
+            { href: artisanEntryHref("/tools/new", selectedArtisan), title: "Make a tool entry", body: "Document a tool used by this artisan.", icon: Hammer },
+            { href: artisanEntryHref("/products/new", selectedArtisan), title: "Make a product entry", body: "Record an object, product or sample.", icon: Boxes },
+            { href: artisanEntryHref("/questionnaire", selectedArtisan), title: "Start questionnaire", body: "Open the interview with RESP prefilled.", icon: ClipboardList }
+          ].map((item) => (
+            <Link key={item.href} href={item.href} className="panel group flex min-h-32 items-start gap-3 p-4 transition hover:-translate-y-0.5 hover:shadow-panel">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-field-200 text-field-700">
+                <item.icon className="h-5 w-5" aria-hidden />
+              </span>
+              <span>
+                <span className="block font-serif text-xl text-ink">{item.title}</span>
+                <span className="mt-1 block text-sm leading-6 text-ink-muted">{item.body}</span>
+                <span className="mt-3 block text-xs font-semibold uppercase text-field-700">{selectedArtisan.name}</span>
+              </span>
+            </Link>
+          ))}
+        </section>
+      ) : null}
       <section className="panel overflow-hidden">
         {!data ? (
           <div className="p-4 text-sm text-neutral-600">Loading...</div>
@@ -89,7 +121,7 @@ export default function ArtisansPage() {
               </thead>
               <tbody className="divide-y divide-neutral-200">
                 {data.items.map((artisan) => (
-                  <tr key={artisan.id}>
+                  <tr key={artisan.id} className="cursor-pointer hover:bg-field-100" onClick={() => setSelectedArtisan(artisan)}>
                     <td className="px-4 py-3">
                       <div className="font-medium text-neutral-900">{artisan.name}</div>
                       <div className="text-xs text-neutral-500">{artisan.localName ?? "-"}</div>
@@ -102,11 +134,11 @@ export default function ArtisansPage() {
                     </td>
                     <td className="px-4 py-3 text-neutral-600">{formatDate(artisan.createdAt)}</td>
                     <td className="px-4 py-3 text-right">
-                      <Link className="mr-2 text-sm font-semibold text-field-700" href={`/artisans/${artisan.id}/edit`}>
+                      <Link className="mr-2 text-sm font-semibold text-field-700" href={`/artisans/${artisan.id}/edit`} onClick={(event) => event.stopPropagation()}>
                         Edit
                       </Link>
                       {isAdmin(user) ? (
-                        <button className="text-sm font-semibold text-red-700" onClick={() => remove(artisan.id)}>
+                        <button className="text-sm font-semibold text-red-700" onClick={(event) => { event.stopPropagation(); remove(artisan.id); }}>
                           Delete
                         </button>
                       ) : null}
