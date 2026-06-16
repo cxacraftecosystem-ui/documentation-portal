@@ -21,6 +21,18 @@ interface FieldRepositoryApi {
     @GET("dashboard/stats")
     suspend fun dashboardStats(): DashboardStats
 
+    @GET("users")
+    suspend fun users(
+        @Query("page") page: Int = 1,
+        @Query("pageSize") pageSize: Int = 100
+    ): PageResponse<UserDto>
+
+    @PATCH("users/{id}")
+    suspend fun updateUser(
+        @Path("id") id: String,
+        @Body body: UserUpdateRequest
+    ): UserDto
+
     @GET("artisans")
     suspend fun artisans(
         @Query("page") page: Int = 1,
@@ -44,6 +56,12 @@ interface FieldRepositoryApi {
 
     @POST("media/complete")
     suspend fun completeMedia(@Body body: MediaCompleteRequest): MediaFileDto
+
+    @GET("media")
+    suspend fun media(
+        @Query("page") page: Int = 1,
+        @Query("pageSize") pageSize: Int = 20
+    ): PageResponse<MediaFileDto>
 
     @POST("workshops")
     suspend fun createWorkshop(@Body body: WorkshopCreateRequest): CreatedRecordDto

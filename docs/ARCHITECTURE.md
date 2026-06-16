@@ -126,7 +126,7 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-  master[MASTER_ADMIN ankits1802@gmail.com]
+  master[MASTER_ADMIN from MASTER_ADMIN_EMAIL]
   admin[ADMIN junior admin]
   researcher[RESEARCHER]
   read[Read all records]

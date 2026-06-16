@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Camera, FileUp, ImagePlus, Mic, Square, Trash2, Upload, Video } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Camera, FileUp, ImagePlus, Mic, Square, Trash2, Video } from "lucide-react";
 
-import { bytes } from "@/lib/format";
+import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
 import { inferMediaType } from "@/lib/media";
 import type { MediaType } from "@/lib/types";
 
@@ -43,15 +43,12 @@ export function MediaCaptureField({
   const [recording, setRecording] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
   const [dragging, setDragging] = useState(false);
+  const [previewItems, setPreviewItems] = useState<PreviewMedia[]>([]);
+  const [activePreview, setActivePreview] = useState<PreviewMedia | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const animationRef = useRef<number | null>(null);
-
-  const fileSummary = useMemo(
-    () => files.map((file) => ({ file, type: inferMediaType(file), label: `${file.name} - ${bytes(file.size)} - ${file.type || "unknown MIME"}` })),
-    [files]
-  );
 
   function addFiles(fileList: FileList | null) {
     const next = mergeFiles(files, fileList).filter((file) => !allowedTypes || allowedTypes.includes(inferMediaType(file)));
@@ -105,6 +102,23 @@ export function MediaCaptureField({
       streamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, [defaultAudio, files.length]);
+
+  useEffect(() => {
+    const items = files.map((file, index) => ({
+      key: `${file.name}-${file.size}-${file.lastModified}-${index}`,
+      name: file.name,
+      mediaType: inferMediaType(file),
+      mimeType: file.type || "unknown MIME",
+      sizeBytes: file.size,
+      url: URL.createObjectURL(file)
+    }));
+    setPreviewItems(items);
+    return () => {
+      items.forEach((item) => {
+        if (item.url) URL.revokeObjectURL(item.url);
+      });
+    };
+  }, [files]);
 
   return (
     <section className="grid gap-3 rounded-lg border border-[#e6dfd8] bg-field-100 p-4">
@@ -172,22 +186,24 @@ export function MediaCaptureField({
         </div>
         <p className="text-xs text-ink-muted">Drag and drop files here, or use the buttons above. Captured files are uploaded unchanged so embedded EXIF metadata is retained.</p>
       </div>
-      {fileSummary.length ? (
-        <div className="grid gap-2">
-          {fileSummary.map((item, index) => (
-            <div key={`${item.file.name}-${item.file.size}-${item.file.lastModified}`} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-field-50 px-3 py-2 text-sm text-ink-muted">
-              <span>
-                <Upload className="mr-2 inline h-4 w-4" aria-hidden />
-                {item.label}
-              </span>
-              <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-red-700" onClick={() => onFilesChange(files.filter((_, itemIndex) => itemIndex !== index))}>
-                <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                Remove
-              </button>
-            </div>
+      {previewItems.length ? (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {previewItems.map((item, index) => (
+            <MediaPreviewTile
+              key={item.key}
+              item={item}
+              onOpen={() => setActivePreview(item)}
+              action={
+                <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-red-700" onClick={() => onFilesChange(files.filter((_, itemIndex) => itemIndex !== index))}>
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                  Remove
+                </button>
+              }
+            />
           ))}
         </div>
       ) : null}
+      {activePreview ? <MediaLightbox item={activePreview} onClose={() => setActivePreview(null)} /> : null}
     </section>
   );
 }

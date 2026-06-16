@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
-from app.core.deps import assert_can_delete, assert_owner_or_admin, get_current_user
+from app.core.deps import assert_can_contribute_fields, assert_can_delete, get_current_user
 from app.schemas.records import ProductCreate, ProductUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
@@ -104,9 +104,9 @@ async def update_product(
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     product = await require_record(db.productdocumentation, product_id)
-    assert_owner_or_admin(product, current_user)
     data = decimal_to_string(clean_data(payload.model_dump(exclude_unset=True)))
     data = await attach_location(data)
+    assert_can_contribute_fields(product, current_user, data)
     updated = await db.productdocumentation.update(where={"id": product_id}, data=data, include=INCLUDE)
     return jsonable_encoder(updated)
 

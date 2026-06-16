@@ -1,6 +1,6 @@
 param(
   [string]$BaseUrl = "http://127.0.0.1:8000/api",
-  [string]$AdminEmail = "ankits1802@gmail.com",
+  [string]$AdminEmail = "",
   [string]$EnvFile = "backend/.env"
 )
 
@@ -9,10 +9,17 @@ $ErrorActionPreference = "Stop"
 $adminPassword = "ChangeMe123!"
 if (Test-Path $EnvFile) {
   foreach ($line in Get-Content $EnvFile) {
+    if (-not $AdminEmail -and $line -match "^MASTER_ADMIN_EMAIL=(.*)$") {
+      $AdminEmail = $Matches[1].Trim('"')
+    }
     if ($line -match "^ADMIN_PASSWORD=(.*)$") {
       $adminPassword = $Matches[1].Trim('"')
     }
   }
+}
+
+if (-not $AdminEmail) {
+  throw "AdminEmail was not provided and MASTER_ADMIN_EMAIL was not found in $EnvFile."
 }
 
 function Invoke-JsonPost($path, $body, $token = $null) {
@@ -178,6 +185,7 @@ try {
     transcriptStatus = "COMPLETED"
     linkedRecordType = "product"
     linkedRecordId = $product.id
+    processingRequests = @()
   } $token
   $cleanup.Add(@("media", $media.id)) | Out-Null
   if ($media.transcriptStatus -ne "COMPLETED" -or $media.linkedRecordId -ne $product.id) {

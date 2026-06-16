@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowDown, ArrowUp, ClipboardList, Mic, Plus, Save, Square, Trash2 } from "lucide-react";
+import { ClipboardList, GripVertical, Mic, Plus, Save, Square, Trash2 } from "lucide-react";
 
 import { EmptyState } from "@/components/EmptyState";
 import { Field, Select, TextArea, TextInput } from "@/components/FormControls";
 import { LocationFields } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
+import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
 import { RecordedAtField } from "@/components/forms/RecordedAtField";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
@@ -17,7 +18,7 @@ import { apiFetch, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { locationFromForm, parseJsonMetadata, recordedAtFromForm, recordedTimezoneFromForm, textValue } from "@/lib/forms";
 import { uploadMediaBatch } from "@/lib/media";
-import { isAdmin, isMasterAdmin } from "@/lib/permissions";
+import { canManageQuestionnaire, isAdmin } from "@/lib/permissions";
 import type { Artisan, PageResult, QuestionnaireInterview, QuestionnaireQuestion, QuestionnaireSection } from "@/lib/types";
 import { CalendarLume } from "@/components/ui/calendar-lume";
 
@@ -32,6 +33,8 @@ export default function QuestionnairePage() {
   const [selectedArtisanId, setSelectedArtisanId] = useState(searchParams.get("artisanId") ?? "");
   const [answerMode, setAnswerMode] = useState<"audio" | "text">("audio");
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
+  const [activePreview, setActivePreview] = useState<PreviewMedia | null>(null);
+  const [questionAudioPreviews, setQuestionAudioPreviews] = useState<Record<string, PreviewMedia[]>>({});
   const [recordingQuestionId, setRecordingQuestionId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [saving, setSaving] = useState(false);
@@ -93,6 +96,26 @@ export default function QuestionnairePage() {
       streamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, []);
+
+  useEffect(() => {
+    const nextPreviews: Record<string, PreviewMedia[]> = {};
+    Object.entries(questionAudioFiles).forEach(([questionId, files]) => {
+      nextPreviews[questionId] = files.map((file, index) => ({
+        key: `${questionId}-${file.name}-${file.size}-${file.lastModified}-${index}`,
+        name: file.name,
+        mediaType: "AUDIO",
+        mimeType: file.type || "audio/webm",
+        sizeBytes: file.size,
+        url: URL.createObjectURL(file)
+      }));
+    });
+    setQuestionAudioPreviews(nextPreviews);
+    return () => {
+      Object.values(nextPreviews).flat().forEach((item) => {
+        if (item.url) URL.revokeObjectURL(item.url);
+      });
+    };
+  }, [questionAudioFiles]);
 
   async function startQuestionRecording(question: QuestionnaireQuestion) {
     try {
@@ -213,7 +236,7 @@ export default function QuestionnairePage() {
         icon={<ClipboardList className="h-5 w-5" aria-hidden />}
       />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
-      {isMasterAdmin(user) ? <QuestionnaireAdminEditor sections={sections} onChanged={load} /> : null}
+      {canManageQuestionnaire(user) ? <QuestionnaireAdminEditor sections={sections} onChanged={load} /> : null}
       <form onSubmit={submit} className="panel mb-5 grid gap-4 p-4">
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
           <Field label="Interview title" required>
@@ -319,6 +342,31 @@ export default function QuestionnairePage() {
                         </>
                       ) : null}
                     </div>
+                    {questionAudioPreviews[question.id]?.length ? (
+                      <div className="mb-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {questionAudioPreviews[question.id].map((item, itemIndex) => (
+                          <MediaPreviewTile
+                            key={item.key}
+                            item={item}
+                            onOpen={() => setActivePreview(item)}
+                            action={
+                              <button
+                                type="button"
+                                className="text-xs font-semibold text-red-700"
+                                onClick={() =>
+                                  setQuestionAudioFiles((current) => ({
+                                    ...current,
+                                    [question.id]: (current[question.id] ?? []).filter((_, index) => index !== itemIndex)
+                                  }))
+                                }
+                              >
+                                Remove
+                              </button>
+                            }
+                          />
+                        ))}
+                      </div>
+                    ) : null}
                     {answerMode === "text" ? (
                       <TextArea value={answers[question.id] ?? ""} onChange={(event) => setAnswers((current) => ({ ...current, [question.id]: event.target.value }))} />
                     ) : null}
@@ -407,6 +455,7 @@ export default function QuestionnairePage() {
         )}
         {data ? <Pagination page={data.page} pages={data.pages} total={data.total} onPage={setPage} /> : null}
       </section>
+      {activePreview ? <MediaLightbox item={activePreview} onClose={() => setActivePreview(null)} /> : null}
     </>
   );
 }
@@ -419,17 +468,11 @@ function safeFileName(value: string) {
     .slice(0, 80) || "question-audio";
 }
 
-function moveItem<T>(items: T[], index: number, direction: -1 | 1) {
-  const nextIndex = index + direction;
-  if (nextIndex < 0 || nextIndex >= items.length) return items;
-  const copy = [...items];
-  [copy[index], copy[nextIndex]] = [copy[nextIndex], copy[index]];
-  return copy;
-}
-
 function QuestionnaireAdminEditor({ sections, onChanged }: { sections: QuestionnaireSection[]; onChanged: () => Promise<void> }) {
   const [newCode, setNewCode] = useState("");
   const [newTitle, setNewTitle] = useState("");
+  const [dragSectionId, setDragSectionId] = useState<string | null>(null);
+  const [dragQuestion, setDragQuestion] = useState<{ questionId: string; sectionId: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -478,6 +521,24 @@ function QuestionnaireAdminEditor({ sections, onChanged }: { sections: Questionn
     await onChanged();
   }
 
+  async function dropSection(targetSectionId: string) {
+    if (!dragSectionId || dragSectionId === targetSectionId) return;
+    setMessage(null);
+    try {
+      const sourceIndex = sections.findIndex((section) => section.id === dragSectionId);
+      const targetIndex = sections.findIndex((section) => section.id === targetSectionId);
+      if (sourceIndex < 0 || targetIndex < 0) return;
+      const nextSections = [...sections];
+      const [source] = nextSections.splice(sourceIndex, 1);
+      nextSections.splice(targetIndex, 0, source);
+      await reorderSections(nextSections);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Unable to reorder sections");
+    } finally {
+      setDragSectionId(null);
+    }
+  }
+
   async function addQuestion(section: QuestionnaireSection, form: FormData) {
     const prompt = String(form.get("prompt") ?? "").trim();
     if (!prompt) return;
@@ -506,13 +567,44 @@ function QuestionnaireAdminEditor({ sections, onChanged }: { sections: Questionn
     await onChanged();
   }
 
-  async function reorderQuestions(section: QuestionnaireSection, questionIndex: number, direction: -1 | 1) {
-    const nextQuestions = moveItem(section.questions, questionIndex, direction);
+  async function reorderQuestions(sectionId: string, questionIds: string[]) {
     await apiFetch("/questionnaire/questions/reorder", {
       method: "POST",
-      body: JSON.stringify({ sectionId: section.id, questionIds: nextQuestions.map((question) => question.id) })
+      body: JSON.stringify({ sectionId, questionIds })
     });
     await onChanged();
+  }
+
+  async function dropQuestion(targetSection: QuestionnaireSection, targetQuestionId?: string) {
+    if (!dragQuestion) return;
+    if (dragQuestion.questionId === targetQuestionId) {
+      setDragQuestion(null);
+      return;
+    }
+    setMessage(null);
+    try {
+      const sourceSection = sections.find((section) => section.id === dragQuestion.sectionId);
+      if (!sourceSection) return;
+
+      const sourceIds = sourceSection.questions.map((question) => question.id).filter((id) => id !== dragQuestion.questionId);
+      const targetIds = targetSection.id === sourceSection.id
+        ? sourceIds
+        : targetSection.questions.map((question) => question.id).filter((id) => id !== dragQuestion.questionId);
+      const targetIndex = targetQuestionId ? targetIds.indexOf(targetQuestionId) : targetIds.length;
+      targetIds.splice(targetIndex < 0 ? targetIds.length : targetIndex, 0, dragQuestion.questionId);
+
+      if (targetSection.id !== sourceSection.id) {
+        await apiFetch("/questionnaire/questions/reorder", {
+          method: "POST",
+          body: JSON.stringify({ sectionId: sourceSection.id, questionIds: sourceIds })
+        });
+      }
+      await reorderQuestions(targetSection.id, targetIds);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Unable to move question");
+    } finally {
+      setDragQuestion(null);
+    }
   }
 
   return (
@@ -541,10 +633,35 @@ function QuestionnaireAdminEditor({ sections, onChanged }: { sections: Questionn
       </form>
 
       <div className="grid gap-4">
-        {sections.map((section, sectionIndex) => (
-          <details key={section.id} className="rounded-md border border-[#e6dfd8] bg-white p-3" open>
-            <summary className="cursor-pointer font-serif text-xl text-ink">
-              {section.sortOrder}. {section.code} - {section.title}
+        {sections.map((section) => (
+          <details
+            key={section.id}
+            className={`rounded-md border bg-white p-3 transition ${dragSectionId === section.id ? "border-field-600 ring-2 ring-field-200" : "border-[#e6dfd8]"}`}
+            open
+            onDragOver={(event) => {
+              if (dragSectionId || dragQuestion) event.preventDefault();
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              if (dragSectionId) dropSection(section.id);
+              if (dragQuestion) dropQuestion(section);
+            }}
+          >
+            <summary className="flex cursor-pointer items-center gap-2 font-serif text-xl text-ink">
+              <button
+                type="button"
+                className="grid h-9 w-9 cursor-grab place-items-center rounded-md border border-[#e6dfd8] bg-field-50 text-ink-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-field-600 active:cursor-grabbing"
+                draggable
+                aria-label={`Drag section ${section.code}`}
+                onDragStart={(event) => {
+                  setDragSectionId(section.id);
+                  event.dataTransfer.effectAllowed = "move";
+                }}
+                onDragEnd={() => setDragSectionId(null)}
+              >
+                <GripVertical className="h-4 w-4" aria-hidden />
+              </button>
+              <span>{section.sortOrder}. {section.code} - {section.title}</span>
             </summary>
             <form
               className="mt-3 grid gap-3 md:grid-cols-[120px_1fr_auto_auto]"
@@ -568,12 +685,6 @@ function QuestionnaireAdminEditor({ sections, onChanged }: { sections: Questionn
                   <Save className="h-4 w-4" aria-hidden />
                   Save
                 </button>
-                <button type="button" className="field-button-secondary" disabled={sectionIndex === 0} onClick={() => reorderSections(moveItem(sections, sectionIndex, -1))}>
-                  <ArrowUp className="h-4 w-4" aria-hidden />
-                </button>
-                <button type="button" className="field-button-secondary" disabled={sectionIndex === sections.length - 1} onClick={() => reorderSections(moveItem(sections, sectionIndex, 1))}>
-                  <ArrowDown className="h-4 w-4" aria-hidden />
-                </button>
                 <button type="button" className="text-sm font-semibold text-red-700" onClick={() => removeSection(section)}>
                   <Trash2 className="inline h-4 w-4" aria-hidden /> Remove
                 </button>
@@ -581,10 +692,18 @@ function QuestionnaireAdminEditor({ sections, onChanged }: { sections: Questionn
             </form>
 
             <div className="mt-4 grid gap-3">
-              {section.questions.map((question, questionIndex) => (
+              {section.questions.map((question) => (
                 <form
                   key={question.id}
+                  data-question-row
                   className="grid gap-3 rounded-md bg-field-100 p-3 lg:grid-cols-[140px_1fr_auto]"
+                  onDragOver={(event) => {
+                    if (dragQuestion) event.preventDefault();
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    dropQuestion(section, question.id);
+                  }}
                   onSubmit={async (event) => {
                     event.preventDefault();
                     await updateQuestion(question, new FormData(event.currentTarget));
@@ -603,6 +722,19 @@ function QuestionnaireAdminEditor({ sections, onChanged }: { sections: Questionn
                     <TextArea name="prompt" defaultValue={question.prompt} required />
                   </Field>
                   <div className="flex flex-wrap items-end gap-2">
+                    <button
+                      type="button"
+                      className="field-button-secondary cursor-grab active:cursor-grabbing"
+                      draggable
+                      aria-label={`Drag question ${question.sortOrder}`}
+                      onDragStart={(event) => {
+                        setDragQuestion({ questionId: question.id, sectionId: section.id });
+                        event.dataTransfer.effectAllowed = "move";
+                      }}
+                      onDragEnd={() => setDragQuestion(null)}
+                    >
+                      <GripVertical className="h-4 w-4" aria-hidden />
+                    </button>
                     <label className="flex items-center gap-2 text-sm text-ink-muted">
                       <input name="isActive" type="checkbox" defaultChecked={question.isActive} />
                       Active
@@ -611,18 +743,24 @@ function QuestionnaireAdminEditor({ sections, onChanged }: { sections: Questionn
                       <Save className="h-4 w-4" aria-hidden />
                       Save
                     </button>
-                    <button type="button" className="field-button-secondary" disabled={questionIndex === 0} onClick={() => reorderQuestions(section, questionIndex, -1)}>
-                      <ArrowUp className="h-4 w-4" aria-hidden />
-                    </button>
-                    <button type="button" className="field-button-secondary" disabled={questionIndex === section.questions.length - 1} onClick={() => reorderQuestions(section, questionIndex, 1)}>
-                      <ArrowDown className="h-4 w-4" aria-hidden />
-                    </button>
                     <button type="button" className="text-sm font-semibold text-red-700" onClick={() => removeQuestion(question)}>
                       Remove
                     </button>
                   </div>
                 </form>
               ))}
+              <div
+                className={`rounded-md border border-dashed p-3 text-center text-xs font-semibold ${dragQuestion ? "border-field-600 bg-field-100 text-field-700" : "border-[#d7c7bc] text-ink-muted"}`}
+                onDragOver={(event) => {
+                  if (dragQuestion) event.preventDefault();
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  dropQuestion(section);
+                }}
+              >
+                Drop a question here to move it to the end of {section.code}
+              </div>
               <form
                 className="grid gap-3 rounded-md border border-dashed border-[#d7c7bc] p-3 md:grid-cols-[1fr_auto]"
                 onSubmit={async (event) => {

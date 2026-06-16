@@ -33,7 +33,13 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 4. Run the `app` configuration on an emulator.
 5. Log in with the admin email and password from your private backend `.env`, or use Google sign-in after OAuth is configured.
 
-The default emulator API base URL is `http://10.0.2.2:8000/api/`, which routes from the Android emulator to the host computer. For a physical device, change `DEFAULT_API_BASE_URL` in `app/build.gradle.kts` to your computer LAN address.
+The default emulator API base URL is `http://10.0.2.2:8000/api/`, which routes from the Android emulator to the host computer. For a physical device, keep source code unchanged and add an ignored local override in `android/local.properties`:
+
+```properties
+apiBaseUrl=http://YOUR_COMPUTER_LAN_IP:8000/api/
+```
+
+Run the backend on `0.0.0.0` so the phone can reach it over the same Wi-Fi network.
 
 Command-line debug build:
 

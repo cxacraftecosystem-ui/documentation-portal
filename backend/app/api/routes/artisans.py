@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
-from app.core.deps import assert_can_delete, assert_owner_or_admin, get_current_user
+from app.core.deps import assert_can_contribute_fields, assert_can_delete, get_current_user
 from app.schemas.records import ArtisanCreate, ArtisanUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import attach_location, clean_data, contains, require_record, visibility_where
@@ -94,10 +94,10 @@ async def update_artisan(
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     artisan = await require_record(db.artisan, artisan_id)
-    assert_owner_or_admin(artisan, current_user)
     data = clean_data(payload.model_dump(exclude_unset=True))
     data = await resolve_craft_id(data, current_user)
     data = await attach_location(data)
+    assert_can_contribute_fields(artisan, current_user, data)
     updated = await db.artisan.update(where={"id": artisan_id}, data=data, include=INCLUDE)
     return jsonable_encoder(updated)
 

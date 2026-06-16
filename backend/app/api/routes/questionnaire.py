@@ -1,11 +1,18 @@
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
-from app.core.deps import assert_can_delete, get_current_user, require_master_admin
+from app.core.deps import (
+    assert_can_contribute_fields,
+    assert_can_contribute_relation,
+    assert_can_delete,
+    get_current_user,
+    is_admin,
+    require_questionnaire_manager,
+)
 from app.schemas.questionnaire import (
     QuestionnaireInterviewCreate,
     QuestionnaireInterviewUpdate,
@@ -81,9 +88,27 @@ async def replace_interview_artisans(interview_id: str, artisan_ids: list[str]) 
         )
 
 
-async def upsert_responses(interview_id: str, responses: list[Any], answered_by_id: str) -> None:
+async def upsert_responses(interview_id: str, responses: list[Any], current_user: Any) -> None:
     for response in responses:
         await require_record(db.questionnairequestion, response.questionId)
+        existing = await db.questionnaireresponse.find_unique(
+            where={
+                "interviewId_questionId": {
+                    "interviewId": interview_id,
+                    "questionId": response.questionId,
+                }
+            }
+        )
+        if (
+            existing
+            and existing.answerText
+            and existing.answeredById != current_user.id
+            and not is_admin(current_user)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the original answer contributor or an admin can change this response",
+            )
         await db.questionnaireresponse.upsert(
             where={
                 "interviewId_questionId": {
@@ -97,12 +122,12 @@ async def upsert_responses(interview_id: str, responses: list[Any], answered_by_
                     "questionId": response.questionId,
                     "answerText": response.answerText,
                     "notes": response.notes,
-                    "answeredById": answered_by_id,
+                    "answeredById": current_user.id,
                 },
                 "update": {
                     "answerText": response.answerText,
                     "notes": response.notes,
-                    "answeredById": answered_by_id,
+                    "answeredById": current_user.id,
                 },
             },
         )
@@ -135,7 +160,7 @@ async def list_sections(
 @router.post("/sections", status_code=status.HTTP_201_CREATED)
 async def create_section(
     payload: QuestionnaireSectionCreate,
-    _: Any = Depends(require_master_admin),
+    _: Any = Depends(require_questionnaire_manager),
 ) -> dict[str, Any]:
     sort_order = payload.sortOrder or await next_section_sort_order()
     created = await db.questionnairesection.create(
@@ -153,7 +178,7 @@ async def create_section(
 async def update_section(
     section_id: str,
     payload: QuestionnaireSectionUpdate,
-    _: Any = Depends(require_master_admin),
+    _: Any = Depends(require_questionnaire_manager),
 ) -> dict[str, Any]:
     await require_section(section_id)
     data = clean_data(payload.model_dump(exclude_unset=True))
@@ -173,7 +198,7 @@ async def update_section(
 @router.delete("/sections/{section_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_section(
     section_id: str,
-    _: Any = Depends(require_master_admin),
+    _: Any = Depends(require_questionnaire_manager),
 ) -> None:
     await require_section(section_id)
     await db.questionnairesection.update(where={"id": section_id}, data={"isActive": False})
@@ -183,7 +208,7 @@ async def delete_section(
 @router.post("/sections/reorder")
 async def reorder_sections(
     payload: QuestionnaireSectionReorder,
-    _: Any = Depends(require_master_admin),
+    _: Any = Depends(require_questionnaire_manager),
 ) -> list[dict[str, Any]]:
     for index, section_id in enumerate(payload.sectionIds):
         await require_section(section_id)
@@ -196,7 +221,7 @@ async def reorder_sections(
 @router.post("/questions", status_code=status.HTTP_201_CREATED)
 async def create_question(
     payload: QuestionnaireQuestionCreate,
-    _: Any = Depends(require_master_admin),
+    _: Any = Depends(require_questionnaire_manager),
 ) -> dict[str, Any]:
     section = await require_section(payload.sectionId)
     sort_order = payload.sortOrder or await next_question_sort_order(section.id)
@@ -215,7 +240,7 @@ async def create_question(
 async def update_question(
     question_id: str,
     payload: QuestionnaireQuestionUpdate,
-    _: Any = Depends(require_master_admin),
+    _: Any = Depends(require_questionnaire_manager),
 ) -> dict[str, Any]:
     question = await require_record(db.questionnairequestion, question_id)
     data = clean_data(payload.model_dump(exclude_unset=True))
@@ -237,7 +262,7 @@ async def update_question(
 @router.delete("/questions/{question_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_question(
     question_id: str,
-    _: Any = Depends(require_master_admin),
+    _: Any = Depends(require_questionnaire_manager),
 ) -> None:
     await require_record(db.questionnairequestion, question_id)
     await db.questionnairequestion.update(where={"id": question_id}, data={"isActive": False})
@@ -246,7 +271,7 @@ async def delete_question(
 @router.post("/questions/reorder")
 async def reorder_questions(
     payload: QuestionnaireQuestionReorder,
-    _: Any = Depends(require_master_admin),
+    _: Any = Depends(require_questionnaire_manager),
 ) -> list[dict[str, Any]]:
     section = await require_section(payload.sectionId)
     for index, question_id in enumerate(payload.questionIds):
@@ -301,7 +326,7 @@ async def create_interview(
     if payload.artisanIds:
         await replace_interview_artisans(created.id, payload.artisanIds)
     if payload.responses:
-        await upsert_responses(created.id, payload.responses, current_user.id)
+        await upsert_responses(created.id, payload.responses, current_user)
     hydrated = await db.questionnaireinterview.find_unique(where={"id": created.id}, include=INTERVIEW_INCLUDE)
     return jsonable_encoder(hydrated)
 
@@ -319,15 +344,18 @@ async def update_interview(
     payload: QuestionnaireInterviewUpdate,
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    await require_record(db.questionnaireinterview, interview_id)
+    interview = await require_record(db.questionnaireinterview, interview_id)
     data = clean_data(payload.model_dump(exclude_unset=True, exclude={"artisanIds", "responses"}))
     data = await attach_location(data)
+    assert_can_contribute_fields(interview, current_user, data)
     if data:
         await db.questionnaireinterview.update(where={"id": interview_id}, data=data)
     if payload.artisanIds is not None:
+        link_count = await db.questionnaireinterviewartisan.count(where={"interviewId": interview_id})
+        assert_can_contribute_relation(interview, current_user, link_count > 0, "artisanIds")
         await replace_interview_artisans(interview_id, payload.artisanIds)
     if payload.responses is not None:
-        await upsert_responses(interview_id, payload.responses, current_user.id)
+        await upsert_responses(interview_id, payload.responses, current_user)
     updated = await db.questionnaireinterview.find_unique(where={"id": interview_id}, include=INTERVIEW_INCLUDE)
     return jsonable_encoder(updated)
 

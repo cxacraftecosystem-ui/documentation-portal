@@ -74,6 +74,7 @@ async def login_with_google(token: str) -> Any:
         data = {"name": name, "avatarUrl": avatar_url, "authProvider": "GOOGLE"}
         if role == "MASTER_ADMIN":
             data["role"] = "MASTER_ADMIN"
+            data["canManageQuestionnaire"] = True
         return await db.user.update(
             where={"email": email},
             data=data,
@@ -85,6 +86,7 @@ async def login_with_google(token: str) -> Any:
             "avatarUrl": avatar_url,
             "authProvider": "GOOGLE",
             "role": role,
+            "canManageQuestionnaire": role == "MASTER_ADMIN",
         }
     )
 

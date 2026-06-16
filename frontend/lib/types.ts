@@ -17,6 +17,7 @@ export type User = {
   role: UserRole;
   avatarUrl?: string | null;
   authProvider?: string;
+  canManageQuestionnaire?: boolean;
 };
 
 export type LocationPayload = {

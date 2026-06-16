@@ -29,6 +29,14 @@ def assert_role(role: str | None, current_user: Any) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the master admin can grant master admin")
 
 
+def assert_questionnaire_permission_change(value: bool | None, current_user: Any) -> None:
+    if value is not None and not is_master_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the master admin can grant questionnaire management access",
+        )
+
+
 def is_master_email(email: str | None) -> bool:
     if not email:
         return False
@@ -68,6 +76,8 @@ async def list_users(
 async def create_user(payload: UserCreate, current_user: Any = Depends(require_admin)) -> dict[str, Any]:
     role = "MASTER_ADMIN" if is_master_email(payload.email) else payload.role
     assert_role(role, current_user)
+    if payload.canManageQuestionnaire:
+        assert_questionnaire_permission_change(payload.canManageQuestionnaire, current_user)
     existing = await db.user.find_unique(where={"email": payload.email.lower()})
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
@@ -78,6 +88,7 @@ async def create_user(payload: UserCreate, current_user: Any = Depends(require_a
             "passwordHash": hash_password(payload.password),
             "role": role,
             "authProvider": "LOCAL",
+            "canManageQuestionnaire": role == "MASTER_ADMIN" or payload.canManageQuestionnaire,
         }
     )
     return serialize_user(user)
@@ -90,6 +101,7 @@ async def update_user(
     current_user: Any = Depends(require_admin),
 ) -> dict[str, Any]:
     assert_role(payload.role, current_user)
+    assert_questionnaire_permission_change(payload.canManageQuestionnaire, current_user)
     data = clean_data(payload.model_dump(exclude_unset=True))
     if "email" in data:
         data["email"] = data["email"].lower()
@@ -101,6 +113,9 @@ async def update_user(
     assert_not_demoting_master(user, data.get("role"), current_user)
     if "email" in data and is_master_email(data["email"]):
         data["role"] = "MASTER_ADMIN"
+        data["canManageQuestionnaire"] = True
+    if data.get("role") == "MASTER_ADMIN":
+        data["canManageQuestionnaire"] = True
     updated = await db.user.update(where={"id": user_id}, data=data)
     return serialize_user(updated)
 

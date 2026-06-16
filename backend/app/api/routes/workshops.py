@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
-from app.core.deps import assert_can_delete, assert_owner_or_admin, get_current_user
+from app.core.deps import assert_can_contribute_fields, assert_can_contribute_relation, assert_can_delete, get_current_user
 from app.schemas.records import WorkshopCreate, WorkshopUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import add_date_range, attach_location, clean_data, contains, require_record, visibility_where
@@ -93,13 +93,15 @@ async def update_workshop(
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     workshop = await require_record(db.workshop, workshop_id)
-    assert_owner_or_admin(workshop, current_user)
     data = clean_data(payload.model_dump(exclude_unset=True))
     artisan_ids = data.pop("artisanIds", None)
     data = normalize_workshop_dates(data)
     data = await attach_location(data)
+    assert_can_contribute_fields(workshop, current_user, data)
     await db.workshop.update(where={"id": workshop_id}, data=data)
     if artisan_ids is not None:
+        link_count = await db.workshopartisan.count(where={"workshopId": workshop_id})
+        assert_can_contribute_relation(workshop, current_user, link_count > 0, "artisanIds")
         await replace_workshop_artisans(workshop_id, artisan_ids)
     updated = await db.workshop.find_unique(where={"id": workshop_id}, include=INCLUDE)
     return jsonable_encoder(updated)

@@ -39,11 +39,18 @@ class FieldRepository(
 
     suspend fun stats(): DashboardStats = api.dashboardStats()
 
+    suspend fun users(): List<UserDto> = api.users(pageSize = 100).items
+
+    suspend fun updateUserQuestionnaireAccess(id: String, canManageQuestionnaire: Boolean): UserDto =
+        api.updateUser(id, UserUpdateRequest(canManageQuestionnaire = canManageQuestionnaire))
+
     suspend fun artisans(): List<ArtisanDto> = api.artisans(pageSize = 50).items
 
     suspend fun crafts(): List<CraftDto> = api.crafts(pageSize = 100).items
 
     suspend fun createArtisan(body: ArtisanCreateRequest): ArtisanDto = api.createArtisan(body)
+
+    suspend fun media(): List<MediaFileDto> = api.media(pageSize = 20).items
 
     suspend fun createCraft(body: CraftCreateRequest) {
         api.createCraft(body)

@@ -164,7 +164,7 @@ The Android app keeps the web OAuth client ID in `android/app/build.gradle.kts` 
 
 ## Roles And Permissions
 
-- `MASTER_ADMIN`: reserved for `ankits1802@gmail.com`; has complete user, review, edit and delete rights.
+- `MASTER_ADMIN`: reserved for the email configured in `MASTER_ADMIN_EMAIL`; has complete user, review, edit and delete rights.
 - `ADMIN`: junior admin; can review, delete records and manage users.
 - `RESEARCHER`: can create records, see all repository entries, edit their own ordinary records, and add/edit questionnaire interviews.
 
@@ -262,7 +262,7 @@ Useful optional variables:
 - `BACKEND_CORS_ORIGINS` comma-separated frontend origins.
 - `GOOGLE_CLIENT_ID` to verify Google OAuth ID tokens.
 - `GOOGLE_ANDROID_CLIENT_ID` to also accept Android OAuth audience tokens if needed.
-- `MASTER_ADMIN_EMAIL` defaults to `ankits1802@gmail.com`.
+- `MASTER_ADMIN_EMAIL` is required and should be set to the master administrator's Google account.
 - `MASTER_ADMIN_NAME` defaults to `Ankit Kumar`.
 - `OPENAI_API_KEY`, `OPENAI_TRANSCRIPTION_MODEL`, `GEMINI_API_KEY`, `NEXT_PUBLIC_MAPTILER_API_KEY` for optional transcription, measurement and map picking.
 - `MEDIA_QUEUE_WORKER_ENABLED`, `MEDIA_QUEUE_INTERVAL_SECONDS`, `MEDIA_QUEUE_BATCH_SIZE`, `MEDIA_QUEUE_JOB_MAX_ATTEMPTS` for the background media-processing queue.

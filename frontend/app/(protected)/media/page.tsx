@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Camera, Mic, Square, Upload, Video } from "lucide-react";
 
 import { EmptyState } from "@/components/EmptyState";
 import { Field, Select, TextArea, TextInput } from "@/components/FormControls";
 import { LocationFields } from "@/components/forms/LocationFields";
+import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -46,6 +47,8 @@ export default function MediaPage() {
   const [recording, setRecording] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
   const [progress, setProgress] = useState<string | null>(null);
+  const [selectedPreviews, setSelectedPreviews] = useState<PreviewMedia[]>([]);
+  const [activePreview, setActivePreview] = useState<PreviewMedia | null>(null);
   const [warning] = useState<string | null>("Audio transcription is queued after upload. If OPENAI_API_KEY is missing, the media record is still retained and marked unavailable.");
   const [error, setError] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -53,10 +56,22 @@ export default function MediaPage() {
   const chunksRef = useRef<Blob[]>([]);
   const animationRef = useRef<number | null>(null);
 
-  const fileSummary = useMemo(
-    () => selectedFiles.map((file) => `${file.name} · ${bytes(file.size)} · ${file.type || "unknown MIME"}`),
-    [selectedFiles]
-  );
+  useEffect(() => {
+    const items = selectedFiles.map((file, index) => ({
+      key: `${file.name}-${file.size}-${file.lastModified}-${index}`,
+      name: file.name,
+      mediaType: inferMediaType(file),
+      mimeType: file.type || "unknown MIME",
+      sizeBytes: file.size,
+      url: URL.createObjectURL(file)
+    }));
+    setSelectedPreviews(items);
+    return () => {
+      items.forEach((item) => {
+        if (item.url) URL.revokeObjectURL(item.url);
+      });
+    };
+  }, [selectedFiles]);
 
   async function load() {
     try {
@@ -244,15 +259,19 @@ export default function MediaPage() {
             <div className="h-full rounded-full bg-field-600 transition-all" style={{ width: `${recording ? audioLevel : 0}%` }} />
           </div>
         </div>
-        {fileSummary.length ? (
-          <div className="grid gap-2 rounded-md bg-neutral-50 px-3 py-2 text-sm text-neutral-600">
-            {fileSummary.map((summary, index) => (
-              <div key={summary} className="flex items-center justify-between gap-3">
-                <span>{summary}</span>
-                <button type="button" className="text-xs font-semibold text-red-700" onClick={() => setSelectedFiles((files) => files.filter((_, itemIndex) => itemIndex !== index))}>
-                  Remove
-                </button>
-              </div>
+        {selectedPreviews.length ? (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {selectedPreviews.map((item, index) => (
+              <MediaPreviewTile
+                key={item.key}
+                item={item}
+                onOpen={() => setActivePreview(item)}
+                action={
+                  <button type="button" className="text-xs font-semibold text-red-700" onClick={() => setSelectedFiles((files) => files.filter((_, itemIndex) => itemIndex !== index))}>
+                    Remove
+                  </button>
+                }
+              />
             ))}
           </div>
         ) : null}
@@ -310,13 +329,31 @@ export default function MediaPage() {
                 {data.items.map((item) => (
                   <tr key={item.id}>
                     <td className="px-4 py-3">
-                      {item.mediaType === "IMAGE" && item.url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={item.url} alt={item.caption ?? item.originalFilename} className="h-14 w-20 rounded-md object-cover" />
-                      ) : item.url ? (
-                        <a className="font-semibold text-field-700" href={item.url} target="_blank" rel="noreferrer">
-                          Open
-                        </a>
+                      {item.url ? (
+                        <div className="w-36">
+                          <MediaPreviewTile
+                            item={{
+                              key: item.id,
+                              name: item.originalFilename,
+                              mediaType: item.mediaType,
+                              mimeType: item.mimeType,
+                              sizeBytes: item.sizeBytes,
+                              url: item.url,
+                              caption: item.caption
+                            }}
+                            onOpen={() =>
+                              setActivePreview({
+                                key: item.id,
+                                name: item.originalFilename,
+                                mediaType: item.mediaType,
+                                mimeType: item.mimeType,
+                                sizeBytes: item.sizeBytes,
+                                url: item.url,
+                                caption: item.caption
+                              })
+                            }
+                          />
+                        </div>
                       ) : (
                         <span className="text-neutral-500">No URL</span>
                       )}
@@ -361,6 +398,7 @@ export default function MediaPage() {
         )}
         {data ? <Pagination page={data.page} pages={data.pages} total={data.total} onPage={setPage} /> : null}
       </section>
+      {activePreview ? <MediaLightbox item={activePreview} onClose={() => setActivePreview(null)} /> : null}
     </>
   );
 }

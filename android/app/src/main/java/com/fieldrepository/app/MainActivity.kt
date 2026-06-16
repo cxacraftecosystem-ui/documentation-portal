@@ -2,6 +2,7 @@ package com.fieldrepository.app
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.media.MediaRecorder
@@ -13,6 +14,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +36,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -48,7 +52,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -83,6 +89,7 @@ import com.fieldrepository.app.ui.FieldRepositoryTheme
 import com.fieldrepository.app.ui.Muted
 import com.fieldrepository.app.ui.SurfaceCard
 import kotlinx.coroutines.launch
+import coil.compose.AsyncImage
 import java.io.File
 import java.time.Instant
 
@@ -107,7 +114,8 @@ private enum class EntryMode(val label: String) {
     PRODUCT("Product"),
     TOOL("Tool"),
     MEDIA("Media"),
-    QUESTIONNAIRE("Questionnaire")
+    QUESTIONNAIRE("Questionnaire"),
+    USERS("Users")
 }
 
 @Composable
@@ -232,7 +240,12 @@ private fun LoginScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                        Text("G", color = Color(0xFF4285F4), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_google_g),
+                            contentDescription = null,
+                            tint = Color.Unspecified,
+                            modifier = Modifier.size(20.dp)
+                        )
                         Spacer(Modifier.width(8.dp))
                         Text(if (busy) "Please wait..." else "Sign in with Google")
                     }
@@ -253,6 +266,11 @@ private fun HomeScreen(
     var sections by remember { mutableStateOf<List<QuestionnaireSectionDto>>(emptyList()) }
     var mode by remember { mutableStateOf(EntryMode.ARTISAN) }
     var message by remember { mutableStateOf<String?>(null) }
+    val isAdmin = user.role == "MASTER_ADMIN" || user.role == "ADMIN"
+    val isQuestionnaireManager = user.role == "MASTER_ADMIN" || user.canManageQuestionnaire
+    val availableModes = remember(user.role, user.canManageQuestionnaire) {
+        EntryMode.entries.filter { entryMode -> entryMode != EntryMode.USERS || isAdmin }
+    }
 
     fun refresh() {
         scope.launch {
@@ -291,7 +309,7 @@ private fun HomeScreen(
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
         ) {
-            EntryMode.entries.forEach { entryMode ->
+            availableModes.forEach { entryMode ->
                 FilterChip(
                     selected = mode == entryMode,
                     onClick = { mode = entryMode },
@@ -362,7 +380,7 @@ private fun HomeScreen(
             EntryMode.QUESTIONNAIRE -> QuestionnaireForm(
                 repository = repository,
                 sections = sections,
-                isMasterAdmin = user.role == "MASTER_ADMIN",
+                canManageQuestionnaire = isQuestionnaireManager,
                 onRefreshSections = {
                     runCatching { repository.questionnaireSections() }
                         .onSuccess { sections = it }
@@ -379,6 +397,11 @@ private fun HomeScreen(
                     message = "Questionnaire interview saved"
                     refresh()
                 }
+            )
+            EntryMode.USERS -> UserManagementForm(
+                repository = repository,
+                isMasterAdmin = user.role == "MASTER_ADMIN",
+                onError = { message = it }
             )
         }
 
@@ -683,7 +706,16 @@ private fun AndroidMediaForm(
     var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var recordingFile by remember { mutableStateOf<File?>(null) }
     var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
+    var savedMedia by remember { mutableStateOf<List<com.fieldrepository.app.data.MediaFileDto>>(emptyList()) }
     var localMessage by remember { mutableStateOf<String?>(null) }
+
+    fun refreshMedia() {
+        scope.launch {
+            runCatching { repository.media() }
+                .onSuccess { savedMedia = it }
+                .onFailure { error -> onError(error.message ?: "Unable to load saved media") }
+        }
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
@@ -702,6 +734,7 @@ private fun AndroidMediaForm(
 
     LaunchedEffect(Unit) {
         permissionLauncher.launch(requiredAndroidPermissions())
+        refreshMedia()
     }
 
     RecordCard(title = "Capture media") {
@@ -792,11 +825,11 @@ private fun AndroidMediaForm(
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text("${selectedUris.size} file(s) ready", color = Canvas, fontWeight = FontWeight.SemiBold)
-                selectedUris.take(6).forEach { uri ->
-                    Text(uri.lastPathSegment.orEmpty(), color = SurfaceCard, fontSize = 12.sp)
+                selectedUris.take(8).forEach { uri ->
+                    AndroidUriPreview(context = context, uri = uri)
                 }
-                if (selectedUris.size > 6) {
-                    Text("+${selectedUris.size - 6} more", color = SurfaceCard, fontSize = 12.sp)
+                if (selectedUris.size > 8) {
+                    Text("+${selectedUris.size - 8} more", color = SurfaceCard, fontSize = 12.sp)
                 }
                 TextButton(onClick = { selectedUris = emptyList() }) {
                     Text("Clear batch")
@@ -827,6 +860,7 @@ private fun AndroidMediaForm(
                         mediaTitle = ""
                         caption = ""
                         localMessage = null
+                        refreshMedia()
                         onUploaded(count)
                     }.onFailure { error ->
                         onError(error.message ?: "Unable to upload media batch")
@@ -839,6 +873,85 @@ private fun AndroidMediaForm(
         ) {
             Text(if (uploading) "Uploading..." else "Upload batch")
         }
+        if (savedMedia.isNotEmpty()) {
+            Text("Recent saved media", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+            savedMedia.take(10).forEach { media ->
+                AndroidSavedMediaPreview(context = context, media = media)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AndroidUriPreview(context: Context, uri: Uri) {
+    val mimeType = remember(uri) { context.contentResolver.getType(uri) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(color = Color(0xFF181715), shape = RoundedCornerShape(10.dp))
+            .clickable { openUri(context, uri, mimeType) }
+            .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        if (mimeType?.startsWith("image/") == true) {
+            AsyncImage(
+                model = uri,
+                contentDescription = uri.lastPathSegment,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(64.dp).background(SurfaceCard, RoundedCornerShape(8.dp))
+            )
+        } else {
+            Box(
+                modifier = Modifier.size(64.dp).background(SurfaceCard, RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text((mimeType ?: "file").substringBefore('/').uppercase().take(5), color = Body, fontSize = 11.sp)
+            }
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(uri.lastPathSegment.orEmpty(), color = Canvas, fontSize = 12.sp)
+            Text(mimeType ?: "Unknown file type", color = SurfaceCard, fontSize = 11.sp)
+        }
+        Text("Open", color = SurfaceCard, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun AndroidSavedMediaPreview(context: Context, media: com.fieldrepository.app.data.MediaFileDto) {
+    val uri = remember(media.url) { media.url?.let(Uri::parse) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(color = SurfaceCard, shape = RoundedCornerShape(10.dp))
+            .clickable(enabled = uri != null) {
+                if (uri != null) openUri(context, uri, media.mimeType)
+            }
+            .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        if (media.mediaType == "IMAGE" && uri != null) {
+            AsyncImage(
+                model = uri,
+                contentDescription = media.caption ?: media.originalFilename,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(64.dp).background(Canvas, RoundedCornerShape(8.dp))
+            )
+        } else {
+            Box(
+                modifier = Modifier.size(64.dp).background(Canvas, RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(media.mediaType.take(5), color = Body, fontSize = 11.sp)
+            }
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(media.originalFilename, color = Body, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+            Text(media.mimeType ?: media.mediaType, color = Muted, fontSize = 11.sp)
+            media.transcriptStatus?.let { Text("Transcript: $it", color = Muted, fontSize = 11.sp) }
+        }
+        if (uri != null) Text("Open", color = Body, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
     }
 }
 
@@ -846,7 +959,7 @@ private fun AndroidMediaForm(
 private fun QuestionnaireForm(
     repository: FieldRepository,
     sections: List<QuestionnaireSectionDto>,
-    isMasterAdmin: Boolean,
+    canManageQuestionnaire: Boolean,
     onRefreshSections: suspend () -> Unit,
     onSubmit: suspend (QuestionnaireInterviewCreateRequest) -> String,
     onError: (String) -> Unit,
@@ -866,7 +979,7 @@ private fun QuestionnaireForm(
     var recordingFile by remember { mutableStateOf<File?>(null) }
     var questionAudio by remember { mutableStateOf<Map<String, List<Uri>>>(emptyMap()) }
 
-    if (isMasterAdmin) {
+    if (canManageQuestionnaire) {
         QuestionnaireBuilder(repository, sections, onRefreshSections, onError)
     }
 
@@ -1167,6 +1280,70 @@ private fun QuestionnaireBuilder(
 }
 
 @Composable
+private fun UserManagementForm(
+    repository: FieldRepository,
+    isMasterAdmin: Boolean,
+    onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var users by remember { mutableStateOf<List<UserDto>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+
+    fun refreshUsers() {
+        scope.launch {
+            loading = true
+            runCatching { repository.users() }
+                .onSuccess { users = it }
+                .onFailure { onError(it.message ?: "Unable to load users") }
+            loading = false
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        refreshUsers()
+    }
+
+    RecordCard(title = "Users and questionnaire access") {
+        Text(
+            "Admins can review users here. The master admin can grant or revoke questionnaire-builder access.",
+            color = Muted,
+            fontSize = 12.sp
+        )
+        if (loading) {
+            Text("Loading users...", color = Muted)
+        }
+        users.forEach { appUser ->
+            ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard)) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(appUser.name, fontWeight = FontWeight.SemiBold)
+                    Text("${appUser.email} - ${appUser.role}", color = Muted, fontSize = 12.sp)
+                    val included = appUser.role == "MASTER_ADMIN" || appUser.canManageQuestionnaire
+                    Text(
+                        if (included) "Can manage questionnaire" else "Cannot manage questionnaire",
+                        color = Body,
+                        fontSize = 12.sp
+                    )
+                    OutlinedButton(
+                        enabled = isMasterAdmin && appUser.role != "MASTER_ADMIN",
+                        onClick = {
+                            scope.launch {
+                                runCatching {
+                                    repository.updateUserQuestionnaireAccess(appUser.id, !appUser.canManageQuestionnaire)
+                                    refreshUsers()
+                                }.onFailure { onError(it.message ?: "Unable to update questionnaire access") }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (included) "Revoke questionnaire access" else "Grant questionnaire access")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun RecordCard(title: String, content: @Composable ColumnScope.() -> Unit) {
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(containerColor = Canvas),
@@ -1217,6 +1394,20 @@ private fun createAppFileUri(context: Context, prefix: String, suffix: String): 
 
 private fun uriForFile(context: Context, file: File): Uri {
     return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+}
+
+private fun openUri(context: Context, uri: Uri, mimeType: String?) {
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        if (mimeType.isNullOrBlank()) {
+            data = uri
+        } else {
+            setDataAndType(uri, mimeType)
+        }
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    runCatching {
+        context.startActivity(Intent.createChooser(intent, "Open media"))
+    }
 }
 
 private fun createAudioRecorder(context: Context, file: File): MediaRecorder {

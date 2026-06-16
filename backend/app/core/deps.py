@@ -1,3 +1,4 @@
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from fastapi import Depends, HTTPException, status
@@ -26,6 +27,10 @@ def is_admin(user: Any) -> bool:
 
 def is_master_admin(user: Any) -> bool:
     return role_value(user) == "MASTER_ADMIN"
+
+
+def can_manage_questionnaire(user: Any) -> bool:
+    return is_master_admin(user) or bool(get_value(user, "canManageQuestionnaire"))
 
 
 async def get_current_user(
@@ -61,6 +66,68 @@ async def require_master_admin(current_user: Any = Depends(get_current_user)) ->
             detail="Master admin access required",
         )
     return current_user
+
+
+async def require_questionnaire_manager(current_user: Any = Depends(get_current_user)) -> Any:
+    if not can_manage_questionnaire(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Questionnaire management access required",
+        )
+    return current_user
+
+
+def is_empty_value(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() == ""
+    if isinstance(value, (list, tuple, set, dict)):
+        return len(value) == 0
+    return False
+
+
+def enum_or_raw(value: Any) -> Any:
+    return getattr(value, "value", value)
+
+
+def values_match(current_value: Any, next_value: Any) -> bool:
+    current_value = enum_or_raw(current_value)
+    next_value = enum_or_raw(next_value)
+    if current_value == next_value:
+        return True
+    try:
+        return Decimal(str(current_value)) == Decimal(str(next_value))
+    except (InvalidOperation, ValueError):
+        return str(current_value) == str(next_value)
+
+
+def assert_can_contribute_fields(record: Any, user: Any, data: dict[str, Any], owner_field: str = "createdById") -> None:
+    if is_admin(user) or get_value(record, owner_field) == get_value(user, "id"):
+        return
+
+    locked_fields = [
+        field
+        for field, next_value in data.items()
+        if not is_empty_value(next_value)
+        and not is_empty_value(get_value(record, field))
+        and not values_match(get_value(record, field), next_value)
+    ]
+    if locked_fields:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Only the original contributor or an admin can change populated field(s): {', '.join(sorted(locked_fields))}",
+        )
+
+
+def assert_can_contribute_relation(record: Any, user: Any, populated: bool, field_name: str, owner_field: str = "createdById") -> None:
+    if is_admin(user) or get_value(record, owner_field) == get_value(user, "id"):
+        return
+    if populated:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Only the original contributor or an admin can change populated relation: {field_name}",
+        )
 
 
 def assert_owner_or_admin(record: Any, user: Any, owner_field: str = "createdById") -> None:

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
-from app.core.deps import assert_can_delete, assert_owner_or_admin, get_current_user
+from app.core.deps import assert_can_contribute_fields, assert_can_delete, get_current_user
 from app.schemas.records import CraftCreate, CraftUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import clean_data, contains, require_record
@@ -60,8 +60,8 @@ async def update_craft(
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     craft = await require_record(db.craft, craft_id)
-    assert_owner_or_admin(craft, current_user)
     data = clean_data(payload.model_dump(exclude_unset=True))
+    assert_can_contribute_fields(craft, current_user, data)
     updated = await db.craft.update(where={"id": craft_id}, data=data)
     return jsonable_encoder(updated)
 

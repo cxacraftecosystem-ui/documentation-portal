@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
-from app.core.deps import assert_can_delete, assert_owner_or_admin, get_current_user
+from app.core.deps import assert_can_contribute_fields, assert_can_delete, get_current_user
 from app.schemas.records import ToolCreate, ToolUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
@@ -105,9 +105,9 @@ async def update_tool(
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     tool = await require_record(db.tooldocumentation, tool_id)
-    assert_owner_or_admin(tool, current_user)
     data = decimal_to_string(clean_data(payload.model_dump(exclude_unset=True)))
     data = await attach_location(data)
+    assert_can_contribute_fields(tool, current_user, data)
     updated = await db.tooldocumentation.update(where={"id": tool_id}, data=data, include=INCLUDE)
     return jsonable_encoder(updated)
 

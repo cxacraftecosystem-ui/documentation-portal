@@ -26,7 +26,9 @@ data class UserDto(
     val id: String,
     val email: String,
     val name: String,
-    val role: String
+    val role: String,
+    val canManageQuestionnaire: Boolean = false,
+    val authProvider: String? = null
 )
 
 @Serializable
@@ -114,7 +116,16 @@ data class MediaFileDto(
     val id: String,
     val originalFilename: String,
     val mediaType: String,
+    val mimeType: String? = null,
+    val url: String? = null,
+    val caption: String? = null,
     val transcriptStatus: String? = null
+)
+
+@Serializable
+data class UserUpdateRequest(
+    val role: String? = null,
+    val canManageQuestionnaire: Boolean? = null
 )
 
 @Serializable

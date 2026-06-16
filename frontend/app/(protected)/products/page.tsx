@@ -6,6 +6,7 @@ import { Boxes, Plus } from "lucide-react";
 
 import { DownloadCsvButton } from "@/components/DownloadCsvButton";
 import { EmptyState } from "@/components/EmptyState";
+import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -20,6 +21,7 @@ export default function ProductsPage() {
   const [data, setData] = useState<PageResult<ProductDocumentation> | null>(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [activePreview, setActivePreview] = useState<PreviewMedia | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -104,7 +106,27 @@ export default function ProductsPage() {
                     <td className="px-4 py-3 text-neutral-600">{product.artisanName}</td>
                     <td className="px-4 py-3 text-neutral-600">{product.place}</td>
                     <td className="px-4 py-3 text-neutral-600">{product.marketDemand}</td>
-                    <td className="px-4 py-3 text-neutral-600">{product.media?.length ?? 0}</td>
+                    <td className="px-4 py-3 text-neutral-600">
+                      {product.media?.length ? (
+                        <div className="grid max-w-[240px] grid-cols-2 gap-2">
+                          {product.media.slice(0, 2).map((media) => {
+                            const preview = {
+                              key: media.id,
+                              name: media.originalFilename,
+                              mediaType: media.mediaType,
+                              mimeType: media.mimeType,
+                              sizeBytes: media.sizeBytes,
+                              url: media.url,
+                              caption: media.caption
+                            };
+                            return <MediaPreviewTile key={media.id} item={preview} onOpen={() => setActivePreview(preview)} />;
+                          })}
+                          {product.media.length > 2 ? <span className="text-xs font-semibold text-ink-muted">+{product.media.length - 2} more</span> : null}
+                        </div>
+                      ) : (
+                        "0"
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <StatusBadge status={product.status} />
                     </td>
@@ -127,6 +149,7 @@ export default function ProductsPage() {
         )}
         {data ? <Pagination page={data.page} pages={data.pages} total={data.total} onPage={setPage} /> : null}
       </section>
+      {activePreview ? <MediaLightbox item={activePreview} onClose={() => setActivePreview(null)} /> : null}
     </>
   );
 }
