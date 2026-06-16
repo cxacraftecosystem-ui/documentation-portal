@@ -13,6 +13,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -45,6 +47,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -62,8 +65,13 @@ import com.fieldrepository.app.data.GoogleAuthClient
 import com.fieldrepository.app.data.LocationRequest
 import com.fieldrepository.app.data.ProductCreateRequest
 import com.fieldrepository.app.data.QuestionnaireInterviewCreateRequest
+import com.fieldrepository.app.data.QuestionnaireQuestionCreateRequest
 import com.fieldrepository.app.data.QuestionnaireQuestionDto
+import com.fieldrepository.app.data.QuestionnaireQuestionUpdateRequest
 import com.fieldrepository.app.data.QuestionnaireResponseRequest
+import com.fieldrepository.app.data.QuestionnaireSectionCreateRequest
+import com.fieldrepository.app.data.QuestionnaireSectionDto
+import com.fieldrepository.app.data.QuestionnaireSectionUpdateRequest
 import com.fieldrepository.app.data.TokenStore
 import com.fieldrepository.app.data.ToolCreateRequest
 import com.fieldrepository.app.data.UserDto
@@ -131,24 +139,29 @@ private fun RepositoryApp(repository: FieldRepository, googleAuthClient: GoogleA
             loading -> Text("Loading repository...", color = Muted, modifier = Modifier.align(Alignment.Center))
             user == null -> LoginScreen(
                 error = error,
+                busy = loading,
                 onLogin = { email, password ->
-                    loading = true
-                    error = null
-                    runCatching { repository.login(email, password) }
-                        .onSuccess { user = it }
-                        .onFailure { error = it.message ?: "Login failed" }
-                    loading = false
+                    scope.launch {
+                        loading = true
+                        error = null
+                        runCatching { repository.login(email, password) }
+                            .onSuccess { user = it }
+                            .onFailure { error = it.message ?: "Login failed" }
+                        loading = false
+                    }
                 },
                 onGoogleLogin = {
-                    loading = true
-                    error = null
-                    runCatching {
-                        val idToken = googleAuthClient.getIdToken()
-                        repository.loginWithGoogle(idToken)
+                    scope.launch {
+                        loading = true
+                        error = null
+                        runCatching {
+                            val idToken = googleAuthClient.getIdToken()
+                            repository.loginWithGoogle(idToken)
+                        }
+                            .onSuccess { user = it }
+                            .onFailure { error = it.message ?: "Google sign-in failed" }
+                        loading = false
                     }
-                        .onSuccess { user = it }
-                        .onFailure { error = it.message ?: "Google sign-in failed" }
-                    loading = false
                 }
             )
             else -> HomeScreen(
@@ -169,13 +182,12 @@ private fun RepositoryApp(repository: FieldRepository, googleAuthClient: GoogleA
 @Composable
 private fun LoginScreen(
     error: String?,
-    onLogin: suspend (String, String) -> Unit,
-    onGoogleLogin: suspend () -> Unit
+    busy: Boolean,
+    onLogin: (String, String) -> Unit,
+    onGoogleLogin: () -> Unit
 ) {
-    val scope = rememberCoroutineScope()
-    var email by remember { mutableStateOf("ankits1802@gmail.com") }
+    var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var busy by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -208,30 +220,22 @@ private fun LoginScreen(
                     Text(error, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
                 }
                 Button(
-                    enabled = !busy,
-                    onClick = {
-                        scope.launch {
-                            busy = true
-                            onLogin(email, password)
-                            busy = false
-                        }
-                    },
+                    enabled = !busy && email.isNotBlank() && password.isNotBlank(),
+                    onClick = { onLogin(email, password) },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(if (busy) "Signing in..." else "Login")
                 }
                 OutlinedButton(
                     enabled = !busy,
-                    onClick = {
-                        scope.launch {
-                            busy = true
-                            onGoogleLogin()
-                            busy = false
-                        }
-                    },
+                    onClick = onGoogleLogin,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(if (busy) "Please wait..." else "Sign in with Google")
+                    Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        Text("G", color = Color(0xFF4285F4), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (busy) "Please wait..." else "Sign in with Google")
+                    }
                 }
             }
         }
@@ -246,7 +250,7 @@ private fun HomeScreen(
 ) {
     val scope = rememberCoroutineScope()
     var stats by remember { mutableStateOf<DashboardStats?>(null) }
-    var questions by remember { mutableStateOf<List<QuestionnaireQuestionDto>>(emptyList()) }
+    var sections by remember { mutableStateOf<List<QuestionnaireSectionDto>>(emptyList()) }
     var mode by remember { mutableStateOf(EntryMode.ARTISAN) }
     var message by remember { mutableStateOf<String?>(null) }
 
@@ -260,8 +264,8 @@ private fun HomeScreen(
 
     LaunchedEffect(Unit) {
         refresh()
-        runCatching { repository.questionnaireQuestions() }
-            .onSuccess { questions = it }
+        runCatching { repository.questionnaireSections() }
+            .onSuccess { sections = it }
             .onFailure { message = it.message }
     }
 
@@ -281,7 +285,12 @@ private fun HomeScreen(
 
         StatsCard(stats)
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+        ) {
             EntryMode.entries.forEach { entryMode ->
                 FilterChip(
                     selected = mode == entryMode,
@@ -351,14 +360,24 @@ private fun HomeScreen(
                 onError = { message = it }
             )
             EntryMode.QUESTIONNAIRE -> QuestionnaireForm(
-                questions = questions,
+                repository = repository,
+                sections = sections,
+                isMasterAdmin = user.role == "MASTER_ADMIN",
+                onRefreshSections = {
+                    runCatching { repository.questionnaireSections() }
+                        .onSuccess { sections = it }
+                        .onFailure { message = it.message }
+                },
                 onSubmit = { body ->
-                    runCatching { repository.createQuestionnaireInterview(body) }
-                        .onSuccess {
-                            message = "Questionnaire interview saved"
-                            refresh()
-                        }
-                        .onFailure { message = it.message ?: "Unable to save questionnaire" }
+                    val created = repository.createQuestionnaireInterview(body)
+                    message = "Questionnaire interview saved"
+                    refresh()
+                    created.id
+                },
+                onError = { message = it },
+                onSaved = {
+                    message = "Questionnaire interview saved"
+                    refresh()
                 }
             )
         }
@@ -654,6 +673,7 @@ private fun AndroidMediaForm(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var mediaTitle by remember { mutableStateOf("") }
     var linkedRecordType by remember { mutableStateOf("") }
     var linkedRecordId by remember { mutableStateOf("") }
     var caption by remember { mutableStateOf("") }
@@ -759,6 +779,7 @@ private fun AndroidMediaForm(
         ) {
             Text("Use current GPS")
         }
+        TextInput("Media title / object name", mediaTitle) { mediaTitle = it }
         TextInput("Linked record type", linkedRecordType) { linkedRecordType = it }
         TextInput("Linked record ID", linkedRecordId) { linkedRecordId = it }
         TextInput("Caption", caption, minLines = 2) { caption = it }
@@ -788,19 +809,22 @@ private fun AndroidMediaForm(
                 scope.launch {
                     uploading = true
                     runCatching {
-                        for (uri in selectedUris) {
+                        selectedUris.forEachIndexed { index, uri ->
                             repository.uploadMedia(
                                 context = context,
                                 uri = uri,
                                 linkedRecordType = linkedRecordType,
                                 linkedRecordId = linkedRecordId,
                                 caption = caption,
-                                location = location
+                                location = location,
+                                titleHint = mediaTitle.ifBlank { caption },
+                                batchIndex = index + 1
                             )
                         }
                     }.onSuccess {
                         val count = selectedUris.size
                         selectedUris = emptyList()
+                        mediaTitle = ""
                         caption = ""
                         localMessage = null
                         onUploaded(count)
@@ -820,18 +844,30 @@ private fun AndroidMediaForm(
 
 @Composable
 private fun QuestionnaireForm(
-    questions: List<QuestionnaireQuestionDto>,
-    onSubmit: suspend (QuestionnaireInterviewCreateRequest) -> Unit
+    repository: FieldRepository,
+    sections: List<QuestionnaireSectionDto>,
+    isMasterAdmin: Boolean,
+    onRefreshSections: suspend () -> Unit,
+    onSubmit: suspend (QuestionnaireInterviewCreateRequest) -> String,
+    onError: (String) -> Unit,
+    onSaved: () -> Unit
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var title by remember { mutableStateOf("") }
     var artisanIds by remember { mutableStateOf("") }
     var place by remember { mutableStateOf("") }
     var language by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
-    val selectedQuestions = remember(questions) { questions.filter { it.sectionCode != "RESP" }.take(8) }
-    val answers = remember(selectedQuestions) {
-        selectedQuestions.associate { it.id to mutableStateOf("") }
+    val questions = remember(sections) { sections.flatMap { it.questions }.filter { it.isActive } }
+    val answers = remember(questions) { questions.associate { it.id to mutableStateOf("") } }
+    var recordingQuestionId by remember { mutableStateOf<String?>(null) }
+    var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
+    var recordingFile by remember { mutableStateOf<File?>(null) }
+    var questionAudio by remember { mutableStateOf<Map<String, List<Uri>>>(emptyMap()) }
+
+    if (isMasterAdmin) {
+        QuestionnaireBuilder(repository, sections, onRefreshSections, onError)
     }
 
     RecordCard(title = "Add questionnaire interview") {
@@ -839,14 +875,46 @@ private fun QuestionnaireForm(
         TextInput("Artisan IDs (comma-separated)", artisanIds) { artisanIds = it }
         TextInput("Place", place) { place = it }
         TextInput("Language", language) { language = it }
-        selectedQuestions.forEach { question ->
-            Text(
-                "${question.sectionCode}${question.sortOrder}. ${question.prompt}",
-                color = Muted,
-                fontSize = 12.sp
-            )
-            TextInput("Answer", answers[question.id]?.value.orEmpty(), minLines = 3) { value ->
-                answers[question.id]?.let { state -> state.value = value }
+        sections.forEach { section ->
+            Text("${section.code}. ${section.title}", color = MaterialTheme.colorScheme.onSurface, fontFamily = FontFamily.Serif, fontSize = 20.sp)
+            section.questions.filter { it.isActive }.forEach { question ->
+                Text("${question.sortOrder}. ${question.prompt}", color = Muted, fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = {
+                            if (recordingQuestionId == question.id) {
+                                runCatching {
+                                    recorder?.stop()
+                                    recorder?.release()
+                                    recordingFile?.let { file ->
+                                        questionAudio = questionAudio + (question.id to ((questionAudio[question.id] ?: emptyList()) + uriForFile(context, file)))
+                                    }
+                                }.onFailure { onError(it.message ?: "Unable to stop question audio") }
+                                recorder = null
+                                recordingFile = null
+                                recordingQuestionId = null
+                            } else {
+                                runCatching {
+                                    val file = createAppFile(context, "question-audio-", ".m4a")
+                                    recorder = createAudioRecorder(context, file).also { it.start() }
+                                    recordingFile = file
+                                    recordingQuestionId = question.id
+                                }.onFailure { onError(it.message ?: "Unable to start question audio") }
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(if (recordingQuestionId == question.id) "Stop" else "Record")
+                    }
+                    Text(
+                        "${questionAudio[question.id]?.size ?: 0} clip(s)",
+                        color = Muted,
+                        modifier = Modifier.align(Alignment.CenterVertically)
+                    )
+                }
+                TextInput("Answer", answers[question.id]?.value.orEmpty(), minLines = 3) { value ->
+                    answers[question.id]?.let { state -> state.value = value }
+                }
             }
         }
         TextInput("Notes", notes, minLines = 3) { notes = it }
@@ -854,26 +922,47 @@ private fun QuestionnaireForm(
             onClick = {
                 scope.launch {
                     val now = Instant.now().toString()
-                    onSubmit(
-                        QuestionnaireInterviewCreateRequest(
-                            title = title.trim(),
-                            place = place.blankToNull(),
-                            language = language.blankToNull(),
-                            notes = notes.blankToNull(),
-                            artisanIds = artisanIds.split(",").map { it.trim() }.filter { it.isNotEmpty() },
-                            responses = selectedQuestions.mapNotNull { question ->
-                                val answer = answers[question.id]?.value?.trim().orEmpty()
-                                if (answer.isBlank()) null else QuestionnaireResponseRequest(questionId = question.id, answerText = answer)
-                            },
-                            recordedAt = now
+                    runCatching {
+                        val interviewId = onSubmit(
+                            QuestionnaireInterviewCreateRequest(
+                                title = title.trim(),
+                                place = place.blankToNull(),
+                                language = language.blankToNull(),
+                                notes = notes.blankToNull(),
+                                artisanIds = artisanIds.split(",").map { it.trim() }.filter { it.isNotEmpty() },
+                                responses = questions.mapNotNull { question ->
+                                    val answer = answers[question.id]?.value?.trim().orEmpty()
+                                    if (answer.isBlank()) null else QuestionnaireResponseRequest(questionId = question.id, answerText = answer)
+                                },
+                                recordedAt = now
+                            )
                         )
-                    )
+                        questions.forEach { question ->
+                            questionAudio[question.id].orEmpty().forEachIndexed { index, uri ->
+                                repository.uploadMedia(
+                                    context = context,
+                                    uri = uri,
+                                    linkedRecordType = "questionnaire",
+                                    linkedRecordId = interviewId,
+                                    caption = "Question audio: ${question.sectionCode}${question.sortOrder} ${question.prompt}",
+                                    location = null,
+                                    titleHint = title.ifBlank { question.prompt },
+                                    batchIndex = index + 1
+                                )
+                            }
+                        }
+                    }.onFailure {
+                        onError(it.message ?: "Unable to save questionnaire")
+                        return@launch
+                    }
                     title = ""
                     artisanIds = ""
                     place = ""
                     language = ""
                     notes = ""
                     answers.values.forEach { it.value = "" }
+                    questionAudio = emptyMap()
+                    onSaved()
                 }
             },
             enabled = title.isNotBlank(),
@@ -882,6 +971,198 @@ private fun QuestionnaireForm(
             Text("Save questionnaire")
         }
         Text("Use the Media tab to attach photos, videos, audio recordings and GPS-tagged field files to this interview.", color = Muted, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun QuestionnaireBuilder(
+    repository: FieldRepository,
+    sections: List<QuestionnaireSectionDto>,
+    onRefresh: suspend () -> Unit,
+    onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var newCode by remember { mutableStateOf("") }
+    var newTitle by remember { mutableStateOf("") }
+
+    RecordCard(title = "Questionnaire builder") {
+        Text("Master admin controls for adding, editing, removing, moving sections, and moving questions between sections.", color = Muted, fontSize = 12.sp)
+        TextInput("New section code", newCode) { newCode = it }
+        TextInput("New section title", newTitle) { newTitle = it }
+        Button(
+            onClick = {
+                scope.launch {
+                    runCatching {
+                        repository.createQuestionnaireSection(QuestionnaireSectionCreateRequest(code = newCode.trim(), title = newTitle.trim()))
+                        newCode = ""
+                        newTitle = ""
+                        onRefresh()
+                    }.onFailure { onError(it.message ?: "Unable to add section") }
+                }
+            },
+            enabled = newCode.isNotBlank() && newTitle.isNotBlank(),
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("Add section") }
+
+        sections.forEachIndexed { sectionIndex, section ->
+            var code by remember(section.id, section.code) { mutableStateOf(section.code) }
+            var sectionTitle by remember(section.id, section.title) { mutableStateOf(section.title) }
+            var newPrompt by remember(section.id) { mutableStateOf("") }
+            ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard)) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("${section.sortOrder}. ${section.code} - ${section.title}", fontWeight = FontWeight.SemiBold)
+                    TextInput("Code", code) { code = it }
+                    TextInput("Title", sectionTitle) { sectionTitle = it }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    runCatching {
+                                        repository.updateQuestionnaireSection(section.id, QuestionnaireSectionUpdateRequest(code = code.trim(), title = sectionTitle.trim(), isActive = true))
+                                        onRefresh()
+                                    }.onFailure { onError(it.message ?: "Unable to update section") }
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Save") }
+                        OutlinedButton(
+                            enabled = sectionIndex > 0,
+                            onClick = {
+                                scope.launch {
+                                    runCatching {
+                                        repository.reorderQuestionnaireSections(moveIds(sections.map { it.id }, sectionIndex, -1))
+                                        onRefresh()
+                                    }.onFailure { onError(it.message ?: "Unable to move section") }
+                                }
+                            }
+                        ) { Text("Up") }
+                        OutlinedButton(
+                            enabled = sectionIndex < sections.lastIndex,
+                            onClick = {
+                                scope.launch {
+                                    runCatching {
+                                        repository.reorderQuestionnaireSections(moveIds(sections.map { it.id }, sectionIndex, 1))
+                                        onRefresh()
+                                    }.onFailure { onError(it.message ?: "Unable to move section") }
+                                }
+                            }
+                        ) { Text("Down") }
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                runCatching {
+                                    repository.deleteQuestionnaireSection(section.id)
+                                    onRefresh()
+                                }.onFailure { onError(it.message ?: "Unable to remove section") }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Remove section") }
+
+                    section.questions.forEachIndexed { questionIndex, question ->
+                        var prompt by remember(question.id, question.prompt) { mutableStateOf(question.prompt) }
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(color = Canvas, shape = RoundedCornerShape(12.dp))
+                                .padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("${question.sortOrder}. ${question.sectionCode} ${question.prompt}", color = Muted, fontSize = 12.sp)
+                            TextInput("Prompt", prompt, minLines = 2) { prompt = it }
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                OutlinedButton(
+                                    onClick = {
+                                        scope.launch {
+                                            runCatching {
+                                                repository.updateQuestionnaireQuestion(question.id, QuestionnaireQuestionUpdateRequest(prompt = prompt.trim(), isActive = true))
+                                                onRefresh()
+                                            }.onFailure { onError(it.message ?: "Unable to update question") }
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("Save") }
+                                OutlinedButton(
+                                    enabled = questionIndex > 0,
+                                    onClick = {
+                                        scope.launch {
+                                            runCatching {
+                                                repository.reorderQuestionnaireQuestions(section.id, moveIds(section.questions.map { it.id }, questionIndex, -1))
+                                                onRefresh()
+                                            }.onFailure { onError(it.message ?: "Unable to move question") }
+                                        }
+                                    }
+                                ) { Text("Up") }
+                                OutlinedButton(
+                                    enabled = questionIndex < section.questions.lastIndex,
+                                    onClick = {
+                                        scope.launch {
+                                            runCatching {
+                                                repository.reorderQuestionnaireQuestions(section.id, moveIds(section.questions.map { it.id }, questionIndex, 1))
+                                                onRefresh()
+                                            }.onFailure { onError(it.message ?: "Unable to move question") }
+                                        }
+                                    }
+                                ) { Text("Down") }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                OutlinedButton(
+                                    enabled = sectionIndex > 0,
+                                    onClick = {
+                                        scope.launch {
+                                            runCatching {
+                                                repository.updateQuestionnaireQuestion(question.id, QuestionnaireQuestionUpdateRequest(sectionId = sections[sectionIndex - 1].id))
+                                                onRefresh()
+                                            }.onFailure { onError(it.message ?: "Unable to move question") }
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("Prev section") }
+                                OutlinedButton(
+                                    enabled = sectionIndex < sections.lastIndex,
+                                    onClick = {
+                                        scope.launch {
+                                            runCatching {
+                                                repository.updateQuestionnaireQuestion(question.id, QuestionnaireQuestionUpdateRequest(sectionId = sections[sectionIndex + 1].id))
+                                                onRefresh()
+                                            }.onFailure { onError(it.message ?: "Unable to move question") }
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("Next section") }
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    scope.launch {
+                                        runCatching {
+                                            repository.deleteQuestionnaireQuestion(question.id)
+                                            onRefresh()
+                                        }.onFailure { onError(it.message ?: "Unable to remove question") }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("Remove question") }
+                        }
+                    }
+
+                    TextInput("New question", newPrompt, minLines = 2) { newPrompt = it }
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                runCatching {
+                                    repository.createQuestionnaireQuestion(QuestionnaireQuestionCreateRequest(sectionId = section.id, prompt = newPrompt.trim()))
+                                    newPrompt = ""
+                                    onRefresh()
+                                }.onFailure { onError(it.message ?: "Unable to add question") }
+                            }
+                        },
+                        enabled = newPrompt.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Add question") }
+                }
+            }
+        }
     }
 }
 
@@ -978,6 +1259,16 @@ private fun readLastKnownLocation(context: Context): LocationRequest? {
             accuracy = it.accuracy.toDouble().takeIf { _ -> it.hasAccuracy() },
             placeName = "Android precise location"
         )
+    }
+}
+
+private fun moveIds(ids: List<String>, index: Int, direction: Int): List<String> {
+    val nextIndex = index + direction
+    if (nextIndex !in ids.indices) return ids
+    return ids.toMutableList().also {
+        val item = it[index]
+        it[index] = it[nextIndex]
+        it[nextIndex] = item
     }
 }
 

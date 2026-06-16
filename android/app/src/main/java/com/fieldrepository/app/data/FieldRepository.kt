@@ -63,9 +63,36 @@ class FieldRepository(
 
     suspend fun questionnaireQuestions(): List<QuestionnaireQuestionDto> = api.questionnaireQuestions()
 
-    suspend fun createQuestionnaireInterview(body: QuestionnaireInterviewCreateRequest) {
-        api.createQuestionnaireInterview(body)
+    suspend fun questionnaireSections(): List<QuestionnaireSectionDto> = api.questionnaireSections()
+
+    suspend fun createQuestionnaireSection(body: QuestionnaireSectionCreateRequest): QuestionnaireSectionDto =
+        api.createQuestionnaireSection(body)
+
+    suspend fun updateQuestionnaireSection(id: String, body: QuestionnaireSectionUpdateRequest): QuestionnaireSectionDto =
+        api.updateQuestionnaireSection(id, body)
+
+    suspend fun deleteQuestionnaireSection(id: String) {
+        api.deleteQuestionnaireSection(id)
     }
+
+    suspend fun reorderQuestionnaireSections(sectionIds: List<String>): List<QuestionnaireSectionDto> =
+        api.reorderQuestionnaireSections(QuestionnaireSectionReorderRequest(sectionIds))
+
+    suspend fun createQuestionnaireQuestion(body: QuestionnaireQuestionCreateRequest): QuestionnaireQuestionDto =
+        api.createQuestionnaireQuestion(body)
+
+    suspend fun updateQuestionnaireQuestion(id: String, body: QuestionnaireQuestionUpdateRequest): QuestionnaireQuestionDto =
+        api.updateQuestionnaireQuestion(id, body)
+
+    suspend fun deleteQuestionnaireQuestion(id: String) {
+        api.deleteQuestionnaireQuestion(id)
+    }
+
+    suspend fun reorderQuestionnaireQuestions(sectionId: String, questionIds: List<String>): List<QuestionnaireSectionDto> =
+        api.reorderQuestionnaireQuestions(QuestionnaireQuestionReorderRequest(sectionId, questionIds))
+
+    suspend fun createQuestionnaireInterview(body: QuestionnaireInterviewCreateRequest): CreatedRecordDto =
+        api.createQuestionnaireInterview(body)
 
     suspend fun uploadMedia(
         context: Context,
@@ -73,15 +100,18 @@ class FieldRepository(
         linkedRecordType: String?,
         linkedRecordId: String?,
         caption: String?,
-        location: LocationRequest?
+        location: LocationRequest?,
+        titleHint: String? = null,
+        batchIndex: Int = 1
     ): MediaFileDto {
         val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
-        val filename = displayName(context, uri) ?: "field-media-${System.currentTimeMillis()}"
+        val originalName = displayName(context, uri) ?: "field-media-${System.currentTimeMillis()}"
+        val mediaType = inferMediaType(mimeType)
+        val filename = mediaFilename(titleHint = titleHint ?: caption, originalName = originalName, mediaType = mediaType, batchIndex = batchIndex)
         val bytes = withContext(Dispatchers.IO) {
             context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                 ?: throw IllegalStateException("Unable to open selected media")
         }
-        val mediaType = inferMediaType(mimeType)
         val presign = api.presignMedia(
             MediaPresignRequest(
                 filename = filename,
@@ -137,6 +167,21 @@ class FieldRepository(
         mimeType == "application/pdf" -> "PDF"
         else -> "DOCUMENT"
     }
+
+    private fun mediaFilename(titleHint: String?, originalName: String, mediaType: String, batchIndex: Int): String {
+        val extension = originalName.substringAfterLast('.', "").takeIf { it.isNotBlank() }
+        val base = titleHint.blankToNull()?.let(::safeFilePart) ?: safeFilePart(originalName.substringBeforeLast('.'))
+        val type = mediaType.lowercase()
+        val suffix = if (extension == null) "" else ".$extension"
+        return "$base-$type-$batchIndex$suffix"
+    }
+
+    private fun safeFilePart(value: String): String =
+        value.lowercase()
+            .replace(Regex("[^a-z0-9]+"), "-")
+            .trim('-')
+            .take(80)
+            .ifBlank { "field-media" }
 }
 
 private fun String?.blankToNull(): String? = this?.trim()?.takeIf { it.isNotEmpty() }

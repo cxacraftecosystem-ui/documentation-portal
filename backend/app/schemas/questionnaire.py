@@ -6,6 +6,43 @@ from pydantic import Field
 from app.schemas.common import APIModel, LocationInput
 
 
+class QuestionnaireSectionCreate(APIModel):
+    code: str = Field(min_length=1, max_length=24)
+    title: str = Field(min_length=1, max_length=220)
+    sortOrder: int | None = Field(default=None, ge=1)
+    isActive: bool = True
+
+
+class QuestionnaireSectionUpdate(APIModel):
+    code: str | None = Field(default=None, min_length=1, max_length=24)
+    title: str | None = Field(default=None, min_length=1, max_length=220)
+    sortOrder: int | None = Field(default=None, ge=1)
+    isActive: bool | None = None
+
+
+class QuestionnaireSectionReorder(APIModel):
+    sectionIds: list[str] = Field(min_length=1)
+
+
+class QuestionnaireQuestionCreate(APIModel):
+    sectionId: str = Field(min_length=1)
+    prompt: str = Field(min_length=1)
+    sortOrder: int | None = Field(default=None, ge=1)
+    isActive: bool = True
+
+
+class QuestionnaireQuestionUpdate(APIModel):
+    sectionId: str | None = Field(default=None, min_length=1)
+    prompt: str | None = Field(default=None, min_length=1)
+    sortOrder: int | None = Field(default=None, ge=1)
+    isActive: bool | None = None
+
+
+class QuestionnaireQuestionReorder(APIModel):
+    sectionId: str = Field(min_length=1)
+    questionIds: list[str] = Field(min_length=1)
+
+
 class QuestionnaireResponseInput(APIModel):
     questionId: str = Field(min_length=1)
     answerText: str | None = None

@@ -1,8 +1,11 @@
 package com.fieldrepository.app.data
 
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.PATCH
 import retrofit2.http.POST
+import retrofit2.http.Path
 import retrofit2.http.Query
 
 interface FieldRepositoryApi {
@@ -53,6 +56,39 @@ interface FieldRepositoryApi {
 
     @GET("questionnaire/questions")
     suspend fun questionnaireQuestions(): List<QuestionnaireQuestionDto>
+
+    @GET("questionnaire/sections")
+    suspend fun questionnaireSections(): List<QuestionnaireSectionDto>
+
+    @POST("questionnaire/sections")
+    suspend fun createQuestionnaireSection(@Body body: QuestionnaireSectionCreateRequest): QuestionnaireSectionDto
+
+    @PATCH("questionnaire/sections/{id}")
+    suspend fun updateQuestionnaireSection(
+        @Path("id") id: String,
+        @Body body: QuestionnaireSectionUpdateRequest
+    ): QuestionnaireSectionDto
+
+    @DELETE("questionnaire/sections/{id}")
+    suspend fun deleteQuestionnaireSection(@Path("id") id: String)
+
+    @POST("questionnaire/sections/reorder")
+    suspend fun reorderQuestionnaireSections(@Body body: QuestionnaireSectionReorderRequest): List<QuestionnaireSectionDto>
+
+    @POST("questionnaire/questions")
+    suspend fun createQuestionnaireQuestion(@Body body: QuestionnaireQuestionCreateRequest): QuestionnaireQuestionDto
+
+    @PATCH("questionnaire/questions/{id}")
+    suspend fun updateQuestionnaireQuestion(
+        @Path("id") id: String,
+        @Body body: QuestionnaireQuestionUpdateRequest
+    ): QuestionnaireQuestionDto
+
+    @DELETE("questionnaire/questions/{id}")
+    suspend fun deleteQuestionnaireQuestion(@Path("id") id: String)
+
+    @POST("questionnaire/questions/reorder")
+    suspend fun reorderQuestionnaireQuestions(@Body body: QuestionnaireQuestionReorderRequest): List<QuestionnaireSectionDto>
 
     @POST("questionnaire/interviews")
     suspend fun createQuestionnaireInterview(@Body body: QuestionnaireInterviewCreateRequest): CreatedRecordDto

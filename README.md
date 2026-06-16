@@ -113,7 +113,7 @@ Change them before using real data.
 The Kotlin Android app lives in `android/` and uses the same backend:
 
 - Emulator base URL: `http://10.0.2.2:8000/api/`
-- Physical device base URL: replace the default with your computer LAN IP, for example `http://192.168.1.20:8000/api/`
+- Physical device base URL: add an ignored `apiBaseUrl` line to `android/local.properties`, for example `apiBaseUrl=http://192.168.1.20:8000/api/`, and run the backend with `--host 0.0.0.0`.
 - Package name: `com.fieldrepository.app`
 - Google sign-in: Android Credential Manager requests a Google ID token with the same web OAuth client ID used by the Next.js app, then posts it to `POST /api/auth/login`.
 

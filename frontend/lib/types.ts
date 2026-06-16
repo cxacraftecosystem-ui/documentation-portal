@@ -173,11 +173,21 @@ export type ToolDocumentation = {
 
 export type QuestionnaireQuestion = {
   id: string;
+  sectionId?: string | null;
   sectionCode: string;
   sectionTitle: string;
   prompt: string;
   sortOrder: number;
   isActive: boolean;
+};
+
+export type QuestionnaireSection = {
+  id: string;
+  code: string;
+  title: string;
+  sortOrder: number;
+  isActive: boolean;
+  questions: QuestionnaireQuestion[];
 };
 
 export type QuestionnaireResponse = {

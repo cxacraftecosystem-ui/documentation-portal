@@ -231,10 +231,65 @@ data class LocationRequest(
 @Serializable
 data class QuestionnaireQuestionDto(
     val id: String,
+    val sectionId: String? = null,
     val sectionCode: String,
     val sectionTitle: String,
     val prompt: String,
-    val sortOrder: Int
+    val sortOrder: Int,
+    val isActive: Boolean = true
+)
+
+@Serializable
+data class QuestionnaireSectionDto(
+    val id: String,
+    val code: String,
+    val title: String,
+    val sortOrder: Int,
+    val isActive: Boolean = true,
+    val questions: List<QuestionnaireQuestionDto> = emptyList()
+)
+
+@Serializable
+data class QuestionnaireSectionCreateRequest(
+    val code: String,
+    val title: String,
+    val sortOrder: Int? = null,
+    val isActive: Boolean = true
+)
+
+@Serializable
+data class QuestionnaireSectionUpdateRequest(
+    val code: String? = null,
+    val title: String? = null,
+    val sortOrder: Int? = null,
+    val isActive: Boolean? = null
+)
+
+@Serializable
+data class QuestionnaireSectionReorderRequest(
+    val sectionIds: List<String>
+)
+
+@Serializable
+data class QuestionnaireQuestionCreateRequest(
+    val sectionId: String,
+    val prompt: String,
+    val sortOrder: Int? = null,
+    val isActive: Boolean = true
+)
+
+@Serializable
+data class QuestionnaireQuestionUpdateRequest(
+    val sectionId: String? = null,
+    val prompt: String? = null,
+    val sortOrder: Int? = null,
+    val isActive: Boolean? = null
+)
+
+@Serializable
+data class QuestionnaireQuestionReorderRequest(
+    val sectionId: String,
+    val questionIds: List<String>
 )
 
 @Serializable

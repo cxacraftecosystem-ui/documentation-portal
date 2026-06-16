@@ -29,6 +29,7 @@ skills-lock.json
 # Android / Gradle
 .gradle/
 android/.gradle/
+android/.idea/
 android/app/build/
 android/build/
 local.properties

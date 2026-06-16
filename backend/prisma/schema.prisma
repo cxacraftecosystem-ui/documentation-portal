@@ -462,6 +462,22 @@ model MediaProcessingJob {
   @@index([toolId])
 }
 
+model QuestionnaireSection {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  title     String
+  sortOrder Int
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  questions QuestionnaireQuestion[]
+
+  @@unique([sortOrder])
+  @@index([code])
+  @@index([isActive, sortOrder])
+}
+
 model QuestionnaireQuestion {
   id          String   @id @default(cuid())
   sectionCode String
@@ -471,11 +487,14 @@ model QuestionnaireQuestion {
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  sectionId   String?
 
+  section   QuestionnaireSection? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
   responses QuestionnaireResponse[]
 
-  @@unique([sectionCode, sortOrder])
   @@index([sectionCode])
+  @@index([sectionId])
+  @@index([isActive])
 }
 
 model QuestionnaireInterview {
