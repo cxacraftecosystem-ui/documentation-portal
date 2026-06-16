@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { CarryForwardCards } from "@/components/CarryForwardCards";
 import { Field, Select, TextArea, TextInput } from "@/components/FormControls";
 import { LocationFields } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
@@ -18,6 +19,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [savedRecord, setSavedRecord] = useState<Artisan | null>(null);
 
   useEffect(() => {
     listResource<Craft>("/crafts", { pageSize: 100 })
@@ -69,13 +71,47 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined
         });
       }
-      router.push("/artisans");
-      router.refresh();
+      if (initial) {
+        router.push("/artisans");
+        router.refresh();
+      } else {
+        setSavedRecord(saved);
+        if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save artisan");
     } finally {
       setSaving(false);
     }
+  }
+
+  if (savedRecord) {
+    return (
+      <div className="grid gap-6">
+        <div className="panel p-4">
+          <p className="text-sm font-medium text-ink">
+            Saved &ldquo;{savedRecord.name}&rdquo;. Continue documenting with the same context, or add another artisan.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" className="field-button-secondary" onClick={() => { setSavedRecord(null); setMediaFiles([]); }}>
+              Add another artisan
+            </button>
+            <button type="button" className="field-button-secondary" onClick={() => { router.push("/artisans"); router.refresh(); }}>
+              Back to artisans
+            </button>
+          </div>
+        </div>
+        <CarryForwardCards
+          context={{
+            artisanId: savedRecord.id,
+            artisanName: savedRecord.name,
+            place: savedRecord.place,
+            craftId: savedRecord.craftId,
+            craftName: savedRecord.craft?.name
+          }}
+        />
+      </div>
+    );
   }
 
   return (

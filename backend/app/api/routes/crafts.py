@@ -2,12 +2,18 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
+from prisma.errors import UniqueViolationError
 
 from app.core.db import db
-from app.core.deps import assert_can_contribute_fields, assert_can_delete, get_current_user
+from app.core.deps import (
+    assert_can_contribute_fields,
+    assert_can_delete,
+    get_current_user,
+    require_craft_manager,
+)
 from app.schemas.records import CraftCreate, CraftUpdate
 from app.services.pagination import normalize_pagination, page_payload
-from app.services.records import clean_data, contains, require_record
+from app.services.records import clean_data, contains, merge_field_provenance, require_record
 
 router = APIRouter(prefix="/crafts", tags=["crafts"])
 
@@ -37,12 +43,13 @@ async def list_crafts(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def create_craft(payload: CraftCreate, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
+async def create_craft(payload: CraftCreate, current_user: Any = Depends(require_craft_manager)) -> dict[str, Any]:
     data = clean_data(payload.model_dump())
     data["createdById"] = current_user.id
+    merge_field_provenance(data, current_user, previous=None)
     try:
         created = await db.craft.create(data=data)
-    except Exception as exc:
+    except UniqueViolationError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Craft name already exists") from exc
     return jsonable_encoder(created)
 
@@ -62,6 +69,7 @@ async def update_craft(
     craft = await require_record(db.craft, craft_id)
     data = clean_data(payload.model_dump(exclude_unset=True))
     assert_can_contribute_fields(craft, current_user, data)
+    merge_field_provenance(data, current_user, previous=craft)
     updated = await db.craft.update(where={"id": craft_id}, data=data)
     return jsonable_encoder(updated)
 

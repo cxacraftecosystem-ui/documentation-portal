@@ -14,6 +14,7 @@ from app.services.records import (
     clean_data,
     contains,
     decimal_to_string,
+    merge_field_provenance,
     require_record,
     visibility_where,
 )
@@ -87,6 +88,7 @@ async def create_tool(
     data = decimal_to_string(clean_data(payload.model_dump()))
     data = await attach_location(data)
     data["createdById"] = current_user.id
+    merge_field_provenance(data, current_user, previous=None)
     created = await db.tooldocumentation.create(data=data, include=INCLUDE)
     return jsonable_encoder(created)
 
@@ -108,6 +110,7 @@ async def update_tool(
     data = decimal_to_string(clean_data(payload.model_dump(exclude_unset=True)))
     data = await attach_location(data)
     assert_can_contribute_fields(tool, current_user, data)
+    merge_field_provenance(data, current_user, previous=tool)
     updated = await db.tooldocumentation.update(where={"id": tool_id}, data=data, include=INCLUDE)
     return jsonable_encoder(updated)
 

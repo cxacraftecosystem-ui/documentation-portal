@@ -8,14 +8,13 @@ import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { StatusBadge } from "@/components/StatusBadge";
-import { useAuth } from "@/components/AuthProvider";
+import { useAdminView } from "@/components/AdminViewProvider";
 import { apiFetch, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
-import { isAdmin } from "@/lib/permissions";
 import type { Artisan, PageResult } from "@/lib/types";
 
 export default function ArtisansPage() {
-  const { user } = useAuth();
+  const { adminMode } = useAdminView();
   const [data, setData] = useState<PageResult<Artisan> | null>(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -137,7 +136,7 @@ export default function ArtisansPage() {
                       <Link className="mr-2 text-sm font-semibold text-field-700" href={`/artisans/${artisan.id}/edit`} onClick={(event) => event.stopPropagation()}>
                         Edit
                       </Link>
-                      {isAdmin(user) ? (
+                      {adminMode ? (
                         <button className="text-sm font-semibold text-red-700" onClick={(event) => { event.stopPropagation(); remove(artisan.id); }}>
                           Delete
                         </button>

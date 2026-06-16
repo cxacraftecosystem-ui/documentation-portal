@@ -9,8 +9,29 @@ import { PageHeader } from "@/components/PageHeader";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
 import { requiredText } from "@/lib/forms";
-import { isMasterAdmin } from "@/lib/permissions";
+import { isAdmin, isMasterAdmin } from "@/lib/permissions";
 import type { PageResult, User } from "@/lib/types";
+
+function GrantCell({
+  included,
+  editable,
+  label,
+  onChange
+}: {
+  included: boolean;
+  editable: boolean;
+  label: string;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <td className="px-4 py-3 text-neutral-600">
+      <label className="inline-flex items-center gap-2">
+        <input type="checkbox" checked={included} disabled={!editable} aria-label={label} onChange={(event) => onChange(event.target.checked)} />
+        <span>{included ? "Yes" : "No"}</span>
+      </label>
+    </td>
+  );
+}
 
 export default function UsersPage() {
   const { user: currentUser } = useAuth();
@@ -41,7 +62,9 @@ export default function UsersPage() {
           email: requiredText(form, "email"),
           password: requiredText(form, "password"),
           role: requiredText(form, "role"),
-          canManageQuestionnaire: form.get("canManageQuestionnaire") === "on"
+          canManageQuestionnaire: form.get("canManageQuestionnaire") === "on",
+          canManageCrafts: form.get("canManageCrafts") === "on",
+          canManageWorkshops: form.get("canManageWorkshops") === "on"
         })
       });
       event.currentTarget.reset();
@@ -56,9 +79,17 @@ export default function UsersPage() {
     load();
   }
 
-  async function updateQuestionnaireAccess(user: User, canManageQuestionnaire: boolean) {
-    await apiFetch(`/users/${user.id}`, { method: "PATCH", body: JSON.stringify({ canManageQuestionnaire }) });
-    load();
+  async function updateGrant(
+    user: User,
+    field: "canManageQuestionnaire" | "canManageCrafts" | "canManageWorkshops",
+    value: boolean
+  ) {
+    try {
+      await apiFetch(`/users/${user.id}`, { method: "PATCH", body: JSON.stringify({ [field]: value }) });
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update access");
+    }
   }
 
   async function remove(user: User) {
@@ -92,14 +123,27 @@ export default function UsersPage() {
             {isMasterAdmin(currentUser) ? <option>MASTER_ADMIN</option> : null}
           </Select>
         </Field>
-        <label className="flex items-end gap-2 rounded-md border border-[#e6dfd8] bg-field-100 px-3 py-2 text-sm text-ink-muted">
-          <input name="canManageQuestionnaire" type="checkbox" disabled={!isMasterAdmin(currentUser)} />
-          Can manage questionnaire
-        </label>
+        <div className="md:col-span-5 flex flex-wrap gap-2">
+          <label className="flex items-center gap-2 rounded-md border border-[#e6dfd8] bg-field-100 px-3 py-2 text-sm text-ink-muted">
+            <input name="canManageQuestionnaire" type="checkbox" disabled={!isMasterAdmin(currentUser)} />
+            Manage questionnaire
+          </label>
+          <label className="flex items-center gap-2 rounded-md border border-[#e6dfd8] bg-field-100 px-3 py-2 text-sm text-ink-muted">
+            <input name="canManageCrafts" type="checkbox" disabled={!isMasterAdmin(currentUser)} />
+            Create crafts
+          </label>
+          <label className="flex items-center gap-2 rounded-md border border-[#e6dfd8] bg-field-100 px-3 py-2 text-sm text-ink-muted">
+            <input name="canManageWorkshops" type="checkbox" disabled={!isMasterAdmin(currentUser)} />
+            Create workshops
+          </label>
+        </div>
         <div className="md:col-span-5">
           <button className="field-button">Create user</button>
         </div>
       </form>
+      {!isMasterAdmin(currentUser) ? (
+        <p className="mb-4 text-xs text-ink-muted">Only the master admin can grant questionnaire, craft, or workshop creation access.</p>
+      ) : null}
       <section className="panel overflow-hidden">
         {!data ? (
           <div className="p-4 text-sm text-neutral-600">Loading...</div>
@@ -116,6 +160,8 @@ export default function UsersPage() {
                   <th className="px-4 py-3">Email</th>
                   <th className="px-4 py-3">Role</th>
                   <th className="px-4 py-3">Questionnaire</th>
+                  <th className="px-4 py-3">Crafts</th>
+                  <th className="px-4 py-3">Workshops</th>
                   <th className="px-4 py-3">Provider</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
@@ -132,18 +178,24 @@ export default function UsersPage() {
                         {isMasterAdmin(currentUser) ? <option>MASTER_ADMIN</option> : null}
                       </select>
                     </td>
-                    <td className="px-4 py-3 text-neutral-600">
-                      <label className="inline-flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={user.role === "MASTER_ADMIN" || !!user.canManageQuestionnaire}
-                          disabled={!isMasterAdmin(currentUser) || user.role === "MASTER_ADMIN"}
-                          aria-label={`Allow ${user.email} to manage questionnaire`}
-                          onChange={(event) => updateQuestionnaireAccess(user, event.target.checked)}
-                        />
-                        <span>{user.role === "MASTER_ADMIN" ? "Included" : "Manager"}</span>
-                      </label>
-                    </td>
+                    <GrantCell
+                      included={user.role === "MASTER_ADMIN" || !!user.canManageQuestionnaire}
+                      editable={isMasterAdmin(currentUser) && user.role !== "MASTER_ADMIN"}
+                      label={`Allow ${user.email} to manage questionnaire`}
+                      onChange={(value) => updateGrant(user, "canManageQuestionnaire", value)}
+                    />
+                    <GrantCell
+                      included={isAdmin(user) || !!user.canManageCrafts}
+                      editable={isMasterAdmin(currentUser) && !isAdmin(user)}
+                      label={`Allow ${user.email} to create crafts`}
+                      onChange={(value) => updateGrant(user, "canManageCrafts", value)}
+                    />
+                    <GrantCell
+                      included={isAdmin(user) || !!user.canManageWorkshops}
+                      editable={isMasterAdmin(currentUser) && !isAdmin(user)}
+                      label={`Allow ${user.email} to create workshops`}
+                      onChange={(value) => updateGrant(user, "canManageWorkshops", value)}
+                    />
                     <td className="px-4 py-3 text-neutral-600">{user.authProvider ?? "-"}</td>
                     <td className="px-4 py-3 text-right">
                       {user.role === "MASTER_ADMIN" ? (

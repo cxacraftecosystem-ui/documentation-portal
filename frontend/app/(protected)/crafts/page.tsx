@@ -9,15 +9,18 @@ import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { RecordedAtField } from "@/components/forms/RecordedAtField";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
+import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
 import { parseJsonMetadata, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue } from "@/lib/forms";
 import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch } from "@/lib/media";
-import { isAdmin } from "@/lib/permissions";
+import { canManageCrafts } from "@/lib/permissions";
 import type { Craft, PageResult } from "@/lib/types";
 
 export default function CraftsPage() {
   const { user } = useAuth();
+  const { adminMode } = useAdminView();
+  const allowManage = canManageCrafts(user);
   const [data, setData] = useState<PageResult<Craft> | null>(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -92,6 +95,7 @@ export default function CraftsPage() {
     <>
       <PageHeader title="Crafts" description="Maintain craft vocabulary used to link artisans, products and tools." icon={<Landmark className="h-5 w-5" aria-hidden />} />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+      {allowManage ? (
       <form key={editing?.id ?? "new"} onSubmit={submit} className="panel mb-5 grid gap-3 p-4 md:grid-cols-2 lg:grid-cols-4">
         <Field label="Craft name" required>
           <TextInput name="name" required defaultValue={editing?.name ?? ""} />
@@ -130,6 +134,11 @@ export default function CraftsPage() {
           ) : null}
         </div>
       </form>
+      ) : (
+        <div className="panel mb-5 p-4 text-sm text-ink-muted">
+          Browse the craft vocabulary below. Ask the master admin for craft creation access to add or edit crafts.
+        </div>
+      )}
       <form
         className="mb-4 flex flex-col gap-2 sm:flex-row"
         onSubmit={(event) => {
@@ -170,14 +179,18 @@ export default function CraftsPage() {
                     <td className="px-4 py-3 text-neutral-600">{craft.place ?? "-"}</td>
                     <td className="max-w-md px-4 py-3 text-neutral-600">{craft.description ?? "-"}</td>
                     <td className="px-4 py-3 text-right">
-                      <button className="mr-2 text-sm font-semibold text-field-700" onClick={() => setEditing(craft)}>
-                        Edit
-                      </button>
-                      {isAdmin(user) ? (
+                      {allowManage ? (
+                        <button className="mr-2 text-sm font-semibold text-field-700" onClick={() => setEditing(craft)}>
+                          Edit
+                        </button>
+                      ) : null}
+                      {adminMode ? (
                         <button className="text-sm font-semibold text-red-700" onClick={() => remove(craft.id)}>
                           Delete
                         </button>
-                      ) : null}
+                      ) : (
+                        <span className="text-xs text-ink-soft">View only</span>
+                      )}
                     </td>
                   </tr>
                 ))}

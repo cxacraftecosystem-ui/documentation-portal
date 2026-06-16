@@ -5,10 +5,24 @@ from fastapi import APIRouter, Depends, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
-from app.core.deps import assert_can_contribute_fields, assert_can_contribute_relation, assert_can_delete, get_current_user
+from app.core.deps import (
+    assert_can_contribute_fields,
+    assert_can_contribute_relation,
+    assert_can_delete,
+    get_current_user,
+    require_workshop_manager,
+)
 from app.schemas.records import WorkshopCreate, WorkshopUpdate
 from app.services.pagination import normalize_pagination, page_payload
-from app.services.records import add_date_range, attach_location, clean_data, contains, require_record, visibility_where
+from app.services.records import (
+    add_date_range,
+    attach_location,
+    clean_data,
+    contains,
+    merge_field_provenance,
+    require_record,
+    visibility_where,
+)
 
 router = APIRouter(prefix="/workshops", tags=["workshops"])
 
@@ -65,13 +79,14 @@ async def list_workshops(
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_workshop(
     payload: WorkshopCreate,
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_workshop_manager),
 ) -> dict[str, Any]:
     data = clean_data(payload.model_dump())
     artisan_ids = data.pop("artisanIds", [])
     data = normalize_workshop_dates(data)
     data = await attach_location(data)
     data["createdById"] = current_user.id
+    merge_field_provenance(data, current_user, previous=None)
     created = await db.workshop.create(data=data)
     if artisan_ids:
         await replace_workshop_artisans(created.id, artisan_ids)
@@ -98,6 +113,7 @@ async def update_workshop(
     data = normalize_workshop_dates(data)
     data = await attach_location(data)
     assert_can_contribute_fields(workshop, current_user, data)
+    merge_field_provenance(data, current_user, previous=workshop)
     await db.workshop.update(where={"id": workshop_id}, data=data)
     if artisan_ids is not None:
         link_count = await db.workshopartisan.count(where={"workshopId": workshop_id})

@@ -37,6 +37,14 @@ def assert_questionnaire_permission_change(value: bool | None, current_user: Any
         )
 
 
+def assert_privilege_change(value: bool | None, current_user: Any, label: str) -> None:
+    if value is not None and not is_master_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Only the master admin can grant {label} access",
+        )
+
+
 def is_master_email(email: str | None) -> bool:
     if not email:
         return False
@@ -78,9 +86,14 @@ async def create_user(payload: UserCreate, current_user: Any = Depends(require_a
     assert_role(role, current_user)
     if payload.canManageQuestionnaire:
         assert_questionnaire_permission_change(payload.canManageQuestionnaire, current_user)
+    if payload.canManageCrafts:
+        assert_privilege_change(payload.canManageCrafts, current_user, "craft creation")
+    if payload.canManageWorkshops:
+        assert_privilege_change(payload.canManageWorkshops, current_user, "workshop creation")
     existing = await db.user.find_unique(where={"email": payload.email.lower()})
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
+    is_master = role == "MASTER_ADMIN"
     user = await db.user.create(
         data={
             "email": payload.email.lower(),
@@ -88,7 +101,9 @@ async def create_user(payload: UserCreate, current_user: Any = Depends(require_a
             "passwordHash": hash_password(payload.password),
             "role": role,
             "authProvider": "LOCAL",
-            "canManageQuestionnaire": role == "MASTER_ADMIN" or payload.canManageQuestionnaire,
+            "canManageQuestionnaire": is_master or payload.canManageQuestionnaire,
+            "canManageCrafts": is_master or payload.canManageCrafts,
+            "canManageWorkshops": is_master or payload.canManageWorkshops,
         }
     )
     return serialize_user(user)
@@ -102,6 +117,8 @@ async def update_user(
 ) -> dict[str, Any]:
     assert_role(payload.role, current_user)
     assert_questionnaire_permission_change(payload.canManageQuestionnaire, current_user)
+    assert_privilege_change(payload.canManageCrafts, current_user, "craft creation")
+    assert_privilege_change(payload.canManageWorkshops, current_user, "workshop creation")
     data = clean_data(payload.model_dump(exclude_unset=True))
     if "email" in data:
         data["email"] = data["email"].lower()
@@ -113,9 +130,10 @@ async def update_user(
     assert_not_demoting_master(user, data.get("role"), current_user)
     if "email" in data and is_master_email(data["email"]):
         data["role"] = "MASTER_ADMIN"
-        data["canManageQuestionnaire"] = True
     if data.get("role") == "MASTER_ADMIN":
         data["canManageQuestionnaire"] = True
+        data["canManageCrafts"] = True
+        data["canManageWorkshops"] = True
     updated = await db.user.update(where={"id": user_id}, data=data)
     return serialize_user(updated)
 

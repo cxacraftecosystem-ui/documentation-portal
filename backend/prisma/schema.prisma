@@ -101,6 +101,8 @@ model User {
   role         UserRole     @default(RESEARCHER)
   authProvider AuthProvider @default(LOCAL)
   canManageQuestionnaire Boolean @default(false)
+  canManageCrafts        Boolean @default(false)
+  canManageWorkshops     Boolean @default(false)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 

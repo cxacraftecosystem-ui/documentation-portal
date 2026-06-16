@@ -1,13 +1,25 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
-from app.core.deps import assert_can_contribute_fields, assert_can_delete, get_current_user
+from app.core.deps import (
+    assert_can_contribute_fields,
+    assert_can_delete,
+    can_manage_crafts,
+    get_current_user,
+)
 from app.schemas.records import ArtisanCreate, ArtisanUpdate
 from app.services.pagination import normalize_pagination, page_payload
-from app.services.records import attach_location, clean_data, contains, require_record, visibility_where
+from app.services.records import (
+    attach_location,
+    clean_data,
+    contains,
+    merge_field_provenance,
+    require_record,
+    visibility_where,
+)
 
 router = APIRouter(prefix="/artisans", tags=["artisans"])
 
@@ -22,6 +34,15 @@ async def resolve_craft_id(data: dict[str, Any], current_user: Any) -> dict[str,
     if existing:
         data["craftId"] = existing.id
         return data
+    # Creating a brand-new craft is a granted privilege. Non-managers must pick an existing craft.
+    if not can_manage_crafts(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"Craft '{craft_name}' does not exist yet. Select an existing craft, or ask the "
+                "master admin to grant you craft creation access."
+            ),
+        )
     created = await db.craft.create(data={"name": craft_name, "createdById": current_user.id})
     data["craftId"] = created.id
     return data
@@ -76,6 +97,7 @@ async def create_artisan(
     data = await resolve_craft_id(data, current_user)
     data = await attach_location(data)
     data["createdById"] = current_user.id
+    merge_field_provenance(data, current_user, previous=None)
     created = await db.artisan.create(data=data, include=INCLUDE)
     return jsonable_encoder(created)
 
@@ -98,8 +120,52 @@ async def update_artisan(
     data = await resolve_craft_id(data, current_user)
     data = await attach_location(data)
     assert_can_contribute_fields(artisan, current_user, data)
+    merge_field_provenance(data, current_user, previous=artisan)
     updated = await db.artisan.update(where={"id": artisan_id}, data=data, include=INCLUDE)
     return jsonable_encoder(updated)
+
+
+@router.get("/{artisan_id}/questionnaire")
+async def get_artisan_questionnaire(artisan_id: str, _: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Answered questionnaire questions (with answers) for every interview linked to this artisan.
+
+    Only questions that actually have a non-empty answer are returned so the artisan page is not
+    crowded with blank prompts.
+    """
+    await require_record(db.artisan, artisan_id)
+    responses = await db.questionnaireresponse.find_many(
+        where={
+            "interview": {"is": {"artisans": {"some": {"artisanId": artisan_id}}}},
+            "answerText": {"not": None},
+        },
+        include={"question": True, "interview": True, "answeredBy": True},
+        order={"createdAt": "asc"},
+    )
+    answered: list[dict[str, Any]] = []
+    for response in responses:
+        if not (response.answerText and response.answerText.strip()):
+            continue
+        question = response.question
+        interview = response.interview
+        answered_by = response.answeredBy
+        answered.append(
+            {
+                "responseId": response.id,
+                "questionId": response.questionId,
+                "prompt": question.prompt if question else None,
+                "sectionCode": question.sectionCode if question else None,
+                "sectionTitle": question.sectionTitle if question else None,
+                "sortOrder": question.sortOrder if question else 0,
+                "answerText": response.answerText,
+                "notes": response.notes,
+                "interviewId": response.interviewId,
+                "interviewTitle": interview.title if interview else None,
+                "interviewDate": interview.interviewDate if interview else None,
+                "answeredByName": answered_by.name if answered_by else None,
+            }
+        )
+    answered.sort(key=lambda item: ((item.get("sectionCode") or ""), item.get("sortOrder") or 0))
+    return jsonable_encoder({"artisanId": artisan_id, "answered": answered, "total": len(answered)})
 
 
 @router.delete("/{artisan_id}", status_code=status.HTTP_204_NO_CONTENT)

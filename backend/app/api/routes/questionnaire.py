@@ -24,7 +24,15 @@ from app.schemas.questionnaire import (
     QuestionnaireSectionUpdate,
 )
 from app.services.pagination import normalize_pagination, page_payload
-from app.services.records import add_date_range, attach_location, clean_data, contains, require_record
+from app.services.records import (
+    add_date_range,
+    attach_location,
+    clean_data,
+    contains,
+    jsonify_metadata,
+    merge_field_provenance,
+    require_record,
+)
 
 router = APIRouter(prefix="/questionnaire", tags=["questionnaire"])
 
@@ -322,6 +330,8 @@ async def create_interview(
     data = clean_data(payload.model_dump(exclude={"artisanIds", "responses"}))
     data = await attach_location(data)
     data["createdById"] = current_user.id
+    merge_field_provenance(data, current_user, previous=None)
+    jsonify_metadata(data)
     created = await db.questionnaireinterview.create(data=data)
     if payload.artisanIds:
         await replace_interview_artisans(created.id, payload.artisanIds)
@@ -348,6 +358,8 @@ async def update_interview(
     data = clean_data(payload.model_dump(exclude_unset=True, exclude={"artisanIds", "responses"}))
     data = await attach_location(data)
     assert_can_contribute_fields(interview, current_user, data)
+    merge_field_provenance(data, current_user, previous=interview)
+    jsonify_metadata(data)
     if data:
         await db.questionnaireinterview.update(where={"id": interview_id}, data=data)
     if payload.artisanIds is not None:

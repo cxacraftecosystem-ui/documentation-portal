@@ -10,11 +10,10 @@ import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { StatusBadge } from "@/components/StatusBadge";
-import { useAuth } from "@/components/AuthProvider";
+import { useAdminView } from "@/components/AdminViewProvider";
 import { apiFetch, listResource } from "@/lib/api";
 import { bytes, formatDateTime } from "@/lib/format";
 import { locationFromForm, textValue } from "@/lib/forms";
-import { isAdmin } from "@/lib/permissions";
 import type { MediaFile, MediaType, PageResult } from "@/lib/types";
 import { mediaTypes } from "@/lib/types";
 
@@ -38,7 +37,7 @@ function mergeFiles(existing: File[], incoming: FileList | null) {
 }
 
 export default function MediaPage() {
-  const { user } = useAuth();
+  const { adminMode } = useAdminView();
   const [data, setData] = useState<PageResult<MediaFile> | null>(null);
   const [page, setPage] = useState(1);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -382,7 +381,7 @@ export default function MediaPage() {
                     </td>
                     <td className="px-4 py-3 text-neutral-600">{formatDateTime(item.createdAt)}</td>
                     <td className="px-4 py-3 text-right">
-                      {isAdmin(user) ? (
+                      {adminMode ? (
                         <button className="text-sm font-semibold text-red-700" onClick={() => remove(item.id)}>
                           Delete
                         </button>

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { AdminViewProvider } from "@/components/AdminViewProvider";
 import { AuthProvider } from "@/components/AuthProvider";
 import "./globals.css";
 
@@ -12,7 +13,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en">
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <AdminViewProvider>{children}</AdminViewProvider>
+        </AuthProvider>
       </body>
     </html>
   );

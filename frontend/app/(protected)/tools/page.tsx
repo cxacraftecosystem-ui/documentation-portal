@@ -10,14 +10,13 @@ import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { StatusBadge } from "@/components/StatusBadge";
-import { useAuth } from "@/components/AuthProvider";
+import { useAdminView } from "@/components/AdminViewProvider";
 import { apiFetch, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
-import { isAdmin } from "@/lib/permissions";
 import type { PageResult, ToolDocumentation } from "@/lib/types";
 
 export default function ToolsPage() {
-  const { user } = useAuth();
+  const { adminMode } = useAdminView();
   const [data, setData] = useState<PageResult<ToolDocumentation> | null>(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -135,7 +134,7 @@ export default function ToolsPage() {
                       <Link className="mr-2 text-sm font-semibold text-field-700" href={`/tools/${tool.id}/edit`}>
                         Edit
                       </Link>
-                      {isAdmin(user) ? (
+                      {adminMode ? (
                         <button className="text-sm font-semibold text-red-700" onClick={() => remove(tool.id)}>
                           Delete
                         </button>

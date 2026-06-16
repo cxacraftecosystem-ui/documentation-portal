@@ -9,6 +9,8 @@ class UserCreate(APIModel):
     password: str = Field(min_length=8, max_length=256)
     role: str = "RESEARCHER"
     canManageQuestionnaire: bool = False
+    canManageCrafts: bool = False
+    canManageWorkshops: bool = False
 
 
 class UserUpdate(APIModel):
@@ -17,3 +19,5 @@ class UserUpdate(APIModel):
     password: str | None = Field(default=None, min_length=8, max_length=256)
     role: str | None = None
     canManageQuestionnaire: bool | None = None
+    canManageCrafts: bool | None = None
+    canManageWorkshops: bool | None = None

@@ -4,6 +4,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
+from prisma import Json
 
 from app.core.config import Settings, get_settings
 from app.core.db import db
@@ -220,7 +221,7 @@ async def _apply_measurement_result(job: Any, result: dict[str, Any]) -> None:
     message = result.get("message")
     analysis = result.get("analysis")
     metadata = _merge_measurement_metadata(job.mediaFile.extraMetadata, result)
-    await db.mediafile.update(where={"id": job.mediaFileId}, data={"extraMetadata": metadata})
+    await db.mediafile.update(where={"id": job.mediaFileId}, data={"extraMetadata": Json(metadata)})
 
     if job.productId:
         await _apply_measurement_to_product(job.productId, job.mediaFileId, status, analysis)
@@ -278,10 +279,10 @@ def _measurement_update_data(
 ) -> dict[str, Any]:
     data: dict[str, Any] = {
         "measurementImageId": media_id,
-        "measurementAnalysis": jsonable_encoder(analysis) if analysis else None,
         "measurementAnalysisStatus": status,
     }
     if analysis:
+        data["measurementAnalysis"] = Json(jsonable_encoder(analysis))
         length = _decimal_or_none(analysis.get("lengthInches"))
         breadth = _decimal_or_none(analysis.get("breadthInches"))
         if length is not None and _value(record, "lengthInches") is None:
@@ -308,7 +309,7 @@ async def _complete_job(job_id: str, result: dict[str, Any]) -> None:
             "lockedAt": None,
             "lockedBy": None,
             "completedAt": datetime.now(UTC),
-            "result": jsonable_encoder(result),
+            "result": Json(jsonable_encoder(result)),
             "error": None,
         },
     )
@@ -322,7 +323,7 @@ async def _finalize_unavailable_job(job_id: str, result: dict[str, Any], message
             "lockedAt": None,
             "lockedBy": None,
             "completedAt": datetime.now(UTC),
-            "result": jsonable_encoder(result),
+            "result": Json(jsonable_encoder(result)),
             "error": str(message or "Required AI API key is not configured."),
         },
     )

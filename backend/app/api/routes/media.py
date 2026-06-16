@@ -16,6 +16,7 @@ from app.services.records import (
     attach_location,
     clean_data,
     contains,
+    jsonify_metadata,
     media_relation_data,
     require_record,
     visibility_where,
@@ -82,6 +83,7 @@ async def complete_media_upload(
     data["url"] = data.get("url") or public_url_for_key(data["objectKey"])
     data["uploadedById"] = current_user.id
     data.update(media_relation_data(data.get("linkedRecordType"), data.get("linkedRecordId")))
+    jsonify_metadata(data)
     created = await db.mediafile.create(data=data, include=INCLUDE)
     await enqueue_media_processing_jobs(created, processing_requests, current_user.id, settings)
     created = await db.mediafile.find_unique(where={"id": created.id}, include=INCLUDE)

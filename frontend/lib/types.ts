@@ -18,7 +18,30 @@ export type User = {
   avatarUrl?: string | null;
   authProvider?: string;
   canManageQuestionnaire?: boolean;
+  canManageCrafts?: boolean;
+  canManageWorkshops?: boolean;
 };
+
+export type FieldProvenanceEntry = { by?: string; byName?: string; at?: string };
+export type FieldProvenance = Record<string, FieldProvenanceEntry>;
+export type ExtraMetadata = { fieldProvenance?: FieldProvenance } & Record<string, unknown>;
+
+export type ArtisanAnswer = {
+  responseId: string;
+  questionId: string;
+  prompt?: string | null;
+  sectionCode?: string | null;
+  sectionTitle?: string | null;
+  sortOrder?: number;
+  answerText?: string | null;
+  notes?: string | null;
+  interviewId: string;
+  interviewTitle?: string | null;
+  interviewDate?: string | null;
+  answeredByName?: string | null;
+};
+
+export type ArtisanQuestionnaire = { artisanId: string; answered: ArtisanAnswer[]; total: number };
 
 export type LocationPayload = {
   latitude?: number | "";
@@ -38,6 +61,7 @@ export type Craft = {
   place?: string | null;
   recordedAt?: string | null;
   recordedTimezone?: string | null;
+  extraMetadata?: ExtraMetadata | null;
   createdAt?: string;
 };
 
@@ -56,6 +80,7 @@ export type Artisan = {
   craft?: Craft | null;
   recordedAt?: string | null;
   recordedTimezone?: string | null;
+  extraMetadata?: ExtraMetadata | null;
   createdById?: string;
   createdBy?: User;
   createdAt: string;
@@ -74,6 +99,7 @@ export type Workshop = {
   artisans?: Array<{ artisan: Artisan }>;
   recordedAt?: string | null;
   recordedTimezone?: string | null;
+  extraMetadata?: ExtraMetadata | null;
   createdById?: string;
   createdBy?: User;
   createdAt: string;
@@ -129,6 +155,7 @@ export type ProductDocumentation = {
   craftId?: string | null;
   workshopId?: string | null;
   media?: MediaFile[];
+  extraMetadata?: ExtraMetadata | null;
   createdById?: string;
   createdBy?: User;
   createdAt: string;
@@ -167,6 +194,7 @@ export type ToolDocumentation = {
   craftId?: string | null;
   workshopId?: string | null;
   media?: MediaFile[];
+  extraMetadata?: ExtraMetadata | null;
   createdById?: string;
   createdBy?: User;
   createdAt: string;

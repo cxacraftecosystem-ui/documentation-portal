@@ -13,17 +13,19 @@ import { RecordedAtField } from "@/components/forms/RecordedAtField";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { StatusBadge } from "@/components/StatusBadge";
+import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { locationFromForm, parseJsonMetadata, recordedAtFromForm, recordedTimezoneFromForm, textValue } from "@/lib/forms";
 import { uploadMediaBatch } from "@/lib/media";
-import { canManageQuestionnaire, isAdmin } from "@/lib/permissions";
+import { canManageQuestionnaire } from "@/lib/permissions";
 import type { Artisan, PageResult, QuestionnaireInterview, QuestionnaireQuestion, QuestionnaireSection } from "@/lib/types";
 import { CalendarLume } from "@/components/ui/calendar-lume";
 
 export default function QuestionnairePage() {
   const { user } = useAuth();
+  const { adminMode } = useAdminView();
   const searchParams = useSearchParams();
   const [sections, setSections] = useState<QuestionnaireSection[]>([]);
   const [artisans, setArtisans] = useState<Artisan[]>([]);
@@ -439,12 +441,12 @@ export default function QuestionnairePage() {
                     </td>
                     <td className="px-4 py-3 text-neutral-600">{formatDate(interview.interviewDate ?? interview.createdAt)}</td>
                     <td className="px-4 py-3 text-right">
-                      {isAdmin(user) ? (
+                      {adminMode ? (
                         <button className="text-sm font-semibold text-red-700" onClick={() => remove(interview.id)}>
                           Delete
                         </button>
                       ) : (
-                        <span className="text-xs text-neutral-500">Admin only</span>
+                        <span className="text-xs text-neutral-500">Admin view only</span>
                       )}
                     </td>
                   </tr>

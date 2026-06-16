@@ -53,6 +53,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
@@ -119,15 +120,15 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class EntryMode(val label: String) {
-    CRAFT("Craft"),
-    ARTISAN("Artisan"),
-    WORKSHOP("Workshop"),
-    PRODUCT("Product"),
-    TOOL("Tool"),
-    MEDIA("Media"),
-    QUESTIONNAIRE("Questionnaire"),
-    USERS("Users")
+private enum class EntryMode(val label: String, val actionTitle: String) {
+    ARTISAN("Artisan", "Record artisan"),
+    PRODUCT("Product", "Record product"),
+    TOOL("Tool", "Record tool"),
+    QUESTIONNAIRE("Questionnaire", "Take interview"),
+    WORKSHOP("Workshop", "Record workshop"),
+    CRAFT("Craft", "Add craft"),
+    MEDIA("Media", "Upload media"),
+    USERS("Users", "Manage users")
 }
 
 @Composable
@@ -285,7 +286,9 @@ private fun HomeScreen(
     var sections by remember { mutableStateOf<List<QuestionnaireSectionDto>>(emptyList()) }
     var crafts by remember { mutableStateOf<List<CraftDto>>(emptyList()) }
     var artisans by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
-    var mode by remember { mutableStateOf(EntryMode.ARTISAN) }
+    // null == dashboard landing; a value == a specific capture screen.
+    var mode by remember { mutableStateOf<EntryMode?>(null) }
+    var menuOpen by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     val isAdmin = user.role == "MASTER_ADMIN" || user.role == "ADMIN"
     val isQuestionnaireManager = user.role == "MASTER_ADMIN" || user.canManageQuestionnaire
@@ -326,30 +329,44 @@ private fun HomeScreen(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Field Repository", fontFamily = FontFamily.Serif, fontSize = 30.sp, color = MaterialTheme.colorScheme.onBackground)
-                Text("${user.name} - ${user.role}", color = Muted, fontSize = 13.sp)
+                Text(
+                    if (mode == null) "Field Repository" else mode!!.actionTitle,
+                    fontFamily = FontFamily.Serif,
+                    fontSize = 28.sp,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text("${user.name} · ${user.role}", color = Muted, fontSize = 13.sp)
             }
-            TextButton(onClick = onLogout) { Text("Logout") }
+            Box {
+                OutlinedButton(onClick = { menuOpen = true }) { Text("☰ Menu") }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(text = { Text("Dashboard") }, onClick = { mode = null; menuOpen = false })
+                    availableModes.forEach { entry ->
+                        DropdownMenuItem(text = { Text(entry.actionTitle) }, onClick = { mode = entry; menuOpen = false })
+                    }
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Logout") },
+                        onClick = {
+                            menuOpen = false
+                            onLogout()
+                        }
+                    )
+                }
+            }
         }
 
-        StatsCard(stats)
-
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-        ) {
-            availableModes.forEach { entryMode ->
-                FilterChip(
-                    selected = mode == entryMode,
-                    onClick = { mode = entryMode },
-                    label = { Text(entryMode.label) }
-                )
-            }
+        if (mode != null) {
+            TextButton(onClick = { mode = null }) { Text("← Back to dashboard") }
         }
 
         when (mode) {
+            null -> DashboardScreen(
+                stats = stats,
+                recentArtisans = artisans,
+                actions = availableModes,
+                onSelect = { selected -> mode = selected }
+            )
             EntryMode.CRAFT -> CraftForm(
                 repository = repository,
                 onSaved = {
@@ -436,6 +453,76 @@ private fun HomeScreen(
 
         message?.let {
             Text(it, color = Body, modifier = Modifier.padding(bottom = 24.dp))
+        }
+    }
+}
+
+@Composable
+private fun DashboardScreen(
+    stats: DashboardStats?,
+    recentArtisans: List<ArtisanDto>,
+    actions: List<EntryMode>,
+    onSelect: (EntryMode) -> Unit
+) {
+    val configuration = LocalConfiguration.current
+    val columns = when {
+        configuration.screenWidthDp >= 840 -> 4
+        configuration.screenWidthDp >= 600 -> 3
+        else -> 2
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {
+        Text("What would you like to record?", fontFamily = FontFamily.Serif, fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
+        actions.chunked(columns).forEach { rowItems ->
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                rowItems.forEach { entry ->
+                    DashboardActionCard(entry = entry, modifier = Modifier.weight(1f)) { onSelect(entry) }
+                }
+                repeat(columns - rowItems.size) { Spacer(modifier = Modifier.weight(1f)) }
+            }
+        }
+        StatsCard(stats)
+        if (recentArtisans.isNotEmpty()) {
+            Text("Recent artisans", fontFamily = FontFamily.Serif, fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
+            recentArtisans.take(6).forEach { artisan ->
+                ElevatedCard(
+                    colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(artisan.name, fontWeight = FontWeight.SemiBold)
+                        Text("${artisan.craft?.name ?: "No craft"} · ${artisan.place}", color = Muted, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DashboardActionCard(entry: EntryMode, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    ElevatedCard(
+        colors = CardDefaults.elevatedCardColors(containerColor = Canvas),
+        shape = RoundedCornerShape(16.dp),
+        modifier = modifier
+            .height(116.dp)
+            .clickable(onClick = onClick)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .background(color = ColorCompat.darkElevated, shape = RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(entry.label.take(1), color = Canvas, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            }
+            Text(entry.actionTitle, fontFamily = FontFamily.Serif, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface)
+            Text("Create new entry", color = Muted, fontSize = 11.sp)
         }
     }
 }
@@ -1607,9 +1694,17 @@ private fun QuestionnaireForm(
     var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var recordingFile by remember { mutableStateOf<File?>(null) }
     var questionAudio by remember { mutableStateOf<Map<String, List<Uri>>>(emptyMap()) }
+    var expandedSections by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var showBuilder by remember { mutableStateOf(false) }
 
     if (canManageQuestionnaire) {
-        QuestionnaireBuilder(repository, sections, onRefreshSections, onError)
+        // Defer the heavy builder so opening the questionnaire tab never composes hundreds of rows at once.
+        OutlinedButton(onClick = { showBuilder = !showBuilder }, modifier = Modifier.fillMaxWidth()) {
+            Text(if (showBuilder) "Hide questionnaire builder" else "Open questionnaire builder")
+        }
+        if (showBuilder) {
+            QuestionnaireBuilder(repository, sections, onRefreshSections, onError)
+        }
     }
 
     RecordCard(title = "Add questionnaire interview") {
@@ -1636,45 +1731,74 @@ private fun QuestionnaireForm(
         ) {
             Text(if (capturedLocation != null) "GPS tagged ✓ (tap to refresh)" else "Use current GPS")
         }
+        Text("Tap a section to answer its questions. Only answered questions are saved.", color = Muted, fontSize = 12.sp)
         sections.forEach { section ->
-            Text("${section.code}. ${section.title}", color = MaterialTheme.colorScheme.onSurface, fontFamily = FontFamily.Serif, fontSize = 20.sp)
-            section.questions.filter { it.isActive }.forEach { question ->
-                Text("${question.sortOrder}. ${question.prompt}", color = Muted, fontSize = 12.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(
-                        onClick = {
-                            if (recordingQuestionId == question.id) {
-                                runCatching {
-                                    recorder?.stop()
-                                    recorder?.release()
-                                    recordingFile?.let { file ->
-                                        questionAudio = questionAudio + (question.id to ((questionAudio[question.id] ?: emptyList()) + uriForFile(context, file)))
-                                    }
-                                }.onFailure { onError(it.message ?: "Unable to stop question audio") }
-                                recorder = null
-                                recordingFile = null
-                                recordingQuestionId = null
-                            } else {
-                                runCatching {
-                                    val file = createAppFile(context, "question-audio-", ".m4a")
-                                    recorder = createAudioRecorder(context, file).also { it.start() }
-                                    recordingFile = file
-                                    recordingQuestionId = question.id
-                                }.onFailure { onError(it.message ?: "Unable to start question audio") }
+            val activeQuestions = section.questions.filter { it.isActive }
+            if (activeQuestions.isNotEmpty()) {
+                val expanded = expandedSections.contains(section.id)
+                val answeredCount = activeQuestions.count { (answers[it.id]?.value?.trim().orEmpty()).isNotEmpty() }
+                ElevatedCard(
+                    colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    expandedSections = if (expanded) expandedSections - section.id else expandedSections + section.id
+                                },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("${section.code}. ${section.title}", color = MaterialTheme.colorScheme.onSurface, fontFamily = FontFamily.Serif, fontSize = 18.sp)
+                                Text("${activeQuestions.size} questions · $answeredCount answered", color = Muted, fontSize = 11.sp)
                             }
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(if (recordingQuestionId == question.id) "Stop" else "Record")
+                            Text(if (expanded) "Hide ▲" else "Open ▼", color = Body, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        // Only the expanded section composes its inputs, which keeps the screen responsive.
+                        if (expanded) {
+                            activeQuestions.forEach { question ->
+                                Text("${question.sortOrder}. ${question.prompt}", color = Muted, fontSize = 12.sp)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            if (recordingQuestionId == question.id) {
+                                                runCatching {
+                                                    recorder?.stop()
+                                                    recorder?.release()
+                                                    recordingFile?.let { file ->
+                                                        questionAudio = questionAudio + (question.id to ((questionAudio[question.id] ?: emptyList()) + uriForFile(context, file)))
+                                                    }
+                                                }.onFailure { onError(it.message ?: "Unable to stop question audio") }
+                                                recorder = null
+                                                recordingFile = null
+                                                recordingQuestionId = null
+                                            } else {
+                                                runCatching {
+                                                    val file = createAppFile(context, "question-audio-", ".m4a")
+                                                    recorder = createAudioRecorder(context, file).also { it.start() }
+                                                    recordingFile = file
+                                                    recordingQuestionId = question.id
+                                                }.onFailure { onError(it.message ?: "Unable to start question audio") }
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text(if (recordingQuestionId == question.id) "Stop" else "Record")
+                                    }
+                                    Text(
+                                        "${questionAudio[question.id]?.size ?: 0} clip(s)",
+                                        color = Muted,
+                                        modifier = Modifier.align(Alignment.CenterVertically)
+                                    )
+                                }
+                                TextInput("Answer", answers[question.id]?.value.orEmpty(), minLines = 3) { value ->
+                                    answers[question.id]?.let { state -> state.value = value }
+                                }
+                            }
+                        }
                     }
-                    Text(
-                        "${questionAudio[question.id]?.size ?: 0} clip(s)",
-                        color = Muted,
-                        modifier = Modifier.align(Alignment.CenterVertically)
-                    )
-                }
-                TextInput("Answer", answers[question.id]?.value.orEmpty(), minLines = 3) { value ->
-                    answers[question.id]?.let { state -> state.value = value }
                 }
             }
         }

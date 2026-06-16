@@ -12,16 +12,19 @@ import { RecordedAtField } from "@/components/forms/RecordedAtField";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { StatusBadge } from "@/components/StatusBadge";
+import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { locationFromForm, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue } from "@/lib/forms";
 import { uploadMediaBatch } from "@/lib/media";
-import { isAdmin } from "@/lib/permissions";
+import { canManageWorkshops } from "@/lib/permissions";
 import type { Artisan, PageResult, Workshop } from "@/lib/types";
 
 export default function WorkshopsPage() {
   const { user } = useAuth();
+  const { adminMode } = useAdminView();
+  const allowManage = canManageWorkshops(user);
   const [data, setData] = useState<PageResult<Workshop> | null>(null);
   const [artisans, setArtisans] = useState<Artisan[]>([]);
   const [search, setSearch] = useState("");
@@ -108,6 +111,7 @@ export default function WorkshopsPage() {
         icon={<MapPinned className="h-5 w-5" aria-hidden />}
       />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+      {allowManage ? (
       <form key={editing?.id ?? "new"} onSubmit={submit} className="panel mb-5 grid gap-4 p-4">
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
           <Field label="Workshop title" required>
@@ -154,6 +158,11 @@ export default function WorkshopsPage() {
           ) : null}
         </div>
       </form>
+      ) : (
+        <div className="panel mb-5 p-4 text-sm text-ink-muted">
+          Browse workshops below. Ask the master admin for workshop creation access to add or edit workshops.
+        </div>
+      )}
       <form
         className="mb-4 flex flex-col gap-2 sm:flex-row"
         onSubmit={(event) => {
@@ -204,14 +213,18 @@ export default function WorkshopsPage() {
                     </td>
                     <td className="px-4 py-3 text-neutral-600">{formatDate(workshop.createdAt)}</td>
                     <td className="px-4 py-3 text-right">
-                      <button className="mr-2 text-sm font-semibold text-field-700" onClick={() => setEditing(workshop)}>
-                        Edit
-                      </button>
-                      {isAdmin(user) ? (
+                      {allowManage ? (
+                        <button className="mr-2 text-sm font-semibold text-field-700" onClick={() => setEditing(workshop)}>
+                          Edit
+                        </button>
+                      ) : null}
+                      {adminMode ? (
                         <button className="text-sm font-semibold text-red-700" onClick={() => remove(workshop.id)}>
                           Delete
                         </button>
-                      ) : null}
+                      ) : (
+                        <span className="text-xs text-ink-soft">View only</span>
+                      )}
                     </td>
                   </tr>
                 ))}

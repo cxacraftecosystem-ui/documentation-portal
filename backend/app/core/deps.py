@@ -33,6 +33,14 @@ def can_manage_questionnaire(user: Any) -> bool:
     return is_master_admin(user) or bool(get_value(user, "canManageQuestionnaire"))
 
 
+def can_manage_crafts(user: Any) -> bool:
+    return is_admin(user) or bool(get_value(user, "canManageCrafts"))
+
+
+def can_manage_workshops(user: Any) -> bool:
+    return is_admin(user) or bool(get_value(user, "canManageWorkshops"))
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> Any:
@@ -73,6 +81,24 @@ async def require_questionnaire_manager(current_user: Any = Depends(get_current_
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Questionnaire management access required",
+        )
+    return current_user
+
+
+async def require_craft_manager(current_user: Any = Depends(get_current_user)) -> Any:
+    if not can_manage_crafts(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Craft creation access required. Ask the master admin to grant it.",
+        )
+    return current_user
+
+
+async def require_workshop_manager(current_user: Any = Depends(get_current_user)) -> Any:
+    if not can_manage_workshops(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Workshop creation access required. Ask the master admin to grant it.",
         )
     return current_user
 

@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
 import { ArtisanForm } from "@/components/forms/ArtisanForm";
+import { ArtisanQuestionnairePanel } from "@/components/ArtisanQuestionnairePanel";
+import { FieldProvenance } from "@/components/FieldProvenance";
 import { PageHeader } from "@/components/PageHeader";
 import { apiFetch } from "@/lib/api";
 import type { Artisan } from "@/lib/types";
@@ -23,7 +25,15 @@ export default function EditArtisanPage() {
     <>
       <PageHeader title="Edit Artisan" />
       {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
-      {record ? <ArtisanForm initial={record} /> : <div className="text-sm text-neutral-600">Loading...</div>}
+      {record ? (
+        <div className="grid gap-6">
+          <ArtisanForm initial={record} />
+          <ArtisanQuestionnairePanel artisanId={record.id} />
+          <FieldProvenance extraMetadata={record.extraMetadata} title="Artisan field contributions" />
+        </div>
+      ) : (
+        <div className="text-sm text-neutral-600">Loading...</div>
+      )}
     </>
   );
 }
