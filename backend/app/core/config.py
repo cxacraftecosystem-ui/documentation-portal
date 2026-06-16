@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_transcription_model: str = Field(default="whisper-1", alias="OPENAI_TRANSCRIPTION_MODEL")
     gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
+    gemini_api_keys_raw: str = Field(default="", alias="GEMINI_API_KEYS")
     maptiler_api_key: str | None = Field(default=None, alias="NEXT_PUBLIC_MAPTILER_API_KEY")
     media_queue_worker_enabled: bool = Field(default=True, alias="MEDIA_QUEUE_WORKER_ENABLED")
     media_queue_interval_seconds: float = Field(default=5.0, alias="MEDIA_QUEUE_INTERVAL_SECONDS")
@@ -50,6 +51,29 @@ class Settings(BaseSettings):
     @property
     def google_client_ids(self) -> list[str]:
         return [value for value in [self.google_client_id, self.google_android_client_id] if value]
+
+    @property
+    def gemini_api_keys(self) -> list[str]:
+        """All configured Gemini keys, in order, de-duplicated.
+
+        Combines the single ``GEMINI_API_KEY`` (kept for backward compatibility) with any number
+        of keys in ``GEMINI_API_KEYS`` (comma- or newline-separated). Add more keys to the env var
+        at any time without touching code; the measurement worker rotates across them.
+        """
+        raw_parts: list[str] = []
+        if self.gemini_api_key:
+            raw_parts.append(self.gemini_api_key)
+        for chunk in self.gemini_api_keys_raw.replace("\n", ",").split(","):
+            candidate = chunk.strip()
+            if candidate:
+                raw_parts.append(candidate)
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for key in raw_parts:
+            if key not in seen:
+                seen.add(key)
+                ordered.append(key)
+        return ordered
 
 
 @lru_cache

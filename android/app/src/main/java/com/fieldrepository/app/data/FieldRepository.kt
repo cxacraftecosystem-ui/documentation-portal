@@ -19,23 +19,35 @@ class FieldRepository(
 
     fun hasToken(): Boolean = !tokenStore.getToken().isNullOrBlank()
 
+    /** Last known signed-in profile, used for instant, persistent login across resumes. */
+    fun cachedUser(): UserDto? = tokenStore.getUser()
+
     suspend fun login(email: String, password: String): UserDto {
         val response = api.login(LoginRequest(email = email.trim(), password = password))
         tokenStore.setToken(response.accessToken)
+        tokenStore.setUser(response.user)
         return response.user
     }
 
     suspend fun loginWithGoogle(idToken: String): UserDto {
         val response = api.googleLogin(GoogleLoginRequest(googleIdToken = idToken))
         tokenStore.setToken(response.accessToken)
+        tokenStore.setUser(response.user)
         return response.user
     }
 
     fun logout() {
-        tokenStore.setToken(null)
+        tokenStore.clear()
     }
 
     suspend fun currentUser(): UserDto = api.me()
+
+    /** Refresh the profile from the server and update the local cache. */
+    suspend fun refreshUser(): UserDto {
+        val user = api.me()
+        tokenStore.setUser(user)
+        return user
+    }
 
     suspend fun stats(): DashboardStats = api.dashboardStats()
 
@@ -44,7 +56,7 @@ class FieldRepository(
     suspend fun updateUserQuestionnaireAccess(id: String, canManageQuestionnaire: Boolean): UserDto =
         api.updateUser(id, UserUpdateRequest(canManageQuestionnaire = canManageQuestionnaire))
 
-    suspend fun artisans(): List<ArtisanDto> = api.artisans(pageSize = 50).items
+    suspend fun artisans(): List<ArtisanDto> = api.artisans(pageSize = 100).items
 
     suspend fun crafts(): List<CraftDto> = api.crafts(pageSize = 100).items
 
@@ -52,21 +64,13 @@ class FieldRepository(
 
     suspend fun media(): List<MediaFileDto> = api.media(pageSize = 20).items
 
-    suspend fun createCraft(body: CraftCreateRequest) {
-        api.createCraft(body)
-    }
+    suspend fun createCraft(body: CraftCreateRequest): CreatedRecordDto = api.createCraft(body)
 
-    suspend fun createWorkshop(body: WorkshopCreateRequest) {
-        api.createWorkshop(body)
-    }
+    suspend fun createWorkshop(body: WorkshopCreateRequest): CreatedRecordDto = api.createWorkshop(body)
 
-    suspend fun createProduct(body: ProductCreateRequest) {
-        api.createProduct(body)
-    }
+    suspend fun createProduct(body: ProductCreateRequest): CreatedRecordDto = api.createProduct(body)
 
-    suspend fun createTool(body: ToolCreateRequest) {
-        api.createTool(body)
-    }
+    suspend fun createTool(body: ToolCreateRequest): CreatedRecordDto = api.createTool(body)
 
     suspend fun questionnaireQuestions(): List<QuestionnaireQuestionDto> = api.questionnaireQuestions()
 
@@ -109,11 +113,14 @@ class FieldRepository(
         caption: String?,
         location: LocationRequest?,
         titleHint: String? = null,
-        batchIndex: Int = 1
+        batchIndex: Int = 1,
+        processingRequests: List<String>? = null
     ): MediaFileDto {
         val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
         val originalName = displayName(context, uri) ?: "field-media-${System.currentTimeMillis()}"
         val mediaType = inferMediaType(mimeType)
+        val resolvedProcessing = processingRequests
+            ?: if (mediaType == "AUDIO") listOf("TRANSCRIPTION") else emptyList()
         val filename = mediaFilename(titleHint = titleHint ?: caption, originalName = originalName, mediaType = mediaType, batchIndex = batchIndex)
         val bytes = withContext(Dispatchers.IO) {
             context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
@@ -154,7 +161,7 @@ class FieldRepository(
                 linkedRecordId = linkedRecordId.blankToNull(),
                 recordedAt = Instant.now().toString(),
                 location = location,
-                processingRequests = if (mediaType == "AUDIO") listOf("TRANSCRIPTION") else emptyList()
+                processingRequests = resolvedProcessing
             )
         )
     }

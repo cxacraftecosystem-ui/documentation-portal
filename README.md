@@ -132,7 +132,13 @@ cd android
 .\gradlew.bat :app:assembleDebug
 ```
 
-The Android client supports email/password login, Google login, dashboard summary, creating craft, artisan, workshop, product, tool and questionnaire records, plus native batch media upload with image capture, video capture, audio recording and GPS tagging through the same REST endpoints used by the web app.
+The Android client supports email/password login, Google login, dashboard summary, and full field capture at parity with the web app through the same REST endpoints:
+
+- Craft, artisan, workshop, product, tool and questionnaire forms capture the complete field set the backend accepts (not just a few columns), including local names, dimensions, costs, market demand, maker/tradition type, status and remarks.
+- Every record form embeds native media capture (pick files, take photo, record video, record audio) that links uploaded media to the record automatically, plus one-tap GPS tagging.
+- Craft and artisan dropdown pickers (with a free-text fallback) auto-fill linked names; workshops and questionnaires use an artisan multi-select; workshops use native start/end date pickers.
+- Product and tool forms accept an optional grid-sheet measurement image that is uploaded with a `MEASUREMENT` processing request so the backend Gemini worker can estimate empty length/breadth.
+- Audio uploaded from any form sends a `TRANSCRIPTION` processing request, queuing Whisper transcription on the backend.
 
 ## Google OAuth Setup
 

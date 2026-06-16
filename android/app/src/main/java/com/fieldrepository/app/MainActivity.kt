@@ -90,8 +90,20 @@ import com.fieldrepository.app.ui.Muted
 import com.fieldrepository.app.ui.SurfaceCard
 import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
+import retrofit2.HttpException
+import android.app.DatePickerDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import com.fieldrepository.app.data.ArtisanDto
+import com.fieldrepository.app.data.CraftDto
+import com.fieldrepository.app.data.CreatedRecordDto
+import com.fieldrepository.app.data.MediaFileDto
 import java.io.File
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -121,17 +133,24 @@ private enum class EntryMode(val label: String) {
 @Composable
 private fun RepositoryApp(repository: FieldRepository, googleAuthClient: GoogleAuthClient) {
     val scope = rememberCoroutineScope()
-    var user by remember { mutableStateOf<UserDto?>(null) }
-    var loading by remember { mutableStateOf(repository.hasToken()) }
+    var user by remember { mutableStateOf(repository.cachedUser()) }
+    var loading by remember { mutableStateOf(user == null && repository.hasToken()) }
     var error by remember { mutableStateOf<String?>(null) }
 
+    // Persistent login: start from the cached profile so minimise/resume never logs the user out.
+    // Refresh in the background and only clear the session if the token is genuinely rejected (401).
     LaunchedEffect(Unit) {
         if (repository.hasToken()) {
-            runCatching { repository.currentUser() }
+            runCatching { repository.refreshUser() }
                 .onSuccess { user = it }
-                .onFailure {
-                    repository.logout()
-                    error = it.message
+                .onFailure { err ->
+                    if (err is HttpException && err.code() == 401) {
+                        repository.logout()
+                        user = null
+                        error = "Your session expired. Please sign in again."
+                    } else if (user == null) {
+                        error = err.message ?: "Unable to reach the server. Check your connection and try again."
+                    }
                 }
         }
         loading = false
@@ -264,6 +283,8 @@ private fun HomeScreen(
     val scope = rememberCoroutineScope()
     var stats by remember { mutableStateOf<DashboardStats?>(null) }
     var sections by remember { mutableStateOf<List<QuestionnaireSectionDto>>(emptyList()) }
+    var crafts by remember { mutableStateOf<List<CraftDto>>(emptyList()) }
+    var artisans by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
     var mode by remember { mutableStateOf(EntryMode.ARTISAN) }
     var message by remember { mutableStateOf<String?>(null) }
     val isAdmin = user.role == "MASTER_ADMIN" || user.role == "ADMIN"
@@ -280,8 +301,18 @@ private fun HomeScreen(
         }
     }
 
+    suspend fun loadLookups() {
+        runCatching { repository.crafts() }.onSuccess { crafts = it }
+        runCatching { repository.artisans() }.onSuccess { artisans = it }
+    }
+
+    fun refreshLookups() {
+        scope.launch { loadLookups() }
+    }
+
     LaunchedEffect(Unit) {
         refresh()
+        loadLookups()
         runCatching { repository.questionnaireSections() }
             .onSuccess { sections = it }
             .onFailure { message = it.message }
@@ -320,54 +351,52 @@ private fun HomeScreen(
 
         when (mode) {
             EntryMode.CRAFT -> CraftForm(
-                onSubmit = { body ->
-                    runCatching { repository.createCraft(body) }
-                        .onSuccess {
-                            message = "Craft saved"
-                            refresh()
-                        }
-                        .onFailure { message = it.message ?: "Unable to save craft" }
-                }
+                repository = repository,
+                onSaved = {
+                    message = "Craft saved with attached media"
+                    refresh()
+                    refreshLookups()
+                },
+                onError = { message = it }
             )
             EntryMode.ARTISAN -> ArtisanForm(
-                onSubmit = { body ->
-                    runCatching { repository.createArtisan(body) }
-                        .onSuccess {
-                            message = "Artisan saved"
-                            refresh()
-                        }
-                        .onFailure { message = it.message ?: "Unable to save artisan" }
-                }
+                repository = repository,
+                crafts = crafts,
+                onSaved = {
+                    message = "Artisan saved with attached media"
+                    refresh()
+                    refreshLookups()
+                },
+                onError = { message = it }
             )
             EntryMode.WORKSHOP -> WorkshopForm(
-                onSubmit = { body ->
-                    runCatching { repository.createWorkshop(body) }
-                        .onSuccess {
-                            message = "Workshop saved"
-                            refresh()
-                        }
-                        .onFailure { message = it.message ?: "Unable to save workshop" }
-                }
+                repository = repository,
+                artisans = artisans,
+                onSaved = {
+                    message = "Workshop saved with attached media"
+                    refresh()
+                },
+                onError = { message = it }
             )
             EntryMode.PRODUCT -> ProductForm(
-                onSubmit = { body ->
-                    runCatching { repository.createProduct(body) }
-                        .onSuccess {
-                            message = "Product saved"
-                            refresh()
-                        }
-                        .onFailure { message = it.message ?: "Unable to save product" }
-                }
+                repository = repository,
+                crafts = crafts,
+                artisans = artisans,
+                onSaved = {
+                    message = "Product saved with attached media"
+                    refresh()
+                },
+                onError = { message = it }
             )
             EntryMode.TOOL -> ToolForm(
-                onSubmit = { body ->
-                    runCatching { repository.createTool(body) }
-                        .onSuccess {
-                            message = "Tool saved"
-                            refresh()
-                        }
-                        .onFailure { message = it.message ?: "Unable to save tool" }
-                }
+                repository = repository,
+                crafts = crafts,
+                artisans = artisans,
+                onSaved = {
+                    message = "Tool saved with attached media"
+                    refresh()
+                },
+                onError = { message = it }
             )
             EntryMode.MEDIA -> AndroidMediaForm(
                 repository = repository,
@@ -380,6 +409,7 @@ private fun HomeScreen(
             EntryMode.QUESTIONNAIRE -> QuestionnaireForm(
                 repository = repository,
                 sections = sections,
+                artisans = artisans,
                 canManageQuestionnaire = isQuestionnaireManager,
                 onRefreshSections = {
                     runCatching { repository.questionnaireSections() }
@@ -388,7 +418,6 @@ private fun HomeScreen(
                 },
                 onSubmit = { body ->
                     val created = repository.createQuestionnaireInterview(body)
-                    message = "Questionnaire interview saved"
                     refresh()
                     created.id
                 },
@@ -452,237 +481,835 @@ private fun Stat(label: String, value: Int, modifier: Modifier = Modifier) {
     }
 }
 
+private val productTypeOptions = listOf("FINISHED_GOOD", "SAMPLE", "RAW_MATERIAL", "COMPONENT", "PACKAGING", "OTHER")
+private val marketDemandOptions = listOf("LOW", "MEDIUM", "HIGH", "SEASONAL", "UNKNOWN")
+private val makerOptions = listOf("ARTISAN", "LOCAL_BLACKSMITH", "CARPENTER", "WORKSHOP", "FACTORY", "UNKNOWN", "OTHER")
+private val traditionOptions = listOf("TRADITIONAL", "MODERN", "HYBRID", "UNKNOWN")
+private val statusOptions = listOf("DRAFT", "PENDING", "APPROVED", "REJECTED")
+
+/** Shared holder for media attachments, captured GPS, and an optional measurement-grid image. */
+private class MediaCaptureState {
+    var uris by mutableStateOf<List<Uri>>(emptyList())
+    var location by mutableStateOf<LocationRequest?>(null)
+    var measurementUri by mutableStateOf<Uri?>(null)
+
+    fun reset() {
+        uris = emptyList()
+        location = null
+        measurementUri = null
+    }
+}
+
 @Composable
-private fun CraftForm(onSubmit: suspend (CraftCreateRequest) -> Unit) {
+private fun rememberMediaCaptureState(): MediaCaptureState = remember { MediaCaptureState() }
+
+private fun LocalDate.toIsoInstant(): String =
+    atStartOfDay(ZoneId.systemDefault()).toInstant().toString()
+
+private suspend fun uploadAttachments(
+    repository: FieldRepository,
+    context: Context,
+    media: MediaCaptureState,
+    recordType: String,
+    recordId: String,
+    titleHint: String?,
+    caption: String?
+) {
+    media.uris.forEachIndexed { index, uri ->
+        repository.uploadMedia(
+            context = context,
+            uri = uri,
+            linkedRecordType = recordType,
+            linkedRecordId = recordId,
+            caption = caption,
+            location = media.location,
+            titleHint = titleHint,
+            batchIndex = index + 1
+        )
+    }
+}
+
+private suspend fun uploadMeasurement(
+    repository: FieldRepository,
+    context: Context,
+    media: MediaCaptureState,
+    recordType: String,
+    recordId: String,
+    titleHint: String?
+) {
+    val uri = media.measurementUri ?: return
+    repository.uploadMedia(
+        context = context,
+        uri = uri,
+        linkedRecordType = recordType,
+        linkedRecordId = recordId,
+        caption = "Measurement grid image for ${titleHint.orEmpty()}".trim(),
+        location = media.location,
+        titleHint = "${titleHint.orEmpty()} measurement grid".trim(),
+        batchIndex = 1,
+        processingRequests = listOf("MEASUREMENT")
+    )
+}
+
+@Composable
+private fun DropdownField(
+    label: String,
+    options: List<Pair<String, String>>,
+    selectedValue: String,
+    placeholder: String = "Select",
+    includeNone: Boolean = true,
+    onSelect: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedLabel = options.firstOrNull { it.first == selectedValue }?.second
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, color = Muted, fontSize = 12.sp)
+        Box(modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(selectedLabel ?: placeholder, modifier = Modifier.weight(1f))
+                Text("▾", color = Muted)
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                if (includeNone) {
+                    DropdownMenuItem(text = { Text(placeholder) }, onClick = { onSelect(""); expanded = false })
+                }
+                options.forEach { (value, text) ->
+                    DropdownMenuItem(text = { Text(text) }, onClick = { onSelect(value); expanded = false })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusDropdown(value: String, onSelect: (String) -> Unit) {
+    DropdownField(
+        label = "Status",
+        options = statusOptions.map { it to it },
+        selectedValue = value,
+        includeNone = false,
+        onSelect = onSelect
+    )
+}
+
+@Composable
+private fun ArtisanMultiSelectField(
+    label: String,
+    artisans: List<ArtisanDto>,
+    selectedIds: Set<String>,
+    onToggle: (String) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("$label (${selectedIds.size} selected)", color = Muted, fontSize = 12.sp)
+        if (artisans.isEmpty()) {
+            Text("No artisans available yet. Create an artisan first.", color = Muted, fontSize = 12.sp)
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(SurfaceCard, RoundedCornerShape(12.dp))
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                artisans.forEach { artisan ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onToggle(artisan.id) }
+                    ) {
+                        Checkbox(checked = selectedIds.contains(artisan.id), onCheckedChange = { onToggle(artisan.id) })
+                        Text("${artisan.name} · ${artisan.place}", color = Body, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DatePickerField(label: String, value: LocalDate?, onChange: (LocalDate) -> Unit) {
+    val context = LocalContext.current
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, color = Muted, fontSize = 12.sp)
+        OutlinedButton(
+            onClick = {
+                val initial = value ?: LocalDate.now()
+                DatePickerDialog(
+                    context,
+                    { _, year, month, day -> onChange(LocalDate.of(year, month + 1, day)) },
+                    initial.year,
+                    initial.monthValue - 1,
+                    initial.dayOfMonth
+                ).show()
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(value?.toString() ?: "Pick date")
+        }
+    }
+}
+
+/**
+ * Reusable capture surface embedded inside every record form. Mirrors the web MediaCaptureField:
+ * pick files, take photo/video, record audio, tag GPS, and (optionally) attach a measurement grid.
+ */
+@Composable
+private fun MediaCaptureSection(
+    media: MediaCaptureState,
+    enableMeasurement: Boolean = false,
+    onMessage: (String) -> Unit,
+    onError: (String) -> Unit
+) {
+    val context = LocalContext.current
+    var recording by remember { mutableStateOf(false) }
+    var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
+    var recordingFile by remember { mutableStateOf<File?>(null) }
+    var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingMeasurement by remember { mutableStateOf(false) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
+    val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        if (uris.isNotEmpty()) media.uris = media.uris + uris
+    }
+    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val uri = pendingCaptureUri
+        if (success && uri != null) {
+            if (pendingMeasurement) media.measurementUri = uri else media.uris = media.uris + uri
+        }
+        pendingCaptureUri = null
+        pendingMeasurement = false
+    }
+    val takeVideo = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { success ->
+        val uri = pendingCaptureUri
+        if (success && uri != null) media.uris = media.uris + uri
+        pendingCaptureUri = null
+    }
+    val pickMeasurement = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) media.measurementUri = uri
+    }
+
+    LaunchedEffect(Unit) { permissionLauncher.launch(requiredAndroidPermissions()) }
+
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        HorizontalDivider()
+        Text("Attach media", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+        Text(
+            "Photos, video, audio and files link to this record automatically. Audio is queued for transcription after upload.",
+            color = Muted,
+            fontSize = 12.sp
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = { pickMedia.launch("*/*") }, modifier = Modifier.weight(1f)) { Text("Pick files") }
+            OutlinedButton(
+                onClick = {
+                    permissionLauncher.launch(requiredAndroidPermissions())
+                    val uri = createAppFileUri(context, "field-photo-", ".jpg")
+                    pendingMeasurement = false
+                    pendingCaptureUri = uri
+                    takePhoto.launch(uri)
+                },
+                modifier = Modifier.weight(1f)
+            ) { Text("Take photo") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = {
+                    permissionLauncher.launch(requiredAndroidPermissions())
+                    val uri = createAppFileUri(context, "field-video-", ".mp4")
+                    pendingMeasurement = false
+                    pendingCaptureUri = uri
+                    takeVideo.launch(uri)
+                },
+                modifier = Modifier.weight(1f)
+            ) { Text("Record video") }
+            OutlinedButton(
+                onClick = {
+                    permissionLauncher.launch(requiredAndroidPermissions())
+                    if (!recording) {
+                        runCatching {
+                            val file = createAppFile(context, "field-audio-", ".m4a")
+                            recorder = createAudioRecorder(context, file).also { it.start() }
+                            recordingFile = file
+                            recording = true
+                            onMessage("Recording audio...")
+                        }.onFailure { onError(it.message ?: "Unable to start audio recording") }
+                    } else {
+                        runCatching {
+                            recorder?.stop()
+                            recorder?.release()
+                            recordingFile?.let { file -> media.uris = media.uris + uriForFile(context, file) }
+                        }.onFailure { onError(it.message ?: "Unable to stop audio recording") }
+                        recorder = null
+                        recordingFile = null
+                        recording = false
+                        onMessage("Audio recording added")
+                    }
+                },
+                modifier = Modifier.weight(1f)
+            ) { Text(if (recording) "Stop audio" else "Record audio") }
+        }
+        OutlinedButton(
+            onClick = {
+                permissionLauncher.launch(requiredAndroidPermissions())
+                val loc = readLastKnownLocation(context)
+                media.location = loc
+                onMessage(
+                    loc?.let { "Location tagged: ${"%.5f".format(it.latitude)}, ${"%.5f".format(it.longitude)}" }
+                        ?: "No GPS fix yet; try again after location warms up."
+                )
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (media.location != null) "GPS tagged ✓ (tap to refresh)" else "Use current GPS")
+        }
+        if (enableMeasurement) {
+            HorizontalDivider()
+            Text("Grid-sheet measurement image (optional)", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            Text(
+                "If the server has GEMINI_API_KEY, dimensions are estimated from the grid and fill empty length/breadth. Otherwise enter them manually.",
+                color = Muted,
+                fontSize = 11.sp
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = {
+                        permissionLauncher.launch(requiredAndroidPermissions())
+                        val uri = createAppFileUri(context, "measure-grid-", ".jpg")
+                        pendingMeasurement = true
+                        pendingCaptureUri = uri
+                        takePhoto.launch(uri)
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("Capture grid") }
+                OutlinedButton(onClick = { pickMeasurement.launch("image/*") }, modifier = Modifier.weight(1f)) { Text("Pick grid") }
+            }
+            media.measurementUri?.let { uri ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    AsyncImage(
+                        model = uri,
+                        contentDescription = "Measurement grid",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(56.dp).background(SurfaceCard, RoundedCornerShape(8.dp))
+                    )
+                    Text("Grid image ready", color = Body, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { media.measurementUri = null }) { Text("Remove") }
+                }
+            }
+        }
+        if (media.uris.isNotEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(color = ColorCompat.darkElevated, shape = RoundedCornerShape(12.dp))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text("${media.uris.size} file(s) attached", color = Canvas, fontWeight = FontWeight.SemiBold)
+                media.uris.take(6).forEach { uri -> AndroidUriPreview(context = context, uri = uri) }
+                if (media.uris.size > 6) Text("+${media.uris.size - 6} more", color = SurfaceCard, fontSize = 12.sp)
+                TextButton(onClick = { media.uris = emptyList() }) { Text("Clear attachments") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CraftForm(
+    repository: FieldRepository,
+    onSaved: () -> Unit,
+    onError: (String) -> Unit
+) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val media = rememberMediaCaptureState()
     var name by remember { mutableStateOf("") }
+    var localName by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("") }
     var place by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
+    var saving by remember { mutableStateOf(false) }
 
     RecordCard(title = "Add craft") {
         TextInput("Craft name", name) { name = it }
+        TextInput("Local name", localName) { localName = it }
         TextInput("Category", category) { category = it }
         TextInput("Place", place) { place = it }
         TextInput("Description", description, minLines = 3) { description = it }
+        MediaCaptureSection(media = media, onMessage = onError, onError = onError)
         Button(
             onClick = {
                 scope.launch {
-                    val now = Instant.now().toString()
-                    onSubmit(
-                        CraftCreateRequest(
-                            name = name.trim(),
-                            category = category.blankToNull(),
-                            place = place.blankToNull(),
-                            description = description.blankToNull(),
-                            recordedAt = now
+                    saving = true
+                    runCatching {
+                        val created = repository.createCraft(
+                            CraftCreateRequest(
+                                name = name.trim(),
+                                localName = localName.blankToNull(),
+                                category = category.blankToNull(),
+                                place = place.blankToNull(),
+                                description = description.blankToNull(),
+                                recordedAt = Instant.now().toString()
+                            )
                         )
-                    )
-                    name = ""
-                    category = ""
-                    place = ""
-                    description = ""
+                        uploadAttachments(repository, context, media, "craft", created.id, name, "Field media for ${name.trim()}")
+                    }.onSuccess {
+                        name = ""; localName = ""; category = ""; place = ""; description = ""
+                        media.reset()
+                        onSaved()
+                    }.onFailure { onError(it.message ?: "Unable to save craft") }
+                    saving = false
                 }
             },
-            enabled = name.isNotBlank(),
+            enabled = name.isNotBlank() && !saving,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Save craft")
+            Text(if (saving) "Saving..." else "Save craft")
         }
     }
 }
 
 @Composable
-private fun ArtisanForm(onSubmit: suspend (ArtisanCreateRequest) -> Unit) {
+private fun ArtisanForm(
+    repository: FieldRepository,
+    crafts: List<CraftDto>,
+    onSaved: () -> Unit,
+    onError: (String) -> Unit
+) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val media = rememberMediaCaptureState()
     var name by remember { mutableStateOf("") }
-    var craftName by remember { mutableStateOf("") }
-    var place by remember { mutableStateOf("") }
+    var localName by remember { mutableStateOf("") }
+    var gender by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var place by remember { mutableStateOf("") }
+    var address by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
+    var craftId by remember { mutableStateOf("") }
+    var newCraftName by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("PENDING") }
+    var saving by remember { mutableStateOf(false) }
+    val hasCraft = craftId.isNotBlank() || newCraftName.isNotBlank()
 
     RecordCard(title = "Add artisan") {
         TextInput("Name", name) { name = it }
-        TextInput("Craft", craftName) { craftName = it }
+        TextInput("Local name", localName) { localName = it }
+        DropdownField(
+            label = "Craft",
+            options = crafts.map { it.id to it.name },
+            selectedValue = craftId,
+            placeholder = "Select existing craft",
+            onSelect = { craftId = it }
+        )
+        TextInput("Or new craft name", newCraftName) { newCraftName = it }
         TextInput("Place", place) { place = it }
+        TextInput("Gender", gender) { gender = it }
         TextInput("Phone", phone) { phone = it }
+        TextInput("Email", email) { email = it }
+        TextInput("Address", address, minLines = 2) { address = it }
         TextInput("Notes", notes, minLines = 3) { notes = it }
+        StatusDropdown(value = status) { status = it }
+        MediaCaptureSection(media = media, onMessage = onError, onError = onError)
         Button(
             onClick = {
                 scope.launch {
-                    val now = Instant.now().toString()
-                    onSubmit(
-                        ArtisanCreateRequest(
-                            name = name.trim(),
-                            place = place.trim(),
-                            craftName = craftName.trim(),
-                            phone = phone.blankToNull(),
-                            notes = notes.blankToNull(),
-                            recordedAt = now
+                    saving = true
+                    runCatching {
+                        val artisan = repository.createArtisan(
+                            ArtisanCreateRequest(
+                                name = name.trim(),
+                                localName = localName.blankToNull(),
+                                gender = gender.blankToNull(),
+                                phone = phone.blankToNull(),
+                                email = email.blankToNull(),
+                                place = place.trim(),
+                                address = address.blankToNull(),
+                                notes = notes.blankToNull(),
+                                craftId = craftId.ifBlank { null },
+                                craftName = if (craftId.isBlank()) newCraftName.blankToNull() else null,
+                                status = status,
+                                recordedAt = Instant.now().toString(),
+                                location = media.location
+                            )
                         )
-                    )
-                    name = ""
-                    craftName = ""
-                    place = ""
-                    phone = ""
-                    notes = ""
+                        uploadAttachments(repository, context, media, "artisan", artisan.id, name, "Field media for ${name.trim()}")
+                    }.onSuccess {
+                        name = ""; localName = ""; gender = ""; phone = ""; email = ""
+                        place = ""; address = ""; notes = ""; craftId = ""; newCraftName = ""
+                        status = "PENDING"
+                        media.reset()
+                        onSaved()
+                    }.onFailure { onError(it.message ?: "Unable to save artisan") }
+                    saving = false
                 }
             },
-            enabled = name.isNotBlank() && craftName.isNotBlank() && place.isNotBlank(),
+            enabled = name.isNotBlank() && place.isNotBlank() && hasCraft && !saving,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Save artisan")
+            Text(if (saving) "Saving..." else "Save artisan")
         }
     }
 }
 
 @Composable
-private fun WorkshopForm(onSubmit: suspend (WorkshopCreateRequest) -> Unit) {
+private fun WorkshopForm(
+    repository: FieldRepository,
+    artisans: List<ArtisanDto>,
+    onSaved: () -> Unit,
+    onError: (String) -> Unit
+) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val media = rememberMediaCaptureState()
     var title by remember { mutableStateOf("") }
     var place by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
+    var startDate by remember { mutableStateOf<LocalDate?>(null) }
+    var endDate by remember { mutableStateOf<LocalDate?>(null) }
+    var status by remember { mutableStateOf("PENDING") }
+    var selectedArtisans by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var saving by remember { mutableStateOf(false) }
 
     RecordCard(title = "Add workshop") {
         TextInput("Workshop title", title) { title = it }
         TextInput("Place", place) { place = it }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Box(modifier = Modifier.weight(1f)) {
+                DatePickerField("Start date", startDate) { picked ->
+                    startDate = picked
+                    if (endDate == null || endDate!!.isBefore(picked)) endDate = picked
+                }
+            }
+            Box(modifier = Modifier.weight(1f)) {
+                DatePickerField("End date", endDate) { endDate = it }
+            }
+        }
+        StatusDropdown(value = status) { status = it }
         TextInput("Description", description, minLines = 3) { description = it }
         TextInput("Notes", notes, minLines = 3) { notes = it }
+        ArtisanMultiSelectField(
+            label = "Linked artisans",
+            artisans = artisans,
+            selectedIds = selectedArtisans
+        ) { id ->
+            selectedArtisans = if (selectedArtisans.contains(id)) selectedArtisans - id else selectedArtisans + id
+        }
+        MediaCaptureSection(media = media, onMessage = onError, onError = onError)
         Button(
             onClick = {
                 scope.launch {
-                    val now = Instant.now().toString()
-                    onSubmit(
-                        WorkshopCreateRequest(
-                            title = title.trim(),
-                            date = now,
-                            startDate = now,
-                            endDate = now,
-                            place = place.trim(),
-                            description = description.blankToNull(),
-                            notes = notes.blankToNull(),
-                            recordedAt = now
+                    saving = true
+                    runCatching {
+                        val start = (startDate ?: LocalDate.now()).toIsoInstant()
+                        val end = (endDate ?: startDate ?: LocalDate.now()).toIsoInstant()
+                        val created = repository.createWorkshop(
+                            WorkshopCreateRequest(
+                                title = title.trim(),
+                                date = start,
+                                startDate = start,
+                                endDate = end,
+                                place = place.trim(),
+                                description = description.blankToNull(),
+                                notes = notes.blankToNull(),
+                                artisanIds = selectedArtisans.toList(),
+                                status = status,
+                                recordedAt = Instant.now().toString(),
+                                location = media.location
+                            )
                         )
-                    )
-                    title = ""
-                    place = ""
-                    description = ""
-                    notes = ""
+                        uploadAttachments(repository, context, media, "workshop", created.id, title, "Field media for ${title.trim()}")
+                    }.onSuccess {
+                        title = ""; place = ""; description = ""; notes = ""
+                        startDate = null; endDate = null; status = "PENDING"
+                        selectedArtisans = emptySet()
+                        media.reset()
+                        onSaved()
+                    }.onFailure { onError(it.message ?: "Unable to save workshop") }
+                    saving = false
                 }
             },
-            enabled = title.isNotBlank() && place.isNotBlank(),
+            enabled = title.isNotBlank() && place.isNotBlank() && !saving,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Save workshop")
+            Text(if (saving) "Saving..." else "Save workshop")
         }
     }
 }
 
 @Composable
-private fun ProductForm(onSubmit: suspend (ProductCreateRequest) -> Unit) {
+private fun ProductForm(
+    repository: FieldRepository,
+    crafts: List<CraftDto>,
+    artisans: List<ArtisanDto>,
+    onSaved: () -> Unit,
+    onError: (String) -> Unit
+) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val media = rememberMediaCaptureState()
     var productName by remember { mutableStateOf("") }
+    var localName by remember { mutableStateOf("") }
     var craftName by remember { mutableStateOf("") }
     var artisanName by remember { mutableStateOf("") }
     var place by remember { mutableStateOf("") }
-    var remarks by remember { mutableStateOf("") }
+    var craftId by remember { mutableStateOf("") }
+    var artisanId by remember { mutableStateOf("") }
+    var productType by remember { mutableStateOf("OTHER") }
+    var marketDemand by remember { mutableStateOf("UNKNOWN") }
+    var timeTaken by remember { mutableStateOf("") }
+    var size by remember { mutableStateOf("") }
     var length by remember { mutableStateOf("") }
     var breadth by remember { mutableStateOf("") }
+    var costOfMaking by remember { mutableStateOf("") }
+    var sellingPrice by remember { mutableStateOf("") }
+    var rawMaterials by remember { mutableStateOf("") }
+    var mainTools by remember { mutableStateOf("") }
+    var functionUse by remember { mutableStateOf("") }
+    var remarks by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("PENDING") }
+    var saving by remember { mutableStateOf(false) }
 
     RecordCard(title = "Add product") {
         TextInput("Product name", productName) { productName = it }
+        TextInput("Local name", localName) { localName = it }
+        DropdownField("Product type", productTypeOptions.map { it to it }, productType, includeNone = false) { productType = it }
+        DropdownField(
+            label = "Linked craft (fills craft name)",
+            options = crafts.map { it.id to it.name },
+            selectedValue = craftId,
+            placeholder = "Unlinked / type below"
+        ) { id ->
+            craftId = id
+            crafts.firstOrNull { it.id == id }?.let { craftName = it.name }
+        }
         TextInput("Craft name", craftName) { craftName = it }
+        DropdownField(
+            label = "Linked artisan (fills artisan + place)",
+            options = artisans.map { it.id to "${it.name} · ${it.place}" },
+            selectedValue = artisanId,
+            placeholder = "Unlinked / type below"
+        ) { id ->
+            artisanId = id
+            artisans.firstOrNull { it.id == id }?.let {
+                artisanName = it.name
+                place = it.place
+            }
+        }
         TextInput("Artisan name", artisanName) { artisanName = it }
         TextInput("Place", place) { place = it }
-        TextInput("Length inches", length) { length = it }
-        TextInput("Breadth inches", breadth) { breadth = it }
+        TextInput("Time taken to complete", timeTaken) { timeTaken = it }
+        TextInput("Size", size) { size = it }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length) { length = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Breadth (inches)", breadth) { breadth = it } }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Box(modifier = Modifier.weight(1f)) { TextInput("Cost of making", costOfMaking) { costOfMaking = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Selling price", sellingPrice) { sellingPrice = it } }
+        }
+        DropdownField("Market demand", marketDemandOptions.map { it to it }, marketDemand, includeNone = false) { marketDemand = it }
+        TextInput("Raw materials used", rawMaterials, minLines = 2) { rawMaterials = it }
+        TextInput("Main tools used", mainTools, minLines = 2) { mainTools = it }
+        TextInput("Function or use", functionUse, minLines = 2) { functionUse = it }
         TextInput("Remarks", remarks, minLines = 3) { remarks = it }
+        StatusDropdown(value = status) { status = it }
+        MediaCaptureSection(media = media, enableMeasurement = true, onMessage = onError, onError = onError)
         Button(
             onClick = {
                 scope.launch {
-                    val now = Instant.now().toString()
-                    onSubmit(
-                        ProductCreateRequest(
-                            productName = productName.trim(),
-                            craftName = craftName.trim(),
-                            artisanName = artisanName.trim(),
-                            place = place.trim(),
-                            lengthInches = length.toDoubleOrNull(),
-                            breadthInches = breadth.toDoubleOrNull(),
-                            remarks = remarks.blankToNull(),
-                            recordedAt = now
+                    saving = true
+                    runCatching {
+                        val created = repository.createProduct(
+                            ProductCreateRequest(
+                                productName = productName.trim(),
+                                localName = localName.blankToNull(),
+                                craftName = craftName.trim(),
+                                artisanName = artisanName.trim(),
+                                place = place.trim(),
+                                productType = productType,
+                                timeTakenToCompleteProduct = timeTaken.blankToNull(),
+                                size = size.blankToNull(),
+                                lengthInches = length.toDoubleOrNull(),
+                                breadthInches = breadth.toDoubleOrNull(),
+                                costOfMaking = costOfMaking.toDoubleOrNull(),
+                                sellingPrice = sellingPrice.toDoubleOrNull(),
+                                marketDemand = marketDemand,
+                                rawMaterialsUsed = rawMaterials.blankToNull(),
+                                mainToolsUsed = mainTools.blankToNull(),
+                                productFunctionUse = functionUse.blankToNull(),
+                                remarks = remarks.blankToNull(),
+                                artisanId = artisanId.ifBlank { null },
+                                craftId = craftId.ifBlank { null },
+                                status = status,
+                                recordedAt = Instant.now().toString(),
+                                location = media.location
+                            )
                         )
-                    )
-                    productName = ""
-                    craftName = ""
-                    artisanName = ""
-                    place = ""
-                    length = ""
-                    breadth = ""
-                    remarks = ""
+                        uploadAttachments(repository, context, media, "product", created.id, productName, "Field media for ${productName.trim()}")
+                        uploadMeasurement(repository, context, media, "product", created.id, productName)
+                    }.onSuccess {
+                        productName = ""; localName = ""; craftName = ""; artisanName = ""; place = ""
+                        craftId = ""; artisanId = ""; productType = "OTHER"; marketDemand = "UNKNOWN"
+                        timeTaken = ""; size = ""; length = ""; breadth = ""; costOfMaking = ""; sellingPrice = ""
+                        rawMaterials = ""; mainTools = ""; functionUse = ""; remarks = ""; status = "PENDING"
+                        media.reset()
+                        onSaved()
+                    }.onFailure { onError(it.message ?: "Unable to save product") }
+                    saving = false
                 }
             },
-            enabled = productName.isNotBlank() && craftName.isNotBlank() && artisanName.isNotBlank() && place.isNotBlank(),
+            enabled = productName.isNotBlank() && craftName.isNotBlank() && artisanName.isNotBlank() && place.isNotBlank() && !saving,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Save product")
+            Text(if (saving) "Saving..." else "Save product")
         }
     }
 }
 
 @Composable
-private fun ToolForm(onSubmit: suspend (ToolCreateRequest) -> Unit) {
+private fun ToolForm(
+    repository: FieldRepository,
+    crafts: List<CraftDto>,
+    artisans: List<ArtisanDto>,
+    onSaved: () -> Unit,
+    onError: (String) -> Unit
+) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val media = rememberMediaCaptureState()
     var toolkitName by remember { mutableStateOf("") }
+    var localName by remember { mutableStateOf("") }
+    var englishName by remember { mutableStateOf("") }
     var craftName by remember { mutableStateOf("") }
     var artisanName by remember { mutableStateOf("") }
     var place by remember { mutableStateOf("") }
+    var craftId by remember { mutableStateOf("") }
+    var artisanId by remember { mutableStateOf("") }
+    var processUsedIn by remember { mutableStateOf("") }
     var material by remember { mutableStateOf("") }
-    var remarks by remember { mutableStateOf("") }
+    var yearsInUse by remember { mutableStateOf("") }
+    var height by remember { mutableStateOf("") }
+    var width by remember { mutableStateOf("") }
     var length by remember { mutableStateOf("") }
     var breadth by remember { mutableStateOf("") }
+    var thickness by remember { mutableStateOf("") }
+    var weight by remember { mutableStateOf("") }
+    var radius by remember { mutableStateOf("") }
+    var maker by remember { mutableStateOf("UNKNOWN") }
+    var traditionType by remember { mutableStateOf("UNKNOWN") }
+    var replacementCost by remember { mutableStateOf("") }
+    var suggestions by remember { mutableStateOf("") }
+    var remarks by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("PENDING") }
+    var saving by remember { mutableStateOf(false) }
 
     RecordCard(title = "Add tool") {
         TextInput("Toolkit name", toolkitName) { toolkitName = it }
+        TextInput("Local name", localName) { localName = it }
+        TextInput("English name", englishName) { englishName = it }
+        DropdownField(
+            label = "Linked craft (fills craft name)",
+            options = crafts.map { it.id to it.name },
+            selectedValue = craftId,
+            placeholder = "Unlinked / type below"
+        ) { id ->
+            craftId = id
+            crafts.firstOrNull { it.id == id }?.let { craftName = it.name }
+        }
         TextInput("Craft name", craftName) { craftName = it }
+        DropdownField(
+            label = "Linked artisan (fills artisan + place)",
+            options = artisans.map { it.id to "${it.name} · ${it.place}" },
+            selectedValue = artisanId,
+            placeholder = "Unlinked / type below"
+        ) { id ->
+            artisanId = id
+            artisans.firstOrNull { it.id == id }?.let {
+                artisanName = it.name
+                place = it.place
+            }
+        }
         TextInput("Artisan name", artisanName) { artisanName = it }
         TextInput("Place", place) { place = it }
+        TextInput("Process used in", processUsedIn) { processUsedIn = it }
         TextInput("Material", material) { material = it }
-        TextInput("Length inches", length) { length = it }
-        TextInput("Breadth inches", breadth) { breadth = it }
+        TextInput("Years in use", yearsInUse) { yearsInUse = it }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Box(modifier = Modifier.weight(1f)) { TextInput("Height", height) { height = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Width", width) { width = it } }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length) { length = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Breadth (inches)", breadth) { breadth = it } }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Box(modifier = Modifier.weight(1f)) { TextInput("Thickness", thickness) { thickness = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Weight", weight) { weight = it } }
+        }
+        TextInput("Radius", radius) { radius = it }
+        DropdownField("Maker", makerOptions.map { it to it }, maker, includeNone = false) { maker = it }
+        DropdownField("Tradition type", traditionOptions.map { it to it }, traditionType, includeNone = false) { traditionType = it }
+        TextInput("Replacement cost", replacementCost) { replacementCost = it }
+        TextInput("Suggestions for improvement", suggestions, minLines = 2) { suggestions = it }
         TextInput("Remarks", remarks, minLines = 3) { remarks = it }
+        StatusDropdown(value = status) { status = it }
+        MediaCaptureSection(media = media, enableMeasurement = true, onMessage = onError, onError = onError)
         Button(
             onClick = {
                 scope.launch {
-                    val now = Instant.now().toString()
-                    onSubmit(
-                        ToolCreateRequest(
-                            toolkitName = toolkitName.trim(),
-                            craftName = craftName.trim(),
-                            artisanName = artisanName.trim(),
-                            place = place.trim(),
-                            material = material.blankToNull(),
-                            lengthInches = length.toDoubleOrNull(),
-                            breadthInches = breadth.toDoubleOrNull(),
-                            remarks = remarks.blankToNull(),
-                            recordedAt = now
+                    saving = true
+                    runCatching {
+                        val created = repository.createTool(
+                            ToolCreateRequest(
+                                toolkitName = toolkitName.trim(),
+                                localName = localName.blankToNull(),
+                                englishName = englishName.blankToNull(),
+                                craftName = craftName.trim(),
+                                artisanName = artisanName.trim(),
+                                place = place.trim(),
+                                processUsedIn = processUsedIn.blankToNull(),
+                                material = material.blankToNull(),
+                                yearsInUse = yearsInUse.toIntOrNull(),
+                                height = height.toDoubleOrNull(),
+                                width = width.toDoubleOrNull(),
+                                lengthInches = length.toDoubleOrNull(),
+                                breadthInches = breadth.toDoubleOrNull(),
+                                thickness = thickness.toDoubleOrNull(),
+                                weight = weight.toDoubleOrNull(),
+                                radius = radius.toDoubleOrNull(),
+                                maker = maker,
+                                traditionType = traditionType,
+                                replacementCost = replacementCost.toDoubleOrNull(),
+                                suggestionsForToolImprovement = suggestions.blankToNull(),
+                                remarks = remarks.blankToNull(),
+                                artisanId = artisanId.ifBlank { null },
+                                craftId = craftId.ifBlank { null },
+                                status = status,
+                                recordedAt = Instant.now().toString(),
+                                location = media.location
+                            )
                         )
-                    )
-                    toolkitName = ""
-                    craftName = ""
-                    artisanName = ""
-                    place = ""
-                    material = ""
-                    length = ""
-                    breadth = ""
-                    remarks = ""
+                        uploadAttachments(repository, context, media, "tool", created.id, toolkitName, "Field media for ${toolkitName.trim()}")
+                        uploadMeasurement(repository, context, media, "tool", created.id, toolkitName)
+                    }.onSuccess {
+                        toolkitName = ""; localName = ""; englishName = ""; craftName = ""; artisanName = ""; place = ""
+                        craftId = ""; artisanId = ""; processUsedIn = ""; material = ""; yearsInUse = ""
+                        height = ""; width = ""; length = ""; breadth = ""; thickness = ""; weight = ""; radius = ""
+                        maker = "UNKNOWN"; traditionType = "UNKNOWN"; replacementCost = ""; suggestions = ""; remarks = ""
+                        status = "PENDING"
+                        media.reset()
+                        onSaved()
+                    }.onFailure { onError(it.message ?: "Unable to save tool") }
+                    saving = false
                 }
             },
-            enabled = toolkitName.isNotBlank() && craftName.isNotBlank() && artisanName.isNotBlank() && place.isNotBlank(),
+            enabled = toolkitName.isNotBlank() && craftName.isNotBlank() && artisanName.isNotBlank() && place.isNotBlank() && !saving,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Save tool")
+            Text(if (saving) "Saving..." else "Save tool")
         }
     }
 }
@@ -959,6 +1586,7 @@ private fun AndroidSavedMediaPreview(context: Context, media: com.fieldrepositor
 private fun QuestionnaireForm(
     repository: FieldRepository,
     sections: List<QuestionnaireSectionDto>,
+    artisans: List<ArtisanDto>,
     canManageQuestionnaire: Boolean,
     onRefreshSections: suspend () -> Unit,
     onSubmit: suspend (QuestionnaireInterviewCreateRequest) -> String,
@@ -968,10 +1596,11 @@ private fun QuestionnaireForm(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var title by remember { mutableStateOf("") }
-    var artisanIds by remember { mutableStateOf("") }
+    var selectedArtisans by remember { mutableStateOf<Set<String>>(emptySet()) }
     var place by remember { mutableStateOf("") }
     var language by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
+    var capturedLocation by remember { mutableStateOf<LocationRequest?>(null) }
     val questions = remember(sections) { sections.flatMap { it.questions }.filter { it.isActive } }
     val answers = remember(questions) { questions.associate { it.id to mutableStateOf("") } }
     var recordingQuestionId by remember { mutableStateOf<String?>(null) }
@@ -985,9 +1614,28 @@ private fun QuestionnaireForm(
 
     RecordCard(title = "Add questionnaire interview") {
         TextInput("Interview title", title) { title = it }
-        TextInput("Artisan IDs (comma-separated)", artisanIds) { artisanIds = it }
+        ArtisanMultiSelectField(
+            label = "Linked artisans",
+            artisans = artisans,
+            selectedIds = selectedArtisans
+        ) { id ->
+            selectedArtisans = if (selectedArtisans.contains(id)) selectedArtisans - id else selectedArtisans + id
+        }
         TextInput("Place", place) { place = it }
         TextInput("Language", language) { language = it }
+        OutlinedButton(
+            onClick = {
+                val loc = readLastKnownLocation(context)
+                capturedLocation = loc
+                onError(
+                    loc?.let { "Location tagged: ${"%.5f".format(it.latitude)}, ${"%.5f".format(it.longitude)}" }
+                        ?: "No GPS fix yet; try again after location warms up."
+                )
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (capturedLocation != null) "GPS tagged ✓ (tap to refresh)" else "Use current GPS")
+        }
         sections.forEach { section ->
             Text("${section.code}. ${section.title}", color = MaterialTheme.colorScheme.onSurface, fontFamily = FontFamily.Serif, fontSize = 20.sp)
             section.questions.filter { it.isActive }.forEach { question ->
@@ -1042,7 +1690,8 @@ private fun QuestionnaireForm(
                                 place = place.blankToNull(),
                                 language = language.blankToNull(),
                                 notes = notes.blankToNull(),
-                                artisanIds = artisanIds.split(",").map { it.trim() }.filter { it.isNotEmpty() },
+                                artisanIds = selectedArtisans.toList(),
+                                location = capturedLocation,
                                 responses = questions.mapNotNull { question ->
                                     val answer = answers[question.id]?.value?.trim().orEmpty()
                                     if (answer.isBlank()) null else QuestionnaireResponseRequest(questionId = question.id, answerText = answer)
@@ -1069,10 +1718,11 @@ private fun QuestionnaireForm(
                         return@launch
                     }
                     title = ""
-                    artisanIds = ""
+                    selectedArtisans = emptySet()
                     place = ""
                     language = ""
                     notes = ""
+                    capturedLocation = null
                     answers.values.forEach { it.value = "" }
                     questionAudio = emptyMap()
                     onSaved()

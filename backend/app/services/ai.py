@@ -1,12 +1,33 @@
 import asyncio
 import base64
 import json
+import logging
+import threading
 from typing import Any
 
 import requests
 from fastapi import UploadFile
 
 from app.core.config import Settings
+
+logger = logging.getLogger(__name__)
+
+# HTTP statuses that mean "this key won't work right now" (quota, auth, bad key) -> rotate to next.
+_GEMINI_ROTATE_STATUSES = {400, 401, 403, 429, 500, 503}
+
+_gemini_key_lock = threading.Lock()
+_gemini_key_counter = 0
+
+
+def _next_gemini_start(num_keys: int) -> int:
+    """Round-robin starting offset so load spreads across free-tier keys across calls."""
+    global _gemini_key_counter
+    if num_keys <= 0:
+        return 0
+    with _gemini_key_lock:
+        start = _gemini_key_counter % num_keys
+        _gemini_key_counter = (_gemini_key_counter + 1) % num_keys
+    return start
 
 
 def _post_openai_transcription(content: bytes, filename: str, mime_type: str, settings: Settings) -> dict[str, Any]:
@@ -84,43 +105,80 @@ def _extract_json(text: str) -> dict[str, Any]:
 
 
 def _post_gemini_measurement(content: bytes, mime_type: str, settings: Settings) -> dict[str, Any]:
+    keys = settings.gemini_api_keys
+    if not keys:
+        raise RuntimeError("No Gemini API key configured")
+
     prompt = (
         "The image shows a craft object placed on a 1 inch square grid sheet. "
         "Estimate the object's length and breadth in inches. Return JSON only with "
         "lengthInches, breadthInches, confidence from 0 to 1, and notes. If the grid "
         "or object is unclear, return null values and explain in notes."
     )
-    response = requests.post(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
-        params={"key": settings.gemini_api_key},
-        json={
-            "contents": [
-                {
-                    "parts": [
-                        {"text": prompt},
-                        {
-                            "inlineData": {
-                                "mimeType": mime_type or "image/jpeg",
-                                "data": base64.b64encode(content).decode("ascii"),
-                            }
-                        },
-                    ]
-                }
-            ],
-            "generationConfig": {"responseMimeType": "application/json"},
-        },
-        timeout=90,
-    )
-    response.raise_for_status()
-    payload = response.json()
-    text = (
-        payload.get("candidates", [{}])[0]
-        .get("content", {})
-        .get("parts", [{}])[0]
-        .get("text", "")
-    )
-    parsed = _extract_json(text)
-    return {"available": True, "status": "COMPLETED", "analysis": parsed, "raw": payload}
+    body = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt},
+                    {
+                        "inlineData": {
+                            "mimeType": mime_type or "image/jpeg",
+                            "data": base64.b64encode(content).decode("ascii"),
+                        }
+                    },
+                ]
+            }
+        ],
+        "generationConfig": {"responseMimeType": "application/json"},
+    }
+
+    start = _next_gemini_start(len(keys))
+    ordered_keys = keys[start:] + keys[:start]
+    last_error: Exception | None = None
+
+    for attempt, key in enumerate(ordered_keys):
+        try:
+            response = requests.post(
+                "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+                params={"key": key},
+                json=body,
+                timeout=90,
+            )
+        except requests.RequestException as exc:
+            last_error = exc
+            logger.info("Gemini key #%s network error, rotating: %s", (start + attempt) % len(keys), exc)
+            continue
+
+        if response.status_code in _GEMINI_ROTATE_STATUSES:
+            last_error = requests.HTTPError(
+                f"Gemini key rejected with HTTP {response.status_code}: {response.text[:200]}"
+            )
+            logger.info("Gemini key #%s returned HTTP %s, rotating", (start + attempt) % len(keys), response.status_code)
+            continue
+
+        try:
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            last_error = exc
+            continue
+
+        payload = response.json()
+        text = (
+            payload.get("candidates", [{}])[0]
+            .get("content", {})
+            .get("parts", [{}])[0]
+            .get("text", "")
+        )
+        parsed = _extract_json(text)
+        return {
+            "available": True,
+            "status": "COMPLETED",
+            "analysis": parsed,
+            "keysTried": attempt + 1,
+            "raw": payload,
+        }
+
+    raise last_error or RuntimeError("All configured Gemini keys failed")
 
 
 async def analyze_measurement_image(file: UploadFile, settings: Settings) -> dict[str, Any]:
@@ -139,7 +197,7 @@ async def analyze_measurement_image_bytes(
     mime_type: str,
     settings: Settings,
 ) -> dict[str, Any]:
-    if not settings.gemini_api_key:
+    if not settings.gemini_api_keys:
         return {
             "available": False,
             "status": "UNAVAILABLE",

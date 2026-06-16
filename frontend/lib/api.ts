@@ -63,9 +63,3 @@ export function buildQuery(params: Record<string, string | number | undefined | 
 export async function listResource<T>(path: string, params: Record<string, string | number | undefined | null>) {
   return apiFetch<PageResult<T>>(`${path}${buildQuery(params)}`);
 }
-
-export function csvUrl(path: "/export/products.csv" | "/export/tools.csv") {
-  const token = getToken();
-  const tokenParam = token ? "" : "";
-  return `${API_BASE}/api${path}${tokenParam}`;
-}
