@@ -46,7 +46,7 @@ export default function MediaPage() {
   const [recording, setRecording] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
   const [progress, setProgress] = useState<string | null>(null);
-  const [warning, setWarning] = useState<string | null>("Transcription unavailable for now unless OPENAI_API_KEY is configured on the backend.");
+  const [warning] = useState<string | null>("Audio transcription is queued after upload. If OPENAI_API_KEY is missing, the media record is still retained and marked unavailable.");
   const [error, setError] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -75,25 +75,6 @@ export default function MediaPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
-
-  async function transcribeIfAudio(file: File, mediaType: MediaType) {
-    if (mediaType !== "AUDIO") return {};
-    const form = new FormData();
-    form.append("file", file);
-    const result = await apiFetch<{
-      available: boolean;
-      status: string;
-      text?: string | null;
-      formattedTranscript?: string | null;
-      message?: string;
-    }>("/media/transcribe", { method: "POST", body: form });
-    if (!result.available) setWarning(result.message ?? "Transcription unavailable for now.");
-    return {
-      transcriptText: result.formattedTranscript ?? result.text ?? null,
-      transcriptStatus: result.status,
-      transcriptError: result.available ? null : result.message ?? "Transcription unavailable for now"
-    };
-  }
 
   async function uploadOne(file: File, form: FormData, index: number) {
     const inferredType = inferMediaType(file);
@@ -124,7 +105,6 @@ export default function MediaPage() {
       body: file
     });
     if (!uploadResponse.ok) throw new Error(`Object storage upload failed for ${file.name}`);
-    const transcript = await transcribeIfAudio(file, mediaType);
     await apiFetch("/media/complete", {
       method: "POST",
       body: JSON.stringify({
@@ -139,7 +119,7 @@ export default function MediaPage() {
         linkedRecordType,
         linkedRecordId,
         location: locationFromForm(form),
-        ...transcript
+        processingRequests: mediaType === "AUDIO" ? ["TRANSCRIPTION"] : []
       })
     });
   }

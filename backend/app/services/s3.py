@@ -48,3 +48,12 @@ def presign_put_url(object_key: str, mime_type: str) -> str:
         ExpiresIn=900,
         HttpMethod="PUT",
     )
+
+
+def get_object_bytes(object_key: str) -> bytes:
+    settings = get_settings()
+    response = _client().get_object(Bucket=settings.aws_s3_bucket, Key=object_key)
+    try:
+        return response["Body"].read()
+    finally:
+        response["Body"].close()

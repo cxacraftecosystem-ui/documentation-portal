@@ -1,8 +1,17 @@
 package com.fieldrepository.app
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.LocationManager
+import android.media.MediaRecorder
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,17 +45,21 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import com.fieldrepository.app.data.ApiClient
 import com.fieldrepository.app.data.ArtisanCreateRequest
 import com.fieldrepository.app.data.CraftCreateRequest
 import com.fieldrepository.app.data.DashboardStats
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.GoogleAuthClient
+import com.fieldrepository.app.data.LocationRequest
 import com.fieldrepository.app.data.ProductCreateRequest
 import com.fieldrepository.app.data.QuestionnaireInterviewCreateRequest
 import com.fieldrepository.app.data.QuestionnaireQuestionDto
@@ -62,6 +75,7 @@ import com.fieldrepository.app.ui.FieldRepositoryTheme
 import com.fieldrepository.app.ui.Muted
 import com.fieldrepository.app.ui.SurfaceCard
 import kotlinx.coroutines.launch
+import java.io.File
 import java.time.Instant
 
 class MainActivity : ComponentActivity() {
@@ -84,6 +98,7 @@ private enum class EntryMode(val label: String) {
     WORKSHOP("Workshop"),
     PRODUCT("Product"),
     TOOL("Tool"),
+    MEDIA("Media"),
     QUESTIONNAIRE("Questionnaire")
 }
 
@@ -326,6 +341,14 @@ private fun HomeScreen(
                         }
                         .onFailure { message = it.message ?: "Unable to save tool" }
                 }
+            )
+            EntryMode.MEDIA -> AndroidMediaForm(
+                repository = repository,
+                onUploaded = { count ->
+                    message = "$count media file${if (count == 1) "" else "s"} uploaded and queued"
+                    refresh()
+                },
+                onError = { message = it }
             )
             EntryMode.QUESTIONNAIRE -> QuestionnaireForm(
                 questions = questions,
@@ -623,6 +646,179 @@ private fun ToolForm(onSubmit: suspend (ToolCreateRequest) -> Unit) {
 }
 
 @Composable
+private fun AndroidMediaForm(
+    repository: FieldRepository,
+    onUploaded: (Int) -> Unit,
+    onError: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var linkedRecordType by remember { mutableStateOf("") }
+    var linkedRecordId by remember { mutableStateOf("") }
+    var caption by remember { mutableStateOf("") }
+    var location by remember { mutableStateOf<LocationRequest?>(null) }
+    var uploading by remember { mutableStateOf(false) }
+    var recording by remember { mutableStateOf(false) }
+    var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
+    var recordingFile by remember { mutableStateOf<File?>(null) }
+    var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
+    var localMessage by remember { mutableStateOf<String?>(null) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
+    val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        if (uris.isNotEmpty()) selectedUris = selectedUris + uris
+    }
+    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val uri = pendingCaptureUri
+        if (success && uri != null) selectedUris = selectedUris + uri
+        pendingCaptureUri = null
+    }
+    val takeVideo = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { success ->
+        val uri = pendingCaptureUri
+        if (success && uri != null) selectedUris = selectedUris + uri
+        pendingCaptureUri = null
+    }
+
+    LaunchedEffect(Unit) {
+        permissionLauncher.launch(requiredAndroidPermissions())
+    }
+
+    RecordCard(title = "Capture media") {
+        Text(
+            "Images, videos, audio and files upload to the same repository backend. Audio is queued for Whisper transcription after upload.",
+            color = Muted,
+            fontSize = 12.sp
+        )
+        Button(onClick = { pickMedia.launch("*/*") }, modifier = Modifier.fillMaxWidth()) {
+            Text("Pick multiple files")
+        }
+        OutlinedButton(
+            onClick = {
+                permissionLauncher.launch(requiredAndroidPermissions())
+                val uri = createAppFileUri(context, "field-photo-", ".jpg")
+                pendingCaptureUri = uri
+                takePhoto.launch(uri)
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Take image")
+        }
+        OutlinedButton(
+            onClick = {
+                permissionLauncher.launch(requiredAndroidPermissions())
+                val uri = createAppFileUri(context, "field-video-", ".mp4")
+                pendingCaptureUri = uri
+                takeVideo.launch(uri)
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Record video")
+        }
+        OutlinedButton(
+            onClick = {
+                permissionLauncher.launch(requiredAndroidPermissions())
+                if (!recording) {
+                    runCatching {
+                        val file = createAppFile(context, "field-audio-", ".m4a")
+                        recorder = createAudioRecorder(context, file).also { it.start() }
+                        recordingFile = file
+                        recording = true
+                        localMessage = "Recording audio..."
+                    }.onFailure { error ->
+                        onError(error.message ?: "Unable to start audio recording")
+                    }
+                } else {
+                    runCatching {
+                        recorder?.stop()
+                        recorder?.release()
+                        recordingFile?.let { file -> selectedUris = selectedUris + uriForFile(context, file) }
+                    }.onFailure { error ->
+                        onError(error.message ?: "Unable to stop audio recording")
+                    }
+                    recorder = null
+                    recordingFile = null
+                    recording = false
+                    localMessage = "Audio recording added to batch"
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (recording) "Stop audio recording" else "Record audio")
+        }
+        OutlinedButton(
+            onClick = {
+                permissionLauncher.launch(requiredAndroidPermissions())
+                val currentLocation = readLastKnownLocation(context)
+                location = currentLocation
+                localMessage = currentLocation?.let {
+                    "Location tagged: ${it.latitude}, ${it.longitude}"
+                } ?: "No current GPS fix available yet; try again after location warms up."
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Use current GPS")
+        }
+        TextInput("Linked record type", linkedRecordType) { linkedRecordType = it }
+        TextInput("Linked record ID", linkedRecordId) { linkedRecordId = it }
+        TextInput("Caption", caption, minLines = 2) { caption = it }
+        if (selectedUris.isNotEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(color = ColorCompat.darkElevated, shape = RoundedCornerShape(12.dp))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text("${selectedUris.size} file(s) ready", color = Canvas, fontWeight = FontWeight.SemiBold)
+                selectedUris.take(6).forEach { uri ->
+                    Text(uri.lastPathSegment.orEmpty(), color = SurfaceCard, fontSize = 12.sp)
+                }
+                if (selectedUris.size > 6) {
+                    Text("+${selectedUris.size - 6} more", color = SurfaceCard, fontSize = 12.sp)
+                }
+                TextButton(onClick = { selectedUris = emptyList() }) {
+                    Text("Clear batch")
+                }
+            }
+        }
+        localMessage?.let { Text(it, color = Muted, fontSize = 12.sp) }
+        Button(
+            onClick = {
+                scope.launch {
+                    uploading = true
+                    runCatching {
+                        for (uri in selectedUris) {
+                            repository.uploadMedia(
+                                context = context,
+                                uri = uri,
+                                linkedRecordType = linkedRecordType,
+                                linkedRecordId = linkedRecordId,
+                                caption = caption,
+                                location = location
+                            )
+                        }
+                    }.onSuccess {
+                        val count = selectedUris.size
+                        selectedUris = emptyList()
+                        caption = ""
+                        localMessage = null
+                        onUploaded(count)
+                    }.onFailure { error ->
+                        onError(error.message ?: "Unable to upload media batch")
+                    }
+                    uploading = false
+                }
+            },
+            enabled = selectedUris.isNotEmpty() && !uploading && !recording,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (uploading) "Uploading..." else "Upload batch")
+        }
+    }
+}
+
+@Composable
 private fun QuestionnaireForm(
     questions: List<QuestionnaireQuestionDto>,
     onSubmit: suspend (QuestionnaireInterviewCreateRequest) -> Unit
@@ -685,11 +881,7 @@ private fun QuestionnaireForm(
         ) {
             Text("Save questionnaire")
         }
-        Text(
-            "Media, precise GPS, camera and audio permissions are enabled for Android; use the Media page on web for full batch upload and transcription workflow.",
-            color = Muted,
-            fontSize = 12.sp
-        )
+        Text("Use the Media tab to attach photos, videos, audio recordings and GPS-tagged field files to this interview.", color = Muted, fontSize = 12.sp)
     }
 }
 
@@ -716,6 +908,77 @@ private fun TextInput(label: String, value: String, minLines: Int = 1, onValueCh
         minLines = minLines,
         modifier = Modifier.fillMaxWidth()
     )
+}
+
+private fun requiredAndroidPermissions(): Array<String> {
+    val permissions = mutableListOf(
+        Manifest.permission.ACCESS_FINE_LOCATION,
+        Manifest.permission.ACCESS_COARSE_LOCATION,
+        Manifest.permission.CAMERA,
+        Manifest.permission.RECORD_AUDIO
+    )
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        permissions += Manifest.permission.READ_MEDIA_IMAGES
+        permissions += Manifest.permission.READ_MEDIA_VIDEO
+        permissions += Manifest.permission.READ_MEDIA_AUDIO
+    }
+    return permissions.toTypedArray()
+}
+
+private fun createAppFile(context: Context, prefix: String, suffix: String): File {
+    val directory = File(context.cacheDir, "field-captures").apply { mkdirs() }
+    return File.createTempFile(prefix, suffix, directory)
+}
+
+private fun createAppFileUri(context: Context, prefix: String, suffix: String): Uri {
+    return uriForFile(context, createAppFile(context, prefix, suffix))
+}
+
+private fun uriForFile(context: Context, file: File): Uri {
+    return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+}
+
+private fun createAudioRecorder(context: Context, file: File): MediaRecorder {
+    val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        MediaRecorder(context)
+    } else {
+        @Suppress("DEPRECATION")
+        MediaRecorder()
+    }
+    return recorder.apply {
+        setAudioSource(MediaRecorder.AudioSource.MIC)
+        setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+        setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+        setOutputFile(file.absolutePath)
+        prepare()
+    }
+}
+
+private fun readLastKnownLocation(context: Context): LocationRequest? {
+    val hasFine = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_FINE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED
+    val hasCoarse = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_COARSE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED
+    if (!hasFine && !hasCoarse) return null
+
+    val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+    val location = providers.mapNotNull { provider ->
+        runCatching { manager.getLastKnownLocation(provider) }.getOrNull()
+    }.maxByOrNull { it.time }
+    return location?.let {
+        LocationRequest(
+            latitude = it.latitude,
+            longitude = it.longitude,
+            altitude = it.altitude.takeIf { _ -> it.hasAltitude() },
+            accuracy = it.accuracy.toDouble().takeIf { _ -> it.hasAccuracy() },
+            placeName = "Android precise location"
+        )
+    }
 }
 
 private fun String.blankToNull(): String? = trim().takeIf { it.isNotEmpty() }

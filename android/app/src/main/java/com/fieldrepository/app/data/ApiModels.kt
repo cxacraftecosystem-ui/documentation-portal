@@ -72,6 +72,52 @@ data class CreatedRecordDto(
 )
 
 @Serializable
+data class MediaPresignRequest(
+    val filename: String,
+    val mimeType: String,
+    val mediaType: String,
+    val sizeBytes: Long,
+    val linkedRecordType: String? = null,
+    val linkedRecordId: String? = null
+)
+
+@Serializable
+data class MediaPresignResponse(
+    val uploadUrl: String,
+    val method: String = "PUT",
+    val objectKey: String,
+    val bucket: String,
+    val headers: Map<String, String> = emptyMap(),
+    val publicUrl: String? = null
+)
+
+@Serializable
+data class MediaCompleteRequest(
+    val originalFilename: String,
+    val mediaType: String,
+    val mimeType: String,
+    val sizeBytes: Long,
+    val objectKey: String,
+    val bucket: String? = null,
+    val url: String? = null,
+    val caption: String? = null,
+    val linkedRecordType: String? = null,
+    val linkedRecordId: String? = null,
+    val recordedAt: String? = null,
+    val recordedTimezone: String = "Asia/Kolkata",
+    val location: LocationRequest? = null,
+    val processingRequests: List<String> = emptyList()
+)
+
+@Serializable
+data class MediaFileDto(
+    val id: String,
+    val originalFilename: String,
+    val mediaType: String,
+    val transcriptStatus: String? = null
+)
+
+@Serializable
 data class CraftCreateRequest(
     val name: String,
     val localName: String? = null,

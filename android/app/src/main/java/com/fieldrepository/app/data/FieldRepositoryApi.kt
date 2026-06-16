@@ -36,6 +36,12 @@ interface FieldRepositoryApi {
     @POST("crafts")
     suspend fun createCraft(@Body body: CraftCreateRequest): CreatedRecordDto
 
+    @POST("media/presign")
+    suspend fun presignMedia(@Body body: MediaPresignRequest): MediaPresignResponse
+
+    @POST("media/complete")
+    suspend fun completeMedia(@Body body: MediaCompleteRequest): MediaFileDto
+
     @POST("workshops")
     suspend fun createWorkshop(@Body body: WorkshopCreateRequest): CreatedRecordDto
 

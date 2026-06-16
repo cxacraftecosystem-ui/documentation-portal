@@ -65,9 +65,9 @@ async def login_with_google(token: str) -> Any:
 
     email = id_info["email"].lower()
     settings = get_settings()
+    role = role_for_email(email)
     name = settings.master_admin_name if role == "MASTER_ADMIN" else id_info.get("name") or email.split("@")[0]
     avatar_url = id_info.get("picture")
-    role = role_for_email(email)
 
     existing = await db.user.find_unique(where={"email": email})
     if existing:

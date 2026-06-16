@@ -18,7 +18,8 @@ export async function uploadMediaFile({
   extraMetadata,
   recordedAt,
   recordedTimezone,
-  transcribeAudio = true
+  transcribeAudio = true,
+  processingRequests
 }: {
   file: File;
   linkedRecordType?: string;
@@ -29,8 +30,11 @@ export async function uploadMediaFile({
   recordedAt?: string;
   recordedTimezone?: string;
   transcribeAudio?: boolean;
+  processingRequests?: string[];
 }) {
   const mediaType = inferMediaType(file);
+  const queuedProcessing = new Set(processingRequests ?? []);
+  if (mediaType === "AUDIO" && transcribeAudio) queuedProcessing.add("TRANSCRIPTION");
   const presign = await apiFetch<{
     uploadUrl: string;
     objectKey: string;
@@ -54,7 +58,6 @@ export async function uploadMediaFile({
     body: file
   });
   if (!uploadResponse.ok) throw new Error(`Object storage upload failed for ${file.name}`);
-  const transcript = transcribeAudio ? await transcribeMediaFile(file, mediaType) : {};
   return apiFetch<MediaFile>("/media/complete", {
     method: "POST",
     body: JSON.stringify({
@@ -72,7 +75,7 @@ export async function uploadMediaFile({
       extraMetadata,
       recordedAt,
       recordedTimezone,
-      ...transcript
+      processingRequests: Array.from(queuedProcessing)
     })
   });
 }
@@ -86,7 +89,8 @@ export async function uploadMediaBatch({
   extraMetadata,
   recordedAt,
   recordedTimezone,
-  transcribeAudio = true
+  transcribeAudio = true,
+  processingRequests
 }: {
   files: File[];
   linkedRecordType: string;
@@ -97,6 +101,7 @@ export async function uploadMediaBatch({
   recordedAt?: string;
   recordedTimezone?: string;
   transcribeAudio?: boolean;
+  processingRequests?: string[];
 }) {
   const uploaded: MediaFile[] = [];
   for (const file of files) {
@@ -110,7 +115,8 @@ export async function uploadMediaBatch({
         extraMetadata,
         recordedAt,
         recordedTimezone,
-        transcribeAudio
+        transcribeAudio,
+        processingRequests
       })
     );
   }

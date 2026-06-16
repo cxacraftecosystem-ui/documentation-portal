@@ -11,7 +11,7 @@ The app is split into:
 
 ## Architecture
 
-PostgreSQL stores structured records and media metadata. In production this can be Supabase Postgres by setting the backend `DATABASE_URL` to the Supabase PostgreSQL connection string. Images, video, audio and PDFs are uploaded directly to S3-compatible storage using signed PUT URLs. The database stores only object keys, URLs, MIME type, size, uploaded-by user, linked record IDs and optional GPS metadata.
+PostgreSQL stores structured records, media metadata and durable media-processing jobs. In production this can be Supabase Postgres by setting the backend `DATABASE_URL` to the Supabase PostgreSQL connection string. Images, video, audio and PDFs are uploaded directly to S3-compatible storage using signed PUT URLs. The database stores object keys, URLs, MIME type, size, uploaded-by user, linked record IDs, optional GPS metadata, transcript state and queued AI processing state.
 
 This keeps the backend API-first and reusable by both the web client and the Android client.
 
@@ -23,7 +23,10 @@ flowchart LR
   android[Android Kotlin] --> api
   api --> db[(PostgreSQL)]
   api --> s3[(S3 / MinIO)]
+  api --> queue[(MediaProcessingJob queue)]
+  queue --> ai[Whisper / Gemini]
   web -->|signed PUT| s3
+  android -->|signed PUT| s3
 ```
 
 ## Local Setup
@@ -129,7 +132,7 @@ cd android
 .\gradlew.bat :app:assembleDebug
 ```
 
-The Android client supports email/password login, Google login, dashboard summary, and creating craft, artisan, workshop, product, and tool records through the same REST endpoints used by the web app.
+The Android client supports email/password login, Google login, dashboard summary, creating craft, artisan, workshop, product, tool and questionnaire records, plus native batch media upload with image capture, video capture, audio recording and GPS tagging through the same REST endpoints used by the web app.
 
 ## Google OAuth Setup
 
@@ -178,10 +181,20 @@ Media capture is embedded in the craft, artisan, workshop, product, tool and que
 - browser audio recording with a live level meter;
 - original-file upload so image EXIF data is retained;
 - EXIF summaries in remarks/metadata where image metadata is readable;
-- optional OpenAI transcription for audio via `OPENAI_API_KEY`;
+- queued OpenAI transcription for audio via `OPENAI_API_KEY`;
 - collapsed transcript display for completed audio transcripts.
 
-The product and tool forms support grid-sheet measurement images alongside manual `lengthInches` and `breadthInches`. If `GEMINI_API_KEY` is configured, the backend attempts a Gemini measurement estimate. If it is missing, the upload still works and the UI shows a yellow manual-entry caution.
+The product and tool forms support grid-sheet measurement images alongside manual `lengthInches` and `breadthInches`. The uploaded grid image is persisted first, then a `MediaProcessingJob` queues Gemini measurement. If `GEMINI_API_KEY` is configured, the worker estimates dimensions and fills empty dimension fields without overwriting manual values. If it is missing, the upload still works and the UI shows a yellow manual-entry caution.
+
+### Durable Media Queue
+
+`POST /api/media/complete` can include `processingRequests`, currently `TRANSCRIPTION` for audio and `MEASUREMENT` for grid-sheet images. The backend stores a `MediaProcessingJob` row before any AI request is attempted. The FastAPI lifespan starts a background worker that:
+
+- recovers stale `PROCESSING` jobs after worker interruption;
+- downloads the already-saved object from S3-compatible storage;
+- calls Whisper or Gemini only after metadata is durable;
+- retries transient failures with backoff;
+- records unavailable API-key states without deleting uploaded media.
 
 ## Questionnaire
 
@@ -209,6 +222,9 @@ Researchers can create questionnaire interviews, link one interview to many arti
 - `POST /api/media/presign`
 - `POST /api/media/complete`
 - `GET /api/media`
+- `GET /api/media/jobs`
+- `POST /api/media/jobs/process`
+- `POST /api/media/jobs/{jobId}/retry`
 - `GET /api/dashboard/stats`
 - `GET /api/search`
 - `POST /api/review/{recordType}/{recordId}/approve`
@@ -224,6 +240,8 @@ Researchers can create and manage their own submissions. Admins can view all rec
 2. API returns a signed S3-compatible PUT URL and object key.
 3. Client uploads the file directly to object storage with PUT.
 4. Client calls `POST /api/media/complete` to store metadata in PostgreSQL and link it to a craft, artisan, workshop, product, tool or questionnaire interview.
+5. For audio or measurement requests, the API writes a durable `MediaProcessingJob` row.
+6. The backend worker processes queued jobs and patches transcript or measurement fields when available.
 
 ## Environment Variables
 
@@ -247,6 +265,7 @@ Useful optional variables:
 - `MASTER_ADMIN_EMAIL` defaults to `ankits1802@gmail.com`.
 - `MASTER_ADMIN_NAME` defaults to `Ankit Kumar`.
 - `OPENAI_API_KEY`, `OPENAI_TRANSCRIPTION_MODEL`, `GEMINI_API_KEY`, `NEXT_PUBLIC_MAPTILER_API_KEY` for optional transcription, measurement and map picking.
+- `MEDIA_QUEUE_WORKER_ENABLED`, `MEDIA_QUEUE_INTERVAL_SECONDS`, `MEDIA_QUEUE_BATCH_SIZE`, `MEDIA_QUEUE_JOB_MAX_ATTEMPTS` for the background media-processing queue.
 - `SUPABASE_REST_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY` only when a deployment also needs Supabase REST/Admin access. The secret key must stay in private runtime secrets.
 - `ADMIN_EMAIL`, `ADMIN_NAME`, `ADMIN_PASSWORD` for seeding the first admin. Keep the password only in private `.env` files or deployment secrets.
 
@@ -286,7 +305,8 @@ The Android app uses the same REST endpoints and JWT bearer auth:
 - Email/password and Google login both call `POST /api/auth/login`.
 - The returned access token is stored locally and sent as `Authorization: Bearer <token>` on protected API calls.
 - Create forms submit directly to `/api/crafts`, `/api/artisans`, `/api/workshops`, `/api/products`, `/api/tools`, and `/api/questionnaire/interviews`.
-- For large media, follow the same presign-upload-complete sequence so files do not pass through the backend server.
+- Native media capture uses the same presign-upload-complete sequence so files do not pass through the backend server.
+- Audio uploaded from Android sends `processingRequests=["TRANSCRIPTION"]`, which queues Whisper transcription on the backend.
 - Keep GPS capture in a separate location object and submit it with artisan/product/tool/workshop/media payloads.
 
 ## Cost Notes

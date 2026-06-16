@@ -79,6 +79,19 @@ enum ReviewRecordType {
   MEDIA
 }
 
+enum MediaProcessingJobType {
+  TRANSCRIPTION
+  MEASUREMENT
+}
+
+enum MediaProcessingJobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
 model User {
   id           String       @id @default(cuid())
   email        String       @unique
@@ -96,6 +109,7 @@ model User {
   products  ProductDocumentation[] @relation("ProductCreatedBy")
   tools     ToolDocumentation[]    @relation("ToolCreatedBy")
   media     MediaFile[]            @relation("MediaUploadedBy")
+  requestedMediaProcessingJobs MediaProcessingJob[] @relation("MediaProcessingRequestedBy")
   reviews   ReviewLog[]            @relation("ReviewReviewer")
   questionnaireInterviews QuestionnaireInterview[] @relation("QuestionnaireCreatedBy")
   questionnaireResponses QuestionnaireResponse[] @relation("QuestionnaireAnsweredBy")
@@ -285,6 +299,7 @@ model ProductDocumentation {
   location  Location?   @relation(fields: [locationId], references: [id], onDelete: SetNull)
   createdBy User        @relation("ProductCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   media     MediaFile[]
+  mediaProcessingJobs MediaProcessingJob[]
 
   @@index([productName])
   @@index([craftName])
@@ -345,6 +360,7 @@ model ToolDocumentation {
   location  Location?   @relation(fields: [locationId], references: [id], onDelete: SetNull)
   createdBy User        @relation("ToolCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   media     MediaFile[]
+  mediaProcessingJobs MediaProcessingJob[]
 
   @@index([toolkitName])
   @@index([craftName])
@@ -401,6 +417,7 @@ model MediaFile {
   tool       ToolDocumentation?    @relation(fields: [toolId], references: [id], onDelete: SetNull)
   questionnaireInterview QuestionnaireInterview? @relation("QuestionnaireMedia", fields: [questionnaireInterviewId], references: [id], onDelete: SetNull)
   location   Location?             @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  processingJobs MediaProcessingJob[]
 
   @@index([mediaType])
   @@index([uploadedById])
@@ -410,6 +427,39 @@ model MediaFile {
   @@index([createdAt])
   @@index([status])
   @@index([recordedAt])
+}
+
+model MediaProcessingJob {
+  id             String                   @id @default(cuid())
+  jobType        MediaProcessingJobType
+  status         MediaProcessingJobStatus @default(QUEUED)
+  priority       Int                      @default(100)
+  attempts       Int                      @default(0)
+  maxAttempts    Int                      @default(3)
+  error          String?
+  result         Json?
+  lockedAt       DateTime?
+  lockedBy       String?
+  runAfter       DateTime                 @default(now())
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  mediaFileId    String
+  requestedById  String?
+  productId      String?
+  toolId         String?
+
+  mediaFile   MediaFile              @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  requestedBy User?                  @relation("MediaProcessingRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  product     ProductDocumentation?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  tool        ToolDocumentation?     @relation(fields: [toolId], references: [id], onDelete: SetNull)
+
+  @@index([status, runAfter, priority, createdAt])
+  @@index([mediaFileId])
+  @@index([requestedById])
+  @@index([productId])
+  @@index([toolId])
 }
 
 model QuestionnaireQuestion {

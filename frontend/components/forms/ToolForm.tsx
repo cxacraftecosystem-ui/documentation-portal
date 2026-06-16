@@ -9,7 +9,7 @@ import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { RecordedAtField } from "@/components/forms/RecordedAtField";
 import { apiFetch, listResource } from "@/lib/api";
 import { locationFromForm, numericValue, parseJsonMetadata, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue } from "@/lib/forms";
-import { analyzeMeasurementImage, appendRemarksWithExif, collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, uploadMediaFile } from "@/lib/media";
+import { appendRemarksWithExif, collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, uploadMediaFile } from "@/lib/media";
 import type { Artisan, Craft, ToolDocumentation, Workshop } from "@/lib/types";
 import { makerOptions, traditionOptions } from "@/lib/types";
 
@@ -21,9 +21,8 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
   const [measurementImage, setMeasurementImage] = useState<File | null>(null);
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
-  const [measurementWarning, setMeasurementWarning] = useState<string | null>(
-    "Upload a grid-sheet image for measurement support. If GEMINI_API_KEY is not configured, fill length and breadth manually."
-  );
+  const measurementWarning =
+    "Upload a grid-sheet image for measurement support. If GEMINI_API_KEY is not configured, fill length and breadth manually.";
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -53,18 +52,9 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
     setError(null);
     const form = new FormData(event.currentTarget);
     try {
-      let measurementResult: Awaited<ReturnType<typeof analyzeMeasurementImage>> | null = null;
-      if (measurementImage) {
-        measurementResult = await analyzeMeasurementImage(measurementImage);
-        if (!measurementResult.available) {
-          setMeasurementWarning(measurementResult.message ?? "Gemini unavailable. Fill length and breadth manually.");
-        }
-      }
       const exifItems = await collectExifMetadata([measurementImage, ...mediaFiles].filter(Boolean) as File[]);
       const exifRemark = exifMetadataToRemark(exifItems);
       const parsedMetadata = parseJsonMetadata(form.get("extraMetadata")) ?? {};
-      const analyzedLength = Number(measurementResult?.analysis?.lengthInches ?? "") || undefined;
-      const analyzedBreadth = Number(measurementResult?.analysis?.breadthInches ?? "") || undefined;
       const recordedAt = recordedAtFromForm(form);
       const recordedTimezone = recordedTimezoneFromForm(form);
       const location = locationFromForm(form);
@@ -80,10 +70,9 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
         yearsInUse: numericValue(form, "yearsInUse"),
         height: numericValue(form, "height"),
         width: numericValue(form, "width"),
-        lengthInches: numericValue(form, "lengthInches") ?? analyzedLength,
-        breadthInches: numericValue(form, "breadthInches") ?? analyzedBreadth,
-        measurementAnalysis: measurementResult?.analysis ?? undefined,
-        measurementAnalysisStatus: measurementResult?.status,
+        lengthInches: numericValue(form, "lengthInches"),
+        breadthInches: numericValue(form, "breadthInches"),
+        measurementAnalysisStatus: measurementImage ? "QUEUED" : undefined,
         thickness: numericValue(form, "thickness"),
         weight: numericValue(form, "weight"),
         radius: numericValue(form, "radius"),
@@ -114,7 +103,9 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
           location,
           recordedAt,
           recordedTimezone,
-          extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined
+          extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined,
+          transcribeAudio: false,
+          processingRequests: ["MEASUREMENT"]
         });
         await apiFetch(`/tools/${saved.id}`, {
           method: "PATCH",

@@ -30,6 +30,21 @@ def _post_openai_transcription(content: bytes, filename: str, mime_type: str, se
 
 
 async def transcribe_audio(file: UploadFile, settings: Settings) -> dict[str, Any]:
+    content = await file.read()
+    return await transcribe_audio_bytes(
+        content,
+        file.filename or "recording.webm",
+        file.content_type or "audio/webm",
+        settings,
+    )
+
+
+async def transcribe_audio_bytes(
+    content: bytes,
+    filename: str,
+    mime_type: str,
+    settings: Settings,
+) -> dict[str, Any]:
     if not settings.openai_api_key:
         return {
             "available": False,
@@ -38,13 +53,12 @@ async def transcribe_audio(file: UploadFile, settings: Settings) -> dict[str, An
             "formattedTranscript": None,
             "message": "Transcription unavailable for now because OPENAI_API_KEY is not configured.",
         }
-    content = await file.read()
     try:
         return await asyncio.to_thread(
             _post_openai_transcription,
             content,
-            file.filename or "recording.webm",
-            file.content_type or "audio/webm",
+            filename,
+            mime_type,
             settings,
         )
     except requests.RequestException as exc:
@@ -110,6 +124,21 @@ def _post_gemini_measurement(content: bytes, mime_type: str, settings: Settings)
 
 
 async def analyze_measurement_image(file: UploadFile, settings: Settings) -> dict[str, Any]:
+    content = await file.read()
+    return await analyze_measurement_image_bytes(
+        content,
+        file.filename or "measurement.jpg",
+        file.content_type or "image/jpeg",
+        settings,
+    )
+
+
+async def analyze_measurement_image_bytes(
+    content: bytes,
+    filename: str,
+    mime_type: str,
+    settings: Settings,
+) -> dict[str, Any]:
     if not settings.gemini_api_key:
         return {
             "available": False,
@@ -117,12 +146,11 @@ async def analyze_measurement_image(file: UploadFile, settings: Settings) -> dic
             "analysis": None,
             "message": "Gemini measurement analysis unavailable; fill in length and breadth manually.",
         }
-    content = await file.read()
     try:
         return await asyncio.to_thread(
             _post_gemini_measurement,
             content,
-            file.content_type or "image/jpeg",
+            mime_type,
             settings,
         )
     except requests.RequestException as exc:

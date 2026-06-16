@@ -40,6 +40,7 @@ class MediaCompleteRequest(APIModel):
     transcriptError: str | None = None
     linkedRecordType: str | None = None
     linkedRecordId: str | None = None
+    processingRequests: list[str] | None = None
     recordedAt: datetime | None = None
     recordedTimezone: str | None = None
     location: LocationInput | None = None

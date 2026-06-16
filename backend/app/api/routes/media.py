@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
@@ -6,9 +6,10 @@ from fastapi.encoders import jsonable_encoder
 
 from app.core.config import get_settings
 from app.core.db import db
-from app.core.deps import assert_can_delete, get_current_user
+from app.core.deps import assert_can_delete, get_current_user, is_admin, require_admin
 from app.schemas.media import MediaCompleteRequest, PresignRequest, PresignResponse
 from app.services.ai import analyze_measurement_image, transcribe_audio
+from app.services.media_queue import enqueue_media_processing_jobs, process_next_media_jobs
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
     add_date_range,
@@ -31,6 +32,7 @@ INCLUDE = {
     "workshop": True,
     "product": True,
     "tool": True,
+    "processingJobs": True,
 }
 
 
@@ -73,13 +75,16 @@ async def complete_media_upload(
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     settings = get_settings()
-    data = clean_data(payload.model_dump())
+    processing_requests = payload.processingRequests
+    data = clean_data(payload.model_dump(exclude={"processingRequests"}))
     data = await attach_location(data)
     data["bucket"] = data.get("bucket") or settings.aws_s3_bucket
     data["url"] = data.get("url") or public_url_for_key(data["objectKey"])
     data["uploadedById"] = current_user.id
     data.update(media_relation_data(data.get("linkedRecordType"), data.get("linkedRecordId")))
     created = await db.mediafile.create(data=data, include=INCLUDE)
+    await enqueue_media_processing_jobs(created, processing_requests, current_user.id, settings)
+    created = await db.mediafile.find_unique(where={"id": created.id}, include=INCLUDE)
     return jsonable_encoder(created)
 
 
@@ -118,6 +123,57 @@ async def list_media(
         order={"createdAt": "desc"},
     )
     return page_payload(jsonable_encoder(items), total, page, page_size)
+
+
+@router.get("/jobs")
+async def list_media_processing_jobs(
+    current_user: Any = Depends(get_current_user),
+    statusFilter: str | None = None,
+    page: int = Query(1, ge=1),
+    pageSize: int = Query(20, ge=1, le=100),
+) -> dict[str, Any]:
+    page, page_size, skip = normalize_pagination(page, pageSize)
+    where: dict[str, Any] = {} if is_admin(current_user) else {"requestedById": current_user.id}
+    if statusFilter:
+        where["status"] = statusFilter
+    total = await db.mediaprocessingjob.count(where=where)
+    jobs = await db.mediaprocessingjob.find_many(
+        where=where,
+        include={"mediaFile": True, "requestedBy": True, "product": True, "tool": True},
+        skip=skip,
+        take=page_size,
+        order={"createdAt": "desc"},
+    )
+    return page_payload(jsonable_encoder(jobs), total, page, page_size)
+
+
+@router.post("/jobs/process")
+async def process_media_processing_jobs(
+    limit: int | None = Query(default=None, ge=1, le=25),
+    _: Any = Depends(require_admin),
+) -> dict[str, int]:
+    return await process_next_media_jobs(limit=limit, worker_id="manual-api")
+
+
+@router.post("/jobs/{job_id}/retry")
+async def retry_media_processing_job(
+    job_id: str,
+    _: Any = Depends(require_admin),
+) -> dict[str, Any]:
+    job = await require_record(db.mediaprocessingjob, job_id)
+    updated = await db.mediaprocessingjob.update(
+        where={"id": job.id},
+        data={
+            "status": "QUEUED",
+            "runAfter": datetime.now(UTC),
+            "lockedAt": None,
+            "lockedBy": None,
+            "completedAt": None,
+            "error": None,
+        },
+        include={"mediaFile": True},
+    )
+    return jsonable_encoder(updated)
 
 
 @router.get("/{media_id}")

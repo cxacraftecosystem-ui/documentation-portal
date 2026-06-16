@@ -13,6 +13,7 @@ flowchart LR
   api[FastAPI REST API]
   db[(PostgreSQL)]
   s3[(S3-Compatible Storage)]
+  queue[(MediaProcessingJob queue)]
 
   researcher --> web
   researcher --> android
@@ -20,9 +21,10 @@ flowchart LR
   web -->|JWT REST calls| api
   android -->|JWT REST calls| api
   api -->|Prisma ORM| db
+  api --> queue
   api -->|Presigned URLs| s3
   web -->|Direct PUT upload| s3
-  android -->|Direct PUT upload planned| s3
+  android -->|Direct PUT upload| s3
 ```
 
 ## Backend Module Flow
@@ -32,7 +34,7 @@ flowchart TD
   routes[FastAPI routes]
   deps[Auth and role dependencies]
   schemas[Pydantic validation schemas]
-  services[Services: pagination, S3, CSV, records]
+  services[Services: pagination, S3, CSV, records, media queue]
   prisma[Prisma Python client]
   postgres[(PostgreSQL)]
   storage[S3-compatible object storage]
@@ -98,6 +100,8 @@ flowchart TD
   geo[Precise GPS or MapTiler map point]
   media[Images / Video / Audio / Documents]
   api[FastAPI media API]
+  queue[Durable MediaProcessingJob queue]
+  worker[FastAPI background worker]
   openai[OpenAI Whisper transcription]
   gemini[Gemini grid measurement]
   s3[(S3-compatible object storage)]
@@ -108,10 +112,14 @@ flowchart TD
   client -->|POST /media/presign| api
   api -->|signed PUT URL| client
   client -->|batch PUT uploads| s3
-  client -->|optional audio file| openai
-  client -->|optional grid image| gemini
   client -->|POST /media/complete| api
-  api --> db
+  api -->|store media metadata| db
+  api -->|enqueue transcription / measurement| queue
+  queue --> worker
+  worker -->|download object| s3
+  worker -->|audio jobs| openai
+  worker -->|measurement jobs| gemini
+  worker -->|patch transcript / dimensions| db
 ```
 
 ## Permission Model
@@ -163,6 +171,9 @@ sequenceDiagram
   participant API as FastAPI
   participant S3 as S3-compatible storage
   participant DB as PostgreSQL
+  participant Queue as MediaProcessingJob queue
+  participant Worker as Backend worker
+  participant AI as Whisper / Gemini
 
   Client->>API: POST /api/media/presign
   API->>S3: Generate presigned PUT URL
@@ -171,8 +182,14 @@ sequenceDiagram
   S3-->>Client: 200 OK
   Client->>API: POST /api/media/complete
   API->>DB: Store metadata and record links
+  API->>Queue: Create durable processing job when requested
   DB-->>API: MediaFile
   API-->>Client: Media metadata
+  Worker->>Queue: Claim queued job
+  Worker->>S3: Download stored object
+  Worker->>AI: Process audio or grid image
+  Worker->>DB: Patch transcript / measurement state
+  Worker->>Queue: Complete or schedule retry
 ```
 
 ## Record Lifecycle
@@ -195,6 +212,8 @@ erDiagram
   User ||--o{ ProductDocumentation : creates
   User ||--o{ ToolDocumentation : creates
   User ||--o{ MediaFile : uploads
+  User ||--o{ MediaProcessingJob : requests
+  MediaFile ||--o{ MediaProcessingJob : queues
   Craft ||--o{ Artisan : classifies
   Craft ||--o{ ProductDocumentation : links
   Craft ||--o{ ToolDocumentation : links
@@ -240,9 +259,12 @@ flowchart LR
   api[FastAPI REST API]
   supabase[(Supabase Postgres)]
   storage[(S3-compatible media storage)]
+  queue[(MediaProcessingJob)]
 
   web -->|REST + JWT| api
   android -->|REST + JWT| api
   api -->|DATABASE_URL / Prisma| supabase
   api -->|Presign and metadata| storage
+  api --> queue
+  queue --> supabase
 ```
