@@ -93,6 +93,15 @@ class FieldRepository(
 
     suspend fun media(): List<MediaFileDto> = api.media(pageSize = 20).items
 
+    // Admin-only deletes (backend enforces is_admin; 403 otherwise).
+    suspend fun deleteArtisan(id: String) = api.deleteArtisan(id)
+    suspend fun deleteCraft(id: String) = api.deleteCraft(id)
+    suspend fun deleteProduct(id: String) = api.deleteProduct(id)
+    suspend fun deleteTool(id: String) = api.deleteTool(id)
+    suspend fun deleteWorkshop(id: String) = api.deleteWorkshop(id)
+    suspend fun deleteProcess(id: String) = api.deleteProcess(id)
+    suspend fun deleteInterview(id: String) = api.deleteInterview(id)
+
     /** Result of a full-dataset download: where it was saved and how many files succeeded. */
     data class DatasetDownloadResult(val displayLocation: String, val saved: Int, val total: Int, val failed: Int)
 

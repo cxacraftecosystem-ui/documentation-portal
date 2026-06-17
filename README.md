@@ -2,6 +2,12 @@
 
 Full-stack, API-first repository for field teams documenting artisans, crafts, workshops, products, tools, media, GPS locations and review decisions.
 
+> **Live:** the backend runs on AWS at **http://15.207.145.174/api/** (Terraform in `infra/terraform/`,
+> auto-deployed by `.github/workflows/deploy-backend.yml`). To hand the app to researchers see
+> [docs/RESEARCHER_GUIDE.md](docs/RESEARCHER_GUIDE.md); deployment runbook is
+> [backend/DEPLOY_AWS.md](backend/DEPLOY_AWS.md); known failure modes are in
+> [docs/QA_AUDIT.md](docs/QA_AUDIT.md).
+
 The app is split into:
 
 - `backend/`: Python FastAPI REST API, JWT auth, Prisma ORM schema/client, PostgreSQL metadata, S3-compatible signed uploads, CSV export.

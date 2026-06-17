@@ -247,8 +247,14 @@ The Vercel project is linked to this GitHub repo (same account), so each push to
 
 - **Root Directory:** `frontend` (this is a monorepo; `frontend/vercel.json`
   pins the Next.js framework).
-- **Environment variables:** `NEXT_PUBLIC_API_URL = http://<EC2_HOST>/api/`
-  (or your HTTPS domain) and `NEXT_PUBLIC_GOOGLE_CLIENT_ID = …`.
+- **Environment variables:** `NEXT_PUBLIC_API_URL = http://<EC2_HOST>` — the **origin only,
+  without** `/api` (the web client appends `/api` itself; e.g. `http://15.207.145.174`). Also set
+  `NEXT_PUBLIC_GOOGLE_CLIENT_ID = …`.
+- **Mixed content:** an HTTPS Vercel page cannot call an HTTP API — browsers block it. Give the API
+  TLS (domain + certbot, §7) and use `https://…` here, or the web app's API calls will fail. The
+  Android app is unaffected (cleartext allowed).
+- **Google sign-in:** add the Vercel origin to the Google OAuth web client's *Authorized JavaScript
+  origins*, or the GSI button returns 403.
 - Add the resulting Vercel URL to `BACKEND_CORS_ORIGINS` (in `BACKEND_ENV`) and to
   the bucket's `cors_allowed_origins` Terraform var.
 

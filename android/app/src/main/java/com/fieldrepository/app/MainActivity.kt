@@ -31,7 +31,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
@@ -637,6 +639,7 @@ private fun HomeScreen(
                     artisans = artisans,
                     canManageQuestionnaire = isQuestionnaireManager,
                     adminView = adminView,
+                    canDelete = isAdmin,
                     onRefreshSections = {
                         runCatching { repository.questionnaireSections() }
                             .onSuccess { sections = it }
@@ -652,6 +655,7 @@ private fun HomeScreen(
                 crafts = crafts,
                 artisans = artisans,
                 adminView = adminView,
+                canDelete = isAdmin,
                 onDone = { message = "${s.mode.label} updated"; refresh(); refreshLookups(); goDashboard() },
                 onError = { message = it }
             )
@@ -1613,6 +1617,69 @@ private fun RecordPickerScreen(
     }
 }
 
+/** Maps a record type to its admin delete call. */
+private suspend fun deleteByMode(repository: FieldRepository, mode: EntryMode, id: String) {
+    when (mode) {
+        EntryMode.ARTISAN -> repository.deleteArtisan(id)
+        EntryMode.PRODUCT -> repository.deleteProduct(id)
+        EntryMode.PROCESS -> repository.deleteProcess(id)
+        EntryMode.TOOL -> repository.deleteTool(id)
+        EntryMode.WORKSHOP -> repository.deleteWorkshop(id)
+        EntryMode.CRAFT -> repository.deleteCraft(id)
+        EntryMode.QUESTIONNAIRE -> repository.deleteInterview(id)
+        else -> throw IllegalArgumentException("This record type cannot be deleted")
+    }
+}
+
+/** Admin-only destructive action with a confirmation dialog, shown below an edit form. */
+@Composable
+private fun DeleteRecordSection(
+    repository: FieldRepository,
+    mode: EntryMode,
+    recordId: String,
+    onDeleted: () -> Unit,
+    onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var confirm by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
+    val noun = mode.label.lowercase()
+    RecordCard(title = "Danger zone") {
+        Text("Deleting permanently removes this $noun and its links. This cannot be undone.", color = Muted, fontSize = 12.sp)
+        OutlinedButton(
+            onClick = { confirm = true },
+            enabled = !deleting,
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(if (deleting) "Deleting…" else "Delete this $noun")
+        }
+    }
+    if (confirm) {
+        AlertDialog(
+            onDismissRequest = { if (!deleting) confirm = false },
+            title = { Text("Delete $noun?") },
+            text = { Text("This permanently deletes the record. This action cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    enabled = !deleting,
+                    onClick = {
+                        scope.launch {
+                            deleting = true
+                            runCatching { deleteByMode(repository, mode, recordId) }
+                                .onSuccess { confirm = false; deleting = false; onDeleted() }
+                                .onFailure { deleting = false; onError(it.message ?: "Unable to delete (admin only)") }
+                        }
+                    }
+                ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(enabled = !deleting, onClick = { confirm = false }) { Text("Cancel") } }
+        )
+    }
+}
+
 /** Fetches the chosen record's full detail, then renders the matching form in edit mode. */
 @Composable
 private fun EditScreen(
@@ -1622,6 +1689,7 @@ private fun EditScreen(
     crafts: List<CraftDto>,
     artisans: List<ArtisanDto>,
     adminView: Boolean,
+    canDelete: Boolean,
     onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
@@ -1740,6 +1808,9 @@ private fun EditScreen(
         }
         else -> Text("This record type cannot be edited here.", color = Muted)
     }
+    if (canDelete && mode != EntryMode.MEDIA && mode != EntryMode.USERS && mode != EntryMode.VIEW_DATA) {
+        DeleteRecordSection(repository, mode, recordId, onDeleted = onDone, onError = onError)
+    }
 }
 
 /** Loads an existing interview, then renders the questionnaire form seeded for partial editing. */
@@ -1751,6 +1822,7 @@ private fun InterviewEditLoader(
     artisans: List<ArtisanDto>,
     canManageQuestionnaire: Boolean,
     adminView: Boolean,
+    canDelete: Boolean,
     onRefreshSections: suspend () -> Unit,
     onError: (String) -> Unit,
     onDone: () -> Unit
@@ -1777,6 +1849,9 @@ private fun InterviewEditLoader(
             onError = onError,
             onSaved = onDone
         )
+        if (canDelete) {
+            DeleteRecordSection(repository, EntryMode.QUESTIONNAIRE, recordId, onDeleted = onDone, onError = onError)
+        }
     }
 }
 

@@ -122,6 +122,28 @@ interface FieldRepositoryApi {
     @GET("export/dataset")
     suspend fun datasetManifest(): DatasetManifestDto
 
+    // Admin-only record deletion (backend enforces is_admin).
+    @DELETE("artisans/{id}")
+    suspend fun deleteArtisan(@Path("id") id: String)
+
+    @DELETE("crafts/{id}")
+    suspend fun deleteCraft(@Path("id") id: String)
+
+    @DELETE("products/{id}")
+    suspend fun deleteProduct(@Path("id") id: String)
+
+    @DELETE("tools/{id}")
+    suspend fun deleteTool(@Path("id") id: String)
+
+    @DELETE("workshops/{id}")
+    suspend fun deleteWorkshop(@Path("id") id: String)
+
+    @DELETE("processes/{id}")
+    suspend fun deleteProcess(@Path("id") id: String)
+
+    @DELETE("questionnaire/interviews/{id}")
+    suspend fun deleteInterview(@Path("id") id: String)
+
     @GET("processes")
     suspend fun processes(
         @Query("page") page: Int = 1,

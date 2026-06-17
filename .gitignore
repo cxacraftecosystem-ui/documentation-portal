@@ -42,6 +42,10 @@ override.tf.json
 # Keys / secrets
 *.pem
 
+# Playwright observation artifacts
+frontend/pw-screens/
+test-results/
+
 # Android / Gradle
 .gradle/
 android/.gradle/
