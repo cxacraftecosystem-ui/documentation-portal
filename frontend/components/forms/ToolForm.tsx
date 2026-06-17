@@ -145,6 +145,7 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
       setError(err instanceof Error ? err.message : "Unable to save tool record");
     } finally {
       setSaving(false);
+      setUploadProgress(null);
     }
   }
 

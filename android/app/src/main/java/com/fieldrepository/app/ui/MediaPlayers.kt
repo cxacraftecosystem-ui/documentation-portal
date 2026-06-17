@@ -220,7 +220,7 @@ private fun formatMs(ms: Int): String {
  * amplitude waveform driven by MediaRecorder.getMaxAmplitude().
  */
 @Composable
-fun RecordingIndicator(getAmplitude: () -> Int, modifier: Modifier = Modifier) {
+fun RecordingIndicator(getAmplitude: () -> Int, modifier: Modifier = Modifier, paused: Boolean = false) {
     val transition = rememberInfiniteTransition(label = "rec")
     val blink by transition.animateFloat(
         initialValue = 1f,
@@ -228,11 +228,22 @@ fun RecordingIndicator(getAmplitude: () -> Int, modifier: Modifier = Modifier) {
         animationSpec = infiniteRepeatable(tween(600, easing = LinearEasing), RepeatMode.Reverse),
         label = "blink"
     )
+    // Dedicated slow blink for the "Paused" cue (~1.1s per half-cycle).
+    val pausedBlink by transition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.1f,
+        animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing), RepeatMode.Reverse),
+        label = "pausedBlink"
+    )
     val amplitudes = remember { mutableStateListOf<Float>() }
     var elapsedMs by remember { mutableStateOf(0L) }
 
-    LaunchedEffect(Unit) {
-        val start = System.currentTimeMillis()
+    // The elapsed counter keeps its accumulated value across pause/resume. While recording we anchor
+    // `start` to (now - elapsedMs) so, after a pause, counting continues from exactly where it stopped
+    // instead of restarting at 00:00. Pausing simply cancels this effect, freezing elapsedMs.
+    LaunchedEffect(paused) {
+        if (paused) return@LaunchedEffect
+        val start = System.currentTimeMillis() - elapsedMs
         while (true) {
             val amp = runCatching { getAmplitude() }.getOrDefault(0)
             val norm = (amp.coerceIn(0, 32767).toFloat() / 32767f)
@@ -251,12 +262,20 @@ fun RecordingIndicator(getAmplitude: () -> Int, modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        val dotColor = if (paused) Color(0xFF9AA0A6) else Color(0xFFD13438)
+        val dotAlpha = if (paused) pausedBlink else blink
         Box(
             modifier = Modifier
                 .size(12.dp)
-                .background(Color(0xFFD13438).copy(alpha = blink), CircleShape)
+                .background(dotColor.copy(alpha = dotAlpha), CircleShape)
         )
-        Text("Recording  ${formatMs(elapsedMs.toInt())}", color = Body, fontSize = 12.sp)
+        if (paused) {
+            // Slowly blinking "Paused" label, with the (frozen) elapsed time alongside.
+            Text("Paused", color = Body.copy(alpha = pausedBlink), fontSize = 12.sp)
+            Text(formatMs(elapsedMs.toInt()), color = Body, fontSize = 12.sp)
+        } else {
+            Text("Recording  ${formatMs(elapsedMs.toInt())}", color = Body, fontSize = 12.sp)
+        }
         Canvas(
             modifier = Modifier
                 .weight(1f)

@@ -1077,7 +1077,12 @@ private suspend fun uploadAttachments(
         }
     }
     if (failures.isNotEmpty()) {
-        throw IllegalStateException("${failures.size} media file(s) failed to upload: ${failures.joinToString(", ")}")
+        val allFailed = failures.size == media.uris.size
+        val prefix = if (allFailed) "All ${failures.size} media file(s) failed to upload" else "${failures.size} media file(s) failed to upload"
+        throw IllegalStateException(
+            "$prefix (${failures.joinToString(", ")}). The record was saved — check your connection " +
+                "and re-open it from \"Update existing\" to re-attach the media."
+        )
     }
 }
 
@@ -1329,7 +1334,6 @@ private fun AudioClipRecorder(
                         StopSquareLabel("Stop")
                     }
                 }
-                RecordingIndicator(getAmplitude = { runCatching { recorder?.maxAmplitude ?: 0 }.getOrDefault(0) })
             }
 
             RecPhase.PAUSED -> {
@@ -1343,7 +1347,6 @@ private fun AudioClipRecorder(
                         StopSquareLabel("Stop")
                     }
                 }
-                Text("Paused", color = Muted, fontSize = 11.sp)
             }
 
             RecPhase.RECORDED -> {
@@ -1363,6 +1366,15 @@ private fun AudioClipRecorder(
                     Text("Discard", maxLines = 1, softWrap = false, fontSize = 13.sp)
                 }
             }
+        }
+        // One indicator, kept mounted across RECORDING<->PAUSED, so its timer survives a pause and
+        // resumes from where it stopped (rather than restarting at 00:00); it also renders the
+        // slow-blinking "Paused" cue. A fresh clip (RECORDED -> RECORDING) remounts it from 00:00.
+        if (phase == RecPhase.RECORDING || phase == RecPhase.PAUSED) {
+            RecordingIndicator(
+                getAmplitude = { runCatching { recorder?.maxAmplitude ?: 0 }.getOrDefault(0) },
+                paused = phase == RecPhase.PAUSED
+            )
         }
         Text("${clips.size} clip(s)", color = Muted, fontSize = 11.sp)
     }
@@ -3605,9 +3617,14 @@ private fun AndroidMediaForm(
                             // Keep only the failed files staged so the user can retry just those.
                             selectedUris = failedUris.toList()
                             uploadStatus = ActionStatus.ERROR
-                            localMessage = "$success uploaded, ${failedUris.size} failed. Tap upload to retry the remaining file(s)."
+                            val msg = if (success == 0) {
+                                "All ${failedUris.size} file(s) failed to upload. Check your internet connection, then tap Upload to retry — the files are still staged."
+                            } else {
+                                "$success uploaded, ${failedUris.size} failed. Tap Upload to retry the remaining file(s)."
+                            }
+                            localMessage = msg
                             if (success > 0) refreshMedia()
-                            onError("$success uploaded, ${failedUris.size} could not be uploaded — they remain staged for retry.")
+                            onError(msg)
                         }
                     }
                 }

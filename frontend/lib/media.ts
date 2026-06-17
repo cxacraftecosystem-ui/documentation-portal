@@ -211,6 +211,14 @@ export async function uploadMediaBatch({
     completedBytes += file.size;
     report(index, 0, file.name);
   }
+  // Total failure (nothing got through) is escalated so every caller surfaces it — the record was
+  // already saved before this ran, so the fix is to retry the media, not redo the whole form.
+  if (files.length > 0 && failed.length === files.length) {
+    throw new Error(
+      `All ${files.length} media file(s) failed to upload (${failed[0]?.error ?? "network error"}). ` +
+        "Check your internet connection and try again — the record was saved, so re-open it and re-attach the media."
+    );
+  }
   return { uploaded, failed };
 }
 

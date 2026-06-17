@@ -142,6 +142,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
       setError(err instanceof Error ? err.message : "Unable to save product record");
     } finally {
       setSaving(false);
+      setUploadProgress(null);
     }
   }
 
