@@ -63,6 +63,11 @@ jobs:
           PATH="$PWD/.venv/bin:$PATH" ./.venv/bin/python -m prisma generate
           PATH="$PWD/.venv/bin:$PATH" ./.venv/bin/python -m prisma migrate deploy
           sudo systemctl restart fieldrepo
-          sleep 3
+          # App startup connects to Supabase (cross-region), so poll instead of a fixed sleep.
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then echo "healthy after ${i} tries"; break; fi
+            if [ "$i" = "40" ]; then echo "service did not become healthy:"; sudo journalctl -u fieldrepo -n 80 --no-pager; exit 1; fi
+            sleep 2
+          done
           curl -fsS http://127.0.0.1:8000/health
           REMOTE
