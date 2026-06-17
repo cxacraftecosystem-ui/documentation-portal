@@ -1,0 +1,68 @@
+name: Deploy backend to EC2
+
+# Auto-deploys the FastAPI backend to the EC2 box on every push to main that
+# touches the backend. Requires these repository secrets (Settings → Secrets and
+# variables → Actions):
+#   EC2_HOST              Elastic IP of the API box (terraform output api_public_ip)
+#   EC2_SSH_KEY           contents of the .pem private key for the EC2 key pair
+#   BACKEND_ENV           the full backend/.env file contents (DATABASE_URL, JWT_SECRET,
+#                         AWS_* keys, OPENAI_API_KEY, GEMINI_API_KEYS, BACKEND_CORS_ORIGINS …)
+#
+# Nothing secret is stored in this file — values come from the secrets above.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start ssh-agent with the deploy key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
+
+      - name: Add EC2 host to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Sync code to the server
+        run: |
+          rsync -az --delete \
+            --exclude '.venv' --exclude '__pycache__' --exclude '*.pyc' \
+            ./backend/ ubuntu@${{ secrets.EC2_HOST }}:/home/ubuntu/app/backend/
+
+      - name: Write .env on the server (piped over the SSH tunnel, never on the command line)
+        run: |
+          printf '%s' "$BACKEND_ENV" | ssh ubuntu@${{ secrets.EC2_HOST }} \
+            'cat > /home/ubuntu/app/backend/.env && chmod 600 /home/ubuntu/app/backend/.env'
+        env:
+          BACKEND_ENV: ${{ secrets.BACKEND_ENV }}
+
+      - name: Install deps, migrate, restart
+        run: |
+          ssh ubuntu@${{ secrets.EC2_HOST }} 'bash -s' <<'REMOTE'
+          set -euxo pipefail
+          cd /home/ubuntu/app/backend
+          if [ ! -d .venv ]; then python3.12 -m venv .venv; fi
+          ./.venv/bin/pip install --upgrade pip
+          ./.venv/bin/pip install -e .
+          PATH="$PWD/.venv/bin:$PATH" ./.venv/bin/python -m prisma generate
+          PATH="$PWD/.venv/bin:$PATH" ./.venv/bin/python -m prisma migrate deploy
+          sudo systemctl restart fieldrepo
+          sleep 3
+          curl -fsS http://127.0.0.1:8000/health
+          REMOTE

@@ -30,13 +30,19 @@ def _next_gemini_start(num_keys: int) -> int:
     return start
 
 
+# Whisper rejects files at/over 25 MB. Stay comfortably under it, and split anything larger into
+# ~10-minute mono segments that are transcribed sequentially and stitched back together.
+WHISPER_MAX_BYTES = 24 * 1024 * 1024
+TRANSCRIPTION_CHUNK_MS = 10 * 60 * 1000
+
+
 def _post_openai_transcription(content: bytes, filename: str, mime_type: str, settings: Settings) -> dict[str, Any]:
     response = requests.post(
         "https://api.openai.com/v1/audio/transcriptions",
         headers={"Authorization": f"Bearer {settings.openai_api_key}"},
         data={"model": settings.openai_transcription_model, "response_format": "json"},
         files={"file": (filename, content, mime_type or "application/octet-stream")},
-        timeout=90,
+        timeout=180,
     )
     response.raise_for_status()
     payload = response.json()
@@ -47,6 +53,61 @@ def _post_openai_transcription(content: bytes, filename: str, mime_type: str, se
         "text": text,
         "formattedTranscript": f"Transcript\n\n{text}" if text else "",
         "raw": payload,
+    }
+
+
+def _split_audio_into_chunks(content: bytes) -> list[tuple[bytes, str, str]] | None:
+    """Split audio into <=10-minute mono MP3 chunks, each safely under the Whisper size limit.
+
+    Returns a list of ``(bytes, filename, mime_type)`` or ``None`` when splitting is not possible
+    (pydub/ffmpeg unavailable or the bytes can't be decoded) — the caller then falls back to a
+    single-shot upload.
+    """
+    try:
+        import io
+
+        from pydub import AudioSegment
+    except Exception:  # noqa: BLE001 - missing optional dependency
+        logger.warning("pydub/ffmpeg unavailable; long audio cannot be chunked for transcription")
+        return None
+    try:
+        audio = AudioSegment.from_file(io.BytesIO(content))
+    except Exception as exc:  # noqa: BLE001 - undecodable container
+        logger.warning("Unable to decode audio for chunked transcription: %s", exc)
+        return None
+
+    chunks: list[tuple[bytes, str, str]] = []
+    for index, start in enumerate(range(0, max(len(audio), 1), TRANSCRIPTION_CHUNK_MS)):
+        segment = audio[start : start + TRANSCRIPTION_CHUNK_MS].set_channels(1)
+        buffer = io.BytesIO()
+        segment.export(buffer, format="mp3", bitrate="64k")
+        chunks.append((buffer.getvalue(), f"chunk-{index + 1:03d}.mp3", "audio/mpeg"))
+    return chunks or None
+
+
+def _transcribe_sync(content: bytes, filename: str, mime_type: str, settings: Settings) -> dict[str, Any]:
+    """Transcribe in one shot when small; otherwise chunk, transcribe sequentially, and stitch."""
+    if len(content) <= WHISPER_MAX_BYTES:
+        return _post_openai_transcription(content, filename, mime_type, settings)
+
+    chunks = _split_audio_into_chunks(content)
+    if not chunks:
+        # Can't split locally — attempt the whole file so the failure (if any) surfaces honestly.
+        return _post_openai_transcription(content, filename, mime_type, settings)
+
+    pieces: list[str] = []
+    for chunk_bytes, chunk_name, chunk_mime in chunks:
+        result = _post_openai_transcription(chunk_bytes, chunk_name, chunk_mime, settings)
+        piece = str(result.get("text") or "").strip()
+        if piece:
+            pieces.append(piece)
+    text = " ".join(pieces).strip()
+    return {
+        "available": True,
+        "status": "COMPLETED" if text else "EMPTY",
+        "text": text,
+        "formattedTranscript": f"Transcript\n\n{text}" if text else "",
+        "chunks": len(chunks),
     }
 
 
@@ -76,7 +137,7 @@ async def transcribe_audio_bytes(
         }
     try:
         return await asyncio.to_thread(
-            _post_openai_transcription,
+            _transcribe_sync,
             content,
             filename,
             mime_type,

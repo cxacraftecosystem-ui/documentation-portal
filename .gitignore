@@ -26,6 +26,22 @@ Thumbs.db
 skills-lock.json
 2nd Workshop_Interview Questions.docx
 
+# Terraform (never commit state — it can contain secrets — or local vars)
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraform.lock.hcl
+
+# Keys / secrets
+*.pem
+
 # Android / Gradle
 .gradle/
 android/.gradle/

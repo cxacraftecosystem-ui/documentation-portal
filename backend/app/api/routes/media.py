@@ -1,7 +1,8 @@
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
 
 from app.core.config import get_settings
@@ -21,7 +22,7 @@ from app.services.records import (
     require_record,
     visibility_where,
 )
-from app.services.s3 import make_object_key, presign_put_url, public_url_for_key
+from app.services.s3 import delete_object, make_object_key, presign_put_url, public_url_for_key
 
 router = APIRouter(prefix="/media", tags=["media"])
 
@@ -176,6 +177,24 @@ async def retry_media_processing_job(
         include={"mediaFile": True},
     )
     return jsonable_encoder(updated)
+
+
+@router.delete("/object", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_staged_object(objectKey: str, current_user: Any = Depends(get_current_user)) -> None:
+    """Delete a staged S3 object that was pre-uploaded but never attached to a saved record.
+
+    Scoped to the caller's own ``media/<user_id>/`` prefix, and refuses to touch any object that is
+    already referenced by a MediaFile (those are deleted through the normal media delete route).
+    """
+    if not objectKey.startswith(f"media/{current_user.id}/"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only delete your own staged uploads")
+    existing = await db.mediafile.find_first(where={"objectKey": objectKey})
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Object is attached to a saved media file; delete that record instead",
+        )
+    await asyncio.to_thread(delete_object, objectKey)
 
 
 @router.get("/{media_id}")

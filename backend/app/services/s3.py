@@ -2,6 +2,7 @@ from pathlib import PurePath
 from uuid import uuid4
 
 import boto3
+from botocore.client import Config
 
 from app.core.config import get_settings
 
@@ -14,6 +15,9 @@ def _client():
         endpoint_url=settings.aws_s3_endpoint,
         aws_access_key_id=settings.aws_access_key_id,
         aws_secret_access_key=settings.aws_secret_access_key,
+        # SigV4 is required for presigned URLs to validate in every region except us-east-1's
+        # legacy default; setting it explicitly keeps presigned PUTs working anywhere.
+        config=Config(signature_version="s3v4"),
     )
 
 
@@ -57,3 +61,9 @@ def get_object_bytes(object_key: str) -> bytes:
         return response["Body"].read()
     finally:
         response["Body"].close()
+
+
+def delete_object(object_key: str) -> None:
+    """Remove a single object. Used to clean up staged uploads that were cancelled before save."""
+    settings = get_settings()
+    _client().delete_object(Bucket=settings.aws_s3_bucket, Key=object_key)

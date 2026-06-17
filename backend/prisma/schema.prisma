@@ -92,6 +92,11 @@ enum MediaProcessingJobStatus {
   CANCELLED
 }
 
+enum ProcessStepType {
+  SEQUENTIAL
+  GROUP
+}
+
 model User {
   id           String       @id @default(cuid())
   email        String       @unique
@@ -111,6 +116,7 @@ model User {
   workshops Workshop[]             @relation("WorkshopCreatedBy")
   products  ProductDocumentation[] @relation("ProductCreatedBy")
   tools     ToolDocumentation[]    @relation("ToolCreatedBy")
+  processes Process[]              @relation("ProcessCreatedBy")
   media     MediaFile[]            @relation("MediaUploadedBy")
   requestedMediaProcessingJobs MediaProcessingJob[] @relation("MediaProcessingRequestedBy")
   reviews   ReviewLog[]            @relation("ReviewReviewer")
@@ -140,6 +146,7 @@ model Craft {
   products  ProductDocumentation[]
   tools     ToolDocumentation[]
   media     MediaFile[]
+  workshops WorkshopCraft[]
 
   @@index([name])
   @@index([place])
@@ -234,6 +241,7 @@ model Workshop {
   location  Location?              @relation(fields: [locationId], references: [id], onDelete: SetNull)
   createdBy User                   @relation("WorkshopCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   artisans  WorkshopArtisan[]
+  crafts    WorkshopCraft[]
   products  ProductDocumentation[]
   tools     ToolDocumentation[]
   media     MediaFile[]
@@ -258,6 +266,18 @@ model WorkshopArtisan {
 
   @@id([workshopId, artisanId])
   @@index([artisanId])
+}
+
+model WorkshopCraft {
+  workshopId String
+  craftId    String
+  createdAt  DateTime @default(now())
+
+  workshop Workshop @relation(fields: [workshopId], references: [id], onDelete: Cascade)
+  craft    Craft    @relation(fields: [craftId], references: [id], onDelete: Cascade)
+
+  @@id([workshopId, craftId])
+  @@index([craftId])
 }
 
 model ProductDocumentation {
@@ -304,6 +324,7 @@ model ProductDocumentation {
   createdBy User        @relation("ProductCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   media     MediaFile[]
   mediaProcessingJobs MediaProcessingJob[]
+  processes Process[]
 
   @@index([productName])
   @@index([craftName])
@@ -558,6 +579,47 @@ model QuestionnaireResponse {
   @@unique([interviewId, questionId])
   @@index([questionId])
   @@index([answeredById])
+}
+
+model Process {
+  id                  String       @id @default(cuid())
+  name                String
+  preProcessAvailable Boolean      @default(false)
+  notes               String?
+  status              RecordStatus @default(PENDING)
+  reviewNotes         String?
+  reviewedById        String?
+  reviewedAt          DateTime?
+  extraMetadata       Json?
+  recordedAt          DateTime     @default(now())
+  recordedTimezone    String       @default("Asia/Kolkata")
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  productId           String
+  createdById         String
+
+  product   ProductDocumentation @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdBy User                 @relation("ProcessCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  steps     ProcessStep[]
+
+  @@index([productId])
+  @@index([createdById])
+  @@index([status])
+  @@index([recordedAt])
+}
+
+model ProcessStep {
+  id        String          @id @default(cuid())
+  processId String
+  name      String
+  stepType  ProcessStepType @default(SEQUENTIAL)
+  sortOrder Int
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  process Process @relation(fields: [processId], references: [id], onDelete: Cascade)
+
+  @@index([processId])
 }
 
 model ReviewLog {

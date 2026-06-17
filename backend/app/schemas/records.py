@@ -80,6 +80,7 @@ class WorkshopCreate(APIModel):
     description: str | None = None
     notes: str | None = None
     artisanIds: list[str] = Field(default_factory=list)
+    craftIds: list[str] = Field(default_factory=list)
     status: str = "PENDING"
     recordedAt: datetime | None = None
     recordedTimezone: str = "Asia/Kolkata"
@@ -96,6 +97,7 @@ class WorkshopUpdate(APIModel):
     description: str | None = None
     notes: str | None = None
     artisanIds: list[str] | None = None
+    craftIds: list[str] | None = None
     status: str | None = None
     recordedAt: datetime | None = None
     recordedTimezone: str | None = None
@@ -162,6 +164,37 @@ class ProductUpdate(APIModel):
     recordedAt: datetime | None = None
     recordedTimezone: str | None = None
     location: LocationInput | None = None
+    extraMetadata: dict[str, Any] | None = None
+
+
+class ProcessStepInput(APIModel):
+    id: str | None = None
+    name: str = Field(min_length=1, max_length=220)
+    stepType: str = "SEQUENTIAL"
+    sortOrder: int = Field(default=0, ge=0)
+
+
+class ProcessCreate(APIModel):
+    name: str = Field(min_length=1, max_length=220)
+    productId: str = Field(min_length=1)
+    preProcessAvailable: bool = False
+    notes: str | None = None
+    status: str = "PENDING"
+    steps: list[ProcessStepInput] = Field(default_factory=list)
+    recordedAt: datetime | None = None
+    recordedTimezone: str = "Asia/Kolkata"
+    extraMetadata: dict[str, Any] | None = None
+
+
+class ProcessUpdate(APIModel):
+    name: str | None = Field(default=None, min_length=1, max_length=220)
+    productId: str | None = None
+    preProcessAvailable: bool | None = None
+    notes: str | None = None
+    status: str | None = None
+    steps: list[ProcessStepInput] | None = None
+    recordedAt: datetime | None = None
+    recordedTimezone: str | None = None
     extraMetadata: dict[str, Any] | None = None
 
 

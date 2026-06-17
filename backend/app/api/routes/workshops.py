@@ -26,13 +26,24 @@ from app.services.records import (
 
 router = APIRouter(prefix="/workshops", tags=["workshops"])
 
-INCLUDE = {"location": True, "createdBy": True, "artisans": {"include": {"artisan": True}}}
+INCLUDE = {
+    "location": True,
+    "createdBy": True,
+    "artisans": {"include": {"artisan": True}},
+    "crafts": {"include": {"craft": True}},
+}
 
 
 async def replace_workshop_artisans(workshop_id: str, artisan_ids: list[str]) -> None:
     await db.workshopartisan.delete_many(where={"workshopId": workshop_id})
     for artisan_id in artisan_ids:
         await db.workshopartisan.create(data={"workshopId": workshop_id, "artisanId": artisan_id})
+
+
+async def replace_workshop_crafts(workshop_id: str, craft_ids: list[str]) -> None:
+    await db.workshopcraft.delete_many(where={"workshopId": workshop_id})
+    for craft_id in craft_ids:
+        await db.workshopcraft.create(data={"workshopId": workshop_id, "craftId": craft_id})
 
 
 def normalize_workshop_dates(data: dict[str, Any]) -> dict[str, Any]:
@@ -83,6 +94,7 @@ async def create_workshop(
 ) -> dict[str, Any]:
     data = clean_data(payload.model_dump())
     artisan_ids = data.pop("artisanIds", [])
+    craft_ids = data.pop("craftIds", [])
     data = normalize_workshop_dates(data)
     data = await attach_location(data)
     data["createdById"] = current_user.id
@@ -90,6 +102,8 @@ async def create_workshop(
     created = await db.workshop.create(data=data)
     if artisan_ids:
         await replace_workshop_artisans(created.id, artisan_ids)
+    if craft_ids:
+        await replace_workshop_crafts(created.id, craft_ids)
     hydrated = await db.workshop.find_unique(where={"id": created.id}, include=INCLUDE)
     return jsonable_encoder(hydrated)
 
@@ -110,6 +124,7 @@ async def update_workshop(
     workshop = await require_record(db.workshop, workshop_id)
     data = clean_data(payload.model_dump(exclude_unset=True))
     artisan_ids = data.pop("artisanIds", None)
+    craft_ids = data.pop("craftIds", None)
     data = normalize_workshop_dates(data)
     data = await attach_location(data)
     assert_can_contribute_fields(workshop, current_user, data)
@@ -119,6 +134,10 @@ async def update_workshop(
         link_count = await db.workshopartisan.count(where={"workshopId": workshop_id})
         assert_can_contribute_relation(workshop, current_user, link_count > 0, "artisanIds")
         await replace_workshop_artisans(workshop_id, artisan_ids)
+    if craft_ids is not None:
+        craft_link_count = await db.workshopcraft.count(where={"workshopId": workshop_id})
+        assert_can_contribute_relation(workshop, current_user, craft_link_count > 0, "craftIds")
+        await replace_workshop_crafts(workshop_id, craft_ids)
     updated = await db.workshop.find_unique(where={"id": workshop_id}, include=INCLUDE)
     return jsonable_encoder(updated)
 

@@ -37,6 +37,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -72,6 +73,8 @@ import com.fieldrepository.app.data.GoogleAuthClient
 import com.fieldrepository.app.data.LocationRequest
 import com.fieldrepository.app.data.ProductCreateRequest
 import com.fieldrepository.app.data.QuestionnaireInterviewCreateRequest
+import com.fieldrepository.app.data.QuestionnaireInterviewDetailDto
+import com.fieldrepository.app.data.QuestionnaireInterviewUpdateRequest
 import com.fieldrepository.app.data.QuestionnaireQuestionCreateRequest
 import com.fieldrepository.app.data.QuestionnaireQuestionDto
 import com.fieldrepository.app.data.QuestionnaireQuestionUpdateRequest
@@ -93,14 +96,73 @@ import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
 import retrofit2.HttpException
 import android.app.DatePickerDialog
+import androidx.activity.compose.BackHandler
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.NavigationDrawerItemDefaults
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.ManageAccounts
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PermMedia
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Quiz
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import com.fieldrepository.app.data.ArtisanDto
+import com.fieldrepository.app.data.ArtisanAnswerDto
+import com.fieldrepository.app.data.ArtisanDetailDto
 import com.fieldrepository.app.data.CraftDto
 import com.fieldrepository.app.data.CreatedRecordDto
+import com.fieldrepository.app.data.AppScope
+import com.fieldrepository.app.data.LocationDto
 import com.fieldrepository.app.data.MediaFileDto
+import com.fieldrepository.app.data.StagedMedia
+import androidx.compose.runtime.DisposableEffect
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import com.fieldrepository.app.data.ProductDetailDto
+import com.fieldrepository.app.data.ProcessCreateRequest
+import com.fieldrepository.app.data.ProcessDetailDto
+import com.fieldrepository.app.data.ProcessStepDto
+import com.fieldrepository.app.data.ProcessStepRequest
+import com.fieldrepository.app.data.ToolDetailDto
+import com.fieldrepository.app.data.WorkshopDetailDto
+import androidx.compose.runtime.mutableStateListOf
+import com.fieldrepository.app.ui.ArtisanQuestionnairePanel
+import com.fieldrepository.app.ui.LocationEditor
+import com.fieldrepository.app.ui.MediaThumb
+import com.fieldrepository.app.ui.MediaViewerDialog
+import com.fieldrepository.app.ui.ProvenanceSection
+import com.fieldrepository.app.ui.RecordingIndicator
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
@@ -120,15 +182,53 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class EntryMode(val label: String, val actionTitle: String) {
-    ARTISAN("Artisan", "Record artisan"),
-    PRODUCT("Product", "Record product"),
-    TOOL("Tool", "Record tool"),
-    QUESTIONNAIRE("Questionnaire", "Take interview"),
-    WORKSHOP("Workshop", "Record workshop"),
-    CRAFT("Craft", "Add craft"),
-    MEDIA("Media", "Upload media"),
-    USERS("Users", "Manage users")
+private enum class EntryMode(
+    val label: String,
+    val actionTitle: String,
+    val editable: Boolean = false
+) {
+    ARTISAN("Artisan", "Record artisan", editable = true),
+    PRODUCT("Product", "Record product", editable = true),
+    PROCESS("Process", "Document process", editable = true),
+    TOOL("Tool", "Record tool", editable = true),
+    QUESTIONNAIRE("Questionnaire", "Take interview", editable = true),
+    MEDIA("Miscellaneous Media", "Upload media"),
+    VIEW_DATA("View Data", "Browse records"),
+    USERS("Users", "Manage users"),
+    // Craft and Workshop are the least frequently edited, so they sit last on the dashboard.
+    CRAFT("Craft", "Add craft", editable = true),
+    WORKSHOP("Workshop", "Record workshop", editable = true)
+}
+
+/** Where the user currently is. null-mode dashboard is replaced by this explicit machine. */
+private sealed interface Screen {
+    data object Dashboard : Screen
+    data class Create(val mode: EntryMode, val prefill: Prefill? = null) : Screen
+    data class Browse(val mode: EntryMode) : Screen
+    data class Edit(val mode: EntryMode, val recordId: String) : Screen
+}
+
+/** Context carried forward from a just-saved artisan into a follow-up record. */
+private data class Prefill(
+    val artisanId: String? = null,
+    val artisanName: String? = null,
+    val place: String? = null,
+    val craftId: String? = null,
+    val craftName: String? = null
+)
+
+/** Pictorial icon for each record type, used on the dashboard cards and the drawer. */
+private fun EntryMode.icon(): ImageVector = when (this) {
+    EntryMode.ARTISAN -> Icons.Filled.Person
+    EntryMode.PRODUCT -> Icons.Filled.Inventory2
+    EntryMode.PROCESS -> Icons.Filled.AccountTree
+    EntryMode.TOOL -> Icons.Filled.Build
+    EntryMode.QUESTIONNAIRE -> Icons.Filled.Quiz
+    EntryMode.WORKSHOP -> Icons.Filled.Groups
+    EntryMode.CRAFT -> Icons.Filled.Brush
+    EntryMode.MEDIA -> Icons.Filled.PermMedia
+    EntryMode.VIEW_DATA -> Icons.Filled.Visibility
+    EntryMode.USERS -> Icons.Filled.ManageAccounts
 }
 
 @Composable
@@ -286,14 +386,25 @@ private fun HomeScreen(
     var sections by remember { mutableStateOf<List<QuestionnaireSectionDto>>(emptyList()) }
     var crafts by remember { mutableStateOf<List<CraftDto>>(emptyList()) }
     var artisans by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
-    // null == dashboard landing; a value == a specific capture screen.
-    var mode by remember { mutableStateOf<EntryMode?>(null) }
-    var menuOpen by remember { mutableStateOf(false) }
+    var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
+    var carryForward by remember { mutableStateOf<Prefill?>(null) }
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
     var message by remember { mutableStateOf<String?>(null) }
     val isAdmin = user.role == "MASTER_ADMIN" || user.role == "ADMIN"
-    val isQuestionnaireManager = user.role == "MASTER_ADMIN" || user.canManageQuestionnaire
-    val availableModes = remember(user.role, user.canManageQuestionnaire) {
-        EntryMode.entries.filter { entryMode -> entryMode != EntryMode.USERS || isAdmin }
+    val isMasterAdmin = user.role == "MASTER_ADMIN"
+    val isQuestionnaireManager = isMasterAdmin || user.canManageQuestionnaire
+    // Master admin lands in admin view; other admins opt in from the menu.
+    var adminView by remember { mutableStateOf(isMasterAdmin) }
+
+    fun canCreate(mode: EntryMode): Boolean = when (mode) {
+        EntryMode.CRAFT -> isAdmin || user.canManageCrafts
+        EntryMode.WORKSHOP -> isAdmin || user.canManageWorkshops
+        EntryMode.USERS -> isAdmin
+        else -> true
+    }
+
+    val dashboardModes = remember(user.role, user.canManageQuestionnaire, user.canManageCrafts, user.canManageWorkshops) {
+        EntryMode.entries.filter { it != EntryMode.USERS || isAdmin }
     }
 
     fun refresh() {
@@ -321,138 +432,335 @@ private fun HomeScreen(
             .onFailure { message = it.message }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
+    fun goDashboard() {
+        screen = Screen.Dashboard
+    }
+
+    // System back / in-app back: step to the logical previous screen instead of leaving the app.
+    fun goBack() {
+        screen = when (val s = screen) {
+            is Screen.Edit -> Screen.Browse(s.mode)
+            is Screen.Browse -> Screen.Dashboard
+            is Screen.Create -> Screen.Dashboard
+            is Screen.Dashboard -> Screen.Dashboard
+        }
+    }
+
+    val headerTitle = when (val s = screen) {
+        is Screen.Dashboard -> "Field Repository"
+        is Screen.Create -> s.mode.actionTitle
+        is Screen.Browse -> "Update ${s.mode.label.lowercase()}"
+        is Screen.Edit -> "Edit ${s.mode.label.lowercase()}"
+    }
+
+    BackHandler(enabled = drawerState.isOpen) {
+        scope.launch { drawerState.close() }
+    }
+    BackHandler(enabled = drawerState.isClosed && screen !is Screen.Dashboard) {
+        goBack()
+    }
+
+    // Right-anchored drawer: wrap in RTL so the sheet slides in from the right (web parity),
+    // then flip drawer + page content back to LTR so their own layout reads normally.
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            drawerContent = {
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    AppDrawerContent(
+                        user = user,
+                        adminView = adminView,
+                        isAdmin = isAdmin,
+                        modes = dashboardModes.filter { canCreate(it) },
+                        onDashboard = { goDashboard(); scope.launch { drawerState.close() } },
+                        onSelect = { entry -> screen = Screen.Create(entry); scope.launch { drawerState.close() } },
+                        onToggleAdminView = { adminView = !adminView },
+                        onLogout = { scope.launch { drawerState.close() }; onLogout() }
+                    )
+                }
+            }
+        ) {
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    if (mode == null) "Field Repository" else mode!!.actionTitle,
+                    headerTitle,
                     fontFamily = FontFamily.Serif,
                     fontSize = 28.sp,
                     color = MaterialTheme.colorScheme.onBackground
                 )
-                Text("${user.name} · ${user.role}", color = Muted, fontSize = 13.sp)
+                Text("${user.name} · ${user.role}${if (adminView) " · admin view" else ""}", color = Muted, fontSize = 13.sp)
             }
-            Box {
-                OutlinedButton(onClick = { menuOpen = true }) { Text("☰ Menu") }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(text = { Text("Dashboard") }, onClick = { mode = null; menuOpen = false })
-                    availableModes.forEach { entry ->
-                        DropdownMenuItem(text = { Text(entry.actionTitle) }, onClick = { mode = entry; menuOpen = false })
-                    }
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text("Logout") },
-                        onClick = {
-                            menuOpen = false
-                            onLogout()
-                        }
+            IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                Icon(Icons.Filled.Menu, contentDescription = "Open menu", tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+
+        if (screen !is Screen.Dashboard) {
+            BackPill(onClick = { goBack() })
+        }
+
+        when (val s = screen) {
+            is Screen.Dashboard -> {
+                carryForward?.let { prefill ->
+                    CarryForwardPanel(
+                        prefill = prefill,
+                        canCreateTool = canCreate(EntryMode.TOOL),
+                        onSelect = { mode -> screen = Screen.Create(mode, prefill); carryForward = null },
+                        onDismiss = { carryForward = null }
                     )
                 }
+                DashboardScreen(
+                    stats = stats,
+                    recentArtisans = artisans,
+                    actions = dashboardModes,
+                    canCreate = { canCreate(it) },
+                    onNew = { selected -> screen = Screen.Create(selected) },
+                    onUpdateExisting = { selected -> screen = Screen.Browse(selected) }
+                )
             }
-        }
 
-        if (mode != null) {
-            TextButton(onClick = { mode = null }) { Text("← Back to dashboard") }
-        }
+            is Screen.Browse -> RecordPickerScreen(
+                repository = repository,
+                mode = s.mode,
+                onPick = { recordId -> screen = Screen.Edit(s.mode, recordId) },
+                onError = { message = it }
+            )
 
-        when (mode) {
-            null -> DashboardScreen(
-                stats = stats,
-                recentArtisans = artisans,
-                actions = availableModes,
-                onSelect = { selected -> mode = selected }
-            )
-            EntryMode.CRAFT -> CraftForm(
+            is Screen.Create -> when (s.mode) {
+                EntryMode.CRAFT -> CraftForm(
+                    repository = repository,
+                    onDone = { message = "Craft saved"; refresh(); refreshLookups(); goDashboard() },
+                    onError = { message = it }
+                )
+                EntryMode.ARTISAN -> ArtisanForm(
+                    repository = repository,
+                    crafts = crafts,
+                    prefill = s.prefill,
+                    adminView = adminView,
+                    onArtisanCreated = { prefill ->
+                        message = "Artisan saved"
+                        refresh(); refreshLookups()
+                        carryForward = prefill
+                        goDashboard()
+                    },
+                    onDone = { message = "Artisan saved"; refresh(); refreshLookups(); goDashboard() },
+                    onError = { message = it }
+                )
+                EntryMode.WORKSHOP -> WorkshopForm(
+                    repository = repository,
+                    artisans = artisans,
+                    prefill = s.prefill,
+                    adminView = adminView,
+                    onDone = { message = "Workshop saved"; refresh(); goDashboard() },
+                    onError = { message = it }
+                )
+                EntryMode.PRODUCT -> ProductForm(
+                    repository = repository,
+                    crafts = crafts,
+                    artisans = artisans,
+                    prefill = s.prefill,
+                    adminView = adminView,
+                    onDone = { message = "Product saved"; refresh(); goDashboard() },
+                    onError = { message = it }
+                )
+                EntryMode.PROCESS -> ProcessForm(
+                    repository = repository,
+                    adminView = adminView,
+                    onDone = { message = "Process saved"; refresh(); goDashboard() },
+                    onError = { message = it }
+                )
+                EntryMode.VIEW_DATA -> ViewDataScreen(
+                    repository = repository,
+                    onError = { message = it }
+                )
+                EntryMode.TOOL -> ToolForm(
+                    repository = repository,
+                    crafts = crafts,
+                    artisans = artisans,
+                    prefill = s.prefill,
+                    adminView = adminView,
+                    onDone = { message = "Tool saved"; refresh(); goDashboard() },
+                    onError = { message = it }
+                )
+                EntryMode.MEDIA -> AndroidMediaForm(
+                    repository = repository,
+                    onUploaded = { count ->
+                        message = "$count media file${if (count == 1) "" else "s"} uploaded and queued"
+                        refresh()
+                    },
+                    onError = { message = it }
+                )
+                EntryMode.QUESTIONNAIRE -> QuestionnaireForm(
+                    repository = repository,
+                    sections = sections,
+                    artisans = artisans,
+                    prefill = s.prefill,
+                    canManageQuestionnaire = isQuestionnaireManager,
+                    onRefreshSections = {
+                        runCatching { repository.questionnaireSections() }
+                            .onSuccess { sections = it }
+                            .onFailure { message = it.message }
+                    },
+                    onSync = {
+                        runCatching { repository.questionnaireSections() }
+                            .onSuccess { sections = it }
+                            .onFailure { message = it.message }
+                        loadLookups()
+                    },
+                    onSubmit = { body ->
+                        val created = repository.createQuestionnaireInterview(body)
+                        refresh()
+                        created.id
+                    },
+                    onError = { message = it },
+                    onSaved = { message = "Questionnaire interview saved"; refresh(); goDashboard() }
+                )
+                EntryMode.USERS -> UserManagementForm(
+                    repository = repository,
+                    isMasterAdmin = isMasterAdmin,
+                    onError = { message = it }
+                )
+            }
+
+            is Screen.Edit -> if (s.mode == EntryMode.QUESTIONNAIRE) {
+                InterviewEditLoader(
+                    repository = repository,
+                    recordId = s.recordId,
+                    sections = sections,
+                    artisans = artisans,
+                    canManageQuestionnaire = isQuestionnaireManager,
+                    adminView = adminView,
+                    onRefreshSections = {
+                        runCatching { repository.questionnaireSections() }
+                            .onSuccess { sections = it }
+                            .onFailure { message = it.message }
+                    },
+                    onError = { message = it },
+                    onDone = { message = "Interview updated"; refresh(); goDashboard() }
+                )
+            } else EditScreen(
                 repository = repository,
-                onSaved = {
-                    message = "Craft saved with attached media"
-                    refresh()
-                    refreshLookups()
-                },
-                onError = { message = it }
-            )
-            EntryMode.ARTISAN -> ArtisanForm(
-                repository = repository,
+                mode = s.mode,
+                recordId = s.recordId,
                 crafts = crafts,
-                onSaved = {
-                    message = "Artisan saved with attached media"
-                    refresh()
-                    refreshLookups()
-                },
-                onError = { message = it }
-            )
-            EntryMode.WORKSHOP -> WorkshopForm(
-                repository = repository,
                 artisans = artisans,
-                onSaved = {
-                    message = "Workshop saved with attached media"
-                    refresh()
-                },
-                onError = { message = it }
-            )
-            EntryMode.PRODUCT -> ProductForm(
-                repository = repository,
-                crafts = crafts,
-                artisans = artisans,
-                onSaved = {
-                    message = "Product saved with attached media"
-                    refresh()
-                },
-                onError = { message = it }
-            )
-            EntryMode.TOOL -> ToolForm(
-                repository = repository,
-                crafts = crafts,
-                artisans = artisans,
-                onSaved = {
-                    message = "Tool saved with attached media"
-                    refresh()
-                },
-                onError = { message = it }
-            )
-            EntryMode.MEDIA -> AndroidMediaForm(
-                repository = repository,
-                onUploaded = { count ->
-                    message = "$count media file${if (count == 1) "" else "s"} uploaded and queued"
-                    refresh()
-                },
-                onError = { message = it }
-            )
-            EntryMode.QUESTIONNAIRE -> QuestionnaireForm(
-                repository = repository,
-                sections = sections,
-                artisans = artisans,
-                canManageQuestionnaire = isQuestionnaireManager,
-                onRefreshSections = {
-                    runCatching { repository.questionnaireSections() }
-                        .onSuccess { sections = it }
-                        .onFailure { message = it.message }
-                },
-                onSubmit = { body ->
-                    val created = repository.createQuestionnaireInterview(body)
-                    refresh()
-                    created.id
-                },
-                onError = { message = it },
-                onSaved = {
-                    message = "Questionnaire interview saved"
-                    refresh()
-                }
-            )
-            EntryMode.USERS -> UserManagementForm(
-                repository = repository,
-                isMasterAdmin = user.role == "MASTER_ADMIN",
+                adminView = adminView,
+                onDone = { message = "${s.mode.label} updated"; refresh(); refreshLookups(); goDashboard() },
                 onError = { message = it }
             )
         }
 
         message?.let {
             Text(it, color = Body, modifier = Modifier.padding(bottom = 24.dp))
+        }
+                }
+            }
+        }
+    }
+}
+
+/** Rounded back control with a real icon; steps to the previous screen. */
+@Composable
+private fun BackPill(onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+    ) {
+        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("Back")
+    }
+}
+
+/** Right-side navigation drawer mirroring the web slide-out menu. */
+@Composable
+private fun AppDrawerContent(
+    user: UserDto,
+    adminView: Boolean,
+    isAdmin: Boolean,
+    modes: List<EntryMode>,
+    onDashboard: () -> Unit,
+    onSelect: (EntryMode) -> Unit,
+    onToggleAdminView: () -> Unit,
+    onLogout: () -> Unit
+) {
+    ModalDrawerSheet {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Field Repository", fontFamily = FontFamily.Serif, fontSize = 22.sp, color = MaterialTheme.colorScheme.onSurface)
+            Text("${user.name} · ${user.role}", color = Muted, fontSize = 12.sp)
+        }
+        HorizontalDivider()
+        NavigationDrawerItem(
+            label = { Text("Dashboard") },
+            selected = false,
+            icon = { Icon(Icons.Filled.Dashboard, contentDescription = null) },
+            onClick = onDashboard,
+            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+        )
+        modes.forEach { entry ->
+            NavigationDrawerItem(
+                label = { Text(entry.actionTitle) },
+                selected = false,
+                icon = { Icon(entry.icon(), contentDescription = null) },
+                onClick = { onSelect(entry) },
+                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+            )
+        }
+        if (isAdmin) {
+            HorizontalDivider()
+            NavigationDrawerItem(
+                label = { Text(if (adminView) "Admin view: ON" else "Admin view: OFF") },
+                selected = adminView,
+                icon = { Icon(Icons.Filled.ManageAccounts, contentDescription = null) },
+                onClick = onToggleAdminView,
+                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+            )
+        }
+        HorizontalDivider()
+        NavigationDrawerItem(
+            label = { Text("Logout") },
+            selected = false,
+            icon = { Icon(Icons.Filled.Logout, contentDescription = null) },
+            onClick = onLogout,
+            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+        )
+    }
+}
+
+/** Post-save shortcuts that carry the just-saved artisan into a follow-up record. */
+@Composable
+private fun CarryForwardPanel(
+    prefill: Prefill,
+    canCreateTool: Boolean,
+    onSelect: (EntryMode) -> Unit,
+    onDismiss: () -> Unit
+) {
+    ElevatedCard(
+        colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Saved ${prefill.artisanName ?: "artisan"} ✓", fontFamily = FontFamily.Serif, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
+            Text("Keep going for the same artisan — details are pre-filled.", color = Muted, fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = { onSelect(EntryMode.PRODUCT) }, modifier = Modifier.weight(1f)) { Text("Add product") }
+                if (canCreateTool) {
+                    Button(onClick = { onSelect(EntryMode.TOOL) }, modifier = Modifier.weight(1f)) { Text("Add tool") }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = { onSelect(EntryMode.QUESTIONNAIRE) }, modifier = Modifier.weight(1f)) { Text("Take interview") }
+                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Dismiss") }
+            }
         }
     }
 }
@@ -462,7 +770,9 @@ private fun DashboardScreen(
     stats: DashboardStats?,
     recentArtisans: List<ArtisanDto>,
     actions: List<EntryMode>,
-    onSelect: (EntryMode) -> Unit
+    canCreate: (EntryMode) -> Boolean,
+    onNew: (EntryMode) -> Unit,
+    onUpdateExisting: (EntryMode) -> Unit
 ) {
     val configuration = LocalConfiguration.current
     val columns = when {
@@ -471,11 +781,17 @@ private fun DashboardScreen(
         else -> 2
     }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {
-        Text("What would you like to record?", fontFamily = FontFamily.Serif, fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
+        Text("What would you like to do?", fontFamily = FontFamily.Serif, fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
         actions.chunked(columns).forEach { rowItems ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                 rowItems.forEach { entry ->
-                    DashboardActionCard(entry = entry, modifier = Modifier.weight(1f)) { onSelect(entry) }
+                    DashboardActionCard(
+                        entry = entry,
+                        canCreate = canCreate(entry),
+                        modifier = Modifier.weight(1f),
+                        onNew = { onNew(entry) },
+                        onUpdateExisting = { onUpdateExisting(entry) }
+                    )
                 }
                 repeat(columns - rowItems.size) { Spacer(modifier = Modifier.weight(1f)) }
             }
@@ -498,14 +814,26 @@ private fun DashboardScreen(
     }
 }
 
+private fun EntryMode.createButtonLabel(): String = when (this) {
+    EntryMode.MEDIA -> "Upload"
+    EntryMode.QUESTIONNAIRE -> "New interview"
+    EntryMode.USERS -> "Manage"
+    EntryMode.VIEW_DATA -> "Open"
+    else -> "New"
+}
+
 @Composable
-private fun DashboardActionCard(entry: EntryMode, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun DashboardActionCard(
+    entry: EntryMode,
+    canCreate: Boolean,
+    modifier: Modifier = Modifier,
+    onNew: () -> Unit,
+    onUpdateExisting: () -> Unit
+) {
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(containerColor = Canvas),
         shape = RoundedCornerShape(16.dp),
         modifier = modifier
-            .height(116.dp)
-            .clickable(onClick = onClick)
     ) {
         Column(
             modifier = Modifier
@@ -519,12 +847,33 @@ private fun DashboardActionCard(entry: EntryMode, modifier: Modifier = Modifier,
                     .background(color = ColorCompat.darkElevated, shape = RoundedCornerShape(10.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(entry.label.take(1), color = Canvas, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Icon(entry.icon(), contentDescription = null, tint = Canvas, modifier = Modifier.size(22.dp))
             }
-            Text(entry.actionTitle, fontFamily = FontFamily.Serif, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface)
-            Text("Create new entry", color = Muted, fontSize = 11.sp)
+            Text(entry.label, fontFamily = FontFamily.Serif, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+            if (canCreate) {
+                Button(
+                    onClick = onNew,
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                ) { CardButtonLabel(Icons.Filled.Add, entry.createButtonLabel()) }
+            }
+            if (entry.editable) {
+                OutlinedButton(
+                    onClick = onUpdateExisting,
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                ) { CardButtonLabel(Icons.Filled.Edit, "Update") }
+            }
         }
     }
+}
+
+/** Icon + single-line label, sized to never wrap inside the narrow dashboard cards. */
+@Composable
+private fun CardButtonLabel(icon: ImageVector, text: String) {
+    Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+    Spacer(Modifier.width(6.dp))
+    Text(text, maxLines = 1, softWrap = false, fontSize = 13.sp)
 }
 
 @Composable
@@ -580,10 +929,17 @@ private class MediaCaptureState {
     var location by mutableStateOf<LocationRequest?>(null)
     var measurementUri by mutableStateOf<Uri?>(null)
 
+    // Eager-upload bookkeeping. `stagedDeferred` is the in-flight pre-upload per uri; `staged`
+    // mirrors the completed results for UI status. Managed by MediaCaptureSection.
+    val stagedDeferred = mutableMapOf<Uri, Deferred<StagedMedia?>>()
+    var staged by mutableStateOf<Map<Uri, StagedMedia>>(emptyMap())
+
     fun reset() {
         uris = emptyList()
         location = null
         measurementUri = null
+        stagedDeferred.clear()
+        staged = emptyMap()
     }
 }
 
@@ -593,6 +949,48 @@ private fun rememberMediaCaptureState(): MediaCaptureState = remember { MediaCap
 private fun LocalDate.toIsoInstant(): String =
     atStartOfDay(ZoneId.systemDefault()).toInstant().toString()
 
+/** Parse an ISO datetime/date string (as returned by the API) into a LocalDate, best-effort. */
+private fun parseIsoToLocalDate(value: String?): LocalDate? {
+    if (value.isNullOrBlank()) return null
+    return runCatching { java.time.OffsetDateTime.parse(value).toLocalDate() }.getOrNull()
+        ?: runCatching { Instant.parse(value).atZone(ZoneId.systemDefault()).toLocalDate() }.getOrNull()
+        ?: runCatching { LocalDate.parse(value.take(10)) }.getOrNull()
+}
+
+/** Render a numeric value into an editable string without a trailing ".0" for whole numbers. */
+private fun numToText(value: Double?): String {
+    if (value == null) return ""
+    return if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
+}
+
+/**
+ * On edit, only send a location when it actually changed. The backend creates a fresh Location row
+ * and re-checks per-field ownership for any present field, so resending the unchanged coordinates
+ * would both duplicate rows and falsely lock out non-owner contributors.
+ */
+private fun locationForBody(isEdit: Boolean, current: LocationRequest?, original: LocationDto?): LocationRequest? {
+    if (!isEdit) return current
+    if (current == null) return null
+    if (original != null &&
+        kotlin.math.abs(current.latitude - original.latitude) < 1e-6 &&
+        kotlin.math.abs(current.longitude - original.longitude) < 1e-6
+    ) {
+        return null
+    }
+    return current
+}
+
+/** Convert a read-model location into the request payload used by create/update calls. */
+private fun LocationDto.toRequest(): LocationRequest =
+    LocationRequest(
+        latitude = latitude,
+        longitude = longitude,
+        altitude = altitude,
+        accuracy = accuracy,
+        address = address,
+        placeName = placeName ?: address
+    )
+
 private suspend fun uploadAttachments(
     repository: FieldRepository,
     context: Context,
@@ -600,19 +998,37 @@ private suspend fun uploadAttachments(
     recordType: String,
     recordId: String,
     titleHint: String?,
-    caption: String?
+    caption: String?,
+    customSegment: String? = null
 ) {
     media.uris.forEachIndexed { index, uri ->
-        repository.uploadMedia(
-            context = context,
-            uri = uri,
-            linkedRecordType = recordType,
-            linkedRecordId = recordId,
-            caption = caption,
-            location = media.location,
-            titleHint = titleHint,
-            batchIndex = index + 1
-        )
+        // Prefer the eagerly pre-uploaded object (awaiting any still-in-flight transfer); only fall
+        // back to a fresh upload if pre-upload never started or failed.
+        val staged = media.stagedDeferred[uri]?.let { runCatching { it.await() }.getOrNull() } ?: media.staged[uri]
+        if (staged != null) {
+            repository.completeStaged(
+                staged = staged,
+                linkedRecordType = recordType,
+                linkedRecordId = recordId,
+                recordName = titleHint,
+                caption = caption,
+                location = media.location,
+                batchIndex = index + 1,
+                customSegment = customSegment
+            )
+        } else {
+            repository.uploadMedia(
+                context = context,
+                uri = uri,
+                linkedRecordType = recordType,
+                linkedRecordId = recordId,
+                caption = caption,
+                location = media.location,
+                titleHint = titleHint,
+                batchIndex = index + 1,
+                customSegment = customSegment
+            )
+        }
     }
 }
 
@@ -645,6 +1061,7 @@ private fun DropdownField(
     selectedValue: String,
     placeholder: String = "Select",
     includeNone: Boolean = true,
+    enabled: Boolean = true,
     onSelect: (String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -652,7 +1069,7 @@ private fun DropdownField(
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, color = Muted, fontSize = 12.sp)
         Box(modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = { expanded = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
                 Text(selectedLabel ?: placeholder, modifier = Modifier.weight(1f))
                 Text("▾", color = Muted)
             }
@@ -714,6 +1131,43 @@ private fun ArtisanMultiSelectField(
     }
 }
 
+/** Generic checkbox multi-select over (id, label) options, mirroring ArtisanMultiSelectField. */
+@Composable
+private fun CheckboxMultiSelectField(
+    label: String,
+    options: List<Pair<String, String>>,
+    selectedIds: Set<String>,
+    emptyMessage: String = "No options available.",
+    onToggle: (String) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("$label (${selectedIds.size} selected)", color = Muted, fontSize = 12.sp)
+        if (options.isEmpty()) {
+            Text(emptyMessage, color = Muted, fontSize = 12.sp)
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(SurfaceCard, RoundedCornerShape(12.dp))
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                options.forEach { (id, text) ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onToggle(id) }
+                    ) {
+                        Checkbox(checked = selectedIds.contains(id), onCheckedChange = { onToggle(id) })
+                        Text(text, color = Body, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun DatePickerField(label: String, value: LocalDate?, onChange: (LocalDate) -> Unit) {
     val context = LocalContext.current
@@ -737,23 +1191,172 @@ private fun DatePickerField(label: String, value: LocalDate?, onChange: (LocalDa
     }
 }
 
+private enum class RecPhase { IDLE, RECORDING, PAUSED, RECORDED }
+
+/**
+ * Self-contained audio recorder with the questionnaire control flow:
+ * Record → (Pause / Stop) → once stopped, three stacked choices: Re-record (discard current and
+ * start afresh), Record another (keep current and start a new clip), or Discard (drop the current
+ * clip). Clips accumulate in the caller via [onAddClip]; [onRemoveLast] drops the most recent one.
+ */
+@Composable
+private fun AudioClipRecorder(
+    clips: List<Uri>,
+    onAddClip: (Uri) -> Unit,
+    onRemoveLast: () -> Unit,
+    onError: (String) -> Unit,
+    idleLabel: String = "Record ●"
+) {
+    val context = LocalContext.current
+    var phase by remember { mutableStateOf(RecPhase.IDLE) }
+    var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
+    var recordingFile by remember { mutableStateOf<File?>(null) }
+    val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+
+    fun startNew() {
+        runCatching {
+            val file = createAppFile(context, "question-audio-", ".m4a")
+            recorder = createAudioRecorder(context, file).also { it.start() }
+            recordingFile = file
+            phase = RecPhase.RECORDING
+        }.onFailure { onError(it.message ?: "Unable to start recording"); phase = RecPhase.IDLE }
+    }
+
+    fun stopAndSave() {
+        runCatching {
+            recorder?.stop()
+            recorder?.release()
+            recordingFile?.let { onAddClip(uriForFile(context, it)) }
+        }.onFailure { onError(it.message ?: "Unable to stop recording") }
+        recorder = null
+        recordingFile = null
+        phase = RecPhase.RECORDED
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { runCatching { recorder?.stop(); recorder?.release() }; recorder = null }
+    }
+
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        when (phase) {
+            RecPhase.IDLE -> OutlinedButton(
+                onClick = { startNew() },
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = pad
+            ) { Text(if (clips.isNotEmpty()) "Record another ●" else idleLabel, maxLines = 1, softWrap = false, fontSize = 13.sp) }
+
+            RecPhase.RECORDING -> {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = { runCatching { recorder?.pause(); phase = RecPhase.PAUSED }.onFailure { onError(it.message ?: "Unable to pause") } },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = pad
+                    ) {
+                        Icon(Icons.Filled.Pause, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Pause", maxLines = 1, softWrap = false, fontSize = 13.sp)
+                    }
+                    OutlinedButton(onClick = { stopAndSave() }, modifier = Modifier.weight(1f), contentPadding = pad) {
+                        StopSquareLabel("Stop")
+                    }
+                }
+                RecordingIndicator(getAmplitude = { runCatching { recorder?.maxAmplitude ?: 0 }.getOrDefault(0) })
+            }
+
+            RecPhase.PAUSED -> {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = { runCatching { recorder?.resume(); phase = RecPhase.RECORDING }.onFailure { onError(it.message ?: "Unable to resume") } },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = pad
+                    ) { Text("Resume ●", maxLines = 1, softWrap = false, fontSize = 13.sp) }
+                    OutlinedButton(onClick = { stopAndSave() }, modifier = Modifier.weight(1f), contentPadding = pad) {
+                        StopSquareLabel("Stop")
+                    }
+                }
+                Text("Paused", color = Muted, fontSize = 11.sp)
+            }
+
+            RecPhase.RECORDED -> {
+                Button(onClick = { onRemoveLast(); startNew() }, modifier = Modifier.fillMaxWidth(), contentPadding = pad) {
+                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Re-record", maxLines = 1, softWrap = false, fontSize = 13.sp)
+                }
+                OutlinedButton(onClick = { startNew() }, modifier = Modifier.fillMaxWidth(), contentPadding = pad) {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Record another", maxLines = 1, softWrap = false, fontSize = 13.sp)
+                }
+                OutlinedButton(onClick = { onRemoveLast(); phase = RecPhase.IDLE }, modifier = Modifier.fillMaxWidth(), contentPadding = pad) {
+                    Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Discard", maxLines = 1, softWrap = false, fontSize = 13.sp)
+                }
+            }
+        }
+        Text("${clips.size} clip(s)", color = Muted, fontSize = 11.sp)
+    }
+}
+
 /**
  * Reusable capture surface embedded inside every record form. Mirrors the web MediaCaptureField:
  * pick files, take photo/video, record audio, tag GPS, and (optionally) attach a measurement grid.
  */
+/** A small red square used as the universal "stop recording" affordance. */
+@Composable
+private fun StopSquareLabel(text: String = "Stop") {
+    Box(
+        modifier = Modifier
+            .size(13.dp)
+            .background(Color(0xFFD13438), RoundedCornerShape(3.dp))
+    )
+    Spacer(Modifier.width(6.dp))
+    Text(text, maxLines = 1, softWrap = false, fontSize = 13.sp)
+}
+
 @Composable
 private fun MediaCaptureSection(
+    repository: FieldRepository,
     media: MediaCaptureState,
     enableMeasurement: Boolean = false,
+    emphasizeVideo: Boolean = false,
     onMessage: (String) -> Unit,
     onError: (String) -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var recording by remember { mutableStateOf(false) }
     var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var recordingFile by remember { mutableStateOf<File?>(null) }
     var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
     var pendingMeasurement by remember { mutableStateOf(false) }
+
+    // Eager upload: as soon as a file is attached, start pushing it to object storage so the
+    // transfer is (usually) finished by the time the user taps save.
+    LaunchedEffect(media.uris) {
+        media.uris.forEach { uri ->
+            if (!media.stagedDeferred.containsKey(uri)) {
+                val deferred = AppScope.io.async { runCatching { repository.preuploadObject(context, uri) }.getOrNull() }
+                media.stagedDeferred[uri] = deferred
+                scope.launch {
+                    val result = runCatching { deferred.await() }.getOrNull()
+                    if (result != null) media.staged = media.staged + (uri to result)
+                }
+            }
+        }
+    }
+    // If the user leaves without saving, delete any staged-but-unsaved objects from storage.
+    DisposableEffect(Unit) {
+        onDispose {
+            if (media.uris.isNotEmpty()) {
+                val pending = media.stagedDeferred.values.toList()
+                AppScope.io.launch {
+                    pending.forEach { d -> runCatching { d.await()?.let { repository.deleteStaged(it.objectKey) } } }
+                }
+            }
+        }
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
@@ -799,17 +1402,35 @@ private fun MediaCaptureSection(
                 modifier = Modifier.weight(1f)
             ) { Text("Take photo") }
         }
+        if (emphasizeVideo) {
+            Text("🎥 Video is the preferred format here — capture the action as it happens.", color = Color(0xFFE0C9B0), fontSize = 12.sp)
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(
-                onClick = {
-                    permissionLauncher.launch(requiredAndroidPermissions())
-                    val uri = createAppFileUri(context, "field-video-", ".mp4")
-                    pendingMeasurement = false
-                    pendingCaptureUri = uri
-                    takeVideo.launch(uri)
-                },
-                modifier = Modifier.weight(1f)
-            ) { Text("Record video") }
+            if (emphasizeVideo) {
+                Button(
+                    onClick = {
+                        permissionLauncher.launch(requiredAndroidPermissions())
+                        val uri = createAppFileUri(context, "field-video-", ".mp4")
+                        pendingMeasurement = false
+                        pendingCaptureUri = uri
+                        takeVideo.launch(uri)
+                    },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                ) { CardButtonLabel(Icons.Filled.Videocam, "Record video") }
+            } else {
+                OutlinedButton(
+                    onClick = {
+                        permissionLauncher.launch(requiredAndroidPermissions())
+                        val uri = createAppFileUri(context, "field-video-", ".mp4")
+                        pendingMeasurement = false
+                        pendingCaptureUri = uri
+                        takeVideo.launch(uri)
+                    },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                ) { Text("Record video", maxLines = 1, softWrap = false, fontSize = 13.sp) }
+            }
             OutlinedButton(
                 onClick = {
                     permissionLauncher.launch(requiredAndroidPermissions())
@@ -833,23 +1454,22 @@ private fun MediaCaptureSection(
                         onMessage("Audio recording added")
                     }
                 },
-                modifier = Modifier.weight(1f)
-            ) { Text(if (recording) "Stop audio" else "Record audio") }
+                modifier = Modifier.weight(1f),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+            ) { if (recording) StopSquareLabel("Stop audio") else Text("Record audio ●", maxLines = 1, softWrap = false, fontSize = 13.sp) }
         }
-        OutlinedButton(
-            onClick = {
+        if (recording) {
+            RecordingIndicator(getAmplitude = { runCatching { recorder?.maxAmplitude ?: 0 }.getOrDefault(0) })
+        }
+        LocationEditor(
+            value = media.location,
+            onUseGps = {
                 permissionLauncher.launch(requiredAndroidPermissions())
-                val loc = readLastKnownLocation(context)
-                media.location = loc
-                onMessage(
-                    loc?.let { "Location tagged: ${"%.5f".format(it.latitude)}, ${"%.5f".format(it.longitude)}" }
-                        ?: "No GPS fix yet; try again after location warms up."
-                )
+                readLastKnownLocation(context)
             },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(if (media.location != null) "GPS tagged ✓ (tap to refresh)" else "Use current GPS")
-        }
+            onChange = { media.location = it },
+            onMessage = onMessage
+        )
         if (enableMeasurement) {
             HorizontalDivider()
             Text("Grid-sheet measurement image (optional)", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
@@ -893,65 +1513,337 @@ private fun MediaCaptureSection(
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text("${media.uris.size} file(s) attached", color = Canvas, fontWeight = FontWeight.SemiBold)
+                Text(
+                    if (media.staged.size >= media.uris.size) "All uploaded ✓ — ready to save"
+                    else "Uploading… ${media.staged.size}/${media.uris.size} done",
+                    color = SurfaceCard,
+                    fontSize = 11.sp
+                )
                 media.uris.take(6).forEach { uri -> AndroidUriPreview(context = context, uri = uri) }
                 if (media.uris.size > 6) Text("+${media.uris.size - 6} more", color = SurfaceCard, fontSize = 12.sp)
-                TextButton(onClick = { media.uris = emptyList() }) { Text("Clear attachments") }
+                TextButton(onClick = {
+                    val pending = media.stagedDeferred.values.toList()
+                    media.stagedDeferred.clear()
+                    media.staged = emptyMap()
+                    media.uris = emptyList()
+                    AppScope.io.launch {
+                        pending.forEach { d -> runCatching { d.await()?.let { repository.deleteStaged(it.objectKey) } } }
+                    }
+                }) { Text("Clear attachments") }
             }
         }
+    }
+}
+
+/** Lightweight loading placeholder shown while a record's detail is being fetched for editing. */
+@Composable
+private fun LoadingCard(mode: EntryMode) {
+    RecordCard(title = "Loading ${mode.label.lowercase()}") {
+        Text("Fetching the latest saved values…", color = Muted, fontSize = 13.sp)
+    }
+}
+
+/** Dropdown-driven picker for choosing an existing record to edit. */
+@Composable
+private fun RecordPickerScreen(
+    repository: FieldRepository,
+    mode: EntryMode,
+    onPick: (String) -> Unit,
+    onError: (String) -> Unit
+) {
+    var loading by remember(mode) { mutableStateOf(true) }
+    var options by remember(mode) { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var selected by remember(mode) { mutableStateOf("") }
+
+    LaunchedEffect(mode) {
+        loading = true
+        runCatching {
+            when (mode) {
+                EntryMode.ARTISAN -> repository.artisans().map { it.id to "${it.name} · ${it.place}" }
+                EntryMode.CRAFT -> repository.crafts().map { it.id to (it.name + (it.place?.let { p -> " · $p" } ?: "")) }
+                EntryMode.PRODUCT -> repository.products().map { it.id to "${it.productName} · ${it.artisanName}" }
+                EntryMode.PROCESS -> repository.processes().map { it.id to (it.name + (it.product?.productName?.let { p -> " · $p" } ?: "")) }
+                EntryMode.TOOL -> repository.tools().map { it.id to "${it.toolkitName} · ${it.artisanName}" }
+                EntryMode.WORKSHOP -> repository.workshops().map { it.id to "${it.title} · ${it.place}" }
+                EntryMode.QUESTIONNAIRE -> repository.interviews().map { it.id to (it.title.ifBlank { "Untitled interview" }) }
+                else -> emptyList()
+            }
+        }.onSuccess { options = it }.onFailure { onError(it.message ?: "Unable to load records") }
+        loading = false
+    }
+
+    RecordCard(title = "Update existing ${mode.label.lowercase()}") {
+        Text("Pick a record from the dropdown to open and edit it. Edits are attributed to you per field.", color = Muted, fontSize = 12.sp)
+        when {
+            loading -> Text("Loading ${mode.label.lowercase()} records…", color = Muted)
+            options.isEmpty() -> Text("No ${mode.label.lowercase()} records found yet.", color = Muted)
+            else -> {
+                DropdownField(
+                    label = "Select ${mode.label.lowercase()}",
+                    options = options,
+                    selectedValue = selected,
+                    placeholder = "Select a record",
+                    includeNone = false,
+                    onSelect = { selected = it }
+                )
+                Button(
+                    onClick = { if (selected.isNotBlank()) onPick(selected) },
+                    enabled = selected.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Open for editing") }
+                Text("Or tap a recent record", color = Muted, fontSize = 12.sp)
+                options.take(12).forEach { (id, label) ->
+                    ElevatedCard(
+                        colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onPick(id) }
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(label, color = Body, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                            Text("Edit ›", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Fetches the chosen record's full detail, then renders the matching form in edit mode. */
+@Composable
+private fun EditScreen(
+    repository: FieldRepository,
+    mode: EntryMode,
+    recordId: String,
+    crafts: List<CraftDto>,
+    artisans: List<ArtisanDto>,
+    adminView: Boolean,
+    onDone: () -> Unit,
+    onError: (String) -> Unit
+) {
+    when (mode) {
+        EntryMode.ARTISAN -> {
+            var detail by remember(recordId) { mutableStateOf<ArtisanDetailDto?>(null) }
+            var answers by remember(recordId) { mutableStateOf<List<ArtisanAnswerDto>>(emptyList()) }
+            var answersLoading by remember(recordId) { mutableStateOf(true) }
+            LaunchedEffect(recordId) {
+                runCatching { repository.artisan(recordId) }
+                    .onSuccess { detail = it }
+                    .onFailure { onError(it.message ?: "Unable to load artisan") }
+                runCatching { repository.artisanQuestionnaire(recordId) }
+                    .onSuccess { answers = it.answered }
+                answersLoading = false
+            }
+            val d = detail
+            if (d == null) {
+                LoadingCard(mode)
+            } else {
+                ArtisanForm(
+                    repository = repository,
+                    crafts = crafts,
+                    editing = d,
+                    adminView = adminView,
+                    onDone = onDone,
+                    onError = onError
+                )
+                ArtisanQuestionnairePanel(answers = answers, loading = answersLoading)
+            }
+        }
+        EntryMode.PRODUCT -> {
+            var detail by remember(recordId) { mutableStateOf<ProductDetailDto?>(null) }
+            LaunchedEffect(recordId) {
+                runCatching { repository.product(recordId) }
+                    .onSuccess { detail = it }
+                    .onFailure { onError(it.message ?: "Unable to load product") }
+            }
+            val d = detail
+            if (d == null) LoadingCard(mode) else ProductForm(
+                repository = repository,
+                crafts = crafts,
+                artisans = artisans,
+                editing = d,
+                adminView = adminView,
+                onDone = onDone,
+                onError = onError
+            )
+        }
+        EntryMode.PROCESS -> {
+            var detail by remember(recordId) { mutableStateOf<ProcessDetailDto?>(null) }
+            LaunchedEffect(recordId) {
+                runCatching { repository.process(recordId) }
+                    .onSuccess { detail = it }
+                    .onFailure { onError(it.message ?: "Unable to load process") }
+            }
+            val d = detail
+            if (d == null) LoadingCard(mode) else ProcessForm(
+                repository = repository,
+                editing = d,
+                adminView = adminView,
+                onDone = onDone,
+                onError = onError
+            )
+        }
+        EntryMode.TOOL -> {
+            var detail by remember(recordId) { mutableStateOf<ToolDetailDto?>(null) }
+            LaunchedEffect(recordId) {
+                runCatching { repository.tool(recordId) }
+                    .onSuccess { detail = it }
+                    .onFailure { onError(it.message ?: "Unable to load tool") }
+            }
+            val d = detail
+            if (d == null) LoadingCard(mode) else ToolForm(
+                repository = repository,
+                crafts = crafts,
+                artisans = artisans,
+                editing = d,
+                adminView = adminView,
+                onDone = onDone,
+                onError = onError
+            )
+        }
+        EntryMode.WORKSHOP -> {
+            var detail by remember(recordId) { mutableStateOf<WorkshopDetailDto?>(null) }
+            LaunchedEffect(recordId) {
+                runCatching { repository.workshop(recordId) }
+                    .onSuccess { detail = it }
+                    .onFailure { onError(it.message ?: "Unable to load workshop") }
+            }
+            val d = detail
+            if (d == null) LoadingCard(mode) else WorkshopForm(
+                repository = repository,
+                artisans = artisans,
+                editing = d,
+                adminView = adminView,
+                onDone = onDone,
+                onError = onError
+            )
+        }
+        EntryMode.CRAFT -> {
+            var detail by remember(recordId) { mutableStateOf<CraftDto?>(null) }
+            LaunchedEffect(recordId) {
+                runCatching { repository.craft(recordId) }
+                    .onSuccess { detail = it }
+                    .onFailure { onError(it.message ?: "Unable to load craft") }
+            }
+            val d = detail
+            if (d == null) LoadingCard(mode) else CraftForm(
+                repository = repository,
+                editing = d,
+                adminView = adminView,
+                onDone = onDone,
+                onError = onError
+            )
+        }
+        else -> Text("This record type cannot be edited here.", color = Muted)
+    }
+}
+
+/** Loads an existing interview, then renders the questionnaire form seeded for partial editing. */
+@Composable
+private fun InterviewEditLoader(
+    repository: FieldRepository,
+    recordId: String,
+    sections: List<QuestionnaireSectionDto>,
+    artisans: List<ArtisanDto>,
+    canManageQuestionnaire: Boolean,
+    adminView: Boolean,
+    onRefreshSections: suspend () -> Unit,
+    onError: (String) -> Unit,
+    onDone: () -> Unit
+) {
+    var detail by remember(recordId) { mutableStateOf<QuestionnaireInterviewDetailDto?>(null) }
+    LaunchedEffect(recordId) {
+        runCatching { repository.interview(recordId) }
+            .onSuccess { detail = it }
+            .onFailure { onError(it.message ?: "Unable to load interview") }
+    }
+    val d = detail
+    if (d == null) {
+        LoadingCard(EntryMode.QUESTIONNAIRE)
+    } else {
+        QuestionnaireForm(
+            repository = repository,
+            sections = sections,
+            artisans = artisans,
+            canManageQuestionnaire = canManageQuestionnaire,
+            editing = d,
+            adminView = adminView,
+            onRefreshSections = onRefreshSections,
+            onSubmit = { repository.createQuestionnaireInterview(it).id },
+            onError = onError,
+            onSaved = onDone
+        )
     }
 }
 
 @Composable
 private fun CraftForm(
     repository: FieldRepository,
-    onSaved: () -> Unit,
+    editing: CraftDto? = null,
+    adminView: Boolean = false,
+    onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val media = rememberMediaCaptureState()
-    var name by remember { mutableStateOf("") }
-    var localName by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf("") }
-    var place by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
+    val isEdit = editing != null
+    var name by remember(editing) { mutableStateOf(editing?.name ?: "") }
+    var localName by remember(editing) { mutableStateOf(editing?.localName ?: "") }
+    var category by remember(editing) { mutableStateOf(editing?.category ?: "") }
+    var place by remember(editing) { mutableStateOf(editing?.place ?: "") }
+    var description by remember(editing) { mutableStateOf(editing?.description ?: "") }
     var saving by remember { mutableStateOf(false) }
+    var nameError by remember { mutableStateOf<String?>(null) }
+    val nameFocus = remember { FocusRequester() }
 
-    RecordCard(title = "Add craft") {
-        TextInput("Craft name", name) { name = it }
+    RecordCard(title = if (isEdit) "Edit craft" else "Add craft") {
+        if (adminView && editing != null) {
+            ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
+        }
+        RequiredInput("Craft name", name, nameError, nameFocus) { name = it }
         TextInput("Local name", localName) { localName = it }
         TextInput("Category", category) { category = it }
         TextInput("Place", place) { place = it }
         TextInput("Description", description, minLines = 3) { description = it }
-        MediaCaptureSection(media = media, onMessage = onError, onError = onError)
+        MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
         Button(
             onClick = {
+                if (!validateRequired(listOf(
+                        RequiredCheck(name.isBlank(), { nameError = it }, nameFocus)
+                    ))) { onError("Please fill the required field highlighted above."); return@Button }
                 scope.launch {
                     saving = true
                     runCatching {
-                        val created = repository.createCraft(
-                            CraftCreateRequest(
-                                name = name.trim(),
-                                localName = localName.blankToNull(),
-                                category = category.blankToNull(),
-                                place = place.blankToNull(),
-                                description = description.blankToNull(),
-                                recordedAt = Instant.now().toString()
-                            )
+                        val body = CraftCreateRequest(
+                            name = name.trim(),
+                            localName = localName.blankToNull(),
+                            category = category.blankToNull(),
+                            place = place.blankToNull(),
+                            description = description.blankToNull(),
+                            recordedAt = if (isEdit) null else Instant.now().toString()
                         )
-                        uploadAttachments(repository, context, media, "craft", created.id, name, "Field media for ${name.trim()}")
+                        val craftId = if (isEdit) {
+                            repository.updateCraft(editing!!.id, body).id
+                        } else {
+                            repository.createCraft(body).id
+                        }
+                        uploadAttachments(repository, context, media, "craft", craftId, name, "Field media for ${name.trim()}")
                     }.onSuccess {
-                        name = ""; localName = ""; category = ""; place = ""; description = ""
                         media.reset()
-                        onSaved()
+                        onDone()
                     }.onFailure { onError(it.message ?: "Unable to save craft") }
                     saving = false
                 }
             },
-            enabled = name.isNotBlank() && !saving,
+            enabled = !saving,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(if (saving) "Saving..." else "Save craft")
+            Text(if (saving) "Saving..." else if (isEdit) "Update craft" else "Save craft")
         }
     }
 }
@@ -960,82 +1852,127 @@ private fun CraftForm(
 private fun ArtisanForm(
     repository: FieldRepository,
     crafts: List<CraftDto>,
-    onSaved: () -> Unit,
+    editing: ArtisanDetailDto? = null,
+    prefill: Prefill? = null,
+    adminView: Boolean = false,
+    onArtisanCreated: (Prefill) -> Unit = {},
+    onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val media = rememberMediaCaptureState()
-    var name by remember { mutableStateOf("") }
-    var localName by remember { mutableStateOf("") }
-    var gender by remember { mutableStateOf("") }
-    var phone by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
-    var place by remember { mutableStateOf("") }
-    var address by remember { mutableStateOf("") }
-    var notes by remember { mutableStateOf("") }
-    var craftId by remember { mutableStateOf("") }
-    var newCraftName by remember { mutableStateOf("") }
-    var status by remember { mutableStateOf("PENDING") }
+    val isEdit = editing != null
+    var name by remember(editing) { mutableStateOf(editing?.name ?: prefill?.artisanName ?: "") }
+    var localName by remember(editing) { mutableStateOf(editing?.localName ?: "") }
+    var gender by remember(editing) { mutableStateOf(editing?.gender ?: "") }
+    var phone by remember(editing) { mutableStateOf(editing?.phone ?: "") }
+    var email by remember(editing) { mutableStateOf(editing?.email ?: "") }
+    var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }
+    var address by remember(editing) { mutableStateOf(editing?.address ?: "") }
+    var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }
+    var craftId by remember(editing) { mutableStateOf(editing?.craftId ?: prefill?.craftId ?: "") }
+    var newCraftName by remember(editing) { mutableStateOf("") }
+    var status by remember(editing) { mutableStateOf(editing?.status ?: "PENDING") }
     var saving by remember { mutableStateOf(false) }
     val hasCraft = craftId.isNotBlank() || newCraftName.isNotBlank()
+    var nameError by remember { mutableStateOf<String?>(null) }
+    var placeError by remember { mutableStateOf<String?>(null) }
+    var craftError by remember { mutableStateOf<String?>(null) }
+    val nameFocus = remember { FocusRequester() }
+    val placeFocus = remember { FocusRequester() }
+    val craftFocus = remember { FocusRequester() }
 
-    RecordCard(title = "Add artisan") {
-        TextInput("Name", name) { name = it }
+    LaunchedEffect(editing) {
+        val existing = editing?.location
+        if (existing != null && media.location == null) media.location = existing.toRequest()
+    }
+
+    RecordCard(title = if (isEdit) "Edit artisan" else "Add artisan") {
+        if (adminView && editing != null) {
+            ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
+        }
+        RequiredInput("Name", name, nameError, nameFocus) { name = it }
         TextInput("Local name", localName) { localName = it }
         DropdownField(
-            label = "Craft",
+            label = "Craft *",
             options = crafts.map { it.id to it.name },
             selectedValue = craftId,
             placeholder = "Select existing craft",
             onSelect = { craftId = it }
         )
-        TextInput("Or new craft name", newCraftName) { newCraftName = it }
-        TextInput("Place", place) { place = it }
+        OutlinedTextField(
+            value = newCraftName,
+            onValueChange = { newCraftName = it },
+            label = { Text("Or new craft name") },
+            isError = craftError != null,
+            supportingText = craftError?.let { msg -> { Text(msg) } },
+            modifier = Modifier.fillMaxWidth().focusRequester(craftFocus)
+        )
+        RequiredInput("Place", place, placeError, placeFocus) { place = it }
         TextInput("Gender", gender) { gender = it }
         TextInput("Phone", phone) { phone = it }
         TextInput("Email", email) { email = it }
         TextInput("Address", address, minLines = 2) { address = it }
         TextInput("Notes", notes, minLines = 3) { notes = it }
         StatusDropdown(value = status) { status = it }
-        MediaCaptureSection(media = media, onMessage = onError, onError = onError)
+        MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
         Button(
             onClick = {
+                if (!validateRequired(listOf(
+                        RequiredCheck(name.isBlank(), { nameError = it }, nameFocus),
+                        RequiredCheck(place.isBlank(), { placeError = it }, placeFocus),
+                        RequiredCheck(!hasCraft, { craftError = it }, craftFocus)
+                    ))) { onError("Please fill the required field highlighted above."); return@Button }
                 scope.launch {
                     saving = true
                     runCatching {
-                        val artisan = repository.createArtisan(
-                            ArtisanCreateRequest(
-                                name = name.trim(),
-                                localName = localName.blankToNull(),
-                                gender = gender.blankToNull(),
-                                phone = phone.blankToNull(),
-                                email = email.blankToNull(),
-                                place = place.trim(),
-                                address = address.blankToNull(),
-                                notes = notes.blankToNull(),
-                                craftId = craftId.ifBlank { null },
-                                craftName = if (craftId.isBlank()) newCraftName.blankToNull() else null,
-                                status = status,
-                                recordedAt = Instant.now().toString(),
-                                location = media.location
-                            )
+                        val body = ArtisanCreateRequest(
+                            name = name.trim(),
+                            localName = localName.blankToNull(),
+                            gender = gender.blankToNull(),
+                            phone = phone.blankToNull(),
+                            email = email.blankToNull(),
+                            place = place.trim(),
+                            address = address.blankToNull(),
+                            notes = notes.blankToNull(),
+                            craftId = craftId.ifBlank { null },
+                            craftName = if (craftId.isBlank()) newCraftName.blankToNull() else null,
+                            status = status,
+                            recordedAt = if (isEdit) null else Instant.now().toString(),
+                            location = locationForBody(isEdit, media.location, editing?.location)
                         )
-                        uploadAttachments(repository, context, media, "artisan", artisan.id, name, "Field media for ${name.trim()}")
-                    }.onSuccess {
-                        name = ""; localName = ""; gender = ""; phone = ""; email = ""
-                        place = ""; address = ""; notes = ""; craftId = ""; newCraftName = ""
-                        status = "PENDING"
-                        media.reset()
-                        onSaved()
+                        val artisanId = if (isEdit) {
+                            repository.updateArtisan(editing!!.id, body).id
+                        } else {
+                            repository.createArtisan(body).id
+                        }
+                        uploadAttachments(repository, context, media, "artisan", artisanId, name, "Field media for ${name.trim()}")
+                        artisanId
+                    }.onSuccess { artisanId ->
+                        if (isEdit) {
+                            media.reset()
+                            onDone()
+                        } else {
+                            val resolvedCraftName = crafts.firstOrNull { it.id == craftId }?.name ?: newCraftName.blankToNull()
+                            val prefillOut = Prefill(
+                                artisanId = artisanId,
+                                artisanName = name.trim(),
+                                place = place.trim(),
+                                craftId = craftId.ifBlank { null },
+                                craftName = resolvedCraftName
+                            )
+                            media.reset()
+                            onArtisanCreated(prefillOut)
+                        }
                     }.onFailure { onError(it.message ?: "Unable to save artisan") }
                     saving = false
                 }
             },
-            enabled = name.isNotBlank() && place.isNotBlank() && hasCraft && !saving,
+            enabled = !saving,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(if (saving) "Saving..." else "Save artisan")
+            Text(if (saving) "Saving..." else if (isEdit) "Update artisan" else "Save artisan")
         }
     }
 }
@@ -1044,25 +1981,54 @@ private fun ArtisanForm(
 private fun WorkshopForm(
     repository: FieldRepository,
     artisans: List<ArtisanDto>,
-    onSaved: () -> Unit,
+    editing: WorkshopDetailDto? = null,
+    prefill: Prefill? = null,
+    adminView: Boolean = false,
+    onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val media = rememberMediaCaptureState()
-    var title by remember { mutableStateOf("") }
-    var place by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var notes by remember { mutableStateOf("") }
-    var startDate by remember { mutableStateOf<LocalDate?>(null) }
-    var endDate by remember { mutableStateOf<LocalDate?>(null) }
-    var status by remember { mutableStateOf("PENDING") }
-    var selectedArtisans by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val isEdit = editing != null
+    var title by remember(editing) { mutableStateOf(editing?.title ?: "") }
+    var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }
+    var description by remember(editing) { mutableStateOf(editing?.description ?: "") }
+    var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }
+    var startDate by remember(editing) { mutableStateOf(parseIsoToLocalDate(editing?.startDate)) }
+    var endDate by remember(editing) { mutableStateOf(parseIsoToLocalDate(editing?.endDate)) }
+    var status by remember(editing) { mutableStateOf(editing?.status ?: "PENDING") }
+    var selectedArtisans by remember(editing) {
+        mutableStateOf(
+            editing?.artisans?.map { it.artisanId }?.toSet()
+                ?: prefill?.artisanId?.let { setOf(it) }
+                ?: emptySet()
+        )
+    }
+    var crafts by remember { mutableStateOf<List<CraftDto>>(emptyList()) }
+    var selectedCrafts by remember(editing) {
+        mutableStateOf(editing?.crafts?.map { it.craftId }?.toSet() ?: emptySet())
+    }
     var saving by remember { mutableStateOf(false) }
+    var titleError by remember { mutableStateOf<String?>(null) }
+    var placeError by remember { mutableStateOf<String?>(null) }
+    val titleFocus = remember { FocusRequester() }
+    val placeFocus = remember { FocusRequester() }
 
-    RecordCard(title = "Add workshop") {
-        TextInput("Workshop title", title) { title = it }
-        TextInput("Place", place) { place = it }
+    LaunchedEffect(editing) {
+        val existing = editing?.location
+        if (existing != null && media.location == null) media.location = existing.toRequest()
+    }
+    LaunchedEffect(Unit) {
+        runCatching { repository.crafts() }.onSuccess { crafts = it }
+    }
+
+    RecordCard(title = if (isEdit) "Edit workshop" else "Add workshop") {
+        if (adminView && editing != null) {
+            ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
+        }
+        RequiredInput("Workshop title", title, titleError, titleFocus) { title = it }
+        RequiredInput("Place", place, placeError, placeFocus) { place = it }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             Box(modifier = Modifier.weight(1f)) {
                 DatePickerField("Start date", startDate) { picked ->
@@ -1084,44 +2050,62 @@ private fun WorkshopForm(
         ) { id ->
             selectedArtisans = if (selectedArtisans.contains(id)) selectedArtisans - id else selectedArtisans + id
         }
-        MediaCaptureSection(media = media, onMessage = onError, onError = onError)
+        CheckboxMultiSelectField(
+            label = "Crafts covered",
+            emptyMessage = "No crafts available yet. Create a craft first.",
+            options = crafts.map { it.id to (it.name + (it.place?.let { p -> " · $p" } ?: "")) },
+            selectedIds = selectedCrafts
+        ) { id ->
+            selectedCrafts = if (selectedCrafts.contains(id)) selectedCrafts - id else selectedCrafts + id
+        }
+        MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
         Button(
             onClick = {
+                if (!validateRequired(listOf(
+                        RequiredCheck(title.isBlank(), { titleError = it }, titleFocus),
+                        RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
+                    ))) { onError("Please fill the required field highlighted above."); return@Button }
                 scope.launch {
                     saving = true
                     runCatching {
                         val start = (startDate ?: LocalDate.now()).toIsoInstant()
                         val end = (endDate ?: startDate ?: LocalDate.now()).toIsoInstant()
-                        val created = repository.createWorkshop(
-                            WorkshopCreateRequest(
-                                title = title.trim(),
-                                date = start,
-                                startDate = start,
-                                endDate = end,
-                                place = place.trim(),
-                                description = description.blankToNull(),
-                                notes = notes.blankToNull(),
-                                artisanIds = selectedArtisans.toList(),
-                                status = status,
-                                recordedAt = Instant.now().toString(),
-                                location = media.location
-                            )
+                        val originalArtisans = editing?.artisans?.map { it.artisanId }?.toSet() ?: emptySet()
+                        val originalCrafts = editing?.crafts?.map { it.craftId }?.toSet() ?: emptySet()
+                        // On edit, only send the relation when it changed (the backend replaces & re-checks it).
+                        val artisanIdsParam = if (!isEdit || selectedArtisans != originalArtisans) selectedArtisans.toList() else null
+                        val craftIdsParam = if (!isEdit || selectedCrafts != originalCrafts) selectedCrafts.toList() else null
+                        val body = WorkshopCreateRequest(
+                            title = title.trim(),
+                            date = start,
+                            startDate = start,
+                            endDate = end,
+                            place = place.trim(),
+                            description = description.blankToNull(),
+                            notes = notes.blankToNull(),
+                            artisanIds = artisanIdsParam,
+                            craftIds = craftIdsParam,
+                            status = status,
+                            recordedAt = if (isEdit) null else Instant.now().toString(),
+                            location = locationForBody(isEdit, media.location, editing?.location)
                         )
-                        uploadAttachments(repository, context, media, "workshop", created.id, title, "Field media for ${title.trim()}")
+                        val workshopId = if (isEdit) {
+                            repository.updateWorkshop(editing!!.id, body).id
+                        } else {
+                            repository.createWorkshop(body).id
+                        }
+                        uploadAttachments(repository, context, media, "workshop", workshopId, title, "Field media for ${title.trim()}")
                     }.onSuccess {
-                        title = ""; place = ""; description = ""; notes = ""
-                        startDate = null; endDate = null; status = "PENDING"
-                        selectedArtisans = emptySet()
                         media.reset()
-                        onSaved()
+                        onDone()
                     }.onFailure { onError(it.message ?: "Unable to save workshop") }
                     saving = false
                 }
             },
-            enabled = title.isNotBlank() && place.isNotBlank() && !saving,
+            enabled = !saving,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(if (saving) "Saving..." else "Save workshop")
+            Text(if (saving) "Saving..." else if (isEdit) "Update workshop" else "Save workshop")
         }
     }
 }
@@ -1131,36 +2115,56 @@ private fun ProductForm(
     repository: FieldRepository,
     crafts: List<CraftDto>,
     artisans: List<ArtisanDto>,
-    onSaved: () -> Unit,
+    editing: ProductDetailDto? = null,
+    prefill: Prefill? = null,
+    adminView: Boolean = false,
+    onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val media = rememberMediaCaptureState()
-    var productName by remember { mutableStateOf("") }
-    var localName by remember { mutableStateOf("") }
-    var craftName by remember { mutableStateOf("") }
-    var artisanName by remember { mutableStateOf("") }
-    var place by remember { mutableStateOf("") }
-    var craftId by remember { mutableStateOf("") }
-    var artisanId by remember { mutableStateOf("") }
-    var productType by remember { mutableStateOf("OTHER") }
-    var marketDemand by remember { mutableStateOf("UNKNOWN") }
-    var timeTaken by remember { mutableStateOf("") }
-    var size by remember { mutableStateOf("") }
-    var length by remember { mutableStateOf("") }
-    var breadth by remember { mutableStateOf("") }
-    var costOfMaking by remember { mutableStateOf("") }
-    var sellingPrice by remember { mutableStateOf("") }
-    var rawMaterials by remember { mutableStateOf("") }
-    var mainTools by remember { mutableStateOf("") }
-    var functionUse by remember { mutableStateOf("") }
-    var remarks by remember { mutableStateOf("") }
-    var status by remember { mutableStateOf("PENDING") }
+    val isEdit = editing != null
+    var productName by remember(editing) { mutableStateOf(editing?.productName ?: "") }
+    var localName by remember(editing) { mutableStateOf(editing?.localName ?: "") }
+    var craftName by remember(editing) { mutableStateOf(editing?.craftName ?: prefill?.craftName ?: "") }
+    var artisanName by remember(editing) { mutableStateOf(editing?.artisanName ?: prefill?.artisanName ?: "") }
+    var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }
+    var craftId by remember(editing) { mutableStateOf(editing?.craftId ?: prefill?.craftId ?: "") }
+    var artisanId by remember(editing) { mutableStateOf(editing?.artisanId ?: prefill?.artisanId ?: "") }
+    var productType by remember(editing) { mutableStateOf(editing?.productType ?: "OTHER") }
+    var marketDemand by remember(editing) { mutableStateOf(editing?.marketDemand ?: "UNKNOWN") }
+    var timeTaken by remember(editing) { mutableStateOf(editing?.timeTakenToCompleteProduct ?: "") }
+    var size by remember(editing) { mutableStateOf(editing?.size ?: "") }
+    var length by remember(editing) { mutableStateOf(numToText(editing?.lengthInches)) }
+    var breadth by remember(editing) { mutableStateOf(numToText(editing?.breadthInches)) }
+    var costOfMaking by remember(editing) { mutableStateOf(numToText(editing?.costOfMaking)) }
+    var sellingPrice by remember(editing) { mutableStateOf(numToText(editing?.sellingPrice)) }
+    var rawMaterials by remember(editing) { mutableStateOf(editing?.rawMaterialsUsed ?: "") }
+    var mainTools by remember(editing) { mutableStateOf(editing?.mainToolsUsed ?: "") }
+    var functionUse by remember(editing) { mutableStateOf(editing?.productFunctionUse ?: "") }
+    var remarks by remember(editing) { mutableStateOf(editing?.remarks ?: "") }
+    var status by remember(editing) { mutableStateOf(editing?.status ?: "PENDING") }
     var saving by remember { mutableStateOf(false) }
+    var productNameError by remember { mutableStateOf<String?>(null) }
+    var craftNameError by remember { mutableStateOf<String?>(null) }
+    var artisanNameError by remember { mutableStateOf<String?>(null) }
+    var placeError by remember { mutableStateOf<String?>(null) }
+    val productNameFocus = remember { FocusRequester() }
+    val craftNameFocus = remember { FocusRequester() }
+    val artisanNameFocus = remember { FocusRequester() }
+    val placeFocus = remember { FocusRequester() }
 
-    RecordCard(title = "Add product") {
-        TextInput("Product name", productName) { productName = it }
+    LaunchedEffect(editing) {
+        val existing = editing?.location
+        if (existing != null && media.location == null) media.location = existing.toRequest()
+    }
+
+    RecordCard(title = if (isEdit) "Edit product" else "Add product") {
+        if (adminView && editing != null) {
+            ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
+        }
+        RequiredInput("Product name", productName, productNameError, productNameFocus) { productName = it }
         TextInput("Local name", localName) { localName = it }
         DropdownField("Product type", productTypeOptions.map { it to it }, productType, includeNone = false) { productType = it }
         DropdownField(
@@ -1172,7 +2176,7 @@ private fun ProductForm(
             craftId = id
             crafts.firstOrNull { it.id == id }?.let { craftName = it.name }
         }
-        TextInput("Craft name", craftName) { craftName = it }
+        RequiredInput("Craft name", craftName, craftNameError, craftNameFocus) { craftName = it }
         DropdownField(
             label = "Linked artisan (fills artisan + place)",
             options = artisans.map { it.id to "${it.name} · ${it.place}" },
@@ -1185,8 +2189,8 @@ private fun ProductForm(
                 place = it.place
             }
         }
-        TextInput("Artisan name", artisanName) { artisanName = it }
-        TextInput("Place", place) { place = it }
+        RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus) { artisanName = it }
+        RequiredInput("Place", place, placeError, placeFocus) { place = it }
         TextInput("Time taken to complete", timeTaken) { timeTaken = it }
         TextInput("Size", size) { size = it }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -1203,55 +2207,60 @@ private fun ProductForm(
         TextInput("Function or use", functionUse, minLines = 2) { functionUse = it }
         TextInput("Remarks", remarks, minLines = 3) { remarks = it }
         StatusDropdown(value = status) { status = it }
-        MediaCaptureSection(media = media, enableMeasurement = true, onMessage = onError, onError = onError)
+        MediaCaptureSection(repository = repository, media = media, enableMeasurement = true, onMessage = onError, onError = onError)
         Button(
             onClick = {
+                if (!validateRequired(listOf(
+                        RequiredCheck(productName.isBlank(), { productNameError = it }, productNameFocus),
+                        RequiredCheck(craftName.isBlank(), { craftNameError = it }, craftNameFocus),
+                        RequiredCheck(artisanName.isBlank(), { artisanNameError = it }, artisanNameFocus),
+                        RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
+                    ))) { onError("Please fill the required field highlighted above."); return@Button }
                 scope.launch {
                     saving = true
                     runCatching {
-                        val created = repository.createProduct(
-                            ProductCreateRequest(
-                                productName = productName.trim(),
-                                localName = localName.blankToNull(),
-                                craftName = craftName.trim(),
-                                artisanName = artisanName.trim(),
-                                place = place.trim(),
-                                productType = productType,
-                                timeTakenToCompleteProduct = timeTaken.blankToNull(),
-                                size = size.blankToNull(),
-                                lengthInches = length.toDoubleOrNull(),
-                                breadthInches = breadth.toDoubleOrNull(),
-                                costOfMaking = costOfMaking.toDoubleOrNull(),
-                                sellingPrice = sellingPrice.toDoubleOrNull(),
-                                marketDemand = marketDemand,
-                                rawMaterialsUsed = rawMaterials.blankToNull(),
-                                mainToolsUsed = mainTools.blankToNull(),
-                                productFunctionUse = functionUse.blankToNull(),
-                                remarks = remarks.blankToNull(),
-                                artisanId = artisanId.ifBlank { null },
-                                craftId = craftId.ifBlank { null },
-                                status = status,
-                                recordedAt = Instant.now().toString(),
-                                location = media.location
-                            )
+                        val body = ProductCreateRequest(
+                            productName = productName.trim(),
+                            localName = localName.blankToNull(),
+                            craftName = craftName.trim(),
+                            artisanName = artisanName.trim(),
+                            place = place.trim(),
+                            productType = productType,
+                            timeTakenToCompleteProduct = timeTaken.blankToNull(),
+                            size = size.blankToNull(),
+                            lengthInches = length.toDoubleOrNull(),
+                            breadthInches = breadth.toDoubleOrNull(),
+                            costOfMaking = costOfMaking.toDoubleOrNull(),
+                            sellingPrice = sellingPrice.toDoubleOrNull(),
+                            marketDemand = marketDemand,
+                            rawMaterialsUsed = rawMaterials.blankToNull(),
+                            mainToolsUsed = mainTools.blankToNull(),
+                            productFunctionUse = functionUse.blankToNull(),
+                            remarks = remarks.blankToNull(),
+                            artisanId = artisanId.ifBlank { null },
+                            craftId = craftId.ifBlank { null },
+                            status = status,
+                            recordedAt = if (isEdit) null else Instant.now().toString(),
+                            location = locationForBody(isEdit, media.location, editing?.location)
                         )
-                        uploadAttachments(repository, context, media, "product", created.id, productName, "Field media for ${productName.trim()}")
-                        uploadMeasurement(repository, context, media, "product", created.id, productName)
+                        val productId = if (isEdit) {
+                            repository.updateProduct(editing!!.id, body).id
+                        } else {
+                            repository.createProduct(body).id
+                        }
+                        uploadAttachments(repository, context, media, "product", productId, productName, "Field media for ${productName.trim()}")
+                        uploadMeasurement(repository, context, media, "product", productId, productName)
                     }.onSuccess {
-                        productName = ""; localName = ""; craftName = ""; artisanName = ""; place = ""
-                        craftId = ""; artisanId = ""; productType = "OTHER"; marketDemand = "UNKNOWN"
-                        timeTaken = ""; size = ""; length = ""; breadth = ""; costOfMaking = ""; sellingPrice = ""
-                        rawMaterials = ""; mainTools = ""; functionUse = ""; remarks = ""; status = "PENDING"
                         media.reset()
-                        onSaved()
+                        onDone()
                     }.onFailure { onError(it.message ?: "Unable to save product") }
                     saving = false
                 }
             },
-            enabled = productName.isNotBlank() && craftName.isNotBlank() && artisanName.isNotBlank() && place.isNotBlank() && !saving,
+            enabled = !saving,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(if (saving) "Saving..." else "Save product")
+            Text(if (saving) "Saving..." else if (isEdit) "Update product" else "Save product")
         }
     }
 }
@@ -1261,40 +2270,61 @@ private fun ToolForm(
     repository: FieldRepository,
     crafts: List<CraftDto>,
     artisans: List<ArtisanDto>,
-    onSaved: () -> Unit,
+    editing: ToolDetailDto? = null,
+    prefill: Prefill? = null,
+    adminView: Boolean = false,
+    onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val media = rememberMediaCaptureState()
-    var toolkitName by remember { mutableStateOf("") }
-    var localName by remember { mutableStateOf("") }
-    var englishName by remember { mutableStateOf("") }
-    var craftName by remember { mutableStateOf("") }
-    var artisanName by remember { mutableStateOf("") }
-    var place by remember { mutableStateOf("") }
-    var craftId by remember { mutableStateOf("") }
-    var artisanId by remember { mutableStateOf("") }
-    var processUsedIn by remember { mutableStateOf("") }
-    var material by remember { mutableStateOf("") }
-    var yearsInUse by remember { mutableStateOf("") }
-    var height by remember { mutableStateOf("") }
-    var width by remember { mutableStateOf("") }
-    var length by remember { mutableStateOf("") }
-    var breadth by remember { mutableStateOf("") }
-    var thickness by remember { mutableStateOf("") }
-    var weight by remember { mutableStateOf("") }
-    var radius by remember { mutableStateOf("") }
-    var maker by remember { mutableStateOf("UNKNOWN") }
-    var traditionType by remember { mutableStateOf("UNKNOWN") }
-    var replacementCost by remember { mutableStateOf("") }
-    var suggestions by remember { mutableStateOf("") }
-    var remarks by remember { mutableStateOf("") }
-    var status by remember { mutableStateOf("PENDING") }
+    val stages = rememberMediaCaptureState()
+    val isEdit = editing != null
+    var toolkitName by remember(editing) { mutableStateOf(editing?.toolkitName ?: "") }
+    var localName by remember(editing) { mutableStateOf(editing?.localName ?: "") }
+    var englishName by remember(editing) { mutableStateOf(editing?.englishName ?: "") }
+    var craftName by remember(editing) { mutableStateOf(editing?.craftName ?: prefill?.craftName ?: "") }
+    var artisanName by remember(editing) { mutableStateOf(editing?.artisanName ?: prefill?.artisanName ?: "") }
+    var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }
+    var craftId by remember(editing) { mutableStateOf(editing?.craftId ?: prefill?.craftId ?: "") }
+    var artisanId by remember(editing) { mutableStateOf(editing?.artisanId ?: prefill?.artisanId ?: "") }
+    var processUsedIn by remember(editing) { mutableStateOf(editing?.processUsedIn ?: "") }
+    var material by remember(editing) { mutableStateOf(editing?.material ?: "") }
+    var yearsInUse by remember(editing) { mutableStateOf(editing?.yearsInUse?.toString() ?: "") }
+    var height by remember(editing) { mutableStateOf(numToText(editing?.height)) }
+    var width by remember(editing) { mutableStateOf(numToText(editing?.width)) }
+    var length by remember(editing) { mutableStateOf(numToText(editing?.lengthInches)) }
+    var breadth by remember(editing) { mutableStateOf(numToText(editing?.breadthInches)) }
+    var thickness by remember(editing) { mutableStateOf(numToText(editing?.thickness)) }
+    var weight by remember(editing) { mutableStateOf(numToText(editing?.weight)) }
+    var radius by remember(editing) { mutableStateOf(numToText(editing?.radius)) }
+    var maker by remember(editing) { mutableStateOf(editing?.maker ?: "UNKNOWN") }
+    var traditionType by remember(editing) { mutableStateOf(editing?.traditionType ?: "UNKNOWN") }
+    var replacementCost by remember(editing) { mutableStateOf(numToText(editing?.replacementCost)) }
+    var suggestions by remember(editing) { mutableStateOf(editing?.suggestionsForToolImprovement ?: "") }
+    var remarks by remember(editing) { mutableStateOf(editing?.remarks ?: "") }
+    var status by remember(editing) { mutableStateOf(editing?.status ?: "PENDING") }
     var saving by remember { mutableStateOf(false) }
+    var toolkitNameError by remember { mutableStateOf<String?>(null) }
+    var craftNameError by remember { mutableStateOf<String?>(null) }
+    var artisanNameError by remember { mutableStateOf<String?>(null) }
+    var placeError by remember { mutableStateOf<String?>(null) }
+    val toolkitNameFocus = remember { FocusRequester() }
+    val craftNameFocus = remember { FocusRequester() }
+    val artisanNameFocus = remember { FocusRequester() }
+    val placeFocus = remember { FocusRequester() }
 
-    RecordCard(title = "Add tool") {
-        TextInput("Toolkit name", toolkitName) { toolkitName = it }
+    LaunchedEffect(editing) {
+        val existing = editing?.location
+        if (existing != null && media.location == null) media.location = existing.toRequest()
+    }
+
+    RecordCard(title = if (isEdit) "Edit tool" else "Add tool") {
+        if (adminView && editing != null) {
+            ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
+        }
+        RequiredInput("Toolkit name", toolkitName, toolkitNameError, toolkitNameFocus) { toolkitName = it }
         TextInput("Local name", localName) { localName = it }
         TextInput("English name", englishName) { englishName = it }
         DropdownField(
@@ -1306,7 +2336,7 @@ private fun ToolForm(
             craftId = id
             crafts.firstOrNull { it.id == id }?.let { craftName = it.name }
         }
-        TextInput("Craft name", craftName) { craftName = it }
+        RequiredInput("Craft name", craftName, craftNameError, craftNameFocus) { craftName = it }
         DropdownField(
             label = "Linked artisan (fills artisan + place)",
             options = artisans.map { it.id to "${it.name} · ${it.place}" },
@@ -1319,8 +2349,8 @@ private fun ToolForm(
                 place = it.place
             }
         }
-        TextInput("Artisan name", artisanName) { artisanName = it }
-        TextInput("Place", place) { place = it }
+        RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus) { artisanName = it }
+        RequiredInput("Place", place, placeError, placeFocus) { place = it }
         TextInput("Process used in", processUsedIn) { processUsedIn = it }
         TextInput("Material", material) { material = it }
         TextInput("Years in use", yearsInUse) { yearsInUse = it }
@@ -1343,63 +2373,766 @@ private fun ToolForm(
         TextInput("Suggestions for improvement", suggestions, minLines = 2) { suggestions = it }
         TextInput("Remarks", remarks, minLines = 3) { remarks = it }
         StatusDropdown(value = status) { status = it }
-        MediaCaptureSection(media = media, enableMeasurement = true, onMessage = onError, onError = onError)
+        ToolStagesSection(stages = stages, onMessage = onError, onError = onError)
+        MediaCaptureSection(repository = repository, media = media, enableMeasurement = true, onMessage = onError, onError = onError)
         Button(
             onClick = {
+                if (!validateRequired(listOf(
+                        RequiredCheck(toolkitName.isBlank(), { toolkitNameError = it }, toolkitNameFocus),
+                        RequiredCheck(craftName.isBlank(), { craftNameError = it }, craftNameFocus),
+                        RequiredCheck(artisanName.isBlank(), { artisanNameError = it }, artisanNameFocus),
+                        RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
+                    ))) { onError("Please fill the required field highlighted above."); return@Button }
                 scope.launch {
                     saving = true
                     runCatching {
-                        val created = repository.createTool(
-                            ToolCreateRequest(
-                                toolkitName = toolkitName.trim(),
-                                localName = localName.blankToNull(),
-                                englishName = englishName.blankToNull(),
-                                craftName = craftName.trim(),
-                                artisanName = artisanName.trim(),
-                                place = place.trim(),
-                                processUsedIn = processUsedIn.blankToNull(),
-                                material = material.blankToNull(),
-                                yearsInUse = yearsInUse.toIntOrNull(),
-                                height = height.toDoubleOrNull(),
-                                width = width.toDoubleOrNull(),
-                                lengthInches = length.toDoubleOrNull(),
-                                breadthInches = breadth.toDoubleOrNull(),
-                                thickness = thickness.toDoubleOrNull(),
-                                weight = weight.toDoubleOrNull(),
-                                radius = radius.toDoubleOrNull(),
-                                maker = maker,
-                                traditionType = traditionType,
-                                replacementCost = replacementCost.toDoubleOrNull(),
-                                suggestionsForToolImprovement = suggestions.blankToNull(),
-                                remarks = remarks.blankToNull(),
-                                artisanId = artisanId.ifBlank { null },
-                                craftId = craftId.ifBlank { null },
-                                status = status,
-                                recordedAt = Instant.now().toString(),
-                                location = media.location
-                            )
+                        val body = ToolCreateRequest(
+                            toolkitName = toolkitName.trim(),
+                            localName = localName.blankToNull(),
+                            englishName = englishName.blankToNull(),
+                            craftName = craftName.trim(),
+                            artisanName = artisanName.trim(),
+                            place = place.trim(),
+                            processUsedIn = processUsedIn.blankToNull(),
+                            material = material.blankToNull(),
+                            yearsInUse = yearsInUse.toIntOrNull(),
+                            height = height.toDoubleOrNull(),
+                            width = width.toDoubleOrNull(),
+                            lengthInches = length.toDoubleOrNull(),
+                            breadthInches = breadth.toDoubleOrNull(),
+                            thickness = thickness.toDoubleOrNull(),
+                            weight = weight.toDoubleOrNull(),
+                            radius = radius.toDoubleOrNull(),
+                            maker = maker,
+                            traditionType = traditionType,
+                            replacementCost = replacementCost.toDoubleOrNull(),
+                            suggestionsForToolImprovement = suggestions.blankToNull(),
+                            remarks = remarks.blankToNull(),
+                            artisanId = artisanId.ifBlank { null },
+                            craftId = craftId.ifBlank { null },
+                            status = status,
+                            recordedAt = if (isEdit) null else Instant.now().toString(),
+                            location = locationForBody(isEdit, media.location, editing?.location)
                         )
-                        uploadAttachments(repository, context, media, "tool", created.id, toolkitName, "Field media for ${toolkitName.trim()}")
-                        uploadMeasurement(repository, context, media, "tool", created.id, toolkitName)
+                        val toolId = if (isEdit) {
+                            repository.updateTool(editing!!.id, body).id
+                        } else {
+                            repository.createTool(body).id
+                        }
+                        uploadAttachments(repository, context, media, "tool", toolId, toolkitName, "Field media for ${toolkitName.trim()}")
+                        uploadMeasurement(repository, context, media, "tool", toolId, toolkitName)
+                        // Each stage capture is uploaded as a numbered process step (STAGE_STEP_n).
+                        stages.uris.forEachIndexed { index, uri ->
+                            repository.uploadMedia(
+                                context = context,
+                                uri = uri,
+                                linkedRecordType = "tool",
+                                linkedRecordId = toolId,
+                                caption = "Process stage step ${index + 1} for ${toolkitName.trim()}",
+                                location = stages.location,
+                                titleHint = toolkitName,
+                                batchIndex = 1,
+                                stageStep = index + 1
+                            )
+                        }
                     }.onSuccess {
-                        toolkitName = ""; localName = ""; englishName = ""; craftName = ""; artisanName = ""; place = ""
-                        craftId = ""; artisanId = ""; processUsedIn = ""; material = ""; yearsInUse = ""
-                        height = ""; width = ""; length = ""; breadth = ""; thickness = ""; weight = ""; radius = ""
-                        maker = "UNKNOWN"; traditionType = "UNKNOWN"; replacementCost = ""; suggestions = ""; remarks = ""
-                        status = "PENDING"
                         media.reset()
-                        onSaved()
+                        stages.reset()
+                        onDone()
                     }.onFailure { onError(it.message ?: "Unable to save tool") }
                     saving = false
                 }
             },
-            enabled = toolkitName.isNotBlank() && craftName.isNotBlank() && artisanName.isNotBlank() && place.isNotBlank() && !saving,
+            enabled = !saving,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(if (saving) "Saving..." else "Save tool")
+            Text(if (saving) "Saving..." else if (isEdit) "Update tool" else "Save tool")
         }
     }
 }
+
+/** Capture the making/using process of a tool as an ordered set of stage steps. */
+@Composable
+private fun ToolStagesSection(
+    stages: MediaCaptureState,
+    onMessage: (String) -> Unit,
+    onError: (String) -> Unit
+) {
+    val context = LocalContext.current
+    var recording by remember { mutableStateOf(false) }
+    var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
+    var recordingFile by remember { mutableStateOf<File?>(null) }
+    var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
+    val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        if (uris.isNotEmpty()) stages.uris = stages.uris + uris
+    }
+    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val uri = pendingCaptureUri
+        if (success && uri != null) stages.uris = stages.uris + uri
+        pendingCaptureUri = null
+    }
+    val takeVideo = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { success ->
+        val uri = pendingCaptureUri
+        if (success && uri != null) stages.uris = stages.uris + uri
+        pendingCaptureUri = null
+    }
+
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        HorizontalDivider()
+        Text("Process stages", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+        Text(
+            "Document each step of making or using this tool. Captures are archived in order as STAGE_STEP_1, STAGE_STEP_2, …",
+            color = Muted,
+            fontSize = 12.sp
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = { pickMedia.launch("*/*") }, modifier = Modifier.weight(1f)) { Text("Add files") }
+            OutlinedButton(
+                onClick = {
+                    permissionLauncher.launch(requiredAndroidPermissions())
+                    val uri = createAppFileUri(context, "stage-photo-", ".jpg")
+                    pendingCaptureUri = uri
+                    takePhoto.launch(uri)
+                },
+                modifier = Modifier.weight(1f)
+            ) { Text("Photo step") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = {
+                    permissionLauncher.launch(requiredAndroidPermissions())
+                    val uri = createAppFileUri(context, "stage-video-", ".mp4")
+                    pendingCaptureUri = uri
+                    takeVideo.launch(uri)
+                },
+                modifier = Modifier.weight(1f)
+            ) { Text("Video step") }
+            OutlinedButton(
+                onClick = {
+                    permissionLauncher.launch(requiredAndroidPermissions())
+                    if (!recording) {
+                        runCatching {
+                            val file = createAppFile(context, "stage-audio-", ".m4a")
+                            recorder = createAudioRecorder(context, file).also { it.start() }
+                            recordingFile = file
+                            recording = true
+                            onMessage("Recording stage audio…")
+                        }.onFailure { onError(it.message ?: "Unable to start stage audio") }
+                    } else {
+                        runCatching {
+                            recorder?.stop(); recorder?.release()
+                            recordingFile?.let { file -> stages.uris = stages.uris + uriForFile(context, file) }
+                        }.onFailure { onError(it.message ?: "Unable to stop stage audio") }
+                        recorder = null; recordingFile = null; recording = false
+                        onMessage("Stage audio step added")
+                    }
+                },
+                modifier = Modifier.weight(1f)
+            ) { if (recording) StopSquareLabel("Stop") else Text("Audio step ●") }
+        }
+        if (recording) {
+            RecordingIndicator(getAmplitude = { runCatching { recorder?.maxAmplitude ?: 0 }.getOrDefault(0) })
+        }
+        if (stages.uris.isNotEmpty()) {
+            Text("${stages.uris.size} stage step(s) captured", color = Muted, fontSize = 12.sp)
+            stages.uris.forEachIndexed { index, uri ->
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Step ${index + 1}", color = Body, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    AndroidUriPreview(context = context, uri = uri)
+                }
+            }
+            TextButton(onClick = { stages.uris = emptyList() }) { Text("Clear stages") }
+        }
+    }
+}
+
+// ===========================================================================
+// Process documentation
+// ===========================================================================
+
+/** Mutable UI holder for one process step: its name, fixed type, and its own media capture state. */
+private class ProcessStepUi(
+    val key: String,
+    serverId: String?,
+    name: String,
+    val stepType: String,
+    val existingMedia: List<MediaFileDto> = emptyList()
+) {
+    var serverId by mutableStateOf(serverId)
+    var name by mutableStateOf(name)
+    var nameError by mutableStateOf<String?>(null)
+    val nameFocus = FocusRequester()
+    val media = MediaCaptureState()
+}
+
+private fun ProcessStepUi.stepTypeLabel(): String =
+    if (stepType == "SEQUENTIAL") "Sequential" else "Group of activities"
+
+/** Per-file nomenclature segment for a step's media: 1A/1B… for sequential, 1-G1/1-G2… for groups. */
+private fun processStepSegment(stepNumber: Int, stepType: String, fileIndex: Int): String =
+    if (stepType == "SEQUENTIAL") "STEP_${stepNumber}${'A' + (fileIndex % 26)}"
+    else "STEP_${stepNumber}_G${fileIndex + 1}"
+
+@Composable
+private fun ProcessForm(
+    repository: FieldRepository,
+    editing: ProcessDetailDto? = null,
+    adminView: Boolean = false,
+    onDone: () -> Unit,
+    onError: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val isEdit = editing != null
+    val preMedia = rememberMediaCaptureState()
+
+    var products by remember { mutableStateOf<List<ProductDetailDto>>(emptyList()) }
+    var artisans by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
+    var name by remember(editing) { mutableStateOf(editing?.name ?: "") }
+    var artisanId by remember(editing) { mutableStateOf(editing?.product?.artisanId ?: "") }
+    var productId by remember(editing) { mutableStateOf(editing?.productId ?: "") }
+    var artisanError by remember { mutableStateOf<String?>(null) }
+    var preProcessAvailable by remember(editing) { mutableStateOf(editing?.preProcessAvailable ?: false) }
+    var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }
+    var status by remember(editing) { mutableStateOf(editing?.status ?: "PENDING") }
+    var saving by remember { mutableStateOf(false) }
+    var nameError by remember { mutableStateOf<String?>(null) }
+    var productError by remember { mutableStateOf<String?>(null) }
+    var stepsError by remember { mutableStateOf<String?>(null) }
+    var preMediaError by remember { mutableStateOf<String?>(null) }
+    val nameFocus = remember { FocusRequester() }
+    var addMenu by remember { mutableStateOf(false) }
+
+    val steps = remember(editing) {
+        mutableStateListOf<ProcessStepUi>().apply {
+            editing?.steps?.forEach { add(ProcessStepUi(java.util.UUID.randomUUID().toString(), it.id, it.name, it.stepType, it.media)) }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        runCatching { repository.products() }.onSuccess { products = it }
+        runCatching { repository.artisans() }.onSuccess { artisans = it }
+    }
+
+    // Products belong to an artisan, so the product list is scoped to the chosen artisan.
+    val selectedArtisanName = artisans.firstOrNull { it.id == artisanId }?.name
+    val artisanProducts = products.filter { p ->
+        when {
+            artisanId.isBlank() -> false
+            p.artisanId != null -> p.artisanId == artisanId
+            else -> selectedArtisanName != null && p.artisanName == selectedArtisanName
+        }
+    }
+
+    RecordCard(title = if (isEdit) "Edit process" else "Document process") {
+        if (adminView && editing != null) {
+            ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
+        }
+        Text(
+            "Capture how a product is made, step by step. Each process is tied to a product; multiple people can document the same product's processes.",
+            color = Muted,
+            fontSize = 12.sp
+        )
+        RequiredInput("Name of the process", name, nameError, nameFocus) { name = it }
+        DropdownField(
+            label = "Artisan *",
+            options = artisans.map { it.id to "${it.name} · ${it.place}" },
+            selectedValue = artisanId,
+            placeholder = "Select the artisan",
+            includeNone = false
+        ) { picked ->
+            if (picked != artisanId) { artisanId = picked; productId = "" }
+        }
+        if (artisanError != null) Text(artisanError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+        DropdownField(
+            label = "Product *",
+            options = artisanProducts.map { it.id to it.productName },
+            selectedValue = productId,
+            placeholder = if (artisanId.isBlank()) "Select an artisan first" else "Select the product this process makes",
+            includeNone = false,
+            enabled = artisanId.isNotBlank()
+        ) { productId = it }
+        if (productError != null) Text(productError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Checkbox(checked = preProcessAvailable, onCheckedChange = { preProcessAvailable = it })
+            Text("Pre-processes available", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+        }
+        if (preProcessAvailable) {
+            Text("Attach the pre-process media (required).", color = Muted, fontSize = 12.sp)
+            if (editing != null && editing.media.isNotEmpty()) {
+                Text("Already attached:", color = Muted, fontSize = 11.sp)
+                editing.media.forEach { AndroidSavedMediaPreview(context = context, media = it) }
+            }
+            MediaCaptureSection(repository = repository, media = preMedia, emphasizeVideo = true, onMessage = onError, onError = onError)
+            if (preMediaError != null) Text(preMediaError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+        }
+
+        HorizontalDivider()
+        Text("Steps", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+        if (stepsError != null) Text(stepsError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+
+        steps.forEachIndexed { index, step ->
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Text("Step ${index + 1} · ${step.stepTypeLabel()}", color = Body, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { steps.removeAt(index) }) { Text("Remove") }
+                    }
+                    RequiredInput("Name of the step", step.name, step.nameError, step.nameFocus) { step.name = it }
+                    if (step.existingMedia.isNotEmpty()) {
+                        Text("Already attached:", color = Muted, fontSize = 11.sp)
+                        step.existingMedia.forEach { AndroidSavedMediaPreview(context = context, media = it) }
+                    }
+                    MediaCaptureSection(repository = repository, media = step.media, emphasizeVideo = true, onMessage = onError, onError = onError)
+                }
+            }
+        }
+
+        Box {
+            OutlinedButton(onClick = { addMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Add Another Step")
+            }
+            DropdownMenu(expanded = addMenu, onDismissRequest = { addMenu = false }) {
+                DropdownMenuItem(
+                    text = { Text("Sequential") },
+                    onClick = { steps.add(ProcessStepUi(java.util.UUID.randomUUID().toString(), null, "", "SEQUENTIAL")); addMenu = false }
+                )
+                DropdownMenuItem(
+                    text = { Text("Group of activities") },
+                    onClick = { steps.add(ProcessStepUi(java.util.UUID.randomUUID().toString(), null, "", "GROUP")); addMenu = false }
+                )
+            }
+        }
+
+        StatusDropdown(value = status) { status = it }
+
+        // Statutory warning per the documentation guidelines.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF2A2520), RoundedCornerShape(12.dp))
+                .padding(12.dp)
+        ) {
+            Text(
+                "Note: Different users may contribute to processes created by others. Even when documenting the same process, it is recommended that each researcher documents it individually, so that different perspectives on the same process are preserved.",
+                color = Color(0xFFE0C9B0),
+                fontSize = 12.sp
+            )
+        }
+
+        Button(
+            onClick = {
+                nameError = null; productError = null; stepsError = null; preMediaError = null; artisanError = null
+                var firstInvalid = false
+                if (name.isBlank()) { nameError = "This field cannot be empty"; if (!firstInvalid) { firstInvalid = true; runCatching { nameFocus.requestFocus() } } }
+                if (artisanId.isBlank()) artisanError = "Please select an artisan"
+                if (productId.isBlank()) productError = "Please select a product"
+                if (preProcessAvailable && preMedia.uris.isEmpty() && (editing?.media?.isEmpty() != false)) {
+                    preMediaError = "Attach the pre-process media or uncheck the box"
+                }
+                if (steps.isEmpty()) stepsError = "Add at least one step"
+                steps.forEach { step ->
+                    step.nameError = null
+                    if (step.name.isBlank()) {
+                        step.nameError = "This field cannot be empty"
+                        if (!firstInvalid) { firstInvalid = true; runCatching { step.nameFocus.requestFocus() } }
+                    }
+                }
+                val blocked = nameError != null || productError != null || stepsError != null ||
+                    preMediaError != null || artisanError != null || steps.any { it.name.isBlank() }
+                if (blocked) { onError("Please fill the required fields highlighted above."); return@Button }
+
+                scope.launch {
+                    saving = true
+                    runCatching {
+                        val stepRequests = steps.mapIndexed { i, s ->
+                            ProcessStepRequest(id = s.serverId, name = s.name.trim(), stepType = s.stepType, sortOrder = i + 1)
+                        }
+                        val body = ProcessCreateRequest(
+                            name = name.trim(),
+                            productId = productId,
+                            preProcessAvailable = preProcessAvailable,
+                            notes = notes.blankToNull(),
+                            status = status,
+                            steps = stepRequests,
+                            recordedAt = if (isEdit) null else Instant.now().toString()
+                        )
+                        val detail = if (isEdit) repository.updateProcess(editing!!.id, body) else repository.createProcess(body)
+                        if (preProcessAvailable) {
+                            uploadAttachments(repository, context, preMedia, "process", detail.id, name, "Pre-process media for ${name.trim()}", customSegment = "PRE")
+                        }
+                        detail.steps.forEachIndexed { index, serverStep ->
+                            val local = steps.getOrNull(index) ?: return@forEachIndexed
+                            local.media.uris.forEachIndexed { fileIndex, uri ->
+                                val segment = processStepSegment(index + 1, serverStep.stepType, fileIndex)
+                                val staged = local.media.stagedDeferred[uri]?.let { runCatching { it.await() }.getOrNull() } ?: local.media.staged[uri]
+                                if (staged != null) {
+                                    repository.completeStaged(
+                                        staged = staged,
+                                        linkedRecordType = "processstep",
+                                        linkedRecordId = serverStep.id,
+                                        recordName = name,
+                                        caption = "Process step ${serverStep.name}",
+                                        location = local.media.location,
+                                        batchIndex = fileIndex + 1,
+                                        customSegment = segment
+                                    )
+                                } else {
+                                    repository.uploadMedia(
+                                        context = context,
+                                        uri = uri,
+                                        linkedRecordType = "processstep",
+                                        linkedRecordId = serverStep.id,
+                                        caption = "Process step ${serverStep.name}",
+                                        location = local.media.location,
+                                        titleHint = name,
+                                        batchIndex = fileIndex + 1,
+                                        customSegment = segment
+                                    )
+                                }
+                            }
+                        }
+                    }.onSuccess {
+                        preMedia.reset()
+                        steps.forEach { it.media.reset() }
+                        onDone()
+                    }.onFailure { onError(it.message ?: "Unable to save process") }
+                    saving = false
+                }
+            },
+            enabled = !saving,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (saving) "Saving..." else if (isEdit) "Update process" else "Save process")
+        }
+    }
+}
+
+// ===========================================================================
+// View Data — read-only browser for any record type, with transcripts
+// ===========================================================================
+
+private val viewDataModes = listOf(
+    EntryMode.ARTISAN, EntryMode.PRODUCT, EntryMode.PROCESS, EntryMode.TOOL,
+    EntryMode.QUESTIONNAIRE, EntryMode.WORKSHOP, EntryMode.CRAFT
+)
+
+private fun EntryMode.linkedRecordType(): String = when (this) {
+    EntryMode.ARTISAN -> "artisan"
+    EntryMode.PRODUCT -> "product"
+    EntryMode.TOOL -> "tool"
+    EntryMode.WORKSHOP -> "workshop"
+    EntryMode.CRAFT -> "craft"
+    EntryMode.QUESTIONNAIRE -> "questionnaire"
+    EntryMode.PROCESS -> "process"
+    else -> name.lowercase()
+}
+
+private suspend fun loadViewEntries(repository: FieldRepository, mode: EntryMode): List<Pair<String, String>> = when (mode) {
+    EntryMode.ARTISAN -> repository.artisans().map { it.id to "${it.name} · ${it.place}" }
+    EntryMode.CRAFT -> repository.crafts().map { it.id to (it.name + (it.place?.let { p -> " · $p" } ?: "")) }
+    EntryMode.PRODUCT -> repository.products().map { it.id to "${it.productName} · ${it.artisanName}" }
+    EntryMode.PROCESS -> repository.processes().map { it.id to (it.name + (it.product?.productName?.let { p -> " · $p" } ?: "")) }
+    EntryMode.TOOL -> repository.tools().map { it.id to "${it.toolkitName} · ${it.artisanName}" }
+    EntryMode.WORKSHOP -> repository.workshops().map { it.id to "${it.title} · ${it.place}" }
+    EntryMode.QUESTIONNAIRE -> repository.interviews().map { it.id to it.title.ifBlank { "Untitled interview" } }
+    else -> emptyList()
+}
+
+@Composable
+private fun DetailRow(label: String, value: String?) {
+    if (!value.isNullOrBlank()) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(label, color = Muted, fontSize = 12.sp, modifier = Modifier.width(120.dp))
+            Text(value, color = Body, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+/** A saved media row plus, for transcribed audio, the transcript text inline. */
+@Composable
+private fun MediaWithTranscript(context: Context, media: MediaFileDto) {
+    AndroidSavedMediaPreview(context = context, media = media)
+    if (!media.transcriptText.isNullOrBlank()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(SurfaceCard, RoundedCornerShape(8.dp))
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text("Transcript", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Text(media.transcriptText!!, color = Body, fontSize = 13.sp)
+        }
+    } else if (media.mediaType.equals("AUDIO", ignoreCase = true)) {
+        Text("Transcript: ${media.transcriptStatus ?: "pending"}", color = Muted, fontSize = 11.sp)
+    }
+}
+
+/** Loads and renders all media attached to a record (by linkedRecordType/Id) with transcripts. */
+@Composable
+private fun RecordMediaSection(
+    repository: FieldRepository,
+    context: Context,
+    linkedType: String,
+    recordId: String,
+    onError: (String) -> Unit
+) {
+    var media by remember(linkedType, recordId) { mutableStateOf<List<MediaFileDto>>(emptyList()) }
+    var loading by remember(linkedType, recordId) { mutableStateOf(true) }
+    LaunchedEffect(linkedType, recordId) {
+        loading = true
+        runCatching { repository.mediaForRecord(linkedType, recordId) }
+            .onSuccess { media = it }
+            .onFailure { onError(it.message ?: "Unable to load media") }
+        loading = false
+    }
+    HorizontalDivider()
+    Text("Media & transcripts", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+    when {
+        loading -> Text("Loading media…", color = Muted, fontSize = 12.sp)
+        media.isEmpty() -> Text("No media attached.", color = Muted, fontSize = 12.sp)
+        else -> media.forEach { MediaWithTranscript(context, it) }
+    }
+}
+
+@Composable
+private fun ViewDataScreen(repository: FieldRepository, onError: (String) -> Unit) {
+    var mode by remember { mutableStateOf(EntryMode.ARTISAN) }
+    var options by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var selectedId by remember { mutableStateOf("") }
+    var loadingList by remember { mutableStateOf(false) }
+
+    LaunchedEffect(mode) {
+        loadingList = true
+        selectedId = ""
+        runCatching { loadViewEntries(repository, mode) }
+            .onSuccess { options = it }
+            .onFailure { onError(it.message ?: "Unable to load list") }
+        loadingList = false
+    }
+
+    RecordCard(title = "View data") {
+        Text("Pick a record type, then an entry, to view it — including any transcribed audio.", color = Muted, fontSize = 12.sp)
+        DropdownField(
+            label = "Record type",
+            options = viewDataModes.map { it.name to it.label },
+            selectedValue = mode.name,
+            includeNone = false
+        ) { picked -> viewDataModes.firstOrNull { it.name == picked }?.let { mode = it } }
+        when {
+            loadingList -> Text("Loading ${mode.label.lowercase()}…", color = Muted)
+            options.isEmpty() -> Text("No ${mode.label.lowercase()} records yet.", color = Muted)
+            else -> DropdownField(
+                label = "Select ${mode.label.lowercase()}",
+                options = options,
+                selectedValue = selectedId,
+                placeholder = "Select a record",
+                includeNone = false
+            ) { selectedId = it }
+        }
+    }
+    if (selectedId.isNotBlank()) {
+        ViewDataDetail(repository = repository, mode = mode, recordId = selectedId, onError = onError)
+    }
+    DatasetDownloadCard(repository = repository, onError = onError)
+}
+
+/** Bottom-of-screen control to pull the entire dataset into a structured zip in Downloads. */
+@Composable
+private fun DatasetDownloadCard(repository: FieldRepository, onError: (String) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var downloading by remember { mutableStateOf(false) }
+    var done by remember { mutableStateOf(0) }
+    var total by remember { mutableStateOf(0) }
+    var resultMessage by remember { mutableStateOf<String?>(null) }
+
+    RecordCard(title = "Download entire dataset") {
+        Text(
+            "Pulls every record and media file into a single zip, organised as Workshops → crafts → " +
+                "artisans → products (with their processes), tools and questionnaires. This can take a " +
+                "while as all resources are fetched, then compiled.",
+            color = Muted,
+            fontSize = 12.sp
+        )
+        if (downloading) {
+            val fraction = if (total > 0) done.toFloat() / total.toFloat() else 0f
+            LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+            Text("Compiling $done / $total files (${(fraction * 100).toInt()}%)", color = Muted, fontSize = 12.sp)
+        }
+        resultMessage?.let { Text(it, color = Body, fontSize = 12.sp) }
+        Button(
+            onClick = {
+                if (downloading) return@Button
+                resultMessage = null
+                downloading = true
+                done = 0
+                total = 0
+                scope.launch {
+                    runCatching {
+                        repository.downloadDataset(context) { d, t -> done = d; total = t }
+                    }.onSuccess { res ->
+                        resultMessage = "Saved to ${res.displayLocation} — ${res.saved}/${res.total} files" +
+                            if (res.failed > 0) " (${res.failed} could not be fetched)" else ""
+                    }.onFailure { onError(it.message ?: "Unable to download the dataset") }
+                    downloading = false
+                }
+            },
+            enabled = !downloading,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(if (downloading) "Downloading…" else "Download all data (.zip)")
+        }
+    }
+}
+
+@Composable
+private fun ViewDataDetail(
+    repository: FieldRepository,
+    mode: EntryMode,
+    recordId: String,
+    onError: (String) -> Unit
+) {
+    val context = LocalContext.current
+    when (mode) {
+        EntryMode.PROCESS -> {
+            var detail by remember(recordId) { mutableStateOf<ProcessDetailDto?>(null) }
+            LaunchedEffect(recordId) {
+                runCatching { repository.process(recordId) }.onSuccess { detail = it }.onFailure { onError(it.message ?: "Unable to load process") }
+            }
+            val d = detail ?: return run { LoadingCard(mode) }
+            RecordCard(title = d.name.ifBlank { "Process" }) {
+                DetailRow("Product", d.product?.productName)
+                DetailRow("Pre-processes", if (d.preProcessAvailable) "Yes" else "No")
+                DetailRow("Notes", d.notes)
+                DetailRow("Status", d.status)
+                if (d.media.isNotEmpty()) {
+                    HorizontalDivider()
+                    Text("Pre-process media", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+                    d.media.forEach { MediaWithTranscript(context, it) }
+                }
+                d.steps.forEach { step ->
+                    HorizontalDivider()
+                    Text("Step ${step.sortOrder} · ${if (step.stepType == "SEQUENTIAL") "Sequential" else "Group"} — ${step.name}", color = Body, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    if (step.media.isEmpty()) Text("No media.", color = Muted, fontSize = 12.sp)
+                    step.media.forEach { MediaWithTranscript(context, it) }
+                }
+            }
+        }
+        EntryMode.ARTISAN -> {
+            var d by remember(recordId) { mutableStateOf<ArtisanDetailDto?>(null) }
+            LaunchedEffect(recordId) { runCatching { repository.artisan(recordId) }.onSuccess { d = it }.onFailure { onError(it.message ?: "Unable to load artisan") } }
+            val v = d ?: return run { LoadingCard(mode) }
+            RecordCard(title = v.name.ifBlank { "Artisan" }) {
+                DetailRow("Craft", v.craft?.name)
+                DetailRow("Place", v.place)
+                DetailRow("Gender", v.gender)
+                DetailRow("Phone", v.phone)
+                DetailRow("Email", v.email)
+                DetailRow("Address", v.address)
+                DetailRow("Notes", v.notes)
+                DetailRow("Status", v.status)
+                RecordMediaSection(repository, context, mode.linkedRecordType(), recordId, onError)
+            }
+        }
+        EntryMode.PRODUCT -> {
+            var d by remember(recordId) { mutableStateOf<ProductDetailDto?>(null) }
+            LaunchedEffect(recordId) { runCatching { repository.product(recordId) }.onSuccess { d = it }.onFailure { onError(it.message ?: "Unable to load product") } }
+            val v = d ?: return run { LoadingCard(mode) }
+            RecordCard(title = v.productName.ifBlank { "Product" }) {
+                DetailRow("Craft", v.craftName)
+                DetailRow("Artisan", v.artisanName)
+                DetailRow("Place", v.place)
+                DetailRow("Type", v.productType)
+                DetailRow("Market", v.marketDemand)
+                DetailRow("Materials", v.rawMaterialsUsed)
+                DetailRow("Tools", v.mainToolsUsed)
+                DetailRow("Function", v.productFunctionUse)
+                DetailRow("Remarks", v.remarks)
+                DetailRow("Status", v.status)
+                RecordMediaSection(repository, context, mode.linkedRecordType(), recordId, onError)
+            }
+        }
+        EntryMode.TOOL -> {
+            var d by remember(recordId) { mutableStateOf<ToolDetailDto?>(null) }
+            LaunchedEffect(recordId) { runCatching { repository.tool(recordId) }.onSuccess { d = it }.onFailure { onError(it.message ?: "Unable to load tool") } }
+            val v = d ?: return run { LoadingCard(mode) }
+            RecordCard(title = v.toolkitName.ifBlank { "Tool" }) {
+                DetailRow("Craft", v.craftName)
+                DetailRow("Artisan", v.artisanName)
+                DetailRow("Place", v.place)
+                DetailRow("Material", v.material)
+                DetailRow("Maker", v.maker)
+                DetailRow("Tradition", v.traditionType)
+                DetailRow("Used in", v.processUsedIn)
+                DetailRow("Remarks", v.remarks)
+                DetailRow("Status", v.status)
+                RecordMediaSection(repository, context, mode.linkedRecordType(), recordId, onError)
+            }
+        }
+        EntryMode.WORKSHOP -> {
+            var d by remember(recordId) { mutableStateOf<WorkshopDetailDto?>(null) }
+            LaunchedEffect(recordId) { runCatching { repository.workshop(recordId) }.onSuccess { d = it }.onFailure { onError(it.message ?: "Unable to load workshop") } }
+            val v = d ?: return run { LoadingCard(mode) }
+            RecordCard(title = v.title.ifBlank { "Workshop" }) {
+                DetailRow("Place", v.place)
+                DetailRow("Description", v.description)
+                DetailRow("Notes", v.notes)
+                DetailRow("Status", v.status)
+                DetailRow("Artisans", v.artisans.mapNotNull { it.artisan?.name }.joinToString(", ").ifBlank { null })
+                RecordMediaSection(repository, context, mode.linkedRecordType(), recordId, onError)
+            }
+        }
+        EntryMode.CRAFT -> {
+            var d by remember(recordId) { mutableStateOf<CraftDto?>(null) }
+            LaunchedEffect(recordId) { runCatching { repository.craft(recordId) }.onSuccess { d = it }.onFailure { onError(it.message ?: "Unable to load craft") } }
+            val v = d ?: return run { LoadingCard(mode) }
+            RecordCard(title = v.name.ifBlank { "Craft" }) {
+                DetailRow("Local name", v.localName)
+                DetailRow("Category", v.category)
+                DetailRow("Place", v.place)
+                DetailRow("Description", v.description)
+                RecordMediaSection(repository, context, mode.linkedRecordType(), recordId, onError)
+            }
+        }
+        EntryMode.QUESTIONNAIRE -> {
+            var d by remember(recordId) { mutableStateOf<QuestionnaireInterviewDetailDto?>(null) }
+            LaunchedEffect(recordId) { runCatching { repository.interview(recordId) }.onSuccess { d = it }.onFailure { onError(it.message ?: "Unable to load interview") } }
+            val v = d ?: return run { LoadingCard(mode) }
+            RecordCard(title = v.title.ifBlank { "Interview" }) {
+                DetailRow("Place", v.place)
+                DetailRow("Language", v.language)
+                DetailRow("Notes", v.notes)
+                DetailRow("Status", v.status)
+                if (v.responses.isNotEmpty()) {
+                    HorizontalDivider()
+                    Text("Answers", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+                    v.responses.forEach { r -> DetailRow(r.answeredBy?.name ?: "Answer", r.answerText) }
+                }
+                RecordMediaSection(repository, context, mode.linkedRecordType(), recordId, onError)
+            }
+        }
+        else -> Text("This record type cannot be viewed here.", color = Muted)
+    }
+}
+
+/** Record types a miscellaneous-media upload can be linked to (item: Misc Media). */
+private val mediaLinkModes = listOf(
+    EntryMode.ARTISAN, EntryMode.WORKSHOP, EntryMode.CRAFT, EntryMode.TOOL,
+    EntryMode.PRODUCT, EntryMode.PROCESS, EntryMode.QUESTIONNAIRE
+)
 
 @Composable
 private fun AndroidMediaForm(
@@ -1411,8 +3144,10 @@ private fun AndroidMediaForm(
     val scope = rememberCoroutineScope()
     var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var mediaTitle by remember { mutableStateOf("") }
-    var linkedRecordType by remember { mutableStateOf("") }
-    var linkedRecordId by remember { mutableStateOf("") }
+    var linkedMode by remember { mutableStateOf<EntryMode?>(null) }
+    var linkedEntryId by remember { mutableStateOf("") }
+    var entryOptions by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var loadingEntries by remember { mutableStateOf(false) }
     var caption by remember { mutableStateOf("") }
     var location by remember { mutableStateOf<LocationRequest?>(null) }
     var uploading by remember { mutableStateOf(false) }
@@ -1449,6 +3184,17 @@ private fun AndroidMediaForm(
     LaunchedEffect(Unit) {
         permissionLauncher.launch(requiredAndroidPermissions())
         refreshMedia()
+    }
+    // When the linked record type changes, load that type's entries for the second dropdown.
+    LaunchedEffect(linkedMode) {
+        linkedEntryId = ""
+        entryOptions = emptyList()
+        val mode = linkedMode ?: return@LaunchedEffect
+        loadingEntries = true
+        runCatching { loadViewEntries(repository, mode) }
+            .onSuccess { entryOptions = it }
+            .onFailure { error -> onError(error.message ?: "Unable to load ${mode.label} entries") }
+        loadingEntries = false
     }
 
     RecordCard(title = "Capture media") {
@@ -1511,24 +3257,41 @@ private fun AndroidMediaForm(
             },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(if (recording) "Stop audio recording" else "Record audio")
+            if (recording) StopSquareLabel("Stop audio recording") else Text("Record audio ●")
         }
-        OutlinedButton(
-            onClick = {
+        if (recording) {
+            RecordingIndicator(getAmplitude = { runCatching { recorder?.maxAmplitude ?: 0 }.getOrDefault(0) })
+        }
+        LocationEditor(
+            value = location,
+            onUseGps = {
                 permissionLauncher.launch(requiredAndroidPermissions())
-                val currentLocation = readLastKnownLocation(context)
-                location = currentLocation
-                localMessage = currentLocation?.let {
-                    "Location tagged: ${it.latitude}, ${it.longitude}"
-                } ?: "No current GPS fix available yet; try again after location warms up."
+                readLastKnownLocation(context)
             },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Use current GPS")
-        }
+            onChange = { location = it },
+            onMessage = { localMessage = it }
+        )
         TextInput("Media title / object name", mediaTitle) { mediaTitle = it }
-        TextInput("Linked record type", linkedRecordType) { linkedRecordType = it }
-        TextInput("Linked record ID", linkedRecordId) { linkedRecordId = it }
+        DropdownField(
+            label = "Linked record type *",
+            options = mediaLinkModes.map { it.name to it.label },
+            selectedValue = linkedMode?.name ?: "",
+            placeholder = "Choose the type of record",
+            includeNone = false
+        ) { picked -> linkedMode = mediaLinkModes.firstOrNull { it.name == picked } }
+        DropdownField(
+            label = "Linked entry (optional)",
+            options = entryOptions,
+            selectedValue = linkedEntryId,
+            placeholder = when {
+                linkedMode == null -> "Select a record type first"
+                loadingEntries -> "Loading…"
+                entryOptions.isEmpty() -> "No entries for this type"
+                else -> "Select an entry"
+            },
+            includeNone = true,
+            enabled = linkedMode != null && !loadingEntries
+        ) { linkedEntryId = it }
         TextInput("Caption", caption, minLines = 2) { caption = it }
         if (selectedUris.isNotEmpty()) {
             Column(
@@ -1560,8 +3323,8 @@ private fun AndroidMediaForm(
                             repository.uploadMedia(
                                 context = context,
                                 uri = uri,
-                                linkedRecordType = linkedRecordType,
-                                linkedRecordId = linkedRecordId,
+                                linkedRecordType = linkedMode?.linkedRecordType() ?: "",
+                                linkedRecordId = linkedEntryId,
                                 caption = caption,
                                 location = location,
                                 titleHint = mediaTitle.ifBlank { caption },
@@ -1582,10 +3345,10 @@ private fun AndroidMediaForm(
                     uploading = false
                 }
             },
-            enabled = selectedUris.isNotEmpty() && !uploading && !recording,
+            enabled = selectedUris.isNotEmpty() && linkedMode != null && !uploading && !recording,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(if (uploading) "Uploading..." else "Upload batch")
+            Text(if (uploading) "Uploading..." else if (linkedMode == null) "Choose a record type" else "Upload batch")
         }
         if (savedMedia.isNotEmpty()) {
             Text("Recent saved media", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
@@ -1596,78 +3359,57 @@ private fun AndroidMediaForm(
     }
 }
 
+private fun mediaTypeFromMime(mime: String?): String = when {
+    mime == null -> "DOCUMENT"
+    mime.startsWith("image/") -> "IMAGE"
+    mime.startsWith("video/") -> "VIDEO"
+    mime.startsWith("audio/") -> "AUDIO"
+    mime == "application/pdf" -> "PDF"
+    else -> "DOCUMENT"
+}
+
 @Composable
 private fun AndroidUriPreview(context: Context, uri: Uri) {
     val mimeType = remember(uri) { context.contentResolver.getType(uri) }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(color = Color(0xFF181715), shape = RoundedCornerShape(10.dp))
-            .clickable { openUri(context, uri, mimeType) }
-            .padding(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        if (mimeType?.startsWith("image/") == true) {
-            AsyncImage(
-                model = uri,
-                contentDescription = uri.lastPathSegment,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.size(64.dp).background(SurfaceCard, RoundedCornerShape(8.dp))
-            )
-        } else {
-            Box(
-                modifier = Modifier.size(64.dp).background(SurfaceCard, RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text((mimeType ?: "file").substringBefore('/').uppercase().take(5), color = Body, fontSize = 11.sp)
-            }
+    val mediaType = remember(mimeType) { mediaTypeFromMime(mimeType) }
+    var showViewer by remember { mutableStateOf(false) }
+    MediaThumb(
+        uri = uri,
+        mediaType = mediaType,
+        title = uri.lastPathSegment.orEmpty(),
+        subtitle = mimeType ?: "Unknown file type",
+        onOpen = {
+            if (mediaType in IN_APP_PLAYABLE) showViewer = true else openUri(context, uri, mimeType)
         }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(uri.lastPathSegment.orEmpty(), color = Canvas, fontSize = 12.sp)
-            Text(mimeType ?: "Unknown file type", color = SurfaceCard, fontSize = 11.sp)
-        }
-        Text("Open", color = SurfaceCard, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+    )
+    if (showViewer) {
+        MediaViewerDialog(uri = uri, mediaType = mediaType, onDismiss = { showViewer = false })
     }
 }
 
 @Composable
 private fun AndroidSavedMediaPreview(context: Context, media: com.fieldrepository.app.data.MediaFileDto) {
     val uri = remember(media.url) { media.url?.let(Uri::parse) }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(color = SurfaceCard, shape = RoundedCornerShape(10.dp))
-            .clickable(enabled = uri != null) {
-                if (uri != null) openUri(context, uri, media.mimeType)
-            }
-            .padding(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        if (media.mediaType == "IMAGE" && uri != null) {
-            AsyncImage(
-                model = uri,
-                contentDescription = media.caption ?: media.originalFilename,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.size(64.dp).background(Canvas, RoundedCornerShape(8.dp))
-            )
-        } else {
-            Box(
-                modifier = Modifier.size(64.dp).background(Canvas, RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(media.mediaType.take(5), color = Body, fontSize = 11.sp)
-            }
+    var showViewer by remember { mutableStateOf(false) }
+    if (uri == null) {
+        Text(media.originalFilename, color = Body, fontSize = 12.sp)
+        return
+    }
+    MediaThumb(
+        uri = uri,
+        mediaType = media.mediaType,
+        title = media.originalFilename,
+        subtitle = listOfNotNull(media.mimeType ?: media.mediaType, media.transcriptStatus?.let { "Transcript: $it" }).joinToString(" · "),
+        onOpen = {
+            if (media.mediaType in IN_APP_PLAYABLE) showViewer = true else openUri(context, uri, media.mimeType)
         }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(media.originalFilename, color = Body, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-            Text(media.mimeType ?: media.mediaType, color = Muted, fontSize = 11.sp)
-            media.transcriptStatus?.let { Text("Transcript: $it", color = Muted, fontSize = 11.sp) }
-        }
-        if (uri != null) Text("Open", color = Body, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+    )
+    if (showViewer) {
+        MediaViewerDialog(uri = uri, mediaType = media.mediaType, onDismiss = { showViewer = false })
     }
 }
+
+private val IN_APP_PLAYABLE = setOf("IMAGE", "VIDEO", "AUDIO")
 
 @Composable
 private fun QuestionnaireForm(
@@ -1675,29 +3417,54 @@ private fun QuestionnaireForm(
     sections: List<QuestionnaireSectionDto>,
     artisans: List<ArtisanDto>,
     canManageQuestionnaire: Boolean,
+    prefill: Prefill? = null,
+    editing: QuestionnaireInterviewDetailDto? = null,
+    adminView: Boolean = false,
     onRefreshSections: suspend () -> Unit,
+    onSync: suspend () -> Unit = onRefreshSections,
     onSubmit: suspend (QuestionnaireInterviewCreateRequest) -> String,
     onError: (String) -> Unit,
     onSaved: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var title by remember { mutableStateOf("") }
-    var selectedArtisans by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var place by remember { mutableStateOf("") }
-    var language by remember { mutableStateOf("") }
-    var notes by remember { mutableStateOf("") }
-    var capturedLocation by remember { mutableStateOf<LocationRequest?>(null) }
+    val isEdit = editing != null
+    var syncing by remember { mutableStateOf(false) }
+    var title by remember(editing) { mutableStateOf(editing?.title ?: prefill?.artisanName?.let { "Interview with $it" } ?: "") }
+    var selectedArtisans by remember(editing) {
+        mutableStateOf(
+            editing?.artisans?.map { it.artisanId }?.toSet()
+                ?: prefill?.artisanId?.let { setOf(it) }
+                ?: emptySet()
+        )
+    }
+    var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }
+    var language by remember(editing) { mutableStateOf(editing?.language ?: "") }
+    var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }
+    var capturedLocation by remember(editing) { mutableStateOf(editing?.location?.toRequest()) }
+    var titleError by remember { mutableStateOf<String?>(null) }
+    val titleFocus = remember { FocusRequester() }
     val questions = remember(sections) { sections.flatMap { it.questions }.filter { it.isActive } }
-    val answers = remember(questions) { questions.associate { it.id to mutableStateOf("") } }
-    var recordingQuestionId by remember { mutableStateOf<String?>(null) }
-    var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
-    var recordingFile by remember { mutableStateOf<File?>(null) }
+    // Seed answers from existing responses so an interviewer can fill remaining questions.
+    val answers = remember(questions, editing) {
+        questions.associate { q ->
+            q.id to mutableStateOf(editing?.responses?.firstOrNull { it.questionId == q.id }?.answerText ?: "")
+        }
+    }
+    // Clips keyed by target: a question id (individual mode) or "section:<id>" (whole-section mode).
     var questionAudio by remember { mutableStateOf<Map<String, List<Uri>>>(emptyMap()) }
+    fun addClip(key: String, uri: Uri) {
+        questionAudio = questionAudio + (key to ((questionAudio[key] ?: emptyList()) + uri))
+    }
+    fun removeLastClip(key: String) {
+        val list = questionAudio[key] ?: return
+        questionAudio = questionAudio + (key to list.dropLast(1))
+    }
+    var recordMode by remember { mutableStateOf("INDIVIDUAL") }
     var expandedSections by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showBuilder by remember { mutableStateOf(false) }
 
-    if (canManageQuestionnaire) {
+    if (canManageQuestionnaire && !isEdit) {
         // Defer the heavy builder so opening the questionnaire tab never composes hundreds of rows at once.
         OutlinedButton(onClick = { showBuilder = !showBuilder }, modifier = Modifier.fillMaxWidth()) {
             Text(if (showBuilder) "Hide questionnaire builder" else "Open questionnaire builder")
@@ -1706,9 +3473,33 @@ private fun QuestionnaireForm(
             QuestionnaireBuilder(repository, sections, onRefreshSections, onError)
         }
     }
+    // Available to every user, including least-privilege: pull the latest sections/questions
+    // (and artisans) from the database on demand.
+    OutlinedButton(
+        onClick = {
+            if (syncing) return@OutlinedButton
+            scope.launch {
+                syncing = true
+                runCatching { onSync() }.onFailure { onError(it.message ?: "Unable to synchronize") }
+                syncing = false
+            }
+        },
+        enabled = !syncing,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(if (syncing) "Synchronizing…" else "Synchronize with Database")
+    }
 
-    RecordCard(title = "Add questionnaire interview") {
-        TextInput("Interview title", title) { title = it }
+    RecordCard(title = if (isEdit) "Edit interview" else "Add questionnaire interview") {
+        if (adminView && editing != null) {
+            ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
+        }
+        if (isEdit) {
+            Text("Add or update answers below. Existing answers from other interviewers are preserved unless you change them.", color = Muted, fontSize = 12.sp)
+        }
+        RequiredInput("Interview title", title, titleError, titleFocus) { title = it }
         ArtisanMultiSelectField(
             label = "Linked artisans",
             artisans = artisans,
@@ -1718,19 +3509,21 @@ private fun QuestionnaireForm(
         }
         TextInput("Place", place) { place = it }
         TextInput("Language", language) { language = it }
-        OutlinedButton(
-            onClick = {
-                val loc = readLastKnownLocation(context)
-                capturedLocation = loc
-                onError(
-                    loc?.let { "Location tagged: ${"%.5f".format(it.latitude)}, ${"%.5f".format(it.longitude)}" }
-                        ?: "No GPS fix yet; try again after location warms up."
-                )
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(if (capturedLocation != null) "GPS tagged ✓ (tap to refresh)" else "Use current GPS")
-        }
+        DropdownField(
+            label = "Recording mode",
+            options = listOf(
+                "INDIVIDUAL" to "Record individual questions",
+                "SECTION" to "Record the entire section at once"
+            ),
+            selectedValue = recordMode,
+            includeNone = false
+        ) { recordMode = it }
+        LocationEditor(
+            value = capturedLocation,
+            onUseGps = { readLastKnownLocation(context) },
+            onChange = { capturedLocation = it },
+            onMessage = onError
+        )
         Text("Tap a section to answer its questions. Only answered questions are saved.", color = Muted, fontSize = 12.sp)
         sections.forEach { section ->
             val activeQuestions = section.questions.filter { it.isActive }
@@ -1758,39 +3551,27 @@ private fun QuestionnaireForm(
                         }
                         // Only the expanded section composes its inputs, which keeps the screen responsive.
                         if (expanded) {
+                            if (recordMode == "SECTION") {
+                                // One consolidated recording for the whole section.
+                                val sectionKey = "section:${section.id}"
+                                Text("Record this entire section in one take.", color = Muted, fontSize = 12.sp)
+                                AudioClipRecorder(
+                                    clips = questionAudio[sectionKey] ?: emptyList(),
+                                    onAddClip = { uri -> addClip(sectionKey, uri) },
+                                    onRemoveLast = { removeLastClip(sectionKey) },
+                                    onError = onError,
+                                    idleLabel = "Record section ●"
+                                )
+                                HorizontalDivider()
+                            }
                             activeQuestions.forEach { question ->
                                 Text("${question.sortOrder}. ${question.prompt}", color = Muted, fontSize = 12.sp)
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                    OutlinedButton(
-                                        onClick = {
-                                            if (recordingQuestionId == question.id) {
-                                                runCatching {
-                                                    recorder?.stop()
-                                                    recorder?.release()
-                                                    recordingFile?.let { file ->
-                                                        questionAudio = questionAudio + (question.id to ((questionAudio[question.id] ?: emptyList()) + uriForFile(context, file)))
-                                                    }
-                                                }.onFailure { onError(it.message ?: "Unable to stop question audio") }
-                                                recorder = null
-                                                recordingFile = null
-                                                recordingQuestionId = null
-                                            } else {
-                                                runCatching {
-                                                    val file = createAppFile(context, "question-audio-", ".m4a")
-                                                    recorder = createAudioRecorder(context, file).also { it.start() }
-                                                    recordingFile = file
-                                                    recordingQuestionId = question.id
-                                                }.onFailure { onError(it.message ?: "Unable to start question audio") }
-                                            }
-                                        },
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Text(if (recordingQuestionId == question.id) "Stop" else "Record")
-                                    }
-                                    Text(
-                                        "${questionAudio[question.id]?.size ?: 0} clip(s)",
-                                        color = Muted,
-                                        modifier = Modifier.align(Alignment.CenterVertically)
+                                if (recordMode == "INDIVIDUAL") {
+                                    AudioClipRecorder(
+                                        clips = questionAudio[question.id] ?: emptyList(),
+                                        onAddClip = { uri -> addClip(question.id, uri) },
+                                        onRemoveLast = { removeLastClip(question.id) },
+                                        onError = onError
                                     )
                                 }
                                 TextInput("Answer", answers[question.id]?.value.orEmpty(), minLines = 3) { value ->
@@ -1805,34 +3586,75 @@ private fun QuestionnaireForm(
         TextInput("Notes", notes, minLines = 3) { notes = it }
         Button(
             onClick = {
+                if (!validateRequired(listOf(
+                        RequiredCheck(title.isBlank(), { titleError = it }, titleFocus)
+                    ))) { onError("Please fill the required field highlighted above."); return@Button }
                 scope.launch {
                     val now = Instant.now().toString()
+                    // Only send answers this interviewer actually added or changed; untouched answers
+                    // (including those entered by other interviewers) are left exactly as they were.
+                    val responsesToSend = questions.mapNotNull { question ->
+                        val current = answers[question.id]?.value?.trim().orEmpty()
+                        val initial = editing?.responses?.firstOrNull { it.questionId == question.id }?.answerText?.trim().orEmpty()
+                        if (current.isNotBlank() && current != initial) {
+                            QuestionnaireResponseRequest(questionId = question.id, answerText = current)
+                        } else null
+                    }
                     runCatching {
-                        val interviewId = onSubmit(
-                            QuestionnaireInterviewCreateRequest(
-                                title = title.trim(),
-                                place = place.blankToNull(),
-                                language = language.blankToNull(),
-                                notes = notes.blankToNull(),
-                                artisanIds = selectedArtisans.toList(),
-                                location = capturedLocation,
-                                responses = questions.mapNotNull { question ->
-                                    val answer = answers[question.id]?.value?.trim().orEmpty()
-                                    if (answer.isBlank()) null else QuestionnaireResponseRequest(questionId = question.id, answerText = answer)
-                                },
-                                recordedAt = now
+                        val interviewId = if (isEdit) {
+                            val original = editing!!
+                            val originalArtisans = original.artisans.map { it.artisanId }.toSet()
+                            repository.updateQuestionnaireInterview(
+                                original.id,
+                                QuestionnaireInterviewUpdateRequest(
+                                    title = title.trim(),
+                                    place = place.blankToNull(),
+                                    language = language.blankToNull(),
+                                    notes = notes.blankToNull(),
+                                    artisanIds = if (selectedArtisans != originalArtisans) selectedArtisans.toList() else null,
+                                    responses = responsesToSend.ifEmpty { null },
+                                    location = locationForBody(true, capturedLocation, original.location)
+                                )
                             )
-                        )
-                        questions.forEach { question ->
-                            questionAudio[question.id].orEmpty().forEachIndexed { index, uri ->
+                            original.id
+                        } else {
+                            onSubmit(
+                                QuestionnaireInterviewCreateRequest(
+                                    title = title.trim(),
+                                    place = place.blankToNull(),
+                                    language = language.blankToNull(),
+                                    notes = notes.blankToNull(),
+                                    artisanIds = selectedArtisans.toList(),
+                                    location = capturedLocation,
+                                    responses = responsesToSend,
+                                    recordedAt = now
+                                )
+                            )
+                        }
+                        // Upload all recorded clips, whether keyed by question id or by section.
+                        val questionsById = questions.associateBy { it.id }
+                        val sectionsById = sections.associateBy { it.id }
+                        questionAudio.forEach { (key, uris) ->
+                            val caption: String
+                            val hint: String
+                            if (key.startsWith("section:")) {
+                                val section = sectionsById[key.removePrefix("section:")]
+                                caption = "Section audio: ${section?.code ?: ""} ${section?.title ?: ""}".trim()
+                                hint = title.ifBlank { section?.title ?: "Section recording" }
+                            } else {
+                                val question = questionsById[key]
+                                caption = "Question audio: ${question?.sectionCode ?: ""}${question?.sortOrder ?: ""} ${question?.prompt ?: ""}".trim()
+                                hint = title.ifBlank { question?.prompt ?: "Question recording" }
+                            }
+                            uris.forEachIndexed { index, uri ->
                                 repository.uploadMedia(
                                     context = context,
                                     uri = uri,
                                     linkedRecordType = "questionnaire",
                                     linkedRecordId = interviewId,
-                                    caption = "Question audio: ${question.sectionCode}${question.sortOrder} ${question.prompt}",
+                                    caption = caption,
                                     location = null,
-                                    titleHint = title.ifBlank { question.prompt },
+                                    titleHint = hint,
                                     batchIndex = index + 1
                                 )
                             }
@@ -1841,21 +3663,22 @@ private fun QuestionnaireForm(
                         onError(it.message ?: "Unable to save questionnaire")
                         return@launch
                     }
-                    title = ""
-                    selectedArtisans = emptySet()
-                    place = ""
-                    language = ""
-                    notes = ""
-                    capturedLocation = null
-                    answers.values.forEach { it.value = "" }
-                    questionAudio = emptyMap()
+                    if (!isEdit) {
+                        title = ""
+                        selectedArtisans = emptySet()
+                        place = ""
+                        language = ""
+                        notes = ""
+                        capturedLocation = null
+                        answers.values.forEach { it.value = "" }
+                        questionAudio = emptyMap()
+                    }
                     onSaved()
                 }
             },
-            enabled = title.isNotBlank(),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Save questionnaire")
+            Text(if (isEdit) "Update interview" else "Save questionnaire")
         }
         Text("Use the Media tab to attach photos, videos, audio recordings and GPS-tagged field files to this interview.", color = Muted, fontSize = 12.sp)
     }
@@ -1871,9 +3694,12 @@ private fun QuestionnaireBuilder(
     val scope = rememberCoroutineScope()
     var newCode by remember { mutableStateOf("") }
     var newTitle by remember { mutableStateOf("") }
+    // Sections render collapsed by default; a section's editors + questions are only composed when it
+    // is expanded, so opening the builder never composes hundreds of fields at once (was an ANR/crash).
+    var expandedSections by remember { mutableStateOf(setOf<String>()) }
 
     RecordCard(title = "Questionnaire builder") {
-        Text("Master admin controls for adding, editing, removing, moving sections, and moving questions between sections.", color = Muted, fontSize = 12.sp)
+        Text("Master admin controls for adding, editing, removing, moving sections, and moving questions between sections. Tap a section to expand and edit it.", color = Muted, fontSize = 12.sp)
         TextInput("New section code", newCode) { newCode = it }
         TextInput("New section title", newTitle) { newTitle = it }
         Button(
@@ -1892,161 +3718,178 @@ private fun QuestionnaireBuilder(
         ) { Text("Add section") }
 
         sections.forEachIndexed { sectionIndex, section ->
-            var code by remember(section.id, section.code) { mutableStateOf(section.code) }
-            var sectionTitle by remember(section.id, section.title) { mutableStateOf(section.title) }
-            var newPrompt by remember(section.id) { mutableStateOf("") }
+            val expanded = expandedSections.contains(section.id)
             ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard)) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("${section.sortOrder}. ${section.code} - ${section.title}", fontWeight = FontWeight.SemiBold)
-                    TextInput("Code", code) { code = it }
-                    TextInput("Title", sectionTitle) { sectionTitle = it }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(
-                            onClick = {
-                                scope.launch {
-                                    runCatching {
-                                        repository.updateQuestionnaireSection(section.id, QuestionnaireSectionUpdateRequest(code = code.trim(), title = sectionTitle.trim(), isActive = true))
-                                        onRefresh()
-                                    }.onFailure { onError(it.message ?: "Unable to update section") }
-                                }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                expandedSections = if (expanded) expandedSections - section.id else expandedSections + section.id
                             },
-                            modifier = Modifier.weight(1f)
-                        ) { Text("Save") }
-                        OutlinedButton(
-                            enabled = sectionIndex > 0,
-                            onClick = {
-                                scope.launch {
-                                    runCatching {
-                                        repository.reorderQuestionnaireSections(moveIds(sections.map { it.id }, sectionIndex, -1))
-                                        onRefresh()
-                                    }.onFailure { onError(it.message ?: "Unable to move section") }
-                                }
-                            }
-                        ) { Text("Up") }
-                        OutlinedButton(
-                            enabled = sectionIndex < sections.lastIndex,
-                            onClick = {
-                                scope.launch {
-                                    runCatching {
-                                        repository.reorderQuestionnaireSections(moveIds(sections.map { it.id }, sectionIndex, 1))
-                                        onRefresh()
-                                    }.onFailure { onError(it.message ?: "Unable to move section") }
-                                }
-                            }
-                        ) { Text("Down") }
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("${section.sortOrder}. ${section.code} - ${section.title}", fontWeight = FontWeight.SemiBold)
+                            Text("${section.questions.size} question(s)", color = Muted, fontSize = 11.sp)
+                        }
+                        Text(if (expanded) "Hide ▲" else "Edit ▼", color = Body, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
-                    OutlinedButton(
-                        onClick = {
-                            scope.launch {
-                                runCatching {
-                                    repository.deleteQuestionnaireSection(section.id)
-                                    onRefresh()
-                                }.onFailure { onError(it.message ?: "Unable to remove section") }
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("Remove section") }
-
-                    section.questions.forEachIndexed { questionIndex, question ->
-                        var prompt by remember(question.id, question.prompt) { mutableStateOf(question.prompt) }
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(color = Canvas, shape = RoundedCornerShape(12.dp))
-                                .padding(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text("${question.sortOrder}. ${question.sectionCode} ${question.prompt}", color = Muted, fontSize = 12.sp)
-                            TextInput("Prompt", prompt, minLines = 2) { prompt = it }
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                                OutlinedButton(
-                                    onClick = {
-                                        scope.launch {
-                                            runCatching {
-                                                repository.updateQuestionnaireQuestion(question.id, QuestionnaireQuestionUpdateRequest(prompt = prompt.trim(), isActive = true))
-                                                onRefresh()
-                                            }.onFailure { onError(it.message ?: "Unable to update question") }
-                                        }
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("Save") }
-                                OutlinedButton(
-                                    enabled = questionIndex > 0,
-                                    onClick = {
-                                        scope.launch {
-                                            runCatching {
-                                                repository.reorderQuestionnaireQuestions(section.id, moveIds(section.questions.map { it.id }, questionIndex, -1))
-                                                onRefresh()
-                                            }.onFailure { onError(it.message ?: "Unable to move question") }
-                                        }
-                                    }
-                                ) { Text("Up") }
-                                OutlinedButton(
-                                    enabled = questionIndex < section.questions.lastIndex,
-                                    onClick = {
-                                        scope.launch {
-                                            runCatching {
-                                                repository.reorderQuestionnaireQuestions(section.id, moveIds(section.questions.map { it.id }, questionIndex, 1))
-                                                onRefresh()
-                                            }.onFailure { onError(it.message ?: "Unable to move question") }
-                                        }
-                                    }
-                                ) { Text("Down") }
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                                OutlinedButton(
-                                    enabled = sectionIndex > 0,
-                                    onClick = {
-                                        scope.launch {
-                                            runCatching {
-                                                repository.updateQuestionnaireQuestion(question.id, QuestionnaireQuestionUpdateRequest(sectionId = sections[sectionIndex - 1].id))
-                                                onRefresh()
-                                            }.onFailure { onError(it.message ?: "Unable to move question") }
-                                        }
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("Prev section") }
-                                OutlinedButton(
-                                    enabled = sectionIndex < sections.lastIndex,
-                                    onClick = {
-                                        scope.launch {
-                                            runCatching {
-                                                repository.updateQuestionnaireQuestion(question.id, QuestionnaireQuestionUpdateRequest(sectionId = sections[sectionIndex + 1].id))
-                                                onRefresh()
-                                            }.onFailure { onError(it.message ?: "Unable to move question") }
-                                        }
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("Next section") }
-                            }
+                    // Heavy editors + per-question rows compose only for the expanded section.
+                    if (expanded) {
+                        var code by remember(section.id, section.code) { mutableStateOf(section.code) }
+                        var sectionTitle by remember(section.id, section.title) { mutableStateOf(section.title) }
+                        var newPrompt by remember(section.id) { mutableStateOf("") }
+                        TextInput("Code", code) { code = it }
+                        TextInput("Title", sectionTitle) { sectionTitle = it }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                             OutlinedButton(
                                 onClick = {
                                     scope.launch {
                                         runCatching {
-                                            repository.deleteQuestionnaireQuestion(question.id)
+                                            repository.updateQuestionnaireSection(section.id, QuestionnaireSectionUpdateRequest(code = code.trim(), title = sectionTitle.trim(), isActive = true))
                                             onRefresh()
-                                        }.onFailure { onError(it.message ?: "Unable to remove question") }
+                                        }.onFailure { onError(it.message ?: "Unable to update section") }
                                     }
                                 },
-                                modifier = Modifier.fillMaxWidth()
-                            ) { Text("Remove question") }
+                                modifier = Modifier.weight(1f)
+                            ) { Text("Save") }
+                            OutlinedButton(
+                                enabled = sectionIndex > 0,
+                                onClick = {
+                                    scope.launch {
+                                        runCatching {
+                                            repository.reorderQuestionnaireSections(moveIds(sections.map { it.id }, sectionIndex, -1))
+                                            onRefresh()
+                                        }.onFailure { onError(it.message ?: "Unable to move section") }
+                                    }
+                                }
+                            ) { Text("Up") }
+                            OutlinedButton(
+                                enabled = sectionIndex < sections.lastIndex,
+                                onClick = {
+                                    scope.launch {
+                                        runCatching {
+                                            repository.reorderQuestionnaireSections(moveIds(sections.map { it.id }, sectionIndex, 1))
+                                            onRefresh()
+                                        }.onFailure { onError(it.message ?: "Unable to move section") }
+                                    }
+                                }
+                            ) { Text("Down") }
                         }
-                    }
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    runCatching {
+                                        repository.deleteQuestionnaireSection(section.id)
+                                        onRefresh()
+                                    }.onFailure { onError(it.message ?: "Unable to remove section") }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Remove section") }
 
-                    TextInput("New question", newPrompt, minLines = 2) { newPrompt = it }
-                    Button(
-                        onClick = {
-                            scope.launch {
-                                runCatching {
-                                    repository.createQuestionnaireQuestion(QuestionnaireQuestionCreateRequest(sectionId = section.id, prompt = newPrompt.trim()))
-                                    newPrompt = ""
-                                    onRefresh()
-                                }.onFailure { onError(it.message ?: "Unable to add question") }
+                        section.questions.forEachIndexed { questionIndex, question ->
+                            var prompt by remember(question.id, question.prompt) { mutableStateOf(question.prompt) }
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(color = Canvas, shape = RoundedCornerShape(12.dp))
+                                    .padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text("${question.sortOrder}. ${question.sectionCode} ${question.prompt}", color = Muted, fontSize = 12.sp)
+                                TextInput("Prompt", prompt, minLines = 2) { prompt = it }
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            scope.launch {
+                                                runCatching {
+                                                    repository.updateQuestionnaireQuestion(question.id, QuestionnaireQuestionUpdateRequest(prompt = prompt.trim(), isActive = true))
+                                                    onRefresh()
+                                                }.onFailure { onError(it.message ?: "Unable to update question") }
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    ) { Text("Save") }
+                                    OutlinedButton(
+                                        enabled = questionIndex > 0,
+                                        onClick = {
+                                            scope.launch {
+                                                runCatching {
+                                                    repository.reorderQuestionnaireQuestions(section.id, moveIds(section.questions.map { it.id }, questionIndex, -1))
+                                                    onRefresh()
+                                                }.onFailure { onError(it.message ?: "Unable to move question") }
+                                            }
+                                        }
+                                    ) { Text("Up") }
+                                    OutlinedButton(
+                                        enabled = questionIndex < section.questions.lastIndex,
+                                        onClick = {
+                                            scope.launch {
+                                                runCatching {
+                                                    repository.reorderQuestionnaireQuestions(section.id, moveIds(section.questions.map { it.id }, questionIndex, 1))
+                                                    onRefresh()
+                                                }.onFailure { onError(it.message ?: "Unable to move question") }
+                                            }
+                                        }
+                                    ) { Text("Down") }
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                    OutlinedButton(
+                                        enabled = sectionIndex > 0,
+                                        onClick = {
+                                            scope.launch {
+                                                runCatching {
+                                                    repository.updateQuestionnaireQuestion(question.id, QuestionnaireQuestionUpdateRequest(sectionId = sections[sectionIndex - 1].id))
+                                                    onRefresh()
+                                                }.onFailure { onError(it.message ?: "Unable to move question") }
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    ) { Text("Prev section") }
+                                    OutlinedButton(
+                                        enabled = sectionIndex < sections.lastIndex,
+                                        onClick = {
+                                            scope.launch {
+                                                runCatching {
+                                                    repository.updateQuestionnaireQuestion(question.id, QuestionnaireQuestionUpdateRequest(sectionId = sections[sectionIndex + 1].id))
+                                                    onRefresh()
+                                                }.onFailure { onError(it.message ?: "Unable to move question") }
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    ) { Text("Next section") }
+                                }
+                                OutlinedButton(
+                                    onClick = {
+                                        scope.launch {
+                                            runCatching {
+                                                repository.deleteQuestionnaireQuestion(question.id)
+                                                onRefresh()
+                                            }.onFailure { onError(it.message ?: "Unable to remove question") }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("Remove question") }
                             }
-                        },
-                        enabled = newPrompt.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("Add question") }
+                        }
+
+                        TextInput("New question", newPrompt, minLines = 2) { newPrompt = it }
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    runCatching {
+                                        repository.createQuestionnaireQuestion(QuestionnaireQuestionCreateRequest(sectionId = section.id, prompt = newPrompt.trim()))
+                                        newPrompt = ""
+                                        onRefresh()
+                                    }.onFailure { onError(it.message ?: "Unable to add question") }
+                                }
+                            },
+                            enabled = newPrompt.isNotBlank(),
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Add question") }
+                    }
                 }
             }
         }
@@ -2091,28 +3934,56 @@ private fun UserManagementForm(
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(appUser.name, fontWeight = FontWeight.SemiBold)
                     Text("${appUser.email} - ${appUser.role}", color = Muted, fontSize = 12.sp)
-                    val included = appUser.role == "MASTER_ADMIN" || appUser.canManageQuestionnaire
-                    Text(
-                        if (included) "Can manage questionnaire" else "Cannot manage questionnaire",
-                        color = Body,
-                        fontSize = 12.sp
-                    )
-                    OutlinedButton(
-                        enabled = isMasterAdmin && appUser.role != "MASTER_ADMIN",
-                        onClick = {
+                    val isMaster = appUser.role == "MASTER_ADMIN"
+                    val canEditGrants = isMasterAdmin && !isMaster
+                    GrantToggleRow(
+                        label = "Questionnaire builder",
+                        granted = isMaster || appUser.canManageQuestionnaire,
+                        enabled = canEditGrants,
+                        onToggle = { grant ->
                             scope.launch {
-                                runCatching {
-                                    repository.updateUserQuestionnaireAccess(appUser.id, !appUser.canManageQuestionnaire)
-                                    refreshUsers()
-                                }.onFailure { onError(it.message ?: "Unable to update questionnaire access") }
+                                runCatching { repository.updateUserQuestionnaireAccess(appUser.id, grant); refreshUsers() }
+                                    .onFailure { onError(it.message ?: "Unable to update questionnaire access") }
                             }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(if (included) "Revoke questionnaire access" else "Grant questionnaire access")
-                    }
+                        }
+                    )
+                    GrantToggleRow(
+                        label = "Craft creation",
+                        granted = isMaster || appUser.canManageCrafts,
+                        enabled = canEditGrants,
+                        onToggle = { grant ->
+                            scope.launch {
+                                runCatching { repository.updateUserCraftAccess(appUser.id, grant); refreshUsers() }
+                                    .onFailure { onError(it.message ?: "Unable to update craft access") }
+                            }
+                        }
+                    )
+                    GrantToggleRow(
+                        label = "Workshop creation",
+                        granted = isMaster || appUser.canManageWorkshops,
+                        enabled = canEditGrants,
+                        onToggle = { grant ->
+                            scope.launch {
+                                runCatching { repository.updateUserWorkshopAccess(appUser.id, grant); refreshUsers() }
+                                    .onFailure { onError(it.message ?: "Unable to update workshop access") }
+                            }
+                        }
+                    )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun GrantToggleRow(label: String, granted: Boolean, enabled: Boolean, onToggle: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, color = Body, fontSize = 13.sp)
+            Text(if (granted) "Granted" else "Not granted", color = Muted, fontSize = 11.sp)
+        }
+        OutlinedButton(enabled = enabled, onClick = { onToggle(!granted) }) {
+            Text(if (granted) "Revoke" else "Grant")
         }
     }
 }
@@ -2140,6 +4011,48 @@ private fun TextInput(label: String, value: String, minLines: Int = 1, onValueCh
         minLines = minLines,
         modifier = Modifier.fillMaxWidth()
     )
+}
+
+/** A mandatory text field: shows a trailing asterisk and an inline error when left empty. */
+@Composable
+private fun RequiredInput(
+    label: String,
+    value: String,
+    error: String?,
+    focusRequester: FocusRequester,
+    minLines: Int = 1,
+    onValueChange: (String) -> Unit
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text("$label *") },
+        isError = error != null,
+        supportingText = error?.let { msg -> { Text(msg) } },
+        minLines = minLines,
+        modifier = Modifier
+            .fillMaxWidth()
+            .focusRequester(focusRequester)
+    )
+}
+
+/** One required field's validation hooks: whether it is blank, how to flag it, and where to focus. */
+private class RequiredCheck(
+    val isBlank: Boolean,
+    val setError: (String?) -> Unit,
+    val focus: FocusRequester
+)
+
+/**
+ * Clears prior errors, then on the first blank required field flags it, scrolls/focuses it into
+ * view, and returns false. Returns true when every required field is filled.
+ */
+private fun validateRequired(checks: List<RequiredCheck>): Boolean {
+    checks.forEach { it.setError(null) }
+    val firstMissing = checks.firstOrNull { it.isBlank } ?: return true
+    firstMissing.setError("This field cannot be empty")
+    runCatching { firstMissing.focus.requestFocus() }
+    return false
 }
 
 private fun requiredAndroidPermissions(): Array<String> {

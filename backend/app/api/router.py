@@ -7,6 +7,7 @@ from app.api.routes import (
     dashboard,
     export,
     media,
+    processes,
     products,
     questionnaire,
     review,
@@ -25,6 +26,7 @@ api_router.include_router(artisans.router)
 api_router.include_router(crafts.router)
 api_router.include_router(workshops.router)
 api_router.include_router(products.router)
+api_router.include_router(processes.router)
 api_router.include_router(tools.router)
 api_router.include_router(media.router)
 api_router.include_router(questionnaire.router)

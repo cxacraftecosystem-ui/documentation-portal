@@ -1,1198 +1,1286 @@
-﻿[
+[
     {
-        "code":  "RESP",
-        "title":  "Respondent Information",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "Name of Artisan"
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "Craft"
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "State"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "District/Village"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "Gender"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "Age"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "Educational Qualification"
-                          },
-                          {
-                              "sortOrder":  8,
-                              "prompt":  "Contact Number"
-                          },
-                          {
-                              "sortOrder":  9,
-                              "prompt":  "Years of Experience"
-                          },
-                          {
-                              "sortOrder":  10,
-                              "prompt":  "Family Members Involved"
-                          },
-                          {
-                              "sortOrder":  11,
-                              "prompt":  "Date of Interview"
-                          },
-                          {
-                              "sortOrder":  12,
-                              "prompt":  "Interviewer Name"
-                          }
-                      ]
+        "code": "RESP",
+        "title": "Respondent Information",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "Name of Artisan"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "Craft"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "State"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "District/Village"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "Gender"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "Age"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "Educational Qualification"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "Contact Number"
+            },
+            {
+                "sortOrder": 9,
+                "prompt": "Years of Experience"
+            },
+            {
+                "sortOrder": 10,
+                "prompt": "Family Members Involved"
+            },
+            {
+                "sortOrder": 11,
+                "prompt": "Date of Interview"
+            },
+            {
+                "sortOrder": 12,
+                "prompt": "Interviewer Name"
+            }
+        ]
     },
     {
-        "code":  "A",
-        "title":  "ORIGIN, HISTORY, PLACE AND PERSONAL JOURNEY",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "Can you tell us about the history and origin of your craft tradition?"
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "How did you first learn this craft and who taught you? Share your journey into this craft."
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "How long has your family or community been associated with this craft?"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "Are there any stories, legends, myths, or local memories associated with this craft?"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "How has the place where you live influenced your craft, materials, designs, or techniques?"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "Have there been any major changes in the craft over your lifetime?"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "What traditional knowledge has been lost or is disappearing?"
-                          },
-                          {
-                              "sortOrder":  8,
-                              "prompt":  "What makes your craft unique compared to similar crafts in other regions?"
-                          },
-                          {
-                              "sortOrder":  9,
-                              "prompt":  "What part of the craft\u0027s history should younger generations know? What may inspire them?"
-                          },
-                          {
-                              "sortOrder":  10,
-                              "prompt":  "What does this craft mean to you personally?"
-                          }
-                      ]
+        "code": "A",
+        "title": "ORIGIN, HISTORY, PLACE AND PERSONAL JOURNEY",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "Can you tell us about the history and origin of your craft tradition?"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "How did you first learn this craft and who taught you? Share your journey into this craft."
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "How long has your family or community been associated with this craft?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "Are there any stories, legends, myths, or local memories associated with this craft?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "How has the place where you live influenced your craft, materials, designs, or techniques?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "Have there been any major changes in the craft over your lifetime?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "What traditional knowledge has been lost or is disappearing?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "What makes your craft unique compared to similar crafts in other regions?"
+            },
+            {
+                "sortOrder": 9,
+                "prompt": "What part of the craft's history should younger generations know? What may inspire them?"
+            },
+            {
+                "sortOrder": 10,
+                "prompt": "What does this craft mean to you personally?"
+            }
+        ]
     },
     {
-        "code":  "B",
-        "title":  "FAMILY, COMMUNITY, GENDER AND KNOWLEDGE TRANSFER",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "Is this mainly a family craft, a community craft, or both? (Whole village, or scattered over different villages)"
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "Who usually learns the craft first in the family? (gender issues can be raised)"
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "How is work usually distributed among family members?"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "What roles do men and women typically perform in the craft?"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "How do children and younger family members learn the craft?"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "Are young people interested in continuing this profession? Why or why not?"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "How important is family involvement for the survival of the craft?"
-                          },
-                          {
-                              "sortOrder":  8,
-                              "prompt":  "Do artisans in your community help each other or work independently?"
-                          },
-                          {
-                              "sortOrder":  9,
-                              "prompt":  "How does formal education affect the possibility of younger generations taking up the craft? (do educated children continue?)"
-                          },
-                          {
-                              "sortOrder":  10,
-                              "prompt":  "Do women and men receive equal recognition for their work in this craft?"
-                          },
-                          {
-                              "sortOrder":  11,
-                              "prompt":  "What challenges do women artisans face?"
-                          },
-                          {
-                              "sortOrder":  12,
-                              "prompt":  "What support would encourage future generations to continue this craft?"
-                          },
-                          {
-                              "sortOrder":  13,
-                              "prompt":  "Is it becoming easier or more difficult to continue this tradition within the family?"
-                          },
-                          {
-                              "sortOrder":  14,
-                              "prompt":  "What makes it harder for young people to continue in this craft today? What can improve to motivate them?"
-                          }
-                      ]
+        "code": "B",
+        "title": "FAMILY, COMMUNITY, GENDER AND KNOWLEDGE TRANSFER",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "Is this mainly a family craft, a community craft, or both? (Whole village, or scattered over different villages)"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "Who usually learns the craft first in the family? (gender issues can be raised)"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "How is work usually distributed among family members?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "What roles do men and women typically perform in the craft?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "How do children and younger family members learn the craft?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "Are young people interested in continuing this profession? Why or why not?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "How important is family involvement for the survival of the craft?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "Do artisans in your community help each other or work independently?"
+            },
+            {
+                "sortOrder": 9,
+                "prompt": "How does formal education affect the possibility of younger generations taking up the craft? (do educated children continue?)"
+            },
+            {
+                "sortOrder": 10,
+                "prompt": "Do women and men receive equal recognition for their work in this craft?"
+            },
+            {
+                "sortOrder": 11,
+                "prompt": "What challenges do women artisans face?"
+            },
+            {
+                "sortOrder": 12,
+                "prompt": "What support would encourage future generations to continue this craft?"
+            },
+            {
+                "sortOrder": 13,
+                "prompt": "Is it becoming easier or more difficult to continue this tradition within the family?"
+            },
+            {
+                "sortOrder": 14,
+                "prompt": "What makes it harder for young people to continue in this craft today? What can improve to motivate them?"
+            }
+        ]
     },
     {
-        "code":  "C",
-        "title":  "MIGRATION, MOBILITY AND CHANGING LIVELIHOODS",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "Has your family always lived in this area or have they migrated?"
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "Have artisans migrated to other places for work or better opportunities?"
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "How has migration affected the continuity of the craft?"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "Has migration changed access to raw materials or markets?"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "Do young artisans leave the village for other jobs?"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "What occupations attract young people away from the craft?"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "Have returning migrants introduced new ideas or techniques?"
-                          },
-                          {
-                              "sortOrder":  8,
-                              "prompt":  "Has urbanization affected the craft community?"
-                          },
-                          {
-                              "sortOrder":  9,
-                              "prompt":  "How has mobility changed the way products are sold?"
-                          },
-                          {
-                              "sortOrder":  10,
-                              "prompt":  "How do you think migration will affect the future of the craft?"
-                          }
-                      ]
+        "code": "C",
+        "title": "MIGRATION, MOBILITY AND CHANGING LIVELIHOODS",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "Has your family always lived in this area or have they migrated?"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "Have artisans migrated to other places for work or better opportunities?"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "How has migration affected the continuity of the craft?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "Has migration changed access to raw materials or markets?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "Do young artisans leave the village for other jobs?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "What occupations attract young people away from the craft?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "Have returning migrants introduced new ideas or techniques?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "Has urbanization affected the craft community?"
+            },
+            {
+                "sortOrder": 9,
+                "prompt": "How has mobility changed the way products are sold?"
+            },
+            {
+                "sortOrder": 10,
+                "prompt": "How do you think migration will affect the future of the craft?"
+            }
+        ]
     },
     {
-        "code":  "D",
-        "title":  "RAW MATERIALS, PROCUREMENT AND RESOURCE SECURITY",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "What are the main raw materials used in your craft?"
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "How do you identify good-quality raw materials?"
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "Where do you obtain your raw materials?"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "Has the availability of raw materials changed over time?"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "Price of Raw Material? Have prices of raw materials increased significantly?"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "Are there seasonal variations in availability?"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "How are raw materials processed before use?"
-                          },
-                          {
-                              "sortOrder":  8,
-                              "prompt":  "What challenges do you face in obtaining good-quality materials?"
-                          },
-                          {
-                              "sortOrder":  9,
-                              "prompt":  "How does raw material quality affect the final product?"
-                          },
-                          {
-                              "sortOrder":  10,
-                              "prompt":  "What measures are needed to ensure long-term raw material availability?"
-                          }
-                      ]
+        "code": "D",
+        "title": "RAW MATERIALS, PROCUREMENT AND RESOURCE SECURITY",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "What are the main raw materials used in your craft?"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "How do you identify good-quality raw materials?"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "Where do you obtain your raw materials?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "Has the availability of raw materials changed over time?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "Price of Raw Material? Have prices of raw materials increased significantly?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "Are there seasonal variations in availability?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "How are raw materials processed before use?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "What challenges do you face in obtaining good-quality materials?"
+            },
+            {
+                "sortOrder": 9,
+                "prompt": "How does raw material quality affect the final product?"
+            },
+            {
+                "sortOrder": 10,
+                "prompt": "What measures are needed to ensure long-term raw material availability?"
+            }
+        ]
     },
     {
-        "code":  "E",
-        "title":  "PROCESS OF MAKING AND WORKFLOW",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "Please explain the complete production process from raw material selection to finished product."
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "What are the major stages involved in the process?"
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "Which stage requires the highest level of skill and why?"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "Which stage takes the most time?"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "Which stage contributes most to product quality?"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "Which stage causes the highest material wastage?"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "What are the most common mistakes made during production?"
-                          },
-                          {
-                              "sortOrder":  8,
-                              "prompt":  "How do experienced artisans identify and correct these mistakes?"
-                          },
-                          {
-                              "sortOrder":  9,
-                              "prompt":  "Which stages are physically most demanding?"
-                          },
-                          {
-                              "sortOrder":  10,
-                              "prompt":  "Which stages are most difficult for beginners to learn?"
-                          },
-                          {
-                              "sortOrder":  11,
-                              "prompt":  "Which stages have changed over the years and why?"
-                          },
-                          {
-                              "sortOrder":  12,
-                              "prompt":  "Which stages should always remain manual and why?"
-                          },
-                          {
-                              "sortOrder":  13,
-                              "prompt":  "Which stages could be mechanized without affecting authenticity?"
-                          },
-                          {
-                              "sortOrder":  14,
-                              "prompt":  "Are there any scientific principles, calculations, measurements, or traditional rules followed during production?"
-                          },
-                          {
-                              "sortOrder":  15,
-                              "prompt":  "If you could improve one stage of production, which stage would it be and how would you improve it?"
-                          }
-                      ]
+        "code": "E",
+        "title": "PROCESS OF MAKING AND WORKFLOW",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "Please explain the complete production process from raw material selection to finished product."
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "What are the major stages involved in the process?"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "Which stage requires the highest level of skill and why?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "Which stage takes the most time?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "Which stage contributes most to product quality?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "Which stage causes the highest material wastage?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "What are the most common mistakes made during production?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "How do experienced artisans identify and correct these mistakes?"
+            },
+            {
+                "sortOrder": 9,
+                "prompt": "Which stages are physically most demanding?"
+            },
+            {
+                "sortOrder": 10,
+                "prompt": "Which stages are most difficult for beginners to learn?"
+            },
+            {
+                "sortOrder": 11,
+                "prompt": "Which stages have changed over the years and why?"
+            },
+            {
+                "sortOrder": 12,
+                "prompt": "Which stages should always remain manual and why?"
+            },
+            {
+                "sortOrder": 13,
+                "prompt": "Which stages could be mechanized without affecting authenticity?"
+            },
+            {
+                "sortOrder": 14,
+                "prompt": "Are there any scientific principles, calculations, measurements, or traditional rules followed during production?"
+            },
+            {
+                "sortOrder": 15,
+                "prompt": "If you could improve one stage of production, which stage would it be and how would you improve it?"
+            }
+        ]
     },
     {
-        "code":  "F",
-        "title":  "TOOLS, EQUIPMENT, DCH/STATE SUPPORT,ERGONOMICS AND TECHNOLOGICAL IMPROVEMENT",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "What are the major tools used in your craft?"
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "Which tools are traditional and which are modern?"
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "Which tools are most essential for maintaining product quality?"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "Which tools require the highest skill to operate?"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "Which tools are used most frequently during production?"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "Which tools cause the greatest physical strain or discomfort?"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "Do artisans experience pain in the hands, wrists, shoulders, back, neck, knees, or eyes due to prolonged tool use?"
-                          },
-                          {
-                              "sortOrder":  8,
-                              "prompt":  "Which tools are considered unsafe or prone to causing injuries?"
-                          },
-                          {
-                              "sortOrder":  9,
-                              "prompt":  "How are tools maintained, sharpened, or repaired?"
-                          },
-                          {
-                              "sortOrder":  10,
-                              "prompt":  "Have tool designs changed over time?"
-                          },
-                          {
-                              "sortOrder":  11,
-                              "prompt":  "If existing tools could be redesigned, what changes would make them easier, safer, faster, or more comfortable to use?"
-                          },
-                          {
-                              "sortOrder":  12,
-                              "prompt":  "Are there any tools that you wish existed but are currently unavailable?"
-                          },
-                          {
-                              "sortOrder":  13,
-                              "prompt":  "Which tasks consume the most time because of tool limitations?"
-                          },
-                          {
-                              "sortOrder":  14,
-                              "prompt":  "How can technology improve productivity while preserving craftsmanship?"
-                          },
-                          {
-                              "sortOrder":  15,
-                              "prompt":  "If engineers were to develop improved tools for your craft, what features should they prioritize?"
-                          },
-                          {
-                              "sortOrder":  16,
-                              "prompt":  "Have you received any support from the Development Commissioner (Handicrafts), the State, or other agencies regarding tools, training, or technology?"
-                          }
-                      ]
+        "code": "F",
+        "title": "TOOLS, EQUIPMENT, DCH/STATE SUPPORT,ERGONOMICS AND TECHNOLOGICAL IMPROVEMENT",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "What are the major tools used in your craft?"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "Which tools are traditional and which are modern?"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "Which tools are most essential for maintaining product quality?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "Which tools require the highest skill to operate?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "Which tools are used most frequently during production?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "Which tools cause the greatest physical strain or discomfort?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "Do artisans experience pain in the hands, wrists, shoulders, back, neck, knees, or eyes due to prolonged tool use?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "Which tools are considered unsafe or prone to causing injuries?"
+            },
+            {
+                "sortOrder": 9,
+                "prompt": "How are tools maintained, sharpened, or repaired?"
+            },
+            {
+                "sortOrder": 10,
+                "prompt": "Have tool designs changed over time?"
+            },
+            {
+                "sortOrder": 11,
+                "prompt": "If existing tools could be redesigned, what changes would make them easier, safer, faster, or more comfortable to use?"
+            },
+            {
+                "sortOrder": 12,
+                "prompt": "Are there any tools that you wish existed but are currently unavailable?"
+            },
+            {
+                "sortOrder": 13,
+                "prompt": "Which tasks consume the most time because of tool limitations?"
+            },
+            {
+                "sortOrder": 14,
+                "prompt": "How can technology improve productivity while preserving craftsmanship?"
+            },
+            {
+                "sortOrder": 15,
+                "prompt": "If engineers were to develop improved tools for your craft, what features should they prioritize?"
+            },
+            {
+                "sortOrder": 16,
+                "prompt": "Have you received any support from the Development Commissioner (Handicrafts), the State, or other agencies regarding tools, training, or technology?"
+            }
+        ]
     },
     {
-        "code":  "G",
-        "title":  "SCIENCE, INDIGENOUS KNOWLEDGE AND TECHNOLOGY OF THE CRAFT",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "What traditional knowledge is essential for practicing this craft successfully?"
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "How do artisans determine the quality of raw materials?"
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "Are there specific measurements, proportions, or calculations followed?"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "How do artisans judge moisture, strength, flexibility, hardness, or suitability of materials?"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "What traditional techniques improve durability and longevity?"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "Are there any weather-related considerations during production?"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "How do temperature, humidity, or seasonal conditions affect the craft?"
-                          },
-                          {
-                              "sortOrder":  8,
-                              "prompt":  "What scientific principles do you think unknowingly operate within the craft?"
-                          },
-                          {
-                              "sortOrder":  9,
-                              "prompt":  "How do artisans solve technical problems during production?"
-                          },
-                          {
-                              "sortOrder":  10,
-                              "prompt":  "Have modern technologies influenced the craft?"
-                          },
-                          {
-                              "sortOrder":  11,
-                              "prompt":  "Which traditional practices are scientifically effective?"
-                          },
-                          {
-                              "sortOrder":  12,
-                              "prompt":  "Are there any local innovations developed by artisans themselves?"
-                          },
-                          {
-                              "sortOrder":  13,
-                              "prompt":  "What technical knowledge is at risk of disappearing?"
-                          },
-                          {
-                              "sortOrder":  14,
-                              "prompt":  "What aspects should researchers document before they are lost?"
-                          },
-                          {
-                              "sortOrder":  15,
-                              "prompt":  "How can scientific research support the future of this craft?"
-                          }
-                      ]
+        "code": "G",
+        "title": "SCIENCE, INDIGENOUS KNOWLEDGE AND TECHNOLOGY OF THE CRAFT",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "What traditional knowledge is essential for practicing this craft successfully?"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "How do artisans determine the quality of raw materials?"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "Are there specific measurements, proportions, or calculations followed?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "How do artisans judge moisture, strength, flexibility, hardness, or suitability of materials?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "What traditional techniques improve durability and longevity?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "Are there any weather-related considerations during production?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "How do temperature, humidity, or seasonal conditions affect the craft?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "What scientific principles do you think unknowingly operate within the craft?"
+            },
+            {
+                "sortOrder": 9,
+                "prompt": "How do artisans solve technical problems during production?"
+            },
+            {
+                "sortOrder": 10,
+                "prompt": "Have modern technologies influenced the craft?"
+            },
+            {
+                "sortOrder": 11,
+                "prompt": "Which traditional practices are scientifically effective?"
+            },
+            {
+                "sortOrder": 12,
+                "prompt": "Are there any local innovations developed by artisans themselves?"
+            },
+            {
+                "sortOrder": 13,
+                "prompt": "What technical knowledge is at risk of disappearing?"
+            },
+            {
+                "sortOrder": 14,
+                "prompt": "What aspects should researchers document before they are lost?"
+            },
+            {
+                "sortOrder": 15,
+                "prompt": "How can scientific research support the future of this craft?"
+            }
+        ]
     },
     {
-        "code":  "H",
-        "title":  "ECONOMICS: MARKET, SALES, PROFIT, THREATS, AND CHALLENGES:INCOME AND LIVELIHOOD",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "What are your major sources of income?"
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "How much does the craft contribute to household income?"
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "What are the main ways through which you sell your work?"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "Do you mostly sell locally, through exhibitions, middlemen, government fairs, private buyers, or online?"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "What kind of products sell the most, and why?"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "How do you decide the price of a piece?"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "What are the biggest costs involved in your work today?"
-                          },
-                          {
-                              "sortOrder":  8,
-                              "prompt":  "Where do you lose the most value — raw material, labour, transport, middlemen, delayed payments, or market access?"
-                          },
-                          {
-                              "sortOrder":  9,
-                              "prompt":  "Has the market for your craft changed in recent years? In what ways?"
-                          },
-                          {
-                              "sortOrder":  10,
-                              "prompt":  "What are the major costs involved in production?"
-                          },
-                          {
-                              "sortOrder":  11,
-                              "prompt":  "Which products are most profitable?"
-                          },
-                          {
-                              "sortOrder":  12,
-                              "prompt":  "How stable is income throughout the year?"
-                          },
-                          {
-                              "sortOrder":  13,
-                              "prompt":  "Which season provides the highest sales?"
-                          },
-                          {
-                              "sortOrder":  14,
-                              "prompt":  "Have earnings improved or declined over time?"
-                          },
-                          {
-                              "sortOrder":  15,
-                              "prompt":  "What financial challenges do artisans face?"
-                          },
-                          {
-                              "sortOrder":  16,
-                              "prompt":  "What economic changes would most improve artisan livelihoods?"
-                          },
-                          {
-                              "sortOrder":  17,
-                              "prompt":  "Do women artisans face any different economic challenges in this craft?"
-                          },
-                          {
-                              "sortOrder":  18,
-                              "prompt":  "What kinds of support would improve income the most: better tools, design inputs, direct market access, online sales, training, credit, or raw material support?"
-                          }
-                      ]
+        "code": "H",
+        "title": "ECONOMICS: MARKET, SALES, PROFIT, THREATS, AND CHALLENGES:INCOME AND LIVELIHOOD",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "What are your major sources of income?"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "How much does the craft contribute to household income?"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "What are the main ways through which you sell your work?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "Do you mostly sell locally, through exhibitions, middlemen, government fairs, private buyers, or online?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "What kind of products sell the most, and why?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "How do you decide the price of a piece?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "What are the biggest costs involved in your work today?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "Where do you lose the most value — raw material, labour, transport, middlemen, delayed payments, or market access?"
+            },
+            {
+                "sortOrder": 9,
+                "prompt": "Has the market for your craft changed in recent years? In what ways?"
+            },
+            {
+                "sortOrder": 10,
+                "prompt": "What are the major costs involved in production?"
+            },
+            {
+                "sortOrder": 11,
+                "prompt": "Which products are most profitable?"
+            },
+            {
+                "sortOrder": 12,
+                "prompt": "How stable is income throughout the year?"
+            },
+            {
+                "sortOrder": 13,
+                "prompt": "Which season provides the highest sales?"
+            },
+            {
+                "sortOrder": 14,
+                "prompt": "Have earnings improved or declined over time?"
+            },
+            {
+                "sortOrder": 15,
+                "prompt": "What financial challenges do artisans face?"
+            },
+            {
+                "sortOrder": 16,
+                "prompt": "What economic changes would most improve artisan livelihoods?"
+            },
+            {
+                "sortOrder": 17,
+                "prompt": "Do women artisans face any different economic challenges in this craft?"
+            },
+            {
+                "sortOrder": 18,
+                "prompt": "What kinds of support would improve income the most: better tools, design inputs, direct market access, online sales, training, credit, or raw material support?"
+            }
+        ]
     },
     {
-        "code":  "I",
-        "title":  "MARKETING, VALUE CHAINS AND DIGITAL COMMERCE",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "How do customers usually learn about your products?"
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "What are the main channels through which products are sold?"
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "What role do middlemen play in marketing?"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "What advantages do middlemen provide?"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "What disadvantages do middlemen create?"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "How much control do artisans have over product pricing?"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "What factors influence the selling price?"
-                          },
-                          {
-                              "sortOrder":  8,
-                              "prompt":  "Which products are easiest to sell?"
-                          },
-                          {
-                              "sortOrder":  9,
-                              "prompt":  "Which products have declining demand?"
-                          },
-                          {
-                              "sortOrder":  10,
-                              "prompt":  "Have customer preferences changed over time?"
-                          },
-                          {
-                              "sortOrder":  11,
-                              "prompt":  "Do you use social media, WhatsApp, websites, or e-commerce platforms?"
-                          },
-                          {
-                              "sortOrder":  12,
-                              "prompt":  "What challenges do artisans face while selling online?"
-                          },
-                          {
-                              "sortOrder":  13,
-                              "prompt":  "How can digital marketing improve artisan incomes?"
-                          },
-                          {
-                              "sortOrder":  14,
-                              "prompt":  "If artisans could sell directly to consumers without middlemen, how would that affect the craft?"
-                          },
-                          {
-                              "sortOrder":  15,
-                              "prompt":  "What marketing support would most improve sales and visibility?"
-                          }
-                      ]
+        "code": "I",
+        "title": "MARKETING, VALUE CHAINS AND DIGITAL COMMERCE",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "How do customers usually learn about your products?"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "What are the main channels through which products are sold?"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "What role do middlemen play in marketing?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "What advantages do middlemen provide?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "What disadvantages do middlemen create?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "How much control do artisans have over product pricing?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "What factors influence the selling price?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "Which products are easiest to sell?"
+            },
+            {
+                "sortOrder": 9,
+                "prompt": "Which products have declining demand?"
+            },
+            {
+                "sortOrder": 10,
+                "prompt": "Have customer preferences changed over time?"
+            },
+            {
+                "sortOrder": 11,
+                "prompt": "Do you use social media, WhatsApp, websites, or e-commerce platforms?"
+            },
+            {
+                "sortOrder": 12,
+                "prompt": "What challenges do artisans face while selling online?"
+            },
+            {
+                "sortOrder": 13,
+                "prompt": "How can digital marketing improve artisan incomes?"
+            },
+            {
+                "sortOrder": 14,
+                "prompt": "If artisans could sell directly to consumers without middlemen, how would that affect the craft?"
+            },
+            {
+                "sortOrder": 15,
+                "prompt": "What marketing support would most improve sales and visibility?"
+            }
+        ]
     },
     {
-        "code":  "J",
-        "title":  "DIGITAL TECHNOLOGY, AI AND FUTURE PLATFORMS",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "What kinds of phones or digital devices do you use in your daily life and work?"
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "How comfortable are you with using smartphones and the internet?"
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "What do you usually use your phone for in relation to your craft?"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "Do you search for materials, markets, videos, or designs online? If yes, how?"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "Have you ever used government portals, registration systems, or online applications related to your craft?"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "If not, what prevents you from using them more — language, confidence, poor internet, lack of time, or complexity?"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "Which language do you prefer when using a phone or digital platform?"
-                          },
-                          {
-                              "sortOrder":  8,
-                              "prompt":  "Do you prefer reading, watching videos, listening to audio, or using voice-based search?"
-                          },
-                          {
-                              "sortOrder":  9,
-                              "prompt":  "Would local-language, video-based, or voice-based support make digital systems easier for you?"
-                          },
-                          {
-                              "sortOrder":  10,
-                              "prompt":  "What kind of digital help would be easiest and most useful for you — sales, design reference, training, applications, complaints, or communication?"
-                          },
-                          {
-                              "sortOrder":  11,
-                              "prompt":  "Do younger family members help with digital work related to the craft? In what ways?"
-                          },
-                          {
-                              "sortOrder":  12,
-                              "prompt":  "Would online training programs help artisans?"
-                          },
-                          {
-                              "sortOrder":  13,
-                              "prompt":  "How can AI support artisans without replacing creativity?"
-                          },
-                          {
-                              "sortOrder":  14,
-                              "prompt":  "What concerns do you have regarding AI and automation?"
-                          },
-                          {
-                              "sortOrder":  15,
-                              "prompt":  "What features should an ideal artisan portal include?"
-                          },
-                          {
-                              "sortOrder":  16,
-                              "prompt":  "What should technology never replace in your craft?"
-                          }
-                      ]
+        "code": "J",
+        "title": "DIGITAL TECHNOLOGY, AI AND FUTURE PLATFORMS",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "What kinds of phones or digital devices do you use in your daily life and work?"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "How comfortable are you with using smartphones and the internet?"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "What do you usually use your phone for in relation to your craft?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "Do you search for materials, markets, videos, or designs online? If yes, how?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "Have you ever used government portals, registration systems, or online applications related to your craft?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "If not, what prevents you from using them more — language, confidence, poor internet, lack of time, or complexity?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "Which language do you prefer when using a phone or digital platform?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "Do you prefer reading, watching videos, listening to audio, or using voice-based search?"
+            },
+            {
+                "sortOrder": 9,
+                "prompt": "Would local-language, video-based, or voice-based support make digital systems easier for you?"
+            },
+            {
+                "sortOrder": 10,
+                "prompt": "What kind of digital help would be easiest and most useful for you — sales, design reference, training, applications, complaints, or communication?"
+            },
+            {
+                "sortOrder": 11,
+                "prompt": "Do younger family members help with digital work related to the craft? In what ways?"
+            },
+            {
+                "sortOrder": 12,
+                "prompt": "Would online training programs help artisans?"
+            },
+            {
+                "sortOrder": 13,
+                "prompt": "How can AI support artisans without replacing creativity?"
+            },
+            {
+                "sortOrder": 14,
+                "prompt": "What concerns do you have regarding AI and automation?"
+            },
+            {
+                "sortOrder": 15,
+                "prompt": "What features should an ideal artisan portal include?"
+            },
+            {
+                "sortOrder": 16,
+                "prompt": "What should technology never replace in your craft?"
+            }
+        ]
     },
     {
-        "code":  "K",
-        "title":  "SUSTAINABILITY, ENVIRONMENT, POLLUTION AND WASTE MANAGEMENT",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "What types of waste are generated during production?"
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "How is waste currently managed?"
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "Can waste materials be reused or recycled?"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "Are there traditional methods of waste utilization?"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "Does production create smoke, dust, or pollution?"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "How are these environmental impacts managed?"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "Has climate change affected production or raw materials?"
-                          },
-                          {
-                              "sortOrder":  8,
-                              "prompt":  "Are artisans concerned about environmental sustainability?"
-                          },
-                          {
-                              "sortOrder":  9,
-                              "prompt":  "What sustainable practices are already followed?"
-                          },
-                          {
-                              "sortOrder":  10,
-                              "prompt":  "What environmental improvements would help without affecting tradition?"
-                          }
-                      ]
+        "code": "K",
+        "title": "SUSTAINABILITY, ENVIRONMENT, POLLUTION AND WASTE MANAGEMENT",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "What types of waste are generated during production?"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "How is waste currently managed?"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "Can waste materials be reused or recycled?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "Are there traditional methods of waste utilization?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "Does production create smoke, dust, or pollution?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "How are these environmental impacts managed?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "Has climate change affected production or raw materials?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "Are artisans concerned about environmental sustainability?"
+            },
+            {
+                "sortOrder": 9,
+                "prompt": "What sustainable practices are already followed?"
+            },
+            {
+                "sortOrder": 10,
+                "prompt": "What environmental improvements would help without affecting tradition?"
+            }
+        ]
     },
     {
-        "code":  "L",
-        "title":  "RITUALS, BELIEFS AND INTANGIBLE HERITAGE",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "Are there rituals performed before beginning work?"
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "Do artisans worship any deity associated with the craft?"
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "Are there auspicious days for starting production?"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "Are there festivals connected with the craft?"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "Do designs have religious or cultural meanings?"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "Are there taboos associated with the craft?"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "Are prayers offered before major orders or exhibitions?"
-                          },
-                          {
-                              "sortOrder":  8,
-                              "prompt":  "How are traditions passed to younger generations?"
-                          },
-                          {
-                              "sortOrder":  9,
-                              "prompt":  "Have any rituals disappeared over time?"
-                          },
-                          {
-                              "sortOrder":  10,
-                              "prompt":  "How important are these beliefs to the identity of the craft?"
-                          }
-                      ]
+        "code": "L",
+        "title": "RITUALS, BELIEFS AND INTANGIBLE HERITAGE",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "Are there rituals performed before beginning work?"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "Do artisans worship any deity associated with the craft?"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "Are there auspicious days for starting production?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "Are there festivals connected with the craft?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "Do designs have religious or cultural meanings?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "Are there taboos associated with the craft?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "Are prayers offered before major orders or exhibitions?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "How are traditions passed to younger generations?"
+            },
+            {
+                "sortOrder": 9,
+                "prompt": "Have any rituals disappeared over time?"
+            },
+            {
+                "sortOrder": 10,
+                "prompt": "How important are these beliefs to the identity of the craft?"
+            }
+        ]
     },
     {
-        "code":  "M",
-        "title":  "HEALTH, OCCUPATIONAL HAZARDS AND REASONS FOR LEAVING THE CRAFT",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "What health problems are commonly faced by artisans?"
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "Which activities cause the most physical strain?"
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "Do you experience pain, injuries, or long-term health issues?"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "Are protective measures used during work?"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "How does age affect your ability to continue the craft?"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "Why are young people leaving the profession?"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "Is income a major reason for leaving?"
-                          },
-                          {
-                              "sortOrder":  8,
-                              "prompt":  "Are health-related issues forcing artisans to quit?"
-                          },
-                          {
-                              "sortOrder":  9,
-                              "prompt":  "What improvements would encourage artisans to continue?"
-                          },
-                          {
-                              "sortOrder":  10,
-                              "prompt":  "What can government and society do to prevent decline of the craft?"
-                          }
-                      ]
+        "code": "M",
+        "title": "HEALTH, OCCUPATIONAL HAZARDS AND REASONS FOR LEAVING THE CRAFT",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "What health problems are commonly faced by artisans?"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "Which activities cause the most physical strain?"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "Do you experience pain, injuries, or long-term health issues?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "Are protective measures used during work?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "How does age affect your ability to continue the craft?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "Why are young people leaving the profession?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "Is income a major reason for leaving?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "Are health-related issues forcing artisans to quit?"
+            },
+            {
+                "sortOrder": 9,
+                "prompt": "What improvements would encourage artisans to continue?"
+            },
+            {
+                "sortOrder": 10,
+                "prompt": "What can government and society do to prevent decline of the craft?"
+            }
+        ]
     },
     {
-        "code":  "N",
-        "title":  "TRAINING, SKILL DEVELOPMENT AND FUTURE OF THE CRAFT",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "How are new artisans trained?"
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "How long does it take to become skilled?"
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "Which skills are most difficult to learn?"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "Are formal training programs available?"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "What kind of training is currently missing?"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "Would digital learning resources help?"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "What is your vision for the future of this craft?"
-                          }
-                      ]
+        "code": "N",
+        "title": "TRAINING, SKILL DEVELOPMENT AND FUTURE OF THE CRAFT",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "How are new artisans trained?"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "How long does it take to become skilled?"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "Which skills are most difficult to learn?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "Are formal training programs available?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "What kind of training is currently missing?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "Would digital learning resources help?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "What is your vision for the future of this craft?"
+            }
+        ]
     },
     {
-        "code":  "O",
-        "title":  "STORYTELLING, VISITOR INTERACTION AND COMMUNICATION CHALLENGES",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "How do you explain your craft to visitors?"
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "What questions do visitors ask most often?"
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "Do language barriers affect communication with visitors?"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "Have you interacted with foreign tourists or buyers?"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "What difficulties do you face while explaining your craft to them?"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "Do visitors understand the labour and skill involved?"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "Are there stories behind your products that customers often miss?"
-                          },
-                          {
-                              "sortOrder":  8,
-                              "prompt":  "Do you feel products are undervalued because their stories are not known?"
-                          },
-                          {
-                              "sortOrder":  9,
-                              "prompt":  "Would brochures, videos, QR codes, or audio guides help communicate the craft?"
-                          },
-                          {
-                              "sortOrder":  10,
-                              "prompt":  "What story about your craft would you most like every visitor to hear?"
-                          },
-                          {
-                              "sortOrder":  11,
-                              "prompt":  "Would multilingual audio guides help communicate your knowledge?"
-                          },
-                          {
-                              "sortOrder":  12,
-                              "prompt":  "Would QR-code-based storytelling improve customer engagement?"
-                          },
-                          {
-                              "sortOrder":  13,
-                              "prompt":  "How can artisans better communicate the cultural value of their products to international audiences?"
-                          }
-                      ]
+        "code": "O",
+        "title": "STORYTELLING, VISITOR INTERACTION AND COMMUNICATION CHALLENGES",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "How do you explain your craft to visitors?"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "What questions do visitors ask most often?"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "Do language barriers affect communication with visitors?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "Have you interacted with foreign tourists or buyers?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "What difficulties do you face while explaining your craft to them?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "Do visitors understand the labour and skill involved?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "Are there stories behind your products that customers often miss?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "Do you feel products are undervalued because their stories are not known?"
+            },
+            {
+                "sortOrder": 9,
+                "prompt": "Would brochures, videos, QR codes, or audio guides help communicate the craft?"
+            },
+            {
+                "sortOrder": 10,
+                "prompt": "What story about your craft would you most like every visitor to hear?"
+            },
+            {
+                "sortOrder": 11,
+                "prompt": "Would multilingual audio guides help communicate your knowledge?"
+            },
+            {
+                "sortOrder": 12,
+                "prompt": "Would QR-code-based storytelling improve customer engagement?"
+            },
+            {
+                "sortOrder": 13,
+                "prompt": "How can artisans better communicate the cultural value of their products to international audiences?"
+            }
+        ]
     },
     {
-        "code":  "P",
-        "title":  "DESIGNS, MOTIFS, INNOVATION, RECOGNITION",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "What are the main motifs, patterns, or design types used in your craft?"
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "How do you learn and remember these motifs?"
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "Approximately how many motifs, forms, or recurring design types do you use regularly?"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "How do new motifs or new designs emerge in your work?"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "What does innovation mean to you within your craft tradition?"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "How do you balance tradition and new ideas?"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "What kinds of new designs do customers ask for?"
-                          },
-                          {
-                              "sortOrder":  8,
-                              "prompt":  "When does innovation feel useful, and when does it feel harmful to tradition?"
-                          },
-                          {
-                              "sortOrder":  9,
-                              "prompt":  "Would you like support in developing new products or motifs while preserving the identity of the craft?"
-                          },
-                          {
-                              "sortOrder":  10,
-                              "prompt":  "What kinds of innovations should come from artisans themselves rather than outsiders?"
-                          },
-                          {
-                              "sortOrder":  11,
-                              "prompt":  "Have buyers, markets, exhibitions, or designers influenced your designs? In what ways?"
-                          },
-                          {
-                              "sortOrder":  12,
-                              "prompt":  "What kinds of work or qualities do you think lead to State or National recognition?"
-                          },
-                          {
-                              "sortOrder":  13,
-                              "prompt":  "In your view, what makes one artisan’s work stand out from another’s?"
-                          },
-                          {
-                              "sortOrder":  14,
-                              "prompt":  "You have design training with designers. How do they help you? Do they bring in designs that are very different from the tradition?"
-                          }
-                      ]
+        "code": "P",
+        "title": "DESIGNS, MOTIFS, INNOVATION, RECOGNITION",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "What are the main motifs, patterns, or design types used in your craft?"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "How do you learn and remember these motifs?"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "Approximately how many motifs, forms, or recurring design types do you use regularly?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "How do new motifs or new designs emerge in your work?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "What does innovation mean to you within your craft tradition?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "How do you balance tradition and new ideas?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "What kinds of new designs do customers ask for?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "When does innovation feel useful, and when does it feel harmful to tradition?"
+            },
+            {
+                "sortOrder": 9,
+                "prompt": "Would you like support in developing new products or motifs while preserving the identity of the craft?"
+            },
+            {
+                "sortOrder": 10,
+                "prompt": "What kinds of innovations should come from artisans themselves rather than outsiders?"
+            },
+            {
+                "sortOrder": 11,
+                "prompt": "Have buyers, markets, exhibitions, or designers influenced your designs? In what ways?"
+            },
+            {
+                "sortOrder": 12,
+                "prompt": "What kinds of work or qualities do you think lead to State or National recognition?"
+            },
+            {
+                "sortOrder": 13,
+                "prompt": "In your view, what makes one artisan’s work stand out from another’s?"
+            },
+            {
+                "sortOrder": 14,
+                "prompt": "You have design training with designers. How do they help you? Do they bring in designs that are very different from the tradition?"
+            }
+        ]
     },
     {
-        "code":  "Q",
-        "title":  "PORTAL DEVELOPMENT, AI-ENABLED INPUTS, INTERFACES, NETWORKING, AND GRIEVANCES",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "If there were a good online platform made for artisans, what should it ideally help you do first?"
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "Would you find it useful to have a place to showcase your work and tell the story behind it?"
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "What kind of design inspiration or reference support would help you most?"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "Would it be useful to connect with artisans from other regions through such a platform? Why?"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "What kind of communication with DCH or other agencies would you like to make easier online?"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "Would a system for complaints, suggestions, requests, or feedback be useful? What should it include?"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "What kind of information about tools, materials, markets, or training should such a platform provide?"
-                          },
-                          {
-                              "sortOrder":  8,
-                              "prompt":  "If a platform could give ideas without replacing your creativity, what kind of AI-based support would you welcome?"
-                          },
-                          {
-                              "sortOrder":  9,
-                              "prompt":  "Would image-based search, voice input, translation, local-language interfaces, or simple design suggestions be helpful?"
-                          },
-                          {
-                              "sortOrder":  10,
-                              "prompt":  "Would you use a platform that helps you connect to markets, buyers, exhibitions, and training opportunities?"
-                          },
-                          {
-                              "sortOrder":  11,
-                              "prompt":  "What should such a system never do, so that the dignity, originality, and ownership of the craft remain protected?"
-                          },
-                          {
-                              "sortOrder":  12,
-                              "prompt":  "Are there any fears or concerns you would have about AI or digital systems entering craft practice?"
-                          }
-                      ]
+        "code": "Q",
+        "title": "PORTAL DEVELOPMENT, AI-ENABLED INPUTS, INTERFACES, NETWORKING, AND GRIEVANCES",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "If there were a good online platform made for artisans, what should it ideally help you do first?"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "Would you find it useful to have a place to showcase your work and tell the story behind it?"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "What kind of design inspiration or reference support would help you most?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "Would it be useful to connect with artisans from other regions through such a platform? Why?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "What kind of communication with DCH or other agencies would you like to make easier online?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "Would a system for complaints, suggestions, requests, or feedback be useful? What should it include?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "What kind of information about tools, materials, markets, or training should such a platform provide?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "If a platform could give ideas without replacing your creativity, what kind of AI-based support would you welcome?"
+            },
+            {
+                "sortOrder": 9,
+                "prompt": "Would image-based search, voice input, translation, local-language interfaces, or simple design suggestions be helpful?"
+            },
+            {
+                "sortOrder": 10,
+                "prompt": "Would you use a platform that helps you connect to markets, buyers, exhibitions, and training opportunities?"
+            },
+            {
+                "sortOrder": 11,
+                "prompt": "What should such a system never do, so that the dignity, originality, and ownership of the craft remain protected?"
+            },
+            {
+                "sortOrder": 12,
+                "prompt": "Are there any fears or concerns you would have about AI or digital systems entering craft practice?"
+            }
+        ]
     },
     {
-        "code":  "R",
-        "title":  "ONLINE DISSEMINATION, STORYTELLING, CHILDREN, RESILIENCE, AND SURVIVAL OF THE CRAFT",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "What stories about your craft do you think should be shared with the wider public?"
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "Are there moments from your life or work that could inspire children and young people?"
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "What kinds of simple videos, stories, or demonstrations would help others understand the value of your craft?"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "What struggles have you faced in continuing this work?"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "What has helped you persist despite difficulties?"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "Are there stories of success, resilience, recognition, or community support that should be recorded and shared?"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "What message would you like to give to the younger generation about craft and handwork?"
-                          },
-                          {
-                              "sortOrder":  8,
-                              "prompt":  "What kinds of stories would make children and young people respect this craft more?"
-                          },
-                          {
-                              "sortOrder":  9,
-                              "prompt":  "What do you think needs to happen for this craft to survive and flourish in the future?"
-                          },
-                          {
-                              "sortOrder":  10,
-                              "prompt":  "What one support system is most needed for the survival of this craft?"
-                          },
-                          {
-                              "sortOrder":  11,
-                              "prompt":  "If the whole country were to hear one thing from you about your craft, what would you want to say?"
-                          }
-                      ]
+        "code": "R",
+        "title": "ONLINE DISSEMINATION, STORYTELLING, CHILDREN, RESILIENCE, AND SURVIVAL OF THE CRAFT",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "What stories about your craft do you think should be shared with the wider public?"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "Are there moments from your life or work that could inspire children and young people?"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "What kinds of simple videos, stories, or demonstrations would help others understand the value of your craft?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "What struggles have you faced in continuing this work?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "What has helped you persist despite difficulties?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "Are there stories of success, resilience, recognition, or community support that should be recorded and shared?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "What message would you like to give to the younger generation about craft and handwork?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "What kinds of stories would make children and young people respect this craft more?"
+            },
+            {
+                "sortOrder": 9,
+                "prompt": "What do you think needs to happen for this craft to survive and flourish in the future?"
+            },
+            {
+                "sortOrder": 10,
+                "prompt": "What one support system is most needed for the survival of this craft?"
+            },
+            {
+                "sortOrder": 11,
+                "prompt": "If the whole country were to hear one thing from you about your craft, what would you want to say?"
+            }
+        ]
     },
     {
-        "code":  "S",
-        "title":  "THE SCIENCE BEHIND THE CRAFT: PROBING QUESTIONS",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "How do you know that a particular wood, bamboo, or other material is right for this work? What signs do you look for?"
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "What differences do you notice between one material and another in terms of strength, softness, grain, flexibility, weight, or durability?"
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "How do weather, moisture, humidity, or temperature affect the material and the making process?"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "How do you know when the material is properly dried, seasoned, or ready to use?"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "What happens if the material is too wet, too dry, too old, or of poor quality?"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "Which stages of the process require the most precision, and why?"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "How do you judge thickness, balance, proportion, fit, or symmetry while making an object?"
-                          },
-                          {
-                              "sortOrder":  8,
-                              "prompt":  "What makes a finished piece strong, durable, smooth, or long-lasting?"
-                          },
-                          {
-                              "sortOrder":  9,
-                              "prompt":  "What are the most common reasons why a piece cracks, bends, warps, loosens, or fails over time?"
-                          },
-                          {
-                              "sortOrder":  10,
-                              "prompt":  "How do different tools affect the material differently during the process?"
-                          },
-                          {
-                              "sortOrder":  11,
-                              "prompt":  "Are there any sounds, touch sensations, colours, smells, or visual signs that tell you the material is behaving properly or improperly?"
-                          },
-                          {
-                              "sortOrder":  12,
-                              "prompt":  "Are there areas where scientific testing or technical support could help improve the craft without harming tradition?"
-                          }
-                      ]
+        "code": "S",
+        "title": "THE SCIENCE BEHIND THE CRAFT: PROBING QUESTIONS",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "How do you know that a particular wood, bamboo, or other material is right for this work? What signs do you look for?"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "What differences do you notice between one material and another in terms of strength, softness, grain, flexibility, weight, or durability?"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "How do weather, moisture, humidity, or temperature affect the material and the making process?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "How do you know when the material is properly dried, seasoned, or ready to use?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "What happens if the material is too wet, too dry, too old, or of poor quality?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "Which stages of the process require the most precision, and why?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "How do you judge thickness, balance, proportion, fit, or symmetry while making an object?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "What makes a finished piece strong, durable, smooth, or long-lasting?"
+            },
+            {
+                "sortOrder": 9,
+                "prompt": "What are the most common reasons why a piece cracks, bends, warps, loosens, or fails over time?"
+            },
+            {
+                "sortOrder": 10,
+                "prompt": "How do different tools affect the material differently during the process?"
+            },
+            {
+                "sortOrder": 11,
+                "prompt": "Are there any sounds, touch sensations, colours, smells, or visual signs that tell you the material is behaving properly or improperly?"
+            },
+            {
+                "sortOrder": 12,
+                "prompt": "Are there areas where scientific testing or technical support could help improve the craft without harming tradition?"
+            }
+        ]
     },
     {
-        "code":  "T",
-        "title":  "GI TAG, RECOGNITION, CERTIFICATION AND AUTHENTICITY",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "Is your craft covered under a Geographical Indication (GI) tag?"
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "What benefits has the GI tag provided to artisans?"
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "Are artisans aware of the GI registration and its importance?"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "Has the GI tag increased market value or recognition?"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "What challenges exist in utilizing GI benefits?"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "How can GI protection help preserve traditional knowledge?"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "Are counterfeit or imitation products affecting your market?"
-                          },
-                          {
-                              "sortOrder":  8,
-                              "prompt":  "What additional certification or branding support would help artisans?"
-                          }
-                      ]
+        "code": "T",
+        "title": "GI TAG, RECOGNITION, CERTIFICATION AND AUTHENTICITY",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "Is your craft covered under a Geographical Indication (GI) tag?"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "What benefits has the GI tag provided to artisans?"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "Are artisans aware of the GI registration and its importance?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "Has the GI tag increased market value or recognition?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "What challenges exist in utilizing GI benefits?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "How can GI protection help preserve traditional knowledge?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "Are counterfeit or imitation products affecting your market?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "What additional certification or branding support would help artisans?"
+            }
+        ]
     },
     {
-        "code":  "U",
-        "title":  "AWARDS, RECOGNITION AND INSTITUTIONAL SUPPORT",
-        "questions":  [
-                          {
-                              "sortOrder":  1,
-                              "prompt":  "Have you received any awards, honors, or recognition for your work?"
-                          },
-                          {
-                              "sortOrder":  2,
-                              "prompt":  "What was the significance of those recognitions?"
-                          },
-                          {
-                              "sortOrder":  3,
-                              "prompt":  "Are there artisans in your community who have received national or state awards?"
-                          },
-                          {
-                              "sortOrder":  4,
-                              "prompt":  "What role do government institutions play in supporting artisans?"
-                          },
-                          {
-                              "sortOrder":  5,
-                              "prompt":  "What support have you received from NGOs, universities, or research institutions?"
-                          },
-                          {
-                              "sortOrder":  6,
-                              "prompt":  "What forms of recognition are most meaningful to artisans?"
-                          },
-                          {
-                              "sortOrder":  7,
-                              "prompt":  "What additional support would help deserving artisans gain visibility?"
-                          },
-                          {
-                              "sortOrder":  8,
-                              "prompt":  "How can institutions better promote traditional crafts nationally and internationally?"
-                          }
-                      ]
+        "code": "U",
+        "title": "AWARDS, RECOGNITION AND INSTITUTIONAL SUPPORT",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "Have you received any awards, honors, or recognition for your work?"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "What was the significance of those recognitions?"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "Are there artisans in your community who have received national or state awards?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "What role do government institutions play in supporting artisans?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "What support have you received from NGOs, universities, or research institutions?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "What forms of recognition are most meaningful to artisans?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "What additional support would help deserving artisans gain visibility?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "How can institutions better promote traditional crafts nationally and internationally?"
+            }
+        ]
+    },
+    {
+        "code": "V",
+        "title": "International Exposure and Overseas Travel: Experience of Participating Abroad",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "Have you ever participated in craft exhibitions, fairs, workshops, or cultural exchange programs outside India? If yes, where?"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "What were the major differences you observed between Indian and international audiences regarding your craft?"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "Did international exposure create new market opportunities or business contacts for you?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "What skills or ideas did you learn from artisans and designers from other countries?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "Has exposure to international markets influenced your designs, techniques, or product development? If yes, how?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "What challenges did you face while participating in international events (language, logistics, marketing, cultural differences, etc.)?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "How can institutions and government agencies better support artisans participating in international events?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "In your opinion, what is the most significant benefit of presenting traditional Indian crafts on a global platform?"
+            }
+        ]
+    },
+    {
+        "code": "W",
+        "title": "Guru Shishya Hastshilp Prashikshan Program (GSHPP)",
+        "questions": [
+            {
+                "sortOrder": 1,
+                "prompt": "Are you familiar with the Guru Shishya Hastshilp Prashikshan Program (GSHPP)?"
+            },
+            {
+                "sortOrder": 2,
+                "prompt": "How did you become involved with the program?"
+            },
+            {
+                "sortOrder": 3,
+                "prompt": "How effective is the Guru-Shishya model in preserving traditional craft knowledge?"
+            },
+            {
+                "sortOrder": 4,
+                "prompt": "What aspects of craft knowledge can only be learned through direct interaction with a Guru?"
+            },
+            {
+                "sortOrder": 5,
+                "prompt": "Are trainees provided with their own tools during the training period, or do they share tools with the Guru/workshop?"
+            },
+            {
+                "sortOrder": 6,
+                "prompt": "Which skills are most difficult to transmit to the next generation?"
+            },
+            {
+                "sortOrder": 7,
+                "prompt": "Has the program helped attract younger generations to the craft?"
+            },
+            {
+                "sortOrder": 8,
+                "prompt": "Are the financial incentives and support provided under the scheme adequate?"
+            },
+            {
+                "sortOrder": 9,
+                "prompt": "What factors discourage young people from pursuing traditional crafts as a profession?"
+            },
+            {
+                "sortOrder": 10,
+                "prompt": "What changes would you recommend to strengthen the GSHPP?"
+            },
+            {
+                "sortOrder": 11,
+                "prompt": "In your view, what is the future of traditional craft knowledge transmission in India?"
+            }
+        ]
     }
 ]

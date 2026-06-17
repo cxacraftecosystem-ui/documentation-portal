@@ -48,8 +48,59 @@ interface FieldRepositoryApi {
     @POST("artisans")
     suspend fun createArtisan(@Body body: ArtisanCreateRequest): ArtisanDto
 
+    @GET("artisans/{id}")
+    suspend fun artisan(@Path("id") id: String): ArtisanDetailDto
+
+    @PATCH("artisans/{id}")
+    suspend fun updateArtisan(@Path("id") id: String, @Body body: ArtisanCreateRequest): ArtisanDetailDto
+
+    @GET("artisans/{id}/questionnaire")
+    suspend fun artisanQuestionnaire(@Path("id") id: String): ArtisanQuestionnaireDto
+
     @POST("crafts")
     suspend fun createCraft(@Body body: CraftCreateRequest): CreatedRecordDto
+
+    @GET("crafts/{id}")
+    suspend fun craft(@Path("id") id: String): CraftDto
+
+    @PATCH("crafts/{id}")
+    suspend fun updateCraft(@Path("id") id: String, @Body body: CraftCreateRequest): CraftDto
+
+    @GET("products")
+    suspend fun products(
+        @Query("page") page: Int = 1,
+        @Query("pageSize") pageSize: Int = 100
+    ): PageResponse<ProductDetailDto>
+
+    @GET("products/{id}")
+    suspend fun product(@Path("id") id: String): ProductDetailDto
+
+    @PATCH("products/{id}")
+    suspend fun updateProduct(@Path("id") id: String, @Body body: ProductCreateRequest): ProductDetailDto
+
+    @GET("tools")
+    suspend fun tools(
+        @Query("page") page: Int = 1,
+        @Query("pageSize") pageSize: Int = 100
+    ): PageResponse<ToolDetailDto>
+
+    @GET("tools/{id}")
+    suspend fun tool(@Path("id") id: String): ToolDetailDto
+
+    @PATCH("tools/{id}")
+    suspend fun updateTool(@Path("id") id: String, @Body body: ToolCreateRequest): ToolDetailDto
+
+    @GET("workshops")
+    suspend fun workshops(
+        @Query("page") page: Int = 1,
+        @Query("pageSize") pageSize: Int = 100
+    ): PageResponse<WorkshopDetailDto>
+
+    @GET("workshops/{id}")
+    suspend fun workshop(@Path("id") id: String): WorkshopDetailDto
+
+    @PATCH("workshops/{id}")
+    suspend fun updateWorkshop(@Path("id") id: String, @Body body: WorkshopCreateRequest): WorkshopDetailDto
 
     @POST("media/presign")
     suspend fun presignMedia(@Body body: MediaPresignRequest): MediaPresignResponse
@@ -57,11 +108,35 @@ interface FieldRepositoryApi {
     @POST("media/complete")
     suspend fun completeMedia(@Body body: MediaCompleteRequest): MediaFileDto
 
+    @DELETE("media/object")
+    suspend fun deleteMediaObject(@Query("objectKey") objectKey: String)
+
     @GET("media")
     suspend fun media(
         @Query("page") page: Int = 1,
-        @Query("pageSize") pageSize: Int = 20
+        @Query("pageSize") pageSize: Int = 20,
+        @Query("linkedRecordType") linkedRecordType: String? = null,
+        @Query("linkedRecordId") linkedRecordId: String? = null
     ): PageResponse<MediaFileDto>
+
+    @GET("export/dataset")
+    suspend fun datasetManifest(): DatasetManifestDto
+
+    @GET("processes")
+    suspend fun processes(
+        @Query("page") page: Int = 1,
+        @Query("pageSize") pageSize: Int = 100,
+        @Query("productId") productId: String? = null
+    ): PageResponse<ProcessDetailDto>
+
+    @GET("processes/{id}")
+    suspend fun process(@Path("id") id: String): ProcessDetailDto
+
+    @POST("processes")
+    suspend fun createProcess(@Body body: ProcessCreateRequest): ProcessDetailDto
+
+    @PATCH("processes/{id}")
+    suspend fun updateProcess(@Path("id") id: String, @Body body: ProcessCreateRequest): ProcessDetailDto
 
     @POST("workshops")
     suspend fun createWorkshop(@Body body: WorkshopCreateRequest): CreatedRecordDto
@@ -110,4 +185,19 @@ interface FieldRepositoryApi {
 
     @POST("questionnaire/interviews")
     suspend fun createQuestionnaireInterview(@Body body: QuestionnaireInterviewCreateRequest): CreatedRecordDto
+
+    @GET("questionnaire/interviews")
+    suspend fun interviews(
+        @Query("page") page: Int = 1,
+        @Query("pageSize") pageSize: Int = 100
+    ): PageResponse<QuestionnaireInterviewDetailDto>
+
+    @GET("questionnaire/interviews/{id}")
+    suspend fun interview(@Path("id") id: String): QuestionnaireInterviewDetailDto
+
+    @PATCH("questionnaire/interviews/{id}")
+    suspend fun updateInterview(
+        @Path("id") id: String,
+        @Body body: QuestionnaireInterviewUpdateRequest
+    ): QuestionnaireInterviewDetailDto
 }
