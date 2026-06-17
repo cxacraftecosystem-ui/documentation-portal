@@ -1,12 +1,12 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
 from app.core.deps import require_admin
 from app.schemas.common import ReviewAction
 from app.services.records import require_record, review_update
+from app.services.records import public_encode
 
 router = APIRouter(prefix="/review", tags=["review"])
 
@@ -47,7 +47,7 @@ async def set_review_status(
             "reviewerId": reviewer.id,
         }
     )
-    return jsonable_encoder(updated)
+    return public_encode(updated)
 
 
 @router.post("/{record_type}/{record_id}/approve")

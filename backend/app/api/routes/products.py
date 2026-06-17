@@ -2,13 +2,13 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, status
-from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
 from app.core.deps import assert_can_contribute_fields, assert_can_delete, get_current_user
 from app.schemas.records import ProductCreate, ProductUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
+    public_encode,
     add_date_range,
     attach_location,
     clean_data,
@@ -76,7 +76,7 @@ async def list_products(
         take=page_size,
         order={"createdAt": "desc"},
     )
-    return page_payload(jsonable_encoder(items), total, page, page_size)
+    return page_payload(public_encode(items), total, page, page_size)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -89,14 +89,14 @@ async def create_product(
     data["createdById"] = current_user.id
     merge_field_provenance(data, current_user, previous=None)
     created = await db.productdocumentation.create(data=data, include=INCLUDE)
-    return jsonable_encoder(created)
+    return public_encode(created)
 
 
 @router.get("/{product_id}")
 async def get_product(product_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     product = await db.productdocumentation.find_unique(where={"id": product_id}, include=INCLUDE)
     product = await require_record(db.productdocumentation, product_id) if not product else product
-    return jsonable_encoder(product)
+    return public_encode(product)
 
 
 @router.patch("/{product_id}")
@@ -111,7 +111,7 @@ async def update_product(
     assert_can_contribute_fields(product, current_user, data)
     merge_field_provenance(data, current_user, previous=product)
     updated = await db.productdocumentation.update(where={"id": product_id}, data=data, include=INCLUDE)
-    return jsonable_encoder(updated)
+    return public_encode(updated)
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)

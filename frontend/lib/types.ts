@@ -123,6 +123,7 @@ export type MediaFile = {
   transcriptSummary?: string | null;
   transcriptStatus?: string | null;
   transcriptError?: string | null;
+  uploadedBy?: User | null;
   createdAt: string;
 };
 

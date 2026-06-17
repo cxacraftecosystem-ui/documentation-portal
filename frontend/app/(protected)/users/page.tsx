@@ -37,6 +37,54 @@ export default function UsersPage() {
   const { user: currentUser } = useAuth();
   const [data, setData] = useState<PageResult<User> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [adminSelection, setAdminSelection] = useState<Set<string>>(new Set());
+  const [grantAdmin, setGrantAdmin] = useState(true);
+  const [grantQuestionnaire, setGrantQuestionnaire] = useState(false);
+  const [grantCrafts, setGrantCrafts] = useState(false);
+  const [grantWorkshops, setGrantWorkshops] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [adminMessage, setAdminMessage] = useState<string | null>(null);
+
+  function toggleAdminSelection(id: string) {
+    setAdminSelection((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function applyAdminGrants() {
+    if (adminSelection.size === 0) return;
+    setApplying(true);
+    setAdminMessage(null);
+    setError(null);
+    try {
+      // Additive grants only: checked privileges are granted, unchecked ones are left untouched
+      // (revoke individually via the per-user table above). This keeps the bulk action safe.
+      const body: Record<string, unknown> = {};
+      if (grantAdmin) body.role = "ADMIN";
+      if (grantQuestionnaire) body.canManageQuestionnaire = true;
+      if (grantCrafts) body.canManageCrafts = true;
+      if (grantWorkshops) body.canManageWorkshops = true;
+      if (Object.keys(body).length === 0) {
+        setAdminMessage("Pick at least one of: admin access, questionnaire, crafts or workshops to grant.");
+        setApplying(false);
+        return;
+      }
+      const ids = Array.from(adminSelection);
+      for (const id of ids) {
+        await apiFetch(`/users/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+      }
+      setAdminMessage(`Updated ${ids.length} user${ids.length === 1 ? "" : "s"}.`);
+      setAdminSelection(new Set());
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update admin access");
+    } finally {
+      setApplying(false);
+    }
+  }
 
   async function load() {
     try {
@@ -213,6 +261,63 @@ export default function UsersPage() {
           </div>
         )}
       </section>
+      {isMasterAdmin(currentUser) ? (
+        <section className="panel mt-6 p-4">
+          <h2 className="font-serif text-xl text-ink">Admin management</h2>
+          <p className="mt-1 text-sm text-ink-muted">
+            Select one or more existing users, then grant them administrator access and decide their individual privileges in one action. Privileges are additive here — revoke individually in the table above.
+          </p>
+          {adminMessage ? <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{adminMessage}</div> : null}
+          <div className="mt-4 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+            <div className="rounded-md border border-[#e6dfd8] bg-field-50 p-3">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-soft">Select users ({adminSelection.size} selected)</div>
+              <div className="grid max-h-72 gap-1 overflow-y-auto">
+                {(data?.items ?? [])
+                  .filter((user) => user.role !== "MASTER_ADMIN")
+                  .map((user) => (
+                    <label key={user.id} className="flex items-center gap-2 rounded px-2 py-1 hover:bg-field-100">
+                      <input type="checkbox" checked={adminSelection.has(user.id)} onChange={() => toggleAdminSelection(user.id)} />
+                      <span className="min-w-0 flex-1 truncate text-sm text-ink">
+                        {user.name} <span className="text-ink-muted">· {user.email}</span>
+                      </span>
+                      <span className="rounded-full bg-field-200 px-2 py-0.5 text-xs text-ink-muted">{user.role}</span>
+                    </label>
+                  ))}
+                {(data?.items ?? []).filter((user) => user.role !== "MASTER_ADMIN").length === 0 ? (
+                  <p className="px-2 py-1 text-sm text-ink-muted">No eligible users.</p>
+                ) : null}
+              </div>
+            </div>
+            <div className="grid content-start gap-2 rounded-md border border-[#e6dfd8] bg-field-50 p-3">
+              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-soft">Grant</div>
+              <label className="flex items-center gap-2 text-sm text-ink">
+                <input type="checkbox" checked={grantAdmin} onChange={(event) => setGrantAdmin(event.target.checked)} />
+                Administrator access (role = ADMIN)
+              </label>
+              <label className="flex items-center gap-2 text-sm text-ink">
+                <input type="checkbox" checked={grantQuestionnaire} onChange={(event) => setGrantQuestionnaire(event.target.checked)} />
+                Manage questionnaire
+              </label>
+              <label className="flex items-center gap-2 text-sm text-ink">
+                <input type="checkbox" checked={grantCrafts} onChange={(event) => setGrantCrafts(event.target.checked)} />
+                Create crafts
+              </label>
+              <label className="flex items-center gap-2 text-sm text-ink">
+                <input type="checkbox" checked={grantWorkshops} onChange={(event) => setGrantWorkshops(event.target.checked)} />
+                Create workshops
+              </label>
+              <button
+                type="button"
+                className="field-button mt-2"
+                disabled={applying || adminSelection.size === 0}
+                onClick={applyAdminGrants}
+              >
+                {applying ? "Applying..." : `Apply to ${adminSelection.size} user${adminSelection.size === 1 ? "" : "s"}`}
+              </button>
+            </div>
+          </div>
+        </section>
+      ) : null}
     </>
   );
 }

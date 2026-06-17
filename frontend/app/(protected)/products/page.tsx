@@ -116,7 +116,10 @@ export default function ProductsPage() {
                               mimeType: media.mimeType,
                               sizeBytes: media.sizeBytes,
                               url: media.url,
-                              caption: media.caption
+                              caption: media.caption,
+                              transcriptStatus: media.transcriptStatus,
+                              transcriptText: media.transcriptText,
+                              transcriptError: media.transcriptError
                             };
                             return <MediaPreviewTile key={media.id} item={preview} onOpen={() => setActivePreview(preview)} />;
                           })}

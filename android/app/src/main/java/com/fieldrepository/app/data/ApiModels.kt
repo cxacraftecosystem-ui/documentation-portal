@@ -128,6 +128,9 @@ data class MediaFileDto(
     val caption: String? = null,
     val transcriptStatus: String? = null,
     val transcriptText: String? = null,
+    val transcriptError: String? = null,
+    val uploadedBy: UserDto? = null,
+    val createdAt: String? = null,
     val linkedRecordType: String? = null,
     val linkedRecordId: String? = null
 )

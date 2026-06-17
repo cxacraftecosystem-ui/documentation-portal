@@ -3,9 +3,37 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import HTTPException, status
+from fastapi.encoders import jsonable_encoder
 from prisma import Json
 
 from app.core.db import db
+
+# Keys that must never leave the API, no matter how deeply nested inside an embedded relation
+# (e.g. a media file's ``uploadedBy`` user, or a record's ``createdBy``).
+_SENSITIVE_KEYS = {"passwordHash"}
+
+
+def _strip_sensitive(value: Any) -> Any:
+    """Recursively remove sensitive keys (password hashes) from an already-encoded payload."""
+    if isinstance(value, dict):
+        for key in _SENSITIVE_KEYS:
+            value.pop(key, None)
+        for nested in value.values():
+            _strip_sensitive(nested)
+    elif isinstance(value, list):
+        for item in value:
+            _strip_sensitive(item)
+    return value
+
+
+def public_encode(obj: Any) -> Any:
+    """``jsonable_encoder`` plus a recursive scrub of sensitive fields.
+
+    Use this for any response that embeds a User relation (``createdBy``/``uploadedBy``/
+    ``answeredBy``/``reviewedBy``) so a researcher can never read another account's password hash
+    out of the JSON.
+    """
+    return _strip_sensitive(jsonable_encoder(obj))
 
 
 def to_json(value: Any) -> Any:

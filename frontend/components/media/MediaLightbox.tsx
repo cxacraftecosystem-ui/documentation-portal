@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, FileText, Headphones, Image as ImageIcon, Maximize2, Video, X } from "lucide-react";
+import { ExternalLink, FileText, Headphones, Image as ImageIcon, Loader2, Maximize2, Video, X } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { bytes } from "@/lib/format";
@@ -14,7 +14,41 @@ export type PreviewMedia = {
   sizeBytes?: number | string | null;
   url?: string | null;
   caption?: string | null;
+  transcriptStatus?: string | null;
+  transcriptText?: string | null;
+  transcriptError?: string | null;
 };
+
+function LightboxTranscript({ item }: { item: PreviewMedia }) {
+  if (item.mediaType !== "AUDIO") return null;
+  const status = (item.transcriptStatus ?? "").toUpperCase();
+  const text = item.transcriptText?.trim();
+  if (text) {
+    return (
+      <div className="rounded-md border border-[#e6dfd8] bg-field-50 p-3">
+        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-soft">Transcript</div>
+        <p className="whitespace-pre-wrap text-sm text-ink">{text}</p>
+      </div>
+    );
+  }
+  if (["QUEUED", "PROCESSING", "PENDING", "RUNNING"].includes(status) || !status) {
+    return (
+      <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+        <span>Transcribing audio… the transcript will appear here once processing finishes.</span>
+      </div>
+    );
+  }
+  if (["COMPLETED", "EMPTY", "DONE"].includes(status)) {
+    return <div className="rounded-md border border-[#e6dfd8] bg-field-50 px-3 py-2 text-sm text-ink-muted">Transcript completed — no speech detected.</div>;
+  }
+  return (
+    <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+      Transcript {status.toLowerCase()}
+      {item.transcriptError ? `: ${item.transcriptError}` : "."}
+    </div>
+  );
+}
 
 function mediaLabel(item: PreviewMedia) {
   return [item.mediaType, item.sizeBytes ? bytes(item.sizeBytes) : null, item.mimeType].filter(Boolean).join(" - ");
@@ -116,6 +150,7 @@ export function MediaLightbox({ item, onClose }: { item: PreviewMedia; onClose: 
             </div>
           )}
         </div>
+        <LightboxTranscript item={item} />
       </div>
     </div>
   );

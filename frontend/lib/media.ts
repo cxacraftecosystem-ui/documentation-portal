@@ -9,6 +9,44 @@ export function inferMediaType(file: File): MediaType {
   return "DOCUMENT";
 }
 
+const UPLOAD_MAX_ATTEMPTS = 3;
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * PUT a file to object storage with real byte-level progress, via XHR (fetch cannot report upload
+ * progress). Reports (loaded, total) so the caller can drive a progress bar + ETA.
+ */
+function putWithProgress(
+  url: string,
+  headers: Record<string, string>,
+  file: File | Blob,
+  onProgress?: (loaded: number, total: number) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url, true);
+    Object.entries(headers).forEach(([key, value]) => xhr.setRequestHeader(key, value));
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(event.loaded, event.total);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress?.(file.size, file.size);
+        resolve();
+      } else {
+        reject(new Error(`Object storage upload failed: HTTP ${xhr.status}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Object storage upload failed: network error"));
+    xhr.ontimeout = () => reject(new Error("Object storage upload timed out"));
+    xhr.timeout = 5 * 60 * 1000;
+    xhr.send(file);
+  });
+}
+
 export async function uploadMediaFile({
   file,
   linkedRecordType,
@@ -19,7 +57,8 @@ export async function uploadMediaFile({
   recordedAt,
   recordedTimezone,
   transcribeAudio = true,
-  processingRequests
+  processingRequests,
+  onProgress
 }: {
   file: File;
   linkedRecordType?: string;
@@ -31,55 +70,82 @@ export async function uploadMediaFile({
   recordedTimezone?: string;
   transcribeAudio?: boolean;
   processingRequests?: string[];
+  onProgress?: (loaded: number, total: number) => void;
 }) {
   const mediaType = inferMediaType(file);
   const queuedProcessing = new Set(processingRequests ?? []);
   if (mediaType === "AUDIO" && transcribeAudio) queuedProcessing.add("TRANSCRIPTION");
-  const presign = await apiFetch<{
-    uploadUrl: string;
-    objectKey: string;
-    bucket: string;
-    headers: Record<string, string>;
-    publicUrl?: string;
-  }>("/media/presign", {
-    method: "POST",
-    body: JSON.stringify({
-      filename: file.name,
-      mimeType: file.type || "application/octet-stream",
-      mediaType,
-      sizeBytes: file.size,
-      linkedRecordType,
-      linkedRecordId
-    })
-  });
-  const uploadResponse = await fetch(presign.uploadUrl, {
-    method: "PUT",
-    headers: presign.headers,
-    body: file
-  });
-  if (!uploadResponse.ok) throw new Error(`Object storage upload failed for ${file.name}`);
-  return apiFetch<MediaFile>("/media/complete", {
-    method: "POST",
-    body: JSON.stringify({
-      originalFilename: file.name,
-      mediaType,
-      mimeType: file.type || "application/octet-stream",
-      sizeBytes: file.size,
-      objectKey: presign.objectKey,
-      bucket: presign.bucket,
-      url: presign.publicUrl,
-      caption,
-      linkedRecordType,
-      linkedRecordId,
-      location,
-      extraMetadata,
-      recordedAt,
-      recordedTimezone,
-      processingRequests: Array.from(queuedProcessing)
-    })
-  });
+
+  // A fresh presign per attempt keeps the 15-minute signature window from expiring under retries.
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= UPLOAD_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const presign = await apiFetch<{
+        uploadUrl: string;
+        objectKey: string;
+        bucket: string;
+        headers: Record<string, string>;
+        publicUrl?: string;
+      }>("/media/presign", {
+        method: "POST",
+        body: JSON.stringify({
+          filename: file.name,
+          mimeType: file.type || "application/octet-stream",
+          mediaType,
+          sizeBytes: file.size,
+          linkedRecordType,
+          linkedRecordId
+        })
+      });
+      await putWithProgress(presign.uploadUrl, presign.headers, file, onProgress);
+      return await apiFetch<MediaFile>("/media/complete", {
+        method: "POST",
+        body: JSON.stringify({
+          originalFilename: file.name,
+          mediaType,
+          mimeType: file.type || "application/octet-stream",
+          sizeBytes: file.size,
+          objectKey: presign.objectKey,
+          bucket: presign.bucket,
+          url: presign.publicUrl,
+          caption,
+          linkedRecordType,
+          linkedRecordId,
+          location,
+          extraMetadata,
+          recordedAt,
+          recordedTimezone,
+          processingRequests: Array.from(queuedProcessing)
+        })
+      });
+    } catch (err) {
+      lastError = err;
+      if (attempt < UPLOAD_MAX_ATTEMPTS) await delay(800 * attempt);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`Object storage upload failed for ${file.name}`);
 }
 
+export type BatchProgress = {
+  fileIndex: number;
+  fileCount: number;
+  uploadedBytes: number;
+  totalBytes: number;
+  fraction: number;
+  etaSeconds: number | null;
+  currentFileName: string;
+};
+
+export type BatchResult = {
+  uploaded: MediaFile[];
+  failed: Array<{ name: string; error: string }>;
+};
+
+/**
+ * Upload many files resiliently: each file retries independently, a failure of one does not abort
+ * the rest (so a flaky upload never loses the whole batch), and per-byte progress + ETA is reported
+ * across the whole batch. Returns both the successes and any failures so the caller can surface them.
+ */
 export async function uploadMediaBatch({
   files,
   linkedRecordType,
@@ -90,7 +156,8 @@ export async function uploadMediaBatch({
   recordedAt,
   recordedTimezone,
   transcribeAudio = true,
-  processingRequests
+  processingRequests,
+  onProgress
 }: {
   files: File[];
   linkedRecordType: string;
@@ -102,25 +169,49 @@ export async function uploadMediaBatch({
   recordedTimezone?: string;
   transcribeAudio?: boolean;
   processingRequests?: string[];
-}) {
+  onProgress?: (progress: BatchProgress) => void;
+}): Promise<BatchResult> {
   const uploaded: MediaFile[] = [];
-  for (const file of files) {
-    uploaded.push(
-      await uploadMediaFile({
-        file,
-        linkedRecordType,
-        linkedRecordId,
-        caption,
-        location,
-        extraMetadata,
-        recordedAt,
-        recordedTimezone,
-        transcribeAudio,
-        processingRequests
-      })
-    );
+  const failed: Array<{ name: string; error: string }> = [];
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0) || 1;
+  const startedAt = Date.now();
+  let completedBytes = 0;
+
+  const report = (fileIndex: number, currentBytes: number, name: string) => {
+    const uploadedBytes = Math.min(totalBytes, completedBytes + currentBytes);
+    const fraction = uploadedBytes / totalBytes;
+    const elapsed = (Date.now() - startedAt) / 1000;
+    const rate = elapsed > 0 ? uploadedBytes / elapsed : 0;
+    const etaSeconds = rate > 0 ? Math.max(0, Math.round((totalBytes - uploadedBytes) / rate)) : null;
+    onProgress?.({ fileIndex, fileCount: files.length, uploadedBytes, totalBytes, fraction, etaSeconds, currentFileName: name });
+  };
+
+  for (let index = 0; index < files.length; index += 1) {
+    const file = files[index];
+    report(index, 0, file.name);
+    try {
+      uploaded.push(
+        await uploadMediaFile({
+          file,
+          linkedRecordType,
+          linkedRecordId,
+          caption,
+          location,
+          extraMetadata,
+          recordedAt,
+          recordedTimezone,
+          transcribeAudio,
+          processingRequests,
+          onProgress: (loaded) => report(index, loaded, file.name)
+        })
+      );
+    } catch (err) {
+      failed.push({ name: file.name, error: err instanceof Error ? err.message : "Upload failed" });
+    }
+    completedBytes += file.size;
+    report(index, 0, file.name);
   }
-  return uploaded;
+  return { uploaded, failed };
 }
 
 export async function transcribeMediaFile(file: File, mediaType = inferMediaType(file)) {

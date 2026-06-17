@@ -2,13 +2,13 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, status
-from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
 from app.core.deps import assert_can_contribute_fields, assert_can_delete, get_current_user
 from app.schemas.records import ToolCreate, ToolUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
+    public_encode,
     add_date_range,
     attach_location,
     clean_data,
@@ -77,7 +77,7 @@ async def list_tools(
         take=page_size,
         order={"createdAt": "desc"},
     )
-    return page_payload(jsonable_encoder(items), total, page, page_size)
+    return page_payload(public_encode(items), total, page, page_size)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -90,14 +90,14 @@ async def create_tool(
     data["createdById"] = current_user.id
     merge_field_provenance(data, current_user, previous=None)
     created = await db.tooldocumentation.create(data=data, include=INCLUDE)
-    return jsonable_encoder(created)
+    return public_encode(created)
 
 
 @router.get("/{tool_id}")
 async def get_tool(tool_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     tool = await db.tooldocumentation.find_unique(where={"id": tool_id}, include=INCLUDE)
     tool = await require_record(db.tooldocumentation, tool_id) if not tool else tool
-    return jsonable_encoder(tool)
+    return public_encode(tool)
 
 
 @router.patch("/{tool_id}")
@@ -112,7 +112,7 @@ async def update_tool(
     assert_can_contribute_fields(tool, current_user, data)
     merge_field_provenance(data, current_user, previous=tool)
     updated = await db.tooldocumentation.update(where={"id": tool_id}, data=data, include=INCLUDE)
-    return jsonable_encoder(updated)
+    return public_encode(updated)
 
 
 @router.delete("/{tool_id}", status_code=status.HTTP_204_NO_CONTENT)

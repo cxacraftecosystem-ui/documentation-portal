@@ -2,7 +2,6 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, status
-from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
 from app.core.deps import (
@@ -15,6 +14,7 @@ from app.core.deps import (
 from app.schemas.records import WorkshopCreate, WorkshopUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
+    public_encode,
     add_date_range,
     attach_location,
     clean_data,
@@ -84,7 +84,7 @@ async def list_workshops(
         take=page_size,
         order={"startDate": "desc"},
     )
-    return page_payload(jsonable_encoder(items), total, page, page_size)
+    return page_payload(public_encode(items), total, page, page_size)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -105,14 +105,14 @@ async def create_workshop(
     if craft_ids:
         await replace_workshop_crafts(created.id, craft_ids)
     hydrated = await db.workshop.find_unique(where={"id": created.id}, include=INCLUDE)
-    return jsonable_encoder(hydrated)
+    return public_encode(hydrated)
 
 
 @router.get("/{workshop_id}")
 async def get_workshop(workshop_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     workshop = await db.workshop.find_unique(where={"id": workshop_id}, include=INCLUDE)
     workshop = await require_record(db.workshop, workshop_id) if not workshop else workshop
-    return jsonable_encoder(workshop)
+    return public_encode(workshop)
 
 
 @router.patch("/{workshop_id}")
@@ -139,7 +139,7 @@ async def update_workshop(
         assert_can_contribute_relation(workshop, current_user, craft_link_count > 0, "craftIds")
         await replace_workshop_crafts(workshop_id, craft_ids)
     updated = await db.workshop.find_unique(where={"id": workshop_id}, include=INCLUDE)
-    return jsonable_encoder(updated)
+    return public_encode(updated)
 
 
 @router.delete("/{workshop_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -9,16 +9,20 @@ import android.provider.MediaStore
 import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.RequestBody
 import okhttp3.MediaType.Companion.toMediaType
+import okio.BufferedSink
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.TimeUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -26,7 +30,14 @@ class FieldRepository(
     private val api: FieldRepositoryApi,
     private val tokenStore: TokenStore
 ) {
-    private val storageClient = OkHttpClient()
+    // Generous timeouts (large videos over slow field connections) + automatic connection retry.
+    private val storageClient = OkHttpClient.Builder()
+        .retryOnConnectionFailure(true)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(10, TimeUnit.MINUTES)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .callTimeout(12, TimeUnit.MINUTES)
+        .build()
 
     fun hasToken(): Boolean = !tokenStore.getToken().isNullOrBlank()
 
@@ -257,7 +268,8 @@ class FieldRepository(
         batchIndex: Int = 1,
         processingRequests: List<String>? = null,
         stageStep: Int? = null,
-        customSegment: String? = null
+        customSegment: String? = null,
+        onProgress: ((sent: Long, total: Long) -> Unit)? = null
     ): MediaFileDto {
         val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
         val originalName = displayName(context, uri) ?: "field-media-${System.currentTimeMillis()}"
@@ -288,15 +300,7 @@ class FieldRepository(
             )
         )
         withContext(Dispatchers.IO) {
-            val requestBuilder = Request.Builder()
-                .url(presign.uploadUrl)
-                .put(bytes.toRequestBody(mimeType.toMediaType()))
-            presign.headers.forEach { (name, value) -> requestBuilder.header(name, value) }
-            storageClient.newCall(requestBuilder.build()).execute().use { response ->
-                if (!response.isSuccessful) {
-                    throw IllegalStateException("Object storage upload failed: HTTP ${response.code}")
-                }
-            }
+            putToStorage(presign.uploadUrl, presign.headers, bytes, mimeType, onProgress)
         }
         return api.completeMedia(
             MediaCompleteRequest(
@@ -342,15 +346,7 @@ class FieldRepository(
             )
         )
         withContext(Dispatchers.IO) {
-            val requestBuilder = Request.Builder()
-                .url(presign.uploadUrl)
-                .put(bytes.toRequestBody(mimeType.toMediaType()))
-            presign.headers.forEach { (name, value) -> requestBuilder.header(name, value) }
-            storageClient.newCall(requestBuilder.build()).execute().use { response ->
-                if (!response.isSuccessful) {
-                    throw IllegalStateException("Object storage upload failed: HTTP ${response.code}")
-                }
-            }
+            putToStorage(presign.uploadUrl, presign.headers, bytes, mimeType, null)
         }
         return StagedMedia(
             objectKey = presign.objectKey,
@@ -409,6 +405,63 @@ class FieldRepository(
     /** Delete a staged object that was cancelled before save. */
     suspend fun deleteStaged(objectKey: String) {
         api.deleteMediaObject(objectKey)
+    }
+
+    /**
+     * PUT bytes to object storage with bounded retries and byte-level progress. Transient failures
+     * (network drop, or a 5xx from S3 under concurrent load) are retried with linear backoff so a
+     * single hiccup never loses an upload; a 4xx (bad signature etc.) fails fast. This is what makes
+     * many files — and many researchers uploading at once — resilient. Runs on the calling IO thread.
+     */
+    private fun putToStorage(
+        uploadUrl: String,
+        headers: Map<String, String>,
+        bytes: ByteArray,
+        mimeType: String,
+        onProgress: ((sent: Long, total: Long) -> Unit)?
+    ) {
+        val maxAttempts = 3
+        var lastError: Exception? = null
+        for (attempt in 1..maxAttempts) {
+            try {
+                val body = ProgressRequestBody(bytes, mimeType.toMediaType(), onProgress)
+                val builder = Request.Builder().url(uploadUrl).put(body)
+                headers.forEach { (name, value) -> builder.header(name, value) }
+                storageClient.newCall(builder.build()).execute().use { response ->
+                    if (response.isSuccessful) return
+                    // Client errors (4xx) won't fix themselves — fail immediately.
+                    if (response.code < 500) {
+                        throw IllegalStateException("Object storage upload failed: HTTP ${response.code}")
+                    }
+                    lastError = IllegalStateException("Object storage upload failed: HTTP ${response.code}")
+                }
+            } catch (e: IOException) {
+                lastError = e
+            }
+            if (attempt < maxAttempts) Thread.sleep(800L * attempt)
+        }
+        throw lastError ?: IllegalStateException("Object storage upload failed")
+    }
+
+    /** OkHttp body that streams a byte array in chunks, reporting cumulative bytes written. */
+    private class ProgressRequestBody(
+        private val bytes: ByteArray,
+        private val contentType: MediaType?,
+        private val onProgress: ((sent: Long, total: Long) -> Unit)?
+    ) : RequestBody() {
+        override fun contentType(): MediaType? = contentType
+        override fun contentLength(): Long = bytes.size.toLong()
+        override fun writeTo(sink: BufferedSink) {
+            val total = bytes.size.toLong()
+            val chunk = 32 * 1024
+            var written = 0
+            while (written < bytes.size) {
+                val count = minOf(chunk, bytes.size - written)
+                sink.write(bytes, written, count)
+                written += count
+                onProgress?.invoke(written.toLong(), total)
+            }
+        }
     }
 
     private fun displayName(context: Context, uri: Uri): String? {

@@ -985,6 +985,14 @@ private fun parseIsoToLocalDate(value: String?): LocalDate? {
         ?: runCatching { LocalDate.parse(value.take(10)) }.getOrNull()
 }
 
+/** Format an ISO datetime string (as returned by the API) into a short readable date, best-effort. */
+private fun formatIsoDate(value: String?): String? {
+    val date = parseIsoToLocalDate(value) ?: return null
+    return runCatching {
+        date.format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy"))
+    }.getOrNull()
+}
+
 /** Render a numeric value into an editable string without a trailing ".0" for whole numbers. */
 private fun numToText(value: Double?): String {
     if (value == null) return ""
@@ -1029,34 +1037,47 @@ private suspend fun uploadAttachments(
     caption: String?,
     customSegment: String? = null
 ) {
+    // Resilient: attempt every attachment so one bad file never blocks the rest; the saved record
+    // already persisted before this runs, so partial uploads are kept and only the failures surface.
+    val failures = mutableListOf<String>()
     media.uris.forEachIndexed { index, uri ->
         // Prefer the eagerly pre-uploaded object (awaiting any still-in-flight transfer); only fall
         // back to a fresh upload if pre-upload never started or failed.
         val staged = media.stagedDeferred[uri]?.let { runCatching { it.await() }.getOrNull() } ?: media.staged[uri]
-        if (staged != null) {
-            repository.completeStaged(
-                staged = staged,
-                linkedRecordType = recordType,
-                linkedRecordId = recordId,
-                recordName = titleHint,
-                caption = caption,
-                location = media.location,
-                batchIndex = index + 1,
-                customSegment = customSegment
-            )
-        } else {
-            repository.uploadMedia(
-                context = context,
-                uri = uri,
-                linkedRecordType = recordType,
-                linkedRecordId = recordId,
-                caption = caption,
-                location = media.location,
-                titleHint = titleHint,
-                batchIndex = index + 1,
-                customSegment = customSegment
-            )
+        val result = runCatching {
+            if (staged != null) {
+                repository.completeStaged(
+                    staged = staged,
+                    linkedRecordType = recordType,
+                    linkedRecordId = recordId,
+                    recordName = titleHint,
+                    caption = caption,
+                    location = media.location,
+                    batchIndex = index + 1,
+                    customSegment = customSegment
+                )
+            } else {
+                repository.uploadMedia(
+                    context = context,
+                    uri = uri,
+                    linkedRecordType = recordType,
+                    linkedRecordId = recordId,
+                    caption = caption,
+                    location = media.location,
+                    titleHint = titleHint,
+                    batchIndex = index + 1,
+                    customSegment = customSegment
+                )
+            }
         }
+        if (result.isFailure) {
+            val error = result.exceptionOrNull()
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            failures.add(uri.lastPathSegment ?: "file ${index + 1}")
+        }
+    }
+    if (failures.isNotEmpty()) {
+        throw IllegalStateException("${failures.size} media file(s) failed to upload: ${failures.joinToString(", ")}")
     }
 }
 
@@ -1929,6 +1950,9 @@ private fun CraftForm(
         TextInput("Category", category) { category = it }
         TextInput("Place", place) { place = it }
         TextInput("Description", description, minLines = 3) { description = it }
+        if (isEdit) {
+            RecordMediaSection(repository = repository, context = context, linkedType = "craft", recordId = editing!!.id, onError = onError)
+        }
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
         Button(
             onClick = {
@@ -2035,6 +2059,9 @@ private fun ArtisanForm(
         TextInput("Address", address, minLines = 2) { address = it }
         TextInput("Notes", notes, minLines = 3) { notes = it }
         StatusDropdown(value = status) { status = it }
+        if (isEdit) {
+            RecordMediaSection(repository = repository, context = context, linkedType = "artisan", recordId = editing!!.id, onError = onError)
+        }
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
         Button(
             onClick = {
@@ -2177,6 +2204,9 @@ private fun WorkshopForm(
         ) { id ->
             selectedCrafts = if (selectedCrafts.contains(id)) selectedCrafts - id else selectedCrafts + id
         }
+        if (isEdit) {
+            RecordMediaSection(repository = repository, context = context, linkedType = "workshop", recordId = editing!!.id, onError = onError)
+        }
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
         Button(
             onClick = {
@@ -2294,19 +2324,33 @@ private fun ProductForm(
         ) { id ->
             craftId = id
             crafts.firstOrNull { it.id == id }?.let { craftName = it.name }
+            // Once the craft changes, drop a linked artisan that no longer belongs to it.
+            if (id.isNotBlank() && artisanId.isNotBlank() && artisans.none { it.id == artisanId && it.craftId == id }) {
+                artisanId = ""
+            }
         }
         RequiredInput("Craft name", craftName, craftNameError, craftNameFocus) { craftName = it }
+        // Task 6: the artisan dropdown is gated on a linked craft and only lists that craft's artisans.
+        val artisanOptionsForCraft = if (craftId.isNotBlank()) {
+            artisans.filter { it.craftId == craftId || it.id == artisanId }
+        } else {
+            artisans
+        }
         DropdownField(
             label = "Linked artisan (fills artisan + place)",
-            options = artisans.map { it.id to "${it.name} · ${it.place}" },
+            options = artisanOptionsForCraft.map { it.id to "${it.name} · ${it.place}" },
             selectedValue = artisanId,
-            placeholder = "Unlinked / type below"
+            placeholder = if (craftId.isBlank()) "Select a linked craft first" else "Unlinked / type below",
+            enabled = craftId.isNotBlank()
         ) { id ->
             artisanId = id
             artisans.firstOrNull { it.id == id }?.let {
                 artisanName = it.name
                 place = it.place
             }
+        }
+        if (craftId.isNotBlank() && artisanOptionsForCraft.isEmpty()) {
+            Text("No artisans are linked to this craft yet.", color = Muted, fontSize = 12.sp)
         }
         RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus) { artisanName = it }
         RequiredInput("Place", place, placeError, placeFocus) { place = it }
@@ -2326,6 +2370,9 @@ private fun ProductForm(
         TextInput("Function or use", functionUse, minLines = 2) { functionUse = it }
         TextInput("Remarks", remarks, minLines = 3) { remarks = it }
         StatusDropdown(value = status) { status = it }
+        if (isEdit) {
+            RecordMediaSection(repository = repository, context = context, linkedType = "product", recordId = editing!!.id, onError = onError)
+        }
         MediaCaptureSection(repository = repository, media = media, enableMeasurement = true, onMessage = onError, onError = onError)
         Button(
             onClick = {
@@ -2454,19 +2501,33 @@ private fun ToolForm(
         ) { id ->
             craftId = id
             crafts.firstOrNull { it.id == id }?.let { craftName = it.name }
+            // Once the craft changes, drop a linked artisan that no longer belongs to it.
+            if (id.isNotBlank() && artisanId.isNotBlank() && artisans.none { it.id == artisanId && it.craftId == id }) {
+                artisanId = ""
+            }
         }
         RequiredInput("Craft name", craftName, craftNameError, craftNameFocus) { craftName = it }
+        // Task 6: the artisan dropdown is gated on a linked craft and only lists that craft's artisans.
+        val artisanOptionsForCraft = if (craftId.isNotBlank()) {
+            artisans.filter { it.craftId == craftId || it.id == artisanId }
+        } else {
+            artisans
+        }
         DropdownField(
             label = "Linked artisan (fills artisan + place)",
-            options = artisans.map { it.id to "${it.name} · ${it.place}" },
+            options = artisanOptionsForCraft.map { it.id to "${it.name} · ${it.place}" },
             selectedValue = artisanId,
-            placeholder = "Unlinked / type below"
+            placeholder = if (craftId.isBlank()) "Select a linked craft first" else "Unlinked / type below",
+            enabled = craftId.isNotBlank()
         ) { id ->
             artisanId = id
             artisans.firstOrNull { it.id == id }?.let {
                 artisanName = it.name
                 place = it.place
             }
+        }
+        if (craftId.isNotBlank() && artisanOptionsForCraft.isEmpty()) {
+            Text("No artisans are linked to this craft yet.", color = Muted, fontSize = 12.sp)
         }
         RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus) { artisanName = it }
         RequiredInput("Place", place, placeError, placeFocus) { place = it }
@@ -2493,6 +2554,9 @@ private fun ToolForm(
         TextInput("Remarks", remarks, minLines = 3) { remarks = it }
         StatusDropdown(value = status) { status = it }
         ToolStagesSection(stages = stages, onMessage = onError, onError = onError)
+        if (isEdit) {
+            RecordMediaSection(repository = repository, context = context, linkedType = "tool", recordId = editing!!.id, onError = onError)
+        }
         MediaCaptureSection(repository = repository, media = media, enableMeasurement = true, onMessage = onError, onError = onError)
         Button(
             onClick = {
@@ -2977,23 +3041,54 @@ private fun DetailRow(label: String, value: String?) {
     }
 }
 
-/** A saved media row plus, for transcribed audio, the transcript text inline. */
+/** A saved media row, its upload provenance, plus the transcript (or a live "transcribing" spinner). */
 @Composable
 private fun MediaWithTranscript(context: Context, media: MediaFileDto) {
     AndroidSavedMediaPreview(context = context, media = media)
-    if (!media.transcriptText.isNullOrBlank()) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(SurfaceCard, RoundedCornerShape(8.dp))
-                .padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            Text("Transcript", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-            Text(media.transcriptText!!, color = Body, fontSize = 13.sp)
+    // Upload provenance: who added this media file and when.
+    val uploader = media.uploadedBy?.name
+    val uploadedWhen = formatIsoDate(media.createdAt)
+    if (uploader != null || uploadedWhen != null) {
+        Text(
+            "Uploaded by ${uploader ?: "Unknown"}" + (uploadedWhen?.let { " · $it" } ?: ""),
+            color = Muted,
+            fontSize = 11.sp
+        )
+    }
+    val status = media.transcriptStatus?.uppercase()
+    val isAudio = media.mediaType.equals("AUDIO", ignoreCase = true)
+    val processing = setOf("QUEUED", "PROCESSING", "PENDING", "RUNNING")
+    val done = setOf("COMPLETED", "EMPTY", "DONE")
+    when {
+        !media.transcriptText.isNullOrBlank() -> {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(SurfaceCard, RoundedCornerShape(8.dp))
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text("Transcript", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Text(media.transcriptText!!, color = Body, fontSize = 13.sp)
+            }
         }
-    } else if (media.mediaType.equals("AUDIO", ignoreCase = true)) {
-        Text("Transcript: ${media.transcriptStatus ?: "pending"}", color = Muted, fontSize = 11.sp)
+        isAudio && (status == null || status in processing) -> {
+            // Still processing — show a buffer icon; the transcript appears here once it's ready.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                Text("Transcribing audio…", color = Muted, fontSize = 11.sp)
+            }
+        }
+        isAudio && status in done -> {
+            Text("Transcript complete — no speech detected.", color = Muted, fontSize = 11.sp)
+        }
+        isAudio -> {
+            Text(
+                "Transcript: ${media.transcriptStatus}" + (media.transcriptError?.let { " — $it" } ?: ""),
+                color = Muted,
+                fontSize = 11.sp
+            )
+        }
     }
 }
 
@@ -3271,6 +3366,8 @@ private fun AndroidMediaForm(
     var location by remember { mutableStateOf<LocationRequest?>(null) }
     var uploading by remember { mutableStateOf(false) }
     var uploadStatus by remember { mutableStateOf(ActionStatus.IDLE) }
+    var uploadFraction by remember { mutableStateOf(0f) }
+    var uploadProgressText by remember { mutableStateOf<String?>(null) }
     var recording by remember { mutableStateOf(false) }
     var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var recordingFile by remember { mutableStateOf<File?>(null) }
@@ -3435,12 +3532,29 @@ private fun AndroidMediaForm(
             }
         }
         localMessage?.let { Text(it, color = Muted, fontSize = 12.sp) }
+        if (uploading) {
+            LinearProgressIndicator(progress = { uploadFraction }, modifier = Modifier.fillMaxWidth())
+            uploadProgressText?.let { Text(it, color = Muted, fontSize = 12.sp) }
+        }
         Button(
             onClick = {
                 scope.launch {
                     uploading = true
-                    runCatching {
-                        selectedUris.forEachIndexed { index, uri ->
+                    uploadFraction = 0f
+                    uploadProgressText = null
+                    val uris = selectedUris
+                    // Sizes drive the overall %/ETA across the whole batch (cheap metadata reads).
+                    val sizes = uris.map { queryMediaSize(context, it) }
+                    val totalBytes = sizes.sum().coerceAtLeast(1L)
+                    val startMs = System.currentTimeMillis()
+                    var completedBytes = 0L
+                    var success = 0
+                    val failedUris = mutableListOf<Uri>()
+                    var cancelled = false
+                    uris.forEachIndexed { index, uri ->
+                        if (cancelled) return@forEachIndexed
+                        var lastPct = -1
+                        val result = runCatching {
                             repository.uploadMedia(
                                 context = context,
                                 uri = uri,
@@ -3449,25 +3563,53 @@ private fun AndroidMediaForm(
                                 caption = caption,
                                 location = location,
                                 titleHint = mediaTitle.ifBlank { caption },
-                                batchIndex = index + 1
+                                batchIndex = index + 1,
+                                onProgress = { sent, _ ->
+                                    val done = completedBytes + sent
+                                    val pct = ((done.toFloat() / totalBytes) * 100f).toInt().coerceIn(0, 100)
+                                    if (pct != lastPct) {
+                                        lastPct = pct
+                                        uploadFraction = pct / 100f
+                                        val elapsed = (System.currentTimeMillis() - startMs) / 1000.0
+                                        val rate = if (elapsed > 0) done / elapsed else 0.0
+                                        val eta = if (rate > 0) ((totalBytes - done) / rate).toLong() else -1L
+                                        uploadProgressText = "File ${index + 1}/${uris.size} · $pct%" +
+                                            (if (eta >= 0) " · ${formatEta(eta)}" else "")
+                                    }
+                                }
                             )
                         }
-                    }.onSuccess {
-                        val count = selectedUris.size
-                        selectedUris = emptyList()
-                        mediaTitle = ""
-                        caption = ""
-                        localMessage = null
-                        uploadStatus = ActionStatus.SUCCESS
-                        refreshMedia()
-                        onUploaded(count)
-                    }.onFailure { error ->
-                        if (error !is kotlinx.coroutines.CancellationException) {
-                            uploadStatus = ActionStatus.ERROR
-                            onError(error.message ?: "Object storage upload failed — please try again")
+                        when {
+                            result.isSuccess -> success++
+                            result.exceptionOrNull() is kotlinx.coroutines.CancellationException -> cancelled = true
+                            else -> failedUris.add(uri)
                         }
+                        completedBytes += sizes[index]
+                        uploadFraction = (completedBytes.toFloat() / totalBytes).coerceIn(0f, 1f)
                     }
                     uploading = false
+                    uploadProgressText = null
+                    uploadFraction = 0f
+                    when {
+                        cancelled -> Unit
+                        failedUris.isEmpty() -> {
+                            selectedUris = emptyList()
+                            mediaTitle = ""
+                            caption = ""
+                            localMessage = null
+                            uploadStatus = ActionStatus.SUCCESS
+                            refreshMedia()
+                            onUploaded(success)
+                        }
+                        else -> {
+                            // Keep only the failed files staged so the user can retry just those.
+                            selectedUris = failedUris.toList()
+                            uploadStatus = ActionStatus.ERROR
+                            localMessage = "$success uploaded, ${failedUris.size} failed. Tap upload to retry the remaining file(s)."
+                            if (success > 0) refreshMedia()
+                            onError("$success uploaded, ${failedUris.size} could not be uploaded — they remain staged for retry.")
+                        }
+                    }
                 }
             },
             enabled = selectedUris.isNotEmpty() && linkedMode != null && !uploading && !recording,
@@ -3498,6 +3640,23 @@ private fun AndroidMediaForm(
             }
         }
     }
+}
+
+/** Best-effort byte size of a content Uri (for upload ETA); 0 when unknown. */
+private fun queryMediaSize(context: Context, uri: Uri): Long {
+    return runCatching {
+        context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+            val index = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+            if (index >= 0 && cursor.moveToFirst() && !cursor.isNull(index)) cursor.getLong(index) else 0L
+        } ?: 0L
+    }.getOrDefault(0L)
+}
+
+/** Compact human estimate for an upload countdown, e.g. "~45s left" / "~2m 10s left". */
+private fun formatEta(seconds: Long): String {
+    if (seconds <= 0) return "almost done"
+    if (seconds < 60) return "~${seconds}s left"
+    return "~${seconds / 60}m ${seconds % 60}s left"
 }
 
 private fun mediaTypeFromMime(mime: String?): String = when {

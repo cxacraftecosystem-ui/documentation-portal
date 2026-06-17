@@ -7,9 +7,11 @@ import { Field, Select, TextArea, TextInput } from "@/components/FormControls";
 import { LocationFields } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { RecordedAtField } from "@/components/forms/RecordedAtField";
+import { ExistingMedia } from "@/components/media/ExistingMedia";
+import { UploadProgress } from "@/components/media/UploadProgress";
 import { apiFetch, listResource } from "@/lib/api";
 import { locationFromForm, numericValue, parseJsonMetadata, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue } from "@/lib/forms";
-import { appendRemarksWithExif, collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, uploadMediaFile } from "@/lib/media";
+import { appendRemarksWithExif, collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, uploadMediaFile, type BatchProgress } from "@/lib/media";
 import type { Artisan, Craft, ProductDocumentation, Workshop } from "@/lib/types";
 import { marketDemandOptions, productTypes } from "@/lib/types";
 
@@ -25,6 +27,15 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
     "Upload a grid-sheet image for measurement support. If GEMINI_API_KEY is not configured, fill length and breadth manually.";
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<BatchProgress | null>(null);
+  const [craftId, setCraftId] = useState(initial?.craftId ?? searchParams.get("craftId") ?? "");
+  const [artisanId, setArtisanId] = useState(initial?.artisanId ?? searchParams.get("artisanId") ?? "");
+
+  // Task 6: once a craft is linked, the artisan dropdown only offers artisans of that craft. The
+  // currently-selected artisan is always kept visible even if the data predates the craft link.
+  const artisansForCraft = craftId
+    ? artisans.filter((artisan) => artisan.craftId === craftId || artisan.id === artisanId)
+    : artisans;
 
   useEffect(() => {
     Promise.all([
@@ -40,9 +51,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
       .catch(() => undefined);
   }, []);
 
-  const prefillArtisanId = searchParams.get("artisanId") ?? "";
   const prefillArtisanName = searchParams.get("artisanName") ?? "";
-  const prefillCraftId = searchParams.get("craftId") ?? "";
   const prefillCraftName = searchParams.get("craftName") ?? "";
   const prefillPlace = searchParams.get("place") ?? "";
 
@@ -77,8 +86,8 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         mainToolsUsed: textValue(form, "mainToolsUsed"),
         productFunctionUse: textValue(form, "productFunctionUse"),
         remarks: appendRemarksWithExif(textValue(form, "remarks") as string | null, exifRemark),
-        artisanId: textValue(form, "artisanId"),
-        craftId: textValue(form, "craftId"),
+        artisanId: artisanId || null,
+        craftId: craftId || null,
         workshopId: textValue(form, "workshopId"),
         status: requiredText(form, "status") || "PENDING",
         recordedAt,
@@ -109,7 +118,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         });
       }
       if (mediaFiles.length) {
-        await uploadMediaBatch({
+        const { failed } = await uploadMediaBatch({
           files: mediaFiles,
           linkedRecordType: "product",
           linkedRecordId: saved.id,
@@ -117,8 +126,15 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           location,
           recordedAt,
           recordedTimezone,
-          extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined
+          extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined,
+          onProgress: setUploadProgress
         });
+        setUploadProgress(null);
+        if (failed.length) {
+          setError(`${failed.length} of ${mediaFiles.length} file(s) failed to upload: ${failed.map((f) => f.name).join(", ")}. The record was saved; re-open it to retry those files.`);
+          setSaving(false);
+          return;
+        }
       }
       router.push("/products");
       router.refresh();
@@ -150,7 +166,18 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           <TextInput name="craftName" required defaultValue={initial?.craftName ?? prefillCraftName} />
         </Field>
         <Field label="Linked craft">
-          <Select name="craftId" defaultValue={initial?.craftId ?? prefillCraftId}>
+          <Select
+            name="craftId"
+            value={craftId}
+            onChange={(event) => {
+              const next = event.target.value;
+              setCraftId(next);
+              // Drop the artisan if it no longer belongs to the chosen craft.
+              if (next && artisanId && !artisans.some((a) => a.id === artisanId && a.craftId === next)) {
+                setArtisanId("");
+              }
+            }}
+          >
             <option value="">Unlinked</option>
             {crafts.map((craft) => (
               <option key={craft.id} value={craft.id}>
@@ -166,14 +193,17 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           <TextInput name="artisanName" required defaultValue={initial?.artisanName ?? prefillArtisanName} />
         </Field>
         <Field label="Linked artisan">
-          <Select name="artisanId" defaultValue={initial?.artisanId ?? prefillArtisanId}>
-            <option value="">Unlinked</option>
-            {artisans.map((artisan) => (
+          <Select name="artisanId" value={artisanId} onChange={(event) => setArtisanId(event.target.value)} disabled={!craftId}>
+            <option value="">{craftId ? "Unlinked" : "Select a linked craft first"}</option>
+            {artisansForCraft.map((artisan) => (
               <option key={artisan.id} value={artisan.id}>
                 {artisan.name} - {artisan.place}
               </option>
             ))}
           </Select>
+          {craftId && artisansForCraft.length === 0 ? (
+            <p className="mt-1 text-xs text-ink-muted">No artisans are linked to this craft yet.</p>
+          ) : null}
         </Field>
         <Field label="Linked workshop">
           <Select name="workshopId" defaultValue={initial?.workshopId ?? ""}>
@@ -222,6 +252,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         </Field>
       </div>
       {measurementWarning ? <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{measurementWarning}</div> : null}
+      {initial ? <ExistingMedia linkedRecordType="product" linkedRecordId={initial.id} /> : null}
       <MediaCaptureField
         files={mediaFiles}
         onFilesChange={setMediaFiles}
@@ -247,6 +278,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
       <Field label="Extra metadata JSON">
         <TextArea name="extraMetadata" placeholder='{"motif":"floral","season":"festival"}' />
       </Field>
+      {uploadProgress ? <UploadProgress progress={uploadProgress} /> : null}
       <div className="flex justify-end gap-2">
         <button type="button" className="field-button-secondary" onClick={() => router.back()}>
           Cancel

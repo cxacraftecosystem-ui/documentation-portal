@@ -2,7 +2,6 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
 from app.core.deps import (
@@ -25,6 +24,7 @@ from app.schemas.questionnaire import (
 )
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
+    public_encode,
     add_date_range,
     attach_location,
     clean_data,
@@ -81,8 +81,8 @@ async def section_payloads(active_only: bool = True) -> list[dict[str, Any]]:
             questions_by_section.setdefault(question.sectionId, []).append(question)
     payload: list[dict[str, Any]] = []
     for section in sections:
-        encoded = jsonable_encoder(section)
-        encoded["questions"] = jsonable_encoder(questions_by_section.get(section.id, []))
+        encoded = public_encode(section)
+        encoded["questions"] = public_encode(questions_by_section.get(section.id, []))
         payload.append(encoded)
     return payload
 
@@ -154,7 +154,7 @@ async def list_questions(
         for question in section["questions"]
         if not sectionCode or question["sectionCode"] == sectionCode
     ]
-    return jsonable_encoder(flattened)
+    return public_encode(flattened)
 
 
 @router.get("/sections")
@@ -179,7 +179,7 @@ async def create_section(
             "isActive": payload.isActive,
         }
     )
-    return jsonable_encoder(created)
+    return public_encode(created)
 
 
 @router.patch("/sections/{section_id}")
@@ -200,7 +200,7 @@ async def update_section(
             where={"sectionId": section_id},
             data={"sectionCode": updated.code, "sectionTitle": updated.title},
         )
-    return jsonable_encoder(updated)
+    return public_encode(updated)
 
 
 @router.delete("/sections/{section_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -241,7 +241,7 @@ async def create_question(
             "isActive": payload.isActive,
         }
     )
-    return jsonable_encoder(created)
+    return public_encode(created)
 
 
 @router.patch("/questions/{question_id}")
@@ -264,7 +264,7 @@ async def update_question(
         section = await require_section(question.sectionId)
         data.update({"sectionCode": section.code, "sectionTitle": section.title})
     updated = await db.questionnairequestion.update(where={"id": question_id}, data=data)
-    return jsonable_encoder(updated)
+    return public_encode(updated)
 
 
 @router.delete("/questions/{question_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -319,7 +319,7 @@ async def list_interviews(
         take=page_size,
         order={"createdAt": "desc"},
     )
-    return page_payload(jsonable_encoder(items), total, page, page_size)
+    return page_payload(public_encode(items), total, page, page_size)
 
 
 @router.post("/interviews", status_code=status.HTTP_201_CREATED)
@@ -338,14 +338,14 @@ async def create_interview(
     if payload.responses:
         await upsert_responses(created.id, payload.responses, current_user)
     hydrated = await db.questionnaireinterview.find_unique(where={"id": created.id}, include=INTERVIEW_INCLUDE)
-    return jsonable_encoder(hydrated)
+    return public_encode(hydrated)
 
 
 @router.get("/interviews/{interview_id}")
 async def get_interview(interview_id: str, _: Any = Depends(get_current_user)) -> dict[str, Any]:
     interview = await db.questionnaireinterview.find_unique(where={"id": interview_id}, include=INTERVIEW_INCLUDE)
     interview = await require_record(db.questionnaireinterview, interview_id) if not interview else interview
-    return jsonable_encoder(interview)
+    return public_encode(interview)
 
 
 @router.patch("/interviews/{interview_id}")
@@ -369,7 +369,7 @@ async def update_interview(
     if payload.responses is not None:
         await upsert_responses(interview_id, payload.responses, current_user)
     updated = await db.questionnaireinterview.find_unique(where={"id": interview_id}, include=INTERVIEW_INCLUDE)
-    return jsonable_encoder(updated)
+    return public_encode(updated)
 
 
 @router.delete("/interviews/{interview_id}", status_code=status.HTTP_204_NO_CONTENT)

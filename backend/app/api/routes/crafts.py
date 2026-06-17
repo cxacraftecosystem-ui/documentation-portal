@@ -1,7 +1,6 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.encoders import jsonable_encoder
 from prisma.errors import UniqueViolationError
 
 from app.core.db import db
@@ -14,6 +13,7 @@ from app.core.deps import (
 from app.schemas.records import CraftCreate, CraftUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import clean_data, contains, merge_field_provenance, require_record
+from app.services.records import public_encode
 
 router = APIRouter(prefix="/crafts", tags=["crafts"])
 
@@ -39,7 +39,7 @@ async def list_crafts(
         where["place"] = contains(place)
     total = await db.craft.count(where=where)
     items = await db.craft.find_many(where=where, skip=skip, take=page_size, order={"name": "asc"})
-    return page_payload(jsonable_encoder(items), total, page, page_size)
+    return page_payload(public_encode(items), total, page, page_size)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -51,13 +51,13 @@ async def create_craft(payload: CraftCreate, current_user: Any = Depends(require
         created = await db.craft.create(data=data)
     except UniqueViolationError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Craft name already exists") from exc
-    return jsonable_encoder(created)
+    return public_encode(created)
 
 
 @router.get("/{craft_id}")
 async def get_craft(craft_id: str, _: Any = Depends(get_current_user)) -> dict[str, Any]:
     craft = await require_record(db.craft, craft_id)
-    return jsonable_encoder(craft)
+    return public_encode(craft)
 
 
 @router.patch("/{craft_id}")
@@ -71,7 +71,7 @@ async def update_craft(
     assert_can_contribute_fields(craft, current_user, data)
     merge_field_provenance(data, current_user, previous=craft)
     updated = await db.craft.update(where={"id": craft_id}, data=data)
-    return jsonable_encoder(updated)
+    return public_encode(updated)
 
 
 @router.delete("/{craft_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -8,6 +8,7 @@ import { Field, Select, TextArea, TextInput } from "@/components/FormControls";
 import { LocationFields } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { RecordedAtField } from "@/components/forms/RecordedAtField";
+import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { apiFetch, listResource } from "@/lib/api";
 import { locationFromForm, parseJsonMetadata, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue } from "@/lib/forms";
 import { appendRemarksWithExif, collectExifMetadata, exifMetadataToRemark, uploadMediaBatch } from "@/lib/media";
@@ -160,6 +161,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           <TextArea name="notes" defaultValue={initial?.notes ?? ""} />
         </Field>
       </div>
+      {initial ? <ExistingMedia linkedRecordType="artisan" linkedRecordId={initial.id} /> : null}
       <MediaCaptureField
         files={mediaFiles}
         onFilesChange={setMediaFiles}

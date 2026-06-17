@@ -2,12 +2,12 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
 from app.core.deps import get_current_user
 from app.services.pagination import normalize_pagination
 from app.services.records import add_date_range, contains, visibility_where
+from app.services.records import public_encode
 
 router = APIRouter(prefix="/search", tags=["search"])
 
@@ -91,7 +91,7 @@ async def global_search(
     )
     media = await db.mediafile.find_many(where=media_where, skip=skip, take=page_size, order={"createdAt": "desc"})
 
-    return jsonable_encoder(
+    return public_encode(
         {
             "query": q,
             "page": page,

@@ -3,7 +3,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from fastapi.encoders import jsonable_encoder
 
 from app.core.config import get_settings
 from app.core.db import db
@@ -13,6 +12,7 @@ from app.services.ai import analyze_measurement_image, transcribe_audio
 from app.services.media_queue import enqueue_media_processing_jobs, process_next_media_jobs
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
+    public_encode,
     add_date_range,
     attach_location,
     clean_data,
@@ -88,7 +88,7 @@ async def complete_media_upload(
     created = await db.mediafile.create(data=data, include=INCLUDE)
     await enqueue_media_processing_jobs(created, processing_requests, current_user.id, settings)
     created = await db.mediafile.find_unique(where={"id": created.id}, include=INCLUDE)
-    return jsonable_encoder(created)
+    return public_encode(created)
 
 
 @router.get("")
@@ -125,7 +125,7 @@ async def list_media(
         take=page_size,
         order={"createdAt": "desc"},
     )
-    return page_payload(jsonable_encoder(items), total, page, page_size)
+    return page_payload(public_encode(items), total, page, page_size)
 
 
 @router.get("/jobs")
@@ -147,7 +147,7 @@ async def list_media_processing_jobs(
         take=page_size,
         order={"createdAt": "desc"},
     )
-    return page_payload(jsonable_encoder(jobs), total, page, page_size)
+    return page_payload(public_encode(jobs), total, page, page_size)
 
 
 @router.post("/jobs/process")
@@ -176,7 +176,7 @@ async def retry_media_processing_job(
         },
         include={"mediaFile": True},
     )
-    return jsonable_encoder(updated)
+    return public_encode(updated)
 
 
 @router.delete("/object", status_code=status.HTTP_204_NO_CONTENT)
@@ -201,7 +201,7 @@ async def delete_staged_object(objectKey: str, current_user: Any = Depends(get_c
 async def get_media(media_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     media = await db.mediafile.find_unique(where={"id": media_id}, include=INCLUDE)
     media = await require_record(db.mediafile, media_id) if not media else media
-    return jsonable_encoder(media)
+    return public_encode(media)
 
 
 @router.delete("/{media_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -2,13 +2,13 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, status
-from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
 from app.core.deps import assert_can_contribute_fields, assert_can_delete, get_current_user
 from app.schemas.records import ProcessCreate, ProcessStepInput, ProcessUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
+    public_encode,
     add_date_range,
     clean_data,
     contains,
@@ -24,7 +24,7 @@ INCLUDE = {"product": True, "createdBy": True, "steps": True}
 
 def _encode_light(process: Any) -> dict[str, Any]:
     """Encode a process with its steps sorted, without the (heavier) media hydration."""
-    encoded = jsonable_encoder(process)
+    encoded = public_encode(process)
     encoded["steps"] = sorted(encoded.get("steps") or [], key=lambda s: s.get("sortOrder", 0))
     return encoded
 
@@ -42,7 +42,7 @@ async def _hydrate(process: Any) -> dict[str, Any]:
         where={"linkedRecordId": {"in": lookup_ids}},
         order={"createdAt": "asc"},
     )
-    media_encoded = jsonable_encoder(media)
+    media_encoded = public_encode(media)
     by_record: dict[str, list[dict[str, Any]]] = {}
     for item in media_encoded:
         by_record.setdefault(item.get("linkedRecordId"), []).append(item)

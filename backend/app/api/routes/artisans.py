@@ -1,7 +1,6 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
 from app.core.deps import (
@@ -13,6 +12,7 @@ from app.core.deps import (
 from app.schemas.records import ArtisanCreate, ArtisanUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
+    public_encode,
     attach_location,
     clean_data,
     contains,
@@ -85,7 +85,7 @@ async def list_artisans(
         take=page_size,
         order={"createdAt": "desc"},
     )
-    return page_payload(jsonable_encoder(items), total, page, page_size)
+    return page_payload(public_encode(items), total, page, page_size)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -99,14 +99,14 @@ async def create_artisan(
     data["createdById"] = current_user.id
     merge_field_provenance(data, current_user, previous=None)
     created = await db.artisan.create(data=data, include=INCLUDE)
-    return jsonable_encoder(created)
+    return public_encode(created)
 
 
 @router.get("/{artisan_id}")
 async def get_artisan(artisan_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     artisan = await db.artisan.find_unique(where={"id": artisan_id}, include=INCLUDE)
     artisan = await require_record(db.artisan, artisan_id) if not artisan else artisan
-    return jsonable_encoder(artisan)
+    return public_encode(artisan)
 
 
 @router.patch("/{artisan_id}")
@@ -122,7 +122,7 @@ async def update_artisan(
     assert_can_contribute_fields(artisan, current_user, data)
     merge_field_provenance(data, current_user, previous=artisan)
     updated = await db.artisan.update(where={"id": artisan_id}, data=data, include=INCLUDE)
-    return jsonable_encoder(updated)
+    return public_encode(updated)
 
 
 @router.get("/{artisan_id}/questionnaire")
@@ -165,7 +165,7 @@ async def get_artisan_questionnaire(artisan_id: str, _: Any = Depends(get_curren
             }
         )
     answered.sort(key=lambda item: ((item.get("sectionCode") or ""), item.get("sortOrder") or 0))
-    return jsonable_encoder({"artisanId": artisan_id, "answered": answered, "total": len(answered)})
+    return public_encode({"artisanId": artisan_id, "answered": answered, "total": len(answered)})
 
 
 @router.delete("/{artisan_id}", status_code=status.HTTP_204_NO_CONTENT)
