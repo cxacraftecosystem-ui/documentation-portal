@@ -13,7 +13,8 @@ function requiredEnv(names) {
 const connectionString = requiredEnv(["SUPABASE_DATABASE_URL", "DATABASE_URL"]);
 const client = new Client({
   connectionString,
-  ssl: process.env.SUPABASE_DB_SSL === "true" ? { rejectUnauthorized: false } : false
+  // Supabase requires TLS. Default SSL on (set SUPABASE_DB_SSL=false only for a local non-TLS DB).
+  ssl: process.env.SUPABASE_DB_SSL === "false" ? false : { rejectUnauthorized: false }
 });
 
 try {
