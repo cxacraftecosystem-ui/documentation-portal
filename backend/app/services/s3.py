@@ -9,15 +9,26 @@ from app.core.config import get_settings
 
 def _client():
     settings = get_settings()
+    # For a real AWS bucket outside us-east-1, presign against the *regional* endpoint. The global
+    # endpoint (bucket.s3.amazonaws.com) 307-redirects to the regional host, which changes the Host
+    # header the client sends and breaks the SigV4 signature -> 403 SignatureDoesNotMatch. Pinning
+    # the regional endpoint (bucket.s3.<region>.amazonaws.com) keeps the signed host and the request
+    # host identical. A custom endpoint (MinIO) is honoured as-is.
+    endpoint = settings.aws_s3_endpoint
+    # Virtual-hosted addressing only for real AWS (regional endpoint). A custom endpoint such as
+    # MinIO needs path-style, so leave its addressing on boto3's default ("auto").
+    s3_config: dict = {}
+    if not endpoint and settings.aws_region:
+        endpoint = f"https://s3.{settings.aws_region}.amazonaws.com"
+        s3_config = {"addressing_style": "virtual"}
     return boto3.client(
         "s3",
         region_name=settings.aws_region,
-        endpoint_url=settings.aws_s3_endpoint,
+        endpoint_url=endpoint,
         aws_access_key_id=settings.aws_access_key_id,
         aws_secret_access_key=settings.aws_secret_access_key,
-        # SigV4 is required for presigned URLs to validate in every region except us-east-1's
-        # legacy default; setting it explicitly keeps presigned PUTs working anywhere.
-        config=Config(signature_version="s3v4"),
+        # SigV4 so presigned PUTs validate in every region.
+        config=Config(signature_version="s3v4", s3=s3_config),
     )
 
 

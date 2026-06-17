@@ -43,6 +43,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -62,6 +63,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -398,6 +400,16 @@ private fun HomeScreen(
     // Master admin lands in admin view; other admins opt in from the menu.
     var adminView by remember { mutableStateOf(isMasterAdmin) }
 
+    // Surface a message, but swallow the noise from a coroutine being cancelled when a screen is
+    // left during navigation (e.g. "The coroutine scope left the composition") — that is expected,
+    // not a real error, and must not get stuck on screen.
+    fun showMessage(text: String?) {
+        if (text.isNullOrBlank()) return
+        val lower = text.lowercase()
+        if ("left the composition" in lower || "was cancelled" in lower || "job was cancelled" in lower) return
+        message = text
+    }
+
     fun canCreate(mode: EntryMode): Boolean = when (mode) {
         EntryMode.CRAFT -> isAdmin || user.canManageCrafts
         EntryMode.WORKSHOP -> isAdmin || user.canManageWorkshops
@@ -413,7 +425,7 @@ private fun HomeScreen(
         scope.launch {
             runCatching { repository.stats() }
                 .onSuccess { stats = it }
-                .onFailure { message = it.message }
+                .onFailure { showMessage(it.message) }
         }
     }
 
@@ -431,15 +443,17 @@ private fun HomeScreen(
         loadLookups()
         runCatching { repository.questionnaireSections() }
             .onSuccess { sections = it }
-            .onFailure { message = it.message }
+            .onFailure { showMessage(it.message) }
     }
 
     fun goDashboard() {
+        message = null
         screen = Screen.Dashboard
     }
 
     // System back / in-app back: step to the logical previous screen instead of leaving the app.
     fun goBack() {
+        message = null
         screen = when (val s = screen) {
             is Screen.Edit -> Screen.Browse(s.mode)
             is Screen.Browse -> Screen.Dashboard
@@ -523,8 +537,8 @@ private fun HomeScreen(
                     recentArtisans = artisans,
                     actions = dashboardModes,
                     canCreate = { canCreate(it) },
-                    onNew = { selected -> screen = Screen.Create(selected) },
-                    onUpdateExisting = { selected -> screen = Screen.Browse(selected) }
+                    onNew = { selected -> message = null; screen = Screen.Create(selected) },
+                    onUpdateExisting = { selected -> message = null; screen = Screen.Browse(selected) }
                 )
             }
 
@@ -532,14 +546,14 @@ private fun HomeScreen(
                 repository = repository,
                 mode = s.mode,
                 onPick = { recordId -> screen = Screen.Edit(s.mode, recordId) },
-                onError = { message = it }
+                onError = { showMessage(it) }
             )
 
             is Screen.Create -> when (s.mode) {
                 EntryMode.CRAFT -> CraftForm(
                     repository = repository,
                     onDone = { message = "Craft saved"; refresh(); refreshLookups(); goDashboard() },
-                    onError = { message = it }
+                    onError = { showMessage(it) }
                 )
                 EntryMode.ARTISAN -> ArtisanForm(
                     repository = repository,
@@ -553,7 +567,7 @@ private fun HomeScreen(
                         goDashboard()
                     },
                     onDone = { message = "Artisan saved"; refresh(); refreshLookups(); goDashboard() },
-                    onError = { message = it }
+                    onError = { showMessage(it) }
                 )
                 EntryMode.WORKSHOP -> WorkshopForm(
                     repository = repository,
@@ -561,7 +575,7 @@ private fun HomeScreen(
                     prefill = s.prefill,
                     adminView = adminView,
                     onDone = { message = "Workshop saved"; refresh(); goDashboard() },
-                    onError = { message = it }
+                    onError = { showMessage(it) }
                 )
                 EntryMode.PRODUCT -> ProductForm(
                     repository = repository,
@@ -570,17 +584,17 @@ private fun HomeScreen(
                     prefill = s.prefill,
                     adminView = adminView,
                     onDone = { message = "Product saved"; refresh(); goDashboard() },
-                    onError = { message = it }
+                    onError = { showMessage(it) }
                 )
                 EntryMode.PROCESS -> ProcessForm(
                     repository = repository,
                     adminView = adminView,
                     onDone = { message = "Process saved"; refresh(); goDashboard() },
-                    onError = { message = it }
+                    onError = { showMessage(it) }
                 )
                 EntryMode.VIEW_DATA -> ViewDataScreen(
                     repository = repository,
-                    onError = { message = it }
+                    onError = { showMessage(it) }
                 )
                 EntryMode.TOOL -> ToolForm(
                     repository = repository,
@@ -589,7 +603,7 @@ private fun HomeScreen(
                     prefill = s.prefill,
                     adminView = adminView,
                     onDone = { message = "Tool saved"; refresh(); goDashboard() },
-                    onError = { message = it }
+                    onError = { showMessage(it) }
                 )
                 EntryMode.MEDIA -> AndroidMediaForm(
                     repository = repository,
@@ -597,7 +611,7 @@ private fun HomeScreen(
                         message = "$count media file${if (count == 1) "" else "s"} uploaded and queued"
                         refresh()
                     },
-                    onError = { message = it }
+                    onError = { showMessage(it) }
                 )
                 EntryMode.QUESTIONNAIRE -> QuestionnaireForm(
                     repository = repository,
@@ -608,12 +622,12 @@ private fun HomeScreen(
                     onRefreshSections = {
                         runCatching { repository.questionnaireSections() }
                             .onSuccess { sections = it }
-                            .onFailure { message = it.message }
+                            .onFailure { showMessage(it.message) }
                     },
                     onSync = {
                         runCatching { repository.questionnaireSections() }
                             .onSuccess { sections = it }
-                            .onFailure { message = it.message }
+                            .onFailure { showMessage(it.message) }
                         loadLookups()
                     },
                     onSubmit = { body ->
@@ -621,13 +635,13 @@ private fun HomeScreen(
                         refresh()
                         created.id
                     },
-                    onError = { message = it },
+                    onError = { showMessage(it) },
                     onSaved = { message = "Questionnaire interview saved"; refresh(); goDashboard() }
                 )
                 EntryMode.USERS -> UserManagementForm(
                     repository = repository,
                     isMasterAdmin = isMasterAdmin,
-                    onError = { message = it }
+                    onError = { showMessage(it) }
                 )
             }
 
@@ -643,9 +657,9 @@ private fun HomeScreen(
                     onRefreshSections = {
                         runCatching { repository.questionnaireSections() }
                             .onSuccess { sections = it }
-                            .onFailure { message = it.message }
+                            .onFailure { showMessage(it.message) }
                     },
-                    onError = { message = it },
+                    onError = { showMessage(it) },
                     onDone = { message = "Interview updated"; refresh(); goDashboard() }
                 )
             } else EditScreen(
@@ -657,7 +671,7 @@ private fun HomeScreen(
                 adminView = adminView,
                 canDelete = isAdmin,
                 onDone = { message = "${s.mode.label} updated"; refresh(); refreshLookups(); goDashboard() },
-                onError = { message = it }
+                onError = { showMessage(it) }
             )
         }
 
@@ -697,9 +711,27 @@ private fun AppDrawerContent(
     onLogout: () -> Unit
 ) {
     ModalDrawerSheet {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Field Repository", fontFamily = FontFamily.Serif, fontSize = 22.sp, color = MaterialTheme.colorScheme.onSurface)
-            Text("${user.name} · ${user.role}", color = Muted, fontSize = 12.sp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Field Repository", fontFamily = FontFamily.Serif, fontSize = 22.sp, color = MaterialTheme.colorScheme.onSurface)
+                Text("${user.name} · ${user.role}", color = Muted, fontSize = 12.sp)
+            }
+            // Prominent red logout, top-right of the menu.
+            OutlinedButton(
+                onClick = onLogout,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD13438)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFD13438)),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Icon(Icons.Filled.Logout, contentDescription = "Logout", modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Logout")
+            }
         }
         HorizontalDivider()
         NavigationDrawerItem(
@@ -728,14 +760,6 @@ private fun AppDrawerContent(
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
             )
         }
-        HorizontalDivider()
-        NavigationDrawerItem(
-            label = { Text("Logout") },
-            selected = false,
-            icon = { Icon(Icons.Filled.Logout, contentDescription = null) },
-            onClick = onLogout,
-            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-        )
     }
 }
 
@@ -1074,7 +1098,7 @@ private fun DropdownField(
         Text(label, color = Muted, fontSize = 12.sp)
         Box(modifier = Modifier.fillMaxWidth()) {
             OutlinedButton(onClick = { expanded = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
-                Text(selectedLabel ?: placeholder, modifier = Modifier.weight(1f))
+                Text(selectedLabel ?: placeholder, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("▾", color = Muted)
             }
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -1082,7 +1106,10 @@ private fun DropdownField(
                     DropdownMenuItem(text = { Text(placeholder) }, onClick = { onSelect(""); expanded = false })
                 }
                 options.forEach { (value, text) ->
-                    DropdownMenuItem(text = { Text(text) }, onClick = { onSelect(value); expanded = false })
+                    DropdownMenuItem(
+                        text = { Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        onClick = { onSelect(value); expanded = false }
+                    )
                 }
             }
         }
@@ -1196,6 +1223,23 @@ private fun DatePickerField(label: String, value: LocalDate?, onChange: (LocalDa
 }
 
 private enum class RecPhase { IDLE, RECORDING, PAUSED, RECORDED }
+
+/** Transient outcome of an action button: drives a 5-second green/red flash. */
+private enum class ActionStatus { IDLE, SUCCESS, ERROR }
+
+private val SuccessGreen = Color(0xFF2E7D32)
+private val FailureRed = Color(0xFFD13438)
+
+/** Auto-reset a SUCCESS/ERROR status back to IDLE after 5 seconds. */
+@Composable
+private fun AutoResetStatus(status: ActionStatus, onReset: () -> Unit) {
+    LaunchedEffect(status) {
+        if (status != ActionStatus.IDLE) {
+            kotlinx.coroutines.delay(5000)
+            onReset()
+        }
+    }
+}
 
 /**
  * Self-contained audio recorder with the questionnaire control flow:
@@ -1568,7 +1612,7 @@ private fun RecordPickerScreen(
                 EntryMode.PRODUCT -> repository.products().map { it.id to "${it.productName} · ${it.artisanName}" }
                 EntryMode.PROCESS -> repository.processes().map { it.id to (it.name + (it.product?.productName?.let { p -> " · $p" } ?: "")) }
                 EntryMode.TOOL -> repository.tools().map { it.id to "${it.toolkitName} · ${it.artisanName}" }
-                EntryMode.WORKSHOP -> repository.workshops().map { it.id to "${it.title} · ${it.place}" }
+                EntryMode.WORKSHOP -> repository.workshops().map { it.id to it.title.ifBlank { "Untitled workshop" } }
                 EntryMode.QUESTIONNAIRE -> repository.interviews().map { it.id to (it.title.ifBlank { "Untitled interview" }) }
                 else -> emptyList()
             }
@@ -2918,7 +2962,7 @@ private suspend fun loadViewEntries(repository: FieldRepository, mode: EntryMode
     EntryMode.PRODUCT -> repository.products().map { it.id to "${it.productName} · ${it.artisanName}" }
     EntryMode.PROCESS -> repository.processes().map { it.id to (it.name + (it.product?.productName?.let { p -> " · $p" } ?: "")) }
     EntryMode.TOOL -> repository.tools().map { it.id to "${it.toolkitName} · ${it.artisanName}" }
-    EntryMode.WORKSHOP -> repository.workshops().map { it.id to "${it.title} · ${it.place}" }
+    EntryMode.WORKSHOP -> repository.workshops().map { it.id to it.title.ifBlank { "Untitled workshop" } }
     EntryMode.QUESTIONNAIRE -> repository.interviews().map { it.id to it.title.ifBlank { "Untitled interview" } }
     else -> emptyList()
 }
@@ -3226,12 +3270,14 @@ private fun AndroidMediaForm(
     var caption by remember { mutableStateOf("") }
     var location by remember { mutableStateOf<LocationRequest?>(null) }
     var uploading by remember { mutableStateOf(false) }
+    var uploadStatus by remember { mutableStateOf(ActionStatus.IDLE) }
     var recording by remember { mutableStateOf(false) }
     var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var recordingFile by remember { mutableStateOf<File?>(null) }
     var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
     var savedMedia by remember { mutableStateOf<List<com.fieldrepository.app.data.MediaFileDto>>(emptyList()) }
     var localMessage by remember { mutableStateOf<String?>(null) }
+    AutoResetStatus(uploadStatus) { uploadStatus = ActionStatus.IDLE }
 
     fun refreshMedia() {
         scope.launch {
@@ -3412,18 +3458,38 @@ private fun AndroidMediaForm(
                         mediaTitle = ""
                         caption = ""
                         localMessage = null
+                        uploadStatus = ActionStatus.SUCCESS
                         refreshMedia()
                         onUploaded(count)
                     }.onFailure { error ->
-                        onError(error.message ?: "Unable to upload media batch")
+                        if (error !is kotlinx.coroutines.CancellationException) {
+                            uploadStatus = ActionStatus.ERROR
+                            onError(error.message ?: "Object storage upload failed — please try again")
+                        }
                     }
                     uploading = false
                 }
             },
             enabled = selectedUris.isNotEmpty() && linkedMode != null && !uploading && !recording,
+            // Keep the green/red visible even while the button is disabled (the batch clears on success).
+            colors = if (uploadStatus == ActionStatus.IDLE) ButtonDefaults.buttonColors() else {
+                val c = if (uploadStatus == ActionStatus.SUCCESS) SuccessGreen else FailureRed
+                ButtonDefaults.buttonColors(
+                    containerColor = c, contentColor = Color.White,
+                    disabledContainerColor = c, disabledContentColor = Color.White
+                )
+            },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(if (uploading) "Uploading..." else if (linkedMode == null) "Choose a record type" else "Upload batch")
+            Text(
+                when {
+                    uploading -> "Uploading..."
+                    uploadStatus == ActionStatus.SUCCESS -> "Uploaded ✓"
+                    uploadStatus == ActionStatus.ERROR -> "Upload failed — tap to retry"
+                    linkedMode == null -> "Choose a record type"
+                    else -> "Upload batch"
+                }
+            )
         }
         if (savedMedia.isNotEmpty()) {
             Text("Recent saved media", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
@@ -3549,22 +3615,45 @@ private fun QuestionnaireForm(
         }
     }
     // Available to every user, including least-privilege: pull the latest sections/questions
-    // (and artisans) from the database on demand.
-    OutlinedButton(
+    // (and artisans) from the database on demand. Flashes green "Synchronised" for 5s on success,
+    // red on failure.
+    var syncStatus by remember { mutableStateOf(ActionStatus.IDLE) }
+    AutoResetStatus(syncStatus) { syncStatus = ActionStatus.IDLE }
+    val syncContainer = when (syncStatus) {
+        ActionStatus.SUCCESS -> SuccessGreen
+        ActionStatus.ERROR -> FailureRed
+        ActionStatus.IDLE -> MaterialTheme.colorScheme.primary
+    }
+    Button(
         onClick = {
-            if (syncing) return@OutlinedButton
+            if (syncing) return@Button
             scope.launch {
                 syncing = true
-                runCatching { onSync() }.onFailure { onError(it.message ?: "Unable to synchronize") }
+                runCatching { onSync() }
+                    .onSuccess { syncStatus = ActionStatus.SUCCESS }
+                    .onFailure {
+                        if (it !is kotlinx.coroutines.CancellationException) {
+                            syncStatus = ActionStatus.ERROR
+                            onError(it.message ?: "Unable to synchronize")
+                        }
+                    }
                 syncing = false
             }
         },
         enabled = !syncing,
+        colors = ButtonDefaults.buttonColors(containerColor = syncContainer),
         modifier = Modifier.fillMaxWidth()
     ) {
         Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(8.dp))
-        Text(if (syncing) "Synchronizing…" else "Synchronize with Database")
+        Text(
+            when {
+                syncing -> "Synchronizing…"
+                syncStatus == ActionStatus.SUCCESS -> "Synchronised ✓"
+                syncStatus == ActionStatus.ERROR -> "Sync failed — tap to retry"
+                else -> "Synchronize with Database"
+            }
+        )
     }
 
     RecordCard(title = if (isEdit) "Edit interview" else "Add questionnaire interview") {
@@ -3593,6 +3682,15 @@ private fun QuestionnaireForm(
             selectedValue = recordMode,
             includeNone = false
         ) { recordMode = it }
+        // On by default: keep the UI to just the record button; reveal answer boxes only on demand.
+        var hideAnswers by remember { mutableStateOf(true) }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Do not display answer text boxes", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+                Text("On by default — show only the record button. Toggle off to type written answers.", color = Muted, fontSize = 11.sp)
+            }
+            Switch(checked = hideAnswers, onCheckedChange = { hideAnswers = it })
+        }
         LocationEditor(
             value = capturedLocation,
             onUseGps = { readLastKnownLocation(context) },
@@ -3649,8 +3747,10 @@ private fun QuestionnaireForm(
                                         onError = onError
                                     )
                                 }
-                                TextInput("Answer", answers[question.id]?.value.orEmpty(), minLines = 3) { value ->
-                                    answers[question.id]?.let { state -> state.value = value }
+                                if (!hideAnswers) {
+                                    TextInput("Answer", answers[question.id]?.value.orEmpty(), minLines = 3) { value ->
+                                        answers[question.id]?.let { state -> state.value = value }
+                                    }
                                 }
                             }
                         }
