@@ -21,9 +21,10 @@ errors**). Screenshots in `frontend/pw-screens/` (gitignored). Re-run with
 
 | Area | Mode | Impact | Mitigation |
 |------|------|--------|------------|
-| Web prod | HTTPS Vercel page → **HTTP** API is blocked (mixed content) | Web app can't call the API in production | Put the API behind **HTTPS** (domain + certbot on the nginx box), then set `NEXT_PUBLIC_API_URL=https://…`. Android (cleartext OK) is unaffected. |
+| Web prod | HTTPS Vercel page → HTTP API mixed-content block | Web app can't call the API in production | **Resolved:** API is fronted by CloudFront over HTTPS (`https://d2b34i3e92al6i.cloudfront.net`); set `NEXT_PUBLIC_API_URL` to it. |
+| IPv6-only cellular | IPv4-only origin (EC2/S3) unreachable on Jio/Airtel mobile data | App can't reach API/media on cellular | **Resolved:** CloudFront (dual-stack, native AAAA) fronts the API; S3 uses the dual-stack endpoint. Forcing APN protocol to `IPv4/IPv6` is a device-side fallback. |
 | Google sign-in | Web origin / Android SHA-1 not registered → 403 / invalid token | Google login fails (email/password still works) | Register origin + `com.fieldrepository.app`/SHA-1 in Google Cloud (see RESEARCHER_GUIDE). |
-| Vercel env | `NEXT_PUBLIC_API_URL` must be the **origin without** `/api` (the client appends `/api`) | Wrong value → all calls 404 | Set `NEXT_PUBLIC_API_URL=http://15.207.145.174` (not `…/api/`). |
+| Vercel env | `NEXT_PUBLIC_API_URL` must be the **origin without** `/api` (the client appends `/api`) | Wrong value → all calls 404 | Set `NEXT_PUBLIC_API_URL=https://d2b34i3e92al6i.cloudfront.net` (not `…/api/`). |
 | Android dataset download | On **API < 29** the public-Downloads fallback needs `WRITE_EXTERNAL_STORAGE` (not requested) | Save fails on Android 8–9 | Caught and surfaced via `onError`; most devices are API ≥ 29 (MediaStore path). Add the legacy permission if 8–9 support is needed. |
 | Auth token | JWT expires after `JWT_EXPIRES_MINUTES` (7 days); a stale token yields 401 | User sees an error until re-login | Expected; logging out/in re-issues. Pre-login `/api/me` 401 is benign. |
 | EC2 reachability | Local **SSH (22) is ISP-blocked**; box managed via GitHub Actions + AWS SSM | No direct `ssh` from this network | Use SSM Session Manager (instance is `Online`) or the Actions deploy. |

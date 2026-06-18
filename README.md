@@ -2,8 +2,10 @@
 
 Full-stack, API-first repository for field teams documenting artisans, crafts, workshops, products, tools, media, GPS locations and review decisions.
 
-> **Live:** the backend runs on AWS at **http://15.207.145.174/api/** (Terraform in `infra/terraform/`,
-> auto-deployed by `.github/workflows/deploy-backend.yml`). To hand the app to researchers see
+> **Live:** the backend runs on AWS (EC2 at `15.207.145.174`) and is served over HTTPS through
+> CloudFront at **https://d2b34i3e92al6i.cloudfront.net/api/** (Terraform in `infra/terraform/`,
+> auto-deployed by `.github/workflows/deploy-backend.yml`). CloudFront is dual-stack, so the API is
+> reachable on IPv6-only mobile networks where the IPv4-only origin is not. To hand the app to researchers see
 > [docs/RESEARCHER_GUIDE.md](docs/RESEARCHER_GUIDE.md); deployment runbook is
 > [backend/DEPLOY_AWS.md](backend/DEPLOY_AWS.md); known failure modes are in
 > [docs/QA_AUDIT.md](docs/QA_AUDIT.md).
@@ -120,7 +122,7 @@ Change them before using real data.
 
 The Kotlin Android app lives in `android/` and uses the same backend:
 
-- Default (production) base URL: `http://ec2-15-207-145-174.ap-south-1.compute.amazonaws.com/api/` — the AWS public DNS **hostname** for the Elastic IP, **not** the bare IPv4. This matters: IPv6-only mobile networks (common with Jio/Airtel) reach an IPv4 server only through NAT64/DNS64, which needs a DNS name to synthesize the route. A literal IP (`http://15.207.145.174/...`) connects on Wi-Fi but fails on such cellular networks with "Failed to connect to /15.207.145.174:80".
+- Default (production) base URL: `https://d2b34i3e92al6i.cloudfront.net/api/` — the API fronted by **CloudFront over HTTPS**. CloudFront is **dual-stack** (publishes a native IPv6 `AAAA` record), so the app connects on IPv6-only mobile networks (common with Jio/Airtel). The IPv4-only EC2 origin — whether addressed by its bare IP `15.207.145.174` or its AWS hostname `ec2-15-207-145-174.ap-south-1.compute.amazonaws.com` — works on Wi-Fi but fails on such cellular networks ("Failed to connect" for the IP, "No address associated with hostname" for the hostname, because `AI_ADDRCONFIG` drops an IPv4-only name when the phone has no IPv4 and there is no DNS64/NAT64). HTTPS also clears the web app's mixed-content block. Media uploads/reads use the **dual-stack S3 endpoint** (`s3.dualstack.ap-south-1.amazonaws.com`) for the same reason. A live device that still has IPv4 on cellular can be forced by setting the APN protocol to `IPv4/IPv6`.
 - Emulator base URL: set `apiBaseUrl=http://10.0.2.2:8000/api/` in `android/local.properties`.
 - Other physical device / LAN: set an ignored `apiBaseUrl` line in `android/local.properties`, for example `apiBaseUrl=http://192.168.1.20:8000/api/`, and run the backend with `--host 0.0.0.0`.
 - Package name: `com.fieldrepository.app`

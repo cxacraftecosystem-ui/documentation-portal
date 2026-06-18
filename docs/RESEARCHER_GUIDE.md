@@ -1,7 +1,8 @@
 # Field Repository — distribution & install guide (for researchers)
 
-The backend is live at **http://15.207.145.174/api/** (AWS). The Android app and the
-web app both talk to it. Nothing needs to run on the researcher's machine except the app.
+The backend is live at **https://d2b34i3e92al6i.cloudfront.net/api/** (AWS EC2 fronted by CloudFront
+over HTTPS; dual-stack so it works on IPv6-only mobile data too). The Android app and the web app
+both talk to it. Nothing needs to run on the researcher's machine except the app.
 
 ---
 

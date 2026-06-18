@@ -24,13 +24,15 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
-        // Default to the production backend via its AWS public DNS *hostname* (not a bare IPv4). A
-        // hostname is required so DNS64/NAT64 can reach the IPv4 server on IPv6-only mobile networks
-        // (e.g. Jio/Airtel), where a literal IP fails to connect. Emulator/local devs override this
-        // with apiBaseUrl=http://10.0.2.2:8000/api/ in local.properties.
+        // Default to the production backend through CloudFront over HTTPS. CloudFront is dual-stack
+        // (publishes a native IPv6 / AAAA record), so it connects on IPv6-only mobile networks
+        // (e.g. Jio/Airtel) where the IPv4-only EC2 origin — whether addressed by literal IP or its
+        // AWS hostname — fails (no IPv4 route, and no AAAA to use). HTTPS also clears the web app's
+        // mixed-content block. Emulator/local devs override this with
+        // apiBaseUrl=http://10.0.2.2:8000/api/ in local.properties.
         val apiBaseUrl = localProperties.getProperty(
             "apiBaseUrl",
-            "http://ec2-15-207-145-174.ap-south-1.compute.amazonaws.com/api/"
+            "https://d2b34i3e92al6i.cloudfront.net/api/"
         )
         buildConfigField("String", "DEFAULT_API_BASE_URL", "\"$apiBaseUrl\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"614092441670-3e5k15srupq9mfpg3aktqfkjvkavu0g3.apps.googleusercontent.com\"")

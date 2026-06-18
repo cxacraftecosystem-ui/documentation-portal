@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true" />
+    <!-- Production API is now HTTPS via CloudFront (d2b34i3e92al6i.cloudfront.net), which uses a
+         publicly-trusted certificate and needs no entry here. Cleartext (HTTP) is permitted only
+         for local development hosts and the direct EC2 origin, the latter kept as a manual fallback
+         if CloudFront is ever bypassed via apiBaseUrl in local.properties. No blanket
+         base-config cleartext, so HTTP is rejected everywhere else. -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">10.0.2.2</domain>
         <domain includeSubdomains="true">127.0.0.1</domain>
         <domain includeSubdomains="true">localhost</domain>
-        <!-- Production backend (HTTP). Reached via the AWS public DNS hostname, not a bare IPv4, so
-             IPv6-only mobile networks (NAT64/DNS64) can connect. -->
         <domain includeSubdomains="true">ec2-15-207-145-174.ap-south-1.compute.amazonaws.com</domain>
         <domain includeSubdomains="true">15.207.145.174</domain>
     </domain-config>

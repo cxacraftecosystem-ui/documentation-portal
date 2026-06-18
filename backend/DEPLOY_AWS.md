@@ -247,12 +247,13 @@ The Vercel project is linked to this GitHub repo (same account), so each push to
 
 - **Root Directory:** `frontend` (this is a monorepo; `frontend/vercel.json`
   pins the Next.js framework).
-- **Environment variables:** `NEXT_PUBLIC_API_URL = http://<EC2_HOST>` — the **origin only,
-  without** `/api` (the web client appends `/api` itself; e.g. `http://15.207.145.174`). Also set
+- **Environment variables:** `NEXT_PUBLIC_API_URL = https://d2b34i3e92al6i.cloudfront.net` — the
+  **origin only, without** `/api` (the web client appends `/api` itself). Also set
   `NEXT_PUBLIC_GOOGLE_CLIENT_ID = …`.
-- **Mixed content:** an HTTPS Vercel page cannot call an HTTP API — browsers block it. Give the API
-  TLS (domain + certbot, §7) and use `https://…` here, or the web app's API calls will fail. The
-  Android app is unaffected (cleartext allowed).
+- **Mixed content:** an HTTPS Vercel page cannot call an HTTP API — browsers block it. The API is now
+  fronted by **CloudFront over HTTPS** (`https://d2b34i3e92al6i.cloudfront.net`, dual-stack), so use
+  that `https://…` value above and the block is gone. (Hitting the raw EC2 origin over `http://…`
+  would still be blocked.) The Android app talks to the same CloudFront URL.
 - **Google sign-in:** add the Vercel origin to the Google OAuth web client's *Authorized JavaScript
   origins*, or the GSI button returns 403.
 - Add the resulting Vercel URL to `BACKEND_CORS_ORIGINS` (in `BACKEND_ENV`) and to

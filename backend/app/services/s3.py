@@ -19,7 +19,11 @@ def _client():
     # MinIO needs path-style, so leave its addressing on boto3's default ("auto").
     s3_config: dict = {}
     if not endpoint and settings.aws_region:
-        endpoint = f"https://s3.{settings.aws_region}.amazonaws.com"
+        # Dual-stack regional endpoint (s3.dualstack.<region>) so presigned PUT URLs resolve a
+        # native IPv6 (AAAA) address. IPv4-only mobile data is increasingly IPv6-only (Jio/Airtel);
+        # the plain s3.<region> host has no AAAA, so uploads from such phones fail to connect.
+        # Dual-stack serves IPv4 too, so Wi-Fi is unaffected, and SigV4 signs the dual-stack host.
+        endpoint = f"https://s3.dualstack.{settings.aws_region}.amazonaws.com"
         s3_config = {"addressing_style": "virtual"}
     return boto3.client(
         "s3",
@@ -42,13 +46,32 @@ def make_object_key(user_id: str, filename: str) -> str:
     return f"media/{user_id}/{uuid4().hex}/{safe_filename(filename)}"
 
 
+def _promote_dualstack(url: str, region: str | None) -> str:
+    """Rewrite a regional AWS S3 host to its dual-stack form so stored media URLs resolve a native
+    IPv6 address on IPv6-only mobile networks. Idempotent, and a no-op when the host isn't the
+    plain regional S3 endpoint (e.g. a custom CDN/MinIO base)."""
+    if not region:
+        return url
+    plain = f".s3.{region}.amazonaws.com"
+    dual = f".s3.dualstack.{region}.amazonaws.com"
+    if dual in url or plain not in url:
+        return url
+    return url.replace(plain, dual)
+
+
 def public_url_for_key(object_key: str) -> str | None:
     settings = get_settings()
     if settings.aws_s3_public_base_url:
-        return f"{settings.aws_s3_public_base_url.rstrip('/')}/{object_key}"
-    if settings.aws_s3_endpoint:
+        base = f"{settings.aws_s3_public_base_url.rstrip('/')}/{object_key}"
+    elif settings.aws_s3_endpoint:
+        # Custom endpoint (MinIO/CDN) is served verbatim — no dual-stack promotion.
         return f"{settings.aws_s3_endpoint.rstrip('/')}/{settings.aws_s3_bucket}/{object_key}"
-    return None
+    else:
+        return None
+    # Promote the public base only when it points at a real AWS regional host (not a custom endpoint).
+    if not settings.aws_s3_endpoint:
+        base = _promote_dualstack(base, settings.aws_region)
+    return base
 
 
 def presign_put_url(object_key: str, mime_type: str) -> str:
