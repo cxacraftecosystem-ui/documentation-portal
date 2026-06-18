@@ -120,8 +120,9 @@ Change them before using real data.
 
 The Kotlin Android app lives in `android/` and uses the same backend:
 
-- Emulator base URL: `http://10.0.2.2:8000/api/`
-- Physical device base URL: add an ignored `apiBaseUrl` line to `android/local.properties`, for example `apiBaseUrl=http://192.168.1.20:8000/api/`, and run the backend with `--host 0.0.0.0`.
+- Default (production) base URL: `http://ec2-15-207-145-174.ap-south-1.compute.amazonaws.com/api/` — the AWS public DNS **hostname** for the Elastic IP, **not** the bare IPv4. This matters: IPv6-only mobile networks (common with Jio/Airtel) reach an IPv4 server only through NAT64/DNS64, which needs a DNS name to synthesize the route. A literal IP (`http://15.207.145.174/...`) connects on Wi-Fi but fails on such cellular networks with "Failed to connect to /15.207.145.174:80".
+- Emulator base URL: set `apiBaseUrl=http://10.0.2.2:8000/api/` in `android/local.properties`.
+- Other physical device / LAN: set an ignored `apiBaseUrl` line in `android/local.properties`, for example `apiBaseUrl=http://192.168.1.20:8000/api/`, and run the backend with `--host 0.0.0.0`.
 - Package name: `com.fieldrepository.app`
 - Google sign-in: Android Credential Manager requests a Google ID token with the same web OAuth client ID used by the Next.js app, then posts it to `POST /api/auth/login`.
 

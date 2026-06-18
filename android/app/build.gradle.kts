@@ -24,7 +24,14 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
-        val apiBaseUrl = localProperties.getProperty("apiBaseUrl", "http://10.0.2.2:8000/api/")
+        // Default to the production backend via its AWS public DNS *hostname* (not a bare IPv4). A
+        // hostname is required so DNS64/NAT64 can reach the IPv4 server on IPv6-only mobile networks
+        // (e.g. Jio/Airtel), where a literal IP fails to connect. Emulator/local devs override this
+        // with apiBaseUrl=http://10.0.2.2:8000/api/ in local.properties.
+        val apiBaseUrl = localProperties.getProperty(
+            "apiBaseUrl",
+            "http://ec2-15-207-145-174.ap-south-1.compute.amazonaws.com/api/"
+        )
         buildConfigField("String", "DEFAULT_API_BASE_URL", "\"$apiBaseUrl\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"614092441670-3e5k15srupq9mfpg3aktqfkjvkavu0g3.apps.googleusercontent.com\"")
         buildConfigField("String", "GOOGLE_ANDROID_CLIENT_ID", "\"614092441670-5rckig6t1al6plbfll8irn9prcmp446t.apps.googleusercontent.com\"")

@@ -7,6 +7,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
+import java.util.concurrent.TimeUnit
 
 object ApiClient {
     fun create(tokenStore: TokenStore): FieldRepositoryApi {
@@ -26,6 +27,12 @@ object ApiClient {
         }
 
         val client = OkHttpClient.Builder()
+            // Mobile data is slower and drops connections more than Wi-Fi, so allow generous timeouts
+            // and let OkHttp retry a connection that fails mid-handshake (e.g. a NAT64 path settling).
+            .retryOnConnectionFailure(true)
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val token = tokenStore.getToken()
                 val request = if (token.isNullOrBlank()) {
