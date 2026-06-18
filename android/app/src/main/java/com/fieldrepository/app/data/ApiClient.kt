@@ -13,6 +13,12 @@ object ApiClient {
         val json = Json {
             ignoreUnknownKeys = true
             explicitNulls = false
+            // The API serializes Prisma Decimal columns (measurements, costs) as JSON *strings*
+            // (e.g. "12.5"). isLenient lets numeric DTO fields decode from quoted values, and
+            // coerceInputValues falls back to defaults if a non-null field arrives null — together
+            // these stop a single measured record from failing an entire list deserialization.
+            isLenient = true
+            coerceInputValues = true
         }
 
         val logging = HttpLoggingInterceptor().apply {

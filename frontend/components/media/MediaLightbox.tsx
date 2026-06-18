@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, FileText, Headphones, Image as ImageIcon, Loader2, Maximize2, Video, X } from "lucide-react";
+import { Download, ExternalLink, FileText, Headphones, Image as ImageIcon, Loader2, Maximize2, Video, X } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { bytes } from "@/lib/format";
@@ -107,6 +107,36 @@ export function MediaPreviewTile({
   );
 }
 
+/**
+ * Force a download of the (usually cross-origin S3) file to the user's device. We fetch it as a blob
+ * so the browser saves rather than navigates; if CORS blocks the fetch we fall back to a download
+ * anchor, and finally to opening the URL in a new tab.
+ */
+async function saveToDevice(url: string, name: string) {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = name || "media";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(objectUrl);
+  } catch {
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = name || "media";
+    anchor.target = "_blank";
+    anchor.rel = "noreferrer";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  }
+}
+
 export function MediaLightbox({ item, onClose }: { item: PreviewMedia; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label={`Preview ${item.name}`}>
@@ -117,6 +147,12 @@ export function MediaLightbox({ item, onClose }: { item: PreviewMedia; onClose: 
             <p className="text-sm text-ink-muted">{mediaLabel(item)}</p>
           </div>
           <div className="flex items-center gap-2">
+            {item.url ? (
+              <button type="button" className="field-button-secondary" onClick={() => saveToDevice(item.url as string, item.name)}>
+                <Download className="h-4 w-4" aria-hidden />
+                Save
+              </button>
+            ) : null}
             {item.url ? (
               <a className="field-button-secondary" href={item.url} target="_blank" rel="noreferrer">
                 <ExternalLink className="h-4 w-4" aria-hidden />

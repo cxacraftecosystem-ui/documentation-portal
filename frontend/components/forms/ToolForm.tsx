@@ -8,7 +8,7 @@ import { LocationFields } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { RecordedAtField } from "@/components/forms/RecordedAtField";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
-import { GridMeasurement, type GridDimension } from "@/components/media/GridMeasurement";
+import { GridMeasurement, type GridFiles, type GridGroup } from "@/components/media/GridMeasurement";
 import { UploadProgress } from "@/components/media/UploadProgress";
 import { apiFetch, listResource } from "@/lib/api";
 import { locationFromForm, numericValue, parseJsonMetadata, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue } from "@/lib/forms";
@@ -32,7 +32,7 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
   const [length, setLength] = useState(initial?.lengthInches != null ? String(initial.lengthInches) : "");
   const [breadth, setBreadth] = useState(initial?.breadthInches != null ? String(initial.breadthInches) : "");
   const [height, setHeight] = useState(initial?.height != null ? String(initial.height) : "");
-  const [gridFiles, setGridFiles] = useState<Partial<Record<GridDimension, File>>>({});
+  const [gridFiles, setGridFiles] = useState<GridFiles>({});
 
   const toNum = (value: string) => {
     const n = Number(value);
@@ -111,13 +111,13 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
       });
       // Store each captured grid photo as media linked to the tool (the measured value is already in
       // the field). Best-effort per file so one failure doesn't lose the record.
-      for (const [dimension, file] of Object.entries(gridFiles) as [GridDimension, File][]) {
+      for (const [group, file] of Object.entries(gridFiles) as [GridGroup, File][]) {
         try {
           await uploadMediaFile({
             file,
             linkedRecordType: "tool",
             linkedRecordId: saved.id,
-            caption: `${dimension} grid (measurement) for ${saved.toolkitName}`,
+            caption: `${group === "lengthBreadth" ? "Length & breadth" : "Height"} grid (measurement) for ${saved.toolkitName}`,
             location,
             recordedAt,
             recordedTimezone,
@@ -277,12 +277,12 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
         </Field>
       </div>
       <GridMeasurement
-        dimensions={["length", "breadth", "height"]}
-        onValue={(dimension, value) => {
-          if (dimension === "length") setLength(value);
-          else if (dimension === "breadth") setBreadth(value);
-          else setHeight(value);
+        includeHeight
+        onLengthBreadth={(l, b) => {
+          if (l) setLength(l);
+          if (b) setBreadth(b);
         }}
+        onHeight={(value) => setHeight(value)}
         onFilesChange={setGridFiles}
       />
       {initial ? <ExistingMedia linkedRecordType="tool" linkedRecordId={initial.id} /> : null}

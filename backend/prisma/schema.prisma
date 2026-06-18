@@ -206,6 +206,7 @@ model Artisan {
   workshops WorkshopArtisan[]
   products  ProductDocumentation[]
   tools     ToolDocumentation[]
+  toolLinks ToolArtisan[]
   media     MediaFile[]
   questionnaireInterviews QuestionnaireInterviewArtisan[]
 
@@ -387,6 +388,7 @@ model ToolDocumentation {
   createdBy User        @relation("ToolCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   media     MediaFile[]
   mediaProcessingJobs MediaProcessingJob[]
+  artisanLinks ToolArtisan[]
 
   @@index([toolkitName])
   @@index([craftName])
@@ -398,6 +400,22 @@ model ToolDocumentation {
   @@index([createdById])
   @@index([status])
   @@index([recordedAt])
+}
+
+// Many-to-many between a tool and the artisans who use it. Lets one documented tool be assigned to
+// several artisans (across the same or different crafts) instead of re-entering the tool per craft.
+model ToolArtisan {
+  id        String   @id @default(cuid())
+  toolId    String
+  artisanId String
+  createdAt DateTime @default(now())
+
+  tool    ToolDocumentation @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  artisan Artisan           @relation(fields: [artisanId], references: [id], onDelete: Cascade)
+
+  @@unique([toolId, artisanId])
+  @@index([toolId])
+  @@index([artisanId])
 }
 
 model MediaFile {
@@ -615,6 +633,7 @@ model ProcessStep {
   name      String
   stepType  ProcessStepType @default(SEQUENTIAL)
   sortOrder Int
+  notes     String?
   createdAt DateTime        @default(now())
   updatedAt DateTime        @updatedAt
 

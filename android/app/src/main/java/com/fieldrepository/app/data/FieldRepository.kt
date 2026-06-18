@@ -7,6 +7,8 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import androidx.core.content.FileProvider
+import com.fieldrepository.app.media.MediaSplitter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType
@@ -264,6 +266,34 @@ class FieldRepository(
     suspend fun updateQuestionnaireInterview(id: String, body: QuestionnaireInterviewUpdateRequest): QuestionnaireInterviewDetailDto =
         api.updateInterview(id, body)
 
+    /**
+     * Per-part byte budget above which an audio/video file is split before upload, or null for types
+     * that are never split. Audio stays under the speech-to-text per-file cap (25 MB) so every part
+     * transcribes; video is chunked into reliably-uploadable segments.
+     */
+    private fun splitLimitFor(mediaType: String): Long? = when (mediaType) {
+        "AUDIO" -> 20L * 1024 * 1024
+        "VIDEO" -> 96L * 1024 * 1024
+        else -> null
+    }
+
+    /**
+     * True when [uri] is a long audio/video that [uploadMedia] will split into parts. The eager
+     * pre-upload skips these (a single staged blob can't be split afterwards) so the split happens at
+     * save time instead.
+     */
+    fun willSplit(context: Context, uri: Uri): Boolean {
+        val mimeType = context.contentResolver.getType(uri) ?: return false
+        val limit = splitLimitFor(inferMediaType(mimeType)) ?: return false
+        return queryContentSize(context, uri) > limit
+    }
+
+    /**
+     * Upload a captured/selected file. A long audio/video file is first split into time-ordered
+     * segments (each within [splitLimitFor]) and uploaded as PART_1, PART_2, … so it never fails as
+     * one oversized blob and each audio part stays transcribable; everything else uploads as-is.
+     * Splitting is fail-safe: if the media can't be re-muxed it is uploaded whole.
+     */
     suspend fun uploadMedia(
         context: Context,
         uri: Uri,
@@ -281,6 +311,84 @@ class FieldRepository(
         val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
         val originalName = displayName(context, uri) ?: "field-media-${System.currentTimeMillis()}"
         val mediaType = inferMediaType(mimeType)
+        val limit = splitLimitFor(mediaType)
+        val size = queryContentSize(context, uri)
+        if (limit != null && size > limit) {
+            val parts = withContext(Dispatchers.IO) {
+                MediaSplitter.split(context, uri, limit, File(context.cacheDir, "field-captures"))
+            }
+            if (parts.size >= 2) {
+                val totalBytes = parts.sumOf { it.length() }.coerceAtLeast(1L)
+                var doneBytes = 0L
+                var firstResult: MediaFileDto? = null
+                try {
+                    parts.forEachIndexed { partIndex, part ->
+                        val partUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", part)
+                        val partSegment = listOfNotNull(customSegment?.takeIf { it.isNotBlank() }, "PART_${partIndex + 1}").joinToString("_")
+                        val base = doneBytes
+                        val result = uploadResolved(
+                            context = context,
+                            uri = partUri,
+                            mimeType = mimeType,
+                            mediaType = mediaType,
+                            originalName = originalName,
+                            linkedRecordType = linkedRecordType,
+                            linkedRecordId = linkedRecordId,
+                            caption = caption?.let { "$it (part ${partIndex + 1} of ${parts.size})" },
+                            location = location,
+                            titleHint = titleHint,
+                            batchIndex = batchIndex,
+                            processingRequests = processingRequests,
+                            stageStep = stageStep,
+                            customSegment = partSegment,
+                            onProgress = onProgress?.let { cb -> { sent, _ -> cb(base + sent, totalBytes) } }
+                        )
+                        if (firstResult == null) firstResult = result
+                        doneBytes += part.length()
+                    }
+                } finally {
+                    parts.forEach { runCatching { it.delete() } }
+                }
+                return firstResult!!
+            }
+        }
+        return uploadResolved(
+            context = context,
+            uri = uri,
+            mimeType = mimeType,
+            mediaType = mediaType,
+            originalName = originalName,
+            linkedRecordType = linkedRecordType,
+            linkedRecordId = linkedRecordId,
+            caption = caption,
+            location = location,
+            titleHint = titleHint,
+            batchIndex = batchIndex,
+            processingRequests = processingRequests,
+            stageStep = stageStep,
+            customSegment = customSegment,
+            onProgress = onProgress
+        )
+    }
+
+    /** Single-object upload (no splitting). Streams straight from the Uri so the heap never holds the file. */
+    private suspend fun uploadResolved(
+        context: Context,
+        uri: Uri,
+        mimeType: String,
+        mediaType: String,
+        originalName: String,
+        linkedRecordType: String?,
+        linkedRecordId: String?,
+        caption: String?,
+        location: LocationRequest?,
+        titleHint: String?,
+        batchIndex: Int,
+        processingRequests: List<String>?,
+        stageStep: Int?,
+        customSegment: String?,
+        onProgress: ((sent: Long, total: Long) -> Unit)?
+    ): MediaFileDto {
         val resolvedProcessing = processingRequests
             ?: if (mediaType == "AUDIO") listOf("TRANSCRIPTION") else emptyList()
         val filename = mediaFilename(
@@ -437,6 +545,27 @@ class FieldRepository(
         )
         val response = api.analyzeMeasurement(part, dimension)
         return response.analysis?.valueInches
+    }
+
+    /**
+     * Analyse a single grid-sheet photo for BOTH length and breadth at once (the object's footprint
+     * on the grid). Calls the measurement endpoint with no dimension, which returns the legacy
+     * length+breadth pair. Returns (lengthInches, breadthInches); either may be null if unread.
+     */
+    suspend fun analyzeMeasurementLengthBreadth(context: Context, uri: Uri): Pair<Double?, Double?> {
+        val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+        val bytes = withContext(Dispatchers.IO) {
+            context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                ?: throw IllegalStateException("Unable to open the captured image")
+        }
+        val part = okhttp3.MultipartBody.Part.createFormData(
+            "file",
+            "grid-length-breadth.jpg",
+            bytes.toRequestBody(mimeType.toMediaType())
+        )
+        val response = api.analyzeMeasurement(part, null)
+        val analysis = response.analysis
+        return (analysis?.lengthInches) to (analysis?.breadthInches)
     }
 
     /**

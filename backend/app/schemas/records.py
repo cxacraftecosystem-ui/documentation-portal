@@ -174,6 +174,7 @@ class ProcessStepInput(APIModel):
     name: str = Field(min_length=1, max_length=220)
     stepType: str = "SEQUENTIAL"
     sortOrder: int = Field(default=0, ge=0)
+    notes: str | None = None
 
 
 class ProcessCreate(APIModel):
@@ -268,3 +269,9 @@ class ToolUpdate(APIModel):
     recordedTimezone: str | None = None
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
+
+
+class ToolArtisanAssign(APIModel):
+    """Assign one documented tool to several artisans (same or different crafts)."""
+
+    artisanIds: list[str] = Field(default_factory=list)

@@ -410,11 +410,13 @@ data class ProductDetailDto(
     val productType: String = "OTHER",
     val timeTakenToCompleteProduct: String? = null,
     val size: String? = null,
-    val lengthInches: Double? = null,
-    val breadthInches: Double? = null,
-    val heightInches: Double? = null,
-    val costOfMaking: Double? = null,
-    val sellingPrice: Double? = null,
+    // Decimal columns arrive from the API as JSON strings (e.g. "12.5"); typing them Double? broke
+    // list parsing. The forms read them via numToText(). Request DTOs keep Double? (they send numbers).
+    val lengthInches: String? = null,
+    val breadthInches: String? = null,
+    val heightInches: String? = null,
+    val costOfMaking: String? = null,
+    val sellingPrice: String? = null,
     val marketDemand: String = "UNKNOWN",
     val rawMaterialsUsed: String? = null,
     val mainToolsUsed: String? = null,
@@ -442,13 +444,14 @@ data class ToolDetailDto(
     val processUsedIn: String? = null,
     val material: String? = null,
     val yearsInUse: Int? = null,
-    val height: Double? = null,
-    val width: Double? = null,
-    val lengthInches: Double? = null,
-    val breadthInches: Double? = null,
-    val thickness: Double? = null,
-    val weight: Double? = null,
-    val radius: Double? = null,
+    // Decimal columns arrive as JSON strings; typed String? to keep list parsing from failing.
+    val height: String? = null,
+    val width: String? = null,
+    val lengthInches: String? = null,
+    val breadthInches: String? = null,
+    val thickness: String? = null,
+    val weight: String? = null,
+    val radius: String? = null,
     val maker: String = "UNKNOWN",
     val traditionType: String = "UNKNOWN",
     val replacementCost: Double? = null,
@@ -550,7 +553,8 @@ data class ProcessStepRequest(
     val id: String? = null,
     val name: String,
     val stepType: String = "SEQUENTIAL",
-    val sortOrder: Int = 0
+    val sortOrder: Int = 0,
+    val notes: String? = null
 )
 
 @Serializable
@@ -571,6 +575,7 @@ data class ProcessStepDto(
     val name: String = "",
     val stepType: String = "SEQUENTIAL",
     val sortOrder: Int = 0,
+    val notes: String? = null,
     val media: List<MediaFileDto> = emptyList()
 )
 

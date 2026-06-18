@@ -13,6 +13,10 @@ Kotlin + Jetpack Compose Android client for the same FastAPI backend used by the
 - Create workshop records with `POST /api/workshops`
 - Create product records with `POST /api/products`
 - Create tool records with `POST /api/tools`
+- Document processes with ordered steps (each step has media + an optional "record additional information" notes box) via `POST /api/processes`; the form cascades artisan → that artisan's products
+- "Document using grid": length + breadth from one top-down photo, height from a side-on photo (`POST /api/media/analyze-measurement`), auto-filling the fields
+- Split long audio/video into `PART_1`, `PART_2`, … (re-mux at sync frames) before streaming upload, so each part stays under the transcription/upload limits and large videos never exhaust the heap
+- Preview previously-uploaded media with uploader/date provenance and a **Save to device** download
 - Create questionnaire interviews with `POST /api/questionnaire/interviews`
 - Send `Authorization: Bearer <token>` on every protected API call
 - Requests camera, audio and location permissions for field capture workflows

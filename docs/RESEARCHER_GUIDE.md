@@ -55,6 +55,23 @@ Until these are registered, use **email/password** accounts.
 
 ---
 
+## Capture features researchers should know
+
+- **Processes** record how a product is made: pick the artisan, then **their products** populate the next
+  dropdown; add ordered steps. Each step can attach media and, if you tick **Record additional information**,
+  a notes box for extra context.
+- **Document using grid** (products & tools): tick **Length & breadth** and place the object on a 1-inch grid
+  sheet — a single top-down photo fills both length and breadth. Tick **Height** for a separate side-on photo.
+  The measured inches auto-fill the fields and stay editable.
+- **Long audio/video** is automatically split into `PART_1`, `PART_2`, … before upload so each part uploads
+  reliably and audio parts can be transcribed. Uploads stream in the background with a progress bar + ETA.
+- **Save to device**: when previewing any uploaded photo/video/audio you can download it to the phone
+  (Downloads folder) or, on the web, save it locally.
+- **Tools page → Assign a tool to multiple artisans**: assign one documented tool to several artisans across
+  the same or different crafts, instead of re-entering the tool for each craft.
+
+---
+
 ## Roles
 
 - **RESEARCHER** — create and edit their own records; contribute fields to others' records.

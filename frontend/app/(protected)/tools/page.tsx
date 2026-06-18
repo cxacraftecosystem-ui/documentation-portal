@@ -10,6 +10,7 @@ import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { StatusBadge } from "@/components/StatusBadge";
+import { ToolAssignmentSection } from "@/components/forms/ToolAssignmentSection";
 import { useAdminView } from "@/components/AdminViewProvider";
 import { apiFetch, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
@@ -151,6 +152,7 @@ export default function ToolsPage() {
         )}
         {data ? <Pagination page={data.page} pages={data.pages} total={data.total} onPage={setPage} /> : null}
       </section>
+      <ToolAssignmentSection />
       {activePreview ? <MediaLightbox item={activePreview} onClose={() => setActivePreview(null)} /> : null}
     </>
   );

@@ -31,8 +31,10 @@ flowchart LR
   api --> s3[(S3 / MinIO)]
   api --> queue[(MediaProcessingJob queue)]
   queue --> ai[Whisper / Gemini]
-  web -->|signed PUT| s3
-  android -->|signed PUT| s3
+  split[Long audio/video split into PART_n] --> s3
+  web -->|streamed signed PUT| s3
+  android --> split
+  android -->|streamed signed PUT| s3
 ```
 
 ## Local Setup
@@ -140,11 +142,13 @@ cd android
 
 The Android client supports email/password login, Google login, dashboard summary, and full field capture at parity with the web app through the same REST endpoints:
 
-- Craft, artisan, workshop, product, tool and questionnaire forms capture the complete field set the backend accepts (not just a few columns), including local names, dimensions, costs, market demand, maker/tradition type, status and remarks.
+- Craft, artisan, workshop, product, tool, process and questionnaire forms capture the complete field set the backend accepts (not just a few columns), including local names, dimensions, costs, market demand, maker/tradition type, status and remarks.
 - Every record form embeds native media capture (pick files, take photo, record video, record audio) that links uploaded media to the record automatically, plus one-tap GPS tagging.
-- Craft and artisan dropdown pickers (with a free-text fallback) auto-fill linked names; workshops and questionnaires use an artisan multi-select; workshops use native start/end date pickers.
-- Product and tool forms accept an optional grid-sheet measurement image that is uploaded with a `MEASUREMENT` processing request so the backend Gemini worker can estimate empty length/breadth.
-- Audio uploaded from any form sends a `TRANSCRIPTION` processing request, queuing Whisper transcription on the backend.
+- Craft and artisan dropdown pickers (with a free-text fallback) auto-fill linked names; the process form cascades artisan → that artisan's products; tools/products cascade craft → that craft's artisans; workshops and questionnaires use an artisan multi-select; workshops use native start/end date pickers.
+- Process documentation records how a product is made: ordered steps (sequential or grouped), per-step media, and an optional "record additional information" notes box per step.
+- "Document using grid" reads **length and breadth from a single top-down photo** and height from a separate side-on photo (Gemini `gemini-2.5-flash-lite`), auto-filling the measurement fields; the grid photos are also stored as media.
+- Long audio/video is **split into `PART_1`, `PART_2`, …** by re-muxing at sync frames before upload, so each part stays under the transcription/upload limits; uploads stream from the content URI so large videos never exhaust the device heap.
+- Previously-uploaded media shows on edit forms with uploader/date provenance and a **Save to device** action; audio uploaded from any form sends a `TRANSCRIPTION` request, queuing Whisper transcription on the backend.
 
 ## Google OAuth Setup
 
@@ -196,7 +200,11 @@ Media capture is embedded in the craft, artisan, workshop, product, tool and que
 - queued OpenAI transcription for audio via `OPENAI_API_KEY`;
 - collapsed transcript display for completed audio transcripts.
 
-The product and tool forms support grid-sheet measurement images alongside manual `lengthInches` and `breadthInches`. The uploaded grid image is persisted first, then a `MediaProcessingJob` queues Gemini measurement. If `GEMINI_API_KEY` is configured, the worker estimates dimensions and fills empty dimension fields without overwriting manual values. If it is missing, the upload still works and the UI shows a yellow manual-entry caution.
+The product and tool forms support a "Document using grid" capture alongside manual `lengthInches`, `breadthInches` and height. Tick **Length & breadth** to read both from one top-down photo, and/or **Height** to read it from a side-on photo; each photo is analysed synchronously by Gemini (`GEMINI_MEASUREMENT_MODEL`, default `gemini-2.5-flash-lite`) and the returned inches auto-fill the matching fields (still editable). The grid photos are also stored as media on the record. If `GEMINI_API_KEY` is missing, the fields stay manual.
+
+Decimal columns (measurements, costs) are returned by the API as JSON **strings**; the Android and web clients read them as strings so a record with a measurement never breaks list parsing.
+
+The Tools page also has an **Assign a tool to multiple artisans** section: pick a tool, multi-select crafts, then tick the artisans of those crafts to assign the same documented tool to several artisans across the same or different crafts (`ToolArtisan` join), instead of re-entering the tool per craft.
 
 ### Durable Media Queue
 
@@ -231,6 +239,9 @@ Researchers can create questionnaire interviews, link one interview to many arti
 - `CRUD /api/workshops`
 - `CRUD /api/products`
 - `CRUD /api/tools`
+- `GET/POST/DELETE /api/tools/{toolId}/artisans` — assign one tool to many artisans (many-to-many)
+- `CRUD /api/processes` — process documentation with ordered steps (each step has optional notes)
+- `POST /api/media/analyze-measurement?dimension=` — grid measurement (no dimension = length+breadth; `height` = single value)
 - `POST /api/media/presign`
 - `POST /api/media/complete`
 - `GET /api/media`
@@ -248,12 +259,13 @@ Researchers can create and manage their own submissions. Admins can view all rec
 
 ## Signed Media Upload Flow
 
-1. Client calls `POST /api/media/presign` with file name, MIME type, media type and size.
-2. API returns a signed S3-compatible PUT URL and object key.
-3. Client uploads the file directly to object storage with PUT.
-4. Client calls `POST /api/media/complete` to store metadata in PostgreSQL and link it to a craft, artisan, workshop, product, tool or questionnaire interview.
-5. For audio or measurement requests, the API writes a durable `MediaProcessingJob` row.
-6. The backend worker processes queued jobs and patches transcript or measurement fields when available.
+1. On Android, long audio/video is first split into `PART_1`, `PART_2`, … so each segment stays within transcription/upload limits (fail-safe: if the codec can't be re-muxed it uploads whole).
+2. Client calls `POST /api/media/presign` (per file / per part) with file name, MIME type, media type and size.
+3. API returns a signed S3-compatible PUT URL and object key.
+4. Client streams the file directly to object storage with PUT (64 KB chunks, retried on transient errors so it never buffers the whole file in memory).
+5. Client calls `POST /api/media/complete` to store metadata in PostgreSQL and link it to a craft, artisan, workshop, product, tool, process step or questionnaire interview.
+6. For audio or measurement requests, the API writes a durable `MediaProcessingJob` row.
+7. The backend worker processes queued jobs and patches transcript or measurement fields when available.
 
 ## Environment Variables
 
@@ -276,7 +288,7 @@ Useful optional variables:
 - `GOOGLE_ANDROID_CLIENT_ID` to also accept Android OAuth audience tokens if needed.
 - `MASTER_ADMIN_EMAIL` is required and should be set to the master administrator's Google account.
 - `MASTER_ADMIN_NAME` defaults to `Ankit Kumar`.
-- `OPENAI_API_KEY`, `OPENAI_TRANSCRIPTION_MODEL`, `GEMINI_API_KEY`, `NEXT_PUBLIC_MAPTILER_API_KEY` for optional transcription, measurement and map picking.
+- `OPENAI_API_KEY`, `OPENAI_TRANSCRIPTION_MODEL`, `GEMINI_API_KEY`, `GEMINI_MEASUREMENT_MODEL` (default `gemini-2.5-flash-lite`), `NEXT_PUBLIC_MAPTILER_API_KEY` for optional transcription, measurement and map picking.
 - `MEDIA_QUEUE_WORKER_ENABLED`, `MEDIA_QUEUE_INTERVAL_SECONDS`, `MEDIA_QUEUE_BATCH_SIZE`, `MEDIA_QUEUE_JOB_MAX_ATTEMPTS` for the background media-processing queue.
 - `SUPABASE_REST_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY` only when a deployment also needs Supabase REST/Admin access. The secret key must stay in private runtime secrets.
 - `ADMIN_EMAIL`, `ADMIN_NAME`, `ADMIN_PASSWORD` for seeding the first admin. Keep the password only in private `.env` files or deployment secrets.

@@ -59,10 +59,11 @@ async def _sync_steps(process_id: str, steps: list[ProcessStepInput]) -> None:
     keep: set[str] = set()
     for index, step in enumerate(steps):
         order = step.sortOrder if step.sortOrder else index + 1
+        notes = (step.notes or "").strip() or None
         if step.id and step.id in existing_ids:
             await db.processstep.update(
                 where={"id": step.id},
-                data={"name": step.name, "stepType": step.stepType, "sortOrder": order},
+                data={"name": step.name, "stepType": step.stepType, "sortOrder": order, "notes": notes},
             )
             keep.add(step.id)
         else:
@@ -72,6 +73,7 @@ async def _sync_steps(process_id: str, steps: list[ProcessStepInput]) -> None:
                     "name": step.name,
                     "stepType": step.stepType,
                     "sortOrder": order,
+                    "notes": notes,
                 }
             )
             keep.add(created.id)

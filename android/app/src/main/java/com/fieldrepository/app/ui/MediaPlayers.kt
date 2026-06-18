@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.runtime.Composable
@@ -74,7 +75,7 @@ fun rememberMediaImageLoader(): ImageLoader {
 
 /** Full-screen, type-aware media viewer: image, video (ExoPlayer) or audio (inline transport). */
 @Composable
-fun MediaViewerDialog(uri: Uri, mediaType: String, onDismiss: () -> Unit) {
+fun MediaViewerDialog(uri: Uri, mediaType: String, onSave: (() -> Unit)? = null, onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(
             modifier = Modifier
@@ -96,11 +97,15 @@ fun MediaViewerDialog(uri: Uri, mediaType: String, onDismiss: () -> Unit) {
                     modifier = Modifier.align(Alignment.Center)
                 )
             }
-            IconButton(
-                onClick = onDismiss,
-                modifier = Modifier.align(Alignment.TopEnd)
-            ) {
-                Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
+            Row(modifier = Modifier.align(Alignment.TopEnd)) {
+                if (onSave != null) {
+                    IconButton(onClick = onSave) {
+                        Icon(Icons.Filled.Download, contentDescription = "Save to device", tint = Color.White)
+                    }
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
+                }
             }
         }
     }

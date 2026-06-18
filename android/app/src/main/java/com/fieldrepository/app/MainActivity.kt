@@ -1,6 +1,7 @@
 package com.fieldrepository.app
 
 import android.Manifest
+import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -9,6 +10,8 @@ import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -92,6 +95,7 @@ import com.fieldrepository.app.data.UserDto
 import com.fieldrepository.app.data.WorkshopCreateRequest
 import com.fieldrepository.app.ui.Body
 import com.fieldrepository.app.ui.Canvas
+import com.fieldrepository.app.ui.Coral
 import com.fieldrepository.app.ui.DarkSurface
 import com.fieldrepository.app.ui.FieldRepositoryTheme
 import com.fieldrepository.app.ui.Muted
@@ -994,6 +998,13 @@ private fun formatIsoDate(value: String?): String? {
 }
 
 /** Render a numeric value into an editable string without a trailing ".0" for whole numbers. */
+private fun numToText(value: String?): String {
+    val raw = value?.trim().orEmpty()
+    if (raw.isEmpty()) return ""
+    val number = raw.toDoubleOrNull() ?: return raw
+    return if (number % 1.0 == 0.0) number.toLong().toString() else raw
+}
+
 private fun numToText(value: Double?): String {
     if (value == null) return ""
     return if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
@@ -1118,8 +1129,9 @@ private suspend fun uploadMeasurement(
 @Composable
 private fun GridMeasurementSection(
     repository: FieldRepository,
-    dimensions: List<Pair<String, String>>,
-    onValue: (dimension: String, inches: Double) -> Unit,
+    includeHeight: Boolean = true,
+    onLengthBreadth: (length: Double?, breadth: Double?) -> Unit,
+    onHeight: (Double) -> Unit,
     onUrisChange: (Map<String, Uri>) -> Unit
 ) {
     val context = LocalContext.current
@@ -1127,82 +1139,100 @@ private fun GridMeasurementSection(
     var enabled by remember { mutableStateOf(setOf<String>()) }
     var capturedUris by remember { mutableStateOf<Map<String, Uri>>(emptyMap()) }
     var status by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    var analyzing by remember { mutableStateOf(setOf<String>()) }
-    var pendingDimension by remember { mutableStateOf<String?>(null) }
+    var pendingGroup by remember { mutableStateOf<String?>(null) }
     var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
 
-    fun analyze(dimension: String, uri: Uri) {
-        capturedUris = capturedUris + (dimension to uri)
+    // group keys: "lengthBreadth" (one photo → both length & breadth) and "height" (one photo).
+    fun analyze(group: String, uri: Uri) {
+        capturedUris = capturedUris + (group to uri)
         onUrisChange(capturedUris)
-        analyzing = analyzing + dimension
-        status = status + (dimension to "Analyzing…")
+        status = status + (group to "Analyzing…")
         scope.launch {
-            val result = runCatching { repository.analyzeMeasurement(context, uri, dimension) }
-            analyzing = analyzing - dimension
-            result.onSuccess { value ->
-                if (value != null && value > 0.0) {
-                    onValue(dimension, value)
-                    status = status + (dimension to "Measured ${"%.2f".format(value)} in — field filled")
-                } else {
-                    status = status + (dimension to "Couldn't read a value — enter it manually")
-                }
-            }.onFailure {
-                status = status + (dimension to "Analysis failed — enter it manually")
+            if (group == "lengthBreadth") {
+                runCatching { repository.analyzeMeasurementLengthBreadth(context, uri) }
+                    .onSuccess { (length, breadth) ->
+                        onLengthBreadth(length, breadth)
+                        val parts = buildList {
+                            if (length != null && length > 0) add("L ${"%.2f".format(length)}\"")
+                            if (breadth != null && breadth > 0) add("B ${"%.2f".format(breadth)}\"")
+                        }
+                        status = status + (group to if (parts.isEmpty()) "Couldn't read a value — enter it manually"
+                        else "Measured ${parts.joinToString(" · ")} — fields filled")
+                    }
+                    .onFailure { status = status + (group to "Analysis failed — enter it manually") }
+            } else {
+                runCatching { repository.analyzeMeasurement(context, uri, "height") }
+                    .onSuccess { value ->
+                        if (value != null && value > 0.0) {
+                            onHeight(value)
+                            status = status + (group to "Measured ${"%.2f".format(value)} in — field filled")
+                        } else {
+                            status = status + (group to "Couldn't read a value — enter it manually")
+                        }
+                    }
+                    .onFailure { status = status + (group to "Analysis failed — enter it manually") }
             }
         }
     }
 
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        val dim = pendingDimension
-        if (uri != null && dim != null) analyze(dim, uri)
-        pendingDimension = null
+        val g = pendingGroup
+        if (uri != null && g != null) analyze(g, uri)
+        pendingGroup = null
     }
     val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         val uri = pendingCaptureUri
-        val dim = pendingDimension
-        if (success && uri != null && dim != null) analyze(dim, uri)
+        val g = pendingGroup
+        if (success && uri != null && g != null) analyze(g, uri)
         pendingCaptureUri = null
-        pendingDimension = null
+        pendingGroup = null
+    }
+
+    @Composable
+    fun GridGroupRow(key: String, label: String, hint: String) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Checkbox(
+                checked = enabled.contains(key),
+                onCheckedChange = { checked -> enabled = if (checked) enabled + key else enabled - key }
+            )
+            Text(label, color = Body, fontSize = 14.sp)
+        }
+        if (enabled.contains(key)) {
+            Text(hint, color = Muted, fontSize = 11.sp, modifier = Modifier.padding(start = 8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = {
+                        val uri = createAppFileUri(context, "grid-$key-", ".jpg")
+                        pendingGroup = key
+                        pendingCaptureUri = uri
+                        takePhoto.launch(uri)
+                    },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                ) { Text("Capture photo", maxLines = 1, softWrap = false, fontSize = 12.sp) }
+                OutlinedButton(
+                    onClick = { pendingGroup = key; pickImage.launch("image/*") },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                ) { Text("Pick photo", maxLines = 1, softWrap = false, fontSize = 12.sp) }
+            }
+            status[key]?.let { Text(it, color = Muted, fontSize = 11.sp) }
+            capturedUris[key]?.let { AndroidUriPreview(context = context, uri = it) }
+        }
     }
 
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         HorizontalDivider()
         Text("Document using grid", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
         Text(
-            "Place the object on a 1-inch grid sheet. Tick the dimensions you want, capture a photo for " +
-                "each, and the measured inches auto-fill the matching field. You can still edit the value.",
+            "Place the object on a 1-inch grid sheet. Length and breadth are read from a single top-down " +
+                "photo; height needs its own side-on photo. The measured inches auto-fill the fields (still editable).",
             color = Muted,
             fontSize = 12.sp
         )
-        dimensions.forEach { (key, label) ->
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Checkbox(
-                    checked = enabled.contains(key),
-                    onCheckedChange = { checked -> enabled = if (checked) enabled + key else enabled - key }
-                )
-                Text(label, color = Body, fontSize = 14.sp)
-            }
-            if (enabled.contains(key)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(
-                        onClick = {
-                            val uri = createAppFileUri(context, "grid-$key-", ".jpg")
-                            pendingDimension = key
-                            pendingCaptureUri = uri
-                            takePhoto.launch(uri)
-                        },
-                        modifier = Modifier.weight(1f),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
-                    ) { Text("Capture $label", maxLines = 1, softWrap = false, fontSize = 12.sp) }
-                    OutlinedButton(
-                        onClick = { pendingDimension = key; pickImage.launch("image/*") },
-                        modifier = Modifier.weight(1f),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
-                    ) { Text("Pick photo", maxLines = 1, softWrap = false, fontSize = 12.sp) }
-                }
-                status[key]?.let { Text(it, color = Muted, fontSize = 11.sp) }
-                capturedUris[key]?.let { AndroidUriPreview(context = context, uri = it) }
-            }
+        GridGroupRow("lengthBreadth", "Length & breadth (one photo)", "Top-down photo of the object on the grid — fills both length and breadth.")
+        if (includeHeight) {
+            GridGroupRow("height", "Height (one photo)", "Side-on photo of the object against the grid — fills height.")
         }
     }
 }
@@ -1250,16 +1280,32 @@ private fun DropdownField(
         Text(label, color = Muted, fontSize = 12.sp)
         Box(modifier = Modifier.fillMaxWidth()) {
             OutlinedButton(onClick = { expanded = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
-                Text(selectedLabel ?: placeholder, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("▾", color = Muted)
+                Text(
+                    selectedLabel ?: placeholder,
+                    color = if (selectedLabel != null) Body else Muted,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(if (expanded) "▴" else "▾", color = Muted)
             }
-            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.background(SurfaceCard)
+            ) {
                 if (includeNone) {
-                    DropdownMenuItem(text = { Text(placeholder) }, onClick = { onSelect(""); expanded = false })
+                    DropdownMenuItem(
+                        text = { Text(placeholder, color = Muted) },
+                        trailingIcon = { if (selectedValue.isBlank()) Text("✓", color = Coral) },
+                        onClick = { onSelect(""); expanded = false }
+                    )
                 }
                 options.forEach { (value, text) ->
+                    val isSelected = value == selectedValue
                     DropdownMenuItem(
-                        text = { Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        text = { Text(text, color = if (isSelected) Coral else Body, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        trailingIcon = { if (isSelected) Text("✓", color = Coral) },
                         onClick = { onSelect(value); expanded = false }
                     )
                 }
@@ -1528,6 +1574,9 @@ private fun MediaCaptureSection(
     media: MediaCaptureState,
     enableMeasurement: Boolean = false,
     emphasizeVideo: Boolean = false,
+    // Optional content rendered between the media controls and the location editor (used by process
+    // steps for the "record additional information" notes box).
+    beforeLocation: (@Composable () -> Unit)? = null,
     onMessage: (String) -> Unit,
     onError: (String) -> Unit
 ) {
@@ -1544,7 +1593,12 @@ private fun MediaCaptureSection(
     LaunchedEffect(media.uris) {
         media.uris.forEach { uri ->
             if (!media.stagedDeferred.containsKey(uri)) {
-                val deferred = AppScope.io.async { runCatching { repository.preuploadObject(context, uri) }.getOrNull() }
+                // Long audio/video is split into parts at save time, so it can't be eagerly staged as a
+                // single object — the deferred resolves to null and the save path uploads (splitting) it.
+                val deferred = AppScope.io.async {
+                    if (repository.willSplit(context, uri)) null
+                    else runCatching { repository.preuploadObject(context, uri) }.getOrNull()
+                }
                 media.stagedDeferred[uri] = deferred
                 scope.launch {
                     val result = runCatching { deferred.await() }.getOrNull()
@@ -1668,6 +1722,7 @@ private fun MediaCaptureSection(
         if (recording) {
             RecordingIndicator(getAmplitude = { runCatching { recorder?.maxAmplitude ?: 0 }.getOrDefault(0) })
         }
+        beforeLocation?.invoke()
         LocationEditor(
             value = media.location,
             onUseGps = {
@@ -2503,11 +2558,9 @@ private fun ProductForm(
         TextInput("Height (inches)", height) { height = it }
         GridMeasurementSection(
             repository = repository,
-            dimensions = listOf("length" to "Length", "breadth" to "Breadth", "height" to "Height"),
-            onValue = { dimension, inches ->
-                val text = numToText(inches)
-                when (dimension) { "length" -> length = text; "breadth" -> breadth = text; "height" -> height = text }
-            },
+            includeHeight = true,
+            onLengthBreadth = { l, b -> if (l != null && l > 0) length = numToText(l); if (b != null && b > 0) breadth = numToText(b) },
+            onHeight = { height = numToText(it) },
             onUrisChange = { gridUris = it }
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -2701,11 +2754,9 @@ private fun ToolForm(
         TextInput("Radius", radius) { radius = it }
         GridMeasurementSection(
             repository = repository,
-            dimensions = listOf("length" to "Length", "breadth" to "Breadth", "height" to "Height"),
-            onValue = { dimension, inches ->
-                val text = numToText(inches)
-                when (dimension) { "length" -> length = text; "breadth" -> breadth = text; "height" -> height = text }
-            },
+            includeHeight = true,
+            onLengthBreadth = { l, b -> if (l != null && l > 0) length = numToText(l); if (b != null && b > 0) breadth = numToText(b) },
+            onHeight = { height = numToText(it) },
             onUrisChange = { gridUris = it }
         )
         DropdownField("Maker", makerOptions.map { it to it }, maker, includeNone = false) { maker = it }
@@ -2902,13 +2953,18 @@ private class ProcessStepUi(
     serverId: String?,
     name: String,
     val stepType: String,
-    val existingMedia: List<MediaFileDto> = emptyList()
+    val existingMedia: List<MediaFileDto> = emptyList(),
+    notes: String? = null
 ) {
     var serverId by mutableStateOf(serverId)
     var name by mutableStateOf(name)
     var nameError by mutableStateOf<String?>(null)
     val nameFocus = FocusRequester()
     val media = MediaCaptureState()
+    // "Record additional information": free-text context for this step. Pre-checked when editing a
+    // step that already has notes so the existing text stays visible.
+    var recordAdditional by mutableStateOf(!notes.isNullOrBlank())
+    var notes by mutableStateOf(notes ?: "")
 }
 
 private fun ProcessStepUi.stepTypeLabel(): String =
@@ -2951,7 +3007,7 @@ private fun ProcessForm(
 
     val steps = remember(editing) {
         mutableStateListOf<ProcessStepUi>().apply {
-            editing?.steps?.forEach { add(ProcessStepUi(java.util.UUID.randomUUID().toString(), it.id, it.name, it.stepType, it.media)) }
+            editing?.steps?.forEach { add(ProcessStepUi(java.util.UUID.randomUUID().toString(), it.id, it.name, it.stepType, it.media, it.notes)) }
         }
     }
 
@@ -3044,7 +3100,25 @@ private fun ProcessForm(
                         Text("Already attached:", color = Muted, fontSize = 11.sp)
                         step.existingMedia.forEach { AndroidSavedMediaPreview(context = context, media = it) }
                     }
-                    MediaCaptureSection(repository = repository, media = step.media, emphasizeVideo = true, onMessage = onError, onError = onError)
+                    MediaCaptureSection(
+                        repository = repository,
+                        media = step.media,
+                        emphasizeVideo = true,
+                        beforeLocation = {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Checkbox(
+                                    checked = step.recordAdditional,
+                                    onCheckedChange = { step.recordAdditional = it; if (!it) step.notes = "" }
+                                )
+                                Text("Record additional information", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+                            }
+                            if (step.recordAdditional) {
+                                TextInput("Additional context for this step", step.notes, minLines = 3) { step.notes = it }
+                            }
+                        },
+                        onMessage = onError,
+                        onError = onError
+                    )
                 }
             }
         }
@@ -3109,7 +3183,13 @@ private fun ProcessForm(
                     saving = true
                     runCatching {
                         val stepRequests = steps.mapIndexed { i, s ->
-                            ProcessStepRequest(id = s.serverId, name = s.name.trim(), stepType = s.stepType, sortOrder = i + 1)
+                            ProcessStepRequest(
+                                id = s.serverId,
+                                name = s.name.trim(),
+                                stepType = s.stepType,
+                                sortOrder = i + 1,
+                                notes = if (s.recordAdditional) s.notes.trim().ifBlank { null } else null
+                            )
                         }
                         val body = ProcessCreateRequest(
                             name = name.trim(),
@@ -3411,6 +3491,7 @@ private fun ViewDataDetail(
                 d.steps.forEach { step ->
                     HorizontalDivider()
                     Text("Step ${step.sortOrder} · ${if (step.stepType == "SEQUENTIAL") "Sequential" else "Group"} — ${step.name}", color = Body, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    step.notes?.takeIf { it.isNotBlank() }?.let { Text(it, color = Muted, fontSize = 12.sp) }
                     if (step.media.isEmpty()) Text("No media.", color = Muted, fontSize = 12.sp)
                     step.media.forEach { MediaWithTranscript(context, it) }
                 }
@@ -3880,8 +3961,18 @@ private fun AndroidSavedMediaPreview(context: Context, media: com.fieldrepositor
             if (media.mediaType in IN_APP_PLAYABLE) showViewer = true else openUri(context, uri, media.mimeType)
         }
     )
+    TextButton(onClick = { saveMediaToDevice(context, media.url, media.originalFilename, media.mimeType) }) {
+        Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(4.dp))
+        Text("Save to device", fontSize = 12.sp)
+    }
     if (showViewer) {
-        MediaViewerDialog(uri = uri, mediaType = media.mediaType, onDismiss = { showViewer = false })
+        MediaViewerDialog(
+            uri = uri,
+            mediaType = media.mediaType,
+            onSave = { saveMediaToDevice(context, media.url, media.originalFilename, media.mimeType) },
+            onDismiss = { showViewer = false }
+        )
     }
 }
 
@@ -4591,6 +4682,35 @@ private fun createAppFileUri(context: Context, prefix: String, suffix: String): 
 
 private fun uriForFile(context: Context, file: File): Uri {
     return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+}
+
+/**
+ * Download a previously-uploaded media file to the device's public Downloads folder via the system
+ * DownloadManager (shows a notification + progress, and survives the app being backgrounded). Works
+ * without storage permissions on Android 10+. The URL is the object-storage GET the previews already
+ * stream from, so it is directly fetchable.
+ */
+private fun saveMediaToDevice(context: Context, url: String?, filename: String, mimeType: String?) {
+    if (url.isNullOrBlank()) {
+        Toast.makeText(context, "This file has no downloadable URL.", Toast.LENGTH_LONG).show()
+        return
+    }
+    val safeName = filename.replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "media" }
+    runCatching {
+        val request = DownloadManager.Request(Uri.parse(url))
+            .setTitle(safeName)
+            .setDescription("Saving to Downloads")
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, safeName)
+            .setAllowedOverMetered(true)
+            .setAllowedOverRoaming(true)
+        if (!mimeType.isNullOrBlank()) request.setMimeType(mimeType)
+        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        manager.enqueue(request)
+        Toast.makeText(context, "Saving \"$safeName\" to Downloads…", Toast.LENGTH_SHORT).show()
+    }.onFailure {
+        Toast.makeText(context, "Couldn't save: ${it.message ?: "download failed"}", Toast.LENGTH_LONG).show()
+    }
 }
 
 private fun openUri(context: Context, uri: Uri, mimeType: String?) {

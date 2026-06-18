@@ -99,6 +99,8 @@ flowchart TD
   client[Web / Android capture UI]
   geo[Precise GPS or MapTiler map point]
   media[Images / Video / Audio / Documents]
+  split[Android: split long audio/video into PART_1, PART_2 ...]
+  grid[Document-using-grid: 1 photo to length+breadth, 1 photo to height]
   api[FastAPI media API]
   queue[Durable MediaProcessingJob queue]
   worker[FastAPI background worker]
@@ -109,9 +111,13 @@ flowchart TD
 
   client --> geo
   client --> media
+  client --> grid
+  grid -->|POST /media/analyze-measurement| api
+  media --> split
+  split -->|each part within processing limits| client
   client -->|POST /media/presign| api
   api -->|signed PUT URL| client
-  client -->|batch PUT uploads| s3
+  client -->|streamed PUT uploads, resilient + retried| s3
   client -->|POST /media/complete| api
   api -->|store media metadata| db
   api -->|enqueue transcription / measurement| queue
@@ -121,6 +127,12 @@ flowchart TD
   worker -->|measurement jobs| gemini
   worker -->|patch transcript / dimensions| db
 ```
+
+Long audio/video captured on Android is split (by re-muxing at sync frames, no re-encoding) into
+`PART_1`, `PART_2`, … so each segment stays under the transcription/upload limits and uploads as its own
+media file. Uploads stream straight from the content URI (never buffered fully in memory) so multi-hundred-MB
+videos never exhaust the device heap. "Document using grid" reads length **and** breadth from a single
+top-down photo and height from a separate side-on photo, auto-filling the measurement fields.
 
 ## Permission Model
 
@@ -175,10 +187,11 @@ sequenceDiagram
   participant Worker as Backend worker
   participant AI as Whisper / Gemini
 
-  Client->>API: POST /api/media/presign
+  Client->>Client: Split long audio/video into PART_n (Android)
+  Client->>API: POST /api/media/presign (per file / per part)
   API->>S3: Generate presigned PUT URL
   API-->>Client: uploadUrl + objectKey
-  Client->>S3: PUT binary file directly
+  Client->>S3: Streamed PUT (64 KB chunks, retried on transient errors)
   S3-->>Client: 200 OK
   Client->>API: POST /api/media/complete
   API->>DB: Store metadata and record links
@@ -221,9 +234,60 @@ erDiagram
   Workshop ||--o{ ToolDocumentation : contextualizes
   Artisan ||--o{ ProductDocumentation : documents
   Artisan ||--o{ ToolDocumentation : documents
+  ProductDocumentation ||--o{ Process : "is made by"
+  Process ||--o{ ProcessStep : "has ordered"
+  Process ||--o{ MediaFile : "pre-process clips"
+  ProcessStep ||--o{ MediaFile : "step media"
+  ToolDocumentation ||--o{ ToolArtisan : "assigned via"
+  Artisan ||--o{ ToolArtisan : "uses (many-to-many)"
   ProductDocumentation ||--o{ MediaFile : has
   ToolDocumentation ||--o{ MediaFile : has
   Location ||--o{ MediaFile : geotags
+```
+
+`ProcessStep` carries an optional `notes` field ("record additional information"). `ToolArtisan` is a join
+table that lets one documented tool be assigned to many artisans across the same or different crafts
+(so the tool is entered once, not re-entered per craft). Decimal columns (measurements, costs) are
+serialized to JSON **strings** by the API; clients parse them as strings to avoid type-mismatch failures.
+
+## Process Documentation
+
+A process records how a product is made, step by step. Each process is tied to one product (chosen via an
+artisan → product cascade), can carry pre-process media, and has ordered steps (sequential or grouped). Each
+step can attach media and optional free-text "additional information" notes.
+
+```mermaid
+erDiagram
+  ProductDocumentation ||--o{ Process : "is made by"
+  Process ||--o{ ProcessStep : "ordered steps"
+  Process ||--o{ MediaFile : "pre-process clips"
+  ProcessStep ||--o{ MediaFile : "step media (PART_n for long clips)"
+  ProcessStep {
+    string name
+    enum   stepType "SEQUENTIAL | GROUP"
+    int    sortOrder
+    string notes "optional: record additional information"
+  }
+```
+
+## Tool to Artisan Assignment (many-to-many)
+
+The same documented tool often recurs across crafts. Instead of re-entering it per craft, the Tools page can
+assign one tool to many artisans (across the same or different crafts) through the `ToolArtisan` join table.
+
+```mermaid
+flowchart LR
+  toolPick[Pick a documented tool]
+  crafts[Multi-select crafts]
+  artisans[Multi-select artisans of those crafts]
+  assign[POST /api/tools/:id/artisans]
+  join[(ToolArtisan join rows)]
+
+  toolPick --> assign
+  crafts --> artisans
+  artisans --> assign
+  assign --> join
+  join -->|GET /api/tools/:id/artisans| toolPick
 ```
 
 ## Deployment Shape
