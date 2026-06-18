@@ -17,8 +17,10 @@ import okhttp3.MediaType.Companion.toMediaType
 import okio.BufferedSink
 import java.io.BufferedOutputStream
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -89,6 +91,10 @@ class FieldRepository(
     suspend fun crafts(): List<CraftDto> = api.crafts(pageSize = 100).items
 
     suspend fun products(): List<ProductDetailDto> = api.products(pageSize = 100).items
+
+    /** Products the server has linked to a given artisan (covers datasets with >100 total products). */
+    suspend fun productsForArtisan(artisanId: String): List<ProductDetailDto> =
+        api.products(pageSize = 100, artisanId = artisanId).items
 
     suspend fun tools(): List<ToolDetailDto> = api.tools(pageSize = 100).items
 
@@ -285,40 +291,44 @@ class FieldRepository(
             customSegment = customSegment,
             originalName = originalName
         )
-        val bytes = withContext(Dispatchers.IO) {
-            context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                ?: throw IllegalStateException("Unable to open selected media")
-        }
-        val presign = api.presignMedia(
-            MediaPresignRequest(
-                filename = filename,
-                mimeType = mimeType,
-                mediaType = mediaType,
-                sizeBytes = bytes.size.toLong(),
-                linkedRecordType = linkedRecordType.blankToNull(),
-                linkedRecordId = linkedRecordId.blankToNull()
+        // Stream the file straight from the content Uri to object storage — never load it fully into
+        // memory — so even multi-hundred-MB videos upload without OOM. The size comes from metadata;
+        // if that is unavailable we spool to a temp cache file on disk to obtain an exact length.
+        val source = withContext(Dispatchers.IO) { resolveUploadSource(context, uri) }
+        try {
+            val presign = api.presignMedia(
+                MediaPresignRequest(
+                    filename = filename,
+                    mimeType = mimeType,
+                    mediaType = mediaType,
+                    sizeBytes = source.size,
+                    linkedRecordType = linkedRecordType.blankToNull(),
+                    linkedRecordId = linkedRecordId.blankToNull()
+                )
             )
-        )
-        withContext(Dispatchers.IO) {
-            putToStorage(presign.uploadUrl, presign.headers, bytes, mimeType, onProgress)
-        }
-        return api.completeMedia(
-            MediaCompleteRequest(
-                originalFilename = filename,
-                mediaType = mediaType,
-                mimeType = mimeType,
-                sizeBytes = bytes.size.toLong(),
-                objectKey = presign.objectKey,
-                bucket = presign.bucket,
-                url = presign.publicUrl,
-                caption = caption.blankToNull(),
-                linkedRecordType = linkedRecordType.blankToNull(),
-                linkedRecordId = linkedRecordId.blankToNull(),
-                recordedAt = Instant.now().toString(),
-                location = location,
-                processingRequests = resolvedProcessing
+            withContext(Dispatchers.IO) {
+                putToStorage(presign.uploadUrl, presign.headers, source.size, mimeType, source.open, onProgress)
+            }
+            return api.completeMedia(
+                MediaCompleteRequest(
+                    originalFilename = filename,
+                    mediaType = mediaType,
+                    mimeType = mimeType,
+                    sizeBytes = source.size,
+                    objectKey = presign.objectKey,
+                    bucket = presign.bucket,
+                    url = presign.publicUrl,
+                    caption = caption.blankToNull(),
+                    linkedRecordType = linkedRecordType.blankToNull(),
+                    linkedRecordId = linkedRecordId.blankToNull(),
+                    recordedAt = Instant.now().toString(),
+                    location = location,
+                    processingRequests = resolvedProcessing
+                )
             )
-        )
+        } finally {
+            source.cleanup()
+        }
     }
 
     /**
@@ -331,32 +341,33 @@ class FieldRepository(
         val originalName = displayName(context, uri) ?: "field-media-${System.currentTimeMillis()}"
         val extension = originalName.substringAfterLast('.', "").takeIf { it.isNotBlank() }
         val mediaType = inferMediaType(mimeType)
-        val bytes = withContext(Dispatchers.IO) {
-            context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                ?: throw IllegalStateException("Unable to open selected media")
-        }
-        val provisional = "staged-${System.currentTimeMillis()}-${java.util.UUID.randomUUID().toString().take(8)}" +
-            (extension?.let { ".$it" } ?: "")
-        val presign = api.presignMedia(
-            MediaPresignRequest(
-                filename = provisional,
+        val source = withContext(Dispatchers.IO) { resolveUploadSource(context, uri) }
+        try {
+            val provisional = "staged-${System.currentTimeMillis()}-${java.util.UUID.randomUUID().toString().take(8)}" +
+                (extension?.let { ".$it" } ?: "")
+            val presign = api.presignMedia(
+                MediaPresignRequest(
+                    filename = provisional,
+                    mimeType = mimeType,
+                    mediaType = mediaType,
+                    sizeBytes = source.size
+                )
+            )
+            withContext(Dispatchers.IO) {
+                putToStorage(presign.uploadUrl, presign.headers, source.size, mimeType, source.open, null)
+            }
+            return StagedMedia(
+                objectKey = presign.objectKey,
+                bucket = presign.bucket,
+                publicUrl = presign.publicUrl,
                 mimeType = mimeType,
                 mediaType = mediaType,
-                sizeBytes = bytes.size.toLong()
+                sizeBytes = source.size,
+                extension = extension
             )
-        )
-        withContext(Dispatchers.IO) {
-            putToStorage(presign.uploadUrl, presign.headers, bytes, mimeType, null)
+        } finally {
+            source.cleanup()
         }
-        return StagedMedia(
-            objectKey = presign.objectKey,
-            bucket = presign.bucket,
-            publicUrl = presign.publicUrl,
-            mimeType = mimeType,
-            mediaType = mediaType,
-            sizeBytes = bytes.size.toLong(),
-            extension = extension
-        )
     }
 
     /** Attach an already-uploaded staged object to a saved record, applying the final filename. */
@@ -416,15 +427,17 @@ class FieldRepository(
     private fun putToStorage(
         uploadUrl: String,
         headers: Map<String, String>,
-        bytes: ByteArray,
+        contentLength: Long,
         mimeType: String,
+        openStream: () -> InputStream,
         onProgress: ((sent: Long, total: Long) -> Unit)?
     ) {
         val maxAttempts = 3
         var lastError: Exception? = null
         for (attempt in 1..maxAttempts) {
             try {
-                val body = ProgressRequestBody(bytes, mimeType.toMediaType(), onProgress)
+                // A fresh stream per attempt so a retry re-reads from the start.
+                val body = StreamingRequestBody(contentLength, mimeType.toMediaType(), openStream, onProgress)
                 val builder = Request.Builder().url(uploadUrl).put(body)
                 headers.forEach { (name, value) -> builder.header(name, value) }
                 storageClient.newCall(builder.build()).execute().use { response ->
@@ -443,23 +456,68 @@ class FieldRepository(
         throw lastError ?: IllegalStateException("Object storage upload failed")
     }
 
-    /** OkHttp body that streams a byte array in chunks, reporting cumulative bytes written. */
-    private class ProgressRequestBody(
-        private val bytes: ByteArray,
+    /** A re-openable upload source: exact byte size, a fresh stream per attempt, and cleanup. */
+    private class UploadSource(val size: Long, val open: () -> InputStream, val cleanup: () -> Unit)
+
+    /** Content-provider SIZE column, or 0 if unknown. */
+    private fun queryContentSize(context: Context, uri: Uri): Long = runCatching {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+            val index = cursor.getColumnIndex(OpenableColumns.SIZE)
+            if (index >= 0 && cursor.moveToFirst() && !cursor.isNull(index)) cursor.getLong(index) else 0L
+        } ?: 0L
+    }.getOrDefault(0L)
+
+    /**
+     * Build an [UploadSource] that streams from disk, not memory. When the provider exposes a SIZE we
+     * stream straight from the content Uri (re-opened per retry). When it doesn't, we spool the bytes
+     * to a temp cache file (streamed copy, never a giant in-memory array) to learn the exact length,
+     * then stream from that file. Either way the heap never holds the whole video.
+     */
+    private fun resolveUploadSource(context: Context, uri: Uri): UploadSource {
+        val size = queryContentSize(context, uri)
+        if (size > 0L) {
+            return UploadSource(
+                size = size,
+                open = {
+                    context.contentResolver.openInputStream(uri)
+                        ?: throw IllegalStateException("Unable to open selected media")
+                },
+                cleanup = {}
+            )
+        }
+        val temp = File.createTempFile("upload-", ".bin", context.cacheDir)
+        runCatching {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(temp).use { out -> input.copyTo(out, 64 * 1024) }
+            } ?: throw IllegalStateException("Unable to open selected media")
+        }.onFailure { temp.delete(); throw it }
+        return UploadSource(
+            size = temp.length(),
+            open = { FileInputStream(temp) },
+            cleanup = { runCatching { temp.delete() } }
+        )
+    }
+
+    /** OkHttp body that streams an InputStream in 64 KB chunks, reporting cumulative bytes written. */
+    private class StreamingRequestBody(
+        private val length: Long,
         private val contentType: MediaType?,
+        private val openStream: () -> InputStream,
         private val onProgress: ((sent: Long, total: Long) -> Unit)?
     ) : RequestBody() {
         override fun contentType(): MediaType? = contentType
-        override fun contentLength(): Long = bytes.size.toLong()
+        override fun contentLength(): Long = length
         override fun writeTo(sink: BufferedSink) {
-            val total = bytes.size.toLong()
-            val chunk = 32 * 1024
-            var written = 0
-            while (written < bytes.size) {
-                val count = minOf(chunk, bytes.size - written)
-                sink.write(bytes, written, count)
-                written += count
-                onProgress?.invoke(written.toLong(), total)
+            openStream().use { input ->
+                val buffer = ByteArray(64 * 1024)
+                var sent = 0L
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read == -1) break
+                    sink.write(buffer, 0, read)
+                    sent += read
+                    onProgress?.invoke(sent, length)
+                }
             }
         }
     }

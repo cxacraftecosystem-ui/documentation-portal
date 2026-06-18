@@ -2811,14 +2811,24 @@ private fun ProcessForm(
         runCatching { repository.artisans() }.onSuccess { artisans = it }
     }
 
-    // Products belong to an artisan, so the product list is scoped to the chosen artisan.
-    val selectedArtisanName = artisans.firstOrNull { it.id == artisanId }?.name
-    val artisanProducts = products.filter { p ->
-        when {
-            artisanId.isBlank() -> false
-            p.artisanId != null -> p.artisanId == artisanId
-            else -> selectedArtisanName != null && p.artisanName == selectedArtisanName
+    // Products belong to an artisan, so the product list is scoped to the chosen artisan. We match
+    // BOTH ways so the dropdown is never wrongly empty: (a) products the server links to this artisan
+    // by id (fetched directly, so it works even with >100 total products), unioned with (b) products
+    // already loaded whose artisan *name* matches (covers products saved without a linked artisanId,
+    // e.g. when only the name was typed). Name match is trimmed + case-insensitive.
+    var artisanProducts by remember { mutableStateOf<List<ProductDetailDto>>(emptyList()) }
+    LaunchedEffect(artisanId, products) {
+        if (artisanId.isBlank()) {
+            artisanProducts = emptyList()
+            return@LaunchedEffect
         }
+        val selectedArtisanName = artisans.firstOrNull { it.id == artisanId }?.name?.trim()
+        val linked = runCatching { repository.productsForArtisan(artisanId) }.getOrDefault(emptyList())
+        val byName = products.filter { p ->
+            (p.artisanId != null && p.artisanId == artisanId) ||
+                (!selectedArtisanName.isNullOrBlank() && p.artisanName.trim().equals(selectedArtisanName, ignoreCase = true))
+        }
+        artisanProducts = (linked + byName).distinctBy { it.id }
     }
 
     RecordCard(title = if (isEdit) "Edit process" else "Document process") {

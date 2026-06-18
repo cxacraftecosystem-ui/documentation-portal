@@ -69,7 +69,8 @@ interface FieldRepositoryApi {
     @GET("products")
     suspend fun products(
         @Query("page") page: Int = 1,
-        @Query("pageSize") pageSize: Int = 100
+        @Query("pageSize") pageSize: Int = 100,
+        @Query("artisanId") artisanId: String? = null
     ): PageResponse<ProductDetailDto>
 
     @GET("products/{id}")
