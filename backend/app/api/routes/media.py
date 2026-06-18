@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 
 from app.core.config import get_settings
 from app.core.db import db
-from app.core.deps import assert_can_delete, get_current_user, is_admin, require_admin
+from app.core.deps import get_current_user, is_admin, require_admin
 from app.schemas.media import MediaCompleteRequest, PresignRequest, PresignResponse
 from app.services.ai import analyze_measurement_image, transcribe_audio
 from app.services.media_queue import enqueue_media_processing_jobs, process_next_media_jobs
@@ -210,6 +210,26 @@ async def get_media(media_id: str, current_user: Any = Depends(get_current_user)
 
 @router.delete("/{media_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_media(media_id: str, current_user: Any = Depends(get_current_user)) -> None:
-    assert_can_delete(current_user)
-    await require_record(db.mediafile, media_id)
+    """Remove a saved media file and (best-effort) its S3 object.
+
+    Admins may delete any media; everyone else may delete only media they uploaded — so a
+    contributor can prune attachments on their own records straight from the edit screen without
+    holding full delete rights on the parent record.
+    """
+    media = await require_record(db.mediafile, media_id)
+    if not is_admin(current_user) and getattr(media, "uploadedById", None) != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only delete media you uploaded",
+        )
+    object_key = getattr(media, "objectKey", None)
     await db.mediafile.delete(where={"id": media_id})
+    # Drop the underlying object too, but only once no other MediaFile still references it, and never
+    # let a storage hiccup fail the request — the database row (the user-visible record) is gone.
+    if object_key:
+        still_referenced = await db.mediafile.find_first(where={"objectKey": object_key})
+        if still_referenced is None:
+            try:
+                await asyncio.to_thread(delete_object, object_key)
+            except Exception:  # noqa: BLE001 - best-effort storage cleanup
+                pass

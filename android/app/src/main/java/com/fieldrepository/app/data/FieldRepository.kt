@@ -122,6 +122,9 @@ class FieldRepository(
 
     suspend fun media(): List<MediaFileDto> = api.media(pageSize = 20).items
 
+    /** Delete one saved media file (its DB row + S3 object). Backend allows the uploader or an admin. */
+    suspend fun deleteMedia(id: String) = api.deleteMedia(id)
+
     // Admin-only deletes (backend enforces is_admin; 403 otherwise).
     suspend fun deleteArtisan(id: String) = api.deleteArtisan(id)
     suspend fun deleteCraft(id: String) = api.deleteCraft(id)

@@ -130,6 +130,9 @@ interface FieldRepositoryApi {
     @DELETE("media/object")
     suspend fun deleteMediaObject(@Query("objectKey") objectKey: String)
 
+    @DELETE("media/{id}")
+    suspend fun deleteMedia(@Path("id") id: String)
+
     @GET("media")
     suspend fun media(
         @Query("page") page: Int = 1,

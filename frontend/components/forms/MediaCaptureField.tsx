@@ -193,6 +193,8 @@ export function MediaCaptureField({
               key={item.key}
               item={item}
               onOpen={() => setActivePreview(item)}
+              onRemove={() => onFilesChange(files.filter((_, itemIndex) => itemIndex !== index))}
+              removeLabel="Discard"
               action={
                 <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-red-700" onClick={() => onFilesChange(files.filter((_, itemIndex) => itemIndex !== index))}>
                   <Trash2 className="h-3.5 w-3.5" aria-hidden />

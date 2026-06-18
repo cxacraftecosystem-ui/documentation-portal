@@ -64,14 +64,29 @@ function iconForType(type: MediaType) {
 export function MediaPreviewTile({
   item,
   onOpen,
-  action
+  action,
+  onRemove,
+  removeLabel = "Discard"
 }: {
   item: PreviewMedia;
   onOpen: () => void;
   action?: ReactNode;
+  onRemove?: () => void;
+  removeLabel?: string;
 }) {
   return (
-    <div className="group grid gap-2 rounded-md border border-[#e6dfd8] bg-field-50 p-2">
+    <div className="group relative grid gap-2 rounded-md border border-[#e6dfd8] bg-field-50 p-2">
+      {onRemove ? (
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={`${removeLabel} ${item.name}`}
+          title={`${removeLabel} ${item.name}`}
+          className="absolute right-1.5 top-1.5 z-10 grid h-7 w-7 place-items-center rounded-full bg-black/70 text-white shadow-sm transition hover:bg-black/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+        >
+          <X className="h-4 w-4" aria-hidden />
+        </button>
+      ) : null}
       <button
         type="button"
         className="relative grid aspect-[4/3] w-full place-items-center overflow-hidden rounded-md bg-field-100 text-left text-ink-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-field-600"
@@ -94,7 +109,7 @@ export function MediaPreviewTile({
             <span className="text-xs font-semibold">{item.mediaType === "PDF" ? "PDF document" : "Document"}</span>
           </div>
         )}
-        <span className="absolute right-2 top-2 rounded-full bg-white/95 p-1 text-ink shadow-sm">
+        <span className="absolute bottom-2 right-2 rounded-full bg-white/95 p-1 text-ink shadow-sm">
           <Maximize2 className="h-3.5 w-3.5" aria-hidden />
         </span>
       </button>

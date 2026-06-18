@@ -202,7 +202,7 @@ export default function MediaPage() {
   }
 
   async function remove(id: string) {
-    if (!window.confirm("Remove this media metadata record? The object in S3 is not deleted by this action.")) return;
+    if (!window.confirm("Remove this media file? This permanently deletes both the record and the object in S3.")) return;
     await apiFetch(`/media/${id}`, { method: "DELETE" });
     load();
   }

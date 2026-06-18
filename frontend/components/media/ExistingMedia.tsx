@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
 import { TranscriptBlock } from "@/components/media/TranscriptBlock";
-import { listResource } from "@/lib/api";
+import { ApiError, apiFetch, listResource } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import type { MediaFile } from "@/lib/types";
 
@@ -25,6 +25,23 @@ export function ExistingMedia({
 }) {
   const [items, setItems] = useState<MediaFile[] | null>(null);
   const [active, setActive] = useState<PreviewMedia | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+
+  async function removeMedia(media: MediaFile) {
+    if (!window.confirm(`Remove "${media.caption || media.originalFilename}" from this record? This permanently deletes the file.`)) return;
+    setError(null);
+    setRemovingId(media.id);
+    try {
+      await apiFetch(`/media/${media.id}`, { method: "DELETE" });
+      setItems((current) => (current ? current.filter((m) => m.id !== media.id) : current));
+      setActive((current) => (current && current.key === media.id ? null : current));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Unable to remove this media file.");
+    } finally {
+      setRemovingId(null);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -48,8 +65,9 @@ export function ExistingMedia({
       <div>
         <h3 className="font-serif text-lg text-ink">{title}</h3>
         <p className="mt-1 text-sm text-ink-muted">
-          {items.length} file{items.length === 1 ? "" : "s"} already attached. Audio transcripts appear once processing finishes.
+          {items.length} file{items.length === 1 ? "" : "s"} already attached. Audio transcripts appear once processing finishes. Use the ✕ on a file to remove it.
         </p>
+        {error ? <p className="mt-1 text-sm text-red-700">{error}</p> : null}
       </div>
       <div className="grid gap-3">
         {items.map((media) => {
@@ -64,7 +82,12 @@ export function ExistingMedia({
           };
           return (
             <div key={media.id} className="grid gap-2 rounded-md border border-[#e6dfd8] bg-field-50 p-2 sm:grid-cols-[200px_1fr] sm:items-start">
-              <MediaPreviewTile item={preview} onOpen={() => setActive(preview)} />
+              <MediaPreviewTile
+                item={preview}
+                onOpen={() => setActive(preview)}
+                onRemove={removingId === media.id ? undefined : () => removeMedia(media)}
+                removeLabel="Remove"
+              />
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium text-ink" title={media.originalFilename}>
                   {media.caption || media.originalFilename}

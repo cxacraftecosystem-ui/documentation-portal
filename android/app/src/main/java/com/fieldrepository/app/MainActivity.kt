@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -125,6 +126,7 @@ import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Groups
@@ -1828,7 +1830,21 @@ private fun MediaCaptureSection(
                     color = SurfaceCard,
                     fontSize = 11.sp
                 )
-                media.uris.take(6).forEach { uri -> AndroidUriPreview(context = context, uri = uri) }
+                media.uris.take(6).forEach { uri ->
+                    AndroidUriPreview(
+                        context = context,
+                        uri = uri,
+                        onRemove = {
+                            // Drop just this file from the batch and clean up its staged object (if any).
+                            val deferred = media.stagedDeferred.remove(uri)
+                            media.staged = media.staged - uri
+                            media.uris = media.uris.filterNot { it == uri }
+                            AppScope.io.launch {
+                                runCatching { deferred?.await()?.let { repository.deleteStaged(it.objectKey) } }
+                            }
+                        }
+                    )
+                }
                 if (media.uris.size > 6) Text("+${media.uris.size - 6} more", color = SurfaceCard, fontSize = 12.sp)
                 TextButton(onClick = {
                     val pending = media.stagedDeferred.values.toList()
@@ -3005,11 +3021,13 @@ private class ProcessStepUi(
     serverId: String?,
     name: String,
     val stepType: String,
-    val existingMedia: List<MediaFileDto> = emptyList(),
+    existingMedia: List<MediaFileDto> = emptyList(),
     notes: String? = null
 ) {
     var serverId by mutableStateOf(serverId)
     var name by mutableStateOf(name)
+    // Saved media already attached to this step; mutable so removing one updates the UI live.
+    var existingMedia by mutableStateOf(existingMedia)
     var nameError by mutableStateOf<String?>(null)
     val nameFocus = FocusRequester()
     val media = MediaCaptureState()
@@ -3054,6 +3072,8 @@ private fun ProcessForm(
     var productError by remember { mutableStateOf<String?>(null) }
     var stepsError by remember { mutableStateOf<String?>(null) }
     var preMediaError by remember { mutableStateOf<String?>(null) }
+    // Saved pre-process media for this process; mutable so removing one reflects immediately.
+    var existingPreMedia by remember(editing) { mutableStateOf(editing?.media ?: emptyList()) }
     val nameFocus = remember { FocusRequester() }
     var addMenu by remember { mutableStateOf(false) }
 
@@ -3158,9 +3178,21 @@ private fun ProcessForm(
         }
         if (preProcessAvailable) {
             Text("Attach the pre-process media (required).", color = Muted, fontSize = 12.sp)
-            if (editing != null && editing.media.isNotEmpty()) {
+            if (existingPreMedia.isNotEmpty()) {
                 Text("Already attached:", color = Muted, fontSize = 11.sp)
-                editing.media.forEach { AndroidSavedMediaPreview(context = context, media = it) }
+                existingPreMedia.forEach { saved ->
+                    AndroidSavedMediaPreview(
+                        context = context,
+                        media = saved,
+                        onDelete = {
+                            scope.launch {
+                                runCatching { repository.deleteMedia(saved.id) }
+                                    .onSuccess { existingPreMedia = existingPreMedia.filterNot { it.id == saved.id } }
+                                    .onFailure { error -> onError(error.message ?: "Unable to remove media") }
+                            }
+                        }
+                    )
+                }
             }
             MediaCaptureSection(repository = repository, media = preMedia, emphasizeVideo = true, onMessage = onError, onError = onError)
             if (preMediaError != null) Text(preMediaError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
@@ -3184,7 +3216,19 @@ private fun ProcessForm(
                     RequiredInput("Name of the step", step.name, step.nameError, step.nameFocus) { step.name = it }
                     if (step.existingMedia.isNotEmpty()) {
                         Text("Already attached:", color = Muted, fontSize = 11.sp)
-                        step.existingMedia.forEach { AndroidSavedMediaPreview(context = context, media = it) }
+                        step.existingMedia.forEach { saved ->
+                            AndroidSavedMediaPreview(
+                                context = context,
+                                media = saved,
+                                onDelete = {
+                                    scope.launch {
+                                        runCatching { repository.deleteMedia(saved.id) }
+                                            .onSuccess { step.existingMedia = step.existingMedia.filterNot { it.id == saved.id } }
+                                            .onFailure { error -> onError(error.message ?: "Unable to remove media") }
+                                    }
+                                }
+                            )
+                        }
                     }
                     MediaCaptureSection(
                         repository = repository,
@@ -4050,7 +4094,11 @@ private fun AndroidMediaForm(
             ) {
                 Text("${selectedUris.size} file(s) ready", color = Canvas, fontWeight = FontWeight.SemiBold)
                 selectedUris.take(8).forEach { uri ->
-                    AndroidUriPreview(context = context, uri = uri)
+                    AndroidUriPreview(
+                        context = context,
+                        uri = uri,
+                        onRemove = { selectedUris = selectedUris.filterNot { it == uri } }
+                    )
                 }
                 if (selectedUris.size > 8) {
                     Text("+${selectedUris.size - 8} more", color = SurfaceCard, fontSize = 12.sp)
@@ -4169,8 +4217,21 @@ private fun AndroidMediaForm(
         }
         if (savedMedia.isNotEmpty()) {
             Text("Recent saved media", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
-            savedMedia.take(10).forEach { media ->
-                AndroidSavedMediaPreview(context = context, media = media)
+            savedMedia.take(10).forEach { item ->
+                AndroidSavedMediaPreview(
+                    context = context,
+                    media = item,
+                    onDelete = {
+                        scope.launch {
+                            runCatching { repository.deleteMedia(item.id) }
+                                .onSuccess {
+                                    savedMedia = savedMedia.filterNot { it.id == item.id }
+                                    localMessage = "Media removed"
+                                }
+                                .onFailure { error -> onError(error.message ?: "Unable to remove media") }
+                        }
+                    }
+                )
             }
         }
     }
@@ -4203,52 +4264,121 @@ private fun mediaTypeFromMime(mime: String?): String = when {
 }
 
 @Composable
-private fun AndroidUriPreview(context: Context, uri: Uri) {
+private fun AndroidUriPreview(context: Context, uri: Uri, onRemove: (() -> Unit)? = null) {
     val mimeType = remember(uri) { context.contentResolver.getType(uri) }
     val mediaType = remember(mimeType) { mediaTypeFromMime(mimeType) }
     var showViewer by remember { mutableStateOf(false) }
-    MediaThumb(
-        uri = uri,
-        mediaType = mediaType,
-        title = uri.lastPathSegment.orEmpty(),
-        subtitle = mimeType ?: "Unknown file type",
-        onOpen = {
-            if (mediaType in IN_APP_PLAYABLE) showViewer = true else openUri(context, uri, mimeType)
+    Box(modifier = Modifier.fillMaxWidth()) {
+        MediaThumb(
+            uri = uri,
+            mediaType = mediaType,
+            title = uri.lastPathSegment.orEmpty(),
+            subtitle = mimeType ?: "Unknown file type",
+            onOpen = {
+                if (mediaType in IN_APP_PLAYABLE) showViewer = true else openUri(context, uri, mimeType)
+            }
+        )
+        if (onRemove != null) {
+            DiscardBadge(
+                contentDescription = "Discard ${uri.lastPathSegment.orEmpty()}",
+                onClick = onRemove,
+                modifier = Modifier.align(Alignment.TopEnd)
+            )
         }
-    )
+    }
     if (showViewer) {
         MediaViewerDialog(uri = uri, mediaType = mediaType, onDismiss = { showViewer = false })
     }
 }
 
+/** A small circular "✕" badge pinned to a media tile's top-right corner to discard/remove that file. */
 @Composable
-private fun AndroidSavedMediaPreview(context: Context, media: com.fieldrepository.app.data.MediaFileDto) {
+private fun DiscardBadge(contentDescription: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    IconButton(
+        onClick = onClick,
+        modifier = modifier
+            .padding(2.dp)
+            .size(28.dp)
+            .background(Color(0xCC1A1A1A), CircleShape)
+    ) {
+        Icon(Icons.Filled.Close, contentDescription = contentDescription, tint = Color.White, modifier = Modifier.size(16.dp))
+    }
+}
+
+@Composable
+private fun AndroidSavedMediaPreview(
+    context: Context,
+    media: com.fieldrepository.app.data.MediaFileDto,
+    onDelete: (() -> Unit)? = null
+) {
     val uri = remember(media.url) { media.url?.let(Uri::parse) }
     var showViewer by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+
     if (uri == null) {
-        Text(media.originalFilename, color = Body, fontSize = 12.sp)
-        return
-    }
-    MediaThumb(
-        uri = uri,
-        mediaType = media.mediaType,
-        title = media.originalFilename,
-        subtitle = listOfNotNull(media.mimeType ?: media.mediaType, media.transcriptStatus?.let { "Transcript: $it" }).joinToString(" · "),
-        onOpen = {
-            if (media.mediaType in IN_APP_PLAYABLE) showViewer = true else openUri(context, uri, media.mimeType)
+        // No preview URL (e.g. an old/broken row) — still offer removal when allowed.
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Text(media.originalFilename, color = Body, fontSize = 12.sp, modifier = Modifier.weight(1f))
+            if (onDelete != null) {
+                TextButton(onClick = { confirmDelete = true }) {
+                    Text("Remove", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                }
+            }
         }
-    )
-    TextButton(onClick = { saveMediaToDevice(context, media.url, media.originalFilename, media.mimeType) }) {
-        Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(4.dp))
-        Text("Save to device", fontSize = 12.sp)
+    } else {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            MediaThumb(
+                uri = uri,
+                mediaType = media.mediaType,
+                title = media.originalFilename,
+                subtitle = listOfNotNull(media.mimeType ?: media.mediaType, media.transcriptStatus?.let { "Transcript: $it" }).joinToString(" · "),
+                onOpen = {
+                    if (media.mediaType in IN_APP_PLAYABLE) showViewer = true else openUri(context, uri, media.mimeType)
+                }
+            )
+            if (onDelete != null) {
+                DiscardBadge(
+                    contentDescription = "Remove ${media.originalFilename}",
+                    onClick = { confirmDelete = true },
+                    modifier = Modifier.align(Alignment.TopEnd)
+                )
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextButton(onClick = { saveMediaToDevice(context, media.url, media.originalFilename, media.mimeType) }) {
+                Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Save to device", fontSize = 12.sp)
+            }
+            if (onDelete != null) {
+                TextButton(onClick = { confirmDelete = true }) {
+                    Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.width(4.dp))
+                    Text("Remove", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+        if (showViewer) {
+            MediaViewerDialog(
+                uri = uri,
+                mediaType = media.mediaType,
+                onSave = { saveMediaToDevice(context, media.url, media.originalFilename, media.mimeType) },
+                onDismiss = { showViewer = false }
+            )
+        }
     }
-    if (showViewer) {
-        MediaViewerDialog(
-            uri = uri,
-            mediaType = media.mediaType,
-            onSave = { saveMediaToDevice(context, media.url, media.originalFilename, media.mimeType) },
-            onDismiss = { showViewer = false }
+
+    if (confirmDelete && onDelete != null) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            confirmButton = {
+                TextButton(onClick = { confirmDelete = false; onDelete() }) {
+                    Text("Remove", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+            title = { Text("Remove this media?") },
+            text = { Text("\"${media.originalFilename}\" will be permanently deleted from this record and from storage.") }
         )
     }
 }
