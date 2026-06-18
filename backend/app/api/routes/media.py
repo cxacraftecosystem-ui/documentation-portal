@@ -1,4 +1,5 @@
 import asyncio
+import math
 from datetime import UTC, datetime
 from typing import Any
 
@@ -7,7 +8,18 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from app.core.config import get_settings
 from app.core.db import db
 from app.core.deps import get_current_user, is_admin, require_admin
-from app.schemas.media import MediaCompleteRequest, PresignRequest, PresignResponse
+from app.schemas.media import (
+    MediaCompleteRequest,
+    MultipartAbortRequest,
+    MultipartCompleteRequest,
+    MultipartCompleteResponse,
+    MultipartCreateRequest,
+    MultipartCreateResponse,
+    MultipartPresignPartsRequest,
+    MultipartPresignPartsResponse,
+    PresignRequest,
+    PresignResponse,
+)
 from app.services.ai import analyze_measurement_image, transcribe_audio
 from app.services.media_queue import enqueue_media_processing_jobs, process_next_media_jobs
 from app.services.pagination import normalize_pagination, page_payload
@@ -22,7 +34,20 @@ from app.services.records import (
     require_record,
     visibility_where,
 )
-from app.services.s3 import delete_object, make_object_key, presign_put_url, public_url_for_key
+from app.services.s3 import (
+    abort_multipart_upload,
+    complete_multipart_upload,
+    create_multipart_upload,
+    delete_object,
+    make_object_key,
+    presign_put_url,
+    presign_upload_part,
+    public_url_for_key,
+)
+
+# S3 multipart part size. >= 5 MiB (S3 minimum for all but the last part); 16 MiB keeps the part
+# count low for large videos while staying small enough to retry a single part cheaply.
+MULTIPART_PART_SIZE = 16 * 1024 * 1024
 
 router = APIRouter(prefix="/media", tags=["media"])
 
@@ -53,6 +78,79 @@ async def presign_media_upload(
         "headers": {"Content-Type": payload.mimeType},
         "publicUrl": public_url_for_key(object_key),
     }
+
+
+def _assert_owns_object(object_key: str, current_user: Any) -> None:
+    """Multipart object keys live under media/<user_id>/ — refuse to touch another user's upload."""
+    if not object_key.startswith(f"media/{current_user.id}/"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only manage your own uploads")
+
+
+@router.post("/multipart/create", response_model=MultipartCreateResponse)
+async def create_multipart(
+    payload: MultipartCreateRequest,
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Start a multipart (chunked) upload for a large file. The client uploads each part straight to
+    S3 via the presigned URLs from /multipart/presign-parts, then calls /multipart/complete; S3
+    stitches the parts into a single object."""
+    settings = get_settings()
+    object_key = make_object_key(current_user.id, payload.filename)
+    upload_id = await asyncio.to_thread(create_multipart_upload, object_key, payload.mimeType)
+    part_count = max(1, math.ceil(payload.sizeBytes / MULTIPART_PART_SIZE))
+    return {
+        "objectKey": object_key,
+        "uploadId": upload_id,
+        "bucket": settings.aws_s3_bucket,
+        "partSize": MULTIPART_PART_SIZE,
+        "partCount": part_count,
+        "publicUrl": public_url_for_key(object_key),
+    }
+
+
+@router.post("/multipart/presign-parts", response_model=MultipartPresignPartsResponse)
+async def presign_multipart_parts(
+    payload: MultipartPresignPartsRequest,
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    _assert_owns_object(payload.objectKey, current_user)
+    urls: dict[str, str] = {}
+    for part_number in payload.partNumbers:
+        urls[str(part_number)] = await asyncio.to_thread(
+            presign_upload_part, payload.objectKey, payload.uploadId, part_number
+        )
+    return {"urls": urls}
+
+
+@router.post("/multipart/complete", response_model=MultipartCompleteResponse)
+async def complete_multipart(
+    payload: MultipartCompleteRequest,
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    _assert_owns_object(payload.objectKey, current_user)
+    settings = get_settings()
+    parts = sorted(
+        ({"PartNumber": part.partNumber, "ETag": part.etag} for part in payload.parts),
+        key=lambda item: item["PartNumber"],
+    )
+    if not parts:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="No parts to complete")
+    await asyncio.to_thread(complete_multipart_upload, payload.objectKey, payload.uploadId, parts)
+    return {
+        "objectKey": payload.objectKey,
+        "bucket": settings.aws_s3_bucket,
+        "publicUrl": public_url_for_key(payload.objectKey),
+    }
+
+
+@router.post("/multipart/abort")
+async def abort_multipart(
+    payload: MultipartAbortRequest,
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, bool]:
+    _assert_owns_object(payload.objectKey, current_user)
+    await asyncio.to_thread(abort_multipart_upload, payload.objectKey, payload.uploadId)
+    return {"aborted": True}
 
 
 @router.post("/transcribe")

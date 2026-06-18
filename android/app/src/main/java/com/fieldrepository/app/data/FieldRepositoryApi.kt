@@ -9,6 +9,7 @@ import retrofit2.http.POST
 import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
+import kotlinx.serialization.json.JsonElement
 
 interface FieldRepositoryApi {
     @POST("auth/login")
@@ -34,6 +35,29 @@ interface FieldRepositoryApi {
         @Path("id") id: String,
         @Body body: UserUpdateRequest
     ): UserDto
+
+    @GET("review/pending")
+    suspend fun pendingReviews(): PendingReviewListDto
+
+    @POST("app/release")
+    suspend fun publishAppRelease(@Body body: AppReleasePublishRequest): AppReleaseDto
+
+    @GET("app/release/latest")
+    suspend fun latestAppRelease(): AppReleaseDto
+
+    @POST("review/{type}/{id}/approve")
+    suspend fun approveRecord(
+        @Path("type") type: String,
+        @Path("id") id: String,
+        @Body body: ReviewActionRequest
+    ): JsonElement
+
+    @POST("review/{type}/{id}/reject")
+    suspend fun rejectRecord(
+        @Path("type") type: String,
+        @Path("id") id: String,
+        @Body body: ReviewActionRequest
+    ): JsonElement
 
     @GET("artisans")
     suspend fun artisans(
@@ -123,6 +147,18 @@ interface FieldRepositoryApi {
 
     @POST("media/presign")
     suspend fun presignMedia(@Body body: MediaPresignRequest): MediaPresignResponse
+
+    @POST("media/multipart/create")
+    suspend fun createMultipart(@Body body: MultipartCreateRequest): MultipartCreateResponse
+
+    @POST("media/multipart/presign-parts")
+    suspend fun presignMultipartParts(@Body body: MultipartPresignPartsRequest): MultipartPresignPartsResponse
+
+    @POST("media/multipart/complete")
+    suspend fun completeMultipart(@Body body: MultipartCompleteRequest): MultipartCompleteResponse
+
+    @POST("media/multipart/abort")
+    suspend fun abortMultipart(@Body body: MultipartAbortRequest): JsonElement
 
     @POST("media/complete")
     suspend fun completeMedia(@Body body: MediaCompleteRequest): MediaFileDto

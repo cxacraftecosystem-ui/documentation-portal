@@ -108,6 +108,7 @@ model User {
   canManageQuestionnaire Boolean @default(false)
   canManageCrafts        Boolean @default(false)
   canManageWorkshops     Boolean @default(false)
+  canReview              Boolean @default(false)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
@@ -122,9 +123,27 @@ model User {
   reviews   ReviewLog[]            @relation("ReviewReviewer")
   questionnaireInterviews QuestionnaireInterview[] @relation("QuestionnaireCreatedBy")
   questionnaireResponses QuestionnaireResponse[] @relation("QuestionnaireAnsweredBy")
+  appReleases AppRelease[] @relation("AppReleasePublishedBy")
 
   @@index([role])
   @@index([canManageQuestionnaire])
+}
+
+/// A published Android app build that the master admin pushed out as an over-the-air update. The
+/// highest versionCode is the current release; clients compare their installed versionCode and
+/// self-update from `url`.
+model AppRelease {
+  id            String   @id @default(cuid())
+  versionCode   Int
+  versionName   String
+  objectKey     String
+  url           String?
+  notes         String?
+  publishedById String?
+  publishedBy   User?    @relation("AppReleasePublishedBy", fields: [publishedById], references: [id], onDelete: SetNull)
+  publishedAt   DateTime @default(now())
+
+  @@index([versionCode])
 }
 
 model Craft {

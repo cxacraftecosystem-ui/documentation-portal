@@ -31,6 +31,7 @@ data class UserDto(
     val canManageQuestionnaire: Boolean = false,
     val canManageCrafts: Boolean = false,
     val canManageWorkshops: Boolean = false,
+    val canReview: Boolean = false,
     val authProvider: String? = null
 )
 
@@ -127,6 +128,86 @@ data class MediaCompleteRequest(
     val processingRequests: List<String> = emptyList()
 )
 
+// --- S3 multipart upload (large files: chunk for transfer, S3 stitches into one object) ---
+
+@Serializable
+data class MultipartCreateRequest(
+    val filename: String,
+    val mimeType: String,
+    val mediaType: String,
+    val sizeBytes: Long,
+    val linkedRecordType: String? = null,
+    val linkedRecordId: String? = null
+)
+
+@Serializable
+data class MultipartCreateResponse(
+    val objectKey: String,
+    val uploadId: String,
+    val bucket: String,
+    val partSize: Long,
+    val partCount: Int,
+    val publicUrl: String? = null
+)
+
+@Serializable
+data class MultipartPresignPartsRequest(
+    val objectKey: String,
+    val uploadId: String,
+    val partNumbers: List<Int>
+)
+
+@Serializable
+data class MultipartPresignPartsResponse(
+    val urls: Map<String, String> = emptyMap()
+)
+
+@Serializable
+data class CompletedPart(
+    val partNumber: Int,
+    val etag: String
+)
+
+@Serializable
+data class MultipartCompleteRequest(
+    val objectKey: String,
+    val uploadId: String,
+    val parts: List<CompletedPart>
+)
+
+@Serializable
+data class MultipartCompleteResponse(
+    val objectKey: String,
+    val bucket: String,
+    val publicUrl: String? = null
+)
+
+@Serializable
+data class MultipartAbortRequest(
+    val objectKey: String,
+    val uploadId: String
+)
+
+// --- Over-the-air app update ---
+
+@Serializable
+data class AppReleaseDto(
+    val versionCode: Int = 0,
+    val versionName: String = "",
+    val url: String? = null,
+    val notes: String? = null,
+    val objectKey: String? = null
+)
+
+@Serializable
+data class AppReleasePublishRequest(
+    val versionCode: Int,
+    val versionName: String,
+    val objectKey: String,
+    val url: String? = null,
+    val notes: String? = null
+)
+
 @Serializable
 data class MeasurementAnalysisDto(
     val valueInches: Double? = null,
@@ -166,7 +247,30 @@ data class UserUpdateRequest(
     val role: String? = null,
     val canManageQuestionnaire: Boolean? = null,
     val canManageCrafts: Boolean? = null,
-    val canManageWorkshops: Boolean? = null
+    val canManageWorkshops: Boolean? = null,
+    val canReview: Boolean? = null
+)
+
+/** One record awaiting review, as surfaced by GET /review/pending. */
+@Serializable
+data class PendingReviewDto(
+    val recordType: String,
+    val id: String,
+    val label: String,
+    val place: String? = null,
+    val createdAt: String? = null
+)
+
+@Serializable
+data class PendingReviewListDto(
+    val items: List<PendingReviewDto> = emptyList(),
+    val total: Int = 0
+)
+
+/** Optional reviewer notes sent with approve/reject. */
+@Serializable
+data class ReviewActionRequest(
+    val notes: String? = null
 )
 
 @Serializable

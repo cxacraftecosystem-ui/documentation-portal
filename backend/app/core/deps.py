@@ -41,6 +41,11 @@ def can_manage_workshops(user: Any) -> bool:
     return is_admin(user) or bool(get_value(user, "canManageWorkshops"))
 
 
+def can_review(user: Any) -> bool:
+    """May approve/reject submitted records: any admin, or a user granted the review permission."""
+    return is_admin(user) or bool(get_value(user, "canReview"))
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> Any:
@@ -73,6 +78,12 @@ async def require_master_admin(current_user: Any = Depends(get_current_user)) ->
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Master admin access required",
         )
+    return current_user
+
+
+async def require_reviewer(current_user: Any = Depends(get_current_user)) -> Any:
+    if not can_review(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Review access required")
     return current_user
 
 

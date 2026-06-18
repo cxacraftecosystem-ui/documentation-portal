@@ -24,6 +24,56 @@ class PresignResponse(APIModel):
     publicUrl: str | None = None
 
 
+class MultipartCreateRequest(APIModel):
+    filename: str = Field(min_length=1, max_length=255)
+    mimeType: str = Field(min_length=1, max_length=180)
+    mediaType: str
+    sizeBytes: int = Field(gt=0)
+    linkedRecordType: str | None = None
+    linkedRecordId: str | None = None
+
+
+class MultipartCreateResponse(APIModel):
+    objectKey: str
+    uploadId: str
+    bucket: str
+    partSize: int
+    partCount: int
+    publicUrl: str | None = None
+
+
+class MultipartPresignPartsRequest(APIModel):
+    objectKey: str = Field(min_length=1)
+    uploadId: str = Field(min_length=1)
+    partNumbers: list[int]
+
+
+class MultipartPresignPartsResponse(APIModel):
+    urls: dict[str, str]
+
+
+class CompletedPartInput(APIModel):
+    partNumber: int = Field(ge=1)
+    etag: str = Field(min_length=1)
+
+
+class MultipartCompleteRequest(APIModel):
+    objectKey: str = Field(min_length=1)
+    uploadId: str = Field(min_length=1)
+    parts: list[CompletedPartInput]
+
+
+class MultipartCompleteResponse(APIModel):
+    objectKey: str
+    bucket: str
+    publicUrl: str | None = None
+
+
+class MultipartAbortRequest(APIModel):
+    objectKey: str = Field(min_length=1)
+    uploadId: str = Field(min_length=1)
+
+
 class MediaCompleteRequest(APIModel):
     originalFilename: str = Field(min_length=1, max_length=255)
     mediaType: str

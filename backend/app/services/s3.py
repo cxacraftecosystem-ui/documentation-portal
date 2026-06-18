@@ -1,4 +1,5 @@
 from pathlib import PurePath
+from typing import Any
 from uuid import uuid4
 
 import boto3
@@ -85,6 +86,51 @@ def presign_put_url(object_key: str, mime_type: str) -> str:
         },
         ExpiresIn=900,
         HttpMethod="PUT",
+    )
+
+
+def create_multipart_upload(object_key: str, mime_type: str) -> str:
+    """Begin an S3 multipart upload (for large files). Returns the UploadId the client uploads parts
+    against; S3 stitches the parts into one object on complete, so the stored file stays whole."""
+    response = _client().create_multipart_upload(
+        Bucket=get_settings().aws_s3_bucket,
+        Key=object_key,
+        ContentType=mime_type,
+    )
+    return str(response["UploadId"])
+
+
+def presign_upload_part(object_key: str, upload_id: str, part_number: int) -> str:
+    """Presigned PUT URL for one part, so the (large) bytes go straight to S3, never via the API."""
+    return _client().generate_presigned_url(
+        ClientMethod="upload_part",
+        Params={
+            "Bucket": get_settings().aws_s3_bucket,
+            "Key": object_key,
+            "UploadId": upload_id,
+            "PartNumber": part_number,
+        },
+        ExpiresIn=3600,
+        HttpMethod="PUT",
+    )
+
+
+def complete_multipart_upload(object_key: str, upload_id: str, parts: list[dict[str, Any]]) -> None:
+    """Finalise the multipart upload — S3 assembles the parts into a single object."""
+    _client().complete_multipart_upload(
+        Bucket=get_settings().aws_s3_bucket,
+        Key=object_key,
+        UploadId=upload_id,
+        MultipartUpload={"Parts": parts},
+    )
+
+
+def abort_multipart_upload(object_key: str, upload_id: str) -> None:
+    """Discard an interrupted multipart upload so its uploaded parts don't linger and incur storage."""
+    _client().abort_multipart_upload(
+        Bucket=get_settings().aws_s3_bucket,
+        Key=object_key,
+        UploadId=upload_id,
     )
 
 

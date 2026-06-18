@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
+import android.provider.Settings
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.media.MediaRecorder
@@ -127,6 +128,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Groups
@@ -154,7 +156,9 @@ import com.fieldrepository.app.data.CraftDto
 import com.fieldrepository.app.data.CreatedRecordDto
 import com.fieldrepository.app.data.AppScope
 import com.fieldrepository.app.data.LocationDto
+import com.fieldrepository.app.data.AppReleaseDto
 import com.fieldrepository.app.data.MediaFileDto
+import com.fieldrepository.app.data.PendingReviewDto
 import com.fieldrepository.app.data.StagedMedia
 import androidx.compose.runtime.DisposableEffect
 import kotlinx.coroutines.Deferred
@@ -406,8 +410,24 @@ private fun HomeScreen(
     val isAdmin = user.role == "MASTER_ADMIN" || user.role == "ADMIN"
     val isMasterAdmin = user.role == "MASTER_ADMIN"
     val isQuestionnaireManager = isMasterAdmin || user.canManageQuestionnaire
+    val canReview = isAdmin || user.canReview
     // Master admin lands in admin view; other admins opt in from the menu.
     var adminView by remember { mutableStateOf(isMasterAdmin) }
+
+    val context = LocalContext.current
+    // Over-the-air update: on launch, see if the master admin pushed a newer build than the one
+    // installed; if so, offer a one-tap self-update. `pushingUpdate` guards the publish action.
+    var pendingUpdate by remember { mutableStateOf<AppReleaseDto?>(null) }
+    var updateBusy by remember { mutableStateOf(false) }
+    var pushingUpdate by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        runCatching {
+            val latest = repository.latestAppRelease()
+            if (latest.versionCode > repository.installedVersionCode(context) && !latest.url.isNullOrBlank()) {
+                pendingUpdate = latest
+            }
+        }
+    }
 
     // Surface a message, but swallow the noise from a coroutine being cancelled when a screen is
     // left during navigation (e.g. "The coroutine scope left the composition") — that is expected,
@@ -500,12 +520,29 @@ private fun HomeScreen(
                         user = user,
                         adminView = adminView,
                         isAdmin = isAdmin,
+                        isMasterAdmin = isMasterAdmin,
+                        pushingUpdate = pushingUpdate,
                         modes = dashboardModes.filter { canCreate(it) },
                         onDashboard = { goDashboard(); scope.launch { drawerState.close() } },
                         onSelect = { entry -> screen = Screen.Create(entry); scope.launch { drawerState.close() } },
                         onMyActivity = { message = null; screen = Screen.MyActivity; scope.launch { drawerState.close() } },
                         onAssignTools = { message = null; screen = Screen.ToolAssign; scope.launch { drawerState.close() } },
                         onToggleAdminView = { adminView = !adminView },
+                        onPushUpdate = {
+                            scope.launch { drawerState.close() }
+                            if (!pushingUpdate) {
+                                pushingUpdate = true
+                                message = "Publishing this version as the update for everyone…"
+                                scope.launch {
+                                    runCatching { repository.publishAppUpdate(context) }
+                                        .onSuccess { rel ->
+                                            message = "Update published (v${rel.versionName}). Everyone else gets it automatically on next open."
+                                        }
+                                        .onFailure { showMessage(it.message ?: "Unable to publish the update") }
+                                    pushingUpdate = false
+                                }
+                            }
+                        },
                         onLogout = { scope.launch { drawerState.close() }; onLogout() }
                     )
                 }
@@ -609,6 +646,7 @@ private fun HomeScreen(
                 )
                 EntryMode.VIEW_DATA -> ViewDataScreen(
                     repository = repository,
+                    canReview = canReview,
                     onError = { showMessage(it) }
                 )
                 EntryMode.TOOL -> ToolForm(
@@ -705,10 +743,75 @@ private fun HomeScreen(
         message?.let {
             Text(it, color = Body, modifier = Modifier.padding(bottom = 24.dp))
         }
+
+        pendingUpdate?.let { release ->
+            AlertDialog(
+                onDismissRequest = { if (!updateBusy) pendingUpdate = null },
+                title = { Text("Update available") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Version ${release.versionName} is ready. Update now to get the latest fixes.")
+                        release.notes?.takeIf { it.isNotBlank() }?.let { Text(it, color = Muted, fontSize = 12.sp) }
+                        if (updateBusy) {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            Text("Downloading and preparing the installer…", color = Muted, fontSize = 12.sp)
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = !updateBusy,
+                        onClick = {
+                            updateBusy = true
+                            scope.launch {
+                                runCatching {
+                                    if (!canInstallUpdates(context)) {
+                                        requestInstallPermission(context)
+                                        throw IllegalStateException("Enable \"Install unknown apps\" for Field Repository, then tap Update now again.")
+                                    }
+                                    val apk = repository.downloadApk(context, release.url!!, release.versionCode)
+                                    launchApkInstaller(context, apk)
+                                }.onFailure { showMessage(it.message ?: "Unable to download the update") }
+                                updateBusy = false
+                                pendingUpdate = null
+                            }
+                        }
+                    ) { Text("Update now") }
+                },
+                dismissButton = {
+                    TextButton(enabled = !updateBusy, onClick = { pendingUpdate = null }) { Text("Later") }
+                }
+            )
+        }
                 }
             }
         }
     }
+}
+
+/** True when the OS will let us install an APK (always pre-O; needs the per-app grant on O+). */
+private fun canInstallUpdates(context: Context): Boolean =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.O || context.packageManager.canRequestPackageInstalls()
+
+/** Open the system screen where the user grants this app permission to install updates. */
+private fun requestInstallPermission(context: Context) {
+    runCatching {
+        context.startActivity(
+            Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
+}
+
+/** Hand a downloaded APK to the system package installer (the user taps Install to confirm). */
+private fun launchApkInstaller(context: Context, apk: File) {
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apk)
+    context.startActivity(
+        Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    )
 }
 
 /** Rounded back control with a real icon; steps to the previous screen. */
@@ -731,12 +834,15 @@ private fun AppDrawerContent(
     user: UserDto,
     adminView: Boolean,
     isAdmin: Boolean,
+    isMasterAdmin: Boolean,
+    pushingUpdate: Boolean,
     modes: List<EntryMode>,
     onDashboard: () -> Unit,
     onSelect: (EntryMode) -> Unit,
     onMyActivity: () -> Unit,
     onAssignTools: () -> Unit,
     onToggleAdminView: () -> Unit,
+    onPushUpdate: () -> Unit,
     onLogout: () -> Unit
 ) {
     ModalDrawerSheet {
@@ -808,6 +914,15 @@ private fun AppDrawerContent(
                     selected = adminView,
                     icon = { Icon(Icons.Filled.ManageAccounts, contentDescription = null) },
                     onClick = onToggleAdminView,
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                )
+            }
+            if (isMasterAdmin) {
+                NavigationDrawerItem(
+                    label = { Text(if (pushingUpdate) "Publishing update…" else "Push update to all") },
+                    selected = false,
+                    icon = { Icon(Icons.Filled.SystemUpdate, contentDescription = null) },
+                    onClick = { if (!pushingUpdate) onPushUpdate() },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                 )
             }
@@ -1011,9 +1126,21 @@ private class MediaCaptureState {
     var measurementUri by mutableStateOf<Uri?>(null)
 
     // Eager-upload bookkeeping. `stagedDeferred` is the in-flight pre-upload per uri; `staged`
-    // mirrors the completed results for UI status. Managed by MediaCaptureSection.
+    // mirrors the completed results for UI status; `stagedProgress` is 0..1 per uri for the progress
+    // bar; `stagedFailed` marks uris whose eager upload errored (retried at save). Managed by
+    // MediaCaptureSection.
     val stagedDeferred = mutableMapOf<Uri, Deferred<StagedMedia?>>()
     var staged by mutableStateOf<Map<Uri, StagedMedia>>(emptyMap())
+    var stagedProgress by mutableStateOf<Map<Uri, Float>>(emptyMap())
+    var stagedFailed by mutableStateOf<Set<Uri>>(emptySet())
+
+    /** Forget all eager-upload state for one uri (used when the user discards a single attachment). */
+    fun forget(uri: Uri) {
+        stagedDeferred.remove(uri)
+        staged = staged - uri
+        stagedProgress = stagedProgress - uri
+        stagedFailed = stagedFailed - uri
+    }
 
     fun reset() {
         uris = emptyList()
@@ -1021,6 +1148,8 @@ private class MediaCaptureState {
         measurementUri = null
         stagedDeferred.clear()
         staged = emptyMap()
+        stagedProgress = emptyMap()
+        stagedFailed = emptySet()
     }
 }
 
@@ -1637,21 +1766,37 @@ private fun MediaCaptureSection(
     var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
     var pendingMeasurement by remember { mutableStateOf(false) }
 
-    // Eager upload: as soon as a file is attached, start pushing it to object storage so the
-    // transfer is (usually) finished by the time the user taps save.
+    // Eager upload: as soon as a file is attached, start streaming it to object storage — every file,
+    // any size (no client-side splitting) — so the slow transfer overlaps the time the user spends
+    // filling the form and is (usually) finished by the time they tap save. Per-file byte progress
+    // drives the progress bar; a failed eager upload is retried by the save path.
     LaunchedEffect(media.uris) {
         media.uris.forEach { uri ->
             if (!media.stagedDeferred.containsKey(uri)) {
-                // Long audio/video is split into parts at save time, so it can't be eagerly staged as a
-                // single object — the deferred resolves to null and the save path uploads (splitting) it.
+                media.stagedProgress = media.stagedProgress + (uri to 0f)
                 val deferred = AppScope.io.async {
-                    if (repository.willSplit(context, uri)) null
-                    else runCatching { repository.preuploadObject(context, uri) }.getOrNull()
+                    var lastPct = -1
+                    runCatching {
+                        repository.preuploadObject(context, uri) { sent, total ->
+                            // Throttle to whole-percent changes so a big file doesn't thrash recomposition.
+                            val pct = if (total > 0L) ((sent * 100) / total).toInt() else 0
+                            if (pct != lastPct) {
+                                lastPct = pct
+                                media.stagedProgress = media.stagedProgress + (uri to pct / 100f)
+                            }
+                        }
+                    }.getOrNull()
                 }
                 media.stagedDeferred[uri] = deferred
                 scope.launch {
                     val result = runCatching { deferred.await() }.getOrNull()
-                    if (result != null) media.staged = media.staged + (uri to result)
+                    if (result != null) {
+                        media.staged = media.staged + (uri to result)
+                        media.stagedProgress = media.stagedProgress + (uri to 1f)
+                        media.stagedFailed = media.stagedFailed - uri
+                    } else {
+                        media.stagedFailed = media.stagedFailed + uri
+                    }
                 }
             }
         }
@@ -1824,9 +1969,19 @@ private fun MediaCaptureSection(
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text("${media.uris.size} file(s) attached", color = Canvas, fontWeight = FontWeight.SemiBold)
+                // Overall upload progress across the whole batch (staged files count as 100%).
+                val overall = media.uris.map { (media.stagedProgress[it] ?: 0f).coerceIn(0f, 1f) }.average().toFloat()
+                val allDone = media.staged.size >= media.uris.size
+                if (!allDone) {
+                    LinearProgressIndicator(
+                        progress = { overall },
+                        modifier = Modifier.fillMaxWidth().height(6.dp),
+                        color = Coral
+                    )
+                }
                 Text(
-                    if (media.staged.size >= media.uris.size) "All uploaded ✓ — ready to save"
-                    else "Uploading… ${media.staged.size}/${media.uris.size} done",
+                    if (allDone) "All uploaded ✓ — ready to save"
+                    else "Uploading… ${(overall * 100).toInt()}% (${media.staged.size}/${media.uris.size} files done)",
                     color = SurfaceCard,
                     fontSize = 11.sp
                 )
@@ -1834,10 +1989,12 @@ private fun MediaCaptureSection(
                     AndroidUriPreview(
                         context = context,
                         uri = uri,
+                        progress = media.stagedProgress[uri],
+                        failed = uri in media.stagedFailed,
                         onRemove = {
                             // Drop just this file from the batch and clean up its staged object (if any).
-                            val deferred = media.stagedDeferred.remove(uri)
-                            media.staged = media.staged - uri
+                            val deferred = media.stagedDeferred[uri]
+                            media.forget(uri)
                             media.uris = media.uris.filterNot { it == uri }
                             AppScope.io.launch {
                                 runCatching { deferred?.await()?.let { repository.deleteStaged(it.objectKey) } }
@@ -1850,6 +2007,8 @@ private fun MediaCaptureSection(
                     val pending = media.stagedDeferred.values.toList()
                     media.stagedDeferred.clear()
                     media.staged = emptyMap()
+                    media.stagedProgress = emptyMap()
+                    media.stagedFailed = emptySet()
                     media.uris = emptyList()
                     AppScope.io.launch {
                         pending.forEach { d -> runCatching { d.await()?.let { repository.deleteStaged(it.objectKey) } } }
@@ -3692,7 +3851,7 @@ private fun RecordMediaSection(
 }
 
 @Composable
-private fun ViewDataScreen(repository: FieldRepository, onError: (String) -> Unit) {
+private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = false, onError: (String) -> Unit) {
     var mode by remember { mutableStateOf(EntryMode.ARTISAN) }
     var options by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var selectedId by remember { mutableStateOf("") }
@@ -3731,6 +3890,111 @@ private fun ViewDataScreen(repository: FieldRepository, onError: (String) -> Uni
         ViewDataDetail(repository = repository, mode = mode, recordId = selectedId, onError = onError)
     }
     DatasetDownloadCard(repository = repository, onError = onError)
+    if (canReview) {
+        ReviewApprovalCard(repository = repository, onError = onError)
+    }
+}
+
+/**
+ * Admin/reviewer-only: the queue of records still awaiting review (status PENDING). Each card can be
+ * approved or rejected in place; the list refreshes so cleared items drop off. Gated by [canReview]
+ * (any admin, or a user the master admin granted the review permission).
+ */
+@Composable
+private fun ReviewApprovalCard(repository: FieldRepository, onError: (String) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var pending by remember { mutableStateOf<List<PendingReviewDto>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var actingId by remember { mutableStateOf<String?>(null) }
+    var info by remember { mutableStateOf<String?>(null) }
+
+    fun refresh() {
+        scope.launch {
+            loading = true
+            runCatching { repository.pendingReviews() }
+                .onSuccess { pending = it }
+                .onFailure { onError(it.message ?: "Unable to load the review queue") }
+            loading = false
+        }
+    }
+    LaunchedEffect(Unit) { refresh() }
+
+    RecordCard(title = "Reviews & approvals") {
+        Text(
+            "Records submitted by the team that are still pending review. Approve to publish them, or " +
+                "reject to send them back.",
+            color = Muted,
+            fontSize = 12.sp
+        )
+        when {
+            loading -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                Text("Loading pending records…", color = Muted, fontSize = 12.sp)
+            }
+            pending.isEmpty() -> Text("Nothing pending — everything has been reviewed. 🎉", color = Muted, fontSize = 12.sp)
+            else -> {
+                Text("${pending.size} record(s) awaiting review", color = Body, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                info?.let { Text(it, color = SuccessGreen, fontSize = 11.sp) }
+                pending.forEach { item ->
+                    ElevatedCard(
+                        colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(item.label, color = Body, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                listOfNotNull(
+                                    item.recordType.replaceFirstChar { it.uppercase() },
+                                    item.place?.takeIf { it.isNotBlank() },
+                                    formatIsoDate(item.createdAt)
+                                ).joinToString(" · "),
+                                color = Muted,
+                                fontSize = 11.sp
+                            )
+                            val busy = actingId == item.id
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                Button(
+                                    onClick = {
+                                        actingId = item.id
+                                        scope.launch {
+                                            runCatching { repository.approveRecord(item.recordType, item.id) }
+                                                .onSuccess {
+                                                    pending = pending.filterNot { it.id == item.id }
+                                                    info = "Approved ${item.label}"
+                                                }
+                                                .onFailure { e -> onError(e.message ?: "Unable to approve") }
+                                            actingId = null
+                                        }
+                                    },
+                                    enabled = !busy,
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                                ) { Text(if (busy) "Working…" else "Approve", maxLines = 1, fontSize = 13.sp) }
+                                OutlinedButton(
+                                    onClick = {
+                                        actingId = item.id
+                                        scope.launch {
+                                            runCatching { repository.rejectRecord(item.recordType, item.id) }
+                                                .onSuccess {
+                                                    pending = pending.filterNot { it.id == item.id }
+                                                    info = "Rejected ${item.label}"
+                                                }
+                                                .onFailure { e -> onError(e.message ?: "Unable to reject") }
+                                            actingId = null
+                                        }
+                                    },
+                                    enabled = !busy,
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                                ) { Text("Reject", maxLines = 1, fontSize = 13.sp) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /** Bottom-of-screen control to pull the entire dataset into a structured zip in Downloads. */
@@ -4264,7 +4528,13 @@ private fun mediaTypeFromMime(mime: String?): String = when {
 }
 
 @Composable
-private fun AndroidUriPreview(context: Context, uri: Uri, onRemove: (() -> Unit)? = null) {
+private fun AndroidUriPreview(
+    context: Context,
+    uri: Uri,
+    onRemove: (() -> Unit)? = null,
+    progress: Float? = null,
+    failed: Boolean = false
+) {
     val mimeType = remember(uri) { context.contentResolver.getType(uri) }
     val mediaType = remember(mimeType) { mediaTypeFromMime(mimeType) }
     var showViewer by remember { mutableStateOf(false) }
@@ -4285,6 +4555,18 @@ private fun AndroidUriPreview(context: Context, uri: Uri, onRemove: (() -> Unit)
                 modifier = Modifier.align(Alignment.TopEnd)
             )
         }
+    }
+    when {
+        failed -> Text("Upload failed — will retry on save", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+        progress != null && progress < 1f -> {
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxWidth().height(4.dp),
+                color = Coral
+            )
+            Text("Uploading ${(progress * 100).toInt()}%", color = SurfaceCard, fontSize = 10.sp)
+        }
+        progress != null && progress >= 1f -> Text("Uploaded ✓", color = SuccessGreen, fontSize = 10.sp)
     }
     if (showViewer) {
         MediaViewerDialog(uri = uri, mediaType = mediaType, onDismiss = { showViewer = false })
@@ -4928,9 +5210,10 @@ private fun UserManagementForm(
         refreshUsers()
     }
 
-    RecordCard(title = "Users and questionnaire access") {
+    RecordCard(title = "Users and access") {
         Text(
-            "Admins can review users here. The master admin can grant or revoke questionnaire-builder access.",
+            "Admins can review users here. The master admin can grant or revoke questionnaire-builder, " +
+                "craft/workshop creation, and record review & approval access.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -4974,6 +5257,17 @@ private fun UserManagementForm(
                             scope.launch {
                                 runCatching { repository.updateUserWorkshopAccess(appUser.id, grant); refreshUsers() }
                                     .onFailure { onError(it.message ?: "Unable to update workshop access") }
+                            }
+                        }
+                    )
+                    GrantToggleRow(
+                        label = "Record review & approval",
+                        granted = isMaster || appUser.canReview,
+                        enabled = canEditGrants,
+                        onToggle = { grant ->
+                            scope.launch {
+                                runCatching { repository.updateUserReviewAccess(appUser.id, grant); refreshUsers() }
+                                    .onFailure { onError(it.message ?: "Unable to update review access") }
                             }
                         }
                     )

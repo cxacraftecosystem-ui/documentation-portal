@@ -90,6 +90,8 @@ async def create_user(payload: UserCreate, current_user: Any = Depends(require_a
         assert_privilege_change(payload.canManageCrafts, current_user, "craft creation")
     if payload.canManageWorkshops:
         assert_privilege_change(payload.canManageWorkshops, current_user, "workshop creation")
+    if payload.canReview:
+        assert_privilege_change(payload.canReview, current_user, "record review")
     existing = await db.user.find_unique(where={"email": payload.email.lower()})
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
@@ -104,6 +106,7 @@ async def create_user(payload: UserCreate, current_user: Any = Depends(require_a
             "canManageQuestionnaire": is_master or payload.canManageQuestionnaire,
             "canManageCrafts": is_master or payload.canManageCrafts,
             "canManageWorkshops": is_master or payload.canManageWorkshops,
+            "canReview": is_master or payload.canReview,
         }
     )
     return serialize_user(user)
@@ -119,6 +122,7 @@ async def update_user(
     assert_questionnaire_permission_change(payload.canManageQuestionnaire, current_user)
     assert_privilege_change(payload.canManageCrafts, current_user, "craft creation")
     assert_privilege_change(payload.canManageWorkshops, current_user, "workshop creation")
+    assert_privilege_change(payload.canReview, current_user, "record review")
     data = clean_data(payload.model_dump(exclude_unset=True))
     if "email" in data:
         data["email"] = data["email"].lower()
@@ -134,6 +138,7 @@ async def update_user(
         data["canManageQuestionnaire"] = True
         data["canManageCrafts"] = True
         data["canManageWorkshops"] = True
+        data["canReview"] = True
     updated = await db.user.update(where={"id": user_id}, data=data)
     return serialize_user(updated)
 

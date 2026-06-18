@@ -11,6 +11,7 @@ class UserCreate(APIModel):
     canManageQuestionnaire: bool = False
     canManageCrafts: bool = False
     canManageWorkshops: bool = False
+    canReview: bool = False
 
 
 class UserUpdate(APIModel):
@@ -21,3 +22,4 @@ class UserUpdate(APIModel):
     canManageQuestionnaire: bool | None = None
     canManageCrafts: bool | None = None
     canManageWorkshops: bool | None = None
+    canReview: bool | None = None

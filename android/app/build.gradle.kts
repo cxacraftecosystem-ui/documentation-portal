@@ -22,8 +22,9 @@ android {
         applicationId = "com.fieldrepository.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        // Bump versionCode on every release so pushed over-the-air updates are detected as newer.
+        versionCode = 2
+        versionName = "1.1"
         // Default to the production backend through CloudFront over HTTPS. CloudFront is dual-stack
         // (publishes a native IPv6 / AAAA record), so it connects on IPv6-only mobile networks
         // (e.g. Jio/Airtel) where the IPv4-only EC2 origin — whether addressed by literal IP or its

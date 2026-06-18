@@ -7,8 +7,6 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
-import androidx.core.content.FileProvider
-import com.fieldrepository.app.media.MediaSplitter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType
@@ -30,6 +28,12 @@ import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+
+/**
+ * Files at/under this size upload as one streamed S3 PUT; larger files switch to a chunked S3
+ * multipart upload (resilient/resumable, no 5 GB ceiling) that S3 stitches back into one object.
+ */
+private const val MULTIPART_THRESHOLD = 64L * 1024 * 1024
 
 class FieldRepository(
     private val api: FieldRepositoryApi,
@@ -88,6 +92,81 @@ class FieldRepository(
 
     suspend fun updateUserWorkshopAccess(id: String, canManageWorkshops: Boolean): UserDto =
         api.updateUser(id, UserUpdateRequest(canManageWorkshops = canManageWorkshops))
+
+    suspend fun updateUserReviewAccess(id: String, canReview: Boolean): UserDto =
+        api.updateUser(id, UserUpdateRequest(canReview = canReview))
+
+    /** Records awaiting review (status PENDING), newest first, across record types. */
+    suspend fun pendingReviews(): List<PendingReviewDto> = api.pendingReviews().items
+
+    /** Approve a pending record (admins, or users granted the review permission). */
+    suspend fun approveRecord(recordType: String, recordId: String) {
+        api.approveRecord(recordType, recordId, ReviewActionRequest())
+    }
+
+    /** Reject a pending record (admins, or users granted the review permission). */
+    suspend fun rejectRecord(recordType: String, recordId: String) {
+        api.rejectRecord(recordType, recordId, ReviewActionRequest())
+    }
+
+    // --- Over-the-air app update ---
+
+    /** versionCode baked into the currently-installed app, for comparing against a published release. */
+    fun installedVersionCode(context: Context): Int {
+        val pkg = context.packageManager.getPackageInfo(context.packageName, 0)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) pkg.longVersionCode.toInt()
+        else @Suppress("DEPRECATION") pkg.versionCode
+    }
+
+    /**
+     * Master admin: publish the currently-installed APK as the over-the-air update for everyone. The
+     * app reads its own installed APK, uploads it to object storage, and records the version so other
+     * devices can discover and self-install it on next launch.
+     */
+    suspend fun publishAppUpdate(context: Context): AppReleaseDto {
+        val pkg = context.packageManager.getPackageInfo(context.packageName, 0)
+        val versionCode = installedVersionCode(context)
+        val versionName = pkg.versionName ?: versionCode.toString()
+        val apk = File(context.applicationInfo.sourceDir)
+        val size = apk.length()
+        val mime = "application/vnd.android.package-archive"
+        val presign = api.presignMedia(
+            MediaPresignRequest(
+                filename = "field-repository-v$versionCode.apk",
+                mimeType = mime,
+                mediaType = "DOCUMENT",
+                sizeBytes = size
+            )
+        )
+        withContext(Dispatchers.IO) {
+            putToStorage(presign.uploadUrl, presign.headers, size, mime, { FileInputStream(apk) }, null)
+        }
+        return api.publishAppRelease(
+            AppReleasePublishRequest(
+                versionCode = versionCode,
+                versionName = versionName,
+                objectKey = presign.objectKey,
+                url = presign.publicUrl
+            )
+        )
+    }
+
+    /** The currently-published release (highest versionCode), or versionCode 0 when none exists. */
+    suspend fun latestAppRelease(): AppReleaseDto = api.latestAppRelease()
+
+    /** Download an update APK to the cache and return the file, for handing to the system installer. */
+    suspend fun downloadApk(context: Context, url: String, versionCode: Int): File = withContext(Dispatchers.IO) {
+        val dir = File(context.cacheDir, "updates").apply { mkdirs() }
+        dir.listFiles()?.forEach { runCatching { it.delete() } } // drop older downloads
+        val out = File(dir, "field-repository-v$versionCode.apk")
+        val request = Request.Builder().url(url).get().build()
+        storageClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IllegalStateException("Update download failed: HTTP ${response.code}")
+            val body = response.body ?: throw IllegalStateException("Update download returned no body")
+            body.byteStream().use { input -> FileOutputStream(out).use { output -> input.copyTo(output, 64 * 1024) } }
+        }
+        out
+    }
 
     suspend fun artisans(): List<ArtisanDto> = api.artisans(pageSize = 100).items
 
@@ -279,32 +358,11 @@ class FieldRepository(
         api.updateInterview(id, body)
 
     /**
-     * Per-part byte budget above which an audio/video file is split before upload, or null for types
-     * that are never split. Audio stays under the speech-to-text per-file cap (25 MB) so every part
-     * transcribes; video is chunked into reliably-uploadable segments.
-     */
-    private fun splitLimitFor(mediaType: String): Long? = when (mediaType) {
-        "AUDIO" -> 20L * 1024 * 1024
-        "VIDEO" -> 96L * 1024 * 1024
-        else -> null
-    }
-
-    /**
-     * True when [uri] is a long audio/video that [uploadMedia] will split into parts. The eager
-     * pre-upload skips these (a single staged blob can't be split afterwards) so the split happens at
-     * save time instead.
-     */
-    fun willSplit(context: Context, uri: Uri): Boolean {
-        val mimeType = context.contentResolver.getType(uri) ?: return false
-        val limit = splitLimitFor(inferMediaType(mimeType)) ?: return false
-        return queryContentSize(context, uri) > limit
-    }
-
-    /**
-     * Upload a captured/selected file. A long audio/video file is first split into time-ordered
-     * segments (each within [splitLimitFor]) and uploaded as PART_1, PART_2, … so it never fails as
-     * one oversized blob and each audio part stays transcribable; everything else uploads as-is.
-     * Splitting is fail-safe: if the media can't be re-muxed it is uploaded whole.
+     * Upload a captured/selected file as a single streamed object. The bytes are streamed straight
+     * from the content Uri to object storage (S3 PUT handles up to 5 GB), so even large videos upload
+     * whole — no client-side chunking and no re-muxing, which is both faster and keeps each capture a
+     * single file. Long audio is chunked only on the server for transcription, where the per-chunk
+     * transcripts are stitched back together, so the stored audio object stays whole too.
      */
     suspend fun uploadMedia(
         context: Context,
@@ -323,47 +381,6 @@ class FieldRepository(
         val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
         val originalName = displayName(context, uri) ?: "field-media-${System.currentTimeMillis()}"
         val mediaType = inferMediaType(mimeType)
-        val limit = splitLimitFor(mediaType)
-        val size = queryContentSize(context, uri)
-        if (limit != null && size > limit) {
-            val parts = withContext(Dispatchers.IO) {
-                MediaSplitter.split(context, uri, limit, File(context.cacheDir, "field-captures"))
-            }
-            if (parts.size >= 2) {
-                val totalBytes = parts.sumOf { it.length() }.coerceAtLeast(1L)
-                var doneBytes = 0L
-                var firstResult: MediaFileDto? = null
-                try {
-                    parts.forEachIndexed { partIndex, part ->
-                        val partUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", part)
-                        val partSegment = listOfNotNull(customSegment?.takeIf { it.isNotBlank() }, "PART_${partIndex + 1}").joinToString("_")
-                        val base = doneBytes
-                        val result = uploadResolved(
-                            context = context,
-                            uri = partUri,
-                            mimeType = mimeType,
-                            mediaType = mediaType,
-                            originalName = originalName,
-                            linkedRecordType = linkedRecordType,
-                            linkedRecordId = linkedRecordId,
-                            caption = caption?.let { "$it (part ${partIndex + 1} of ${parts.size})" },
-                            location = location,
-                            titleHint = titleHint,
-                            batchIndex = batchIndex,
-                            processingRequests = processingRequests,
-                            stageStep = stageStep,
-                            customSegment = partSegment,
-                            onProgress = onProgress?.let { cb -> { sent, _ -> cb(base + sent, totalBytes) } }
-                        )
-                        if (firstResult == null) firstResult = result
-                        doneBytes += part.length()
-                    }
-                } finally {
-                    parts.forEach { runCatching { it.delete() } }
-                }
-                return firstResult!!
-            }
-        }
         return uploadResolved(
             context = context,
             uri = uri,
@@ -417,28 +434,24 @@ class FieldRepository(
         // if that is unavailable we spool to a temp cache file on disk to obtain an exact length.
         val source = withContext(Dispatchers.IO) { resolveUploadSource(context, uri) }
         try {
-            val presign = api.presignMedia(
-                MediaPresignRequest(
-                    filename = filename,
-                    mimeType = mimeType,
-                    mediaType = mediaType,
-                    sizeBytes = source.size,
-                    linkedRecordType = linkedRecordType.blankToNull(),
-                    linkedRecordId = linkedRecordId.blankToNull()
-                )
+            val target = uploadBytesToS3(
+                filename = filename,
+                mimeType = mimeType,
+                mediaType = mediaType,
+                source = source,
+                linkedRecordType = linkedRecordType,
+                linkedRecordId = linkedRecordId,
+                onProgress = onProgress
             )
-            withContext(Dispatchers.IO) {
-                putToStorage(presign.uploadUrl, presign.headers, source.size, mimeType, source.open, onProgress)
-            }
             return api.completeMedia(
                 MediaCompleteRequest(
                     originalFilename = filename,
                     mediaType = mediaType,
                     mimeType = mimeType,
                     sizeBytes = source.size,
-                    objectKey = presign.objectKey,
-                    bucket = presign.bucket,
-                    url = presign.publicUrl,
+                    objectKey = target.objectKey,
+                    bucket = target.bucket,
+                    url = target.publicUrl,
                     caption = caption.blankToNull(),
                     linkedRecordType = linkedRecordType.blankToNull(),
                     linkedRecordId = linkedRecordId.blankToNull(),
@@ -457,7 +470,11 @@ class FieldRepository(
      * key, so the slow network transfer overlaps the time the user spends filling the form. The
      * human-readable, nomenclature-correct filename is applied later in [completeStaged].
      */
-    suspend fun preuploadObject(context: Context, uri: Uri): StagedMedia {
+    suspend fun preuploadObject(
+        context: Context,
+        uri: Uri,
+        onProgress: ((sent: Long, total: Long) -> Unit)? = null
+    ): StagedMedia {
         val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
         val originalName = displayName(context, uri) ?: "field-media-${System.currentTimeMillis()}"
         val extension = originalName.substringAfterLast('.', "").takeIf { it.isNotBlank() }
@@ -466,21 +483,19 @@ class FieldRepository(
         try {
             val provisional = "staged-${System.currentTimeMillis()}-${java.util.UUID.randomUUID().toString().take(8)}" +
                 (extension?.let { ".$it" } ?: "")
-            val presign = api.presignMedia(
-                MediaPresignRequest(
-                    filename = provisional,
-                    mimeType = mimeType,
-                    mediaType = mediaType,
-                    sizeBytes = source.size
-                )
+            val target = uploadBytesToS3(
+                filename = provisional,
+                mimeType = mimeType,
+                mediaType = mediaType,
+                source = source,
+                linkedRecordType = null,
+                linkedRecordId = null,
+                onProgress = onProgress
             )
-            withContext(Dispatchers.IO) {
-                putToStorage(presign.uploadUrl, presign.headers, source.size, mimeType, source.open, null)
-            }
             return StagedMedia(
-                objectKey = presign.objectKey,
-                bucket = presign.bucket,
-                publicUrl = presign.publicUrl,
+                objectKey = target.objectKey,
+                bucket = target.bucket,
+                publicUrl = target.publicUrl,
                 mimeType = mimeType,
                 mediaType = mediaType,
                 sizeBytes = source.size,
@@ -489,6 +504,145 @@ class FieldRepository(
         } finally {
             source.cleanup()
         }
+    }
+
+    /** Where an uploaded object ended up: its key, bucket, and public URL. */
+    private data class UploadTarget(val objectKey: String, val bucket: String, val publicUrl: String?)
+
+    /**
+     * Push a resolved source to object storage and return its location. Files at/under
+     * [MULTIPART_THRESHOLD] go up as one streamed PUT (fast, simple). Larger files use an S3 multipart
+     * upload: the bytes are chunked for the transfer (resilient, resumable per part, and past the 5 GB
+     * single-PUT ceiling), then S3 stitches the parts into a single object on complete — so the stored
+     * file is still whole. Best of both worlds.
+     */
+    private suspend fun uploadBytesToS3(
+        filename: String,
+        mimeType: String,
+        mediaType: String,
+        source: UploadSource,
+        linkedRecordType: String?,
+        linkedRecordId: String?,
+        onProgress: ((sent: Long, total: Long) -> Unit)?
+    ): UploadTarget {
+        if (source.size <= MULTIPART_THRESHOLD) {
+            val presign = api.presignMedia(
+                MediaPresignRequest(
+                    filename = filename,
+                    mimeType = mimeType,
+                    mediaType = mediaType,
+                    sizeBytes = source.size,
+                    linkedRecordType = linkedRecordType.blankToNull(),
+                    linkedRecordId = linkedRecordId.blankToNull()
+                )
+            )
+            withContext(Dispatchers.IO) {
+                putToStorage(presign.uploadUrl, presign.headers, source.size, mimeType, source.open, onProgress)
+            }
+            return UploadTarget(presign.objectKey, presign.bucket, presign.publicUrl)
+        }
+        return uploadMultipart(filename, mimeType, mediaType, source, linkedRecordType, linkedRecordId, onProgress)
+    }
+
+    /** S3 multipart upload for a large file: chunk → upload parts → S3 stitches into one object. */
+    private suspend fun uploadMultipart(
+        filename: String,
+        mimeType: String,
+        mediaType: String,
+        source: UploadSource,
+        linkedRecordType: String?,
+        linkedRecordId: String?,
+        onProgress: ((sent: Long, total: Long) -> Unit)?
+    ): UploadTarget {
+        val create = api.createMultipart(
+            MultipartCreateRequest(
+                filename = filename,
+                mimeType = mimeType,
+                mediaType = mediaType,
+                sizeBytes = source.size,
+                linkedRecordType = linkedRecordType.blankToNull(),
+                linkedRecordId = linkedRecordId.blankToNull()
+            )
+        )
+        try {
+            val partUrls = api.presignMultipartParts(
+                MultipartPresignPartsRequest(
+                    objectKey = create.objectKey,
+                    uploadId = create.uploadId,
+                    partNumbers = (1..create.partCount).toList()
+                )
+            ).urls
+            val completed = ArrayList<CompletedPart>(create.partCount)
+            withContext(Dispatchers.IO) {
+                source.open().use { input ->
+                    var sentTotal = 0L
+                    for (partNumber in 1..create.partCount) {
+                        val thisSize = minOf(create.partSize, source.size - (partNumber - 1).toLong() * create.partSize)
+                        val bytes = readExactly(input, thisSize.toInt())
+                        val url = partUrls[partNumber.toString()]
+                            ?: throw IllegalStateException("Missing presigned URL for part $partNumber")
+                        val base = sentTotal
+                        val etag = putPart(url, bytes) { sent -> onProgress?.invoke(base + sent, source.size) }
+                        completed.add(CompletedPart(partNumber = partNumber, etag = etag))
+                        sentTotal += bytes.size.toLong()
+                    }
+                }
+            }
+            val done = api.completeMultipart(
+                MultipartCompleteRequest(
+                    objectKey = create.objectKey,
+                    uploadId = create.uploadId,
+                    parts = completed
+                )
+            )
+            return UploadTarget(done.objectKey, done.bucket, done.publicUrl)
+        } catch (t: Throwable) {
+            // Clean up the half-done multipart upload so its parts don't linger in storage.
+            runCatching { api.abortMultipart(MultipartAbortRequest(create.objectKey, create.uploadId)) }
+            throw t
+        }
+    }
+
+    /** Read exactly [size] bytes from [input] (handles short reads); returns fewer only at EOF. */
+    private fun readExactly(input: InputStream, size: Int): ByteArray {
+        val buffer = ByteArray(size)
+        var offset = 0
+        while (offset < size) {
+            val read = input.read(buffer, offset, size - offset)
+            if (read < 0) break
+            offset += read
+        }
+        return if (offset == size) buffer else buffer.copyOf(offset)
+    }
+
+    /** Upload one multipart part (with retry) and return its S3 ETag for the complete call. */
+    private fun putPart(url: String, bytes: ByteArray, onProgress: ((sent: Long) -> Unit)?): String {
+        val maxAttempts = 3
+        var lastError: Exception? = null
+        for (attempt in 1..maxAttempts) {
+            try {
+                // Content-Type is intentionally unset: the part presign does not sign it, so sending one
+                // would not match. A fresh ByteArrayInputStream per attempt lets a retry re-send cleanly.
+                val body = StreamingRequestBody(
+                    bytes.size.toLong(),
+                    null,
+                    { java.io.ByteArrayInputStream(bytes) },
+                    onProgress?.let { cb -> { sent, _ -> cb(sent) } }
+                )
+                storageClient.newCall(Request.Builder().url(url).put(body).build()).execute().use { response ->
+                    if (response.isSuccessful) {
+                        return response.header("ETag")
+                            ?: throw IllegalStateException("S3 returned no ETag for the uploaded part")
+                    }
+                    if (response.code < 500) throw IllegalStateException("Part upload failed: HTTP ${response.code}")
+                    lastError = IllegalStateException("Part upload failed: HTTP ${response.code}")
+                }
+            } catch (e: IOException) {
+                lastError = e
+            }
+            if (attempt < maxAttempts) Thread.sleep(800L * attempt)
+        }
+        throw lastError ?: IllegalStateException("Part upload failed")
     }
 
     /** Attach an already-uploaded staged object to a saved record, applying the final filename. */

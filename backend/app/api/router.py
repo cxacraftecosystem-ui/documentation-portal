@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.routes import (
+    app_release,
     artisans,
     auth,
     crafts,
@@ -34,3 +35,4 @@ api_router.include_router(dashboard.router)
 api_router.include_router(search.router)
 api_router.include_router(review.router)
 api_router.include_router(export.router)
+api_router.include_router(app_release.router)
