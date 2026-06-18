@@ -8,6 +8,7 @@ import { LocationFields } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { RecordedAtField } from "@/components/forms/RecordedAtField";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
+import { GridMeasurement, type GridDimension } from "@/components/media/GridMeasurement";
 import { UploadProgress } from "@/components/media/UploadProgress";
 import { apiFetch, listResource } from "@/lib/api";
 import { locationFromForm, numericValue, parseJsonMetadata, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue } from "@/lib/forms";
@@ -21,15 +22,22 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
   const [artisans, setArtisans] = useState<Artisan[]>([]);
   const [crafts, setCrafts] = useState<Craft[]>([]);
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
-  const [measurementImage, setMeasurementImage] = useState<File | null>(null);
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
-  const measurementWarning =
-    "Upload a grid-sheet image for measurement support. If GEMINI_API_KEY is not configured, fill length and breadth manually.";
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<BatchProgress | null>(null);
   const [craftId, setCraftId] = useState(initial?.craftId ?? searchParams.get("craftId") ?? "");
   const [artisanId, setArtisanId] = useState(initial?.artisanId ?? searchParams.get("artisanId") ?? "");
+  // Dimensions are controlled so the "Document using grid" capture can auto-fill them.
+  const [length, setLength] = useState(initial?.lengthInches != null ? String(initial.lengthInches) : "");
+  const [breadth, setBreadth] = useState(initial?.breadthInches != null ? String(initial.breadthInches) : "");
+  const [height, setHeight] = useState(initial?.heightInches != null ? String(initial.heightInches) : "");
+  const [gridFiles, setGridFiles] = useState<Partial<Record<GridDimension, File>>>({});
+
+  const toNum = (value: string) => {
+    const n = Number(value);
+    return value.trim() && Number.isFinite(n) ? n : null;
+  };
 
   // Task 6: once a craft is linked, the artisan dropdown only offers artisans of that craft. The
   // currently-selected artisan is always kept visible even if the data predates the craft link.
@@ -61,7 +69,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
     setError(null);
     const form = new FormData(event.currentTarget);
     try {
-      const exifItems = await collectExifMetadata([measurementImage, ...mediaFiles].filter(Boolean) as File[]);
+      const exifItems = await collectExifMetadata([...Object.values(gridFiles), ...mediaFiles].filter(Boolean) as File[]);
       const exifRemark = exifMetadataToRemark(exifItems);
       const parsedMetadata = parseJsonMetadata(form.get("extraMetadata")) ?? {};
       const recordedAt = recordedAtFromForm(form);
@@ -76,9 +84,9 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         productType: requiredText(form, "productType") || "OTHER",
         timeTakenToCompleteProduct: textValue(form, "timeTakenToCompleteProduct"),
         size: textValue(form, "size"),
-        lengthInches: numericValue(form, "lengthInches"),
-        breadthInches: numericValue(form, "breadthInches"),
-        measurementAnalysisStatus: measurementImage ? "QUEUED" : undefined,
+        lengthInches: toNum(length),
+        breadthInches: toNum(breadth),
+        heightInches: toNum(height),
         costOfMaking: numericValue(form, "costOfMaking"),
         sellingPrice: numericValue(form, "sellingPrice"),
         marketDemand: requiredText(form, "marketDemand") || "UNKNOWN",
@@ -99,23 +107,23 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         method: initial ? "PATCH" : "POST",
         body: JSON.stringify(payload)
       });
-      if (measurementImage) {
-        const media = await uploadMediaFile({
-          file: measurementImage,
-          linkedRecordType: "product",
-          linkedRecordId: saved.id,
-          caption: `Measurement grid image for ${saved.productName}`,
-          location,
-          recordedAt,
-          recordedTimezone,
-          extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined,
-          transcribeAudio: false,
-          processingRequests: ["MEASUREMENT"]
-        });
-        await apiFetch(`/products/${saved.id}`, {
-          method: "PATCH",
-          body: JSON.stringify({ measurementImageId: media.id })
-        });
+      // Store each captured grid photo as media linked to the product (the measured value is already
+      // in the field). Best-effort per file so one failure doesn't lose the record.
+      for (const [dimension, file] of Object.entries(gridFiles) as [GridDimension, File][]) {
+        try {
+          await uploadMediaFile({
+            file,
+            linkedRecordType: "product",
+            linkedRecordId: saved.id,
+            caption: `${dimension} grid (measurement) for ${saved.productName}`,
+            location,
+            recordedAt,
+            recordedTimezone,
+            transcribeAudio: false
+          });
+        } catch {
+          /* keep the saved record even if a grid photo fails to store */
+        }
       }
       if (mediaFiles.length) {
         const { failed } = await uploadMediaBatch({
@@ -223,13 +231,13 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           <TextInput name="size" defaultValue={initial?.size ?? ""} />
         </Field>
         <Field label="Length (inches)">
-          <TextInput name="lengthInches" type="number" step="0.01" defaultValue={initial?.lengthInches ?? ""} />
+          <TextInput name="lengthInches" type="number" step="0.01" value={length} onChange={(event) => setLength(event.target.value)} />
         </Field>
         <Field label="Breadth (inches)">
-          <TextInput name="breadthInches" type="number" step="0.01" defaultValue={initial?.breadthInches ?? ""} />
+          <TextInput name="breadthInches" type="number" step="0.01" value={breadth} onChange={(event) => setBreadth(event.target.value)} />
         </Field>
-        <Field label="Grid-sheet measurement image">
-          <input className="field-input" type="file" accept="image/*" capture="environment" onChange={(event) => setMeasurementImage(event.target.files?.[0] ?? null)} />
+        <Field label="Height (inches)">
+          <TextInput name="heightInches" type="number" step="0.01" value={height} onChange={(event) => setHeight(event.target.value)} />
         </Field>
         <Field label="Market demand">
           <Select name="marketDemand" defaultValue={initial?.marketDemand ?? "UNKNOWN"}>
@@ -252,7 +260,15 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           </Select>
         </Field>
       </div>
-      {measurementWarning ? <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{measurementWarning}</div> : null}
+      <GridMeasurement
+        dimensions={["length", "breadth", "height"]}
+        onValue={(dimension, value) => {
+          if (dimension === "length") setLength(value);
+          else if (dimension === "breadth") setBreadth(value);
+          else setHeight(value);
+        }}
+        onFilesChange={setGridFiles}
+      />
       {initial ? <ExistingMedia linkedRecordType="product" linkedRecordId={initial.id} /> : null}
       <MediaCaptureField
         files={mediaFiles}

@@ -13,6 +13,7 @@ import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.MediaType.Companion.toMediaType
 import okio.BufferedSink
 import java.io.BufferedOutputStream
@@ -416,6 +417,26 @@ class FieldRepository(
     /** Delete a staged object that was cancelled before save. */
     suspend fun deleteStaged(objectKey: String) {
         api.deleteMediaObject(objectKey)
+    }
+
+    /**
+     * Analyse a grid-sheet photo for one dimension (length/breadth/height) and return the estimated
+     * inches, or null if the model couldn't read it. A grid photo is small, so reading it into memory
+     * is fine. Used by the "Document using grid" capture to auto-fill the measurement field.
+     */
+    suspend fun analyzeMeasurement(context: Context, uri: Uri, dimension: String): Double? {
+        val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+        val bytes = withContext(Dispatchers.IO) {
+            context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                ?: throw IllegalStateException("Unable to open the captured image")
+        }
+        val part = okhttp3.MultipartBody.Part.createFormData(
+            "file",
+            "grid-${dimension}.jpg",
+            bytes.toRequestBody(mimeType.toMediaType())
+        )
+        val response = api.analyzeMeasurement(part, dimension)
+        return response.analysis?.valueInches
     }
 
     /**

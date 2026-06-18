@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     openai_transcription_model: str = Field(default="whisper-1", alias="OPENAI_TRANSCRIPTION_MODEL")
     gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
     gemini_api_keys_raw: str = Field(default="", alias="GEMINI_API_KEYS")
+    # Vision model for grid measurement. Default is a current "flash lite" model; override via env to
+    # any exact id (e.g. a newer flash-lite). The old gemini-1.5-flash id now 404s, so this matters.
+    gemini_measurement_model: str = Field(default="gemini-2.5-flash-lite", alias="GEMINI_MEASUREMENT_MODEL")
     maptiler_api_key: str | None = Field(default=None, alias="NEXT_PUBLIC_MAPTILER_API_KEY")
     media_queue_worker_enabled: bool = Field(default=True, alias="MEDIA_QUEUE_WORKER_ENABLED")
     media_queue_interval_seconds: float = Field(default=5.0, alias="MEDIA_QUEUE_INTERVAL_SECONDS")

@@ -8,6 +8,7 @@ import { LocationFields } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { RecordedAtField } from "@/components/forms/RecordedAtField";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
+import { GridMeasurement, type GridDimension } from "@/components/media/GridMeasurement";
 import { UploadProgress } from "@/components/media/UploadProgress";
 import { apiFetch, listResource } from "@/lib/api";
 import { locationFromForm, numericValue, parseJsonMetadata, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue } from "@/lib/forms";
@@ -21,15 +22,22 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
   const [artisans, setArtisans] = useState<Artisan[]>([]);
   const [crafts, setCrafts] = useState<Craft[]>([]);
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
-  const [measurementImage, setMeasurementImage] = useState<File | null>(null);
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
-  const measurementWarning =
-    "Upload a grid-sheet image for measurement support. If GEMINI_API_KEY is not configured, fill length and breadth manually.";
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<BatchProgress | null>(null);
   const [craftId, setCraftId] = useState(initial?.craftId ?? searchParams.get("craftId") ?? "");
   const [artisanId, setArtisanId] = useState(initial?.artisanId ?? searchParams.get("artisanId") ?? "");
+  // Grid-measurable dimensions are controlled so the "Document using grid" capture can auto-fill them.
+  const [length, setLength] = useState(initial?.lengthInches != null ? String(initial.lengthInches) : "");
+  const [breadth, setBreadth] = useState(initial?.breadthInches != null ? String(initial.breadthInches) : "");
+  const [height, setHeight] = useState(initial?.height != null ? String(initial.height) : "");
+  const [gridFiles, setGridFiles] = useState<Partial<Record<GridDimension, File>>>({});
+
+  const toNum = (value: string) => {
+    const n = Number(value);
+    return value.trim() && Number.isFinite(n) ? n : null;
+  };
 
   useEffect(() => {
     Promise.all([
@@ -60,7 +68,7 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
     setError(null);
     const form = new FormData(event.currentTarget);
     try {
-      const exifItems = await collectExifMetadata([measurementImage, ...mediaFiles].filter(Boolean) as File[]);
+      const exifItems = await collectExifMetadata([...Object.values(gridFiles), ...mediaFiles].filter(Boolean) as File[]);
       const exifRemark = exifMetadataToRemark(exifItems);
       const parsedMetadata = parseJsonMetadata(form.get("extraMetadata")) ?? {};
       const recordedAt = recordedAtFromForm(form);
@@ -76,11 +84,10 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
         processUsedIn: textValue(form, "processUsedIn"),
         material: textValue(form, "material"),
         yearsInUse: numericValue(form, "yearsInUse"),
-        height: numericValue(form, "height"),
+        height: toNum(height),
         width: numericValue(form, "width"),
-        lengthInches: numericValue(form, "lengthInches"),
-        breadthInches: numericValue(form, "breadthInches"),
-        measurementAnalysisStatus: measurementImage ? "QUEUED" : undefined,
+        lengthInches: toNum(length),
+        breadthInches: toNum(breadth),
         thickness: numericValue(form, "thickness"),
         weight: numericValue(form, "weight"),
         radius: numericValue(form, "radius"),
@@ -102,23 +109,23 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
         method: initial ? "PATCH" : "POST",
         body: JSON.stringify(payload)
       });
-      if (measurementImage) {
-        const media = await uploadMediaFile({
-          file: measurementImage,
-          linkedRecordType: "tool",
-          linkedRecordId: saved.id,
-          caption: `Measurement grid image for ${saved.toolkitName}`,
-          location,
-          recordedAt,
-          recordedTimezone,
-          extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined,
-          transcribeAudio: false,
-          processingRequests: ["MEASUREMENT"]
-        });
-        await apiFetch(`/tools/${saved.id}`, {
-          method: "PATCH",
-          body: JSON.stringify({ measurementImageId: media.id })
-        });
+      // Store each captured grid photo as media linked to the tool (the measured value is already in
+      // the field). Best-effort per file so one failure doesn't lose the record.
+      for (const [dimension, file] of Object.entries(gridFiles) as [GridDimension, File][]) {
+        try {
+          await uploadMediaFile({
+            file,
+            linkedRecordType: "tool",
+            linkedRecordId: saved.id,
+            caption: `${dimension} grid (measurement) for ${saved.toolkitName}`,
+            location,
+            recordedAt,
+            recordedTimezone,
+            transcribeAudio: false
+          });
+        } catch {
+          /* keep the saved record even if a grid photo fails to store */
+        }
       }
       if (mediaFiles.length) {
         const { failed } = await uploadMediaBatch({
@@ -224,19 +231,16 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
           <TextInput name="yearsInUse" type="number" min={0} defaultValue={initial?.yearsInUse ?? ""} />
         </Field>
         <Field label="Height">
-          <TextInput name="height" type="number" step="0.01" defaultValue={initial?.height ?? ""} />
+          <TextInput name="height" type="number" step="0.01" value={height} onChange={(event) => setHeight(event.target.value)} />
         </Field>
         <Field label="Width">
           <TextInput name="width" type="number" step="0.01" defaultValue={initial?.width ?? ""} />
         </Field>
         <Field label="Length (inches)">
-          <TextInput name="lengthInches" type="number" step="0.01" defaultValue={initial?.lengthInches ?? ""} />
+          <TextInput name="lengthInches" type="number" step="0.01" value={length} onChange={(event) => setLength(event.target.value)} />
         </Field>
         <Field label="Breadth (inches)">
-          <TextInput name="breadthInches" type="number" step="0.01" defaultValue={initial?.breadthInches ?? ""} />
-        </Field>
-        <Field label="Grid-sheet measurement image">
-          <input className="field-input" type="file" accept="image/*" capture="environment" onChange={(event) => setMeasurementImage(event.target.files?.[0] ?? null)} />
+          <TextInput name="breadthInches" type="number" step="0.01" value={breadth} onChange={(event) => setBreadth(event.target.value)} />
         </Field>
         <Field label="Thickness">
           <TextInput name="thickness" type="number" step="0.01" defaultValue={initial?.thickness ?? ""} />
@@ -272,7 +276,15 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
           </Select>
         </Field>
       </div>
-      {measurementWarning ? <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{measurementWarning}</div> : null}
+      <GridMeasurement
+        dimensions={["length", "breadth", "height"]}
+        onValue={(dimension, value) => {
+          if (dimension === "length") setLength(value);
+          else if (dimension === "breadth") setBreadth(value);
+          else setHeight(value);
+        }}
+        onFilesChange={setGridFiles}
+      />
       {initial ? <ExistingMedia linkedRecordType="tool" linkedRecordId={initial.id} /> : null}
       <MediaCaptureField
         files={mediaFiles}

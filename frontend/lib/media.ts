@@ -240,15 +240,21 @@ export async function transcribeMediaFile(file: File, mediaType = inferMediaType
   };
 }
 
-export async function analyzeMeasurementImage(file: File) {
+export async function analyzeMeasurementImage(file: File, dimension?: "length" | "breadth" | "height") {
   const form = new FormData();
   form.append("file", file);
+  const query = dimension ? `?dimension=${dimension}` : "";
   return apiFetch<{
     available: boolean;
     status: string;
-    analysis?: { lengthInches?: number | string | null; breadthInches?: number | string | null; notes?: string } | null;
+    analysis?: {
+      valueInches?: number | string | null;
+      lengthInches?: number | string | null;
+      breadthInches?: number | string | null;
+      notes?: string;
+    } | null;
     message?: string;
-  }>("/media/analyze-measurement", { method: "POST", body: form });
+  }>(`/media/analyze-measurement${query}`, { method: "POST", body: form });
 }
 
 export async function extractImageExifMetadata(file: File) {

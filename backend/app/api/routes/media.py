@@ -66,9 +66,13 @@ async def transcribe_media_audio(
 @router.post("/analyze-measurement")
 async def analyze_media_measurement(
     file: UploadFile = File(...),
+    dimension: str | None = Query(default=None),
     _: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    return await analyze_measurement_image(file, get_settings())
+    """Analyse a grid-sheet photo and estimate a measurement. When ``dimension`` is one of
+    length/breadth/height the result carries a single ``valueInches``; otherwise it returns the
+    legacy length+breadth pair."""
+    return await analyze_measurement_image(file, get_settings(), dimension)
 
 
 @router.post("/complete", status_code=status.HTTP_201_CREATED)

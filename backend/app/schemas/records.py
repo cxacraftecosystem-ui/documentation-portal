@@ -116,6 +116,7 @@ class ProductCreate(APIModel):
     size: str | None = None
     lengthInches: Decimal | None = None
     breadthInches: Decimal | None = None
+    heightInches: Decimal | None = None
     measurementImageId: str | None = None
     measurementAnalysis: dict[str, Any] | None = None
     measurementAnalysisStatus: str | None = None
@@ -147,6 +148,7 @@ class ProductUpdate(APIModel):
     size: str | None = None
     lengthInches: Decimal | None = None
     breadthInches: Decimal | None = None
+    heightInches: Decimal | None = None
     measurementImageId: str | None = None
     measurementAnalysis: dict[str, Any] | None = None
     measurementAnalysisStatus: str | None = None

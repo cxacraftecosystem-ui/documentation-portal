@@ -1108,6 +1108,132 @@ private suspend fun uploadMeasurement(
     )
 }
 
+/**
+ * "Document using grid": pick which dimensions to capture (length / breadth / height); each enabled
+ * dimension gets its own grid-photo capture. On capture the photo is sent to the vision model for
+ * that one dimension and the returned inches auto-fill the matching field; the photo is also kept so
+ * the caller can upload it as media on save. [onValue] reports the measured value, [onUrisChange]
+ * the captured photos keyed by dimension.
+ */
+@Composable
+private fun GridMeasurementSection(
+    repository: FieldRepository,
+    dimensions: List<Pair<String, String>>,
+    onValue: (dimension: String, inches: Double) -> Unit,
+    onUrisChange: (Map<String, Uri>) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var enabled by remember { mutableStateOf(setOf<String>()) }
+    var capturedUris by remember { mutableStateOf<Map<String, Uri>>(emptyMap()) }
+    var status by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var analyzing by remember { mutableStateOf(setOf<String>()) }
+    var pendingDimension by remember { mutableStateOf<String?>(null) }
+    var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
+
+    fun analyze(dimension: String, uri: Uri) {
+        capturedUris = capturedUris + (dimension to uri)
+        onUrisChange(capturedUris)
+        analyzing = analyzing + dimension
+        status = status + (dimension to "Analyzing…")
+        scope.launch {
+            val result = runCatching { repository.analyzeMeasurement(context, uri, dimension) }
+            analyzing = analyzing - dimension
+            result.onSuccess { value ->
+                if (value != null && value > 0.0) {
+                    onValue(dimension, value)
+                    status = status + (dimension to "Measured ${"%.2f".format(value)} in — field filled")
+                } else {
+                    status = status + (dimension to "Couldn't read a value — enter it manually")
+                }
+            }.onFailure {
+                status = status + (dimension to "Analysis failed — enter it manually")
+            }
+        }
+    }
+
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        val dim = pendingDimension
+        if (uri != null && dim != null) analyze(dim, uri)
+        pendingDimension = null
+    }
+    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val uri = pendingCaptureUri
+        val dim = pendingDimension
+        if (success && uri != null && dim != null) analyze(dim, uri)
+        pendingCaptureUri = null
+        pendingDimension = null
+    }
+
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        HorizontalDivider()
+        Text("Document using grid", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+        Text(
+            "Place the object on a 1-inch grid sheet. Tick the dimensions you want, capture a photo for " +
+                "each, and the measured inches auto-fill the matching field. You can still edit the value.",
+            color = Muted,
+            fontSize = 12.sp
+        )
+        dimensions.forEach { (key, label) ->
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Checkbox(
+                    checked = enabled.contains(key),
+                    onCheckedChange = { checked -> enabled = if (checked) enabled + key else enabled - key }
+                )
+                Text(label, color = Body, fontSize = 14.sp)
+            }
+            if (enabled.contains(key)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = {
+                            val uri = createAppFileUri(context, "grid-$key-", ".jpg")
+                            pendingDimension = key
+                            pendingCaptureUri = uri
+                            takePhoto.launch(uri)
+                        },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                    ) { Text("Capture $label", maxLines = 1, softWrap = false, fontSize = 12.sp) }
+                    OutlinedButton(
+                        onClick = { pendingDimension = key; pickImage.launch("image/*") },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                    ) { Text("Pick photo", maxLines = 1, softWrap = false, fontSize = 12.sp) }
+                }
+                status[key]?.let { Text(it, color = Muted, fontSize = 11.sp) }
+                capturedUris[key]?.let { AndroidUriPreview(context = context, uri = it) }
+            }
+        }
+    }
+}
+
+/** Upload the per-dimension grid photos as media linked to a saved record (best-effort). */
+private suspend fun uploadGridImages(
+    repository: FieldRepository,
+    context: Context,
+    gridUris: Map<String, Uri>,
+    location: LocationRequest?,
+    recordType: String,
+    recordId: String,
+    titleHint: String?
+) {
+    gridUris.forEach { (dimension, uri) ->
+        runCatching {
+            repository.uploadMedia(
+                context = context,
+                uri = uri,
+                linkedRecordType = recordType,
+                linkedRecordId = recordId,
+                caption = "${dimension.replaceFirstChar { it.uppercase() }} grid (measurement) for ${titleHint.orEmpty()}".trim(),
+                location = location,
+                titleHint = "${titleHint.orEmpty()} ${dimension} grid".trim(),
+                batchIndex = 1,
+                customSegment = "GRID_${dimension.uppercase()}"
+            )
+        }
+    }
+}
+
 @Composable
 private fun DropdownField(
     label: String,
@@ -2299,6 +2425,8 @@ private fun ProductForm(
     var size by remember(editing) { mutableStateOf(editing?.size ?: "") }
     var length by remember(editing) { mutableStateOf(numToText(editing?.lengthInches)) }
     var breadth by remember(editing) { mutableStateOf(numToText(editing?.breadthInches)) }
+    var height by remember(editing) { mutableStateOf(numToText(editing?.heightInches)) }
+    var gridUris by remember { mutableStateOf<Map<String, Uri>>(emptyMap()) }
     var costOfMaking by remember(editing) { mutableStateOf(numToText(editing?.costOfMaking)) }
     var sellingPrice by remember(editing) { mutableStateOf(numToText(editing?.sellingPrice)) }
     var rawMaterials by remember(editing) { mutableStateOf(editing?.rawMaterialsUsed ?: "") }
@@ -2372,6 +2500,16 @@ private fun ProductForm(
             Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length) { length = it } }
             Box(modifier = Modifier.weight(1f)) { TextInput("Breadth (inches)", breadth) { breadth = it } }
         }
+        TextInput("Height (inches)", height) { height = it }
+        GridMeasurementSection(
+            repository = repository,
+            dimensions = listOf("length" to "Length", "breadth" to "Breadth", "height" to "Height"),
+            onValue = { dimension, inches ->
+                val text = numToText(inches)
+                when (dimension) { "length" -> length = text; "breadth" -> breadth = text; "height" -> height = text }
+            },
+            onUrisChange = { gridUris = it }
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             Box(modifier = Modifier.weight(1f)) { TextInput("Cost of making", costOfMaking) { costOfMaking = it } }
             Box(modifier = Modifier.weight(1f)) { TextInput("Selling price", sellingPrice) { sellingPrice = it } }
@@ -2385,7 +2523,7 @@ private fun ProductForm(
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "product", recordId = editing!!.id, onError = onError)
         }
-        MediaCaptureSection(repository = repository, media = media, enableMeasurement = true, onMessage = onError, onError = onError)
+        MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
         Button(
             onClick = {
                 if (!validateRequired(listOf(
@@ -2408,6 +2546,7 @@ private fun ProductForm(
                             size = size.blankToNull(),
                             lengthInches = length.toDoubleOrNull(),
                             breadthInches = breadth.toDoubleOrNull(),
+                            heightInches = height.toDoubleOrNull(),
                             costOfMaking = costOfMaking.toDoubleOrNull(),
                             sellingPrice = sellingPrice.toDoubleOrNull(),
                             marketDemand = marketDemand,
@@ -2427,7 +2566,7 @@ private fun ProductForm(
                             repository.createProduct(body).id
                         }
                         uploadAttachments(repository, context, media, "product", productId, productName, "Field media for ${productName.trim()}")
-                        uploadMeasurement(repository, context, media, "product", productId, productName)
+                        uploadGridImages(repository, context, gridUris, media.location, "product", productId, productName)
                     }.onSuccess {
                         media.reset()
                         onDone()
@@ -2477,6 +2616,7 @@ private fun ToolForm(
     var thickness by remember(editing) { mutableStateOf(numToText(editing?.thickness)) }
     var weight by remember(editing) { mutableStateOf(numToText(editing?.weight)) }
     var radius by remember(editing) { mutableStateOf(numToText(editing?.radius)) }
+    var gridUris by remember { mutableStateOf<Map<String, Uri>>(emptyMap()) }
     var maker by remember(editing) { mutableStateOf(editing?.maker ?: "UNKNOWN") }
     var traditionType by remember(editing) { mutableStateOf(editing?.traditionType ?: "UNKNOWN") }
     var replacementCost by remember(editing) { mutableStateOf(numToText(editing?.replacementCost)) }
@@ -2559,6 +2699,15 @@ private fun ToolForm(
             Box(modifier = Modifier.weight(1f)) { TextInput("Weight", weight) { weight = it } }
         }
         TextInput("Radius", radius) { radius = it }
+        GridMeasurementSection(
+            repository = repository,
+            dimensions = listOf("length" to "Length", "breadth" to "Breadth", "height" to "Height"),
+            onValue = { dimension, inches ->
+                val text = numToText(inches)
+                when (dimension) { "length" -> length = text; "breadth" -> breadth = text; "height" -> height = text }
+            },
+            onUrisChange = { gridUris = it }
+        )
         DropdownField("Maker", makerOptions.map { it to it }, maker, includeNone = false) { maker = it }
         DropdownField("Tradition type", traditionOptions.map { it to it }, traditionType, includeNone = false) { traditionType = it }
         TextInput("Replacement cost", replacementCost) { replacementCost = it }
@@ -2569,7 +2718,7 @@ private fun ToolForm(
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "tool", recordId = editing!!.id, onError = onError)
         }
-        MediaCaptureSection(repository = repository, media = media, enableMeasurement = true, onMessage = onError, onError = onError)
+        MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
         Button(
             onClick = {
                 if (!validateRequired(listOf(
@@ -2615,7 +2764,7 @@ private fun ToolForm(
                             repository.createTool(body).id
                         }
                         uploadAttachments(repository, context, media, "tool", toolId, toolkitName, "Field media for ${toolkitName.trim()}")
-                        uploadMeasurement(repository, context, media, "tool", toolId, toolkitName)
+                        uploadGridImages(repository, context, gridUris, media.location, "tool", toolId, toolkitName)
                         // Each stage capture is uploaded as a numbered process step (STAGE_STEP_n).
                         stages.uris.forEachIndexed { index, uri ->
                             repository.uploadMedia(

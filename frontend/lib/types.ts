@@ -139,6 +139,7 @@ export type ProductDocumentation = {
   size?: string | null;
   lengthInches?: string | number | null;
   breadthInches?: string | number | null;
+  heightInches?: string | number | null;
   measurementImageId?: string | null;
   measurementAnalysis?: Record<string, unknown> | null;
   measurementAnalysisStatus?: string | null;

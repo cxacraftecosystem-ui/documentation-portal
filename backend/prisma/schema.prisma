@@ -292,6 +292,7 @@ model ProductDocumentation {
   size                       String?
   lengthInches               Decimal?     @db.Decimal(10, 2)
   breadthInches              Decimal?     @db.Decimal(10, 2)
+  heightInches               Decimal?     @db.Decimal(10, 2)
   measurementImageId         String?
   measurementAnalysis        Json?
   measurementAnalysisStatus  String?

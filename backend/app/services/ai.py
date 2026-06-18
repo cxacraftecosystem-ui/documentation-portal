@@ -165,17 +165,34 @@ def _extract_json(text: str) -> dict[str, Any]:
         return {"rawText": text}
 
 
-def _post_gemini_measurement(content: bytes, mime_type: str, settings: Settings) -> dict[str, Any]:
-    keys = settings.gemini_api_keys
-    if not keys:
-        raise RuntimeError("No Gemini API key configured")
+_DIMENSION_ALIASES = {"length": "length", "breadth": "breadth", "width": "breadth", "height": "height"}
 
-    prompt = (
+
+def _measurement_prompt(dimension: str | None) -> str:
+    """Prompt for either a single requested dimension or the legacy length+breadth pair."""
+    if dimension:
+        dim = _DIMENSION_ALIASES.get(dimension.strip().lower(), dimension.strip().lower())
+        return (
+            f"The image shows a single craft object placed on a 1 inch square grid sheet. "
+            f"By counting the grid squares the object spans, estimate the object's {dim} in inches. "
+            f"Return JSON only with valueInches (a number, or null if it cannot be determined), "
+            f"confidence from 0 to 1, and notes. If the grid or object is unclear, return null for "
+            f"valueInches and explain why in notes."
+        )
+    return (
         "The image shows a craft object placed on a 1 inch square grid sheet. "
         "Estimate the object's length and breadth in inches. Return JSON only with "
         "lengthInches, breadthInches, confidence from 0 to 1, and notes. If the grid "
         "or object is unclear, return null values and explain in notes."
     )
+
+
+def _post_gemini_measurement(content: bytes, mime_type: str, settings: Settings, dimension: str | None = None) -> dict[str, Any]:
+    keys = settings.gemini_api_keys
+    if not keys:
+        raise RuntimeError("No Gemini API key configured")
+
+    prompt = _measurement_prompt(dimension)
     body = {
         "contents": [
             {
@@ -200,7 +217,7 @@ def _post_gemini_measurement(content: bytes, mime_type: str, settings: Settings)
     for attempt, key in enumerate(ordered_keys):
         try:
             response = requests.post(
-                "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+                f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_measurement_model}:generateContent",
                 params={"key": key},
                 json=body,
                 timeout=90,
@@ -242,13 +259,14 @@ def _post_gemini_measurement(content: bytes, mime_type: str, settings: Settings)
     raise last_error or RuntimeError("All configured Gemini keys failed")
 
 
-async def analyze_measurement_image(file: UploadFile, settings: Settings) -> dict[str, Any]:
+async def analyze_measurement_image(file: UploadFile, settings: Settings, dimension: str | None = None) -> dict[str, Any]:
     content = await file.read()
     return await analyze_measurement_image_bytes(
         content,
         file.filename or "measurement.jpg",
         file.content_type or "image/jpeg",
         settings,
+        dimension,
     )
 
 
@@ -257,13 +275,14 @@ async def analyze_measurement_image_bytes(
     filename: str,
     mime_type: str,
     settings: Settings,
+    dimension: str | None = None,
 ) -> dict[str, Any]:
     if not settings.gemini_api_keys:
         return {
             "available": False,
             "status": "UNAVAILABLE",
             "analysis": None,
-            "message": "Gemini measurement analysis unavailable; fill in length and breadth manually.",
+            "message": "Gemini measurement analysis unavailable; fill in the value manually.",
         }
     try:
         return await asyncio.to_thread(
@@ -271,6 +290,7 @@ async def analyze_measurement_image_bytes(
             content,
             mime_type,
             settings,
+            dimension,
         )
     except requests.RequestException as exc:
         return {

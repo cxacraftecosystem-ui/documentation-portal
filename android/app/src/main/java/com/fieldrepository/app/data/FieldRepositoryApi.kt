@@ -3,8 +3,10 @@ package com.fieldrepository.app.data
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.Multipart
 import retrofit2.http.PATCH
 import retrofit2.http.POST
+import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
 
@@ -102,6 +104,13 @@ interface FieldRepositoryApi {
 
     @PATCH("workshops/{id}")
     suspend fun updateWorkshop(@Path("id") id: String, @Body body: WorkshopCreateRequest): WorkshopDetailDto
+
+    @Multipart
+    @POST("media/analyze-measurement")
+    suspend fun analyzeMeasurement(
+        @Part file: okhttp3.MultipartBody.Part,
+        @Query("dimension") dimension: String? = null
+    ): AnalyzeMeasurementResponse
 
     @POST("media/presign")
     suspend fun presignMedia(@Body body: MediaPresignRequest): MediaPresignResponse

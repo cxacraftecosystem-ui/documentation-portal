@@ -119,6 +119,23 @@ data class MediaCompleteRequest(
 )
 
 @Serializable
+data class MeasurementAnalysisDto(
+    val valueInches: Double? = null,
+    val lengthInches: Double? = null,
+    val breadthInches: Double? = null,
+    val confidence: Double? = null,
+    val notes: String? = null
+)
+
+@Serializable
+data class AnalyzeMeasurementResponse(
+    val available: Boolean = false,
+    val status: String? = null,
+    val analysis: MeasurementAnalysisDto? = null,
+    val message: String? = null
+)
+
+@Serializable
 data class MediaFileDto(
     val id: String,
     val originalFilename: String,
@@ -201,6 +218,7 @@ data class ProductCreateRequest(
     val size: String? = null,
     val lengthInches: Double? = null,
     val breadthInches: Double? = null,
+    val heightInches: Double? = null,
     val costOfMaking: Double? = null,
     val sellingPrice: Double? = null,
     val marketDemand: String = "UNKNOWN",
@@ -394,6 +412,7 @@ data class ProductDetailDto(
     val size: String? = null,
     val lengthInches: Double? = null,
     val breadthInches: Double? = null,
+    val heightInches: Double? = null,
     val costOfMaking: Double? = null,
     val sellingPrice: Double? = null,
     val marketDemand: String = "UNKNOWN",
