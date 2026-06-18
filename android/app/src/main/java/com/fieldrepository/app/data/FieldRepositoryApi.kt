@@ -93,6 +93,15 @@ interface FieldRepositoryApi {
     @PATCH("tools/{id}")
     suspend fun updateTool(@Path("id") id: String, @Body body: ToolCreateRequest): ToolDetailDto
 
+    @GET("tools/{id}/artisans")
+    suspend fun toolArtisans(@Path("id") id: String): List<ArtisanDto>
+
+    @POST("tools/{id}/artisans")
+    suspend fun assignToolArtisans(@Path("id") id: String, @Body body: ToolArtisanAssignRequest): List<ArtisanDto>
+
+    @DELETE("tools/{id}/artisans/{artisanId}")
+    suspend fun unassignToolArtisan(@Path("id") id: String, @Path("artisanId") artisanId: String)
+
     @GET("workshops")
     suspend fun workshops(
         @Query("page") page: Int = 1,

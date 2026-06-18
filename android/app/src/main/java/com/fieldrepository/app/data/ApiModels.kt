@@ -60,7 +60,9 @@ data class ArtisanDto(
     val place: String,
     val status: String,
     val craftId: String? = null,
-    val craft: CraftDto? = null
+    val craft: CraftDto? = null,
+    val createdById: String? = null,
+    val createdAt: String? = null
 )
 
 @Serializable
@@ -71,6 +73,8 @@ data class CraftDto(
     val category: String? = null,
     val place: String? = null,
     val description: String? = null,
+    val createdById: String? = null,
+    val createdAt: String? = null,
     val createdBy: UserDto? = null,
     val extraMetadata: JsonObject? = null
 )
@@ -78,6 +82,11 @@ data class CraftDto(
 @Serializable
 data class CreatedRecordDto(
     val id: String
+)
+
+@Serializable
+data class ToolArtisanAssignRequest(
+    val artisanIds: List<String>
 )
 
 @Serializable
@@ -395,6 +404,8 @@ data class ArtisanDetailDto(
     val craft: CraftDto? = null,
     val status: String = "PENDING",
     val location: LocationDto? = null,
+    val createdById: String? = null,
+    val createdAt: String? = null,
     val createdBy: UserDto? = null,
     val extraMetadata: JsonObject? = null
 )
@@ -428,6 +439,8 @@ data class ProductDetailDto(
     val status: String = "PENDING",
     val measurementAnalysisStatus: String? = null,
     val location: LocationDto? = null,
+    val createdById: String? = null,
+    val createdAt: String? = null,
     val createdBy: UserDto? = null,
     val extraMetadata: JsonObject? = null
 )
@@ -463,6 +476,8 @@ data class ToolDetailDto(
     val status: String = "PENDING",
     val measurementAnalysisStatus: String? = null,
     val location: LocationDto? = null,
+    val createdById: String? = null,
+    val createdAt: String? = null,
     val createdBy: UserDto? = null,
     val extraMetadata: JsonObject? = null
 )
@@ -493,6 +508,8 @@ data class WorkshopDetailDto(
     val artisans: List<WorkshopArtisanLinkDto> = emptyList(),
     val crafts: List<WorkshopCraftLinkDto> = emptyList(),
     val location: LocationDto? = null,
+    val createdById: String? = null,
+    val createdAt: String? = null,
     val createdBy: UserDto? = null,
     val extraMetadata: JsonObject? = null
 )
@@ -538,6 +555,8 @@ data class QuestionnaireInterviewDetailDto(
     val artisans: List<WorkshopArtisanLinkDto> = emptyList(),
     val responses: List<InterviewResponseDto> = emptyList(),
     val location: LocationDto? = null,
+    val createdById: String? = null,
+    val createdAt: String? = null,
     val createdBy: UserDto? = null,
     val extraMetadata: JsonObject? = null
 )
@@ -590,6 +609,8 @@ data class ProcessDetailDto(
     val product: ProductDetailDto? = null,
     val steps: List<ProcessStepDto> = emptyList(),
     val media: List<MediaFileDto> = emptyList(),
+    val createdById: String? = null,
+    val createdAt: String? = null,
     val createdBy: UserDto? = null,
     val extraMetadata: JsonObject? = null
 )

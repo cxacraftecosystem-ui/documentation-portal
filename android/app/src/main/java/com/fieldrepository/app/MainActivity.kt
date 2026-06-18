@@ -214,6 +214,9 @@ private sealed interface Screen {
     data class Create(val mode: EntryMode, val prefill: Prefill? = null) : Screen
     data class Browse(val mode: EntryMode) : Screen
     data class Edit(val mode: EntryMode, val recordId: String) : Screen
+    // Hamburger-only screens (not on the dashboard).
+    data object MyActivity : Screen
+    data object ToolAssign : Screen
 }
 
 /** Context carried forward from a just-saved artisan into a follow-up record. */
@@ -462,6 +465,8 @@ private fun HomeScreen(
             is Screen.Edit -> Screen.Browse(s.mode)
             is Screen.Browse -> Screen.Dashboard
             is Screen.Create -> Screen.Dashboard
+            is Screen.MyActivity -> Screen.Dashboard
+            is Screen.ToolAssign -> Screen.Dashboard
             is Screen.Dashboard -> Screen.Dashboard
         }
     }
@@ -471,6 +476,8 @@ private fun HomeScreen(
         is Screen.Create -> s.mode.actionTitle
         is Screen.Browse -> "Update ${s.mode.label.lowercase()}"
         is Screen.Edit -> "Edit ${s.mode.label.lowercase()}"
+        is Screen.MyActivity -> "My Activity"
+        is Screen.ToolAssign -> "Assign tools to artisans"
     }
 
     BackHandler(enabled = drawerState.isOpen) {
@@ -494,6 +501,8 @@ private fun HomeScreen(
                         modes = dashboardModes.filter { canCreate(it) },
                         onDashboard = { goDashboard(); scope.launch { drawerState.close() } },
                         onSelect = { entry -> screen = Screen.Create(entry); scope.launch { drawerState.close() } },
+                        onMyActivity = { message = null; screen = Screen.MyActivity; scope.launch { drawerState.close() } },
+                        onAssignTools = { message = null; screen = Screen.ToolAssign; scope.launch { drawerState.close() } },
                         onToggleAdminView = { adminView = !adminView },
                         onLogout = { scope.launch { drawerState.close() }; onLogout() }
                     )
@@ -677,6 +686,18 @@ private fun HomeScreen(
                 onDone = { message = "${s.mode.label} updated"; refresh(); refreshLookups(); goDashboard() },
                 onError = { showMessage(it) }
             )
+
+            is Screen.MyActivity -> MyActivityScreen(
+                repository = repository,
+                userId = user.id,
+                onOpen = { mode, recordId -> message = null; screen = Screen.Edit(mode, recordId) },
+                onError = { showMessage(it) }
+            )
+
+            is Screen.ToolAssign -> ToolAssignScreen(
+                repository = repository,
+                onError = { showMessage(it) }
+            )
         }
 
         message?.let {
@@ -711,6 +732,8 @@ private fun AppDrawerContent(
     modes: List<EntryMode>,
     onDashboard: () -> Unit,
     onSelect: (EntryMode) -> Unit,
+    onMyActivity: () -> Unit,
+    onAssignTools: () -> Unit,
     onToggleAdminView: () -> Unit,
     onLogout: () -> Unit
 ) {
@@ -738,31 +761,54 @@ private fun AppDrawerContent(
             }
         }
         HorizontalDivider()
-        NavigationDrawerItem(
-            label = { Text("Dashboard") },
-            selected = false,
-            icon = { Icon(Icons.Filled.Dashboard, contentDescription = null) },
-            onClick = onDashboard,
-            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-        )
-        modes.forEach { entry ->
+        // The menu can be long (esp. for admins), so the items scroll within the remaining height
+        // while the header/logout stay pinned.
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+        ) {
             NavigationDrawerItem(
-                label = { Text(entry.actionTitle) },
+                label = { Text("Dashboard") },
                 selected = false,
-                icon = { Icon(entry.icon(), contentDescription = null) },
-                onClick = { onSelect(entry) },
+                icon = { Icon(Icons.Filled.Dashboard, contentDescription = null) },
+                onClick = onDashboard,
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
             )
-        }
-        if (isAdmin) {
+            NavigationDrawerItem(
+                label = { Text("My Activity") },
+                selected = false,
+                icon = { Icon(Icons.Filled.Visibility, contentDescription = null) },
+                onClick = onMyActivity,
+                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+            )
+            modes.forEach { entry ->
+                NavigationDrawerItem(
+                    label = { Text(entry.actionTitle) },
+                    selected = false,
+                    icon = { Icon(entry.icon(), contentDescription = null) },
+                    onClick = { onSelect(entry) },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                )
+            }
             HorizontalDivider()
             NavigationDrawerItem(
-                label = { Text(if (adminView) "Admin view: ON" else "Admin view: OFF") },
-                selected = adminView,
-                icon = { Icon(Icons.Filled.ManageAccounts, contentDescription = null) },
-                onClick = onToggleAdminView,
+                label = { Text("Assign tools to artisans") },
+                selected = false,
+                icon = { Icon(Icons.Filled.Build, contentDescription = null) },
+                onClick = onAssignTools,
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
             )
+            if (isAdmin) {
+                HorizontalDivider()
+                NavigationDrawerItem(
+                    label = { Text(if (adminView) "Admin view: ON" else "Admin view: OFF") },
+                    selected = adminView,
+                    icon = { Icon(Icons.Filled.ManageAccounts, contentDescription = null) },
+                    onClick = onToggleAdminView,
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                )
+            }
         }
     }
 }
@@ -954,6 +1000,7 @@ private val marketDemandOptions = listOf("LOW", "MEDIUM", "HIGH", "SEASONAL", "U
 private val makerOptions = listOf("ARTISAN", "LOCAL_BLACKSMITH", "CARPENTER", "WORKSHOP", "FACTORY", "UNKNOWN", "OTHER")
 private val traditionOptions = listOf("TRADITIONAL", "MODERN", "HYBRID", "UNKNOWN")
 private val statusOptions = listOf("DRAFT", "PENDING", "APPROVED", "REJECTED")
+private val genderOptions = listOf("Male", "Female", "Transgender", "Other")
 
 /** Shared holder for media attachments, captured GPS, and an optional measurement-grid image. */
 private class MediaCaptureState {
@@ -2201,7 +2248,7 @@ private fun ArtisanForm(
     val isEdit = editing != null
     var name by remember(editing) { mutableStateOf(editing?.name ?: prefill?.artisanName ?: "") }
     var localName by remember(editing) { mutableStateOf(editing?.localName ?: "") }
-    var gender by remember(editing) { mutableStateOf(editing?.gender ?: "") }
+    var gender by remember(editing) { mutableStateOf(editing?.gender?.takeIf { it.isNotBlank() } ?: "Male") }
     var phone by remember(editing) { mutableStateOf(editing?.phone ?: "") }
     var email by remember(editing) { mutableStateOf(editing?.email ?: "") }
     var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }
@@ -2246,7 +2293,12 @@ private fun ArtisanForm(
             modifier = Modifier.fillMaxWidth().focusRequester(craftFocus)
         )
         RequiredInput("Place", place, placeError, placeFocus) { place = it }
-        TextInput("Gender", gender) { gender = it }
+        DropdownField(
+            label = "Gender",
+            options = genderOptions.map { it to it },
+            selectedValue = gender,
+            includeNone = false
+        ) { gender = it }
         TextInput("Phone", phone) { phone = it }
         TextInput("Email", email) { email = it }
         TextInput("Address", address, minLines = 2) { address = it }
@@ -3016,24 +3068,42 @@ private fun ProcessForm(
         runCatching { repository.artisans() }.onSuccess { artisans = it }
     }
 
-    // Products belong to an artisan, so the product list is scoped to the chosen artisan. We match
-    // BOTH ways so the dropdown is never wrongly empty: (a) products the server links to this artisan
-    // by id (fetched directly, so it works even with >100 total products), unioned with (b) products
-    // already loaded whose artisan *name* matches (covers products saved without a linked artisanId,
-    // e.g. when only the name was typed). Name match is trimmed + case-insensitive.
+    // Products belong to an artisan, so the product list is scoped to the chosen artisan. On every
+    // artisan change we fetch FRESH from the server filtered by artisanId (works past 100 total
+    // products and never depends on a possibly-stale bulk load), then union with any already-loaded
+    // products whose artisan *name* matches (covers products saved with a typed name but no linked
+    // artisanId). Loading / empty / error states are surfaced so the dropdown is never silently empty.
     var artisanProducts by remember { mutableStateOf<List<ProductDetailDto>>(emptyList()) }
-    LaunchedEffect(artisanId, products) {
+    var productsLoading by remember { mutableStateOf(false) }
+    var productLoadError by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(artisanId) {
+        productLoadError = null
         if (artisanId.isBlank()) {
             artisanProducts = emptyList()
+            productsLoading = false
             return@LaunchedEffect
         }
+        productsLoading = true
         val selectedArtisanName = artisans.firstOrNull { it.id == artisanId }?.name?.trim()
-        val linked = runCatching { repository.productsForArtisan(artisanId) }.getOrDefault(emptyList())
-        val byName = products.filter { p ->
-            (p.artisanId != null && p.artisanId == artisanId) ||
-                (!selectedArtisanName.isNullOrBlank() && p.artisanName.trim().equals(selectedArtisanName, ignoreCase = true))
+        val result = runCatching {
+            val linked = repository.productsForArtisan(artisanId)
+            val broad = if (products.isNotEmpty()) products else runCatching { repository.products() }.getOrDefault(emptyList())
+            val byName = broad.filter { p ->
+                (p.artisanId != null && p.artisanId == artisanId) ||
+                    (!selectedArtisanName.isNullOrBlank() && p.artisanName.trim().equals(selectedArtisanName, ignoreCase = true))
+            }
+            (linked + byName).distinctBy { it.id }
         }
-        artisanProducts = (linked + byName).distinctBy { it.id }
+        productsLoading = false
+        result.onSuccess { fetched ->
+            artisanProducts = fetched
+            // Keep a valid selection: clear product if it is no longer offered for this artisan.
+            if (productId.isNotBlank() && fetched.none { it.id == productId }) productId = ""
+        }.onFailure {
+            if (it is kotlinx.coroutines.CancellationException) throw it
+            artisanProducts = emptyList()
+            productLoadError = "Couldn't load this artisan's products: ${it.message ?: "network error"}. Tap the artisan again to retry."
+        }
     }
 
     RecordCard(title = if (isEdit) "Edit process" else "Document process") {
@@ -3060,10 +3130,26 @@ private fun ProcessForm(
             label = "Product *",
             options = artisanProducts.map { it.id to it.productName },
             selectedValue = productId,
-            placeholder = if (artisanId.isBlank()) "Select an artisan first" else "Select the product this process makes",
+            placeholder = when {
+                artisanId.isBlank() -> "Select an artisan first"
+                productsLoading -> "Loading products…"
+                artisanProducts.isEmpty() -> "No products for this artisan"
+                else -> "Select the product this process makes"
+            },
             includeNone = false,
-            enabled = artisanId.isNotBlank()
+            enabled = artisanId.isNotBlank() && !productsLoading && artisanProducts.isNotEmpty()
         ) { productId = it }
+        when {
+            productsLoading -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                Text("Loading this artisan's products…", color = Muted, fontSize = 11.sp)
+            }
+            productLoadError != null -> Text(productLoadError!!, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+            artisanId.isNotBlank() && artisanProducts.isEmpty() ->
+                Text("No products found for this artisan yet. Create a product for them first, then return here.", color = Muted, fontSize = 11.sp)
+            artisanId.isNotBlank() && artisanProducts.isNotEmpty() ->
+                Text("${artisanProducts.size} product(s) available for this artisan.", color = Muted, fontSize = 11.sp)
+        }
         if (productError != null) Text(productError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
 
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -3280,6 +3366,197 @@ private suspend fun loadViewEntries(repository: FieldRepository, mode: EntryMode
     EntryMode.WORKSHOP -> repository.workshops().map { it.id to it.title.ifBlank { "Untitled workshop" } }
     EntryMode.QUESTIONNAIRE -> repository.interviews().map { it.id to it.title.ifBlank { "Untitled interview" } }
     else -> emptyList()
+}
+
+// ===========================================================================
+// My Activity — every record the current user created, most recent first
+// ===========================================================================
+
+private data class ActivityItem(
+    val mode: EntryMode,
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val createdAt: String?
+)
+
+/** Gather the current user's own records across every type, newest first (ISO timestamps sort lexically). */
+private suspend fun loadMyActivity(repository: FieldRepository, userId: String): List<ActivityItem> {
+    val items = mutableListOf<ActivityItem>()
+    fun mine(createdById: String?) = createdById != null && createdById == userId
+    runCatching { repository.artisans() }.getOrDefault(emptyList()).filter { mine(it.createdById) }
+        .forEach { items.add(ActivityItem(EntryMode.ARTISAN, it.id, it.name, "Artisan · ${it.place}", it.createdAt)) }
+    runCatching { repository.products() }.getOrDefault(emptyList()).filter { mine(it.createdById) }
+        .forEach { items.add(ActivityItem(EntryMode.PRODUCT, it.id, it.productName, "Product · ${it.craftName}", it.createdAt)) }
+    runCatching { repository.tools() }.getOrDefault(emptyList()).filter { mine(it.createdById) }
+        .forEach { items.add(ActivityItem(EntryMode.TOOL, it.id, it.toolkitName, "Tool · ${it.craftName}", it.createdAt)) }
+    runCatching { repository.processes() }.getOrDefault(emptyList()).filter { mine(it.createdById) }
+        .forEach { items.add(ActivityItem(EntryMode.PROCESS, it.id, it.name, "Process" + (it.product?.productName?.let { p -> " · $p" } ?: ""), it.createdAt)) }
+    runCatching { repository.crafts() }.getOrDefault(emptyList()).filter { mine(it.createdById) }
+        .forEach { items.add(ActivityItem(EntryMode.CRAFT, it.id, it.name, "Craft", it.createdAt)) }
+    runCatching { repository.workshops() }.getOrDefault(emptyList()).filter { mine(it.createdById) }
+        .forEach { items.add(ActivityItem(EntryMode.WORKSHOP, it.id, it.title.ifBlank { "Untitled workshop" }, "Workshop", it.createdAt)) }
+    runCatching { repository.interviews() }.getOrDefault(emptyList()).filter { mine(it.createdById) }
+        .forEach { items.add(ActivityItem(EntryMode.QUESTIONNAIRE, it.id, it.title.ifBlank { "Untitled interview" }, "Interview", it.createdAt)) }
+    return items.sortedByDescending { it.createdAt ?: "" }
+}
+
+@Composable
+private fun MyActivityScreen(
+    repository: FieldRepository,
+    userId: String,
+    onOpen: (EntryMode, String) -> Unit,
+    onError: (String) -> Unit
+) {
+    var items by remember { mutableStateOf<List<ActivityItem>?>(null) }
+    LaunchedEffect(Unit) {
+        runCatching { loadMyActivity(repository, userId) }
+            .onSuccess { items = it }
+            .onFailure { onError(it.message ?: "Couldn't load your activity"); items = emptyList() }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+        Text("Everything you've recorded, most recent first. Tap an entry to open it.", color = Muted, fontSize = 13.sp)
+        val current = items
+        when {
+            current == null -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Text("Loading your activity…", color = Muted, fontSize = 13.sp)
+            }
+            current.isEmpty() -> Text(
+                "You haven't recorded anything yet. Create a record from the menu and it will appear here.",
+                color = Muted,
+                fontSize = 13.sp
+            )
+            else -> current.forEach { item ->
+                ElevatedCard(
+                    colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpen(item.mode, item.id) }
+                ) {
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(item.title, color = Body, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        Text(
+                            item.subtitle + (formatIsoDate(item.createdAt)?.let { " · $it" } ?: ""),
+                            color = Muted,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ===========================================================================
+// Assign tools to artisans — map one documented tool to many artisans
+// ===========================================================================
+
+@Composable
+private fun ToolAssignScreen(
+    repository: FieldRepository,
+    onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var tools by remember { mutableStateOf<List<ToolDetailDto>>(emptyList()) }
+    var crafts by remember { mutableStateOf<List<CraftDto>>(emptyList()) }
+    var artisans by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
+    var toolId by remember { mutableStateOf("") }
+    var craftIds by remember { mutableStateOf(setOf<String>()) }
+    var artisanIds by remember { mutableStateOf(setOf<String>()) }
+    var assigned by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
+    var saving by remember { mutableStateOf(false) }
+    var info by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        runCatching { repository.tools() }.onSuccess { tools = it }.onFailure { onError(it.message ?: "Failed to load tools") }
+        runCatching { repository.crafts() }.onSuccess { crafts = it }
+        runCatching { repository.artisans() }.onSuccess { artisans = it }
+    }
+    LaunchedEffect(toolId) {
+        if (toolId.isBlank()) { assigned = emptyList(); return@LaunchedEffect }
+        runCatching { repository.toolArtisans(toolId) }.onSuccess { assigned = it }.onFailure { assigned = emptyList() }
+    }
+
+    val artisansForCrafts = remember(artisans, craftIds) {
+        artisans.filter { it.craftId != null && craftIds.contains(it.craftId) }
+    }
+    // Keep the artisan selection within the chosen crafts.
+    LaunchedEffect(artisansForCrafts) {
+        artisanIds = artisanIds.filter { id -> artisansForCrafts.any { it.id == id } }.toSet()
+    }
+
+    RecordCard(title = "Assign a tool to multiple artisans") {
+        Text(
+            "Map one documented tool to several artisans — across the same or different crafts — instead of re-entering the same tool for each craft.",
+            color = Muted,
+            fontSize = 12.sp
+        )
+        DropdownField(
+            label = "Tool *",
+            options = tools.map { it.id to "${it.toolkitName} · ${it.craftName}" },
+            selectedValue = toolId,
+            placeholder = "Select a tool",
+            includeNone = false
+        ) { toolId = it }
+        CheckboxMultiSelectField(
+            label = "Crafts",
+            options = crafts.map { it.id to it.name },
+            selectedIds = craftIds,
+            emptyMessage = "No crafts available.",
+            onToggle = { id -> craftIds = if (craftIds.contains(id)) craftIds - id else craftIds + id }
+        )
+        CheckboxMultiSelectField(
+            label = "Artisans of selected crafts",
+            options = artisansForCrafts.map { it.id to "${it.name} · ${it.place}" },
+            selectedIds = artisanIds,
+            emptyMessage = if (craftIds.isEmpty()) "Select one or more crafts first." else "No artisans for the selected crafts.",
+            onToggle = { id -> artisanIds = if (artisanIds.contains(id)) artisanIds - id else artisanIds + id }
+        )
+        info?.let { Text(it, color = Coral, fontSize = 12.sp) }
+        Button(
+            onClick = {
+                info = null
+                if (toolId.isBlank() || artisanIds.isEmpty()) { onError("Pick a tool and at least one artisan."); return@Button }
+                scope.launch {
+                    saving = true
+                    runCatching { repository.assignToolArtisans(toolId, artisanIds.toList()) }
+                        .onSuccess { result -> assigned = result; artisanIds = emptySet(); info = "Done. This tool now maps to ${result.size} artisan(s)." }
+                        .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; onError(it.message ?: "Assignment failed") }
+                    saving = false
+                }
+            },
+            enabled = !saving && toolId.isNotBlank() && artisanIds.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth()
+        ) { Text(if (saving) "Assigning…" else "Assign tool to ${artisanIds.size} artisan(s)") }
+
+        if (toolId.isNotBlank()) {
+            HorizontalDivider()
+            Text("Currently assigned to", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            if (assigned.isEmpty()) {
+                Text("Not assigned to any additional artisans yet.", color = Muted, fontSize = 12.sp)
+            } else {
+                assigned.forEach { artisan ->
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            "${artisan.name}${artisan.craft?.name?.let { " · $it" } ?: ""}",
+                            color = Body,
+                            fontSize = 13.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = {
+                            scope.launch {
+                                runCatching { repository.unassignToolArtisan(toolId, artisan.id) }
+                                    .onSuccess { assigned = assigned.filter { it.id != artisan.id } }
+                                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; onError(it.message ?: "Could not remove") }
+                            }
+                        }) { Text("Remove") }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

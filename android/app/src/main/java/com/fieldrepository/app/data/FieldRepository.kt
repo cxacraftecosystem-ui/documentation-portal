@@ -101,6 +101,15 @@ class FieldRepository(
 
     suspend fun tools(): List<ToolDetailDto> = api.tools(pageSize = 100).items
 
+    /** Artisans a tool is assigned to (many-to-many). */
+    suspend fun toolArtisans(toolId: String): List<ArtisanDto> = api.toolArtisans(toolId)
+
+    /** Assign a tool to the given artisans (idempotent). Returns the full updated assignment list. */
+    suspend fun assignToolArtisans(toolId: String, artisanIds: List<String>): List<ArtisanDto> =
+        api.assignToolArtisans(toolId, ToolArtisanAssignRequest(artisanIds))
+
+    suspend fun unassignToolArtisan(toolId: String, artisanId: String) = api.unassignToolArtisan(toolId, artisanId)
+
     suspend fun workshops(): List<WorkshopDetailDto> = api.workshops(pageSize = 100).items
 
     suspend fun createArtisan(body: ArtisanCreateRequest): ArtisanDto = api.createArtisan(body)
