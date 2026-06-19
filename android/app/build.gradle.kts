@@ -14,6 +14,20 @@ val localProperties = Properties().apply {
     }
 }
 
+// Single source of truth for the app version. Scheme is MAJOR.MINOR.PATCH where PATCH runs 0→100,
+// then MINOR rolls forward (…1.1.100 → 1.2.0…) all the way to 1.100.0 before MAJOR turns over to
+// 2.0.0. versionCode is DERIVED from the name so it always increases monotonically with the version
+// — that is exactly what the over-the-air updater compares (a higher published versionCode triggers
+// the in-app update). To cut a release, bump `appVersionName` only; the code follows automatically.
+val appVersionName = "1.2.0"
+val appVersionCode = appVersionName.split(".").let { parts ->
+    val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
+    val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
+    val patch = parts.getOrNull(2)?.toIntOrNull() ?: 0
+    // minor and patch are each capped at 100 by the scheme, so the 1_000-wide buckets never collide.
+    major * 1_000_000 + minor * 1_000 + patch
+}
+
 android {
     namespace = "com.fieldrepository.app"
     compileSdk = 35
@@ -22,9 +36,8 @@ android {
         applicationId = "com.fieldrepository.app"
         minSdk = 26
         targetSdk = 35
-        // Bump versionCode on every release so pushed over-the-air updates are detected as newer.
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = appVersionCode
+        versionName = appVersionName
         // Default to the production backend through CloudFront over HTTPS. CloudFront is dual-stack
         // (publishes a native IPv6 / AAAA record), so it connects on IPv6-only mobile networks
         // (e.g. Jio/Airtel) where the IPv4-only EC2 origin — whether addressed by literal IP or its

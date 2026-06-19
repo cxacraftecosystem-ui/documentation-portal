@@ -387,6 +387,14 @@ private fun LoginScreen(
                         Text(if (busy) "Please wait..." else "Sign in with Google")
                     }
                 }
+                // Steer researchers to Google sign-in. Many were typing into the email/password fields
+                // (meant only for admin-issued password accounts) and getting locked out.
+                Text(
+                    "Researchers: please use \"Sign in with Google\" above. The email & password fields are only for special accounts an administrator set up with a password — if you normally use your Google account, do not type a password here.",
+                    color = Muted,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
             }
         }
     }
@@ -419,6 +427,7 @@ private fun HomeScreen(
     // installed; if so, offer a one-tap self-update. `pushingUpdate` guards the publish action.
     var pendingUpdate by remember { mutableStateOf<AppReleaseDto?>(null) }
     var updateBusy by remember { mutableStateOf(false) }
+    var updateError by remember { mutableStateOf<String?>(null) }
     var pushingUpdate by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         runCatching {
@@ -532,13 +541,21 @@ private fun HomeScreen(
                             scope.launch { drawerState.close() }
                             if (!pushingUpdate) {
                                 pushingUpdate = true
-                                message = "Publishing this version as the update for everyone…"
+                                Toast.makeText(context, "Publishing this version as the update for everyone…", Toast.LENGTH_SHORT).show()
                                 scope.launch {
                                     runCatching { repository.publishAppUpdate(context) }
                                         .onSuccess { rel ->
-                                            message = "Update published (v${rel.versionName}). Everyone else gets it automatically on next open."
+                                            // A transient toast (not a banner that lingers at the bottom of every page
+                                            // until the app is closed and reopened).
+                                            Toast.makeText(
+                                                context,
+                                                "Update published (v${rel.versionName}). Everyone else gets it automatically on next open.",
+                                                Toast.LENGTH_LONG
+                                            ).show()
                                         }
-                                        .onFailure { showMessage(it.message ?: "Unable to publish the update") }
+                                        .onFailure {
+                                            Toast.makeText(context, it.message ?: "Unable to publish the update", Toast.LENGTH_LONG).show()
+                                        }
                                     pushingUpdate = false
                                 }
                             }
@@ -745,13 +762,17 @@ private fun HomeScreen(
         }
 
         pendingUpdate?.let { release ->
+            // A required update. The dialog is non-dismissable — there is no "Later" and tapping
+            // outside / pressing back does nothing — so the user must install before they can proceed.
+            // (Installing the new APK relaunches the app at the higher version, which clears this check.)
             AlertDialog(
-                onDismissRequest = { if (!updateBusy) pendingUpdate = null },
-                title = { Text("Update available") },
+                onDismissRequest = { /* required update: cannot be dismissed */ },
+                title = { Text("Update required") },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Version ${release.versionName} is ready. Update now to get the latest fixes.")
+                        Text("Version ${release.versionName} is available and must be installed to continue using the app.")
                         release.notes?.takeIf { it.isNotBlank() }?.let { Text(it, color = Muted, fontSize = 12.sp) }
+                        updateError?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
                         if (updateBusy) {
                             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                             Text("Downloading and preparing the installer…", color = Muted, fontSize = 12.sp)
@@ -763,23 +784,22 @@ private fun HomeScreen(
                         enabled = !updateBusy,
                         onClick = {
                             updateBusy = true
+                            updateError = null
                             scope.launch {
                                 runCatching {
                                     if (!canInstallUpdates(context)) {
                                         requestInstallPermission(context)
-                                        throw IllegalStateException("Enable \"Install unknown apps\" for Field Repository, then tap Update now again.")
+                                        throw IllegalStateException("Enable \"Install unknown apps\" for Field Repository in the screen that just opened, then tap Update now again.")
                                     }
                                     val apk = repository.downloadApk(context, release.url!!, release.versionCode)
                                     launchApkInstaller(context, apk)
-                                }.onFailure { showMessage(it.message ?: "Unable to download the update") }
+                                }.onFailure { updateError = it.message ?: "Unable to download the update — check your connection and try again." }
+                                // Keep `pendingUpdate` set: if the user backs out of the installer the
+                                // dialog must stay until the new version is actually installed.
                                 updateBusy = false
-                                pendingUpdate = null
                             }
                         }
-                    ) { Text("Update now") }
-                },
-                dismissButton = {
-                    TextButton(enabled = !updateBusy, onClick = { pendingUpdate = null }) { Text("Later") }
+                    ) { Text(if (updateBusy) "Updating…" else "Update now") }
                 }
             )
         }
@@ -1636,6 +1656,12 @@ private fun AudioClipRecorder(
     var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var recordingFile by remember { mutableStateOf<File?>(null) }
     val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+    // Alternative to recording live: attach one or more existing audio files from the device, so the
+    // user gets both facilities. Each picked file is added to this target's clips just like a recording
+    // and is uploaded together with them on save.
+    val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        uris.forEach { onAddClip(it) }
+    }
 
     fun startNew() {
         runCatching {
@@ -1714,6 +1740,32 @@ private fun AudioClipRecorder(
                     Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Discard", maxLines = 1, softWrap = false, fontSize = 13.sp)
+                }
+            }
+        }
+        // Pick an existing audio file as an alternative to recording. Shown only when not mid-capture
+        // (i.e. right under the "Record"/"Record another" control), so both options sit together.
+        if (phase != RecPhase.RECORDING && phase != RecPhase.PAUSED) {
+            OutlinedButton(
+                onClick = { pickAudio.launch("audio/*") },
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = pad
+            ) {
+                Icon(Icons.Filled.PermMedia, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Add audio file", maxLines = 1, softWrap = false, fontSize = 13.sp)
+            }
+            // After picking a file the recorder sits in IDLE (no Discard button), so offer a way to
+            // undo a mistaken pick by dropping the most recent clip.
+            if (phase == RecPhase.IDLE && clips.isNotEmpty()) {
+                TextButton(
+                    onClick = onRemoveLast,
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = pad
+                ) {
+                    Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Remove last clip", maxLines = 1, softWrap = false, fontSize = 12.sp)
                 }
             }
         }
