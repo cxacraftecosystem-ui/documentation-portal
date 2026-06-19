@@ -431,6 +431,9 @@ private fun HomeScreen(
     val isMasterAdmin = user.role == "MASTER_ADMIN"
     val isQuestionnaireManager = isMasterAdmin || user.canManageQuestionnaire
     val canReview = isAdmin || user.canReview
+    // Provenance (created-by + per-field edit history) on the View Data screen: admins always, plus
+    // any user explicitly granted the "view provenance" privilege.
+    val canViewProvenance = isAdmin || user.canViewProvenance
     // Master admin lands in admin view; other admins opt in from the menu.
     var adminView by remember { mutableStateOf(isMasterAdmin) }
 
@@ -697,6 +700,7 @@ private fun HomeScreen(
                     repository = repository,
                     canReview = canReview,
                     masterAdmin = isMasterAdmin,
+                    showProvenance = canViewProvenance,
                     onError = { showMessage(it) }
                 )
                 EntryMode.TOOL -> ToolForm(
@@ -2269,7 +2273,20 @@ private fun RecordPickerScreen(
                 EntryMode.PROCESS -> repository.processes().map { it.id to (it.name + (it.product?.productName?.let { p -> " · $p" } ?: "")) }
                 EntryMode.TOOL -> repository.tools().map { it.id to "${it.toolkitName} · ${it.artisanName}" }
                 EntryMode.WORKSHOP -> repository.workshops().map { it.id to it.title.ifBlank { "Untitled workshop" } }
-                EntryMode.QUESTIONNAIRE -> repository.interviews().map { it.id to (it.title.ifBlank { "Untitled interview" }) }
+                EntryMode.QUESTIONNAIRE -> {
+                    // Idempotent: all saved interview records for the same set of artisan(s) collapse
+                    // into one entry (open the most recent); the label notes how many sessions exist.
+                    repository.interviews().groupBy { interviewGroupKey(it) }.values.map { group ->
+                        val rep = representativeInterview(group)
+                        val artisanNames = rep.artisans.mapNotNull { it.artisan?.name }.distinct().joinToString(", ")
+                        val parts = listOfNotNull(
+                            artisanNames.ifBlank { null },
+                            rep.title.takeIf { it.isNotBlank() },
+                            if (group.size > 1) "${group.size} sessions" else null
+                        )
+                        rep.id to parts.joinToString(" · ").ifBlank { "Untitled interview" }
+                    }.sortedBy { it.second.lowercase() }
+                }
                 else -> emptyList()
             }
         }.onSuccess { options = it }.onFailure { onError(it.message ?: "Unable to load records") }
@@ -3780,6 +3797,21 @@ private fun EntryMode.linkedRecordType(): String = when (this) {
     else -> name.lowercase()
 }
 
+/**
+ * Key that collapses all interviews for the SAME set of artisan(s) into one logical record, so the
+ * questionnaire dropdowns (browse AND update) are idempotent — multiple saved interview records for
+ * the same artisan(s) show once. An interview with no linked artisans stays unique (keyed by its own
+ * id) so unrelated artisan-less interviews never merge together.
+ */
+private fun interviewGroupKey(iv: QuestionnaireInterviewDetailDto): String {
+    val ids = iv.artisans.map { it.artisanId }.toSortedSet()
+    return if (ids.isEmpty()) "iv:${iv.id}" else "set:${ids.joinToString(",")}"
+}
+
+/** The representative (most recently created) interview that a merged entry opens / edits. */
+private fun representativeInterview(group: List<QuestionnaireInterviewDetailDto>): QuestionnaireInterviewDetailDto =
+    group.maxByOrNull { it.createdAt ?: "" } ?: group.first()
+
 private suspend fun loadViewEntries(repository: FieldRepository, mode: EntryMode): List<Pair<String, String>> = when (mode) {
     EntryMode.ARTISAN -> repository.artisans().map { it.id to "${it.name} · ${it.place}" }
     EntryMode.CRAFT -> repository.crafts().map { it.id to (it.name + (it.place?.let { p -> " · $p" } ?: "")) }
@@ -4870,7 +4902,7 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
 }
 
 @Composable
-private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = false, masterAdmin: Boolean = false, onError: (String) -> Unit) {
+private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = false, masterAdmin: Boolean = false, showProvenance: Boolean = false, onError: (String) -> Unit) {
     var mode by remember { mutableStateOf(EntryMode.ARTISAN) }
     var options by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var selectedId by remember { mutableStateOf("") }
@@ -4899,14 +4931,15 @@ private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = fal
             }.toMap()
             interviewsDetailed
                 .filter { iv -> iv.artisans.any { it.artisanId in selectedArtisanIds } }
-                // Treat all interviews made by ONE researcher for the SAME set of artisans as a single
-                // record, regardless of how many separate update-saves exist — so the dropdown shows one
-                // clear entry per (researcher, artisan-set) instead of confusing duplicates. The most
-                // recent save is the representative the dropdown opens; the label still reflects the
-                // section/question coverage across all of that group's saves, and notes the count.
-                .groupBy { iv -> (iv.createdById ?: "") to iv.artisans.map { it.artisanId }.toSortedSet() }
+                // Idempotency: every saved interview record for the SAME set of artisan(s) collapses
+                // into ONE entry, regardless of how many update-saves or which researcher(s) made them —
+                // so the dropdown isn't cluttered with duplicates. The most recent save is the
+                // representative the entry opens; the detail view then aggregates ALL records in this
+                // group so nothing recorded under a sibling save is ever hidden. The label reflects the
+                // section/question coverage and researcher(s) across the whole group.
+                .groupBy { interviewGroupKey(it) }
                 .map { (_, group) ->
-                    val representative = group.maxByOrNull { it.createdAt ?: "" } ?: group.first()
+                    val representative = representativeInterview(group)
                     val artisanNames = representative.artisans
                         .mapNotNull { link -> link.artisan?.name ?: nameById[link.artisanId] }
                         .distinct()
@@ -4923,12 +4956,12 @@ private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = fal
                         answeredCodes.size <= 4 -> answeredCodes.joinToString(" ")
                         else -> "${answeredCodes.first()}–${answeredCodes.last()} (${answeredCodes.size})"
                     }
-                    val researcher = representative.createdBy?.name
+                    val researchers = group.mapNotNull { it.createdBy?.name }.distinct().joinToString(", ")
                     val rest = listOfNotNull(
                         qSpan,
                         representative.title.takeIf { it.isNotBlank() },
                         representative.place?.takeIf { it.isNotBlank() },
-                        researcher?.let { "by $it" },
+                        researchers.ifBlank { null }?.let { "by $it" },
                         if (group.size > 1) "${group.size} sessions" else null
                     ).joinToString(" · ")
                     representative.id to (if (rest.isBlank()) artisanNames else "$artisanNames · $rest")
@@ -5020,7 +5053,7 @@ private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = fal
         }
     }
     if (selectedId.isNotBlank()) {
-        ViewDataDetail(repository = repository, mode = mode, recordId = selectedId, onError = onError)
+        ViewDataDetail(repository = repository, mode = mode, recordId = selectedId, showProvenance = showProvenance, onError = onError)
     }
     DatasetDownloadCard(repository = repository, onError = onError)
     if (canReview) {
@@ -5196,6 +5229,7 @@ private fun ViewDataDetail(
     repository: FieldRepository,
     mode: EntryMode,
     recordId: String,
+    showProvenance: Boolean = false,
     onError: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -5207,6 +5241,7 @@ private fun ViewDataDetail(
             }
             val d = detail ?: return run { LoadingCard(mode) }
             RecordCard(title = d.name.ifBlank { "Process" }) {
+                if (showProvenance) ProvenanceSection(meta = d.extraMetadata, createdByName = d.createdBy?.name)
                 DetailRow("Product", d.product?.productName)
                 DetailRow("Pre-processes", if (d.preProcessAvailable) "Yes" else "No")
                 DetailRow("Notes", d.notes)
@@ -5230,6 +5265,7 @@ private fun ViewDataDetail(
             LaunchedEffect(recordId) { runCatching { repository.artisan(recordId) }.onSuccess { d = it }.onFailure { onError(it.message ?: "Unable to load artisan") } }
             val v = d ?: return run { LoadingCard(mode) }
             RecordCard(title = v.name.ifBlank { "Artisan" }) {
+                if (showProvenance) ProvenanceSection(meta = v.extraMetadata, createdByName = v.createdBy?.name)
                 DetailRow("Craft", v.craft?.name)
                 DetailRow("Place", v.place)
                 DetailRow("Gender", v.gender)
@@ -5246,6 +5282,7 @@ private fun ViewDataDetail(
             LaunchedEffect(recordId) { runCatching { repository.product(recordId) }.onSuccess { d = it }.onFailure { onError(it.message ?: "Unable to load product") } }
             val v = d ?: return run { LoadingCard(mode) }
             RecordCard(title = v.productName.ifBlank { "Product" }) {
+                if (showProvenance) ProvenanceSection(meta = v.extraMetadata, createdByName = v.createdBy?.name)
                 DetailRow("Craft", v.craftName)
                 DetailRow("Artisan", v.artisanName)
                 DetailRow("Place", v.place)
@@ -5264,6 +5301,7 @@ private fun ViewDataDetail(
             LaunchedEffect(recordId) { runCatching { repository.tool(recordId) }.onSuccess { d = it }.onFailure { onError(it.message ?: "Unable to load tool") } }
             val v = d ?: return run { LoadingCard(mode) }
             RecordCard(title = v.toolkitName.ifBlank { "Tool" }) {
+                if (showProvenance) ProvenanceSection(meta = v.extraMetadata, createdByName = v.createdBy?.name)
                 DetailRow("Craft", v.craftName)
                 DetailRow("Artisan", v.artisanName)
                 DetailRow("Place", v.place)
@@ -5281,6 +5319,7 @@ private fun ViewDataDetail(
             LaunchedEffect(recordId) { runCatching { repository.workshop(recordId) }.onSuccess { d = it }.onFailure { onError(it.message ?: "Unable to load workshop") } }
             val v = d ?: return run { LoadingCard(mode) }
             RecordCard(title = v.title.ifBlank { "Workshop" }) {
+                if (showProvenance) ProvenanceSection(meta = v.extraMetadata, createdByName = v.createdBy?.name)
                 DetailRow("Place", v.place)
                 DetailRow("Description", v.description)
                 DetailRow("Notes", v.notes)
@@ -5294,6 +5333,7 @@ private fun ViewDataDetail(
             LaunchedEffect(recordId) { runCatching { repository.craft(recordId) }.onSuccess { d = it }.onFailure { onError(it.message ?: "Unable to load craft") } }
             val v = d ?: return run { LoadingCard(mode) }
             RecordCard(title = v.name.ifBlank { "Craft" }) {
+                if (showProvenance) ProvenanceSection(meta = v.extraMetadata, createdByName = v.createdBy?.name)
                 DetailRow("Local name", v.localName)
                 DetailRow("Category", v.category)
                 DetailRow("Place", v.place)
@@ -5302,20 +5342,54 @@ private fun ViewDataDetail(
             }
         }
         EntryMode.QUESTIONNAIRE -> {
-            var d by remember(recordId) { mutableStateOf<QuestionnaireInterviewDetailDto?>(null) }
-            LaunchedEffect(recordId) { runCatching { repository.interview(recordId) }.onSuccess { d = it }.onFailure { onError(it.message ?: "Unable to load interview") } }
-            val v = d ?: return run { LoadingCard(mode) }
-            RecordCard(title = v.title.ifBlank { "Interview" }) {
-                DetailRow("Place", v.place)
-                DetailRow("Language", v.language)
-                DetailRow("Notes", v.notes)
-                DetailRow("Status", v.status)
-                if (v.responses.isNotEmpty()) {
+            // A "questionnaire" here is the WHOLE set of saved interview records for the same set of
+            // artisan(s). We aggregate responses AND media across every record in that group, so a
+            // recording attached to one sibling save is visible no matter which entry was opened — the
+            // core fix for "not all features of the record(s) are visible".
+            var members by remember(recordId) { mutableStateOf<List<QuestionnaireInterviewDetailDto>?>(null) }
+            var groupMedia by remember(recordId) { mutableStateOf<List<MediaFileDto>>(emptyList()) }
+            LaunchedEffect(recordId) {
+                runCatching {
+                    val all = repository.interviews()
+                    val selected = all.firstOrNull { it.id == recordId } ?: repository.interview(recordId)
+                    val key = interviewGroupKey(selected)
+                    val group = all.filter { interviewGroupKey(it) == key }.ifEmpty { listOf(selected) }
+                    // Media is pulled per record through the media endpoint (which carries uploader +
+                    // transcript), then de-duplicated by id across the whole group.
+                    val mediaById = LinkedHashMap<String, MediaFileDto>()
+                    group.forEach { m ->
+                        runCatching { repository.mediaForRecord("questionnaire", m.id) }.getOrDefault(emptyList())
+                            .forEach { mediaById[it.id] = it }
+                    }
+                    group to mediaById.values.toList()
+                }.onSuccess { (g, media) -> members = g; groupMedia = media }
+                    .onFailure { onError(it.message ?: "Unable to load interview") }
+            }
+            val g = members ?: return run { LoadingCard(mode) }
+            val rep = representativeInterview(g)
+            RecordCard(title = rep.title.ifBlank { "Interview" }) {
+                if (showProvenance) ProvenanceSection(meta = rep.extraMetadata, createdByName = rep.createdBy?.name)
+                DetailRow("Artisans", rep.artisans.mapNotNull { it.artisan?.name }.joinToString(", ").ifBlank { null })
+                DetailRow("Place", rep.place)
+                DetailRow("Language", rep.language)
+                DetailRow("Notes", rep.notes)
+                DetailRow("Status", rep.status)
+                val researchers = g.mapNotNull { it.createdBy?.name }.distinct().joinToString(", ")
+                if (researchers.isNotBlank()) DetailRow("Interviewer(s)", researchers)
+                if (g.size > 1) DetailRow("Merged from", "${g.size} interview records for these artisan(s)")
+                // Answers aggregated across every record in the group (deduped by question + text).
+                val allResponses = g.flatMap { it.responses }
+                    .filter { !it.answerText.isNullOrBlank() }
+                    .distinctBy { it.questionId to it.answerText }
+                if (allResponses.isNotEmpty()) {
                     HorizontalDivider()
                     Text("Answers", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
-                    v.responses.forEach { r -> DetailRow(r.answeredBy?.name ?: "Answer", r.answerText) }
+                    allResponses.forEach { r -> DetailRow(r.answeredBy?.name ?: "Answer", r.answerText) }
                 }
-                RecordMediaSection(repository, context, mode.linkedRecordType(), recordId, onError)
+                HorizontalDivider()
+                Text("Recordings & media", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+                if (groupMedia.isEmpty()) Text("No media attached.", color = Muted, fontSize = 12.sp)
+                else groupMedia.forEach { MediaWithTranscript(context, it, repository) }
             }
         }
         else -> Text("This record type cannot be viewed here.", color = Muted)
@@ -5865,8 +5939,23 @@ private fun QuestionnaireForm(
     // (and aren't lost) — shown under the relevant section and in an "other media" block.
     var savedMedia by remember(editing?.id) { mutableStateOf<List<MediaFileDto>>(emptyList()) }
     LaunchedEffect(editing?.id) {
-        val id = editing?.id ?: return@LaunchedEffect
-        runCatching { repository.mediaForRecord("questionnaire", id) }.onSuccess { savedMedia = it }
+        val ed = editing ?: return@LaunchedEffect
+        runCatching {
+            // Show saved recordings/media from EVERY interview record for the same set of artisan(s),
+            // not just the one opened — so a recording captured on a sibling save is visible (and not
+            // lost) here too. De-duplicated by media id across the group.
+            val key = interviewGroupKey(ed)
+            val groupIds = runCatching { repository.interviews().filter { interviewGroupKey(it) == key }.map { it.id } }
+                .getOrDefault(emptyList())
+                .ifEmpty { listOf(ed.id) }
+                .let { if (ed.id in it) it else it + ed.id }
+            val byId = LinkedHashMap<String, MediaFileDto>()
+            groupIds.forEach { gid ->
+                runCatching { repository.mediaForRecord("questionnaire", gid) }.getOrDefault(emptyList())
+                    .forEach { byId[it.id] = it }
+            }
+            byId.values.toList()
+        }.onSuccess { savedMedia = it }
     }
     // The section the user most recently added to / updated this session — drives the green
     // "Most recent changes by you were made over here ↑" pointer shown beneath that section.
@@ -6554,11 +6643,15 @@ private fun UserManagementForm(
     LaunchedEffect(Unit) {
         refreshUsers()
     }
+    // Each user is collapsed by default (an accordion); tapping the header expands it to reveal the
+    // grantable privileges, so a long user list stays scannable.
+    var expandedUsers by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     RecordCard(title = "Users and access") {
         Text(
             "Admins can review users here. The master admin can grant or revoke questionnaire-builder, " +
-                "craft/workshop creation, and record review & approval access.",
+                "craft/workshop creation, record review & approval, and view-provenance access. Tap a " +
+                "user to expand and manage their privileges.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -6566,56 +6659,93 @@ private fun UserManagementForm(
             Text("Loading users...", color = Muted)
         }
         users.forEach { appUser ->
+            val isMaster = appUser.role == "MASTER_ADMIN"
+            val canEditGrants = isMasterAdmin && !isMaster
+            val expanded = expandedUsers.contains(appUser.id)
+            // Count of granted privileges, for the collapsed summary line.
+            val grantedCount = if (isMaster) 5 else listOf(
+                appUser.canManageQuestionnaire, appUser.canManageCrafts, appUser.canManageWorkshops,
+                appUser.canReview, appUser.canViewProvenance
+            ).count { it }
             ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard)) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(appUser.name, fontWeight = FontWeight.SemiBold)
-                    Text("${appUser.email} - ${appUser.role}", color = Muted, fontSize = 12.sp)
-                    val isMaster = appUser.role == "MASTER_ADMIN"
-                    val canEditGrants = isMasterAdmin && !isMaster
-                    GrantToggleRow(
-                        label = "Questionnaire builder",
-                        granted = isMaster || appUser.canManageQuestionnaire,
-                        enabled = canEditGrants,
-                        onToggle = { grant ->
-                            scope.launch {
-                                runCatching { repository.updateUserQuestionnaireAccess(appUser.id, grant); refreshUsers() }
-                                    .onFailure { onError(it.message ?: "Unable to update questionnaire access") }
-                            }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                expandedUsers = if (expanded) expandedUsers - appUser.id else expandedUsers + appUser.id
+                            },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(appUser.name, fontWeight = FontWeight.SemiBold)
+                            Text("${appUser.email} · ${appUser.role}", color = Muted, fontSize = 12.sp)
+                            Text(
+                                if (isMaster) "All privileges (master admin)" else "$grantedCount of 5 privileges granted",
+                                color = Muted,
+                                fontSize = 11.sp
+                            )
                         }
-                    )
-                    GrantToggleRow(
-                        label = "Craft creation",
-                        granted = isMaster || appUser.canManageCrafts,
-                        enabled = canEditGrants,
-                        onToggle = { grant ->
-                            scope.launch {
-                                runCatching { repository.updateUserCraftAccess(appUser.id, grant); refreshUsers() }
-                                    .onFailure { onError(it.message ?: "Unable to update craft access") }
+                        Text(if (expanded) "Hide ▲" else "Manage ▼", color = Body, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    if (expanded) {
+                        HorizontalDivider()
+                        GrantToggleRow(
+                            label = "Questionnaire builder",
+                            granted = isMaster || appUser.canManageQuestionnaire,
+                            enabled = canEditGrants,
+                            onToggle = { grant ->
+                                scope.launch {
+                                    runCatching { repository.updateUserQuestionnaireAccess(appUser.id, grant); refreshUsers() }
+                                        .onFailure { onError(it.message ?: "Unable to update questionnaire access") }
+                                }
                             }
-                        }
-                    )
-                    GrantToggleRow(
-                        label = "Workshop creation",
-                        granted = isMaster || appUser.canManageWorkshops,
-                        enabled = canEditGrants,
-                        onToggle = { grant ->
-                            scope.launch {
-                                runCatching { repository.updateUserWorkshopAccess(appUser.id, grant); refreshUsers() }
-                                    .onFailure { onError(it.message ?: "Unable to update workshop access") }
+                        )
+                        GrantToggleRow(
+                            label = "Craft creation",
+                            granted = isMaster || appUser.canManageCrafts,
+                            enabled = canEditGrants,
+                            onToggle = { grant ->
+                                scope.launch {
+                                    runCatching { repository.updateUserCraftAccess(appUser.id, grant); refreshUsers() }
+                                        .onFailure { onError(it.message ?: "Unable to update craft access") }
+                                }
                             }
-                        }
-                    )
-                    GrantToggleRow(
-                        label = "Record review & approval",
-                        granted = isMaster || appUser.canReview,
-                        enabled = canEditGrants,
-                        onToggle = { grant ->
-                            scope.launch {
-                                runCatching { repository.updateUserReviewAccess(appUser.id, grant); refreshUsers() }
-                                    .onFailure { onError(it.message ?: "Unable to update review access") }
+                        )
+                        GrantToggleRow(
+                            label = "Workshop creation",
+                            granted = isMaster || appUser.canManageWorkshops,
+                            enabled = canEditGrants,
+                            onToggle = { grant ->
+                                scope.launch {
+                                    runCatching { repository.updateUserWorkshopAccess(appUser.id, grant); refreshUsers() }
+                                        .onFailure { onError(it.message ?: "Unable to update workshop access") }
+                                }
                             }
-                        }
-                    )
+                        )
+                        GrantToggleRow(
+                            label = "Record review & approval",
+                            granted = isMaster || appUser.canReview,
+                            enabled = canEditGrants,
+                            onToggle = { grant ->
+                                scope.launch {
+                                    runCatching { repository.updateUserReviewAccess(appUser.id, grant); refreshUsers() }
+                                        .onFailure { onError(it.message ?: "Unable to update review access") }
+                                }
+                            }
+                        )
+                        GrantToggleRow(
+                            label = "View provenance",
+                            granted = isMaster || appUser.canViewProvenance,
+                            enabled = canEditGrants,
+                            onToggle = { grant ->
+                                scope.launch {
+                                    runCatching { repository.updateUserProvenanceAccess(appUser.id, grant); refreshUsers() }
+                                        .onFailure { onError(it.message ?: "Unable to update provenance access") }
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }

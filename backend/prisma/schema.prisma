@@ -109,6 +109,7 @@ model User {
   canManageCrafts        Boolean @default(false)
   canManageWorkshops     Boolean @default(false)
   canReview              Boolean @default(false)
+  canViewProvenance      Boolean @default(false)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 

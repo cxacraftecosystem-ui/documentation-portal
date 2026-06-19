@@ -96,6 +96,9 @@ class FieldRepository(
     suspend fun updateUserReviewAccess(id: String, canReview: Boolean): UserDto =
         api.updateUser(id, UserUpdateRequest(canReview = canReview))
 
+    suspend fun updateUserProvenanceAccess(id: String, canViewProvenance: Boolean): UserDto =
+        api.updateUser(id, UserUpdateRequest(canViewProvenance = canViewProvenance))
+
     /** Records awaiting review (status PENDING), newest first, across record types. */
     suspend fun pendingReviews(): List<PendingReviewDto> = api.pendingReviews().items
 

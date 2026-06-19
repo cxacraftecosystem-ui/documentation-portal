@@ -32,6 +32,7 @@ data class UserDto(
     val canManageCrafts: Boolean = false,
     val canManageWorkshops: Boolean = false,
     val canReview: Boolean = false,
+    val canViewProvenance: Boolean = false,
     val authProvider: String? = null
 )
 
@@ -317,7 +318,8 @@ data class UserUpdateRequest(
     val canManageQuestionnaire: Boolean? = null,
     val canManageCrafts: Boolean? = null,
     val canManageWorkshops: Boolean? = null,
-    val canReview: Boolean? = null
+    val canReview: Boolean? = null,
+    val canViewProvenance: Boolean? = null
 )
 
 /** One record awaiting review, as surfaced by GET /review/pending. */
