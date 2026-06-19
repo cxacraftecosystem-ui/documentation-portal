@@ -6,6 +6,7 @@ import retrofit2.http.GET
 import retrofit2.http.Multipart
 import retrofit2.http.PATCH
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -44,6 +45,15 @@ interface FieldRepositoryApi {
 
     @GET("app/release/latest")
     suspend fun latestAppRelease(): AppReleaseDto
+
+    @GET("feedback/me")
+    suspend fun myFeedback(): FeedbackDto
+
+    @PUT("feedback/me")
+    suspend fun upsertMyFeedback(@Body body: FeedbackUpsertRequest): FeedbackDto
+
+    @GET("feedback")
+    suspend fun allFeedback(): List<FeedbackDto>
 
     @POST("review/{type}/{id}/approve")
     suspend fun approveRecord(

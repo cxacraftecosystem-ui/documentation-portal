@@ -154,6 +154,16 @@ class FieldRepository(
     /** The currently-published release (highest versionCode), or versionCode 0 when none exists. */
     suspend fun latestAppRelease(): AppReleaseDto = api.latestAppRelease()
 
+    /** The current user's own app feedback (empty/blank id when they haven't given any yet). */
+    suspend fun myFeedback(): FeedbackDto = api.myFeedback()
+
+    /** Create or update the current user's feedback (they can revisit and change it anytime). */
+    suspend fun upsertMyFeedback(rating: Int?, comment: String?): FeedbackDto =
+        api.upsertMyFeedback(FeedbackUpsertRequest(rating = rating, comment = comment))
+
+    /** Master-admin only: all users' feedback, newest first, each with its author. */
+    suspend fun allFeedback(): List<FeedbackDto> = api.allFeedback()
+
     /** Download an update APK to the cache and return the file, for handing to the system installer. */
     suspend fun downloadApk(context: Context, url: String, versionCode: Int): File = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "updates").apply { mkdirs() }

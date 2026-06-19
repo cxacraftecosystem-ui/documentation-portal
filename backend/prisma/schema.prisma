@@ -124,9 +124,26 @@ model User {
   questionnaireInterviews QuestionnaireInterview[] @relation("QuestionnaireCreatedBy")
   questionnaireResponses QuestionnaireResponse[] @relation("QuestionnaireAnsweredBy")
   appReleases AppRelease[] @relation("AppReleasePublishedBy")
+  feedback    Feedback?    @relation("FeedbackUser")
 
   @@index([role])
   @@index([canManageQuestionnaire])
+}
+
+/// One piece of app feedback per user: a quantitative rating (1–5) plus a qualitative comment.
+/// Upserted, so a user can revisit and update their feedback at any time. The master admin reviews
+/// everyone's feedback on the View Data screen.
+model Feedback {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  rating    Int?
+  comment   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation("FeedbackUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([updatedAt])
 }
 
 /// A published Android app build that the master admin pushed out as an over-the-air update. The

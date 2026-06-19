@@ -7,6 +7,7 @@ from app.api.routes import (
     crafts,
     dashboard,
     export,
+    feedback,
     media,
     processes,
     products,
@@ -36,3 +37,4 @@ api_router.include_router(search.router)
 api_router.include_router(review.router)
 api_router.include_router(export.router)
 api_router.include_router(app_release.router)
+api_router.include_router(feedback.router)

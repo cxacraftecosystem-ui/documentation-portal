@@ -208,6 +208,25 @@ data class AppReleasePublishRequest(
     val notes: String? = null
 )
 
+// --- In-app feedback (quantitative rating + qualitative comment) ---
+
+@Serializable
+data class FeedbackDto(
+    val id: String = "",
+    val userId: String = "",
+    val rating: Int? = null,
+    val comment: String? = null,
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
+    val user: UserDto? = null
+)
+
+@Serializable
+data class FeedbackUpsertRequest(
+    val rating: Int? = null,
+    val comment: String? = null
+)
+
 @Serializable
 data class MeasurementAnalysisDto(
     val valueInches: Double? = null,

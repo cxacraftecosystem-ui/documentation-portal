@@ -125,6 +125,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Close
@@ -142,7 +143,10 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PermMedia
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Quiz
+import androidx.compose.material.icons.filled.RateReview
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Visibility
@@ -157,6 +161,7 @@ import com.fieldrepository.app.data.CreatedRecordDto
 import com.fieldrepository.app.data.AppScope
 import com.fieldrepository.app.data.LocationDto
 import com.fieldrepository.app.data.AppReleaseDto
+import com.fieldrepository.app.data.FeedbackDto
 import com.fieldrepository.app.data.MediaFileDto
 import com.fieldrepository.app.data.PendingReviewDto
 import com.fieldrepository.app.data.StagedMedia
@@ -223,6 +228,7 @@ private sealed interface Screen {
     // Hamburger-only screens (not on the dashboard).
     data object MyActivity : Screen
     data object ToolAssign : Screen
+    data object Feedback : Screen
 }
 
 /** Context carried forward from a just-saved artisan into a follow-up record. */
@@ -498,6 +504,7 @@ private fun HomeScreen(
             is Screen.Create -> Screen.Dashboard
             is Screen.MyActivity -> Screen.Dashboard
             is Screen.ToolAssign -> Screen.Dashboard
+            is Screen.Feedback -> Screen.Dashboard
             is Screen.Dashboard -> Screen.Dashboard
         }
     }
@@ -509,6 +516,7 @@ private fun HomeScreen(
         is Screen.Edit -> "Edit ${s.mode.label.lowercase()}"
         is Screen.MyActivity -> "My Activity"
         is Screen.ToolAssign -> "Assign tools to artisans"
+        is Screen.Feedback -> "App feedback"
     }
 
     BackHandler(enabled = drawerState.isOpen) {
@@ -536,6 +544,7 @@ private fun HomeScreen(
                         onSelect = { entry -> screen = Screen.Create(entry); scope.launch { drawerState.close() } },
                         onMyActivity = { message = null; screen = Screen.MyActivity; scope.launch { drawerState.close() } },
                         onAssignTools = { message = null; screen = Screen.ToolAssign; scope.launch { drawerState.close() } },
+                        onFeedback = { message = null; screen = Screen.Feedback; scope.launch { drawerState.close() } },
                         onToggleAdminView = { adminView = !adminView },
                         onPushUpdate = {
                             scope.launch { drawerState.close() }
@@ -664,6 +673,7 @@ private fun HomeScreen(
                 EntryMode.VIEW_DATA -> ViewDataScreen(
                     repository = repository,
                     canReview = canReview,
+                    masterAdmin = isMasterAdmin,
                     onError = { showMessage(it) }
                 )
                 EntryMode.TOOL -> ToolForm(
@@ -752,6 +762,11 @@ private fun HomeScreen(
             )
 
             is Screen.ToolAssign -> ToolAssignScreen(
+                repository = repository,
+                onError = { showMessage(it) }
+            )
+
+            is Screen.Feedback -> FeedbackScreen(
                 repository = repository,
                 onError = { showMessage(it) }
             )
@@ -861,6 +876,7 @@ private fun AppDrawerContent(
     onSelect: (EntryMode) -> Unit,
     onMyActivity: () -> Unit,
     onAssignTools: () -> Unit,
+    onFeedback: () -> Unit,
     onToggleAdminView: () -> Unit,
     onPushUpdate: () -> Unit,
     onLogout: () -> Unit
@@ -925,6 +941,13 @@ private fun AppDrawerContent(
                 selected = false,
                 icon = { Icon(Icons.Filled.Build, contentDescription = null) },
                 onClick = onAssignTools,
+                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+            )
+            NavigationDrawerItem(
+                label = { Text("Give app feedback") },
+                selected = false,
+                icon = { Icon(Icons.Filled.RateReview, contentDescription = null) },
+                onClick = onFeedback,
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
             )
             if (isAdmin) {
@@ -1320,17 +1343,17 @@ private suspend fun uploadMeasurement(
 /**
  * "Document using grid": pick which dimensions to capture (length / breadth / height); each enabled
  * dimension gets its own grid-photo capture. On capture the photo is sent to the vision model for
- * that one dimension and the returned inches auto-fill the matching field; the photo is also kept so
- * the caller can upload it as media on save. [onValue] reports the measured value, [onUrisChange]
- * the captured photos keyed by dimension.
+ * that one dimension and the returned inches auto-fill the matching field; the photo is ALSO pushed
+ * into the shared [media] attach-media batch so it is eager-uploaded, shown in the upload progress
+ * list, and saved as media for this record (no separate, invisible grid-upload path).
  */
 @Composable
 private fun GridMeasurementSection(
     repository: FieldRepository,
+    media: MediaCaptureState,
     includeHeight: Boolean = true,
     onLengthBreadth: (length: Double?, breadth: Double?) -> Unit,
-    onHeight: (Double) -> Unit,
-    onUrisChange: (Map<String, Uri>) -> Unit
+    onHeight: (Double) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1342,8 +1365,20 @@ private fun GridMeasurementSection(
 
     // group keys: "lengthBreadth" (one photo → both length & breadth) and "height" (one photo).
     fun analyze(group: String, uri: Uri) {
+        // Re-capturing a dimension replaces its previous photo: drop the old uri from the shared
+        // media batch (and delete its staged object) so the record never keeps a stale grid image.
+        capturedUris[group]?.let { previous ->
+            if (previous != uri) {
+                val deferred = media.stagedDeferred[previous]
+                media.forget(previous)
+                media.uris = media.uris.filterNot { it == previous }
+                AppScope.io.launch { runCatching { deferred?.await()?.let { repository.deleteStaged(it.objectKey) } } }
+            }
+        }
         capturedUris = capturedUris + (group to uri)
-        onUrisChange(capturedUris)
+        // Route the grid photo into the shared attach-media batch — this is what makes it visible in
+        // the upload progress list and persisted as media on save (in addition to auto-filling dims).
+        if (uri !in media.uris) media.uris = media.uris + uri
         status = status + (group to "Analyzing…")
         scope.launch {
             if (group == "lengthBreadth") {
@@ -1431,33 +1466,6 @@ private fun GridMeasurementSection(
         GridGroupRow("lengthBreadth", "Length & breadth (one photo)", "Top-down photo of the object on the grid — fills both length and breadth.")
         if (includeHeight) {
             GridGroupRow("height", "Height (one photo)", "Side-on photo of the object against the grid — fills height.")
-        }
-    }
-}
-
-/** Upload the per-dimension grid photos as media linked to a saved record (best-effort). */
-private suspend fun uploadGridImages(
-    repository: FieldRepository,
-    context: Context,
-    gridUris: Map<String, Uri>,
-    location: LocationRequest?,
-    recordType: String,
-    recordId: String,
-    titleHint: String?
-) {
-    gridUris.forEach { (dimension, uri) ->
-        runCatching {
-            repository.uploadMedia(
-                context = context,
-                uri = uri,
-                linkedRecordType = recordType,
-                linkedRecordId = recordId,
-                caption = "${dimension.replaceFirstChar { it.uppercase() }} grid (measurement) for ${titleHint.orEmpty()}".trim(),
-                location = location,
-                titleHint = "${titleHint.orEmpty()} ${dimension} grid".trim(),
-                batchIndex = 1,
-                customSegment = "GRID_${dimension.uppercase()}"
-            )
         }
     }
 }
@@ -2760,7 +2768,6 @@ private fun ProductForm(
     var length by remember(editing) { mutableStateOf(numToText(editing?.lengthInches)) }
     var breadth by remember(editing) { mutableStateOf(numToText(editing?.breadthInches)) }
     var height by remember(editing) { mutableStateOf(numToText(editing?.heightInches)) }
-    var gridUris by remember { mutableStateOf<Map<String, Uri>>(emptyMap()) }
     var costOfMaking by remember(editing) { mutableStateOf(numToText(editing?.costOfMaking)) }
     var sellingPrice by remember(editing) { mutableStateOf(numToText(editing?.sellingPrice)) }
     var rawMaterials by remember(editing) { mutableStateOf(editing?.rawMaterialsUsed ?: "") }
@@ -2837,10 +2844,10 @@ private fun ProductForm(
         TextInput("Height (inches)", height) { height = it }
         GridMeasurementSection(
             repository = repository,
+            media = media,
             includeHeight = true,
             onLengthBreadth = { l, b -> if (l != null && l > 0) length = numToText(l); if (b != null && b > 0) breadth = numToText(b) },
-            onHeight = { height = numToText(it) },
-            onUrisChange = { gridUris = it }
+            onHeight = { height = numToText(it) }
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             Box(modifier = Modifier.weight(1f)) { TextInput("Cost of making", costOfMaking) { costOfMaking = it } }
@@ -2898,7 +2905,6 @@ private fun ProductForm(
                             repository.createProduct(body).id
                         }
                         uploadAttachments(repository, context, media, "product", productId, productName, "Field media for ${productName.trim()}")
-                        uploadGridImages(repository, context, gridUris, media.location, "product", productId, productName)
                     }.onSuccess {
                         media.reset()
                         onDone()
@@ -2948,7 +2954,6 @@ private fun ToolForm(
     var thickness by remember(editing) { mutableStateOf(numToText(editing?.thickness)) }
     var weight by remember(editing) { mutableStateOf(numToText(editing?.weight)) }
     var radius by remember(editing) { mutableStateOf(numToText(editing?.radius)) }
-    var gridUris by remember { mutableStateOf<Map<String, Uri>>(emptyMap()) }
     var maker by remember(editing) { mutableStateOf(editing?.maker ?: "UNKNOWN") }
     var traditionType by remember(editing) { mutableStateOf(editing?.traditionType ?: "UNKNOWN") }
     var replacementCost by remember(editing) { mutableStateOf(numToText(editing?.replacementCost)) }
@@ -3033,10 +3038,10 @@ private fun ToolForm(
         TextInput("Radius", radius) { radius = it }
         GridMeasurementSection(
             repository = repository,
+            media = media,
             includeHeight = true,
             onLengthBreadth = { l, b -> if (l != null && l > 0) length = numToText(l); if (b != null && b > 0) breadth = numToText(b) },
-            onHeight = { height = numToText(it) },
-            onUrisChange = { gridUris = it }
+            onHeight = { height = numToText(it) }
         )
         DropdownField("Maker", makerOptions.map { it to it }, maker, includeNone = false) { maker = it }
         DropdownField("Tradition type", traditionOptions.map { it to it }, traditionType, includeNone = false) { traditionType = it }
@@ -3094,7 +3099,6 @@ private fun ToolForm(
                             repository.createTool(body).id
                         }
                         uploadAttachments(repository, context, media, "tool", toolId, toolkitName, "Field media for ${toolkitName.trim()}")
-                        uploadGridImages(repository, context, gridUris, media.location, "tool", toolId, toolkitName)
                         // Each stage capture is uploaded as a numbered process step (STAGE_STEP_n).
                         stages.uris.forEachIndexed { index, uri ->
                             repository.uploadMedia(
@@ -3902,20 +3906,261 @@ private fun RecordMediaSection(
     }
 }
 
+private val StarGold = Color(0xFFF5B301)
+
+/** Tappable 1–5 star input for a quantitative rating (0 = not yet rated). */
 @Composable
-private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = false, onError: (String) -> Unit) {
+private fun StarRatingInput(rating: Int, max: Int = 5, onChange: (Int) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        (1..max).forEach { i ->
+            IconButton(onClick = { onChange(if (rating == i) 0 else i) }, modifier = Modifier.size(40.dp)) {
+                Icon(
+                    imageVector = if (i <= rating) Icons.Filled.Star else Icons.Filled.StarBorder,
+                    contentDescription = "$i star${if (i == 1) "" else "s"}",
+                    tint = if (i <= rating) StarGold else Muted,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+        }
+    }
+}
+
+/** Read-only star display for a saved rating. */
+@Composable
+private fun StarRatingDisplay(rating: Int, max: Int = 5) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        (1..max).forEach { i ->
+            Icon(
+                imageVector = if (i <= rating) Icons.Filled.Star else Icons.Filled.StarBorder,
+                contentDescription = null,
+                tint = if (i <= rating) StarGold else Muted,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        Spacer(Modifier.width(6.dp))
+        Text("$rating / $max", color = Muted, fontSize = 12.sp)
+    }
+}
+
+/**
+ * Hamburger-menu screen where any user gives — and later updates — their own feedback on the app:
+ * a quantitative star rating and a qualitative comment. Seeded with whatever they last submitted.
+ */
+@Composable
+private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var rating by remember { mutableStateOf(0) }
+    var comment by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(true) }
+    var saving by remember { mutableStateOf(false) }
+    var existing by remember { mutableStateOf<FeedbackDto?>(null) }
+    var status by remember { mutableStateOf(ActionStatus.IDLE) }
+    AutoResetStatus(status) { status = ActionStatus.IDLE }
+
+    LaunchedEffect(Unit) {
+        loading = true
+        runCatching { repository.myFeedback() }
+            .onSuccess { fb ->
+                if (fb.id.isNotBlank()) {
+                    existing = fb
+                    rating = fb.rating ?: 0
+                    comment = fb.comment.orEmpty()
+                }
+            }
+            .onFailure { onError(it.message ?: "Unable to load your feedback") }
+        loading = false
+    }
+
+    RecordCard(title = "App feedback") {
+        Text(
+            "Tell us how the app is working for you — a star rating and anything you'd like to add. " +
+                "You can come back and update this at any time.",
+            color = Muted,
+            fontSize = 12.sp
+        )
+        if (loading) {
+            Text("Loading your feedback…", color = Muted, fontSize = 12.sp)
+        } else {
+            Text("Overall rating", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            StarRatingInput(rating = rating) { rating = it }
+            Text(
+                when (rating) {
+                    0 -> "Tap a star to rate"
+                    1 -> "Poor"
+                    2 -> "Fair"
+                    3 -> "Good"
+                    4 -> "Very good"
+                    else -> "Excellent"
+                },
+                color = Muted,
+                fontSize = 12.sp
+            )
+            TextInput("Comments — what works well, what to improve", comment, minLines = 4) { comment = it }
+            Button(
+                onClick = {
+                    if (rating == 0 && comment.isBlank()) {
+                        onError("Add a star rating or a comment first.")
+                        return@Button
+                    }
+                    scope.launch {
+                        saving = true
+                        runCatching { repository.upsertMyFeedback(rating.takeIf { it > 0 }, comment.blankToNull()) }
+                            .onSuccess { existing = it; status = ActionStatus.SUCCESS }
+                            .onFailure {
+                                if (it !is kotlinx.coroutines.CancellationException) {
+                                    status = ActionStatus.ERROR
+                                    onError(it.message ?: "Unable to save your feedback")
+                                }
+                            }
+                        saving = false
+                    }
+                },
+                enabled = !saving,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = when (status) {
+                        ActionStatus.SUCCESS -> SuccessGreen
+                        ActionStatus.ERROR -> FailureRed
+                        ActionStatus.IDLE -> MaterialTheme.colorScheme.primary
+                    }
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    when {
+                        saving -> "Saving…"
+                        status == ActionStatus.SUCCESS -> "Saved ✓"
+                        existing != null -> "Update feedback"
+                        else -> "Submit feedback"
+                    }
+                )
+            }
+            existing?.updatedAt?.let { formatIsoDate(it)?.let { d -> Text("Last updated $d", color = Muted, fontSize = 11.sp) } }
+        }
+    }
+}
+
+/**
+ * Master-admin-only card on the View Data screen: every user's feedback, grouped in a dropdown
+ * sorted by user, with the selected user's quantitative rating and qualitative comment shown below.
+ */
+@Composable
+private fun MasterFeedbackCard(repository: FieldRepository, onError: (String) -> Unit) {
+    var feedback by remember { mutableStateOf<List<FeedbackDto>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var selectedUserId by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        loading = true
+        runCatching { repository.allFeedback() }
+            .onSuccess { feedback = it }
+            .onFailure { onError(it.message ?: "Unable to load feedback") }
+        loading = false
+    }
+
+    RecordCard(title = "User feedback") {
+        Text("Qualitative and quantitative feedback submitted by the team. Pick a user to read theirs.", color = Muted, fontSize = 12.sp)
+        when {
+            loading -> Text("Loading feedback…", color = Muted, fontSize = 12.sp)
+            feedback.isEmpty() -> Text("No feedback submitted yet.", color = Muted, fontSize = 12.sp)
+            else -> {
+                val avg = feedback.mapNotNull { it.rating }.takeIf { it.isNotEmpty() }?.average()
+                Text(
+                    "${feedback.size} user(s) gave feedback" + (avg?.let { " · average rating ${"%.1f".format(it)} / 5" } ?: ""),
+                    color = Body,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                val options = feedback
+                    .sortedBy { (it.user?.name ?: it.userId).lowercase() }
+                    .map { fb ->
+                        val name = fb.user?.name ?: "Unknown user"
+                        fb.userId to (name + (fb.rating?.let { " · $it★" } ?: ""))
+                    }
+                DropdownField(
+                    label = "Feedback by user",
+                    options = options,
+                    selectedValue = selectedUserId,
+                    placeholder = "Select a user",
+                    includeNone = false
+                ) { selectedUserId = it }
+                feedback.firstOrNull { it.userId == selectedUserId }?.let { fb ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(SurfaceCard, RoundedCornerShape(12.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(fb.user?.name ?: "Unknown user", color = Body, fontWeight = FontWeight.SemiBold)
+                        fb.user?.email?.let { Text(it, color = Muted, fontSize = 11.sp) }
+                        fb.rating?.let { StarRatingDisplay(it) }
+                        if (!fb.comment.isNullOrBlank()) {
+                            Text(fb.comment!!, color = Body, fontSize = 13.sp)
+                        } else {
+                            Text("No written comment.", color = Muted, fontSize = 12.sp)
+                        }
+                        formatIsoDate(fb.updatedAt)?.let { Text("Updated $it", color = Muted, fontSize = 11.sp) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = false, masterAdmin: Boolean = false, onError: (String) -> Unit) {
     var mode by remember { mutableStateOf(EntryMode.ARTISAN) }
     var options by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var selectedId by remember { mutableStateOf("") }
     var loadingList by remember { mutableStateOf(false) }
 
+    // Questionnaire-only filter: pick involved artisan(s), then the dependent dropdown lists the
+    // interviews any of them were part of. Loaded once when the questionnaire mode is selected.
+    var interviewsDetailed by remember { mutableStateOf<List<QuestionnaireInterviewDetailDto>>(emptyList()) }
+    var artisanFilterList by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
+    var selectedArtisanIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    // Interviews that involve at least one of the selected artisans. A questionnaire with several
+    // artisans appears as long as ONE selected artisan matches.
+    val questionnaireOptions = remember(interviewsDetailed, selectedArtisanIds) {
+        if (selectedArtisanIds.isEmpty()) emptyList()
+        else interviewsDetailed
+            .filter { iv -> iv.artisans.any { it.artisanId in selectedArtisanIds } }
+            .map { it.id to it.title.ifBlank { "Untitled interview" } }
+    }
+
     LaunchedEffect(mode) {
         loadingList = true
         selectedId = ""
-        runCatching { loadViewEntries(repository, mode) }
-            .onSuccess { options = it }
-            .onFailure { onError(it.message ?: "Unable to load list") }
+        selectedArtisanIds = emptySet()
+        if (mode == EntryMode.QUESTIONNAIRE) {
+            runCatching {
+                val interviews = repository.interviews()
+                val arts = repository.artisans()
+                interviews to arts
+            }.onSuccess { (interviews, arts) ->
+                interviewsDetailed = interviews
+                // Only list artisans actually involved in an interview; build from the interview
+                // links so it stays correct even past the artisans() page cap.
+                val byId = arts.associateBy { it.id }
+                val involved = LinkedHashMap<String, ArtisanDto>()
+                interviews.forEach { iv ->
+                    iv.artisans.forEach { link -> (link.artisan ?: byId[link.artisanId])?.let { involved.putIfAbsent(it.id, it) } }
+                }
+                artisanFilterList = involved.values.sortedBy { it.name.lowercase() }
+            }.onFailure { onError(it.message ?: "Unable to load questionnaires") }
+        } else {
+            runCatching { loadViewEntries(repository, mode) }
+                .onSuccess { options = it }
+                .onFailure { onError(it.message ?: "Unable to load list") }
+        }
         loadingList = false
+    }
+    // Keep the chosen questionnaire valid as the artisan filter changes (only in questionnaire mode).
+    LaunchedEffect(questionnaireOptions, mode) {
+        if (mode == EntryMode.QUESTIONNAIRE && selectedId.isNotBlank() && questionnaireOptions.none { it.first == selectedId }) {
+            selectedId = ""
+        }
     }
 
     RecordCard(title = "View data") {
@@ -3928,6 +4173,31 @@ private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = fal
         ) { picked -> viewDataModes.firstOrNull { it.name == picked }?.let { mode = it } }
         when {
             loadingList -> Text("Loading ${mode.label.lowercase()}…", color = Muted)
+            mode == EntryMode.QUESTIONNAIRE -> {
+                ArtisanMultiSelectField(
+                    label = "Involved artisan(s)",
+                    artisans = artisanFilterList,
+                    selectedIds = selectedArtisanIds
+                ) { id ->
+                    selectedArtisanIds = if (selectedArtisanIds.contains(id)) selectedArtisanIds - id else selectedArtisanIds + id
+                }
+                val hasArtisan = selectedArtisanIds.isNotEmpty()
+                DropdownField(
+                    label = "Select questionnaire",
+                    options = questionnaireOptions,
+                    selectedValue = selectedId,
+                    placeholder = when {
+                        !hasArtisan -> "Select an involved artisan first"
+                        questionnaireOptions.isEmpty() -> "No questionnaires for the selected artisan(s)"
+                        else -> "Select a questionnaire"
+                    },
+                    includeNone = false,
+                    enabled = hasArtisan && questionnaireOptions.isNotEmpty()
+                ) { selectedId = it }
+                if (hasArtisan && questionnaireOptions.isEmpty()) {
+                    Text("No questionnaires involve the selected artisan(s) yet.", color = Muted, fontSize = 12.sp)
+                }
+            }
             options.isEmpty() -> Text("No ${mode.label.lowercase()} records yet.", color = Muted)
             else -> DropdownField(
                 label = "Select ${mode.label.lowercase()}",
@@ -3944,6 +4214,11 @@ private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = fal
     DatasetDownloadCard(repository = repository, onError = onError)
     if (canReview) {
         ReviewApprovalCard(repository = repository, onError = onError)
+    }
+    // App feedback, under every other section: the master admin reviews everyone's feedback here,
+    // grouped by user. Ordinary users give/update their own feedback from the hamburger menu instead.
+    if (masterAdmin) {
+        MasterFeedbackCard(repository = repository, onError = onError)
     }
 }
 
@@ -4747,7 +5022,8 @@ private fun QuestionnaireForm(
         )
     }
     var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }
-    var language by remember(editing) { mutableStateOf(editing?.language ?: "") }
+    // Hindi is the primary/default language; the dropdown lists English + the major Indian languages.
+    var language by remember(editing) { mutableStateOf(editing?.language?.takeIf { it.isNotBlank() } ?: "Hindi") }
     var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }
     var capturedLocation by remember(editing) { mutableStateOf(editing?.location?.toRequest()) }
     var titleError by remember { mutableStateOf<String?>(null) }
@@ -4759,14 +5035,54 @@ private fun QuestionnaireForm(
             q.id to mutableStateOf(editing?.responses?.firstOrNull { it.questionId == q.id }?.answerText ?: "")
         }
     }
+    // Attach-media batch (photos/videos/audio/files) with eager upload + progress, exactly like the
+    // other record forms — so questionnaire interviews can carry general media, with the array,
+    // progress bar and previews visible while filling the form.
+    val media = rememberMediaCaptureState()
+    // The interview's already-saved media, loaded in edit mode so earlier recordings stay visible
+    // (and aren't lost) — shown under the relevant section and in an "other media" block.
+    var savedMedia by remember(editing?.id) { mutableStateOf<List<MediaFileDto>>(emptyList()) }
+    LaunchedEffect(editing?.id) {
+        val id = editing?.id ?: return@LaunchedEffect
+        runCatching { repository.mediaForRecord("questionnaire", id) }.onSuccess { savedMedia = it }
+    }
+    // The section the user most recently added to / updated this session — drives the green
+    // "Most recent changes by you were made over here ↑" pointer shown beneath that section.
+    var lastEditedSectionId by remember { mutableStateOf<String?>(null) }
     // Clips keyed by target: a question id (individual mode) or "section:<id>" (whole-section mode).
     var questionAudio by remember { mutableStateOf<Map<String, List<Uri>>>(emptyMap()) }
+    fun sectionIdForKey(key: String): String? =
+        if (key.startsWith("section:")) key.removePrefix("section:")
+        else sections.firstOrNull { sec -> sec.questions.any { it.id == key } }?.id
     fun addClip(key: String, uri: Uri) {
         questionAudio = questionAudio + (key to ((questionAudio[key] ?: emptyList()) + uri))
+        lastEditedSectionId = sectionIdForKey(key)
     }
     fun removeLastClip(key: String) {
         val list = questionAudio[key] ?: return
         questionAudio = questionAudio + (key to list.dropLast(1))
+        lastEditedSectionId = sectionIdForKey(key)
+    }
+    // Whether a saved media item (by its caption) belongs to a given section — used to surface
+    // earlier recordings under the right section in edit mode. Exact match on the captions this form
+    // writes, with a resilient prefix fallback if a prompt/title was edited after recording.
+    fun captionBelongsToSection(caption: String?, section: QuestionnaireSectionDto): Boolean {
+        val cap = caption?.trim().orEmpty()
+        if (cap.isEmpty()) return false
+        val expected = buildSet {
+            add("Section audio: ${section.code} ${section.title}".trim())
+            section.questions.forEach { q -> add("Question audio: ${q.sectionCode}${q.sortOrder} ${q.prompt}".trim()) }
+        }
+        if (cap in expected) return true
+        if (cap.startsWith("Section audio:")) {
+            val rest = cap.removePrefix("Section audio:").trim()
+            return rest == section.code || rest.startsWith("${section.code} ")
+        }
+        if (cap.startsWith("Question audio:")) {
+            val rest = cap.removePrefix("Question audio:").trim()
+            return rest.startsWith(section.code) && rest.length > section.code.length && rest[section.code.length].isDigit()
+        }
+        return false
     }
     var recordMode by remember { mutableStateOf("INDIVIDUAL") }
     var expandedSections by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -4839,7 +5155,27 @@ private fun QuestionnaireForm(
             selectedArtisans = if (selectedArtisans.contains(id)) selectedArtisans - id else selectedArtisans + id
         }
         TextInput("Place", place) { place = it }
-        TextInput("Language", language) { language = it }
+        // Language of the interview: Hindi primary, then English + the major scheduled Indian
+        // languages. Any pre-existing free-text value is preserved as an extra option.
+        val languageOptions = remember(language) {
+            val base = listOf(
+                "Hindi", "English", "Bengali", "Marathi", "Telugu", "Tamil", "Gujarati", "Urdu",
+                "Kannada", "Odia", "Malayalam", "Punjabi", "Assamese", "Maithili", "Sanskrit",
+                "Konkani", "Nepali", "Manipuri (Meitei)", "Bodo", "Dogri", "Kashmiri", "Santali",
+                "Sindhi", "Other"
+            )
+            val withExisting = if (language.isNotBlank() && base.none { it.equals(language, ignoreCase = true) }) {
+                listOf(language) + base
+            } else base
+            withExisting.map { it to it }
+        }
+        DropdownField(
+            label = "Language",
+            options = languageOptions,
+            selectedValue = language,
+            placeholder = "Select language",
+            includeNone = false
+        ) { language = it }
         DropdownField(
             label = "Recording mode",
             options = listOf(
@@ -4870,6 +5206,7 @@ private fun QuestionnaireForm(
             if (activeQuestions.isNotEmpty()) {
                 val expanded = expandedSections.contains(section.id)
                 val answeredCount = activeQuestions.count { (answers[it.id]?.value?.trim().orEmpty()).isNotEmpty() }
+                val sectionSavedMedia = if (isEdit) savedMedia.filter { captionBelongsToSection(it.caption, section) } else emptyList()
                 ElevatedCard(
                     colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
                     modifier = Modifier.fillMaxWidth()
@@ -4885,7 +5222,12 @@ private fun QuestionnaireForm(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("${section.code}. ${section.title}", color = MaterialTheme.colorScheme.onSurface, fontFamily = FontFamily.Serif, fontSize = 18.sp)
-                                Text("${activeQuestions.size} questions · $answeredCount answered", color = Muted, fontSize = 11.sp)
+                                Text(
+                                    "${activeQuestions.size} questions · $answeredCount answered" +
+                                        (if (sectionSavedMedia.isNotEmpty()) " · ${sectionSavedMedia.size} saved recording(s)" else ""),
+                                    color = Muted,
+                                    fontSize = 11.sp
+                                )
                             }
                             Text(if (expanded) "Hide ▲" else "Open ▼", color = Body, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         }
@@ -4917,14 +5259,46 @@ private fun QuestionnaireForm(
                                 if (!hideAnswers) {
                                     TextInput("Answer", answers[question.id]?.value.orEmpty(), minLines = 3) { value ->
                                         answers[question.id]?.let { state -> state.value = value }
+                                        lastEditedSectionId = section.id
                                     }
                                 }
+                            }
+                            // In edit mode, surface this section's already-saved recordings/media so the
+                            // user can see (and not lose) what was captured earlier, right where it belongs.
+                            if (isEdit && sectionSavedMedia.isNotEmpty()) {
+                                HorizontalDivider()
+                                Text("Saved recordings & media for this section", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                sectionSavedMedia.forEach { MediaWithTranscript(context, it) }
                             }
                         }
                     }
                 }
+                // Green pointer beneath the section the user most recently added to / updated this session.
+                if (lastEditedSectionId == section.id) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 2.dp)
+                    ) {
+                        Icon(Icons.Filled.ArrowUpward, contentDescription = null, tint = SuccessGreen, modifier = Modifier.size(16.dp))
+                        Text("Most recent changes by you were made over here", color = SuccessGreen, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
             }
         }
+        // Any saved media not tied to a specific section (general attachments, or recordings whose
+        // prompt/title changed) — shown in edit mode so nothing is ever hidden or lost.
+        if (isEdit) {
+            val otherSavedMedia = savedMedia.filterNot { m -> sections.any { captionBelongsToSection(m.caption, it) } }
+            if (otherSavedMedia.isNotEmpty()) {
+                HorizontalDivider()
+                Text("Other saved recordings & media", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+                otherSavedMedia.forEach { MediaWithTranscript(context, it) }
+            }
+        }
+        // Attach photos, video, audio files and other media to this interview (with live upload
+        // progress) — the same media array used by every other record form.
+        MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
         TextInput("Notes", notes, minLines = 3) { notes = it }
         Button(
             onClick = {
@@ -5001,15 +5375,26 @@ private fun QuestionnaireForm(
                                 )
                             }
                         }
+                        // General attach-media batch (photos/videos/files/extra audio) — eager-uploaded
+                        // with progress while filling the form, finalised and linked to the interview here.
+                        media.location = capturedLocation
+                        uploadAttachments(
+                            repository, context, media, "questionnaire", interviewId,
+                            title.ifBlank { "Interview" },
+                            "Field media for ${title.trim().ifBlank { "interview" }}"
+                        )
                     }.onFailure {
                         onError(it.message ?: "Unable to save questionnaire")
                         return@launch
                     }
+                    // Clear the staged-media bookkeeping so leaving the form doesn't delete the objects
+                    // we just linked (the dispose cleanup only runs when uris are still pending).
+                    media.reset()
                     if (!isEdit) {
                         title = ""
                         selectedArtisans = emptySet()
                         place = ""
-                        language = ""
+                        language = "Hindi"
                         notes = ""
                         capturedLocation = null
                         answers.values.forEach { it.value = "" }
@@ -5022,7 +5407,7 @@ private fun QuestionnaireForm(
         ) {
             Text(if (isEdit) "Update interview" else "Save questionnaire")
         }
-        Text("Use the Media tab to attach photos, videos, audio recordings and GPS-tagged field files to this interview.", color = Muted, fontSize = 12.sp)
+        Text("Recordings and attached media upload as you go and link to this interview automatically; audio is queued for transcription.", color = Muted, fontSize = 12.sp)
     }
 }
 
