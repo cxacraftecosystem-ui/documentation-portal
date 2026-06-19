@@ -61,16 +61,16 @@ async def list_products(
         where["craftId"] = craftId
     if artisanId:
         if artisanName and artisanName.strip():
-            # Match products linked to this artisan by FK, PLUS legacy products that carry only the
-            # typed artisan name with no FK link (created without picking a linked artisan, or
-            # imported). Restricting the name fallback to rows whose FK is null prevents pulling in a
-            # *different*, properly-linked artisan who merely shares the same name.
+            # Match products linked to this artisan by FK, PLUS *every* product that carries this
+            # artisan's typed name (case-insensitive) regardless of its FK. This is deliberately
+            # inclusive so the process form's product dropdown never hides a product that genuinely
+            # belongs to the artisan — covering products saved with a typed name and no FK link, and
+            # products FK-linked to a duplicate artisan record that shares the same name. The only
+            # cost is that two genuinely distinct artisans with an identical name would share a list,
+            # which is rare and far preferable to silently dropping a real product.
             and_filters.append({"OR": [
                 {"artisanId": artisanId},
-                {"AND": [
-                    {"artisanId": None},
-                    {"artisanName": {"equals": artisanName.strip(), "mode": "insensitive"}},
-                ]},
+                {"artisanName": {"equals": artisanName.strip(), "mode": "insensitive"}},
             ]})
         else:
             where["artisanId"] = artisanId

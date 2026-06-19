@@ -3459,7 +3459,7 @@ private fun ProcessForm(
             val broad = if (products.isNotEmpty()) products else runCatching { repository.products() }.getOrDefault(emptyList())
             val byName = broad.filter { p ->
                 (p.artisanId != null && p.artisanId == artisanId) ||
-                    (p.artisanId == null && !selectedArtisanName.isNullOrBlank() && p.artisanName.trim().equals(selectedArtisanName, ignoreCase = true))
+                    (!selectedArtisanName.isNullOrBlank() && p.artisanName.trim().equals(selectedArtisanName, ignoreCase = true))
             }
             (linked + byName).distinctBy { it.id }
         }
