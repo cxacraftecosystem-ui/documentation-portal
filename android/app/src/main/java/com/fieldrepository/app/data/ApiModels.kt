@@ -214,8 +214,21 @@ data class AppReleasePublishRequest(
 data class FeedbackDto(
     val id: String = "",
     val userId: String = "",
+    // Quantitative (each 1–5): overall rating + per-aspect sub-ratings.
     val rating: Int? = null,
+    val easeOfUse: Int? = null,
+    val reliability: Int? = null,
+    val performance: Int? = null,
+    val design: Int? = null,
+    val features: Int? = null,
+    val recommend: Int? = null,
+    // Qualitative free text.
     val comment: String? = null,
+    val likeMost: String? = null,
+    val improve: String? = null,
+    val bugs: String? = null,
+    val featureRequests: String? = null,
+    val role: String? = null,
     val createdAt: String? = null,
     val updatedAt: String? = null,
     val user: UserDto? = null
@@ -224,7 +237,24 @@ data class FeedbackDto(
 @Serializable
 data class FeedbackUpsertRequest(
     val rating: Int? = null,
-    val comment: String? = null
+    val easeOfUse: Int? = null,
+    val reliability: Int? = null,
+    val performance: Int? = null,
+    val design: Int? = null,
+    val features: Int? = null,
+    val recommend: Int? = null,
+    val comment: String? = null,
+    val likeMost: String? = null,
+    val improve: String? = null,
+    val bugs: String? = null,
+    val featureRequests: String? = null,
+    val role: String? = null
+)
+
+@Serializable
+data class MediaRelinkRequest(
+    val linkedRecordType: String,
+    val linkedRecordId: String
 )
 
 @Serializable

@@ -10,26 +10,48 @@ from app.schemas.feedback import FeedbackUpsertRequest
 router = APIRouter(prefix="/feedback", tags=["feedback"])
 
 
+# Every persisted feedback field that is echoed straight back to the client (quantitative ints +
+# qualitative strings). Kept as one list so the serializer and the upsert stay in lockstep.
+FEEDBACK_FIELDS = (
+    "rating",
+    "easeOfUse",
+    "reliability",
+    "performance",
+    "design",
+    "features",
+    "recommend",
+    "comment",
+    "likeMost",
+    "improve",
+    "bugs",
+    "featureRequests",
+    "role",
+)
+
+
 def _serialize(row: Any) -> dict[str, Any]:
     """Serialise a feedback row, attaching only the author's safe identity fields (never the
     password hash or other sensitive user columns) when the relation is loaded."""
     user = getattr(row, "user", None)
-    return {
+    data: dict[str, Any] = {
         "id": row.id,
         "userId": row.userId,
-        "rating": row.rating,
-        "comment": row.comment,
         "createdAt": jsonable_encoder(row.createdAt),
         "updatedAt": jsonable_encoder(row.updatedAt),
-        "user": None
+    }
+    for field in FEEDBACK_FIELDS:
+        data[field] = getattr(row, field, None)
+    data["user"] = (
+        None
         if user is None
         else {
             "id": user.id,
             "name": user.name,
             "email": user.email,
             "role": getattr(user.role, "value", user.role),
-        },
-    }
+        }
+    )
+    return data
 
 
 @router.get("/me")
@@ -45,7 +67,7 @@ async def upsert_my_feedback(
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Create or update the current user's feedback — they can revisit and change it any time."""
-    fields = {"rating": payload.rating, "comment": payload.comment}
+    fields = {field: getattr(payload, field) for field in FEEDBACK_FIELDS}
     feedback = await db.feedback.upsert(
         where={"userId": current_user.id},
         data={

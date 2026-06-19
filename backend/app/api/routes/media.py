@@ -10,6 +10,7 @@ from app.core.db import db
 from app.core.deps import get_current_user, is_admin, require_admin
 from app.schemas.media import (
     MediaCompleteRequest,
+    MediaRelinkRequest,
     MultipartAbortRequest,
     MultipartCompleteRequest,
     MultipartCompleteResponse,
@@ -228,6 +229,77 @@ async def list_media(
         order={"createdAt": "desc"},
     )
     return page_payload(public_encode(items), total, page, page_size)
+
+
+# linkedRecordType -> the typed foreign-key column that should point at the parent record. When a
+# parent record is deleted its media FK is SET NULL (so the file and its S3 object are NOT lost), but
+# these string tag columns survive, leaving the row an "orphan": still tagged with a type/id, no live
+# parent. We surface and re-link those instead of letting the recordings disappear from every screen.
+ORPHAN_FK_FIELDS = {
+    "artisan": "artisanId",
+    "craft": "craftId",
+    "workshop": "workshopId",
+    "product": "productId",
+    "tool": "toolId",
+    "questionnaire": "questionnaireInterviewId",
+    "questionnaireinterview": "questionnaireInterviewId",
+}
+
+
+def _relink_delegate(record_type: str) -> Any:
+    """The Prisma delegate for a re-link target record type (or None if unsupported)."""
+    return {
+        "artisan": db.artisan,
+        "craft": db.craft,
+        "workshop": db.workshop,
+        "product": db.productdocumentation,
+        "tool": db.tooldocumentation,
+        "questionnaire": db.questionnaireinterview,
+        "questionnaireinterview": db.questionnaireinterview,
+    }.get(record_type)
+
+
+@router.get("/orphans")
+async def list_orphan_media(_: Any = Depends(require_admin)) -> list[dict[str, Any]]:
+    """Admin-only recovery list: media still tagged to a record type/id whose parent no longer exists
+    (the typed FK was nulled when the parent was deleted). The file is intact in object storage; this
+    lets an admin see it again — and re-link it to a live record via ``/media/{id}/relink``."""
+    conditions = [
+        {"linkedRecordType": rec_type, "linkedRecordId": {"not": None}, fk: None}
+        for rec_type, fk in ORPHAN_FK_FIELDS.items()
+    ]
+    rows = await db.mediafile.find_many(
+        where={"OR": conditions},
+        include=INCLUDE,
+        order={"createdAt": "desc"},
+    )
+    return public_encode(rows)
+
+
+@router.post("/{media_id}/relink")
+async def relink_media(
+    media_id: str,
+    payload: MediaRelinkRequest,
+    _: Any = Depends(require_admin),
+) -> dict[str, Any]:
+    """Re-attach an orphaned (or mis-linked) media file to an existing record. Validates the target
+    record exists, then sets both the string tag columns and the typed foreign key so it reappears
+    under that record everywhere."""
+    media = await require_record(db.mediafile, media_id)
+    rec_type = payload.linkedRecordType.lower()
+    delegate = _relink_delegate(rec_type)
+    if delegate is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported record type for re-linking")
+    target = await delegate.find_unique(where={"id": payload.linkedRecordId})
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target record not found")
+    data: dict[str, Any] = {
+        "linkedRecordType": rec_type,
+        "linkedRecordId": payload.linkedRecordId,
+    }
+    data.update(media_relation_data(rec_type, payload.linkedRecordId))
+    updated = await db.mediafile.update(where={"id": media.id}, data=data, include=INCLUDE)
+    return public_encode(updated)
 
 
 @router.get("/jobs")

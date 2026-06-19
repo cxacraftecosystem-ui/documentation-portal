@@ -157,12 +157,19 @@ class FieldRepository(
     /** The current user's own app feedback (empty/blank id when they haven't given any yet). */
     suspend fun myFeedback(): FeedbackDto = api.myFeedback()
 
-    /** Create or update the current user's feedback (they can revisit and change it anytime). */
-    suspend fun upsertMyFeedback(rating: Int?, comment: String?): FeedbackDto =
-        api.upsertMyFeedback(FeedbackUpsertRequest(rating = rating, comment = comment))
+    /** Create or update the current user's detailed feedback (they can revisit and change it anytime). */
+    suspend fun upsertMyFeedback(request: FeedbackUpsertRequest): FeedbackDto =
+        api.upsertMyFeedback(request)
 
     /** Master-admin only: all users' feedback, newest first, each with its author. */
     suspend fun allFeedback(): List<FeedbackDto> = api.allFeedback()
+
+    /** Admin-only: media files whose parent record was deleted (recoverable, not lost). */
+    suspend fun orphanedMedia(): List<MediaFileDto> = api.orphanMedia()
+
+    /** Admin-only: re-attach an orphaned/mis-linked media file to an existing record. */
+    suspend fun relinkMedia(mediaId: String, linkedRecordType: String, linkedRecordId: String): MediaFileDto =
+        api.relinkMedia(mediaId, MediaRelinkRequest(linkedRecordType = linkedRecordType, linkedRecordId = linkedRecordId))
 
     /** Download an update APK to the cache and return the file, for handing to the system installer. */
     suspend fun downloadApk(context: Context, url: String, versionCode: Int): File = withContext(Dispatchers.IO) {

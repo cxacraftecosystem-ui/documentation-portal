@@ -136,8 +136,21 @@ model User {
 model Feedback {
   id        String   @id @default(cuid())
   userId    String   @unique
-  rating    Int?
-  comment   String?
+  // Quantitative (each 1–5). `rating` is the overall score; the rest are per-aspect sub-ratings.
+  rating        Int?
+  easeOfUse     Int?
+  reliability   Int?
+  performance   Int?
+  design        Int?
+  features      Int?
+  recommend     Int?
+  // Qualitative free text. `comment` is the general note; the rest are targeted prompts.
+  comment         String?
+  likeMost        String?
+  improve         String?
+  bugs            String?
+  featureRequests String?
+  role            String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

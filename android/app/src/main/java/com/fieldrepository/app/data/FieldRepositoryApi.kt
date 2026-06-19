@@ -187,6 +187,14 @@ interface FieldRepositoryApi {
         @Query("linkedRecordId") linkedRecordId: String? = null
     ): PageResponse<MediaFileDto>
 
+    // Admin-only: media whose parent record was deleted (tag columns survive, typed FK nulled) — and
+    // the action to re-attach such a file to an existing record so it reappears under it.
+    @GET("media/orphans")
+    suspend fun orphanMedia(): List<MediaFileDto>
+
+    @POST("media/{id}/relink")
+    suspend fun relinkMedia(@Path("id") id: String, @Body body: MediaRelinkRequest): MediaFileDto
+
     @GET("export/dataset")
     suspend fun datasetManifest(): DatasetManifestDto
 

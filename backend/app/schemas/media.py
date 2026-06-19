@@ -15,6 +15,13 @@ class PresignRequest(APIModel):
     linkedRecordId: str | None = None
 
 
+class MediaRelinkRequest(APIModel):
+    """Re-attach an orphaned/mis-linked media file to an existing record of the given type."""
+
+    linkedRecordType: str = Field(min_length=1, max_length=60)
+    linkedRecordId: str = Field(min_length=1, max_length=60)
+
+
 class PresignResponse(APIModel):
     uploadUrl: str
     method: str = "PUT"

@@ -54,6 +54,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -162,6 +163,7 @@ import com.fieldrepository.app.data.AppScope
 import com.fieldrepository.app.data.LocationDto
 import com.fieldrepository.app.data.AppReleaseDto
 import com.fieldrepository.app.data.FeedbackDto
+import com.fieldrepository.app.data.FeedbackUpsertRequest
 import com.fieldrepository.app.data.MediaFileDto
 import com.fieldrepository.app.data.PendingReviewDto
 import com.fieldrepository.app.data.StagedMedia
@@ -2079,6 +2081,109 @@ private fun MediaCaptureSection(
     }
 }
 
+/**
+ * Eager-upload driver, extracted so any form (not just [MediaCaptureSection]) can stream its attached
+ * files to object storage the moment they are added — overlapping the slow transfer with form-filling
+ * — and shows live per-file progress. Mirrors the behaviour inside [MediaCaptureSection]: every new
+ * uri is pre-uploaded once; byte progress feeds [MediaCaptureState.stagedProgress]; a failed transfer
+ * is marked for retry at save. On leaving without saving, staged-but-unsaved objects are deleted.
+ */
+@Composable
+private fun MediaStagingEffect(repository: FieldRepository, media: MediaCaptureState) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(media.uris) {
+        media.uris.forEach { uri ->
+            if (!media.stagedDeferred.containsKey(uri)) {
+                media.stagedProgress = media.stagedProgress + (uri to 0f)
+                val deferred = AppScope.io.async {
+                    var lastPct = -1
+                    runCatching {
+                        repository.preuploadObject(context, uri) { sent, total ->
+                            val pct = if (total > 0L) ((sent * 100) / total).toInt() else 0
+                            if (pct != lastPct) {
+                                lastPct = pct
+                                media.stagedProgress = media.stagedProgress + (uri to pct / 100f)
+                            }
+                        }
+                    }.getOrNull()
+                }
+                media.stagedDeferred[uri] = deferred
+                scope.launch {
+                    val result = runCatching { deferred.await() }.getOrNull()
+                    if (result != null) {
+                        media.staged = media.staged + (uri to result)
+                        media.stagedProgress = media.stagedProgress + (uri to 1f)
+                        media.stagedFailed = media.stagedFailed - uri
+                    } else {
+                        media.stagedFailed = media.stagedFailed + uri
+                    }
+                }
+            }
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            if (media.uris.isNotEmpty()) {
+                val pending = media.stagedDeferred.values.toList()
+                AppScope.io.launch {
+                    pending.forEach { d -> runCatching { d.await()?.let { repository.deleteStaged(it.objectKey) } } }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The "N file(s) attached / uploading…/all uploaded ✓ — ready to save" progress card — the same
+ * dark card [MediaCaptureSection] shows for general attachments, reused for the questionnaire's
+ * recorded audio clips so they upload as you go with a visible progress bar. [label] names the items
+ * (e.g. "recording"); [onRemove] drops a single file (kept in sync with the caller's own state).
+ */
+@Composable
+private fun AttachedUploadsCard(
+    context: Context,
+    media: MediaCaptureState,
+    label: String,
+    onRemove: (Uri) -> Unit
+) {
+    if (media.uris.isEmpty()) return
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(color = ColorCompat.darkElevated, shape = RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text("${media.uris.size} $label(s) attached", color = Canvas, fontWeight = FontWeight.SemiBold)
+        val overall = media.uris.map { (media.stagedProgress[it] ?: 0f).coerceIn(0f, 1f) }.average().toFloat()
+        val allDone = media.staged.size >= media.uris.size
+        if (!allDone) {
+            LinearProgressIndicator(
+                progress = { overall },
+                modifier = Modifier.fillMaxWidth().height(6.dp),
+                color = Coral
+            )
+        }
+        Text(
+            if (allDone) "All uploaded ✓ — ready to save"
+            else "Uploading… ${(overall * 100).toInt()}% (${media.staged.size}/${media.uris.size} files done)",
+            color = SurfaceCard,
+            fontSize = 11.sp
+        )
+        media.uris.take(8).forEach { uri ->
+            AndroidUriPreview(
+                context = context,
+                uri = uri,
+                progress = media.stagedProgress[uri],
+                failed = uri in media.stagedFailed,
+                onRemove = { onRemove(uri) }
+            )
+        }
+        if (media.uris.size > 8) Text("+${media.uris.size - 8} more", color = SurfaceCard, fontSize = 12.sp)
+    }
+}
+
 /** Lightweight loading placeholder shown while a record's detail is being fetched for editing. */
 @Composable
 private fun LoadingCard(mode: EntryMode) {
@@ -3942,15 +4047,60 @@ private fun StarRatingDisplay(rating: Int, max: Int = 5) {
     }
 }
 
+/** A labelled 1–5 star input row used for each quantitative aspect on the feedback form. */
+@Composable
+private fun LabeledStarRating(label: String, rating: Int, onChange: (Int) -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(label, color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
+        StarRatingInput(rating = rating, onChange = onChange)
+    }
+}
+
+/** A labelled read-only star row used to show a saved aspect rating to the master admin. */
+@Composable
+private fun LabeledRatingDisplay(label: String, rating: Int?) {
+    if (rating == null) return
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Text(label, color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
+        StarRatingDisplay(rating)
+    }
+}
+
+/** A labelled qualitative answer shown to the master admin (skipped when the user left it blank). */
+@Composable
+private fun QualitativeRow(label: String, value: String?) {
+    if (value.isNullOrBlank()) return
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(label, color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Text(value, color = Body, fontSize = 13.sp)
+    }
+}
+
 /**
- * Hamburger-menu screen where any user gives — and later updates — their own feedback on the app:
- * a quantitative star rating and a qualitative comment. Seeded with whatever they last submitted.
+ * Hamburger-menu screen where any user gives — and later updates — their own detailed feedback on the
+ * app: an overall rating plus per-aspect quantitative star ratings (ease of use, reliability,
+ * performance, design, features, recommend) and several qualitative prompts (role, what they like,
+ * what to improve, bugs, feature requests, and a general comment). Seeded with their last submission.
  */
 @Composable
 private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Unit) {
     val scope = rememberCoroutineScope()
+    // Quantitative (0 = not yet rated).
     var rating by remember { mutableStateOf(0) }
+    var easeOfUse by remember { mutableStateOf(0) }
+    var reliability by remember { mutableStateOf(0) }
+    var performance by remember { mutableStateOf(0) }
+    var design by remember { mutableStateOf(0) }
+    var features by remember { mutableStateOf(0) }
+    var recommend by remember { mutableStateOf(0) }
+    // Qualitative.
+    var role by remember { mutableStateOf("") }
     var comment by remember { mutableStateOf("") }
+    var likeMost by remember { mutableStateOf("") }
+    var improve by remember { mutableStateOf("") }
+    var bugs by remember { mutableStateOf("") }
+    var featureRequests by remember { mutableStateOf("") }
+
     var loading by remember { mutableStateOf(true) }
     var saving by remember { mutableStateOf(false) }
     var existing by remember { mutableStateOf<FeedbackDto?>(null) }
@@ -3964,7 +4114,18 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
                 if (fb.id.isNotBlank()) {
                     existing = fb
                     rating = fb.rating ?: 0
+                    easeOfUse = fb.easeOfUse ?: 0
+                    reliability = fb.reliability ?: 0
+                    performance = fb.performance ?: 0
+                    design = fb.design ?: 0
+                    features = fb.features ?: 0
+                    recommend = fb.recommend ?: 0
+                    role = fb.role.orEmpty()
                     comment = fb.comment.orEmpty()
+                    likeMost = fb.likeMost.orEmpty()
+                    improve = fb.improve.orEmpty()
+                    bugs = fb.bugs.orEmpty()
+                    featureRequests = fb.featureRequests.orEmpty()
                 }
             }
             .onFailure { onError(it.message ?: "Unable to load your feedback") }
@@ -3973,15 +4134,18 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
 
     RecordCard(title = "App feedback") {
         Text(
-            "Tell us how the app is working for you — a star rating and anything you'd like to add. " +
-                "You can come back and update this at any time.",
+            "Tell us how the app is working for you — rate it on a few aspects and add anything you'd " +
+                "like in your own words. Everything is optional; fill in what's relevant. You can come " +
+                "back and update this at any time.",
             color = Muted,
             fontSize = 12.sp
         )
         if (loading) {
             Text("Loading your feedback…", color = Muted, fontSize = 12.sp)
         } else {
-            Text("Overall rating", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            // ---- Quantitative ----
+            Text("Ratings", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+            Text("Overall rating", color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
             StarRatingInput(rating = rating) { rating = it }
             Text(
                 when (rating) {
@@ -3995,16 +4159,53 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
                 color = Muted,
                 fontSize = 12.sp
             )
-            TextInput("Comments — what works well, what to improve", comment, minLines = 4) { comment = it }
+            LabeledStarRating("Ease of use", easeOfUse) { easeOfUse = it }
+            LabeledStarRating("Reliability / stability", reliability) { reliability = it }
+            LabeledStarRating("Speed / performance", performance) { performance = it }
+            LabeledStarRating("Design / look & feel", design) { design = it }
+            LabeledStarRating("Features / completeness", features) { features = it }
+            LabeledStarRating("How likely you'd recommend it", recommend) { recommend = it }
+
+            HorizontalDivider()
+            // ---- Qualitative ----
+            Text("In your words", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+            TextInput("Your role (e.g. researcher, field documenter)", role) { role = it }
+            TextInput("What do you like most?", likeMost, minLines = 2) { likeMost = it }
+            TextInput("What should we improve?", improve, minLines = 2) { improve = it }
+            TextInput("Any bugs or issues you hit?", bugs, minLines = 2) { bugs = it }
+            TextInput("Features you'd like to see", featureRequests, minLines = 2) { featureRequests = it }
+            TextInput("Anything else (general comments)", comment, minLines = 3) { comment = it }
+
+            val anyProvided = rating > 0 || easeOfUse > 0 || reliability > 0 || performance > 0 ||
+                design > 0 || features > 0 || recommend > 0 ||
+                listOf(role, comment, likeMost, improve, bugs, featureRequests).any { it.isNotBlank() }
             Button(
                 onClick = {
-                    if (rating == 0 && comment.isBlank()) {
-                        onError("Add a star rating or a comment first.")
+                    if (!anyProvided) {
+                        onError("Add at least one rating or a written answer first.")
                         return@Button
                     }
                     scope.launch {
                         saving = true
-                        runCatching { repository.upsertMyFeedback(rating.takeIf { it > 0 }, comment.blankToNull()) }
+                        runCatching {
+                            repository.upsertMyFeedback(
+                                FeedbackUpsertRequest(
+                                    rating = rating.takeIf { it > 0 },
+                                    easeOfUse = easeOfUse.takeIf { it > 0 },
+                                    reliability = reliability.takeIf { it > 0 },
+                                    performance = performance.takeIf { it > 0 },
+                                    design = design.takeIf { it > 0 },
+                                    features = features.takeIf { it > 0 },
+                                    recommend = recommend.takeIf { it > 0 },
+                                    role = role.blankToNull(),
+                                    comment = comment.blankToNull(),
+                                    likeMost = likeMost.blankToNull(),
+                                    improve = improve.blankToNull(),
+                                    bugs = bugs.blankToNull(),
+                                    featureRequests = featureRequests.blankToNull()
+                                )
+                            )
+                        }
                             .onSuccess { existing = it; status = ActionStatus.SUCCESS }
                             .onFailure {
                                 if (it !is kotlinx.coroutines.CancellationException) {
@@ -4093,13 +4294,140 @@ private fun MasterFeedbackCard(repository: FieldRepository, onError: (String) ->
                     ) {
                         Text(fb.user?.name ?: "Unknown user", color = Body, fontWeight = FontWeight.SemiBold)
                         fb.user?.email?.let { Text(it, color = Muted, fontSize = 11.sp) }
-                        fb.rating?.let { StarRatingDisplay(it) }
-                        if (!fb.comment.isNullOrBlank()) {
-                            Text(fb.comment!!, color = Body, fontSize = 13.sp)
-                        } else {
-                            Text("No written comment.", color = Muted, fontSize = 12.sp)
+                        if (!fb.role.isNullOrBlank()) Text("Role: ${fb.role}", color = Muted, fontSize = 11.sp)
+
+                        // Quantitative: overall + each aspect that was rated.
+                        if (fb.rating != null) {
+                            Text("Overall", color = Muted, fontSize = 12.sp)
+                            StarRatingDisplay(fb.rating!!)
                         }
+                        LabeledRatingDisplay("Ease of use", fb.easeOfUse)
+                        LabeledRatingDisplay("Reliability", fb.reliability)
+                        LabeledRatingDisplay("Performance", fb.performance)
+                        LabeledRatingDisplay("Design", fb.design)
+                        LabeledRatingDisplay("Features", fb.features)
+                        LabeledRatingDisplay("Would recommend", fb.recommend)
+
+                        // Qualitative: each prompt the user answered.
+                        val hasText = listOf(fb.likeMost, fb.improve, fb.bugs, fb.featureRequests, fb.comment).any { !it.isNullOrBlank() }
+                        if (hasText) HorizontalDivider()
+                        QualitativeRow("Likes most", fb.likeMost)
+                        QualitativeRow("To improve", fb.improve)
+                        QualitativeRow("Bugs / issues", fb.bugs)
+                        QualitativeRow("Feature requests", fb.featureRequests)
+                        QualitativeRow("General comments", fb.comment)
+
+                        val nothing = fb.rating == null && fb.easeOfUse == null && fb.reliability == null &&
+                            fb.performance == null && fb.design == null && fb.features == null &&
+                            fb.recommend == null && !hasText
+                        if (nothing) Text("No details provided.", color = Muted, fontSize = 12.sp)
                         formatIsoDate(fb.updatedAt)?.let { Text("Updated $it", color = Muted, fontSize = 11.sp) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Master-admin-only recovery card on the View Data screen. Lists media whose original record was
+ * later deleted — the file itself is safe in object storage, only its link was nulled — so those
+ * recordings stay visible (and playable, with transcripts) instead of disappearing. Each can be
+ * re-attached to an existing record of its own type, after which it shows under that record again.
+ */
+@Composable
+private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var orphans by remember { mutableStateOf<List<MediaFileDto>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    // Re-link target option lists, loaded once per record type present among the orphans.
+    var targetOptions by remember { mutableStateOf<Map<String, List<Pair<String, String>>>>(emptyMap()) }
+    val selections = remember { mutableStateMapOf<String, String>() }
+    var busy by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    suspend fun loadOptionsFor(types: Set<String>) {
+        val map = targetOptions.toMutableMap()
+        types.forEach { t ->
+            if (map.containsKey(t)) return@forEach
+            runCatching {
+                when (t.lowercase()) {
+                    "questionnaire", "questionnaireinterview" -> repository.interviews().map { it.id to it.title.ifBlank { "Untitled interview" } }
+                    "product" -> repository.products().map { it.id to "${it.productName} · ${it.artisanName}" }
+                    "tool" -> repository.tools().map { it.id to "${it.toolkitName} · ${it.artisanName}" }
+                    "artisan" -> repository.artisans().map { it.id to it.name }
+                    "craft" -> repository.crafts().map { it.id to it.name }
+                    "workshop" -> repository.workshops().map { it.id to it.title.ifBlank { "Untitled workshop" } }
+                    else -> emptyList()
+                }
+            }.onSuccess { map[t] = it }
+        }
+        targetOptions = map
+    }
+
+    LaunchedEffect(Unit) {
+        loading = true
+        runCatching { repository.orphanedMedia() }
+            .onSuccess {
+                orphans = it
+                loadOptionsFor(it.mapNotNull { m -> m.linkedRecordType }.toSet())
+            }
+            .onFailure { onError(it.message ?: "Unable to load recovered recordings") }
+        loading = false
+    }
+
+    RecordCard(title = "Recovered recordings") {
+        Text(
+            "Recordings & clips whose original record was deleted afterwards. The files are safe in " +
+                "storage — play them here, and optionally re-attach each to an existing record so it " +
+                "appears under it again.",
+            color = Muted,
+            fontSize = 12.sp
+        )
+        when {
+            loading -> Text("Loading…", color = Muted, fontSize = 12.sp)
+            orphans.isEmpty() -> Text("None — every recording is attached to a live record.", color = Muted, fontSize = 12.sp)
+            else -> {
+                Text("${orphans.size} recovered file(s)", color = Body, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                orphans.forEach { m ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(SurfaceCard, RoundedCornerShape(12.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val typeLabel = m.linkedRecordType?.replaceFirstChar { it.uppercase() } ?: "Record"
+                        Text("Originally a $typeLabel attachment (that record was deleted)", color = Muted, fontSize = 11.sp)
+                        m.uploadedBy?.name?.let { Text("Recorded by $it", color = Muted, fontSize = 11.sp) }
+                        MediaWithTranscript(context, m)
+                        val opts = targetOptions[m.linkedRecordType].orEmpty()
+                        if (opts.isEmpty()) {
+                            Text("No existing ${typeLabel.lowercase()} to re-link to.", color = Muted, fontSize = 11.sp)
+                        } else {
+                            DropdownField(
+                                label = "Re-link to a ${typeLabel.lowercase()}",
+                                options = opts,
+                                selectedValue = selections[m.id].orEmpty(),
+                                placeholder = "Select a record",
+                                includeNone = false
+                            ) { selections[m.id] = it }
+                            Button(
+                                onClick = {
+                                    val target = selections[m.id]
+                                    if (target.isNullOrBlank()) { onError("Pick a record to re-link to first."); return@Button }
+                                    scope.launch {
+                                        busy = busy + m.id
+                                        runCatching { repository.relinkMedia(m.id, m.linkedRecordType ?: "", target) }
+                                            .onSuccess { orphans = orphans.filterNot { it.id == m.id }; selections.remove(m.id) }
+                                            .onFailure { onError(it.message ?: "Unable to re-link this recording") }
+                                        busy = busy - m.id
+                                    }
+                                },
+                                enabled = m.id !in busy,
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text(if (m.id in busy) "Re-linking…" else "Re-link this recording") }
+                        }
                     }
                 }
             }
@@ -4214,6 +4542,11 @@ private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = fal
     DatasetDownloadCard(repository = repository, onError = onError)
     if (canReview) {
         ReviewApprovalCard(repository = repository, onError = onError)
+    }
+    // Master-admin recovery: recordings whose original record was deleted stay visible & playable
+    // here (and can be re-linked), so no field audio is silently lost.
+    if (masterAdmin) {
+        OrphanRecordingsCard(repository = repository, onError = onError)
     }
     // App feedback, under every other section: the master admin reviews everyone's feedback here,
     // grouped by user. Ordinary users give/update their own feedback from the hamburger menu instead.
@@ -5039,6 +5372,12 @@ private fun QuestionnaireForm(
     // other record forms — so questionnaire interviews can carry general media, with the array,
     // progress bar and previews visible while filling the form.
     val media = rememberMediaCaptureState()
+    // Recorded/picked questionnaire audio clips get their OWN eager-upload batch so each clip streams
+    // to storage the moment it is captured and shows in a live "N recording(s) attached" progress
+    // card — exactly like the attach-media array on the other forms. Finalised with per-section /
+    // per-question captions at save time (see the save handler below).
+    val qMedia = rememberMediaCaptureState()
+    MediaStagingEffect(repository = repository, media = qMedia)
     // The interview's already-saved media, loaded in edit mode so earlier recordings stay visible
     // (and aren't lost) — shown under the relevant section and in an "other media" block.
     var savedMedia by remember(editing?.id) { mutableStateOf<List<MediaFileDto>>(emptyList()) }
@@ -5054,14 +5393,33 @@ private fun QuestionnaireForm(
     fun sectionIdForKey(key: String): String? =
         if (key.startsWith("section:")) key.removePrefix("section:")
         else sections.firstOrNull { sec -> sec.questions.any { it.id == key } }?.id
+    // Forget a clip's eager-upload state and delete its staged (not-yet-saved) object from storage.
+    fun dropStaged(uri: Uri) {
+        val deferred = qMedia.stagedDeferred[uri]
+        qMedia.forget(uri)
+        qMedia.uris = qMedia.uris.filterNot { it == uri }
+        AppScope.io.launch { runCatching { deferred?.await()?.let { repository.deleteStaged(it.objectKey) } } }
+    }
     fun addClip(key: String, uri: Uri) {
         questionAudio = questionAudio + (key to ((questionAudio[key] ?: emptyList()) + uri))
+        // Mirror into the eager-upload batch so it starts streaming + shows in the progress card.
+        qMedia.uris = qMedia.uris + uri
         lastEditedSectionId = sectionIdForKey(key)
     }
     fun removeLastClip(key: String) {
         val list = questionAudio[key] ?: return
+        val removed = list.lastOrNull()
         questionAudio = questionAudio + (key to list.dropLast(1))
+        if (removed != null) dropStaged(removed)
         lastEditedSectionId = sectionIdForKey(key)
+    }
+    // Remove a single clip by uri (used by the progress card's per-file ✕), keeping both the keyed
+    // map and the eager-upload batch in sync no matter where the removal was triggered.
+    fun removeClipUri(uri: Uri) {
+        val entry = questionAudio.entries.firstOrNull { uri in it.value } ?: return
+        questionAudio = questionAudio + (entry.key to entry.value.filterNot { it == uri })
+        dropStaged(uri)
+        lastEditedSectionId = sectionIdForKey(entry.key)
     }
     // Whether a saved media item (by its caption) belongs to a given section — used to surface
     // earlier recordings under the right section in edit mode. Exact match on the captions this form
@@ -5286,6 +5644,16 @@ private fun QuestionnaireForm(
                 }
             }
         }
+        // Live upload-progress card for the recorded/picked question & section audio clips: each
+        // streams to storage as you record it, with a progress bar and "all uploaded ✓ — ready to
+        // save" status, just like the attach-media array. Removing a clip here also clears it from
+        // the matching question/section.
+        if (qMedia.uris.isNotEmpty()) {
+            HorizontalDivider()
+            Text("Recordings uploading", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+            Text("Your question/section audio uploads as you record. They link to this interview on save.", color = Muted, fontSize = 12.sp)
+            AttachedUploadsCard(context = context, media = qMedia, label = "recording") { uri -> removeClipUri(uri) }
+        }
         // Any saved media not tied to a specific section (general attachments, or recordings whose
         // prompt/title changed) — shown in edit mode so nothing is ever hidden or lost.
         if (isEdit) {
@@ -5363,16 +5731,32 @@ private fun QuestionnaireForm(
                                 hint = title.ifBlank { question?.prompt ?: "Question recording" }
                             }
                             uris.forEachIndexed { index, uri ->
-                                repository.uploadMedia(
-                                    context = context,
-                                    uri = uri,
-                                    linkedRecordType = "questionnaire",
-                                    linkedRecordId = interviewId,
-                                    caption = caption,
-                                    location = null,
-                                    titleHint = hint,
-                                    batchIndex = index + 1
-                                )
+                                // Prefer the eagerly pre-uploaded object (awaiting any still-in-flight
+                                // transfer); only fall back to a fresh upload if staging never ran/failed.
+                                val staged = qMedia.stagedDeferred[uri]?.let { runCatching { it.await() }.getOrNull() }
+                                    ?: qMedia.staged[uri]
+                                if (staged != null) {
+                                    repository.completeStaged(
+                                        staged = staged,
+                                        linkedRecordType = "questionnaire",
+                                        linkedRecordId = interviewId,
+                                        recordName = hint,
+                                        caption = caption,
+                                        location = null,
+                                        batchIndex = index + 1
+                                    )
+                                } else {
+                                    repository.uploadMedia(
+                                        context = context,
+                                        uri = uri,
+                                        linkedRecordType = "questionnaire",
+                                        linkedRecordId = interviewId,
+                                        caption = caption,
+                                        location = null,
+                                        titleHint = hint,
+                                        batchIndex = index + 1
+                                    )
+                                }
                             }
                         }
                         // General attach-media batch (photos/videos/files/extra audio) — eager-uploaded
@@ -5390,6 +5774,11 @@ private fun QuestionnaireForm(
                     // Clear the staged-media bookkeeping so leaving the form doesn't delete the objects
                     // we just linked (the dispose cleanup only runs when uris are still pending).
                     media.reset()
+                    // The recorded clips are now persisted on the interview — clear the eager-upload
+                    // bookkeeping (so leaving doesn't delete the just-linked objects) and the keyed map
+                    // (so a second save can't re-upload them).
+                    qMedia.reset()
+                    questionAudio = emptyMap()
                     if (!isEdit) {
                         title = ""
                         selectedArtisans = emptySet()
@@ -5398,7 +5787,6 @@ private fun QuestionnaireForm(
                         notes = ""
                         capturedLocation = null
                         answers.values.forEach { it.value = "" }
-                        questionAudio = emptyMap()
                     }
                     onSaved()
                 }
