@@ -20,8 +20,9 @@ from app.schemas.media import (
     MultipartPresignPartsResponse,
     PresignRequest,
     PresignResponse,
+    TranscriptRefineRequest,
 )
-from app.services.ai import analyze_measurement_image, transcribe_audio
+from app.services.ai import analyze_measurement_image, refine_transcript_text, transcribe_audio
 from app.services.media_queue import enqueue_media_processing_jobs, process_next_media_jobs
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
@@ -300,6 +301,25 @@ async def relink_media(
     data.update(media_relation_data(rec_type, payload.linkedRecordId))
     updated = await db.mediafile.update(where={"id": media.id}, data=data, include=INCLUDE)
     return public_encode(updated)
+
+
+@router.post("/{media_id}/refine-transcript")
+async def refine_media_transcript(
+    media_id: str,
+    payload: TranscriptRefineRequest,
+    _: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Refine this media file's existing transcript into a clean interviewer/interviewee conversation
+    (Markdown), optionally translating it to English. On-demand and billable — the client warns the
+    user about extra cost before calling. Returns the refined text; it is not persisted, so each call
+    reflects the current transcript and the user stays in control of when the cost is incurred.
+
+    Declared before the ``GET /{media_id}`` catch-all so the ``{media_id}/refine-transcript`` path is
+    matched as this route, not swallowed by the single-segment id route.
+    """
+    media = await require_record(db.mediafile, media_id)
+    transcript = getattr(media, "transcriptText", None)
+    return await refine_transcript_text(transcript, payload.translate, get_settings())
 
 
 @router.get("/jobs")

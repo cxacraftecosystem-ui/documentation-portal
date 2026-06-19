@@ -91,11 +91,16 @@ def presign_put_url(object_key: str, mime_type: str) -> str:
 
 def create_multipart_upload(object_key: str, mime_type: str) -> str:
     """Begin an S3 multipart upload (for large files). Returns the UploadId the client uploads parts
-    against; S3 stitches the parts into one object on complete, so the stored file stays whole."""
+    against; S3 stitches the parts into one object on complete, so the stored file stays whole.
+
+    Requests SSE-S3 (AES-256) server-side encryption at rest explicitly. (Buckets also have default
+    SSE-S3 since 2023, which covers the single-PUT presign path too — this makes it explicit for the
+    large-file path and is independent of the bucket setting.)"""
     response = _client().create_multipart_upload(
         Bucket=get_settings().aws_s3_bucket,
         Key=object_key,
         ContentType=mime_type,
+        ServerSideEncryption="AES256",
     )
     return str(response["UploadId"])
 

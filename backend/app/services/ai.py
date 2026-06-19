@@ -153,6 +153,97 @@ async def transcribe_audio_bytes(
         }
 
 
+# --- Transcript refinement (raw transcript -> clean interviewer/interviewee conversation) ----------
+
+# Hard cap on the transcript we send to the chat model, so a runaway transcript can't blow up the
+# token bill or the request. ~48k characters is well within gpt-4o-mini's context window.
+_REFINE_MAX_CHARS = 48_000
+
+
+def _post_openai_chat(messages: list[dict[str, str]], settings: Settings) -> str:
+    response = requests.post(
+        "https://api.openai.com/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {settings.openai_api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": settings.openai_chat_model,
+            "messages": messages,
+            "temperature": 0.2,
+        },
+        timeout=120,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    return str(payload["choices"][0]["message"]["content"]).strip()
+
+
+def _refine_sync(text: str, translate_to_english: bool, settings: Settings) -> dict[str, Any]:
+    clipped = text.strip()[:_REFINE_MAX_CHARS]
+    translate_clause = (
+        " Then translate the entire conversation into clear, natural English, preserving meaning."
+        if translate_to_english
+        else ""
+    )
+    system = (
+        "You are an expert interview transcript editor. You reformat a raw, unpunctuated speech-to-text "
+        "transcript into a clean, readable dialogue between an Interviewer and an Interviewee. You fix "
+        "obvious transcription errors, punctuation and capitalisation, and split the text into speaker "
+        "turns. You NEVER invent, add, or remove information — only restructure and lightly correct what "
+        "is present. If the speaker of a passage is genuinely unclear, label it **Speaker:**."
+    )
+    user = (
+        "Reformat the following raw interview transcript into a conversation using Markdown. Put each "
+        "turn on its own line, beginning with a bold speaker label (`**Interviewer:**` or "
+        "`**Interviewee:**`), followed by that turn's text. Keep it faithful to the source." + translate_clause
+        + "\n\nRaw transcript:\n\n" + clipped
+    )
+    refined = _post_openai_chat(
+        [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        settings,
+    )
+    return {
+        "available": True,
+        "status": "COMPLETED" if refined else "EMPTY",
+        "refined": refined,
+        "model": settings.openai_chat_model,
+        "translated": translate_to_english,
+    }
+
+
+async def refine_transcript_text(
+    text: str | None,
+    translate_to_english: bool,
+    settings: Settings,
+) -> dict[str, Any]:
+    """Refine a raw transcript into a clean interviewer/interviewee conversation (Markdown), optionally
+    translating it to English. Uses the configured chat model (gpt-4o-mini by default)."""
+    if not settings.openai_api_key:
+        return {
+            "available": False,
+            "status": "UNAVAILABLE",
+            "refined": None,
+            "message": "Refinement unavailable because OPENAI_API_KEY is not configured.",
+        }
+    if not text or not text.strip():
+        return {
+            "available": True,
+            "status": "EMPTY",
+            "refined": None,
+            "message": "There is no transcript text to refine yet.",
+        }
+    try:
+        return await asyncio.to_thread(_refine_sync, text, translate_to_english, settings)
+    except requests.RequestException as exc:
+        return {
+            "available": True,
+            "status": "FAILED",
+            "refined": None,
+            "message": str(exc),
+        }
+
+
 def _extract_json(text: str) -> dict[str, Any]:
     cleaned = text.strip()
     if cleaned.startswith("```"):

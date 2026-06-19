@@ -106,7 +106,8 @@ interface FieldRepositoryApi {
     suspend fun products(
         @Query("page") page: Int = 1,
         @Query("pageSize") pageSize: Int = 100,
-        @Query("artisanId") artisanId: String? = null
+        @Query("artisanId") artisanId: String? = null,
+        @Query("artisanName") artisanName: String? = null
     ): PageResponse<ProductDetailDto>
 
     @GET("products/{id}")
@@ -194,6 +195,12 @@ interface FieldRepositoryApi {
 
     @POST("media/{id}/relink")
     suspend fun relinkMedia(@Path("id") id: String, @Body body: MediaRelinkRequest): MediaFileDto
+
+    // AI transcript refinement (gpt-4o-mini): turn a raw transcript into a clean interviewer/
+    // interviewee conversation, optionally translated to English. Billable — gated behind a cost
+    // confirmation in the UI.
+    @POST("media/{id}/refine-transcript")
+    suspend fun refineTranscript(@Path("id") id: String, @Body body: TranscriptRefineRequest): TranscriptRefineResponse
 
     @GET("export/dataset")
     suspend fun datasetManifest(): DatasetManifestDto

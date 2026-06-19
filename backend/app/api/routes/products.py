@@ -30,6 +30,7 @@ async def list_products(
     search: str | None = None,
     craftId: str | None = None,
     artisanId: str | None = None,
+    artisanName: str | None = None,
     workshopId: str | None = None,
     place: str | None = None,
     marketDemand: str | None = None,
@@ -42,8 +43,11 @@ async def list_products(
 ) -> dict[str, Any]:
     page, page_size, skip = normalize_pagination(page, pageSize)
     where = visibility_where(current_user)
+    # OR-bearing conditions are collected here and combined under a single top-level "AND" so that,
+    # e.g., a free-text search OR and the artisan-name OR never overwrite one another.
+    and_filters: list[dict[str, Any]] = []
     if search:
-        where["OR"] = [
+        and_filters.append({"OR": [
             {"productName": contains(search)},
             {"localName": contains(search)},
             {"craftName": contains(search)},
@@ -52,11 +56,24 @@ async def list_products(
             {"rawMaterialsUsed": contains(search)},
             {"mainToolsUsed": contains(search)},
             {"remarks": contains(search)},
-        ]
+        ]})
     if craftId:
         where["craftId"] = craftId
     if artisanId:
-        where["artisanId"] = artisanId
+        if artisanName and artisanName.strip():
+            # Match products linked to this artisan by FK, PLUS legacy products that carry only the
+            # typed artisan name with no FK link (created without picking a linked artisan, or
+            # imported). Restricting the name fallback to rows whose FK is null prevents pulling in a
+            # *different*, properly-linked artisan who merely shares the same name.
+            and_filters.append({"OR": [
+                {"artisanId": artisanId},
+                {"AND": [
+                    {"artisanId": None},
+                    {"artisanName": {"equals": artisanName.strip(), "mode": "insensitive"}},
+                ]},
+            ]})
+        else:
+            where["artisanId"] = artisanId
     if workshopId:
         where["workshopId"] = workshopId
     if place:
@@ -67,6 +84,8 @@ async def list_products(
         where["productType"] = productType
     if statusFilter:
         where["status"] = statusFilter
+    if and_filters:
+        where["AND"] = and_filters
     add_date_range(where, "createdAt", dateFrom, dateTo)
     total = await db.productdocumentation.count(where=where)
     items = await db.productdocumentation.find_many(

@@ -29,6 +29,9 @@ class Settings(BaseSettings):
 
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_transcription_model: str = Field(default="whisper-1", alias="OPENAI_TRANSCRIPTION_MODEL")
+    # Chat model used to refine a raw transcript into a clean interviewer/interviewee conversation
+    # (and optionally translate it to English). Defaults to the cost-efficient gpt-4o-mini.
+    openai_chat_model: str = Field(default="gpt-4o-mini", alias="OPENAI_CHAT_MODEL")
     gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
     gemini_api_keys_raw: str = Field(default="", alias="GEMINI_API_KEYS")
     # Vision model for grid measurement. Default is a current "flash lite" model; override via env to

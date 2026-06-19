@@ -22,6 +22,13 @@ class MediaRelinkRequest(APIModel):
     linkedRecordId: str = Field(min_length=1, max_length=60)
 
 
+class TranscriptRefineRequest(APIModel):
+    """Refine a media file's transcript into a clean interviewer/interviewee conversation; when
+    ``translate`` is true the conversation is also translated into English."""
+
+    translate: bool = False
+
+
 class PresignResponse(APIModel):
     uploadUrl: str
     method: str = "PUT"

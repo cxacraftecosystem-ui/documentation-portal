@@ -66,10 +66,14 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -1410,6 +1414,21 @@ private fun GridMeasurementSection(
         }
     }
 
+    // Discard a grid dimension's photo via the same ✕ cross used elsewhere. This is the *grid-side*
+    // removal, so per the required behaviour it ALSO drops the photo from the shared attach-media
+    // batch (and deletes its staged object) — a full discard. (The reverse is not coupled: removing
+    // the file from the uploaded-media list leaves this grid capture untouched, since that list and
+    // capturedUris are independent state.)
+    fun discardGroup(group: String) {
+        val uri = capturedUris[group] ?: return
+        val deferred = media.stagedDeferred[uri]
+        media.forget(uri)
+        media.uris = media.uris.filterNot { it == uri }
+        AppScope.io.launch { runCatching { deferred?.await()?.let { repository.deleteStaged(it.objectKey) } } }
+        capturedUris = capturedUris - group
+        status = status - group
+    }
+
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         val g = pendingGroup
         if (uri != null && g != null) analyze(g, uri)
@@ -1452,7 +1471,9 @@ private fun GridMeasurementSection(
                 ) { Text("Pick photo", maxLines = 1, softWrap = false, fontSize = 12.sp) }
             }
             status[key]?.let { Text(it, color = Muted, fontSize = 11.sp) }
-            capturedUris[key]?.let { AndroidUriPreview(context = context, uri = it) }
+            capturedUris[key]?.let { uri ->
+                AndroidUriPreview(context = context, uri = uri, onRemove = { discardGroup(key) })
+            }
         }
     }
 
@@ -2145,9 +2166,14 @@ private fun AttachedUploadsCard(
     context: Context,
     media: MediaCaptureState,
     label: String,
+    uris: List<Uri> = media.uris,
     onRemove: (Uri) -> Unit
 ) {
-    if (media.uris.isEmpty()) return
+    if (uris.isEmpty()) return
+    // Status is computed over just the passed-in subset, so a per-section card reflects only that
+    // section's clips while still reading live progress/staged/failed state from the shared batch.
+    val doneCount = uris.count { media.staged.containsKey(it) }
+    val allDone = doneCount >= uris.size
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -2155,9 +2181,8 @@ private fun AttachedUploadsCard(
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Text("${media.uris.size} $label(s) attached", color = Canvas, fontWeight = FontWeight.SemiBold)
-        val overall = media.uris.map { (media.stagedProgress[it] ?: 0f).coerceIn(0f, 1f) }.average().toFloat()
-        val allDone = media.staged.size >= media.uris.size
+        Text("${uris.size} $label(s) attached", color = Canvas, fontWeight = FontWeight.SemiBold)
+        val overall = uris.map { (media.stagedProgress[it] ?: 0f).coerceIn(0f, 1f) }.average().toFloat()
         if (!allDone) {
             LinearProgressIndicator(
                 progress = { overall },
@@ -2167,11 +2192,11 @@ private fun AttachedUploadsCard(
         }
         Text(
             if (allDone) "All uploaded ✓ — ready to save"
-            else "Uploading… ${(overall * 100).toInt()}% (${media.staged.size}/${media.uris.size} files done)",
+            else "Uploading… ${(overall * 100).toInt()}% ($doneCount/${uris.size} files done)",
             color = SurfaceCard,
             fontSize = 11.sp
         )
-        media.uris.take(8).forEach { uri ->
+        uris.take(8).forEach { uri ->
             AndroidUriPreview(
                 context = context,
                 uri = uri,
@@ -2180,7 +2205,7 @@ private fun AttachedUploadsCard(
                 onRemove = { onRemove(uri) }
             )
         }
-        if (media.uris.size > 8) Text("+${media.uris.size - 8} more", color = SurfaceCard, fontSize = 12.sp)
+        if (uris.size > 8) Text("+${uris.size - 8} more", color = SurfaceCard, fontSize = 12.sp)
     }
 }
 
@@ -3408,15 +3433,19 @@ private fun ProcessForm(
         runCatching { repository.artisans() }.onSuccess { artisans = it }
     }
 
-    // Products belong to an artisan, so the product list is scoped to the chosen artisan. On every
-    // artisan change we fetch FRESH from the server filtered by artisanId (works past 100 total
-    // products and never depends on a possibly-stale bulk load), then union with any already-loaded
-    // products whose artisan *name* matches (covers products saved with a typed name but no linked
-    // artisanId). Loading / empty / error states are surfaced so the dropdown is never silently empty.
+    // Products belong to an artisan, so the product list is scoped to the chosen artisan. We re-key
+    // this effect on `artisans` and `products` as well as `artisanId`, so it also re-runs once those
+    // supporting lists finish loading — otherwise, in edit mode where artisanId is pre-set, the
+    // effect would fire once before `artisans` arrived (artisan name unknown → name match skipped)
+    // and never run again. On each run we fetch FRESH from the server filtered by artisanId AND the
+    // artisan's name (the server OR-matches FK-linked products plus FK-null products with that typed
+    // name), then union with any in-memory products whose artisan id/name matches as a fallback for
+    // an older server. Loading / empty / error states are surfaced so the dropdown is never silently
+    // empty when products actually exist.
     var artisanProducts by remember { mutableStateOf<List<ProductDetailDto>>(emptyList()) }
     var productsLoading by remember { mutableStateOf(false) }
     var productLoadError by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(artisanId) {
+    LaunchedEffect(artisanId, artisans, products) {
         productLoadError = null
         if (artisanId.isBlank()) {
             artisanProducts = emptyList()
@@ -3426,11 +3455,11 @@ private fun ProcessForm(
         productsLoading = true
         val selectedArtisanName = artisans.firstOrNull { it.id == artisanId }?.name?.trim()
         val result = runCatching {
-            val linked = repository.productsForArtisan(artisanId)
+            val linked = repository.productsForArtisan(artisanId, selectedArtisanName)
             val broad = if (products.isNotEmpty()) products else runCatching { repository.products() }.getOrDefault(emptyList())
             val byName = broad.filter { p ->
                 (p.artisanId != null && p.artisanId == artisanId) ||
-                    (!selectedArtisanName.isNullOrBlank() && p.artisanName.trim().equals(selectedArtisanName, ignoreCase = true))
+                    (p.artisanId == null && !selectedArtisanName.isNullOrBlank() && p.artisanName.trim().equals(selectedArtisanName, ignoreCase = true))
             }
             (linked + byName).distinctBy { it.id }
         }
@@ -3935,7 +3964,7 @@ private fun DetailRow(label: String, value: String?) {
 
 /** A saved media row, its upload provenance, plus the transcript (or a live "transcribing" spinner). */
 @Composable
-private fun MediaWithTranscript(context: Context, media: MediaFileDto) {
+private fun MediaWithTranscript(context: Context, media: MediaFileDto, repository: FieldRepository? = null) {
     AndroidSavedMediaPreview(context = context, media = media)
     // Upload provenance: who added this media file and when.
     val uploader = media.uploadedBy?.name
@@ -3963,6 +3992,13 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto) {
                 Text("Transcript", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 Text(media.transcriptText!!, color = Body, fontSize = 13.sp)
             }
+            // AI refinement controls under the transcript (only where a repository is available, i.e.
+            // the record/update & view screens). Turns the raw transcript into a clean conversation,
+            // optionally translated to English. Both actions are billable, so they're gated behind a
+            // one-time cost confirmation.
+            if (repository != null) {
+                TranscriptRefineControls(context = context, media = media, repository = repository)
+            }
         }
         isAudio && (status == null || status in processing) -> {
             // Still processing — show a buffer icon; the transcript appears here once it's ready.
@@ -3980,6 +4016,169 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto) {
                 color = Muted,
                 fontSize = 11.sp
             )
+        }
+    }
+}
+
+// SharedPreferences holding the "don't remind me again" acknowledgement for AI-cost prompts.
+private const val APP_PREFS_NAME = "fieldrepo_prefs"
+private const val PREF_AI_COST_ACK = "ai_refine_cost_ack"
+
+private fun aiCostReminderSuppressed(context: Context): Boolean =
+    context.getSharedPreferences(APP_PREFS_NAME, Context.MODE_PRIVATE).getBoolean(PREF_AI_COST_ACK, false)
+
+private fun suppressAiCostReminder(context: Context) {
+    context.getSharedPreferences(APP_PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(PREF_AI_COST_ACK, true).apply()
+}
+
+/**
+ * "Refine transcript" / "Refine & translate to English" buttons + the cost-confirmation dialog,
+ * spinner, and the Markdown-rendered result. Calls the gpt-4o-mini backed endpoint on demand. The
+ * refined conversation is held in local state (not persisted) so it shows immediately and a re-press
+ * is the only thing that incurs another cost.
+ */
+@Composable
+private fun TranscriptRefineControls(context: Context, media: MediaFileDto, repository: FieldRepository) {
+    val scope = rememberCoroutineScope()
+    var refining by remember(media.id) { mutableStateOf(false) }
+    var refined by remember(media.id) { mutableStateOf<String?>(null) }
+    var refinedTranslated by remember(media.id) { mutableStateOf(false) }
+    var refineError by remember(media.id) { mutableStateOf<String?>(null) }
+    // When non-null, the cost dialog is open for that mode (false = refine, true = refine+translate).
+    var pendingTranslate by remember { mutableStateOf<Boolean?>(null) }
+    var dontRemind by remember { mutableStateOf(false) }
+    val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+
+    fun runRefine(translate: Boolean) {
+        scope.launch {
+            refining = true
+            refineError = null
+            runCatching { repository.refineTranscript(media.id, translate) }
+                .onSuccess { resp ->
+                    when {
+                        !resp.refined.isNullOrBlank() -> { refined = resp.refined; refinedTranslated = translate }
+                        resp.available == false -> refineError = resp.message ?: "AI refinement is not configured."
+                        else -> refineError = resp.message ?: "No transcript content to refine."
+                    }
+                }
+                .onFailure {
+                    if (it !is kotlinx.coroutines.CancellationException) refineError = it.message ?: "Couldn't refine the transcript."
+                }
+            refining = false
+        }
+    }
+
+    fun onRefineClick(translate: Boolean) {
+        if (aiCostReminderSuppressed(context)) runRefine(translate) else pendingTranslate = translate
+    }
+
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = { onRefineClick(false) }, enabled = !refining, modifier = Modifier.weight(1f), contentPadding = pad) {
+            Text("Refine transcript", maxLines = 1, softWrap = false, fontSize = 12.sp)
+        }
+        OutlinedButton(onClick = { onRefineClick(true) }, enabled = !refining, modifier = Modifier.weight(1f), contentPadding = pad) {
+            Text("Refine & translate", maxLines = 1, softWrap = false, fontSize = 12.sp)
+        }
+    }
+    if (refining) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+            Text("Refining with AI…", color = Muted, fontSize = 11.sp)
+        }
+    }
+    refineError?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
+    refined?.let { md ->
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(ColorCompat.darkElevated, RoundedCornerShape(8.dp))
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                if (refinedTranslated) "Refined conversation (English)" else "Refined conversation",
+                color = Coral,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            MarkdownText(markdown = md, color = Canvas)
+        }
+    }
+
+    val mode = pendingTranslate
+    if (mode != null) {
+        AlertDialog(
+            onDismissRequest = { pendingTranslate = null },
+            title = { Text("This uses AI and costs extra") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "Refining" + (if (mode) " and translating" else "") + " this transcript runs it through an " +
+                            "AI model (gpt-4o-mini), which incurs a small extra cost each time you do it. Continue?"
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = dontRemind, onCheckedChange = { dontRemind = it })
+                        Text("Do not remind me again", fontSize = 13.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (dontRemind) suppressAiCostReminder(context)
+                    pendingTranslate = null
+                    runRefine(mode)
+                }) { Text("Continue") }
+            },
+            dismissButton = { TextButton(onClick = { pendingTranslate = null }) { Text("Cancel") } }
+        )
+    }
+}
+
+/**
+ * Minimal Markdown -> rich text renderer for the refined conversation: handles `#`/`##`/`###`
+ * headings, `-`/`*` bullets, blank-line spacing, and inline `**bold**` / `*italic*`. Enough to make
+ * the interviewer/interviewee dialogue read cleanly without pulling in a Markdown dependency.
+ */
+@Composable
+private fun MarkdownText(markdown: String, color: Color = Body) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        markdown.replace("\r\n", "\n").split("\n").forEach { raw ->
+            val line = raw.trim()
+            when {
+                line.isEmpty() -> Spacer(Modifier.height(2.dp))
+                line.startsWith("### ") -> Text(parseInlineMarkdown(line.removePrefix("### ")), color = color, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                line.startsWith("## ") -> Text(parseInlineMarkdown(line.removePrefix("## ")), color = color, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                line.startsWith("# ") -> Text(parseInlineMarkdown(line.removePrefix("# ")), color = color, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                line.startsWith("- ") || line.startsWith("* ") -> Row(modifier = Modifier.fillMaxWidth()) {
+                    Text("•  ", color = color, fontSize = 13.sp)
+                    Text(parseInlineMarkdown(line.drop(2)), color = color, fontSize = 13.sp)
+                }
+                else -> Text(parseInlineMarkdown(line), color = color, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+/** Parse inline `**bold**` and `*italic*` spans of a single Markdown line into an AnnotatedString. */
+private fun parseInlineMarkdown(text: String) = buildAnnotatedString {
+    var i = 0
+    while (i < text.length) {
+        when {
+            text.startsWith("**", i) -> {
+                val end = text.indexOf("**", i + 2)
+                if (end != -1) {
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(text.substring(i + 2, end)) }
+                    i = end + 2
+                } else { append(text[i]); i++ }
+            }
+            text[i] == '*' -> {
+                val end = text.indexOf('*', i + 1)
+                if (end != -1) {
+                    withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(text.substring(i + 1, end)) }
+                    i = end + 1
+                } else { append(text[i]); i++ }
+            }
+            else -> { append(text[i]); i++ }
         }
     }
 }
@@ -4007,7 +4206,7 @@ private fun RecordMediaSection(
     when {
         loading -> Text("Loading media…", color = Muted, fontSize = 12.sp)
         media.isEmpty() -> Text("No media attached.", color = Muted, fontSize = 12.sp)
-        else -> media.forEach { MediaWithTranscript(context, it) }
+        else -> media.forEach { MediaWithTranscript(context, it, repository) }
     }
 }
 
@@ -4345,6 +4544,9 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
     var targetOptions by remember { mutableStateOf<Map<String, List<Pair<String, String>>>>(emptyMap()) }
     val selections = remember { mutableStateMapOf<String, String>() }
     var busy by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // Recording queued for permanent deletion, awaiting confirmation (destructive: removes the DB row
+    // AND the S3 object — the file is gone for good, unlike re-linking which preserves it).
+    var pendingDelete by remember { mutableStateOf<MediaFileDto?>(null) }
 
     suspend fun loadOptionsFor(types: Set<String>) {
         val map = targetOptions.toMutableMap()
@@ -4400,7 +4602,7 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
                         val typeLabel = m.linkedRecordType?.replaceFirstChar { it.uppercase() } ?: "Record"
                         Text("Originally a $typeLabel attachment (that record was deleted)", color = Muted, fontSize = 11.sp)
                         m.uploadedBy?.name?.let { Text("Recorded by $it", color = Muted, fontSize = 11.sp) }
-                        MediaWithTranscript(context, m)
+                        MediaWithTranscript(context, m, repository)
                         val opts = targetOptions[m.linkedRecordType].orEmpty()
                         if (opts.isEmpty()) {
                             Text("No existing ${typeLabel.lowercase()} to re-link to.", color = Muted, fontSize = 11.sp)
@@ -4428,10 +4630,50 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
                                 modifier = Modifier.fillMaxWidth()
                             ) { Text(if (m.id in busy) "Re-linking…" else "Re-link this recording") }
                         }
+                        // Permanent deletion of a single recovered recording (file + DB row). Guarded by a
+                        // confirmation dialog because it is irreversible.
+                        OutlinedButton(
+                            onClick = { pendingDelete = m },
+                            enabled = m.id !in busy,
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(if (m.id in busy) "Working…" else "Permanently delete")
+                        }
                     }
                 }
             }
         }
+    }
+    val toDelete = pendingDelete
+    if (toDelete != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Permanently delete recording?") },
+            text = {
+                Text(
+                    "This removes the file from storage and the database for good. It cannot be undone, " +
+                        "and the recording can no longer be re-linked. Delete “${toDelete.originalFilename}”?"
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingDelete = null
+                        scope.launch {
+                            busy = busy + toDelete.id
+                            runCatching { repository.deleteMedia(toDelete.id) }
+                                .onSuccess { orphans = orphans.filterNot { it.id == toDelete.id }; selections.remove(toDelete.id) }
+                                .onFailure { onError(it.message ?: "Unable to delete this recording") }
+                            busy = busy - toDelete.id
+                        }
+                    }
+                ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } }
+        )
     }
 }
 
@@ -4447,14 +4689,47 @@ private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = fal
     var interviewsDetailed by remember { mutableStateOf<List<QuestionnaireInterviewDetailDto>>(emptyList()) }
     var artisanFilterList by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
     var selectedArtisanIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // Sections (with their questions) so the dropdown can show the "A1"-style section+question codes
+    // each interview actually answered. Loaded alongside the interviews in questionnaire mode.
+    var questionnaireSections by remember { mutableStateOf<List<QuestionnaireSectionDto>>(emptyList()) }
 
     // Interviews that involve at least one of the selected artisans. A questionnaire with several
-    // artisans appears as long as ONE selected artisan matches.
-    val questionnaireOptions = remember(interviewsDetailed, selectedArtisanIds) {
+    // artisans appears as long as ONE selected artisan matches. The label LEADS with the artisan
+    // name(s) — then the section/question span it covers (e.g. "A1–A5" from the section codes +
+    // question numbers), then the title and place — so the list is easy to scan by who was interviewed.
+    val questionnaireOptions = remember(interviewsDetailed, selectedArtisanIds, artisanFilterList, questionnaireSections) {
         if (selectedArtisanIds.isEmpty()) emptyList()
-        else interviewsDetailed
-            .filter { iv -> iv.artisans.any { it.artisanId in selectedArtisanIds } }
-            .map { it.id to it.title.ifBlank { "Untitled interview" } }
+        else {
+            val nameById = artisanFilterList.associate { it.id to it.name }
+            // questionId -> "A1" style code (section code + question number), built from the sections.
+            val codeByQuestionId = questionnaireSections.flatMap { sec ->
+                sec.questions.map { q -> q.id to "${sec.code}${q.sortOrder}" }
+            }.toMap()
+            interviewsDetailed
+                .filter { iv -> iv.artisans.any { it.artisanId in selectedArtisanIds } }
+                .map { iv ->
+                    val artisanNames = iv.artisans
+                        .mapNotNull { link -> link.artisan?.name ?: nameById[link.artisanId] }
+                        .distinct()
+                        .joinToString(", ")
+                        .ifBlank { "Unknown artisan" }
+                    // The section/question codes this interview actually answered, in order, e.g. "A1, A2, B1".
+                    val answeredCodes = iv.responses
+                        .mapNotNull { codeByQuestionId[it.questionId] }
+                        .distinct()
+                    val qSpan = when {
+                        answeredCodes.isEmpty() -> null
+                        answeredCodes.size <= 4 -> answeredCodes.joinToString(" ")
+                        else -> "${answeredCodes.first()}–${answeredCodes.last()} (${answeredCodes.size})"
+                    }
+                    val rest = listOfNotNull(
+                        qSpan,
+                        iv.title.takeIf { it.isNotBlank() },
+                        iv.place?.takeIf { it.isNotBlank() }
+                    ).joinToString(" · ")
+                    iv.id to (if (rest.isBlank()) artisanNames else "$artisanNames · $rest")
+                }
+        }
     }
 
     LaunchedEffect(mode) {
@@ -4465,6 +4740,9 @@ private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = fal
             runCatching {
                 val interviews = repository.interviews()
                 val arts = repository.artisans()
+                // Sections power the "A1"-style section+question codes in the dropdown label; a failure
+                // here must not block the list, so it's fetched leniently and defaults to empty.
+                questionnaireSections = runCatching { repository.questionnaireSections() }.getOrDefault(emptyList())
                 interviews to arts
             }.onSuccess { (interviews, arts) ->
                 interviewsDetailed = interviews
@@ -4731,14 +5009,14 @@ private fun ViewDataDetail(
                 if (d.media.isNotEmpty()) {
                     HorizontalDivider()
                     Text("Pre-process media", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
-                    d.media.forEach { MediaWithTranscript(context, it) }
+                    d.media.forEach { MediaWithTranscript(context, it, repository) }
                 }
                 d.steps.forEach { step ->
                     HorizontalDivider()
                     Text("Step ${step.sortOrder} · ${if (step.stepType == "SEQUENTIAL") "Sequential" else "Group"} — ${step.name}", color = Body, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                     step.notes?.takeIf { it.isNotBlank() }?.let { Text(it, color = Muted, fontSize = 12.sp) }
                     if (step.media.isEmpty()) Text("No media.", color = Muted, fontSize = 12.sp)
-                    step.media.forEach { MediaWithTranscript(context, it) }
+                    step.media.forEach { MediaWithTranscript(context, it, repository) }
                 }
             }
         }
@@ -5621,12 +5899,29 @@ private fun QuestionnaireForm(
                                     }
                                 }
                             }
+                            // Per-section live upload-progress card: the clips recorded/picked for THIS
+                            // section (its questions in individual mode, or its one consolidated clip in
+                            // section mode), so the user can verify this section's recordings on the go —
+                            // in addition to the all-recordings card at the very bottom.
+                            val sectionUploadUris = questionAudio.entries
+                                .filter { sectionIdForKey(it.key) == section.id }
+                                .flatMap { it.value }
+                            if (sectionUploadUris.isNotEmpty()) {
+                                HorizontalDivider()
+                                Text("This section's recordings (uploading)", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                AttachedUploadsCard(
+                                    context = context,
+                                    media = qMedia,
+                                    label = "recording",
+                                    uris = sectionUploadUris
+                                ) { uri -> removeClipUri(uri) }
+                            }
                             // In edit mode, surface this section's already-saved recordings/media so the
                             // user can see (and not lose) what was captured earlier, right where it belongs.
                             if (isEdit && sectionSavedMedia.isNotEmpty()) {
                                 HorizontalDivider()
                                 Text("Saved recordings & media for this section", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                sectionSavedMedia.forEach { MediaWithTranscript(context, it) }
+                                sectionSavedMedia.forEach { MediaWithTranscript(context, it, repository) }
                             }
                         }
                     }
@@ -5650,8 +5945,8 @@ private fun QuestionnaireForm(
         // the matching question/section.
         if (qMedia.uris.isNotEmpty()) {
             HorizontalDivider()
-            Text("Recordings uploading", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
-            Text("Your question/section audio uploads as you record. They link to this interview on save.", color = Muted, fontSize = 12.sp)
+            Text("All recordings (every section)", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+            Text("Every question/section clip across the whole interview, uploading as you record. They link to this interview on save.", color = Muted, fontSize = 12.sp)
             AttachedUploadsCard(context = context, media = qMedia, label = "recording") { uri -> removeClipUri(uri) }
         }
         // Any saved media not tied to a specific section (general attachments, or recordings whose
@@ -5661,7 +5956,7 @@ private fun QuestionnaireForm(
             if (otherSavedMedia.isNotEmpty()) {
                 HorizontalDivider()
                 Text("Other saved recordings & media", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
-                otherSavedMedia.forEach { MediaWithTranscript(context, it) }
+                otherSavedMedia.forEach { MediaWithTranscript(context, it, repository) }
             }
         }
         // Attach photos, video, audio files and other media to this interview (with live upload
@@ -5721,16 +6016,34 @@ private fun QuestionnaireForm(
                         questionAudio.forEach { (key, uris) ->
                             val caption: String
                             val hint: String
+                            // Nomenclature parts: section code + question number (or "SEC" for a whole
+                            // section take), and the interview name — fed into the per-clip filename
+                            // SECTION_QUESTION_INTERVIEWNAME_DURATIONHHMMSS_DATETIMEDDMMYYYYHHMM.
+                            val sectionCodePart: String?
+                            val questionNumberPart: String?
                             if (key.startsWith("section:")) {
                                 val section = sectionsById[key.removePrefix("section:")]
                                 caption = "Section audio: ${section?.code ?: ""} ${section?.title ?: ""}".trim()
                                 hint = title.ifBlank { section?.title ?: "Section recording" }
+                                sectionCodePart = section?.code
+                                questionNumberPart = "SEC"
                             } else {
                                 val question = questionsById[key]
                                 caption = "Question audio: ${question?.sectionCode ?: ""}${question?.sortOrder ?: ""} ${question?.prompt ?: ""}".trim()
                                 hint = title.ifBlank { question?.prompt ?: "Question recording" }
+                                sectionCodePart = question?.sectionCode
+                                questionNumberPart = question?.sortOrder?.toString()
                             }
                             uris.forEachIndexed { index, uri ->
+                                val baseName = questionnaireClipBaseName(
+                                    context = context,
+                                    sectionCode = sectionCodePart,
+                                    questionNumber = questionNumberPart,
+                                    interviewName = title,
+                                    uri = uri
+                                // Append the clip index when a target has more than one clip, so two
+                                // recordings of the same question in the same minute never collide.
+                                ).let { if (uris.size > 1) "${it}_${index + 1}" else it }
                                 // Prefer the eagerly pre-uploaded object (awaiting any still-in-flight
                                 // transfer); only fall back to a fresh upload if staging never ran/failed.
                                 val staged = qMedia.stagedDeferred[uri]?.let { runCatching { it.await() }.getOrNull() }
@@ -5743,7 +6056,8 @@ private fun QuestionnaireForm(
                                         recordName = hint,
                                         caption = caption,
                                         location = null,
-                                        batchIndex = index + 1
+                                        batchIndex = index + 1,
+                                        overrideBaseName = baseName
                                     )
                                 } else {
                                     repository.uploadMedia(
@@ -5754,7 +6068,8 @@ private fun QuestionnaireForm(
                                         caption = caption,
                                         location = null,
                                         titleHint = hint,
-                                        batchIndex = index + 1
+                                        batchIndex = index + 1,
+                                        overrideBaseName = baseName
                                     )
                                 }
                             }
@@ -6253,6 +6568,46 @@ private fun openUri(context: Context, uri: Uri, mimeType: String?) {
     }
 }
 
+/** A media file's duration as HHMMSS (zero-padded), read from its metadata; "000000" if unknown. */
+private fun mediaDurationHHMMSS(context: Context, uri: Uri): String {
+    val ms = runCatching {
+        val retriever = android.media.MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(context, uri)
+            retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }.getOrDefault(0L)
+    val totalSeconds = ms / 1000
+    val h = totalSeconds / 3600
+    val m = (totalSeconds % 3600) / 60
+    val s = totalSeconds % 60
+    return "%02d%02d%02d".format(h, m, s)
+}
+
+/**
+ * Build the questionnaire recording filename base per the required nomenclature:
+ * `SECTION_QUESTION_INTERVIEWNAME_DURATIONHHMMSS_DATETIMEDDMMYYYYHHMM`. The repository sanitises this
+ * and appends the file extension. For a whole-section recording the question slot is "SEC".
+ */
+private fun questionnaireClipBaseName(
+    context: Context,
+    sectionCode: String?,
+    questionNumber: String?,
+    interviewName: String?,
+    uri: Uri
+): String {
+    fun token(value: String?, fallback: String): String =
+        value?.trim()?.replace(Regex("[^A-Za-z0-9]+"), "")?.uppercase()?.take(40)?.ifBlank { fallback } ?: fallback
+    val section = token(sectionCode, "SEC")
+    val question = token(questionNumber, "SEC")
+    val name = token(interviewName, "INTERVIEW")
+    val duration = mediaDurationHHMMSS(context, uri)
+    val stamp = java.text.SimpleDateFormat("ddMMyyyyHHmm", java.util.Locale.US).format(java.util.Date())
+    return listOf(section, question, name, duration, stamp).joinToString("_")
+}
+
 private fun createAudioRecorder(context: Context, file: File): MediaRecorder {
     val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         MediaRecorder(context)
@@ -6261,9 +6616,18 @@ private fun createAudioRecorder(context: Context, file: File): MediaRecorder {
         MediaRecorder()
     }
     return recorder.apply {
-        setAudioSource(MediaRecorder.AudioSource.MIC)
+        // VOICE_RECOGNITION routes capture through the platform's voice pre-processing (noise
+        // suppression / AGC) tuned for clean speech without the aggressive echo-cancellation of the
+        // call path — i.e. less background noise and better transcription accuracy than raw MIC.
+        // Fall back to MIC on the rare device that doesn't expose the recognition source.
+        runCatching { setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION) }
+            .onFailure { setAudioSource(MediaRecorder.AudioSource.MIC) }
         setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
         setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+        // Mono speech at 44.1 kHz / 96 kbps: clear voice, modest file size, ideal for transcription.
+        setAudioChannels(1)
+        setAudioSamplingRate(44_100)
+        setAudioEncodingBitRate(96_000)
         setOutputFile(file.absolutePath)
         prepare()
     }

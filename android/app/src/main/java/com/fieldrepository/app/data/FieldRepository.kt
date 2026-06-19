@@ -171,6 +171,13 @@ class FieldRepository(
     suspend fun relinkMedia(mediaId: String, linkedRecordType: String, linkedRecordId: String): MediaFileDto =
         api.relinkMedia(mediaId, MediaRelinkRequest(linkedRecordType = linkedRecordType, linkedRecordId = linkedRecordId))
 
+    /**
+     * AI-refine a media file's transcript into a clean interviewer/interviewee conversation (Markdown),
+     * optionally translated to English. Billable (gpt-4o-mini) — the caller confirms cost first.
+     */
+    suspend fun refineTranscript(mediaId: String, translate: Boolean): TranscriptRefineResponse =
+        api.refineTranscript(mediaId, TranscriptRefineRequest(translate = translate))
+
     /** Download an update APK to the cache and return the file, for handing to the system installer. */
     suspend fun downloadApk(context: Context, url: String, versionCode: Int): File = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "updates").apply { mkdirs() }
@@ -191,9 +198,14 @@ class FieldRepository(
 
     suspend fun products(): List<ProductDetailDto> = api.products(pageSize = 100).items
 
-    /** Products the server has linked to a given artisan (covers datasets with >100 total products). */
-    suspend fun productsForArtisan(artisanId: String): List<ProductDetailDto> =
-        api.products(pageSize = 100, artisanId = artisanId).items
+    /**
+     * Products the server links to a given artisan. Covers datasets with >100 total products, and —
+     * when the artisan's name is supplied — also returns legacy products that carry only the typed
+     * artisan name with no FK link (the server OR-matches by name for FK-null rows). This is what
+     * makes the process form's product dropdown reliable instead of intermittently empty.
+     */
+    suspend fun productsForArtisan(artisanId: String, artisanName: String? = null): List<ProductDetailDto> =
+        api.products(pageSize = 100, artisanId = artisanId, artisanName = artisanName?.trim()?.ifBlank { null }).items
 
     suspend fun tools(): List<ToolDetailDto> = api.tools(pageSize = 100).items
 
@@ -393,6 +405,7 @@ class FieldRepository(
         processingRequests: List<String>? = null,
         stageStep: Int? = null,
         customSegment: String? = null,
+        overrideBaseName: String? = null,
         onProgress: ((sent: Long, total: Long) -> Unit)? = null
     ): MediaFileDto {
         val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
@@ -413,6 +426,7 @@ class FieldRepository(
             processingRequests = processingRequests,
             stageStep = stageStep,
             customSegment = customSegment,
+            overrideBaseName = overrideBaseName,
             onProgress = onProgress
         )
     }
@@ -433,11 +447,14 @@ class FieldRepository(
         processingRequests: List<String>?,
         stageStep: Int?,
         customSegment: String?,
+        overrideBaseName: String? = null,
         onProgress: ((sent: Long, total: Long) -> Unit)?
     ): MediaFileDto {
         val resolvedProcessing = processingRequests
             ?: if (mediaType == "AUDIO") listOf("TRANSCRIPTION") else emptyList()
-        val filename = mediaFilename(
+        val filename = if (!overrideBaseName.isNullOrBlank()) {
+            applyOverrideName(overrideBaseName, originalName.substringAfterLast('.', "").takeIf { it.isNotBlank() })
+        } else mediaFilename(
             recordType = linkedRecordType,
             recordName = titleHint ?: caption,
             mediaType = mediaType,
@@ -673,9 +690,12 @@ class FieldRepository(
         batchIndex: Int = 1,
         stageStep: Int? = null,
         customSegment: String? = null,
-        processingRequests: List<String>? = null
+        processingRequests: List<String>? = null,
+        overrideBaseName: String? = null
     ): MediaFileDto {
-        val filename = mediaFilename(
+        val filename = if (!overrideBaseName.isNullOrBlank()) {
+            applyOverrideName(overrideBaseName, staged.extension)
+        } else mediaFilename(
             recordType = linkedRecordType,
             recordName = recordName ?: caption,
             mediaType = staged.mediaType,
@@ -915,6 +935,20 @@ class FieldRepository(
             .replace(Regex("[^A-Za-z0-9]"), "")
             .take(60)
             .ifBlank { "Record" }
+
+    /**
+     * Sanitise a caller-supplied base filename (already structured with `_`-separated tokens, e.g. the
+     * questionnaire nomenclature `SECTION_QUESTION_NAME_DURATION_TIMESTAMP`) and append the extension.
+     * Underscores are preserved as the field separator; any other unsafe character becomes `_`.
+     */
+    private fun applyOverrideName(base: String, extension: String?): String {
+        val cleaned = base.trim()
+            .replace(Regex("[^A-Za-z0-9_]+"), "_")
+            .trim('_')
+            .take(150)
+            .ifBlank { "RECORDING" }
+        return if (extension.isNullOrBlank()) cleaned else "$cleaned.$extension"
+    }
 }
 
 private fun String?.blankToNull(): String? = this?.trim()?.takeIf { it.isNotEmpty() }

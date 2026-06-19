@@ -258,6 +258,21 @@ data class MediaRelinkRequest(
 )
 
 @Serializable
+data class TranscriptRefineRequest(
+    val translate: Boolean = false
+)
+
+@Serializable
+data class TranscriptRefineResponse(
+    val available: Boolean = true,
+    val status: String? = null,
+    val refined: String? = null,
+    val model: String? = null,
+    val translated: Boolean = false,
+    val message: String? = null
+)
+
+@Serializable
 data class MeasurementAnalysisDto(
     val valueInches: Double? = null,
     val lengthInches: Double? = null,
