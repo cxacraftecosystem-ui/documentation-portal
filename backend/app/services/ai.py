@@ -188,15 +188,19 @@ def _refine_sync(text: str, translate_to_english: bool, settings: Settings) -> d
     )
     system = (
         "You are an expert interview transcript editor. You reformat a raw, unpunctuated speech-to-text "
-        "transcript into a clean, readable dialogue between an Interviewer and an Interviewee. You fix "
-        "obvious transcription errors, punctuation and capitalisation, and split the text into speaker "
-        "turns. You NEVER invent, add, or remove information — only restructure and lightly correct what "
-        "is present. If the speaker of a passage is genuinely unclear, label it **Speaker:**."
+        "transcript into a clean, readable dialogue. An interview may involve one interviewer (or more) "
+        "and ONE OR MORE interviewees. You fix obvious transcription errors, punctuation and "
+        "capitalisation, and split the text into speaker turns. You NEVER invent, add, or remove "
+        "information — only restructure and lightly correct what is present. If the speaker of a passage "
+        "is genuinely unclear, label it **Speaker:**."
     )
     user = (
         "Reformat the following raw interview transcript into a conversation using Markdown. Put each "
-        "turn on its own line, beginning with a bold speaker label (`**Interviewer:**` or "
-        "`**Interviewee:**`), followed by that turn's text. Keep it faithful to the source." + translate_clause
+        "turn on its own line, beginning with a bold speaker label, followed by that turn's text. Use "
+        "`**Interviewer:**` for the interviewer. There may be MULTIPLE interviewees — when you can tell "
+        "them apart, label them `**Interviewee 1:**`, `**Interviewee 2:**`, etc.; if there is clearly "
+        "only one, use `**Interviewee:**`. Separate clearly distinct topics or sections with a Markdown "
+        "horizontal rule on its own line (`---`). Keep it faithful to the source." + translate_clause
         + "\n\nRaw transcript:\n\n" + clipped
     )
     refined = _post_openai_chat(

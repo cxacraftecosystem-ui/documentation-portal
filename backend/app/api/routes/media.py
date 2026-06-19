@@ -21,6 +21,7 @@ from app.schemas.media import (
     PresignRequest,
     PresignResponse,
     TranscriptRefineRequest,
+    TranscriptUpdateRequest,
 )
 from app.services.ai import analyze_measurement_image, refine_transcript_text, transcribe_audio
 from app.services.media_queue import enqueue_media_processing_jobs, process_next_media_jobs
@@ -320,6 +321,30 @@ async def refine_media_transcript(
     media = await require_record(db.mediafile, media_id)
     transcript = getattr(media, "transcriptText", None)
     return await refine_transcript_text(transcript, payload.translate, get_settings())
+
+
+@router.post("/{media_id}/transcript")
+async def set_media_transcript(
+    media_id: str,
+    payload: TranscriptUpdateRequest,
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Replace a media file's stored transcript with approved text (e.g. an AI-refined transcript the
+    user accepted). Allowed for the uploader or an admin, mirroring the media-delete permission. Marks
+    the transcript COMPLETED and clears any prior error. Declared before ``GET /{media_id}`` so the
+    two-segment path resolves here."""
+    media = await require_record(db.mediafile, media_id)
+    if not is_admin(current_user) and getattr(media, "uploadedById", None) != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only edit the transcript of media you uploaded",
+        )
+    updated = await db.mediafile.update(
+        where={"id": media.id},
+        data={"transcriptText": payload.text, "transcriptStatus": "COMPLETED", "transcriptError": None},
+        include=INCLUDE,
+    )
+    return public_encode(updated)
 
 
 @router.get("/jobs")

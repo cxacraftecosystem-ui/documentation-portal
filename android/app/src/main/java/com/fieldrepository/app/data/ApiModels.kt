@@ -263,6 +263,11 @@ data class TranscriptRefineRequest(
 )
 
 @Serializable
+data class TranscriptUpdateRequest(
+    val text: String
+)
+
+@Serializable
 data class TranscriptRefineResponse(
     val available: Boolean = true,
     val status: String? = null,

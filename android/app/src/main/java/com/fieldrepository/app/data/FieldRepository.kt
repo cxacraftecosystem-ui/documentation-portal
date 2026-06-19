@@ -178,6 +178,10 @@ class FieldRepository(
     suspend fun refineTranscript(mediaId: String, translate: Boolean): TranscriptRefineResponse =
         api.refineTranscript(mediaId, TranscriptRefineRequest(translate = translate))
 
+    /** Save an approved (AI-refined) transcript in place of the stored one. Uploader or admin only. */
+    suspend fun applyTranscript(mediaId: String, text: String): MediaFileDto =
+        api.setTranscript(mediaId, TranscriptUpdateRequest(text = text))
+
     /** Download an update APK to the cache and return the file, for handing to the system installer. */
     suspend fun downloadApk(context: Context, url: String, versionCode: Int): File = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "updates").apply { mkdirs() }

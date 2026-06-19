@@ -29,6 +29,13 @@ class TranscriptRefineRequest(APIModel):
     translate: bool = False
 
 
+class TranscriptUpdateRequest(APIModel):
+    """Replace a media file's stored transcript text — used when a user approves an AI-refined
+    transcript to save it in place of the raw one."""
+
+    text: str = Field(min_length=1, max_length=200_000)
+
+
 class PresignResponse(APIModel):
     uploadUrl: str
     method: str = "PUT"

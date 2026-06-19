@@ -435,13 +435,15 @@ private fun HomeScreen(
     var adminView by remember { mutableStateOf(isMasterAdmin) }
 
     val context = LocalContext.current
-    // Over-the-air update: on launch, see if the master admin pushed a newer build than the one
-    // installed; if so, offer a one-tap self-update. `pushingUpdate` guards the publish action.
+    // Over-the-air update: see if the master admin pushed a newer build than the one installed; if so,
+    // force a one-tap self-update. We check both on launch AND every time the app is resumed, so a
+    // freshly-pushed update is caught the next time the user foregrounds the app — not only on a cold
+    // start. `pushingUpdate` guards the publish action.
     var pendingUpdate by remember { mutableStateOf<AppReleaseDto?>(null) }
     var updateBusy by remember { mutableStateOf(false) }
     var updateError by remember { mutableStateOf<String?>(null) }
     var pushingUpdate by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
+    suspend fun checkForUpdate() {
         runCatching {
             val latest = repository.latestAppRelease()
             if (latest.versionCode > repository.installedVersionCode(context) && !latest.url.isNullOrBlank()) {
@@ -449,6 +451,20 @@ private fun HomeScreen(
             }
         }
     }
+    LaunchedEffect(Unit) { checkForUpdate() }
+    // Re-check on resume. The activity is the LifecycleOwner; cast defensively so a failure simply
+    // falls back to the launch-time check rather than crashing.
+    val lifecycleOwner = context as? androidx.lifecycle.LifecycleOwner
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) scope.launch { checkForUpdate() }
+        }
+        lifecycleOwner?.lifecycle?.addObserver(observer)
+        onDispose { lifecycleOwner?.lifecycle?.removeObserver(observer) }
+    }
+    // First-run walkthrough: new sign-ups see it automatically; anyone can reopen it from the menu.
+    var showWalkthrough by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { if (!walkthroughSeen(context)) showWalkthrough = true }
 
     // Surface a message, but swallow the noise from a coroutine being cancelled when a screen is
     // left during navigation (e.g. "The coroutine scope left the composition") — that is expected,
@@ -551,6 +567,7 @@ private fun HomeScreen(
                         onMyActivity = { message = null; screen = Screen.MyActivity; scope.launch { drawerState.close() } },
                         onAssignTools = { message = null; screen = Screen.ToolAssign; scope.launch { drawerState.close() } },
                         onFeedback = { message = null; screen = Screen.Feedback; scope.launch { drawerState.close() } },
+                        onWalkthrough = { showWalkthrough = true; scope.launch { drawerState.close() } },
                         onToggleAdminView = { adminView = !adminView },
                         onPushUpdate = {
                             scope.launch { drawerState.close() }
@@ -782,6 +799,11 @@ private fun HomeScreen(
             Text(it, color = Body, modifier = Modifier.padding(bottom = 24.dp))
         }
 
+        // The walkthrough never sits on top of a required-update prompt (that must be handled first).
+        if (showWalkthrough && pendingUpdate == null) {
+            WalkthroughDialog(onDismiss = { showWalkthrough = false; markWalkthroughSeen(context) })
+        }
+
         pendingUpdate?.let { release ->
             // A required update. The dialog is non-dismissable — there is no "Later" and tapping
             // outside / pressing back does nothing — so the user must install before they can proceed.
@@ -883,6 +905,7 @@ private fun AppDrawerContent(
     onMyActivity: () -> Unit,
     onAssignTools: () -> Unit,
     onFeedback: () -> Unit,
+    onWalkthrough: () -> Unit,
     onToggleAdminView: () -> Unit,
     onPushUpdate: () -> Unit,
     onLogout: () -> Unit
@@ -954,6 +977,13 @@ private fun AppDrawerContent(
                 selected = false,
                 icon = { Icon(Icons.Filled.RateReview, contentDescription = null) },
                 onClick = onFeedback,
+                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+            )
+            NavigationDrawerItem(
+                label = { Text("App walkthrough / guide") },
+                selected = false,
+                icon = { Icon(Icons.Filled.Quiz, contentDescription = null) },
+                onClick = onWalkthrough,
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
             )
             if (isAdmin) {
@@ -3980,8 +4010,11 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
     val isAudio = media.mediaType.equals("AUDIO", ignoreCase = true)
     val processing = setOf("QUEUED", "PROCESSING", "PENDING", "RUNNING")
     val done = setOf("COMPLETED", "EMPTY", "DONE")
+    // The transcript is hoisted into local state so that approving an AI-refined version replaces the
+    // shown transcript immediately (the backend has already persisted it for the next load).
+    var transcriptText by remember(media.id) { mutableStateOf(media.transcriptText) }
     when {
-        !media.transcriptText.isNullOrBlank() -> {
+        !transcriptText.isNullOrBlank() -> {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -3990,14 +4023,21 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text("Transcript", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                Text(media.transcriptText!!, color = Body, fontSize = 13.sp)
+                // Render with the Markdown renderer so an approved (refined) transcript keeps its
+                // formatting/section breaks; a plain raw transcript is unaffected.
+                MarkdownText(markdown = transcriptText!!, color = Body)
             }
             // AI refinement controls under the transcript (only where a repository is available, i.e.
             // the record/update & view screens). Turns the raw transcript into a clean conversation,
             // optionally translated to English. Both actions are billable, so they're gated behind a
-            // one-time cost confirmation.
+            // one-time cost confirmation. Approving a refined version saves it in place via onApplied.
             if (repository != null) {
-                TranscriptRefineControls(context = context, media = media, repository = repository)
+                TranscriptRefineControls(
+                    context = context,
+                    media = media,
+                    repository = repository,
+                    onApplied = { newText -> transcriptText = newText }
+                )
             }
         }
         isAudio && (status == null || status in processing) -> {
@@ -4020,15 +4060,118 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
     }
 }
 
-// SharedPreferences holding the "don't remind me again" acknowledgement for AI-cost prompts.
+// SharedPreferences holding the "don't remind me again" acknowledgement for AI-cost prompts, and
+// whether the user has seen (or skipped) the first-run walkthrough.
 private const val APP_PREFS_NAME = "fieldrepo_prefs"
 private const val PREF_AI_COST_ACK = "ai_refine_cost_ack"
+private const val PREF_WALKTHROUGH_SEEN = "walkthrough_seen"
 
 private fun aiCostReminderSuppressed(context: Context): Boolean =
     context.getSharedPreferences(APP_PREFS_NAME, Context.MODE_PRIVATE).getBoolean(PREF_AI_COST_ACK, false)
 
 private fun suppressAiCostReminder(context: Context) {
     context.getSharedPreferences(APP_PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(PREF_AI_COST_ACK, true).apply()
+}
+
+/** True once the user has finished or skipped the walkthrough at least once on this device. */
+private fun walkthroughSeen(context: Context): Boolean =
+    context.getSharedPreferences(APP_PREFS_NAME, Context.MODE_PRIVATE).getBoolean(PREF_WALKTHROUGH_SEEN, false)
+
+private fun markWalkthroughSeen(context: Context) {
+    context.getSharedPreferences(APP_PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(PREF_WALKTHROUGH_SEEN, true).apply()
+}
+
+/** One step of the in-app walkthrough: a heading and a short description of a feature area. */
+private data class WalkStep(val title: String, val body: String)
+
+private val walkthroughSteps = listOf(
+    WalkStep(
+        "Welcome to Field Repository",
+        "This quick tour shows how to document artisans, crafts, products, tools, workshops, processes " +
+            "and interviews — and how recordings, transcripts and media work. You can Skip any time and " +
+            "reopen this from the menu later."
+    ),
+    WalkStep(
+        "Your dashboard",
+        "The home screen shows repository totals and a tile for each record type. Tap a tile's “New” " +
+            "to add a record, or “Update existing” to find and edit one."
+    ),
+    WalkStep(
+        "The menu (☰)",
+        "Tap the menu at the top-right to jump straight to any record type, your own activity, app " +
+            "feedback, this walkthrough, and to sign out."
+    ),
+    WalkStep(
+        "Artisans, crafts & products",
+        "Fill the form fields (required ones are highlighted). Products and tools link to a craft and an " +
+            "artisan — choose the linked craft first, then the artisan, and the names fill in for you."
+    ),
+    WalkStep(
+        "Attach photos, video & audio",
+        "Every form has an attach-media section: capture or pick files. They upload as you go with a live " +
+            "progress card, and you can remove any file with the ✕ cross before saving."
+    ),
+    WalkStep(
+        "Measure with the grid",
+        "On products and tools, “Document using grid” reads length/breadth/height from a photo of the " +
+            "object on a 1-inch grid sheet and fills the fields. Remove a grid photo with its ✕."
+    ),
+    WalkStep(
+        "Questionnaire interviews",
+        "Pick the artisan(s), then record each question — or a whole section in one take. Clips upload as " +
+            "you record, shown in a per-section card and an all-recordings card, and audio is transcribed " +
+            "automatically."
+    ),
+    WalkStep(
+        "Transcripts & AI refine",
+        "Under each audio transcript, tap “Refine transcript” (or “Refine & translate”) to turn it " +
+            "into a clean interviewer/interviewee conversation, then Approve it to save it in place of the " +
+            "raw text. These use AI and cost a little, so you'll be asked to confirm."
+    ),
+    WalkStep(
+        "Browse & view data",
+        "“View Data → Browse records” lets you pick a record type and entry to view everything, " +
+            "including transcribed audio. For questionnaires, choose the involved artisan(s) first."
+    ),
+    WalkStep(
+        "Staying up to date",
+        "When a newer app version is published you'll be prompted to update the next time you open the app " +
+            "— just tap “Update now”. That's it — you're ready to go!"
+    )
+)
+
+/**
+ * First-run (and on-demand) walkthrough: a stepped guide across the app's features with Back / Next /
+ * Done and a Skip. New sign-ups see it automatically; everyone can reopen it from the menu. Dismissing
+ * (Skip, Done, back, or tap-outside) marks it seen so it doesn't reappear on every launch.
+ */
+@Composable
+private fun WalkthroughDialog(onDismiss: () -> Unit) {
+    var step by remember { mutableStateOf(0) }
+    val steps = walkthroughSteps
+    val current = steps[step]
+    val isLast = step == steps.lastIndex
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("Walkthrough · ${step + 1}/${steps.size}", color = Muted, fontSize = 11.sp)
+                Text(current.title, fontFamily = FontFamily.Serif, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
+            }
+        },
+        text = { Text(current.body, fontSize = 14.sp, color = Body) },
+        confirmButton = {
+            TextButton(onClick = { if (isLast) onDismiss() else step++ }) {
+                Text(if (isLast) "Done" else "Next")
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (step > 0) TextButton(onClick = { step-- }) { Text("Back") }
+                TextButton(onClick = onDismiss) { Text("Skip") }
+            }
+        }
+    )
 }
 
 /**
@@ -4038,12 +4181,20 @@ private fun suppressAiCostReminder(context: Context) {
  * is the only thing that incurs another cost.
  */
 @Composable
-private fun TranscriptRefineControls(context: Context, media: MediaFileDto, repository: FieldRepository) {
+private fun TranscriptRefineControls(
+    context: Context,
+    media: MediaFileDto,
+    repository: FieldRepository,
+    onApplied: (String) -> Unit = {}
+) {
     val scope = rememberCoroutineScope()
     var refining by remember(media.id) { mutableStateOf(false) }
     var refined by remember(media.id) { mutableStateOf<String?>(null) }
     var refinedTranslated by remember(media.id) { mutableStateOf(false) }
     var refineError by remember(media.id) { mutableStateOf<String?>(null) }
+    // Approval state: persisting the refined transcript, plus a one-time "saved" confirmation.
+    var applying by remember(media.id) { mutableStateOf(false) }
+    var appliedNote by remember(media.id) { mutableStateOf<String?>(null) }
     // When non-null, the cost dialog is open for that mode (false = refine, true = refine+translate).
     var pendingTranslate by remember { mutableStateOf<Boolean?>(null) }
     var dontRemind by remember { mutableStateOf(false) }
@@ -4102,8 +4253,46 @@ private fun TranscriptRefineControls(context: Context, media: MediaFileDto, repo
                 fontWeight = FontWeight.SemiBold
             )
             MarkdownText(markdown = md, color = Canvas)
+            Text(
+                "Save this refined version in place of the current transcript?",
+                color = SurfaceCard,
+                fontSize = 11.sp
+            )
+            // Approve = persist the refined text as the transcript (uploader/admin only on the server);
+            // Reject = just discard this preview, leaving the stored transcript untouched.
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            applying = true
+                            refineError = null
+                            runCatching { repository.applyTranscript(media.id, md) }
+                                .onSuccess {
+                                    onApplied(md)
+                                    appliedNote = "Saved as the transcript ✓"
+                                    refined = null
+                                }
+                                .onFailure {
+                                    if (it !is kotlinx.coroutines.CancellationException)
+                                        refineError = it.message ?: "Couldn't save the refined transcript."
+                                }
+                            applying = false
+                        }
+                    },
+                    enabled = !applying,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = pad
+                ) { Text(if (applying) "Saving…" else "Approve", maxLines = 1, softWrap = false, fontSize = 12.sp) }
+                OutlinedButton(
+                    onClick = { refined = null },
+                    enabled = !applying,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = pad
+                ) { Text("Reject", maxLines = 1, softWrap = false, fontSize = 12.sp) }
+            }
         }
     }
+    appliedNote?.let { Text(it, color = SuccessGreen, fontSize = 11.sp) }
 
     val mode = pendingTranslate
     if (mode != null) {
@@ -4144,8 +4333,11 @@ private fun MarkdownText(markdown: String, color: Color = Body) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         markdown.replace("\r\n", "\n").split("\n").forEach { raw ->
             val line = raw.trim()
+            // A Markdown horizontal rule (---, ***, ___, three or more) becomes a long section-break line.
+            val isRule = line.length >= 3 && (line.all { it == '-' } || line.all { it == '*' } || line.all { it == '_' })
             when {
                 line.isEmpty() -> Spacer(Modifier.height(2.dp))
+                isRule -> HorizontalDivider(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), color = Muted)
                 line.startsWith("### ") -> Text(parseInlineMarkdown(line.removePrefix("### ")), color = color, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 line.startsWith("## ") -> Text(parseInlineMarkdown(line.removePrefix("## ")), color = color, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 line.startsWith("# ") -> Text(parseInlineMarkdown(line.removePrefix("# ")), color = color, fontWeight = FontWeight.Bold, fontSize = 17.sp)
@@ -4707,28 +4899,41 @@ private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = fal
             }.toMap()
             interviewsDetailed
                 .filter { iv -> iv.artisans.any { it.artisanId in selectedArtisanIds } }
-                .map { iv ->
-                    val artisanNames = iv.artisans
+                // Treat all interviews made by ONE researcher for the SAME set of artisans as a single
+                // record, regardless of how many separate update-saves exist — so the dropdown shows one
+                // clear entry per (researcher, artisan-set) instead of confusing duplicates. The most
+                // recent save is the representative the dropdown opens; the label still reflects the
+                // section/question coverage across all of that group's saves, and notes the count.
+                .groupBy { iv -> (iv.createdById ?: "") to iv.artisans.map { it.artisanId }.toSortedSet() }
+                .map { (_, group) ->
+                    val representative = group.maxByOrNull { it.createdAt ?: "" } ?: group.first()
+                    val artisanNames = representative.artisans
                         .mapNotNull { link -> link.artisan?.name ?: nameById[link.artisanId] }
                         .distinct()
                         .joinToString(", ")
                         .ifBlank { "Unknown artisan" }
-                    // The section/question codes this interview actually answered, in order, e.g. "A1, A2, B1".
-                    val answeredCodes = iv.responses
+                    // The section/question codes answered across every save in this group, in order.
+                    val answeredCodes = group
+                        .flatMap { iv -> iv.responses }
                         .mapNotNull { codeByQuestionId[it.questionId] }
                         .distinct()
+                        .sorted()
                     val qSpan = when {
                         answeredCodes.isEmpty() -> null
                         answeredCodes.size <= 4 -> answeredCodes.joinToString(" ")
                         else -> "${answeredCodes.first()}–${answeredCodes.last()} (${answeredCodes.size})"
                     }
+                    val researcher = representative.createdBy?.name
                     val rest = listOfNotNull(
                         qSpan,
-                        iv.title.takeIf { it.isNotBlank() },
-                        iv.place?.takeIf { it.isNotBlank() }
+                        representative.title.takeIf { it.isNotBlank() },
+                        representative.place?.takeIf { it.isNotBlank() },
+                        researcher?.let { "by $it" },
+                        if (group.size > 1) "${group.size} sessions" else null
                     ).joinToString(" · ")
-                    iv.id to (if (rest.isBlank()) artisanNames else "$artisanNames · $rest")
+                    representative.id to (if (rest.isBlank()) artisanNames else "$artisanNames · $rest")
                 }
+                .sortedBy { it.second.lowercase() }
         }
     }
 

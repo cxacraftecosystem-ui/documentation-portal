@@ -202,6 +202,10 @@ interface FieldRepositoryApi {
     @POST("media/{id}/refine-transcript")
     suspend fun refineTranscript(@Path("id") id: String, @Body body: TranscriptRefineRequest): TranscriptRefineResponse
 
+    // Save an (approved, AI-refined) transcript in place of the stored one. Uploader or admin only.
+    @POST("media/{id}/transcript")
+    suspend fun setTranscript(@Path("id") id: String, @Body body: TranscriptUpdateRequest): MediaFileDto
+
     @GET("export/dataset")
     suspend fun datasetManifest(): DatasetManifestDto
 
