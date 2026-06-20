@@ -61,8 +61,21 @@ jobs:
           ./.venv/bin/pip install --upgrade pip
           ./.venv/bin/pip install -e .
           PATH="$PWD/.venv/bin:$PATH" ./.venv/bin/python -m prisma generate
-          PATH="$PWD/.venv/bin:$PATH" ./.venv/bin/python -m prisma migrate deploy
+          # Migrations talk to the Supabase pooler in SESSION mode (pool_size 15). The running app
+          # holds most of those client sessions across its uvicorn workers, so the schema engine had
+          # no connection left and failed with "EMAXCONNSESSION max clients reached". Stop the app to
+          # free its sessions, then migrate (with a short retry for any sessions the pooler hasn't
+          # reclaimed yet). The app is ALWAYS restarted afterwards, so a transient migrate failure
+          # never leaves the API down — but a genuine migrate failure still fails the deploy.
+          sudo systemctl stop fieldrepo || true
+          sleep 5
+          migrate_ok=0
+          for attempt in 1 2 3 4 5; do
+            if PATH="$PWD/.venv/bin:$PATH" ./.venv/bin/python -m prisma migrate deploy; then migrate_ok=1; break; fi
+            echo "migrate attempt ${attempt} failed; waiting for pooler sessions to drain..."; sleep 10
+          done
           sudo systemctl restart fieldrepo
+          if [ "$migrate_ok" != "1" ]; then echo "prisma migrate deploy failed after retries"; exit 1; fi
           # App startup connects to Supabase (cross-region), so poll instead of a fixed sleep.
           for i in $(seq 1 40); do
             if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then echo "healthy after ${i} tries"; break; fi
