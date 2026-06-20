@@ -2,8 +2,11 @@ package com.fieldrepository.app
 
 import android.Manifest
 import android.app.DownloadManager
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.provider.Settings
 import android.content.pm.PackageManager
 import android.location.LocationManager
@@ -58,7 +61,9 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -172,6 +177,7 @@ import com.fieldrepository.app.data.MediaFileDto
 import com.fieldrepository.app.data.PendingReviewDto
 import com.fieldrepository.app.data.StagedMedia
 import androidx.compose.runtime.DisposableEffect
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import com.fieldrepository.app.data.ProductDetailDto
@@ -189,6 +195,7 @@ import com.fieldrepository.app.ui.MediaViewerDialog
 import com.fieldrepository.app.ui.ProvenanceSection
 import com.fieldrepository.app.ui.RecordingIndicator
 import java.io.File
+import java.io.FileOutputStream
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -437,6 +444,13 @@ private fun HomeScreen(
     // Master admin lands in admin view; other admins opt in from the menu.
     var adminView by remember { mutableStateOf(isMasterAdmin) }
 
+    // Unsaved-changes guard: a record form on screen registers its dirty-state + save action here, and
+    // any attempt to leave (system Back / in-app back arrow) is intercepted to offer Save / Discard so
+    // an accidental Back never loses a record or its in-progress recordings. [pendingExit] holds the
+    // navigation to run once the user decides.
+    val unsavedGuard = remember { UnsavedGuard() }
+    var pendingExit by remember { mutableStateOf<(() -> Unit)?>(null) }
+
     val context = LocalContext.current
     // Over-the-air update: see if the master admin pushed a newer build than the one installed; if so,
     // force a one-tap self-update. We check both on launch AND every time the app is resumed, so a
@@ -534,6 +548,16 @@ private fun HomeScreen(
         }
     }
 
+    // Leave the current screen, but if a form has unsaved work, route through the Save/Discard prompt
+    // first so an accidental Back can't silently drop a record or its in-progress recordings.
+    fun attemptExit(navigate: () -> Unit) {
+        if (unsavedGuard.dirty && unsavedGuard.onSave != null) {
+            pendingExit = navigate
+        } else {
+            navigate()
+        }
+    }
+
     val headerTitle = when (val s = screen) {
         is Screen.Dashboard -> "Field Repository"
         is Screen.Create -> s.mode.actionTitle
@@ -548,7 +572,7 @@ private fun HomeScreen(
         scope.launch { drawerState.close() }
     }
     BackHandler(enabled = drawerState.isClosed && screen !is Screen.Dashboard) {
-        goBack()
+        attemptExit { goBack() }
     }
 
     // Right-anchored drawer: wrap in RTL so the sheet slides in from the right (web parity),
@@ -600,7 +624,10 @@ private fun HomeScreen(
                 }
             }
         ) {
-            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            CompositionLocalProvider(
+                LocalLayoutDirection provides LayoutDirection.Ltr,
+                LocalUnsavedGuard provides unsavedGuard
+            ) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -623,7 +650,7 @@ private fun HomeScreen(
         }
 
         if (screen !is Screen.Dashboard) {
-            BackPill(onClick = { goBack() })
+            BackPill(onClick = { attemptExit { goBack() } })
         }
 
         when (val s = screen) {
@@ -847,6 +874,40 @@ private fun HomeScreen(
                             }
                         }
                     ) { Text(if (updateBusy) "Updating…" else "Update now") }
+                }
+            )
+        }
+
+        // Unsaved-changes prompt: shown when the user tries to leave a form that still has unsaved
+        // work. "Save" runs the form's own validated save (a missing required field keeps them on the
+        // form, highlighted); "Discard" leaves and drops the in-progress data; "Keep editing" stays.
+        pendingExit?.let { exit ->
+            AlertDialog(
+                onDismissRequest = { pendingExit = null },
+                title = { Text("Unsaved changes") },
+                text = {
+                    Text(
+                        "You have unsaved changes, including any recordings or media you just captured. " +
+                            "Save them before leaving, or discard them?"
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        pendingExit = null
+                        // The form validates and, on success, saves and navigates itself. On a missing
+                        // required field it stays put with the field highlighted.
+                        unsavedGuard.onSave?.invoke()
+                    }) { Text("Save") }
+                },
+                dismissButton = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(onClick = { pendingExit = null }) { Text("Keep editing") }
+                        TextButton(onClick = {
+                            pendingExit = null
+                            unsavedGuard.clear()
+                            exit()
+                        }) { Text("Discard", color = MaterialTheme.colorScheme.error) }
+                    }
                 }
             )
         }
@@ -1202,6 +1263,44 @@ private val traditionOptions = listOf("TRADITIONAL", "MODERN", "HYBRID", "UNKNOW
 private val statusOptions = listOf("DRAFT", "PENDING", "APPROVED", "REJECTED")
 private val genderOptions = listOf("Male", "Female", "Transgender", "Other")
 
+/**
+ * App-level controller that lets a record form tell the back navigation "I have unsaved work, and
+ * here's how to save it". The shell consults this before leaving a Create/Edit screen so an accidental
+ * Back (or the in-app back arrow) shows a Save / Discard prompt instead of silently dropping the
+ * record and its in-progress recordings. Exactly one form registers at a time (see
+ * [RegisterUnsavedGuard]); it clears itself when the form leaves composition.
+ */
+private class UnsavedGuard {
+    /** Whether the active form currently has unsaved changes worth prompting about. */
+    var dirty by mutableStateOf(false)
+    /** Runs the active form's own validated save (same as its Save button) — null when no form is shown. */
+    var onSave: (() -> Unit)? = null
+
+    fun clear() {
+        dirty = false
+        onSave = null
+    }
+}
+
+private val LocalUnsavedGuard = staticCompositionLocalOf<UnsavedGuard?> { null }
+
+/**
+ * Register the current form with the app-level [UnsavedGuard] so the Back navigation can offer to save
+ * it. [dirty] should be true whenever there is unsaved content (changed fields, or attached/recorded
+ * media not yet persisted); [onSave] must perform the SAME validated save the form's Save button does
+ * (validation failures keep the user on the form with the offending field highlighted).
+ */
+@Composable
+private fun RegisterUnsavedGuard(dirty: Boolean, onSave: () -> Unit) {
+    val guard = LocalUnsavedGuard.current ?: return
+    val currentSave by rememberUpdatedState(onSave)
+    LaunchedEffect(dirty) { guard.dirty = dirty }
+    DisposableEffect(Unit) {
+        guard.onSave = { currentSave() }
+        onDispose { guard.clear() }
+    }
+}
+
 /** Shared holder for media attachments, captured GPS, and an optional measurement-grid image. */
 private class MediaCaptureState {
     var uris by mutableStateOf<List<Uri>>(emptyList())
@@ -1238,6 +1337,52 @@ private class MediaCaptureState {
 
 @Composable
 private fun rememberMediaCaptureState(): MediaCaptureState = remember { MediaCaptureState() }
+
+/**
+ * Start (or restart) the eager pre-upload of ONE attachment to object storage, keeping the shared
+ * [MediaCaptureState] progress/staged/failed bookkeeping in sync. This is the single source of truth
+ * for "stream a captured file as soon as it is attached" — used both by the capture effects (for every
+ * newly-added uri) and by the per-file "Retry" button when an eager upload failed. [uiScope] is a
+ * composition-scoped scope used only to fold the result back into UI state; the transfer itself runs
+ * on the process-lifetime [AppScope] so it survives recomposition.
+ */
+private fun startEagerUpload(
+    repository: FieldRepository,
+    context: Context,
+    media: MediaCaptureState,
+    uri: Uri,
+    uiScope: CoroutineScope
+) {
+    // Reset any prior bookkeeping for this uri so a retry re-runs from a clean slate.
+    media.stagedDeferred.remove(uri)
+    media.staged = media.staged - uri
+    media.stagedFailed = media.stagedFailed - uri
+    media.stagedProgress = media.stagedProgress + (uri to 0f)
+    val deferred = AppScope.io.async {
+        var lastPct = -1
+        runCatching {
+            repository.preuploadObject(context, uri) { sent, total ->
+                // Throttle to whole-percent changes so a big file doesn't thrash recomposition.
+                val pct = if (total > 0L) ((sent * 100) / total).toInt() else 0
+                if (pct != lastPct) {
+                    lastPct = pct
+                    media.stagedProgress = media.stagedProgress + (uri to pct / 100f)
+                }
+            }
+        }.getOrNull()
+    }
+    media.stagedDeferred[uri] = deferred
+    uiScope.launch {
+        val result = runCatching { deferred.await() }.getOrNull()
+        if (result != null) {
+            media.staged = media.staged + (uri to result)
+            media.stagedProgress = media.stagedProgress + (uri to 1f)
+            media.stagedFailed = media.stagedFailed - uri
+        } else {
+            media.stagedFailed = media.stagedFailed + uri
+        }
+    }
+}
 
 private fun LocalDate.toIsoInstant(): String =
     atStartOfDay(ZoneId.systemDefault()).toInstant().toString()
@@ -1890,31 +2035,7 @@ private fun MediaCaptureSection(
     LaunchedEffect(media.uris) {
         media.uris.forEach { uri ->
             if (!media.stagedDeferred.containsKey(uri)) {
-                media.stagedProgress = media.stagedProgress + (uri to 0f)
-                val deferred = AppScope.io.async {
-                    var lastPct = -1
-                    runCatching {
-                        repository.preuploadObject(context, uri) { sent, total ->
-                            // Throttle to whole-percent changes so a big file doesn't thrash recomposition.
-                            val pct = if (total > 0L) ((sent * 100) / total).toInt() else 0
-                            if (pct != lastPct) {
-                                lastPct = pct
-                                media.stagedProgress = media.stagedProgress + (uri to pct / 100f)
-                            }
-                        }
-                    }.getOrNull()
-                }
-                media.stagedDeferred[uri] = deferred
-                scope.launch {
-                    val result = runCatching { deferred.await() }.getOrNull()
-                    if (result != null) {
-                        media.staged = media.staged + (uri to result)
-                        media.stagedProgress = media.stagedProgress + (uri to 1f)
-                        media.stagedFailed = media.stagedFailed - uri
-                    } else {
-                        media.stagedFailed = media.stagedFailed + uri
-                    }
-                }
+                startEagerUpload(repository, context, media, uri, scope)
             }
         }
     }
@@ -2108,6 +2229,8 @@ private fun MediaCaptureSection(
                         uri = uri,
                         progress = media.stagedProgress[uri],
                         failed = uri in media.stagedFailed,
+                        onRetry = { startEagerUpload(repository, context, media, uri, scope) },
+                        onDownload = { saveLocalUriToDevice(context, uri) },
                         onRemove = {
                             // Drop just this file from the batch and clean up its staged object (if any).
                             val deferred = media.stagedDeferred[uri]
@@ -2150,30 +2273,7 @@ private fun MediaStagingEffect(repository: FieldRepository, media: MediaCaptureS
     LaunchedEffect(media.uris) {
         media.uris.forEach { uri ->
             if (!media.stagedDeferred.containsKey(uri)) {
-                media.stagedProgress = media.stagedProgress + (uri to 0f)
-                val deferred = AppScope.io.async {
-                    var lastPct = -1
-                    runCatching {
-                        repository.preuploadObject(context, uri) { sent, total ->
-                            val pct = if (total > 0L) ((sent * 100) / total).toInt() else 0
-                            if (pct != lastPct) {
-                                lastPct = pct
-                                media.stagedProgress = media.stagedProgress + (uri to pct / 100f)
-                            }
-                        }
-                    }.getOrNull()
-                }
-                media.stagedDeferred[uri] = deferred
-                scope.launch {
-                    val result = runCatching { deferred.await() }.getOrNull()
-                    if (result != null) {
-                        media.staged = media.staged + (uri to result)
-                        media.stagedProgress = media.stagedProgress + (uri to 1f)
-                        media.stagedFailed = media.stagedFailed - uri
-                    } else {
-                        media.stagedFailed = media.stagedFailed + uri
-                    }
-                }
+                startEagerUpload(repository, context, media, uri, scope)
             }
         }
     }
@@ -2200,10 +2300,12 @@ private fun AttachedUploadsCard(
     context: Context,
     media: MediaCaptureState,
     label: String,
+    repository: FieldRepository,
     uris: List<Uri> = media.uris,
     onRemove: (Uri) -> Unit
 ) {
     if (uris.isEmpty()) return
+    val scope = rememberCoroutineScope()
     // Status is computed over just the passed-in subset, so a per-section card reflects only that
     // section's clips while still reading live progress/staged/failed state from the shared batch.
     val doneCount = uris.count { media.staged.containsKey(it) }
@@ -2236,6 +2338,8 @@ private fun AttachedUploadsCard(
                 uri = uri,
                 progress = media.stagedProgress[uri],
                 failed = uri in media.stagedFailed,
+                onRetry = { startEagerUpload(repository, context, media, uri, scope) },
+                onDownload = { saveLocalUriToDevice(context, uri) },
                 onRemove = { onRemove(uri) }
             )
         }
@@ -2593,7 +2697,42 @@ private fun CraftForm(
     var nameError by remember { mutableStateOf<String?>(null) }
     val nameFocus = remember { FocusRequester() }
 
+    fun submit() {
+        if (!validateRequired(listOf(
+                RequiredCheck(name.isBlank(), { nameError = it }, nameFocus)
+            ))) { onError("Please fill the required field highlighted above."); return }
+        scope.launch {
+            saving = true
+            runCatching {
+                val body = CraftCreateRequest(
+                    name = name.trim(),
+                    localName = localName.blankToNull(),
+                    category = category.blankToNull(),
+                    place = place.blankToNull(),
+                    description = description.blankToNull(),
+                    recordedAt = if (isEdit) null else Instant.now().toString()
+                )
+                val craftId = if (isEdit) {
+                    repository.updateCraft(editing!!.id, body).id
+                } else {
+                    repository.createCraft(body).id
+                }
+                uploadAttachments(repository, context, media, "craft", craftId, name, "Field media for ${name.trim()}")
+            }.onSuccess {
+                media.reset()
+                onDone()
+            }.onFailure { onError(it.message ?: "Unable to save craft") }
+            saving = false
+        }
+    }
+    val initialSig = remember(editing) { listOf(name, localName, category, place, description).joinToString("") }
+    val dirty = !saving && (
+        listOf(name, localName, category, place, description).joinToString("") != initialSig ||
+            media.uris.isNotEmpty() || media.measurementUri != null
+    )
+
     RecordCard(title = if (isEdit) "Edit craft" else "Add craft") {
+        RegisterUnsavedGuard(dirty = dirty) { submit() }
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
@@ -2607,34 +2746,7 @@ private fun CraftForm(
         }
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
         Button(
-            onClick = {
-                if (!validateRequired(listOf(
-                        RequiredCheck(name.isBlank(), { nameError = it }, nameFocus)
-                    ))) { onError("Please fill the required field highlighted above."); return@Button }
-                scope.launch {
-                    saving = true
-                    runCatching {
-                        val body = CraftCreateRequest(
-                            name = name.trim(),
-                            localName = localName.blankToNull(),
-                            category = category.blankToNull(),
-                            place = place.blankToNull(),
-                            description = description.blankToNull(),
-                            recordedAt = if (isEdit) null else Instant.now().toString()
-                        )
-                        val craftId = if (isEdit) {
-                            repository.updateCraft(editing!!.id, body).id
-                        } else {
-                            repository.createCraft(body).id
-                        }
-                        uploadAttachments(repository, context, media, "craft", craftId, name, "Field media for ${name.trim()}")
-                    }.onSuccess {
-                        media.reset()
-                        onDone()
-                    }.onFailure { onError(it.message ?: "Unable to save craft") }
-                    saving = false
-                }
-            },
+            onClick = { submit() },
             enabled = !saving,
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -2683,7 +2795,67 @@ private fun ArtisanForm(
         if (existing != null && media.location == null) media.location = existing.toRequest()
     }
 
+    fun submit() {
+        if (!validateRequired(listOf(
+                RequiredCheck(name.isBlank(), { nameError = it }, nameFocus),
+                RequiredCheck(place.isBlank(), { placeError = it }, placeFocus),
+                RequiredCheck(!hasCraft, { craftError = it }, craftFocus)
+            ))) { onError("Please fill the required field highlighted above."); return }
+        scope.launch {
+            saving = true
+            runCatching {
+                val body = ArtisanCreateRequest(
+                    name = name.trim(),
+                    localName = localName.blankToNull(),
+                    gender = gender.blankToNull(),
+                    phone = phone.blankToNull(),
+                    email = email.blankToNull(),
+                    place = place.trim(),
+                    address = address.blankToNull(),
+                    notes = notes.blankToNull(),
+                    craftId = craftId.ifBlank { null },
+                    craftName = if (craftId.isBlank()) newCraftName.blankToNull() else null,
+                    status = status,
+                    recordedAt = if (isEdit) null else Instant.now().toString(),
+                    location = locationForBody(isEdit, media.location, editing?.location)
+                )
+                val artisanId = if (isEdit) {
+                    repository.updateArtisan(editing!!.id, body).id
+                } else {
+                    repository.createArtisan(body).id
+                }
+                uploadAttachments(repository, context, media, "artisan", artisanId, name, "Field media for ${name.trim()}")
+                artisanId
+            }.onSuccess { artisanId ->
+                if (isEdit) {
+                    media.reset()
+                    onDone()
+                } else {
+                    val resolvedCraftName = crafts.firstOrNull { it.id == craftId }?.name ?: newCraftName.blankToNull()
+                    val prefillOut = Prefill(
+                        artisanId = artisanId,
+                        artisanName = name.trim(),
+                        place = place.trim(),
+                        craftId = craftId.ifBlank { null },
+                        craftName = resolvedCraftName
+                    )
+                    media.reset()
+                    onArtisanCreated(prefillOut)
+                }
+            }.onFailure { onError(it.message ?: "Unable to save artisan") }
+            saving = false
+        }
+    }
+    val initialSig = remember(editing) {
+        listOf(name, localName, gender, phone, email, place, address, notes, craftId, newCraftName, status).joinToString("")
+    }
+    val dirty = !saving && (
+        listOf(name, localName, gender, phone, email, place, address, notes, craftId, newCraftName, status).joinToString("") != initialSig ||
+            media.uris.isNotEmpty() || media.measurementUri != null
+    )
+
     RecordCard(title = if (isEdit) "Edit artisan" else "Add artisan") {
+        RegisterUnsavedGuard(dirty = dirty) { submit() }
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
@@ -2721,57 +2893,7 @@ private fun ArtisanForm(
         }
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
         Button(
-            onClick = {
-                if (!validateRequired(listOf(
-                        RequiredCheck(name.isBlank(), { nameError = it }, nameFocus),
-                        RequiredCheck(place.isBlank(), { placeError = it }, placeFocus),
-                        RequiredCheck(!hasCraft, { craftError = it }, craftFocus)
-                    ))) { onError("Please fill the required field highlighted above."); return@Button }
-                scope.launch {
-                    saving = true
-                    runCatching {
-                        val body = ArtisanCreateRequest(
-                            name = name.trim(),
-                            localName = localName.blankToNull(),
-                            gender = gender.blankToNull(),
-                            phone = phone.blankToNull(),
-                            email = email.blankToNull(),
-                            place = place.trim(),
-                            address = address.blankToNull(),
-                            notes = notes.blankToNull(),
-                            craftId = craftId.ifBlank { null },
-                            craftName = if (craftId.isBlank()) newCraftName.blankToNull() else null,
-                            status = status,
-                            recordedAt = if (isEdit) null else Instant.now().toString(),
-                            location = locationForBody(isEdit, media.location, editing?.location)
-                        )
-                        val artisanId = if (isEdit) {
-                            repository.updateArtisan(editing!!.id, body).id
-                        } else {
-                            repository.createArtisan(body).id
-                        }
-                        uploadAttachments(repository, context, media, "artisan", artisanId, name, "Field media for ${name.trim()}")
-                        artisanId
-                    }.onSuccess { artisanId ->
-                        if (isEdit) {
-                            media.reset()
-                            onDone()
-                        } else {
-                            val resolvedCraftName = crafts.firstOrNull { it.id == craftId }?.name ?: newCraftName.blankToNull()
-                            val prefillOut = Prefill(
-                                artisanId = artisanId,
-                                artisanName = name.trim(),
-                                place = place.trim(),
-                                craftId = craftId.ifBlank { null },
-                                craftName = resolvedCraftName
-                            )
-                            media.reset()
-                            onArtisanCreated(prefillOut)
-                        }
-                    }.onFailure { onError(it.message ?: "Unable to save artisan") }
-                    saving = false
-                }
-            },
+            onClick = { submit() },
             enabled = !saving,
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -2826,7 +2948,60 @@ private fun WorkshopForm(
         runCatching { repository.crafts() }.onSuccess { crafts = it }
     }
 
+    fun submit() {
+        if (!validateRequired(listOf(
+                RequiredCheck(title.isBlank(), { titleError = it }, titleFocus),
+                RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
+            ))) { onError("Please fill the required field highlighted above."); return }
+        scope.launch {
+            saving = true
+            runCatching {
+                val start = (startDate ?: LocalDate.now()).toIsoInstant()
+                val end = (endDate ?: startDate ?: LocalDate.now()).toIsoInstant()
+                val originalArtisans = editing?.artisans?.map { it.artisanId }?.toSet() ?: emptySet()
+                val originalCrafts = editing?.crafts?.map { it.craftId }?.toSet() ?: emptySet()
+                // On edit, only send the relation when it changed (the backend replaces & re-checks it).
+                val artisanIdsParam = if (!isEdit || selectedArtisans != originalArtisans) selectedArtisans.toList() else null
+                val craftIdsParam = if (!isEdit || selectedCrafts != originalCrafts) selectedCrafts.toList() else null
+                val body = WorkshopCreateRequest(
+                    title = title.trim(),
+                    date = start,
+                    startDate = start,
+                    endDate = end,
+                    place = place.trim(),
+                    description = description.blankToNull(),
+                    notes = notes.blankToNull(),
+                    artisanIds = artisanIdsParam,
+                    craftIds = craftIdsParam,
+                    status = status,
+                    recordedAt = if (isEdit) null else Instant.now().toString(),
+                    location = locationForBody(isEdit, media.location, editing?.location)
+                )
+                val workshopId = if (isEdit) {
+                    repository.updateWorkshop(editing!!.id, body).id
+                } else {
+                    repository.createWorkshop(body).id
+                }
+                uploadAttachments(repository, context, media, "workshop", workshopId, title, "Field media for ${title.trim()}")
+            }.onSuccess {
+                media.reset()
+                onDone()
+            }.onFailure { onError(it.message ?: "Unable to save workshop") }
+            saving = false
+        }
+    }
+    val initialSig = remember(editing) {
+        listOf(title, place, description, notes, status, startDate?.toString() ?: "", endDate?.toString() ?: "",
+            selectedArtisans.sorted().joinToString(","), selectedCrafts.sorted().joinToString(",")).joinToString("")
+    }
+    val dirty = !saving && (
+        listOf(title, place, description, notes, status, startDate?.toString() ?: "", endDate?.toString() ?: "",
+            selectedArtisans.sorted().joinToString(","), selectedCrafts.sorted().joinToString(",")).joinToString("") != initialSig ||
+            media.uris.isNotEmpty() || media.measurementUri != null
+    )
+
     RecordCard(title = if (isEdit) "Edit workshop" else "Add workshop") {
+        RegisterUnsavedGuard(dirty = dirty) { submit() }
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
@@ -2866,48 +3041,7 @@ private fun WorkshopForm(
         }
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
         Button(
-            onClick = {
-                if (!validateRequired(listOf(
-                        RequiredCheck(title.isBlank(), { titleError = it }, titleFocus),
-                        RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
-                    ))) { onError("Please fill the required field highlighted above."); return@Button }
-                scope.launch {
-                    saving = true
-                    runCatching {
-                        val start = (startDate ?: LocalDate.now()).toIsoInstant()
-                        val end = (endDate ?: startDate ?: LocalDate.now()).toIsoInstant()
-                        val originalArtisans = editing?.artisans?.map { it.artisanId }?.toSet() ?: emptySet()
-                        val originalCrafts = editing?.crafts?.map { it.craftId }?.toSet() ?: emptySet()
-                        // On edit, only send the relation when it changed (the backend replaces & re-checks it).
-                        val artisanIdsParam = if (!isEdit || selectedArtisans != originalArtisans) selectedArtisans.toList() else null
-                        val craftIdsParam = if (!isEdit || selectedCrafts != originalCrafts) selectedCrafts.toList() else null
-                        val body = WorkshopCreateRequest(
-                            title = title.trim(),
-                            date = start,
-                            startDate = start,
-                            endDate = end,
-                            place = place.trim(),
-                            description = description.blankToNull(),
-                            notes = notes.blankToNull(),
-                            artisanIds = artisanIdsParam,
-                            craftIds = craftIdsParam,
-                            status = status,
-                            recordedAt = if (isEdit) null else Instant.now().toString(),
-                            location = locationForBody(isEdit, media.location, editing?.location)
-                        )
-                        val workshopId = if (isEdit) {
-                            repository.updateWorkshop(editing!!.id, body).id
-                        } else {
-                            repository.createWorkshop(body).id
-                        }
-                        uploadAttachments(repository, context, media, "workshop", workshopId, title, "Field media for ${title.trim()}")
-                    }.onSuccess {
-                        media.reset()
-                        onDone()
-                    }.onFailure { onError(it.message ?: "Unable to save workshop") }
-                    saving = false
-                }
-            },
+            onClick = { submit() },
             enabled = !saving,
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -2967,7 +3101,64 @@ private fun ProductForm(
         if (existing != null && media.location == null) media.location = existing.toRequest()
     }
 
+    fun submit() {
+        if (!validateRequired(listOf(
+                RequiredCheck(productName.isBlank(), { productNameError = it }, productNameFocus),
+                RequiredCheck(craftName.isBlank(), { craftNameError = it }, craftNameFocus),
+                RequiredCheck(artisanName.isBlank(), { artisanNameError = it }, artisanNameFocus),
+                RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
+            ))) { onError("Please fill the required field highlighted above."); return }
+        scope.launch {
+            saving = true
+            runCatching {
+                val body = ProductCreateRequest(
+                    productName = productName.trim(),
+                    localName = localName.blankToNull(),
+                    craftName = craftName.trim(),
+                    artisanName = artisanName.trim(),
+                    place = place.trim(),
+                    productType = productType,
+                    timeTakenToCompleteProduct = timeTaken.blankToNull(),
+                    size = size.blankToNull(),
+                    lengthInches = length.toDoubleOrNull(),
+                    breadthInches = breadth.toDoubleOrNull(),
+                    heightInches = height.toDoubleOrNull(),
+                    costOfMaking = costOfMaking.toDoubleOrNull(),
+                    sellingPrice = sellingPrice.toDoubleOrNull(),
+                    marketDemand = marketDemand,
+                    rawMaterialsUsed = rawMaterials.blankToNull(),
+                    mainToolsUsed = mainTools.blankToNull(),
+                    productFunctionUse = functionUse.blankToNull(),
+                    remarks = remarks.blankToNull(),
+                    artisanId = artisanId.ifBlank { null },
+                    craftId = craftId.ifBlank { null },
+                    status = status,
+                    recordedAt = if (isEdit) null else Instant.now().toString(),
+                    location = locationForBody(isEdit, media.location, editing?.location)
+                )
+                val productId = if (isEdit) {
+                    repository.updateProduct(editing!!.id, body).id
+                } else {
+                    repository.createProduct(body).id
+                }
+                uploadAttachments(repository, context, media, "product", productId, productName, "Field media for ${productName.trim()}")
+            }.onSuccess {
+                media.reset()
+                onDone()
+            }.onFailure { onError(it.message ?: "Unable to save product") }
+            saving = false
+        }
+    }
+    val productSig: () -> String = {
+        listOf(productName, localName, craftName, artisanName, place, productType, marketDemand, timeTaken, size,
+            length, breadth, height, costOfMaking, sellingPrice, rawMaterials, mainTools, functionUse, remarks,
+            status, craftId, artisanId).joinToString("")
+    }
+    val initialSig = remember(editing) { productSig() }
+    val dirty = !saving && (productSig() != initialSig || media.uris.isNotEmpty() || media.measurementUri != null)
+
     RecordCard(title = if (isEdit) "Edit product" else "Add product") {
+        RegisterUnsavedGuard(dirty = dirty) { submit() }
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
@@ -3041,54 +3232,7 @@ private fun ProductForm(
         }
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
         Button(
-            onClick = {
-                if (!validateRequired(listOf(
-                        RequiredCheck(productName.isBlank(), { productNameError = it }, productNameFocus),
-                        RequiredCheck(craftName.isBlank(), { craftNameError = it }, craftNameFocus),
-                        RequiredCheck(artisanName.isBlank(), { artisanNameError = it }, artisanNameFocus),
-                        RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
-                    ))) { onError("Please fill the required field highlighted above."); return@Button }
-                scope.launch {
-                    saving = true
-                    runCatching {
-                        val body = ProductCreateRequest(
-                            productName = productName.trim(),
-                            localName = localName.blankToNull(),
-                            craftName = craftName.trim(),
-                            artisanName = artisanName.trim(),
-                            place = place.trim(),
-                            productType = productType,
-                            timeTakenToCompleteProduct = timeTaken.blankToNull(),
-                            size = size.blankToNull(),
-                            lengthInches = length.toDoubleOrNull(),
-                            breadthInches = breadth.toDoubleOrNull(),
-                            heightInches = height.toDoubleOrNull(),
-                            costOfMaking = costOfMaking.toDoubleOrNull(),
-                            sellingPrice = sellingPrice.toDoubleOrNull(),
-                            marketDemand = marketDemand,
-                            rawMaterialsUsed = rawMaterials.blankToNull(),
-                            mainToolsUsed = mainTools.blankToNull(),
-                            productFunctionUse = functionUse.blankToNull(),
-                            remarks = remarks.blankToNull(),
-                            artisanId = artisanId.ifBlank { null },
-                            craftId = craftId.ifBlank { null },
-                            status = status,
-                            recordedAt = if (isEdit) null else Instant.now().toString(),
-                            location = locationForBody(isEdit, media.location, editing?.location)
-                        )
-                        val productId = if (isEdit) {
-                            repository.updateProduct(editing!!.id, body).id
-                        } else {
-                            repository.createProduct(body).id
-                        }
-                        uploadAttachments(repository, context, media, "product", productId, productName, "Field media for ${productName.trim()}")
-                    }.onSuccess {
-                        media.reset()
-                        onDone()
-                    }.onFailure { onError(it.message ?: "Unable to save product") }
-                    saving = false
-                }
-            },
+            onClick = { submit() },
             enabled = !saving,
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -3152,7 +3296,84 @@ private fun ToolForm(
         if (existing != null && media.location == null) media.location = existing.toRequest()
     }
 
+    fun submit() {
+        if (!validateRequired(listOf(
+                RequiredCheck(toolkitName.isBlank(), { toolkitNameError = it }, toolkitNameFocus),
+                RequiredCheck(craftName.isBlank(), { craftNameError = it }, craftNameFocus),
+                RequiredCheck(artisanName.isBlank(), { artisanNameError = it }, artisanNameFocus),
+                RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
+            ))) { onError("Please fill the required field highlighted above."); return }
+        scope.launch {
+            saving = true
+            runCatching {
+                val body = ToolCreateRequest(
+                    toolkitName = toolkitName.trim(),
+                    localName = localName.blankToNull(),
+                    englishName = englishName.blankToNull(),
+                    craftName = craftName.trim(),
+                    artisanName = artisanName.trim(),
+                    place = place.trim(),
+                    processUsedIn = processUsedIn.blankToNull(),
+                    material = material.blankToNull(),
+                    yearsInUse = yearsInUse.toIntOrNull(),
+                    height = height.toDoubleOrNull(),
+                    width = width.toDoubleOrNull(),
+                    lengthInches = length.toDoubleOrNull(),
+                    breadthInches = breadth.toDoubleOrNull(),
+                    thickness = thickness.toDoubleOrNull(),
+                    weight = weight.toDoubleOrNull(),
+                    radius = radius.toDoubleOrNull(),
+                    maker = maker,
+                    traditionType = traditionType,
+                    replacementCost = replacementCost.toDoubleOrNull(),
+                    suggestionsForToolImprovement = suggestions.blankToNull(),
+                    remarks = remarks.blankToNull(),
+                    artisanId = artisanId.ifBlank { null },
+                    craftId = craftId.ifBlank { null },
+                    status = status,
+                    recordedAt = if (isEdit) null else Instant.now().toString(),
+                    location = locationForBody(isEdit, media.location, editing?.location)
+                )
+                val toolId = if (isEdit) {
+                    repository.updateTool(editing!!.id, body).id
+                } else {
+                    repository.createTool(body).id
+                }
+                uploadAttachments(repository, context, media, "tool", toolId, toolkitName, "Field media for ${toolkitName.trim()}")
+                // Each stage capture is uploaded as a numbered process step (STAGE_STEP_n).
+                stages.uris.forEachIndexed { index, uri ->
+                    repository.uploadMedia(
+                        context = context,
+                        uri = uri,
+                        linkedRecordType = "tool",
+                        linkedRecordId = toolId,
+                        caption = "Process stage step ${index + 1} for ${toolkitName.trim()}",
+                        location = stages.location,
+                        titleHint = toolkitName,
+                        batchIndex = 1,
+                        stageStep = index + 1
+                    )
+                }
+            }.onSuccess {
+                media.reset()
+                stages.reset()
+                onDone()
+            }.onFailure { onError(it.message ?: "Unable to save tool") }
+            saving = false
+        }
+    }
+    val toolSig: () -> String = {
+        listOf(toolkitName, localName, englishName, craftName, artisanName, place, processUsedIn, material,
+            yearsInUse, height, width, length, breadth, thickness, weight, radius, maker, traditionType,
+            replacementCost, suggestions, remarks, status, craftId, artisanId).joinToString("")
+    }
+    val initialSig = remember(editing) { toolSig() }
+    val dirty = !saving && (
+        toolSig() != initialSig || media.uris.isNotEmpty() || media.measurementUri != null || stages.uris.isNotEmpty()
+    )
+
     RecordCard(title = if (isEdit) "Edit tool" else "Add tool") {
+        RegisterUnsavedGuard(dirty = dirty) { submit() }
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
@@ -3232,72 +3453,7 @@ private fun ToolForm(
         }
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
         Button(
-            onClick = {
-                if (!validateRequired(listOf(
-                        RequiredCheck(toolkitName.isBlank(), { toolkitNameError = it }, toolkitNameFocus),
-                        RequiredCheck(craftName.isBlank(), { craftNameError = it }, craftNameFocus),
-                        RequiredCheck(artisanName.isBlank(), { artisanNameError = it }, artisanNameFocus),
-                        RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
-                    ))) { onError("Please fill the required field highlighted above."); return@Button }
-                scope.launch {
-                    saving = true
-                    runCatching {
-                        val body = ToolCreateRequest(
-                            toolkitName = toolkitName.trim(),
-                            localName = localName.blankToNull(),
-                            englishName = englishName.blankToNull(),
-                            craftName = craftName.trim(),
-                            artisanName = artisanName.trim(),
-                            place = place.trim(),
-                            processUsedIn = processUsedIn.blankToNull(),
-                            material = material.blankToNull(),
-                            yearsInUse = yearsInUse.toIntOrNull(),
-                            height = height.toDoubleOrNull(),
-                            width = width.toDoubleOrNull(),
-                            lengthInches = length.toDoubleOrNull(),
-                            breadthInches = breadth.toDoubleOrNull(),
-                            thickness = thickness.toDoubleOrNull(),
-                            weight = weight.toDoubleOrNull(),
-                            radius = radius.toDoubleOrNull(),
-                            maker = maker,
-                            traditionType = traditionType,
-                            replacementCost = replacementCost.toDoubleOrNull(),
-                            suggestionsForToolImprovement = suggestions.blankToNull(),
-                            remarks = remarks.blankToNull(),
-                            artisanId = artisanId.ifBlank { null },
-                            craftId = craftId.ifBlank { null },
-                            status = status,
-                            recordedAt = if (isEdit) null else Instant.now().toString(),
-                            location = locationForBody(isEdit, media.location, editing?.location)
-                        )
-                        val toolId = if (isEdit) {
-                            repository.updateTool(editing!!.id, body).id
-                        } else {
-                            repository.createTool(body).id
-                        }
-                        uploadAttachments(repository, context, media, "tool", toolId, toolkitName, "Field media for ${toolkitName.trim()}")
-                        // Each stage capture is uploaded as a numbered process step (STAGE_STEP_n).
-                        stages.uris.forEachIndexed { index, uri ->
-                            repository.uploadMedia(
-                                context = context,
-                                uri = uri,
-                                linkedRecordType = "tool",
-                                linkedRecordId = toolId,
-                                caption = "Process stage step ${index + 1} for ${toolkitName.trim()}",
-                                location = stages.location,
-                                titleHint = toolkitName,
-                                batchIndex = 1,
-                                stageStep = index + 1
-                            )
-                        }
-                    }.onSuccess {
-                        media.reset()
-                        stages.reset()
-                        onDone()
-                    }.onFailure { onError(it.message ?: "Unable to save tool") }
-                    saving = false
-                }
-            },
+            onClick = { submit() },
             enabled = !saving,
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -3522,7 +3678,102 @@ private fun ProcessForm(
         }
     }
 
+    fun submit() {
+        nameError = null; productError = null; stepsError = null; preMediaError = null; artisanError = null
+        var firstInvalid = false
+        if (name.isBlank()) { nameError = "This field cannot be empty"; if (!firstInvalid) { firstInvalid = true; runCatching { nameFocus.requestFocus() } } }
+        if (artisanId.isBlank()) artisanError = "Please select an artisan"
+        if (productId.isBlank()) productError = "Please select a product"
+        if (preProcessAvailable && preMedia.uris.isEmpty() && (editing?.media?.isEmpty() != false)) {
+            preMediaError = "Attach the pre-process media or uncheck the box"
+        }
+        if (steps.isEmpty()) stepsError = "Add at least one step"
+        steps.forEach { step ->
+            step.nameError = null
+            if (step.name.isBlank()) {
+                step.nameError = "This field cannot be empty"
+                if (!firstInvalid) { firstInvalid = true; runCatching { step.nameFocus.requestFocus() } }
+            }
+        }
+        val blocked = nameError != null || productError != null || stepsError != null ||
+            preMediaError != null || artisanError != null || steps.any { it.name.isBlank() }
+        if (blocked) { onError("Please fill the required fields highlighted above."); return }
+
+        scope.launch {
+            saving = true
+            runCatching {
+                val stepRequests = steps.mapIndexed { i, s ->
+                    ProcessStepRequest(
+                        id = s.serverId,
+                        name = s.name.trim(),
+                        stepType = s.stepType,
+                        sortOrder = i + 1,
+                        notes = if (s.recordAdditional) s.notes.trim().ifBlank { null } else null
+                    )
+                }
+                val body = ProcessCreateRequest(
+                    name = name.trim(),
+                    productId = productId,
+                    preProcessAvailable = preProcessAvailable,
+                    notes = notes.blankToNull(),
+                    status = status,
+                    steps = stepRequests,
+                    recordedAt = if (isEdit) null else Instant.now().toString()
+                )
+                val detail = if (isEdit) repository.updateProcess(editing!!.id, body) else repository.createProcess(body)
+                if (preProcessAvailable) {
+                    uploadAttachments(repository, context, preMedia, "process", detail.id, name, "Pre-process media for ${name.trim()}", customSegment = "PRE")
+                }
+                detail.steps.forEachIndexed { index, serverStep ->
+                    val local = steps.getOrNull(index) ?: return@forEachIndexed
+                    local.media.uris.forEachIndexed { fileIndex, uri ->
+                        val segment = processStepSegment(index + 1, serverStep.stepType, fileIndex)
+                        val staged = local.media.stagedDeferred[uri]?.let { runCatching { it.await() }.getOrNull() } ?: local.media.staged[uri]
+                        if (staged != null) {
+                            repository.completeStaged(
+                                staged = staged,
+                                linkedRecordType = "processstep",
+                                linkedRecordId = serverStep.id,
+                                recordName = name,
+                                caption = "Process step ${serverStep.name}",
+                                location = local.media.location,
+                                batchIndex = fileIndex + 1,
+                                customSegment = segment
+                            )
+                        } else {
+                            repository.uploadMedia(
+                                context = context,
+                                uri = uri,
+                                linkedRecordType = "processstep",
+                                linkedRecordId = serverStep.id,
+                                caption = "Process step ${serverStep.name}",
+                                location = local.media.location,
+                                titleHint = name,
+                                batchIndex = fileIndex + 1,
+                                customSegment = segment
+                            )
+                        }
+                    }
+                }
+            }.onSuccess {
+                preMedia.reset()
+                steps.forEach { it.media.reset() }
+                onDone()
+            }.onFailure { onError(it.message ?: "Unable to save process") }
+            saving = false
+        }
+    }
+    val procSig: () -> String = {
+        listOf(name, artisanId, productId, notes, status, preProcessAvailable.toString(),
+            steps.joinToString("|") { "${it.serverId}~${it.name}~${it.stepType}~${it.notes}~${it.media.uris.size}" }).joinToString("")
+    }
+    val initialSig = remember(editing) { procSig() }
+    val dirty = !saving && (
+        procSig() != initialSig || preMedia.uris.isNotEmpty() || steps.any { it.media.uris.isNotEmpty() }
+    )
+
     RecordCard(title = if (isEdit) "Edit process" else "Document process") {
+        RegisterUnsavedGuard(dirty = dirty) { submit() }
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
@@ -3684,91 +3935,7 @@ private fun ProcessForm(
         }
 
         Button(
-            onClick = {
-                nameError = null; productError = null; stepsError = null; preMediaError = null; artisanError = null
-                var firstInvalid = false
-                if (name.isBlank()) { nameError = "This field cannot be empty"; if (!firstInvalid) { firstInvalid = true; runCatching { nameFocus.requestFocus() } } }
-                if (artisanId.isBlank()) artisanError = "Please select an artisan"
-                if (productId.isBlank()) productError = "Please select a product"
-                if (preProcessAvailable && preMedia.uris.isEmpty() && (editing?.media?.isEmpty() != false)) {
-                    preMediaError = "Attach the pre-process media or uncheck the box"
-                }
-                if (steps.isEmpty()) stepsError = "Add at least one step"
-                steps.forEach { step ->
-                    step.nameError = null
-                    if (step.name.isBlank()) {
-                        step.nameError = "This field cannot be empty"
-                        if (!firstInvalid) { firstInvalid = true; runCatching { step.nameFocus.requestFocus() } }
-                    }
-                }
-                val blocked = nameError != null || productError != null || stepsError != null ||
-                    preMediaError != null || artisanError != null || steps.any { it.name.isBlank() }
-                if (blocked) { onError("Please fill the required fields highlighted above."); return@Button }
-
-                scope.launch {
-                    saving = true
-                    runCatching {
-                        val stepRequests = steps.mapIndexed { i, s ->
-                            ProcessStepRequest(
-                                id = s.serverId,
-                                name = s.name.trim(),
-                                stepType = s.stepType,
-                                sortOrder = i + 1,
-                                notes = if (s.recordAdditional) s.notes.trim().ifBlank { null } else null
-                            )
-                        }
-                        val body = ProcessCreateRequest(
-                            name = name.trim(),
-                            productId = productId,
-                            preProcessAvailable = preProcessAvailable,
-                            notes = notes.blankToNull(),
-                            status = status,
-                            steps = stepRequests,
-                            recordedAt = if (isEdit) null else Instant.now().toString()
-                        )
-                        val detail = if (isEdit) repository.updateProcess(editing!!.id, body) else repository.createProcess(body)
-                        if (preProcessAvailable) {
-                            uploadAttachments(repository, context, preMedia, "process", detail.id, name, "Pre-process media for ${name.trim()}", customSegment = "PRE")
-                        }
-                        detail.steps.forEachIndexed { index, serverStep ->
-                            val local = steps.getOrNull(index) ?: return@forEachIndexed
-                            local.media.uris.forEachIndexed { fileIndex, uri ->
-                                val segment = processStepSegment(index + 1, serverStep.stepType, fileIndex)
-                                val staged = local.media.stagedDeferred[uri]?.let { runCatching { it.await() }.getOrNull() } ?: local.media.staged[uri]
-                                if (staged != null) {
-                                    repository.completeStaged(
-                                        staged = staged,
-                                        linkedRecordType = "processstep",
-                                        linkedRecordId = serverStep.id,
-                                        recordName = name,
-                                        caption = "Process step ${serverStep.name}",
-                                        location = local.media.location,
-                                        batchIndex = fileIndex + 1,
-                                        customSegment = segment
-                                    )
-                                } else {
-                                    repository.uploadMedia(
-                                        context = context,
-                                        uri = uri,
-                                        linkedRecordType = "processstep",
-                                        linkedRecordId = serverStep.id,
-                                        caption = "Process step ${serverStep.name}",
-                                        location = local.media.location,
-                                        titleHint = name,
-                                        batchIndex = fileIndex + 1,
-                                        customSegment = segment
-                                    )
-                                }
-                            }
-                        }
-                    }.onSuccess {
-                        preMedia.reset()
-                        steps.forEach { it.media.reset() }
-                        onDone()
-                    }.onFailure { onError(it.message ?: "Unable to save process") }
-                    saving = false
-                }
-            },
+            onClick = { submit() },
             enabled = !saving,
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -5578,6 +5745,7 @@ private fun AndroidMediaForm(
                     AndroidUriPreview(
                         context = context,
                         uri = uri,
+                        onDownload = { saveLocalUriToDevice(context, uri) },
                         onRemove = { selectedUris = selectedUris.filterNot { it == uri } }
                     )
                 }
@@ -5750,7 +5918,12 @@ private fun AndroidUriPreview(
     uri: Uri,
     onRemove: (() -> Unit)? = null,
     progress: Float? = null,
-    failed: Boolean = false
+    failed: Boolean = false,
+    // Per-file actions. [onRetry] re-runs just this file's upload (shown when it failed); [onDownload]
+    // saves a copy of the captured media straight to the device's Downloads — available regardless of
+    // upload state, so the user never loses the media even when the network is failing.
+    onRetry: (() -> Unit)? = null,
+    onDownload: (() -> Unit)? = null
 ) {
     val mimeType = remember(uri) { context.contentResolver.getType(uri) }
     val mediaType = remember(mimeType) { mediaTypeFromMime(mimeType) }
@@ -5774,7 +5947,11 @@ private fun AndroidUriPreview(
         }
     }
     when {
-        failed -> Text("Upload failed — will retry on save", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+        failed -> Text(
+            "Upload failed — tap Retry, or Download to keep a copy on this device.",
+            color = MaterialTheme.colorScheme.error,
+            fontSize = 11.sp
+        )
         progress != null && progress < 1f -> {
             LinearProgressIndicator(
                 progress = { progress },
@@ -5784,6 +5961,33 @@ private fun AndroidUriPreview(
             Text("Uploading ${(progress * 100).toInt()}%", color = SurfaceCard, fontSize = 10.sp)
         }
         progress != null && progress >= 1f -> Text("Uploaded ✓", color = SuccessGreen, fontSize = 10.sp)
+    }
+    if (onRetry != null || onDownload != null) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (failed && onRetry != null) {
+                TextButton(
+                    onClick = onRetry,
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Retry", fontSize = 12.sp)
+                }
+            }
+            if (onDownload != null) {
+                TextButton(
+                    onClick = onDownload,
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Download", fontSize = 12.sp)
+                }
+            }
+        }
     }
     if (showViewer) {
         MediaViewerDialog(uri = uri, mediaType = mediaType, onDismiss = { showViewer = false })
@@ -6207,6 +6411,7 @@ private fun QuestionnaireForm(
                                     context = context,
                                     media = qMedia,
                                     label = "recording",
+                                    repository = repository,
                                     uris = sectionUploadUris
                                 ) { uri -> removeClipUri(uri) }
                             }
@@ -6241,7 +6446,7 @@ private fun QuestionnaireForm(
             HorizontalDivider()
             Text("All recordings (every section)", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
             Text("Every question/section clip across the whole interview, uploading as you record. They link to this interview on save.", color = Muted, fontSize = 12.sp)
-            AttachedUploadsCard(context = context, media = qMedia, label = "recording") { uri -> removeClipUri(uri) }
+            AttachedUploadsCard(context = context, media = qMedia, label = "recording", repository = repository) { uri -> removeClipUri(uri) }
         }
         // Any saved media not tied to a specific section (general attachments, or recordings whose
         // prompt/title changed) — shown in edit mode so nothing is ever hidden or lost.
@@ -6257,11 +6462,10 @@ private fun QuestionnaireForm(
         // progress) — the same media array used by every other record form.
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
         TextInput("Notes", notes, minLines = 3) { notes = it }
-        Button(
-            onClick = {
-                if (!validateRequired(listOf(
-                        RequiredCheck(title.isBlank(), { titleError = it }, titleFocus)
-                    ))) { onError("Please fill the required field highlighted above."); return@Button }
+        fun submit() {
+            if (!validateRequired(listOf(
+                    RequiredCheck(title.isBlank(), { titleError = it }, titleFocus)
+                ))) { onError("Please fill the required field highlighted above."); return }
                 scope.launch {
                     val now = Instant.now().toString()
                     // Only send answers this interviewer actually added or changed; untouched answers
@@ -6399,7 +6603,18 @@ private fun QuestionnaireForm(
                     }
                     onSaved()
                 }
-            },
+        }
+        val qSig: () -> String = {
+            listOf(title, place, language, notes, selectedArtisans.sorted().joinToString(","),
+                answers.entries.joinToString("|") { "${it.key}=${it.value.value}" }).joinToString("")
+        }
+        val initialSig = remember(editing) { qSig() }
+        // Any changed field, an unsaved general attachment, or an unsaved recorded clip makes the
+        // interview "dirty" so an accidental Back offers to save it (including in-progress recordings).
+        val dirty = qSig() != initialSig || qMedia.uris.isNotEmpty() || media.uris.isNotEmpty()
+        RegisterUnsavedGuard(dirty = dirty) { submit() }
+        Button(
+            onClick = { submit() },
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(if (isEdit) "Update interview" else "Save questionnaire")
@@ -6884,6 +7099,57 @@ private fun saveMediaToDevice(context: Context, url: String?, filename: String, 
         val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         manager.enqueue(request)
         Toast.makeText(context, "Saving \"$safeName\" to Downloads…", Toast.LENGTH_SHORT).show()
+    }.onFailure {
+        Toast.makeText(context, "Couldn't save: ${it.message ?: "download failed"}", Toast.LENGTH_LONG).show()
+    }
+}
+
+/**
+ * Save a locally-captured (content://) attachment straight into the device's public Downloads folder
+ * by streaming its bytes from the content resolver. Unlike [saveMediaToDevice] — which hands a remote
+ * URL to the system DownloadManager — this works for files that have NOT been uploaded yet (or whose
+ * upload failed), so a user can always keep the media on-device while the network is unreliable.
+ */
+private fun saveLocalUriToDevice(context: Context, uri: Uri) {
+    val resolver = context.contentResolver
+    val mimeType = resolver.getType(uri) ?: "application/octet-stream"
+    val rawName = run {
+        var name: String? = null
+        runCatching {
+            resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index >= 0 && cursor.moveToFirst()) name = cursor.getString(index)
+            }
+        }
+        name ?: uri.lastPathSegment ?: "field-media-${System.currentTimeMillis()}"
+    }
+    val safeName = rawName.replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "field-media-${System.currentTimeMillis()}" }
+    runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, safeName)
+                put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val target = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: throw IllegalStateException("Couldn't create a Downloads entry")
+            resolver.openOutputStream(target)?.use { out ->
+                resolver.openInputStream(uri)?.use { input -> input.copyTo(out) }
+                    ?: throw IllegalStateException("Couldn't read the media")
+            } ?: throw IllegalStateException("Couldn't open the Downloads file")
+            values.clear()
+            values.put(MediaStore.Downloads.IS_PENDING, 0)
+            resolver.update(target, values, null, null)
+        } else {
+            @Suppress("DEPRECATION")
+            val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            if (!dir.exists()) dir.mkdirs()
+            val outFile = File(dir, safeName)
+            resolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(outFile).use { out -> input.copyTo(out) }
+            } ?: throw IllegalStateException("Couldn't read the media")
+        }
+        Toast.makeText(context, "Saved \"$safeName\" to Downloads", Toast.LENGTH_SHORT).show()
     }.onFailure {
         Toast.makeText(context, "Couldn't save: ${it.message ?: "download failed"}", Toast.LENGTH_LONG).show()
     }

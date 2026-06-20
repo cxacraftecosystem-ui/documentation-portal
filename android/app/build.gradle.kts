@@ -19,7 +19,7 @@ val localProperties = Properties().apply {
 // 2.0.0. versionCode is DERIVED from the name so it always increases monotonically with the version
 // — that is exactly what the over-the-air updater compares (a higher published versionCode triggers
 // the in-app update). To cut a release, bump `appVersionName` only; the code follows automatically.
-val appVersionName = "1.1.2"
+val appVersionName = "1.1.3"
 val appVersionCode = appVersionName.split(".").let { parts ->
     val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
     val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
