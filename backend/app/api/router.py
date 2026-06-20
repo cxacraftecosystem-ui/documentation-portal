@@ -14,6 +14,7 @@ from app.api.routes import (
     questionnaire,
     review,
     search,
+    settings,
     tools,
     users,
     workshops,
@@ -38,3 +39,4 @@ api_router.include_router(review.router)
 api_router.include_router(export.router)
 api_router.include_router(app_release.router)
 api_router.include_router(feedback.router)
+api_router.include_router(settings.router)

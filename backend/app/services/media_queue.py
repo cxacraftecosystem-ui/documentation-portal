@@ -8,7 +8,12 @@ from prisma import Json
 
 from app.core.config import Settings, get_settings
 from app.core.db import db
-from app.services.ai import analyze_measurement_image_bytes, transcribe_audio_bytes
+from app.services.ai import analyze_measurement_image_bytes, refine_transcript_text, transcribe_audio_bytes
+from app.services.app_settings import (
+    load_app_settings,
+    transcription_mode,
+    within_processing_window,
+)
 from app.services.s3 import get_object_bytes
 
 TRANSCRIPTION = "TRANSCRIPTION"
@@ -110,8 +115,15 @@ async def process_next_media_jobs(
     settings = settings or get_settings()
     batch_size = max(1, limit or settings.media_queue_batch_size)
     await recover_stale_processing_jobs()
+    where: dict[str, Any] = {"status": QUEUED, "runAfter": {"lte": datetime.now(UTC)}}
+    # Off-peak optimization: when the master admin has enabled the processing window and we're outside
+    # it, defer the heavy TRANSCRIPTION (and its auto-refinement) work to the window. Lighter
+    # MEASUREMENT jobs still run immediately so product/tool dimensions keep auto-filling during the day.
+    app_settings = await load_app_settings()
+    if not within_processing_window(app_settings):
+        where["jobType"] = {"not": TRANSCRIPTION}
     jobs = await db.mediaprocessingjob.find_many(
-        where={"status": QUEUED, "runAfter": {"lte": datetime.now(UTC)}},
+        where=where,
         include={"mediaFile": True},
         order=[{"priority": "asc"}, {"createdAt": "asc"}],
         take=batch_size,
@@ -183,6 +195,20 @@ async def _process_job(job: Any, settings: Settings) -> None:
             media.mimeType or "audio/webm",
             settings,
         )
+        # Apply the configured transcription mode: RAW keeps the plain transcript; REFINED rewrites it
+        # into a clean interviewer/interviewee dialogue; REFINED_TRANSLATED also translates to English.
+        # The refined text is stored as the transcript (raw stays in transcriptSummary) and still lands
+        # COMPLETED — i.e. awaiting human approval through the existing transcript-approval flow.
+        mode = transcription_mode(await load_app_settings())
+        if result.get("status") == "COMPLETED" and mode in {"REFINED", "REFINED_TRANSLATED"} and result.get("text"):
+            refined = await refine_transcript_text(result.get("text"), mode == "REFINED_TRANSLATED", settings)
+            if refined.get("status") == "COMPLETED" and refined.get("refined"):
+                result = {
+                    **result,
+                    "formattedTranscript": refined["refined"],
+                    "transcriptionMode": mode,
+                    "translated": mode == "REFINED_TRANSLATED",
+                }
         await _apply_transcription_result(job, result)
         return
     if job.jobType == MEASUREMENT:

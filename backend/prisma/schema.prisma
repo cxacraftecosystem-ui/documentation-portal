@@ -707,3 +707,18 @@ model ReviewLog {
   @@index([reviewerId])
   @@index([createdAt])
 }
+
+// Singleton row (id = "singleton") holding master-admin-configurable global settings. For now: how
+// audio transcripts are produced (raw / refined / refined+translated) and an optional off-peak window
+// during which the heavy transcription+refinement work runs, so it doesn't compete with daytime
+// uploads. Extend with more configurable fields over time.
+model AppSetting {
+  id                 String   @id @default("singleton")
+  transcriptionMode  String   @default("REFINED_TRANSLATED")
+  batchWindowEnabled Boolean  @default(false)
+  batchWindowStart   String   @default("02:00")
+  batchWindowEnd     String   @default("05:00")
+  batchTimezone      String   @default("Asia/Kolkata")
+  updatedAt          DateTime @updatedAt
+  updatedById        String?
+}

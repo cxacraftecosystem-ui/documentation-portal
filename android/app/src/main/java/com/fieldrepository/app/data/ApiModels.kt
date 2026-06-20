@@ -816,3 +816,21 @@ data class QuestionnaireInterviewUpdateRequest(
     val recordedTimezone: String? = null,
     val location: LocationRequest? = null
 )
+
+@Serializable
+data class AppSettingDto(
+    val transcriptionMode: String = "REFINED_TRANSLATED",
+    val batchWindowEnabled: Boolean = false,
+    val batchWindowStart: String = "02:00",
+    val batchWindowEnd: String = "05:00",
+    val batchTimezone: String = "Asia/Kolkata"
+)
+
+@Serializable
+data class AppSettingUpdateRequest(
+    val transcriptionMode: String? = null,
+    val batchWindowEnabled: Boolean? = null,
+    val batchWindowStart: String? = null,
+    val batchWindowEnd: String? = null,
+    val batchTimezone: String? = null
+)

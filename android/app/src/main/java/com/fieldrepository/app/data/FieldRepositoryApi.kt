@@ -46,6 +46,12 @@ interface FieldRepositoryApi {
     @GET("app/release/latest")
     suspend fun latestAppRelease(): AppReleaseDto
 
+    @GET("settings")
+    suspend fun appSettings(): AppSettingDto
+
+    @PUT("settings")
+    suspend fun updateAppSettings(@Body body: AppSettingUpdateRequest): AppSettingDto
+
     @GET("feedback/me")
     suspend fun myFeedback(): FeedbackDto
 

@@ -167,6 +167,13 @@ class FieldRepository(
     /** Master-admin only: all users' feedback, newest first, each with its author. */
     suspend fun allFeedback(): List<FeedbackDto> = api.allFeedback()
 
+    /** Master-admin only: the global app settings (transcription mode + off-peak processing window). */
+    suspend fun appSettings(): AppSettingDto = api.appSettings()
+
+    /** Master-admin only: update the global app settings. */
+    suspend fun updateAppSettings(request: AppSettingUpdateRequest): AppSettingDto =
+        api.updateAppSettings(request)
+
     /** Admin-only: media files whose parent record was deleted (recoverable, not lost). */
     suspend fun orphanedMedia(): List<MediaFileDto> = api.orphanMedia()
 

@@ -49,10 +49,14 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -158,6 +162,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -174,6 +179,7 @@ import com.fieldrepository.app.data.AppReleaseDto
 import com.fieldrepository.app.data.FeedbackDto
 import com.fieldrepository.app.data.FeedbackUpsertRequest
 import com.fieldrepository.app.data.MediaFileDto
+import com.fieldrepository.app.data.AppSettingUpdateRequest
 import com.fieldrepository.app.data.PendingReviewDto
 import com.fieldrepository.app.data.StagedMedia
 import androidx.compose.runtime.DisposableEffect
@@ -242,6 +248,7 @@ private sealed interface Screen {
     data object MyActivity : Screen
     data object ToolAssign : Screen
     data object Feedback : Screen
+    data object Settings : Screen
 }
 
 /** Context carried forward from a just-saved artisan into a follow-up record. */
@@ -544,6 +551,7 @@ private fun HomeScreen(
             is Screen.MyActivity -> Screen.Dashboard
             is Screen.ToolAssign -> Screen.Dashboard
             is Screen.Feedback -> Screen.Dashboard
+            is Screen.Settings -> Screen.Dashboard
             is Screen.Dashboard -> Screen.Dashboard
         }
     }
@@ -566,6 +574,7 @@ private fun HomeScreen(
         is Screen.MyActivity -> "My Activity"
         is Screen.ToolAssign -> "Assign tools to artisans"
         is Screen.Feedback -> "App feedback"
+        is Screen.Settings -> "Settings"
     }
 
     BackHandler(enabled = drawerState.isOpen) {
@@ -596,6 +605,7 @@ private fun HomeScreen(
                         onFeedback = { message = null; screen = Screen.Feedback; scope.launch { drawerState.close() } },
                         onWalkthrough = { showWalkthrough = true; scope.launch { drawerState.close() } },
                         onToggleAdminView = { adminView = !adminView },
+                        onSettings = { message = null; screen = Screen.Settings; scope.launch { drawerState.close() } },
                         onPushUpdate = {
                             scope.launch { drawerState.close() }
                             if (!pushingUpdate) {
@@ -824,6 +834,12 @@ private fun HomeScreen(
                 repository = repository,
                 onError = { showMessage(it) }
             )
+
+            is Screen.Settings -> SettingsScreen(
+                repository = repository,
+                onMessage = { showMessage(it) },
+                onError = { showMessage(it) }
+            )
         }
 
         message?.let {
@@ -957,6 +973,151 @@ private fun BackPill(onClick: () -> Unit) {
 }
 
 /** Right-side navigation drawer mirroring the web slide-out menu. */
+// ===========================================================================
+// Settings — master-admin global configuration (transcription mode + off-peak
+// processing window). More options will live here over time.
+// ===========================================================================
+
+@Composable
+private fun SettingsScreen(
+    repository: FieldRepository,
+    onMessage: (String) -> Unit,
+    onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var loading by remember { mutableStateOf(true) }
+    var saving by remember { mutableStateOf(false) }
+    var mode by remember { mutableStateOf("REFINED_TRANSLATED") }
+    var windowEnabled by remember { mutableStateOf(false) }
+    var startTime by remember { mutableStateOf("02:00") }
+    var endTime by remember { mutableStateOf("05:00") }
+
+    LaunchedEffect(Unit) {
+        runCatching { repository.appSettings() }
+            .onSuccess { s ->
+                mode = s.transcriptionMode
+                windowEnabled = s.batchWindowEnabled
+                startTime = s.batchWindowStart
+                endTime = s.batchWindowEnd
+            }
+            .onFailure { onError(it.message ?: "Couldn't load settings") }
+        loading = false
+    }
+
+    RecordCard(title = "Settings") {
+        if (loading) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Text("Loading settings…", color = Muted, fontSize = 13.sp)
+            }
+            return@RecordCard
+        }
+        Text("Transcription output", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+        Text(
+            "How recorded audio is turned into text after upload. Refinement/translation use AI and " +
+                "always await your approval before they become the saved transcript.",
+            color = Muted,
+            fontSize = 12.sp
+        )
+        SettingsRadioRow("Raw transcript only", "Fastest, lowest cost — the plain speech-to-text.", mode == "RAW") { mode = "RAW" }
+        SettingsRadioRow("Refined transcript", "Cleaned into a readable interviewer/interviewee dialogue.", mode == "REFINED") { mode = "REFINED" }
+        SettingsRadioRow("Refined + translated to English", "Refined, then translated to English (default).", mode == "REFINED_TRANSLATED") { mode = "REFINED_TRANSLATED" }
+
+        HorizontalDivider()
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Process during an off-peak window", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "When on, transcription & refinement run only between the times below (IST), so the " +
+                        "heavy work happens when nobody is uploading. When off, they run immediately.",
+                    color = Muted,
+                    fontSize = 12.sp
+                )
+            }
+            Switch(checked = windowEnabled, onCheckedChange = { windowEnabled = it })
+        }
+        if (windowEnabled) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Box(modifier = Modifier.weight(1f)) { TimePickerField("Start", startTime) { startTime = it } }
+                Box(modifier = Modifier.weight(1f)) { TimePickerField("End", endTime) { endTime = it } }
+            }
+            Text("Window is in India Standard Time (Asia/Kolkata).", color = Muted, fontSize = 11.sp)
+        }
+
+        Button(
+            onClick = {
+                scope.launch {
+                    saving = true
+                    runCatching {
+                        repository.updateAppSettings(
+                            AppSettingUpdateRequest(
+                                transcriptionMode = mode,
+                                batchWindowEnabled = windowEnabled,
+                                batchWindowStart = startTime,
+                                batchWindowEnd = endTime
+                            )
+                        )
+                    }.onSuccess {
+                        mode = it.transcriptionMode
+                        windowEnabled = it.batchWindowEnabled
+                        startTime = it.batchWindowStart
+                        endTime = it.batchWindowEnd
+                        onMessage("Settings saved")
+                    }.onFailure { onError(it.message ?: "Couldn't save settings") }
+                    saving = false
+                }
+            },
+            enabled = !saving,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (saving) "Saving…" else "Save settings")
+        }
+    }
+}
+
+/** A labelled radio option row (title + helper line) used by [SettingsScreen]. */
+@Composable
+private fun SettingsRadioRow(title: String, subtitle: String, selected: Boolean, onSelect: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable { onSelect() },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        RadioButton(selected = selected, onClick = onSelect)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+            Text(subtitle, color = Muted, fontSize = 11.sp)
+        }
+    }
+}
+
+/** A button showing a HH:mm time that opens a 24-hour time picker dialog to change it. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TimePickerField(label: String, value: String, onChange: (String) -> Unit) {
+    var show by remember { mutableStateOf(false) }
+    val parts = remember(value) { value.split(":").mapNotNull { it.toIntOrNull() } }
+    val hour = parts.getOrNull(0)?.coerceIn(0, 23) ?: 0
+    val minute = parts.getOrNull(1)?.coerceIn(0, 59) ?: 0
+    OutlinedButton(onClick = { show = true }, modifier = Modifier.fillMaxWidth()) {
+        Text("$label: $value")
+    }
+    if (show) {
+        val state = rememberTimePickerState(initialHour = hour, initialMinute = minute, is24Hour = true)
+        AlertDialog(
+            onDismissRequest = { show = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    onChange("%02d:%02d".format(state.hour, state.minute))
+                    show = false
+                }) { Text("OK") }
+            },
+            dismissButton = { TextButton(onClick = { show = false }) { Text("Cancel") } },
+            text = { TimePicker(state = state) }
+        )
+    }
+}
+
 @Composable
 private fun AppDrawerContent(
     user: UserDto,
@@ -972,6 +1133,7 @@ private fun AppDrawerContent(
     onFeedback: () -> Unit,
     onWalkthrough: () -> Unit,
     onToggleAdminView: () -> Unit,
+    onSettings: () -> Unit,
     onPushUpdate: () -> Unit,
     onLogout: () -> Unit
 ) {
@@ -1062,6 +1224,13 @@ private fun AppDrawerContent(
                 )
             }
             if (isMasterAdmin) {
+                NavigationDrawerItem(
+                    label = { Text("Settings") },
+                    selected = false,
+                    icon = { Icon(Icons.Filled.Tune, contentDescription = null) },
+                    onClick = onSettings,
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                )
                 NavigationDrawerItem(
                     label = { Text(if (pushingUpdate) "Publishing update…" else "Push update to all") },
                     selected = false,
@@ -6339,8 +6508,26 @@ private fun QuestionnaireForm(
             val activeQuestions = section.questions.filter { it.isActive }
             if (activeQuestions.isNotEmpty()) {
                 val expanded = expandedSections.contains(section.id)
-                val answeredCount = activeQuestions.count { (answers[it.id]?.value?.trim().orEmpty()).isNotEmpty() }
                 val sectionSavedMedia = if (isEdit) savedMedia.filter { captionBelongsToSection(it.caption, section) } else emptyList()
+                // A question counts as "answered" if it has a typed answer OR a recording. Reading the
+                // reactive `questionAudio` map here is what makes the count update the moment a clip is
+                // recorded/attached (not only when text is typed). Live per-question/section clips AND
+                // already-saved recordings (edit mode) both count; a whole-section recording marks every
+                // question in that section as answered.
+                val sectionRecorded = (questionAudio["section:${section.id}"]?.isNotEmpty() == true) ||
+                    sectionSavedMedia.any { it.caption?.trim()?.startsWith("Section audio:") == true }
+                val answeredCount = if (sectionRecorded) activeQuestions.size else activeQuestions.count { q ->
+                    val hasText = (answers[q.id]?.value?.trim().orEmpty()).isNotEmpty()
+                    val hasLiveClip = questionAudio[q.id]?.isNotEmpty() == true
+                    val hasSavedClip = sectionSavedMedia.any { m ->
+                        val cap = m.caption?.trim().orEmpty()
+                        cap.startsWith("Question audio:") && run {
+                            val rest = cap.removePrefix("Question audio:").trim()
+                            rest == "${q.sectionCode}${q.sortOrder}" || rest.startsWith("${q.sectionCode}${q.sortOrder} ")
+                        }
+                    }
+                    hasText || hasLiveClip || hasSavedClip
+                }
                 ElevatedCard(
                     colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
                     modifier = Modifier.fillMaxWidth()
