@@ -6,6 +6,21 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     database_url: str = Field(alias="DATABASE_URL")
+    # Route the RUNTIME Prisma client through the Supabase transaction-mode pooler (:6543,
+    # pgbouncer=true) instead of the session pooler (:5432). Session mode pins one of only 15
+    # server connections per client for its whole life, so a couple of uvicorn workers exhaust
+    # the pool (EMAXCONNSESSION). Transaction mode releases the connection per statement and
+    # multiplexes many app connections (up to the pooler's 200-client ceiling) over the 15
+    # server connections. Migrations still use the session URL from the env (see core/db.py).
+    database_use_transaction_pooler: bool = Field(
+        default=True, alias="DATABASE_USE_TRANSACTION_POOLER"
+    )
+    # Max client connections the runtime engine opens to the pooler, PER uvicorn worker. With 2
+    # workers and a 200-client pooler ceiling this leaves wide headroom; raise it to scale burst
+    # capacity further (real query concurrency is still gated by the pooler's server pool).
+    database_connection_limit: int = Field(default=40, alias="DATABASE_CONNECTION_LIMIT")
+    # Optional Prisma pool acquire timeout (seconds). Left unset uses Prisma's default (10s).
+    database_pool_timeout: int | None = Field(default=None, alias="DATABASE_POOL_TIMEOUT")
     jwt_secret: str = Field(alias="JWT_SECRET")
     jwt_algorithm: str = "HS256"
     jwt_expires_minutes: int = Field(default=60 * 24 * 7, alias="JWT_EXPIRES_MINUTES")
