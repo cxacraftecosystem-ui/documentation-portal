@@ -33,6 +33,8 @@ export default function QuestionnairePage() {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [questionAudioFiles, setQuestionAudioFiles] = useState<Record<string, File[]>>({});
   const [selectedArtisanId, setSelectedArtisanId] = useState(searchParams.get("artisanId") ?? "");
+  const [additionalArtisanIds, setAdditionalArtisanIds] = useState<string[]>([]);
+  const [existingEntry, setExistingEntry] = useState<QuestionnaireInterview | null>(null);
   const [answerMode, setAnswerMode] = useState<"audio" | "text">("audio");
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [activePreview, setActivePreview] = useState<PreviewMedia | null>(null);
@@ -52,6 +54,34 @@ export default function QuestionnairePage() {
   }, [sections]);
 
   const selectedArtisan = useMemo(() => artisans.find((artisan) => artisan.id === selectedArtisanId), [artisans, selectedArtisanId]);
+
+  // The exact set of artisans this interview covers (primary + additional), de-duplicated. There is a
+  // single shared questionnaire entry per such set — we look it up so the researcher sees that it has
+  // already been started and which sections others have answered, instead of making a duplicate.
+  const selectedArtisanIds = useMemo(
+    () => Array.from(new Set([selectedArtisanId, ...additionalArtisanIds].filter(Boolean))),
+    [selectedArtisanId, additionalArtisanIds]
+  );
+  const selectedSetKey = useMemo(() => [...selectedArtisanIds].sort().join(","), [selectedArtisanIds]);
+
+  useEffect(() => {
+    if (selectedArtisanIds.length === 0) {
+      setExistingEntry(null);
+      return;
+    }
+    let active = true;
+    const query = selectedArtisanIds.map((id) => `artisanIds=${encodeURIComponent(id)}`).join("&");
+    apiFetch<QuestionnaireInterview | null>(`/questionnaire/interviews/by-artisans?${query}`)
+      .then((result) => {
+        if (active) setExistingEntry(result ?? null);
+      })
+      .catch(() => {
+        if (active) setExistingEntry(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedSetKey, selectedArtisanIds]);
 
   useEffect(() => {
     if (!selectedArtisan || questions.length === 0) return;
@@ -159,7 +189,7 @@ export default function QuestionnairePage() {
     setSaving(true);
     setError(null);
     const form = new FormData(event.currentTarget);
-    const artisanIds = Array.from(new Set([selectedArtisanId, ...form.getAll("artisanIds").map(String)].filter(Boolean)));
+    const artisanIds = selectedArtisanIds;
     const responses = Object.entries(answers)
       .filter(([, answerText]) => answerText.trim())
       .map(([questionId, answerText]) => ({ questionId, answerText: answerText.trim() }));
@@ -216,6 +246,7 @@ export default function QuestionnairePage() {
       setAnswers({});
       setMediaFiles([]);
       setQuestionAudioFiles({});
+      setAdditionalArtisanIds([]);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save interview");
@@ -271,7 +302,15 @@ export default function QuestionnairePage() {
             </Select>
           </Field>
           <Field label="Additional artisans">
-            <select name="artisanIds" className="field-input min-h-32" multiple>
+            <select
+              name="artisanIds"
+              className="field-input min-h-32"
+              multiple
+              value={additionalArtisanIds}
+              onChange={(event) =>
+                setAdditionalArtisanIds(Array.from(event.target.selectedOptions, (option) => option.value))
+              }
+            >
               {artisans.map((artisan) => (
                 <option key={artisan.id} value={artisan.id}>
                   {artisan.name} - {artisan.craft?.name ?? "No craft"} - {artisan.place}
@@ -280,6 +319,37 @@ export default function QuestionnairePage() {
             </select>
           </Field>
         </div>
+        {existingEntry ? (
+          <section className="rounded-lg border border-amber-300 bg-amber-50 p-4">
+            <h3 className="font-serif text-lg text-amber-900">A shared entry already exists for this set of artisans</h3>
+            <p className="mt-1 text-sm text-amber-800">
+              There is one questionnaire entry per set of artisans. Saving below adds your answers and media to{" "}
+              <span className="font-medium">{existingEntry.title}</span> — it will not create a duplicate. Questions
+              already answered by someone else are shown here and can only be changed by that contributor or an admin.
+            </p>
+            {existingEntry.responses && existingEntry.responses.length > 0 ? (
+              <div className="mt-3 grid gap-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                  Already recorded ({existingEntry.responses.length})
+                </div>
+                {existingEntry.responses.map((response) => (
+                  <div key={response.id} className="rounded-md border border-amber-200 bg-white/70 p-2 text-xs">
+                    <div className="font-semibold text-ink">
+                      {response.question?.sectionCode ? `[${response.question.sectionCode}] ` : ""}
+                      {response.question?.prompt ?? "Question"}
+                    </div>
+                    <div className="mt-1 whitespace-pre-wrap text-ink-muted">{response.answerText}</div>
+                    {response.answeredBy?.name ? (
+                      <div className="mt-1 text-amber-700">Recorded by {response.answeredBy.name}</div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-amber-700">No questions answered yet — you can be the first to fill them in.</p>
+            )}
+          </section>
+        ) : null}
         {selectedArtisan ? (
           <section className="rounded-lg border border-[#e6dfd8] bg-field-100 p-4">
             <h3 className="font-serif text-lg text-ink">RESP. Respondent Information</h3>
@@ -387,7 +457,7 @@ export default function QuestionnairePage() {
         <div>
           <button className="field-button" disabled={saving}>
             <Plus className="h-4 w-4" aria-hidden />
-            {saving ? "Saving..." : "Save interview"}
+            {saving ? "Saving..." : existingEntry ? "Add to shared entry" : "Save interview"}
           </button>
         </div>
       </form>

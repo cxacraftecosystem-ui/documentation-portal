@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 
 from app.core.db import db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_dataset_downloader
 from app.services.csv_export import PRODUCT_FIELDS, TOOL_FIELDS, records_to_csv
 from app.services.records import visibility_where
 
@@ -42,7 +42,7 @@ def _details(pairs: list[tuple[str, Any]]) -> str:
 
 
 @router.get("/dataset")
-async def dataset_manifest(current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
+async def dataset_manifest(current_user: Any = Depends(require_dataset_downloader)) -> dict[str, Any]:
     vis = visibility_where(current_user)
     workshops = await db.workshop.find_many(
         where=vis,

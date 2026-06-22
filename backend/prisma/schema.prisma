@@ -110,6 +110,7 @@ model User {
   canManageWorkshops     Boolean @default(false)
   canReview              Boolean @default(false)
   canViewProvenance      Boolean @default(false)
+  canDownloadDataset     Boolean @default(false)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
@@ -606,6 +607,11 @@ model QuestionnaireInterview {
   updatedAt     DateTime     @updatedAt
   createdById   String
   locationId    String?
+  // Deterministic key for the exact set of artisans this interview covers (sorted, comma-joined
+  // artisan ids). Enforces ONE interview per artisan set: creation is idempotent on this key, so
+  // every client lands on the single canonical entry instead of spawning duplicates. NULL only when
+  // an interview has no artisans (those are not deduped). A subset is a different set => different key.
+  artisanSetKey String?      @unique
 
   createdBy User                             @relation("QuestionnaireCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   location  Location?                        @relation(fields: [locationId], references: [id], onDelete: SetNull)

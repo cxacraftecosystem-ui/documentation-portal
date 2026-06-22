@@ -13,6 +13,7 @@ class UserCreate(APIModel):
     canManageWorkshops: bool = False
     canReview: bool = False
     canViewProvenance: bool = False
+    canDownloadDataset: bool = False
 
 
 class UserUpdate(APIModel):
@@ -25,3 +26,4 @@ class UserUpdate(APIModel):
     canManageWorkshops: bool | None = None
     canReview: bool | None = None
     canViewProvenance: bool | None = None
+    canDownloadDataset: bool | None = None

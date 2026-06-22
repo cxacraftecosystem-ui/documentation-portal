@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from prisma.errors import UniqueViolationError
 
 from app.core.db import db
 from app.core.deps import (
@@ -9,7 +10,9 @@ from app.core.deps import (
     assert_can_contribute_relation,
     assert_can_delete,
     get_current_user,
+    get_value,
     is_admin,
+    is_empty_value,
     require_questionnaire_manager,
 )
 from app.schemas.questionnaire import (
@@ -43,6 +46,25 @@ INTERVIEW_INCLUDE = {
     "responses": {"include": {"question": True, "answeredBy": True}},
     "media": True,
 }
+
+
+_DUPLICATE_SET_DETAIL = (
+    "An interview already exists for this exact set of artisans. There is a single shared entry per "
+    "artisan set — open it to add or view answers instead of creating another."
+)
+
+
+def artisan_set_key(artisan_ids: list[str]) -> str | None:
+    """Deterministic key for the exact set of artisans an interview covers.
+
+    Sorted, de-duplicated, comma-joined artisan ids — identical to the SQL backfill in migration
+    ``20260622120000`` (``string_agg(..., ',' ORDER BY ...)``). This is what makes one-interview-per-
+    artisan-set enforceable: every client computing the same set lands on the same key. Returns
+    ``None`` for an empty set (artisan-less interviews are not deduped). A subset yields a different
+    key, i.e. a separate entry.
+    """
+    unique = sorted({aid for aid in artisan_ids if aid})
+    return ",".join(unique) if unique else None
 
 
 async def next_section_sort_order() -> int:
@@ -88,9 +110,21 @@ async def section_payloads(active_only: bool = True) -> list[dict[str, Any]]:
 
 
 async def replace_interview_artisans(interview_id: str, artisan_ids: list[str]) -> None:
-    await db.questionnaireinterviewartisan.delete_many(where={"interviewId": interview_id})
-    for artisan_id in artisan_ids:
+    # Validate every artisan up front so a bad id can't leave a half-rewritten link set.
+    unique_ids = sorted({aid for aid in artisan_ids if aid})
+    for artisan_id in unique_ids:
         await require_record(db.artisan, artisan_id)
+    # Keep the interview's set key in lock-step with its links; the unique index then guarantees no
+    # other interview already owns this exact set.
+    set_key = artisan_set_key(unique_ids)
+    try:
+        await db.questionnaireinterview.update(
+            where={"id": interview_id}, data={"artisanSetKey": set_key}
+        )
+    except UniqueViolationError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_DUPLICATE_SET_DETAIL) from exc
+    await db.questionnaireinterviewartisan.delete_many(where={"interviewId": interview_id})
+    for artisan_id in unique_ids:
         await db.questionnaireinterviewartisan.create(
             data={"interviewId": interview_id, "artisanId": artisan_id}
         )
@@ -322,23 +356,93 @@ async def list_interviews(
     return page_payload(public_encode(items), total, page, page_size)
 
 
+# Scalar fields a "create for an existing set" may back-fill on the canonical interview — but ONLY
+# when that field is still empty, so one researcher's create can never overwrite another's content.
+_MERGEABLE_FILL_FIELDS = ("title", "place", "language", "notes", "interviewDate")
+
+
+async def merge_into_interview(
+    existing: Any, payload: QuestionnaireInterviewCreate, current_user: Any
+) -> dict[str, Any]:
+    """Fold a create-for-an-already-existing-set into the single canonical interview.
+
+    Fills only empty scalar fields (never clobbers a populated one), upserts the submitted answers
+    (``upsert_responses`` already blocks a non-owner from changing someone else's answer), and returns
+    the canonical row so the client attaches any media to the shared entry.
+    """
+    incoming = payload.model_dump()
+    fill = {
+        field: incoming.get(field)
+        for field in _MERGEABLE_FILL_FIELDS
+        if not is_empty_value(incoming.get(field)) and is_empty_value(get_value(existing, field))
+    }
+    if fill:
+        await db.questionnaireinterview.update(where={"id": existing.id}, data=fill)
+    if payload.responses:
+        await upsert_responses(existing.id, payload.responses, current_user)
+    hydrated = await db.questionnaireinterview.find_unique(
+        where={"id": existing.id}, include=INTERVIEW_INCLUDE
+    )
+    return public_encode(hydrated)
+
+
 @router.post("/interviews", status_code=status.HTTP_201_CREATED)
 async def create_interview(
     payload: QuestionnaireInterviewCreate,
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
+    # One interview per exact artisan set: if one already exists for this set, fold into it instead
+    # of creating a duplicate. This holds for EVERY client (web + old/new app) regardless of UI.
+    set_key = artisan_set_key(payload.artisanIds)
+    if set_key:
+        existing = await db.questionnaireinterview.find_unique(
+            where={"artisanSetKey": set_key}, include=INTERVIEW_INCLUDE
+        )
+        if existing is not None:
+            return await merge_into_interview(existing, payload, current_user)
+
     data = clean_data(payload.model_dump(exclude={"artisanIds", "responses"}))
     data = await attach_location(data)
     data["createdById"] = current_user.id
+    data["artisanSetKey"] = set_key
     merge_field_provenance(data, current_user, previous=None)
     jsonify_metadata(data)
-    created = await db.questionnaireinterview.create(data=data)
+    try:
+        created = await db.questionnaireinterview.create(data=data)
+    except UniqueViolationError:
+        # Race: a concurrent request won the create for this set. Fold into the canonical row.
+        existing = await db.questionnaireinterview.find_unique(
+            where={"artisanSetKey": set_key}, include=INTERVIEW_INCLUDE
+        )
+        if existing is not None:
+            return await merge_into_interview(existing, payload, current_user)
+        raise
     if payload.artisanIds:
         await replace_interview_artisans(created.id, payload.artisanIds)
     if payload.responses:
         await upsert_responses(created.id, payload.responses, current_user)
     hydrated = await db.questionnaireinterview.find_unique(where={"id": created.id}, include=INTERVIEW_INCLUDE)
     return public_encode(hydrated)
+
+
+@router.get("/interviews/by-artisans")
+async def interview_for_artisan_set(
+    artisanIds: list[str] = Query(default=[]),
+    _: Any = Depends(get_current_user),
+) -> dict[str, Any] | None:
+    """The single canonical interview for an EXACT set of artisans, or ``null``.
+
+    Lets a client show the one shared entry — and which sections/questions others have already
+    recorded — before offering to create. A subset of the artisans is a different set, so it will not
+    match here. Declared before ``/{interview_id}`` so the literal path wins the route match.
+    """
+    set_key = artisan_set_key(artisanIds)
+    if not set_key:
+        return None
+    interview = await db.questionnaireinterview.find_unique(
+        where={"artisanSetKey": set_key}, include=INTERVIEW_INCLUDE
+    )
+    return public_encode(interview) if interview else None
 
 
 @router.get("/interviews/{interview_id}")

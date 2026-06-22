@@ -448,6 +448,9 @@ private fun HomeScreen(
     // Provenance (created-by + per-field edit history) on the View Data screen: admins always, plus
     // any user explicitly granted the "view provenance" privilege.
     val canViewProvenance = isAdmin || user.canViewProvenance
+    // Full-dataset download on the View Data screen: admins always, plus any user explicitly granted
+    // the "download dataset" privilege.
+    val canDownloadDataset = isAdmin || user.canDownloadDataset
     // Master admin lands in admin view; other admins opt in from the menu.
     var adminView by remember { mutableStateOf(isMasterAdmin) }
 
@@ -738,6 +741,7 @@ private fun HomeScreen(
                     canReview = canReview,
                     masterAdmin = isMasterAdmin,
                     showProvenance = canViewProvenance,
+                    canDownloadDataset = canDownloadDataset,
                     onError = { showMessage(it) }
                 )
                 EntryMode.TOOL -> ToolForm(
@@ -5238,7 +5242,7 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
 }
 
 @Composable
-private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = false, masterAdmin: Boolean = false, showProvenance: Boolean = false, onError: (String) -> Unit) {
+private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = false, masterAdmin: Boolean = false, showProvenance: Boolean = false, canDownloadDataset: Boolean = false, onError: (String) -> Unit) {
     var mode by remember { mutableStateOf(EntryMode.ARTISAN) }
     var options by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var selectedId by remember { mutableStateOf("") }
@@ -5391,7 +5395,9 @@ private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = fal
     if (selectedId.isNotBlank()) {
         ViewDataDetail(repository = repository, mode = mode, recordId = selectedId, showProvenance = showProvenance, onError = onError)
     }
-    DatasetDownloadCard(repository = repository, onError = onError)
+    if (canDownloadDataset) {
+        DatasetDownloadCard(repository = repository, onError = onError)
+    }
     if (canReview) {
         ReviewApprovalCard(repository = repository, onError = onError)
     }
@@ -7144,6 +7150,17 @@ private fun UserManagementForm(
                                 scope.launch {
                                     runCatching { repository.updateUserProvenanceAccess(appUser.id, grant); refreshUsers() }
                                         .onFailure { onError(it.message ?: "Unable to update provenance access") }
+                                }
+                            }
+                        )
+                        GrantToggleRow(
+                            label = "Download entire dataset",
+                            granted = isMaster || appUser.role == "ADMIN" || appUser.canDownloadDataset,
+                            enabled = canEditGrants,
+                            onToggle = { grant ->
+                                scope.launch {
+                                    runCatching { repository.updateUserDatasetAccess(appUser.id, grant); refreshUsers() }
+                                        .onFailure { onError(it.message ?: "Unable to update dataset access") }
                                 }
                             }
                         )

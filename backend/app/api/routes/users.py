@@ -110,6 +110,9 @@ async def create_user(payload: UserCreate, current_user: Any = Depends(require_a
             "canManageWorkshops": is_master or payload.canManageWorkshops,
             "canReview": is_master or payload.canReview,
             "canViewProvenance": is_master or payload.canViewProvenance,
+            # Dataset download is grantable by any admin (the whole route is admin-gated), unlike the
+            # master-admin-only grants above — so it needs no extra permission assertion.
+            "canDownloadDataset": is_master or payload.canDownloadDataset,
         }
     )
     return serialize_user(user)
@@ -144,6 +147,7 @@ async def update_user(
         data["canManageWorkshops"] = True
         data["canReview"] = True
         data["canViewProvenance"] = True
+        data["canDownloadDataset"] = True
     updated = await db.user.update(where={"id": user_id}, data=data)
     return serialize_user(updated)
 

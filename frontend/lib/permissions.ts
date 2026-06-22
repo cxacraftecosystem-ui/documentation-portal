@@ -20,6 +20,10 @@ export function canManageWorkshops(user: User | null | undefined) {
   return isAdmin(user) || !!user?.canManageWorkshops;
 }
 
+export function canDownloadDataset(user: User | null | undefined) {
+  return isAdmin(user) || !!user?.canDownloadDataset;
+}
+
 export function canEditOwnOrAdmin(user: User | null | undefined, ownerId?: string | null) {
   return isAdmin(user) || (!!user?.id && !!ownerId && user.id === ownerId);
 }

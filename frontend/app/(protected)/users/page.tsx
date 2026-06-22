@@ -42,6 +42,7 @@ export default function UsersPage() {
   const [grantQuestionnaire, setGrantQuestionnaire] = useState(false);
   const [grantCrafts, setGrantCrafts] = useState(false);
   const [grantWorkshops, setGrantWorkshops] = useState(false);
+  const [grantDataset, setGrantDataset] = useState(false);
   const [applying, setApplying] = useState(false);
   const [adminMessage, setAdminMessage] = useState<string | null>(null);
 
@@ -67,8 +68,9 @@ export default function UsersPage() {
       if (grantQuestionnaire) body.canManageQuestionnaire = true;
       if (grantCrafts) body.canManageCrafts = true;
       if (grantWorkshops) body.canManageWorkshops = true;
+      if (grantDataset) body.canDownloadDataset = true;
       if (Object.keys(body).length === 0) {
-        setAdminMessage("Pick at least one of: admin access, questionnaire, crafts or workshops to grant.");
+        setAdminMessage("Pick at least one of: admin access, questionnaire, crafts, workshops or dataset download to grant.");
         setApplying(false);
         return;
       }
@@ -112,7 +114,8 @@ export default function UsersPage() {
           role: requiredText(form, "role"),
           canManageQuestionnaire: form.get("canManageQuestionnaire") === "on",
           canManageCrafts: form.get("canManageCrafts") === "on",
-          canManageWorkshops: form.get("canManageWorkshops") === "on"
+          canManageWorkshops: form.get("canManageWorkshops") === "on",
+          canDownloadDataset: form.get("canDownloadDataset") === "on"
         })
       });
       event.currentTarget.reset();
@@ -129,7 +132,7 @@ export default function UsersPage() {
 
   async function updateGrant(
     user: User,
-    field: "canManageQuestionnaire" | "canManageCrafts" | "canManageWorkshops",
+    field: "canManageQuestionnaire" | "canManageCrafts" | "canManageWorkshops" | "canDownloadDataset",
     value: boolean
   ) {
     try {
@@ -184,6 +187,10 @@ export default function UsersPage() {
             <input name="canManageWorkshops" type="checkbox" disabled={!isMasterAdmin(currentUser)} />
             Create workshops
           </label>
+          <label className="flex items-center gap-2 rounded-md border border-[#e6dfd8] bg-field-100 px-3 py-2 text-sm text-ink-muted">
+            <input name="canDownloadDataset" type="checkbox" />
+            Download dataset
+          </label>
         </div>
         <div className="md:col-span-5">
           <button className="field-button">Create user</button>
@@ -210,6 +217,7 @@ export default function UsersPage() {
                   <th className="px-4 py-3">Questionnaire</th>
                   <th className="px-4 py-3">Crafts</th>
                   <th className="px-4 py-3">Workshops</th>
+                  <th className="px-4 py-3">Dataset</th>
                   <th className="px-4 py-3">Provider</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
@@ -243,6 +251,12 @@ export default function UsersPage() {
                       editable={isMasterAdmin(currentUser) && !isAdmin(user)}
                       label={`Allow ${user.email} to create workshops`}
                       onChange={(value) => updateGrant(user, "canManageWorkshops", value)}
+                    />
+                    <GrantCell
+                      included={isAdmin(user) || !!user.canDownloadDataset}
+                      editable={isAdmin(currentUser) && !isAdmin(user)}
+                      label={`Allow ${user.email} to download the entire dataset`}
+                      onChange={(value) => updateGrant(user, "canDownloadDataset", value)}
                     />
                     <td className="px-4 py-3 text-neutral-600">{user.authProvider ?? "-"}</td>
                     <td className="px-4 py-3 text-right">
@@ -305,6 +319,10 @@ export default function UsersPage() {
               <label className="flex items-center gap-2 text-sm text-ink">
                 <input type="checkbox" checked={grantWorkshops} onChange={(event) => setGrantWorkshops(event.target.checked)} />
                 Create workshops
+              </label>
+              <label className="flex items-center gap-2 text-sm text-ink">
+                <input type="checkbox" checked={grantDataset} onChange={(event) => setGrantDataset(event.target.checked)} />
+                Download dataset
               </label>
               <button
                 type="button"

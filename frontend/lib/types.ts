@@ -20,6 +20,7 @@ export type User = {
   canManageQuestionnaire?: boolean;
   canManageCrafts?: boolean;
   canManageWorkshops?: boolean;
+  canDownloadDataset?: boolean;
 };
 
 export type FieldProvenanceEntry = { by?: string; byName?: string; at?: string };

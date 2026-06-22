@@ -46,6 +46,11 @@ def can_review(user: Any) -> bool:
     return is_admin(user) or bool(get_value(user, "canReview"))
 
 
+def can_download_dataset(user: Any) -> bool:
+    """May download the entire dataset: any admin, or a user granted the dataset-download permission."""
+    return is_admin(user) or bool(get_value(user, "canDownloadDataset"))
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> Any:
@@ -84,6 +89,15 @@ async def require_master_admin(current_user: Any = Depends(get_current_user)) ->
 async def require_reviewer(current_user: Any = Depends(get_current_user)) -> Any:
     if not can_review(current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Review access required")
+    return current_user
+
+
+async def require_dataset_downloader(current_user: Any = Depends(get_current_user)) -> Any:
+    if not can_download_dataset(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Dataset download access required. Ask an admin to grant it.",
+        )
     return current_user
 
 
