@@ -161,6 +161,7 @@ import androidx.compose.material.icons.filled.ManageAccounts
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PermMedia
 import androidx.compose.material.icons.filled.Person
@@ -5394,7 +5395,7 @@ private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = fal
                 val hasArtisan = selectedArtisanIds.isNotEmpty()
                 // "Check completion" is always offered first — it opens the artisans x sections matrix
                 // (all artisans). The artisan-filtered questionnaire entries follow once an artisan is picked.
-                val secondaryOptions = listOf(COMPLETION_OPTION_ID to "📊 Check completion (all artisans)") +
+                val secondaryOptions = listOf(COMPLETION_OPTION_ID to "▦ Check completion (all artisans)") +
                     (if (hasArtisan) questionnaireOptions else emptyList())
                 DropdownField(
                     label = "Select questionnaire",
@@ -5643,7 +5644,7 @@ private fun CompletionMatrixCard(
     }
     LaunchedEffect(artisanId) { reload() }
 
-    RecordCard(title = "Check completion") {
+    RecordCard(title = "Check completion", icon = Icons.Filled.GridView) {
         Text(
             "Sections recorded per artisan — green is done (counted whether recorded individually or " +
                 "as part of any group/superset). Pinch to zoom." +
@@ -7454,14 +7455,21 @@ private fun GrantToggleRow(label: String, granted: Boolean, enabled: Boolean, on
 }
 
 @Composable
-private fun RecordCard(title: String, content: @Composable ColumnScope.() -> Unit) {
+private fun RecordCard(title: String, icon: ImageVector? = null, content: @Composable ColumnScope.() -> Unit) {
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(containerColor = Canvas),
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(title, fontFamily = FontFamily.Serif, fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurface)
+            if (icon != null) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(24.dp))
+                    Text(title, fontFamily = FontFamily.Serif, fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurface)
+                }
+            } else {
+                Text(title, fontFamily = FontFamily.Serif, fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurface)
+            }
             content()
         }
     }

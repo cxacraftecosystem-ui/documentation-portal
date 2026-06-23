@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from typing import Any
 
@@ -46,6 +47,35 @@ def _norm_code(value: str | None) -> str:
     """Uppercase, alphanumerics-only form of a section code — mirrors the app's filename token() so a
     clip filename's leading section token resolves back to its section."""
     return "".join(ch for ch in (value or "") if ch.isalnum()).upper()
+
+
+_SECTION_IN_TITLE_RE = re.compile(r"sections?\s+([a-zA-Z][a-zA-Z\s,&/\-]{0,24})", re.IGNORECASE)
+_LETTER_RUN_RE = re.compile(r"\b([a-zA-Z](?:\s*,\s*[a-zA-Z]){2,})\b")
+_REAL_WORD_RE = re.compile(r"\b(?!and\b)[a-zA-Z]{2,}\b", re.IGNORECASE)
+
+
+def section_codes_from_title(title: str | None, valid_codes: set[str]) -> set[str]:
+    """Best-effort section codes named in an interview's TITLE — the only completion signal for
+    interviews recorded BEFORE the clip-filename nomenclature existed. Researchers titled those by the
+    sections covered, e.g. "Section K & L", "section F", or "Rudraprayag G,H,I,J,Q". Only tokens that
+    exactly match a real section code count, so unrelated words are ignored; admins can still override.
+    """
+    if not title:
+        return set()
+    found: set[str] = set()
+    # Letters right after the word "section"/"sections", through a short run of separators, stopping at
+    # the first real word (2+ letters that isn't "and") so we don't sweep up the rest of the title.
+    for match in _SECTION_IN_TITLE_RE.finditer(title):
+        run = _REAL_WORD_RE.split(match.group(1))[0]
+        for token in re.split(r"[^a-zA-Z]+", run):
+            if len(token) == 1 and token.upper() in valid_codes:
+                found.add(token.upper())
+    # Bare comma-separated single-letter runs, e.g. "G,H,I,J,Q".
+    for match in _LETTER_RUN_RE.finditer(title):
+        for token in re.split(r"[^a-zA-Z]+", match.group(1)):
+            if len(token) == 1 and token.upper() in valid_codes:
+                found.add(token.upper())
+    return found
 
 
 INTERVIEW_INCLUDE = {
@@ -119,13 +149,26 @@ async def section_payloads(active_only: bool = True) -> list[dict[str, Any]]:
 
 
 async def replace_interview_artisans(interview_id: str, artisan_ids: list[str]) -> None:
-    # Validate every artisan up front so a bad id can't leave a half-rewritten link set.
     unique_ids = sorted({aid for aid in artisan_ids if aid})
+    set_key = artisan_set_key(unique_ids)
+
+    # Short-circuit when the artisan set is unchanged. A plain edit (new responses/media, title, notes)
+    # re-sends the same artisanIds; rewriting the unique set key + links on every such save is both
+    # wasteful and the ONLY thing that could trip the one-interview-per-set guard. Skipping it means an
+    # ordinary edit can never 409. We still heal a drifted cached key (its own value, so no conflict).
+    current = await db.questionnaireinterviewartisan.find_many(where={"interviewId": interview_id})
+    if sorted({link.artisanId for link in current}) == unique_ids:
+        existing = await db.questionnaireinterview.find_unique(where={"id": interview_id})
+        if existing is not None and existing.artisanSetKey != set_key:
+            await db.questionnaireinterview.update(
+                where={"id": interview_id}, data={"artisanSetKey": set_key}
+            )
+        return
+
+    # The set is genuinely changing. Validate every artisan up front so a bad id can't leave a
+    # half-rewritten link set, then keep the unique set key in lock-step with the links.
     for artisan_id in unique_ids:
         await require_record(db.artisan, artisan_id)
-    # Keep the interview's set key in lock-step with its links; the unique index then guarantees no
-    # other interview already owns this exact set.
-    set_key = artisan_set_key(unique_ids)
     try:
         await db.questionnaireinterview.update(
             where={"id": interview_id}, data={"artisanSetKey": set_key}
@@ -476,9 +519,15 @@ async def _derived_completed_sections() -> dict[str, set[str]]:
     interviews = await db.questionnaireinterview.find_many(
         include={"artisans": True, "responses": True, "media": True}
     )
+    valid_codes = {_norm_code(s.code) for s in sections if _norm_code(s.code)}
     completed: dict[str, set[str]] = {}
     for interview in interviews:
         recorded: set[str] = set()
+        # Title-named sections: the only signal for pre-nomenclature recordings (titled by section).
+        for code in section_codes_from_title(interview.title, valid_codes):
+            section_id = section_id_by_norm_code.get(code)
+            if section_id:
+                recorded.add(section_id)
         for response in interview.responses or []:
             section_id = section_by_question.get(response.questionId)
             if section_id and not is_empty_value(response.answerText):
