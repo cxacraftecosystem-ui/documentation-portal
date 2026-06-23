@@ -403,6 +403,14 @@ class FieldRepository(
     suspend fun updateQuestionnaireInterview(id: String, body: QuestionnaireInterviewUpdateRequest): QuestionnaireInterviewDetailDto =
         api.updateInterview(id, body)
 
+    /** Completion matrix (artisans x sections). Pass [artisanId] to scope it to one artisan. */
+    suspend fun completionMatrix(artisanId: String? = null): CompletionMatrixDto =
+        api.completionMatrix(artisanId)
+
+    /** Admin-only: set ([status] = COMPLETED/NEEDS_REVIEW/NEEDS_REDO) or clear ([status] = null) one cell. */
+    suspend fun setCompletionCell(artisanId: String, sectionId: String, status: String?) =
+        api.setCompletionCell(CompletionCellRequest(artisanId, sectionId, status))
+
     /**
      * Upload a captured/selected file as a single streamed object. The bytes are streamed straight
      * from the content Uri to object storage (S3 PUT handles up to 5 GB), so even large videos upload

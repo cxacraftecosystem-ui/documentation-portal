@@ -315,4 +315,12 @@ interface FieldRepositoryApi {
         @Path("id") id: String,
         @Body body: QuestionnaireInterviewUpdateRequest
     ): QuestionnaireInterviewDetailDto
+
+    @GET("questionnaire/completion")
+    suspend fun completionMatrix(
+        @Query("artisanId") artisanId: String? = null
+    ): CompletionMatrixDto
+
+    @PUT("questionnaire/completion")
+    suspend fun setCompletionCell(@Body body: CompletionCellRequest): JsonElement
 }

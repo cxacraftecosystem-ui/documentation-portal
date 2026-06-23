@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from prisma.errors import UniqueViolationError
 
 from app.core.config import get_settings
 from app.core.db import db
@@ -176,6 +177,15 @@ async def analyze_media_measurement(
     return await analyze_measurement_image(file, get_settings(), dimension)
 
 
+async def _finish_pending_media(existing: Any, processing_requests: list[str] | None, user_id: str, settings: Any) -> dict[str, Any]:
+    """Return an already-created media row for a retried /complete, enqueuing its processing jobs once
+    if the original request died before it could (so a retry never drops transcription)."""
+    if processing_requests and not (existing.processingJobs or []):
+        await enqueue_media_processing_jobs(existing, processing_requests, user_id, settings)
+        existing = await db.mediafile.find_unique(where={"id": existing.id}, include=INCLUDE)
+    return public_encode(existing)
+
+
 @router.post("/complete", status_code=status.HTTP_201_CREATED)
 async def complete_media_upload(
     payload: MediaCompleteRequest,
@@ -183,6 +193,15 @@ async def complete_media_upload(
 ) -> dict[str, Any]:
     settings = get_settings()
     processing_requests = payload.processingRequests
+
+    # Idempotency. The client retries /complete when the first call is slow or times out (504
+    # resilience), but that first call may already have created the row. ``objectKey`` is unique and
+    # embeds the uploader id + a per-upload uuid, so a row already present for this key IS this same
+    # upload — return it instead of failing with a 500 UniqueViolationError (the bug users hit).
+    existing = await db.mediafile.find_unique(where={"objectKey": payload.objectKey}, include=INCLUDE)
+    if existing is not None:
+        return await _finish_pending_media(existing, processing_requests, current_user.id, settings)
+
     data = clean_data(payload.model_dump(exclude={"processingRequests"}))
     data = await attach_location(data)
     data["bucket"] = data.get("bucket") or settings.aws_s3_bucket
@@ -190,7 +209,14 @@ async def complete_media_upload(
     data["uploadedById"] = current_user.id
     data.update(media_relation_data(data.get("linkedRecordType"), data.get("linkedRecordId")))
     jsonify_metadata(data)
-    created = await db.mediafile.create(data=data, include=INCLUDE)
+    try:
+        created = await db.mediafile.create(data=data, include=INCLUDE)
+    except UniqueViolationError:
+        # Lost a race with a concurrent retry that inserted the row first — return that one.
+        racer = await db.mediafile.find_unique(where={"objectKey": payload.objectKey}, include=INCLUDE)
+        if racer is not None:
+            return await _finish_pending_media(racer, processing_requests, current_user.id, settings)
+        raise
     await enqueue_media_processing_jobs(created, processing_requests, current_user.id, settings)
     created = await db.mediafile.find_unique(where={"id": created.id}, include=INCLUDE)
     return public_encode(created)

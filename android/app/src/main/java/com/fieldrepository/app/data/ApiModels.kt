@@ -819,6 +819,47 @@ data class QuestionnaireInterviewUpdateRequest(
     val location: LocationRequest? = null
 )
 
+// --- Questionnaire completion matrix (artisans x sections) ---
+
+@Serializable
+data class CompletionMatrixDto(
+    val sections: List<CompletionSectionDto> = emptyList(),
+    val artisans: List<CompletionArtisanDto> = emptyList(),
+    val cells: List<CompletionCellDto> = emptyList()
+)
+
+@Serializable
+data class CompletionSectionDto(
+    val id: String,
+    val code: String,
+    val title: String,
+    val sortOrder: Int = 0
+)
+
+@Serializable
+data class CompletionArtisanDto(
+    val id: String,
+    val name: String
+)
+
+@Serializable
+data class CompletionCellDto(
+    val artisanId: String,
+    val sectionId: String,
+    val derived: Boolean = false,
+    // null = no admin override (fall back to `derived`); else COMPLETED | NEEDS_REVIEW | NEEDS_REDO.
+    val status: String? = null,
+    val setByName: String? = null
+)
+
+@Serializable
+data class CompletionCellRequest(
+    val artisanId: String,
+    val sectionId: String,
+    // null clears the override.
+    val status: String? = null
+)
+
 @Serializable
 data class AppSettingDto(
     val transcriptionMode: String = "REFINED_TRANSLATED",

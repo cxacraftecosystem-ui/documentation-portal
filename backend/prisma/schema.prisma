@@ -127,6 +127,7 @@ model User {
   questionnaireResponses QuestionnaireResponse[] @relation("QuestionnaireAnsweredBy")
   appReleases AppRelease[] @relation("AppReleasePublishedBy")
   feedback    Feedback?    @relation("FeedbackUser")
+  sectionStatusesSet QuestionnaireSectionStatus[] @relation("SectionStatusSetBy")
 
   @@index([role])
   @@index([canManageQuestionnaire])
@@ -260,6 +261,7 @@ model Artisan {
   toolLinks ToolArtisan[]
   media     MediaFile[]
   questionnaireInterviews QuestionnaireInterviewArtisan[]
+  sectionStatuses QuestionnaireSectionStatus[]
 
   @@index([name])
   @@index([place])
@@ -567,10 +569,33 @@ model QuestionnaireSection {
   updatedAt DateTime @updatedAt
 
   questions QuestionnaireQuestion[]
+  sectionStatuses QuestionnaireSectionStatus[]
 
   @@unique([sortOrder])
   @@index([code])
   @@index([isActive, sortOrder])
+}
+
+/// Admin-set completion status for one (artisan, section) cell on the "Check completion" matrix.
+/// Absent row = no manual override (the matrix then falls back to data-derived completion). A row
+/// here is an explicit verdict by an admin/master admin that overrides the derived green.
+model QuestionnaireSectionStatus {
+  id        String   @id @default(cuid())
+  artisanId String
+  sectionId String
+  // COMPLETED (green) | NEEDS_REVIEW (yellow) | NEEDS_REDO (red).
+  status    String
+  setById   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  artisan Artisan              @relation(fields: [artisanId], references: [id], onDelete: Cascade)
+  section QuestionnaireSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  setBy   User                 @relation("SectionStatusSetBy", fields: [setById], references: [id], onDelete: Restrict)
+
+  @@unique([artisanId, sectionId])
+  @@index([artisanId])
+  @@index([sectionId])
 }
 
 model QuestionnaireQuestion {

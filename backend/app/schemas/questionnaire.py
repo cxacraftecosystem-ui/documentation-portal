@@ -64,6 +64,15 @@ class QuestionnaireInterviewCreate(APIModel):
     extraMetadata: dict[str, Any] | None = None
 
 
+class CompletionCellUpdate(APIModel):
+    """Admin-set status for one (artisan, section) cell on the completion matrix. ``status=None``
+    clears the manual override (falling back to data-derived completion)."""
+
+    artisanId: str = Field(min_length=1)
+    sectionId: str = Field(min_length=1)
+    status: str | None = None
+
+
 class QuestionnaireInterviewUpdate(APIModel):
     title: str | None = Field(default=None, min_length=1, max_length=220)
     interviewDate: datetime | None = None

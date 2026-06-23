@@ -13,9 +13,11 @@ from app.core.deps import (
     get_value,
     is_admin,
     is_empty_value,
+    require_admin,
     require_questionnaire_manager,
 )
 from app.schemas.questionnaire import (
+    CompletionCellUpdate,
     QuestionnaireInterviewCreate,
     QuestionnaireInterviewUpdate,
     QuestionnaireQuestionCreate,
@@ -38,6 +40,13 @@ from app.services.records import (
 )
 
 router = APIRouter(prefix="/questionnaire", tags=["questionnaire"])
+
+
+def _norm_code(value: str | None) -> str:
+    """Uppercase, alphanumerics-only form of a section code — mirrors the app's filename token() so a
+    clip filename's leading section token resolves back to its section."""
+    return "".join(ch for ch in (value or "") if ch.isalnum()).upper()
+
 
 INTERVIEW_INCLUDE = {
     "createdBy": True,
@@ -443,6 +452,148 @@ async def interview_for_artisan_set(
         where={"artisanSetKey": set_key}, include=INTERVIEW_INCLUDE
     )
     return public_encode(interview) if interview else None
+
+
+COMPLETION_STATUSES = {"COMPLETED", "NEEDS_REVIEW", "NEEDS_REDO"}
+
+
+async def _derived_completed_sections() -> dict[str, set[str]]:
+    """artisanId -> set of sectionIds with recorded content in ANY interview containing the artisan.
+
+    "Containing" covers the artisan interviewed alone, in a group, or as part of a larger superset —
+    a section recorded for any interview the artisan belongs to counts as completed for that artisan.
+    A section counts as recorded in an interview when it has a non-empty response, or media tagged
+    (in ``extraMetadata``) with that section's question or code.
+    """
+    questions = await db.questionnairequestion.find_many()
+    section_by_question = {q.id: q.sectionId for q in questions if q.sectionId}
+    sections = await db.questionnairesection.find_many()
+    section_id_by_code = {s.code: s.id for s in sections}
+    # Normalised code -> sectionId, matching how the app builds clip filenames (uppercase, strip
+    # non-alphanumerics) so the SECTION_QUESTION_... nomenclature resolves back to its section.
+    section_id_by_norm_code = {_norm_code(s.code): s.id for s in sections if _norm_code(s.code)}
+
+    interviews = await db.questionnaireinterview.find_many(
+        include={"artisans": True, "responses": True, "media": True}
+    )
+    completed: dict[str, set[str]] = {}
+    for interview in interviews:
+        recorded: set[str] = set()
+        for response in interview.responses or []:
+            section_id = section_by_question.get(response.questionId)
+            if section_id and not is_empty_value(response.answerText):
+                recorded.add(section_id)
+        for media in interview.media or []:
+            meta = media.extraMetadata if isinstance(media.extraMetadata, dict) else None
+            if meta:
+                section_id = section_by_question.get(meta.get("questionId"))
+                if section_id:
+                    recorded.add(section_id)
+                code_section = section_id_by_code.get(meta.get("sectionCode"))
+                if code_section:
+                    recorded.add(code_section)
+            # Fallback: the audio clip filename leads with the section code
+            # (SECTIONCODE_QUESTION_INTERVIEW_DURATION_STAMP), the only section signal carried by the
+            # app's recorded questionnaire clips.
+            first_token = (media.originalFilename or "").split("_", 1)[0]
+            code_section = section_id_by_norm_code.get(_norm_code(first_token))
+            if code_section:
+                recorded.add(code_section)
+        if recorded:
+            for link in interview.artisans or []:
+                completed.setdefault(link.artisanId, set()).update(recorded)
+    return completed
+
+
+@router.get("/completion")
+async def completion_matrix(
+    artisanId: str | None = None,
+    _: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Completion matrix: artisans (rows) x active sections (columns). Each populated cell carries the
+    data-derived completion flag and any admin override (COMPLETED/NEEDS_REVIEW/NEEDS_REDO). Pass
+    ``artisanId`` to scope it to a single artisan (the per-artisan View Data view)."""
+    sections = await db.questionnairesection.find_many(
+        where={"isActive": True}, order={"sortOrder": "asc"}
+    )
+    if artisanId:
+        artisan = await require_record(db.artisan, artisanId)
+        artisans = [artisan]
+    else:
+        artisans = await db.artisan.find_many(order={"name": "asc"})
+    artisan_ids = {a.id for a in artisans}
+
+    derived = await _derived_completed_sections()
+    status_where = {"artisanId": artisanId} if artisanId else {}
+    overrides = await db.questionnairesectionstatus.find_many(
+        where=status_where, include={"setBy": True}
+    )
+    override_by_cell = {
+        (o.artisanId, o.sectionId): o for o in overrides if o.artisanId in artisan_ids
+    }
+
+    section_ids = {s.id for s in sections}
+    cells: list[dict[str, Any]] = []
+    for artisan in artisans:
+        derived_ids = derived.get(artisan.id, set())
+        for section in sections:
+            override = override_by_cell.get((artisan.id, section.id))
+            is_derived = section.id in derived_ids
+            if override is None and not is_derived:
+                continue
+            cells.append(
+                {
+                    "artisanId": artisan.id,
+                    "sectionId": section.id,
+                    "derived": is_derived,
+                    "status": override.status if override else None,
+                    "setByName": get_value(override.setBy, "name") if override else None,
+                }
+            )
+    # Defensively drop overrides that point at now-inactive sections from the matrix output.
+    cells = [c for c in cells if c["sectionId"] in section_ids]
+    return {
+        "sections": [
+            {"id": s.id, "code": s.code, "title": s.title, "sortOrder": s.sortOrder}
+            for s in sections
+        ],
+        "artisans": [{"id": a.id, "name": a.name} for a in artisans],
+        "cells": cells,
+    }
+
+
+@router.put("/completion")
+async def set_completion_cell(
+    payload: CompletionCellUpdate,
+    current_user: Any = Depends(require_admin),
+) -> dict[str, Any]:
+    """Admin/master-admin only: set or clear the manual status for one (artisan, section) cell."""
+    await require_record(db.artisan, payload.artisanId)
+    await require_record(db.questionnairesection, payload.sectionId)
+    key = {"artisanId_sectionId": {"artisanId": payload.artisanId, "sectionId": payload.sectionId}}
+    if payload.status is None:
+        await db.questionnairesectionstatus.delete_many(
+            where={"artisanId": payload.artisanId, "sectionId": payload.sectionId}
+        )
+        return {"cleared": True}
+    if payload.status not in COMPLETION_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"status must be one of {sorted(COMPLETION_STATUSES)} or null",
+        )
+    record = await db.questionnairesectionstatus.upsert(
+        where=key,
+        data={
+            "create": {
+                "artisanId": payload.artisanId,
+                "sectionId": payload.sectionId,
+                "status": payload.status,
+                "setById": current_user.id,
+            },
+            "update": {"status": payload.status, "setById": current_user.id},
+        },
+    )
+    return public_encode(record)
 
 
 @router.get("/interviews/{interview_id}")

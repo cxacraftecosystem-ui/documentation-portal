@@ -22,6 +22,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -70,7 +71,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -89,6 +95,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.fieldrepository.app.data.ApiClient
 import com.fieldrepository.app.data.ArtisanCreateRequest
+import com.fieldrepository.app.data.CompletionCellDto
+import com.fieldrepository.app.data.CompletionMatrixDto
 import com.fieldrepository.app.data.CraftCreateRequest
 import com.fieldrepository.app.data.DashboardStats
 import com.fieldrepository.app.data.FieldRepository
@@ -740,6 +748,7 @@ private fun HomeScreen(
                     repository = repository,
                     canReview = canReview,
                     masterAdmin = isMasterAdmin,
+                    isAdmin = isAdmin,
                     showProvenance = canViewProvenance,
                     canDownloadDataset = canDownloadDataset,
                     onError = { showMessage(it) }
@@ -2396,7 +2405,10 @@ private fun MediaCaptureSection(
                     color = SurfaceCard,
                     fontSize = 11.sp
                 )
-                media.uris.take(6).forEach { uri ->
+                var attachmentsExpanded by remember { mutableStateOf(false) }
+                val attachmentsCap = 6
+                val shownAttachments = if (attachmentsExpanded) media.uris else media.uris.take(attachmentsCap)
+                shownAttachments.forEach { uri ->
                     AndroidUriPreview(
                         context = context,
                         uri = uri,
@@ -2415,7 +2427,11 @@ private fun MediaCaptureSection(
                         }
                     )
                 }
-                if (media.uris.size > 6) Text("+${media.uris.size - 6} more", color = SurfaceCard, fontSize = 12.sp)
+                if (media.uris.size > attachmentsCap) {
+                    TextButton(onClick = { attachmentsExpanded = !attachmentsExpanded }) {
+                        Text(if (attachmentsExpanded) "Show fewer" else "+${media.uris.size - attachmentsCap} more")
+                    }
+                }
                 TextButton(onClick = {
                     val pending = media.stagedDeferred.values.toList()
                     media.stagedDeferred.clear()
@@ -2505,7 +2521,10 @@ private fun AttachedUploadsCard(
             color = SurfaceCard,
             fontSize = 11.sp
         )
-        uris.take(8).forEach { uri ->
+        var expanded by remember { mutableStateOf(false) }
+        val cap = 8
+        val shown = if (expanded) uris else uris.take(cap)
+        shown.forEach { uri ->
             AndroidUriPreview(
                 context = context,
                 uri = uri,
@@ -2516,7 +2535,11 @@ private fun AttachedUploadsCard(
                 onRemove = { onRemove(uri) }
             )
         }
-        if (uris.size > 8) Text("+${uris.size - 8} more", color = SurfaceCard, fontSize = 12.sp)
+        if (uris.size > cap) {
+            TextButton(onClick = { expanded = !expanded }) {
+                Text(if (expanded) "Show fewer" else "+${uris.size - cap} more")
+            }
+        }
     }
 }
 
@@ -5241,8 +5264,11 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
     }
 }
 
+// Sentinel id for the "Check completion" entry in the questionnaire dropdown (not a real record id).
+private const val COMPLETION_OPTION_ID = "__completion__"
+
 @Composable
-private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = false, masterAdmin: Boolean = false, showProvenance: Boolean = false, canDownloadDataset: Boolean = false, onError: (String) -> Unit) {
+private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = false, masterAdmin: Boolean = false, isAdmin: Boolean = false, showProvenance: Boolean = false, canDownloadDataset: Boolean = false, onError: (String) -> Unit) {
     var mode by remember { mutableStateOf(EntryMode.ARTISAN) }
     var options by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var selectedId by remember { mutableStateOf("") }
@@ -5342,7 +5368,7 @@ private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = fal
     }
     // Keep the chosen questionnaire valid as the artisan filter changes (only in questionnaire mode).
     LaunchedEffect(questionnaireOptions, mode) {
-        if (mode == EntryMode.QUESTIONNAIRE && selectedId.isNotBlank() && questionnaireOptions.none { it.first == selectedId }) {
+        if (mode == EntryMode.QUESTIONNAIRE && selectedId.isNotBlank() && selectedId != COMPLETION_OPTION_ID && questionnaireOptions.none { it.first == selectedId }) {
             selectedId = ""
         }
     }
@@ -5366,20 +5392,20 @@ private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = fal
                     selectedArtisanIds = if (selectedArtisanIds.contains(id)) selectedArtisanIds - id else selectedArtisanIds + id
                 }
                 val hasArtisan = selectedArtisanIds.isNotEmpty()
+                // "Check completion" is always offered first — it opens the artisans x sections matrix
+                // (all artisans). The artisan-filtered questionnaire entries follow once an artisan is picked.
+                val secondaryOptions = listOf(COMPLETION_OPTION_ID to "📊 Check completion (all artisans)") +
+                    (if (hasArtisan) questionnaireOptions else emptyList())
                 DropdownField(
                     label = "Select questionnaire",
-                    options = questionnaireOptions,
+                    options = secondaryOptions,
                     selectedValue = selectedId,
-                    placeholder = when {
-                        !hasArtisan -> "Select an involved artisan first"
-                        questionnaireOptions.isEmpty() -> "No questionnaires for the selected artisan(s)"
-                        else -> "Select a questionnaire"
-                    },
+                    placeholder = "Check completion, or pick an artisan then a questionnaire",
                     includeNone = false,
-                    enabled = hasArtisan && questionnaireOptions.isNotEmpty()
+                    enabled = true
                 ) { selectedId = it }
                 if (hasArtisan && questionnaireOptions.isEmpty()) {
-                    Text("No questionnaires involve the selected artisan(s) yet.", color = Muted, fontSize = 12.sp)
+                    Text("No questionnaires involve the selected artisan(s) yet — \"Check completion\" still shows the full matrix.", color = Muted, fontSize = 12.sp)
                 }
             }
             options.isEmpty() -> Text("No ${mode.label.lowercase()} records yet.", color = Muted)
@@ -5392,8 +5418,10 @@ private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = fal
             ) { selectedId = it }
         }
     }
-    if (selectedId.isNotBlank()) {
-        ViewDataDetail(repository = repository, mode = mode, recordId = selectedId, showProvenance = showProvenance, onError = onError)
+    if (selectedId == COMPLETION_OPTION_ID && mode == EntryMode.QUESTIONNAIRE) {
+        CompletionMatrixCard(repository = repository, artisanId = null, canEdit = isAdmin, onError = onError)
+    } else if (selectedId.isNotBlank()) {
+        ViewDataDetail(repository = repository, mode = mode, recordId = selectedId, isAdmin = isAdmin, showProvenance = showProvenance, onError = onError)
     }
     if (canDownloadDataset) {
         DatasetDownloadCard(repository = repository, onError = onError)
@@ -5566,11 +5594,245 @@ private fun DatasetDownloadCard(repository: FieldRepository, onError: (String) -
     }
 }
 
+// Completion-matrix colours: section done (green), flagged for review (amber), to redo (red),
+// and not-yet-started (neutral). Green also covers a section recorded in any group/superset the
+// artisan belongs to, or individually.
+private val CompletionGreen = Color(0xFF2E9E5B)
+private val CompletionAmber = Color(0xFFE2A400)
+private val CompletionRed = Color(0xFFD25141)
+private val CompletionEmpty = Color(0xFFE7E0D6)
+
+private fun completionColor(status: String?, derived: Boolean): Color = when (status) {
+    "COMPLETED" -> CompletionGreen
+    "NEEDS_REVIEW" -> CompletionAmber
+    "NEEDS_REDO" -> CompletionRed
+    else -> if (derived) CompletionGreen else CompletionEmpty
+}
+
+/**
+ * The "Check completion" matrix: artisans down the rows, questionnaire sections across the columns.
+ * A cell is green when that section has been recorded for the artisan (individually, or in any group
+ * / larger superset they were part of) or an admin marked it complete; amber = requires review; red =
+ * needs redoing; neutral = not started. Pinch to zoom in/out. Admins/master admins tap a cell to set
+ * its status. Pass [artisanId] to show just that one artisan (the per-artisan View Data view).
+ */
+@Composable
+private fun CompletionMatrixCard(
+    repository: FieldRepository,
+    artisanId: String? = null,
+    canEdit: Boolean = false,
+    onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var matrix by remember(artisanId) { mutableStateOf<CompletionMatrixDto?>(null) }
+    var loading by remember(artisanId) { mutableStateOf(true) }
+    // Local override of cells so a tap reflects immediately without a full reload.
+    var cellOverrides by remember(artisanId) { mutableStateOf<Map<Pair<String, String>, String?>>(emptyMap()) }
+    var editing by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var scale by remember { mutableStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+
+    fun reload() {
+        scope.launch {
+            loading = true
+            runCatching { repository.completionMatrix(artisanId) }
+                .onSuccess { matrix = it; cellOverrides = emptyMap() }
+                .onFailure { onError(it.message ?: "Unable to load completion") }
+            loading = false
+        }
+    }
+    LaunchedEffect(artisanId) { reload() }
+
+    RecordCard(title = "Check completion") {
+        Text(
+            "Sections recorded per artisan — green is done (counted whether recorded individually or " +
+                "as part of any group/superset). Pinch to zoom." +
+                if (canEdit) " Tap a cell to set its status." else "",
+            color = Muted,
+            fontSize = 12.sp
+        )
+        // Legend.
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            CompletionLegendChip(CompletionGreen, "Completed")
+            CompletionLegendChip(CompletionAmber, "Requires review")
+            CompletionLegendChip(CompletionRed, "Needs redo")
+            CompletionLegendChip(CompletionEmpty, "Not started")
+        }
+
+        val data = matrix
+        when {
+            loading -> Text("Loading completion…", color = Muted, fontSize = 12.sp)
+            data == null || data.sections.isEmpty() -> Text("No questionnaire sections defined yet.", color = Muted, fontSize = 12.sp)
+            data.artisans.isEmpty() -> Text("No artisans to show.", color = Muted, fontSize = 12.sp)
+            else -> {
+                val grid = data
+                val cellByKey: Map<Pair<String, String>, CompletionCellDto> =
+                    remember(grid) { grid.cells.associateBy { c -> c.artisanId to c.sectionId } }
+                val nameWidth = 132.dp
+                val colWidth = 52.dp
+                val rowHeight = 40.dp
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(440.dp)
+                        .clipToBounds()
+                        .pointerInput(Unit) {
+                            // Two-finger pinch zooms + pans; a plain tap falls through to the cells.
+                            detectTransformGestures { _, pan, zoom, _ ->
+                                scale = (scale * zoom).coerceIn(0.5f, 3f)
+                                offset += pan
+                            }
+                        }
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .graphicsLayer {
+                                scaleX = scale
+                                scaleY = scale
+                                translationX = offset.x
+                                translationY = offset.y
+                                transformOrigin = TransformOrigin(0f, 0f)
+                            }
+                            .horizontalScroll(rememberScrollState())
+                    ) {
+                        // Header row: corner + section codes.
+                        Row {
+                            CompletionHeaderCell("Artisan", nameWidth, rowHeight, alignStart = true)
+                            data.sections.forEach { section ->
+                                CompletionHeaderCell(section.code, colWidth, rowHeight)
+                            }
+                        }
+                        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                            data.artisans.forEach { artisan ->
+                                Row {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(nameWidth)
+                                            .height(rowHeight)
+                                            .background(Canvas)
+                                            .padding(horizontal = 6.dp),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        Text(artisan.name, color = Body, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    }
+                                    data.sections.forEach { section ->
+                                        val key = artisan.id to section.id
+                                        val cell = cellByKey[key]
+                                        val status = if (cellOverrides.containsKey(key)) cellOverrides[key] else cell?.status
+                                        val derived = cell?.derived == true
+                                        Box(
+                                            modifier = Modifier
+                                                .width(colWidth)
+                                                .height(rowHeight)
+                                                .padding(1.dp)
+                                                .background(completionColor(status, derived), RoundedCornerShape(3.dp))
+                                                .then(
+                                                    if (canEdit) Modifier.clickable { editing = key } else Modifier
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (status == "COMPLETED" || (status == null && derived)) {
+                                                Text("✓", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            } else if (status == "NEEDS_REVIEW") {
+                                                Text("!", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            } else if (status == "NEEDS_REDO") {
+                                                Text("✗", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    val cellToEdit = editing
+    val loadedMatrix = matrix
+    if (cellToEdit != null && canEdit && loadedMatrix != null) {
+        val section = loadedMatrix.sections.firstOrNull { s -> s.id == cellToEdit.second }
+        val sectionName = if (section != null) "${section.code} · ${section.title}" else "section"
+        val artisan = loadedMatrix.artisans.firstOrNull { a -> a.id == cellToEdit.first }
+        val artisanName = artisan?.name ?: "artisan"
+        fun apply(status: String?) {
+            editing = null
+            cellOverrides = cellOverrides + (cellToEdit to status)
+            scope.launch {
+                runCatching { repository.setCompletionCell(cellToEdit.first, cellToEdit.second, status) }
+                    .onFailure {
+                        onError(it.message ?: "Unable to update status")
+                        // Roll back the optimistic change on failure.
+                        cellOverrides = cellOverrides - cellToEdit
+                    }
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { editing = null },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { editing = null }) { Text("Cancel") } },
+            title = { Text("Mark $sectionName") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("for $artisanName", color = Muted, fontSize = 12.sp)
+                    CompletionStatusButton(CompletionGreen, "Completed") { apply("COMPLETED") }
+                    CompletionStatusButton(CompletionAmber, "Requires review") { apply("NEEDS_REVIEW") }
+                    CompletionStatusButton(CompletionRed, "Needs to be redone") { apply("NEEDS_REDO") }
+                    TextButton(onClick = { apply(null) }) { Text("Clear (use auto-detected)") }
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun CompletionLegendChip(color: Color, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Box(modifier = Modifier.size(12.dp).background(color, RoundedCornerShape(3.dp)))
+        Text(label, color = Muted, fontSize = 10.sp)
+    }
+}
+
+@Composable
+private fun CompletionHeaderCell(text: String, width: androidx.compose.ui.unit.Dp, height: androidx.compose.ui.unit.Dp, alignStart: Boolean = false) {
+    Box(
+        modifier = Modifier
+            .width(width)
+            .height(height)
+            .background(SurfaceCard)
+            .padding(horizontal = 4.dp),
+        contentAlignment = if (alignStart) Alignment.CenterStart else Alignment.Center
+    ) {
+        Text(text, color = Body, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun CompletionStatusButton(color: Color, label: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Box(modifier = Modifier.size(18.dp).background(color, RoundedCornerShape(4.dp)))
+        Text(label, color = Body, fontSize = 14.sp)
+    }
+}
+
 @Composable
 private fun ViewDataDetail(
     repository: FieldRepository,
     mode: EntryMode,
     recordId: String,
+    isAdmin: Boolean = false,
     showProvenance: Boolean = false,
     onError: (String) -> Unit
 ) {
@@ -5618,6 +5880,8 @@ private fun ViewDataDetail(
                 DetailRow("Status", v.status)
                 RecordMediaSection(repository, context, mode.linkedRecordType(), recordId, onError)
             }
+            // Per-artisan completion: the same matrix, scoped to just this artisan (one row).
+            CompletionMatrixCard(repository = repository, artisanId = recordId, canEdit = isAdmin, onError = onError)
         }
         EntryMode.PRODUCT -> {
             var d by remember(recordId) { mutableStateOf<ProductDetailDto?>(null) }
@@ -5916,7 +6180,10 @@ private fun AndroidMediaForm(
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text("${selectedUris.size} file(s) ready", color = Canvas, fontWeight = FontWeight.SemiBold)
-                selectedUris.take(8).forEach { uri ->
+                var batchExpanded by remember { mutableStateOf(false) }
+                val batchCap = 8
+                val shownBatch = if (batchExpanded) selectedUris else selectedUris.take(batchCap)
+                shownBatch.forEach { uri ->
                     AndroidUriPreview(
                         context = context,
                         uri = uri,
@@ -5924,8 +6191,10 @@ private fun AndroidMediaForm(
                         onRemove = { selectedUris = selectedUris.filterNot { it == uri } }
                     )
                 }
-                if (selectedUris.size > 8) {
-                    Text("+${selectedUris.size - 8} more", color = SurfaceCard, fontSize = 12.sp)
+                if (selectedUris.size > batchCap) {
+                    TextButton(onClick = { batchExpanded = !batchExpanded }) {
+                        Text(if (batchExpanded) "Show fewer" else "+${selectedUris.size - batchCap} more")
+                    }
                 }
                 TextButton(onClick = { selectedUris = emptyList() }) {
                     Text("Clear batch")
