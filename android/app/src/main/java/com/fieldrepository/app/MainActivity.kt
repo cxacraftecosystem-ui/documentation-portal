@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -79,7 +80,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -151,6 +154,8 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Edit
@@ -180,6 +185,7 @@ import androidx.compose.ui.focus.focusRequester
 import com.fieldrepository.app.data.ArtisanDto
 import com.fieldrepository.app.data.ArtisanAnswerDto
 import com.fieldrepository.app.data.ArtisanDetailDto
+import com.fieldrepository.app.data.ArtisanQuestionnaireDto
 import com.fieldrepository.app.data.CraftDto
 import com.fieldrepository.app.data.CreatedRecordDto
 import com.fieldrepository.app.data.AppScope
@@ -2975,6 +2981,8 @@ private fun ArtisanForm(
     var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }
     var address by remember(editing) { mutableStateOf(editing?.address ?: "") }
     var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }
+    var dosItems by remember(editing) { mutableStateOf(splitNumbered(editing?.dos)) }
+    var dontsItems by remember(editing) { mutableStateOf(splitNumbered(editing?.donts)) }
     var craftId by remember(editing) { mutableStateOf(editing?.craftId ?: prefill?.craftId ?: "") }
     var newCraftName by remember(editing) { mutableStateOf("") }
     var status by remember(editing) { mutableStateOf(editing?.status ?: "PENDING") }
@@ -2983,9 +2991,13 @@ private fun ArtisanForm(
     var nameError by remember { mutableStateOf<String?>(null) }
     var placeError by remember { mutableStateOf<String?>(null) }
     var craftError by remember { mutableStateOf<String?>(null) }
+    var dosError by remember { mutableStateOf<String?>(null) }
+    var dontsError by remember { mutableStateOf<String?>(null) }
     val nameFocus = remember { FocusRequester() }
     val placeFocus = remember { FocusRequester() }
     val craftFocus = remember { FocusRequester() }
+    val dosFocus = remember { FocusRequester() }
+    val dontsFocus = remember { FocusRequester() }
 
     LaunchedEffect(editing) {
         val existing = editing?.location
@@ -2993,10 +3005,14 @@ private fun ArtisanForm(
     }
 
     fun submit() {
+        val dosText = joinNumbered(dosItems)
+        val dontsText = joinNumbered(dontsItems)
         if (!validateRequired(listOf(
                 RequiredCheck(name.isBlank(), { nameError = it }, nameFocus),
                 RequiredCheck(place.isBlank(), { placeError = it }, placeFocus),
-                RequiredCheck(!hasCraft, { craftError = it }, craftFocus)
+                RequiredCheck(!hasCraft, { craftError = it }, craftFocus),
+                RequiredCheck(dosText.isBlank(), { dosError = it }, dosFocus),
+                RequiredCheck(dontsText.isBlank(), { dontsError = it }, dontsFocus)
             ))) { onError("Please fill the required field highlighted above."); return }
         scope.launch {
             saving = true
@@ -3010,6 +3026,8 @@ private fun ArtisanForm(
                     place = place.trim(),
                     address = address.blankToNull(),
                     notes = notes.blankToNull(),
+                    dos = dosText,
+                    donts = dontsText,
                     craftId = craftId.ifBlank { null },
                     craftName = if (craftId.isBlank()) newCraftName.blankToNull() else null,
                     status = status,
@@ -3044,10 +3062,10 @@ private fun ArtisanForm(
         }
     }
     val initialSig = remember(editing) {
-        listOf(name, localName, gender, phone, email, place, address, notes, craftId, newCraftName, status).joinToString("")
+        listOf(name, localName, gender, phone, email, place, address, notes, joinNumbered(dosItems), joinNumbered(dontsItems), craftId, newCraftName, status).joinToString("")
     }
     val dirty = !saving && (
-        listOf(name, localName, gender, phone, email, place, address, notes, craftId, newCraftName, status).joinToString("") != initialSig ||
+        listOf(name, localName, gender, phone, email, place, address, notes, joinNumbered(dosItems), joinNumbered(dontsItems), craftId, newCraftName, status).joinToString("") != initialSig ||
             media.uris.isNotEmpty() || media.measurementUri != null
     )
 
@@ -3084,6 +3102,20 @@ private fun ArtisanForm(
         TextInput("Email", email) { email = it }
         TextInput("Address", address, minLines = 2) { address = it }
         TextInput("Notes", notes, minLines = 3) { notes = it }
+        NumberedListInput(
+            label = "Do's (positive prompt)",
+            items = dosItems,
+            error = dosError,
+            focusRequester = dosFocus,
+            helper = "What to do / emphasise with this artisan. Press Enter for each new point."
+        ) { dosItems = it; dosError = null }
+        NumberedListInput(
+            label = "Don'ts (negative prompt)",
+            items = dontsItems,
+            error = dontsError,
+            focusRequester = dontsFocus,
+            helper = "What to avoid with this artisan. Press Enter for each new point."
+        ) { dontsItems = it; dontsError = null }
         StatusDropdown(value = status) { status = it }
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "artisan", recordId = editing!!.id, onError = onError)
@@ -4402,13 +4434,35 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
             fontSize = 11.sp
         )
     }
-    val status = media.transcriptStatus?.uppercase()
+    val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
     val isAudio = media.mediaType.equals("AUDIO", ignoreCase = true)
     val processing = setOf("QUEUED", "PROCESSING", "PENDING", "RUNNING")
     val done = setOf("COMPLETED", "EMPTY", "DONE")
-    // The transcript is hoisted into local state so that approving an AI-refined version replaces the
-    // shown transcript immediately (the backend has already persisted it for the next load).
+    // The transcript is hoisted into local state so that approving an AI-refined version (or a fresh
+    // "Transcribe now") replaces the shown transcript immediately.
     var transcriptText by remember(media.id) { mutableStateOf(media.transcriptText) }
+    var liveStatus by remember(media.id) { mutableStateOf(media.transcriptStatus) }
+    var transcribing by remember(media.id) { mutableStateOf(false) }
+    val status = liveStatus?.uppercase()
+    // Admins/master admins can transcribe (or re-transcribe) on the spot, applying the settings-page mode.
+    val isAdmin = repository?.cachedUser()?.role in setOf("ADMIN", "MASTER_ADMIN")
+
+    fun transcribeNow() {
+        val repo = repository ?: return
+        transcribing = true
+        liveStatus = "PROCESSING"
+        scope.launch {
+            runCatching { repo.transcribeNow(media.id) }
+                .onSuccess { updated ->
+                    transcriptText = updated.transcriptText
+                    liveStatus = updated.transcriptStatus ?: "COMPLETED"
+                }
+                .onFailure { liveStatus = media.transcriptStatus }
+            transcribing = false
+        }
+    }
+
     when {
         !transcriptText.isNullOrBlank() -> {
             Column(
@@ -4418,7 +4472,15 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
                     .padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                Text("Transcript", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Transcript", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    // Copy the transcript to the clipboard — available to everyone.
+                    TextButton(onClick = { clipboard.setText(AnnotatedString(transcriptText!!)) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+                        Icon(Icons.Filled.ContentCopy, contentDescription = "Copy transcript", modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Copy", fontSize = 12.sp)
+                    }
+                }
                 // Render with the Markdown renderer so an approved (refined) transcript keeps its
                 // formatting/section breaks; a plain raw transcript is unaffected.
                 MarkdownText(markdown = transcriptText!!, color = Body)
@@ -4435,23 +4497,82 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
                     onApplied = { newText -> transcriptText = newText }
                 )
             }
+            if (isAdmin && isAudio && repository != null) {
+                TranscribeNowButton(transcribing = transcribing, hasExisting = true) { transcribeNow() }
+            }
         }
-        isAudio && (status == null || status in processing) -> {
+        transcribing || (isAudio && (status == null || status in processing)) -> {
             // Still processing — show a buffer icon; the transcript appears here once it's ready.
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                Text("Transcribing audio…", color = Muted, fontSize = 11.sp)
+                Text(if (transcribing) "Transcribing now…" else "Transcribing audio…", color = Muted, fontSize = 11.sp)
             }
         }
         isAudio && status in done -> {
             Text("Transcript complete — no speech detected.", color = Muted, fontSize = 11.sp)
+            if (isAdmin && repository != null) {
+                TranscribeNowButton(transcribing = transcribing, hasExisting = false) { transcribeNow() }
+            }
         }
         isAudio -> {
             Text(
-                "Transcript: ${media.transcriptStatus}" + (media.transcriptError?.let { " — $it" } ?: ""),
+                "Transcript: ${liveStatus ?: "—"}" + (media.transcriptError?.let { " — $it" } ?: ""),
                 color = Muted,
                 fontSize = 11.sp
             )
+            if (isAdmin && repository != null) {
+                TranscribeNowButton(transcribing = transcribing, hasExisting = false) { transcribeNow() }
+            }
+        }
+    }
+}
+
+/** Admin "Transcribe now" / "Re-transcribe" action — runs transcription on the spot via the settings mode. */
+@Composable
+private fun TranscribeNowButton(transcribing: Boolean, hasExisting: Boolean, onClick: () -> Unit) {
+    OutlinedButton(onClick = onClick, enabled = !transcribing) {
+        Icon(Icons.Filled.RecordVoiceOver, contentDescription = null, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(if (transcribing) "Transcribing…" else if (hasExisting) "Re-transcribe now" else "Transcribe now", fontSize = 13.sp)
+    }
+}
+
+/**
+ * Everything recorded against one artisan in the questionnaire: the answered Q&A, plus the recordings
+ * and notes from every interview the artisan belongs to (alone, in a subset, or in a larger set). A
+ * group recording therefore surfaces here for this artisan so it can be validated individually.
+ */
+@Composable
+private fun ArtisanQuestionnaireData(repository: FieldRepository, artisanId: String) {
+    val context = LocalContext.current
+    var data by remember(artisanId) { mutableStateOf<ArtisanQuestionnaireDto?>(null) }
+    var loading by remember(artisanId) { mutableStateOf(true) }
+    LaunchedEffect(artisanId) {
+        runCatching { repository.artisanQuestionnaire(artisanId) }.onSuccess { data = it }
+        loading = false
+    }
+    val loaded = data
+    ArtisanQuestionnairePanel(answers = loaded?.answered ?: emptyList(), loading = loading)
+    val interviews = loaded?.interviews.orEmpty().filter { it.media.isNotEmpty() || !it.notes.isNullOrBlank() }
+    if (interviews.isNotEmpty()) {
+        RecordCard(title = "Questionnaire recordings", icon = Icons.Filled.Quiz) {
+            Text(
+                "Recordings and notes from every interview this artisan is part of — including ones recorded with others.",
+                color = Muted,
+                fontSize = 12.sp
+            )
+            interviews.forEach { interview ->
+                HorizontalDivider()
+                Text(interview.title.ifBlank { "Interview" }, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                val meta = listOfNotNull(
+                    formatIsoDate(interview.interviewDate),
+                    if (interview.coArtisans.isNotEmpty()) "with ${interview.coArtisans.joinToString(", ")}" else null
+                ).joinToString(" · ")
+                if (meta.isNotBlank()) Text(meta, color = Muted, fontSize = 11.sp)
+                interview.notes?.takeIf { it.isNotBlank() }?.let { Text(it, color = Body, fontSize = 12.sp) }
+                if (interview.media.isEmpty()) Text("No recordings.", color = Muted, fontSize = 12.sp)
+                interview.media.forEach { MediaWithTranscript(context, it, repository) }
+            }
         }
     }
 }
@@ -5878,11 +5999,17 @@ private fun ViewDataDetail(
                 DetailRow("Email", v.email)
                 DetailRow("Address", v.address)
                 DetailRow("Notes", v.notes)
+                NumberedListDisplay("Do's (positive prompt)", v.dos)
+                NumberedListDisplay("Don'ts (negative prompt)", v.donts)
                 DetailRow("Status", v.status)
                 RecordMediaSection(repository, context, mode.linkedRecordType(), recordId, onError)
             }
             // Per-artisan completion: the same matrix, scoped to just this artisan (one row).
             CompletionMatrixCard(repository = repository, artisanId = recordId, canEdit = isAdmin, onError = onError)
+            // Everything recorded against this artisan in the questionnaire — answers + the recordings
+            // from every interview they belong to (alone, in a subset, or a larger set), so a group
+            // recording surfaces here for this artisan to be validated individually.
+            ArtisanQuestionnaireData(repository = repository, artisanId = recordId)
         }
         EntryMode.PRODUCT -> {
             var d by remember(recordId) { mutableStateOf<ProductDetailDto?>(null) }
@@ -7484,6 +7611,90 @@ private fun TextInput(label: String, value: String, minLines: Int = 1, onValueCh
         minLines = minLines,
         modifier = Modifier.fillMaxWidth()
     )
+}
+
+/** Split a stored newline-separated list into editable rows (always at least one, for the empty case). */
+private fun splitNumbered(value: String?): List<String> =
+    value?.split("\n")?.map { it.trim() }?.filter { it.isNotEmpty() }?.takeIf { it.isNotEmpty() } ?: listOf("")
+
+/** Collapse editable rows back into the stored newline-separated form (blank rows dropped). */
+private fun joinNumbered(items: List<String>): String =
+    items.map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n")
+
+/**
+ * A required, numbered multi-point input. Each row is one numbered bullet; pressing Enter inside a row
+ * splits it into a new bullet (so the user just types a point and hits Enter for the next). Rows can be
+ * removed individually, and "+ Add point" appends an empty one. Backed by a List<String>; persist with
+ * [joinNumbered]. Used for an artisan's Do's (positive prompt) and Don'ts (negative prompt).
+ */
+@Composable
+private fun NumberedListInput(
+    label: String,
+    items: List<String>,
+    error: String?,
+    focusRequester: FocusRequester? = null,
+    helper: String? = null,
+    onChange: (List<String>) -> Unit
+) {
+    val rows = items.ifEmpty { listOf("") }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        Text("$label *", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+        helper?.let { Text(it, color = Muted, fontSize = 12.sp) }
+        rows.forEachIndexed { index, item ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("${index + 1}.", color = Muted, fontSize = 14.sp)
+                OutlinedTextField(
+                    value = item,
+                    onValueChange = { raw ->
+                        if (raw.contains('\n')) {
+                            // Enter pressed: commit text before the break, push the remainder to new bullet(s).
+                            val segments = raw.split('\n')
+                            val updated = rows.toMutableList()
+                            updated[index] = segments.first().trim()
+                            updated.addAll(index + 1, segments.drop(1).map { it.trim() })
+                            onChange(updated)
+                        } else {
+                            val updated = rows.toMutableList()
+                            updated[index] = raw
+                            onChange(updated)
+                        }
+                    },
+                    isError = error != null && index == 0,
+                    minLines = 1,
+                    modifier = Modifier
+                        .weight(1f)
+                        .let { if (index == 0 && focusRequester != null) it.focusRequester(focusRequester) else it }
+                )
+                if (rows.size > 1) {
+                    IconButton(onClick = {
+                        val updated = rows.toMutableList().also { it.removeAt(index) }
+                        onChange(updated.ifEmpty { listOf("") })
+                    }) {
+                        Icon(Icons.Filled.Close, contentDescription = "Remove point", tint = Muted)
+                    }
+                }
+            }
+        }
+        TextButton(onClick = { onChange(rows + "") }) {
+            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("Add point")
+        }
+        if (error != null) Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+    }
+}
+
+/** Read-only render of a stored newline-separated list as a numbered list; hidden when empty. */
+@Composable
+private fun NumberedListDisplay(label: String, value: String?) {
+    val items = value?.split("\n")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+    if (items.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.fillMaxWidth()) {
+        Text(label, color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        items.forEachIndexed { index, item ->
+            Text("${index + 1}. $item", color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
+        }
+    }
 }
 
 /** A mandatory text field: shows a trailing asterisk and an inline error when left empty. */

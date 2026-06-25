@@ -127,10 +127,15 @@ async def update_artisan(
 
 @router.get("/{artisan_id}/questionnaire")
 async def get_artisan_questionnaire(artisan_id: str, _: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """Answered questionnaire questions (with answers) for every interview linked to this artisan.
+    """Everything recorded against this artisan in the questionnaire, gathered per artisan.
 
-    Only questions that actually have a non-empty answer are returned so the artisan page is not
-    crowded with blank prompts.
+    Because one interview is shared across an exact set of artisans, a recording/note/answer made for
+    a group (or a larger superset) belongs to EACH member individually — so it surfaces here for every
+    artisan in the set, letting each be validated on their own, as part of a subset, or for the whole
+    set. Returns: ``answered`` (non-empty answers across every interview the artisan belongs to) and
+    ``interviews`` (each interview the artisan is in, with its recordings/media, notes, and the other
+    artisans it was recorded with). Deletion of any media stays uploader-or-admin; the interview row is
+    admin-only — enforced on the media/questionnaire routes, not here.
     """
     await require_record(db.artisan, artisan_id)
     responses = await db.questionnaireresponse.find_many(
@@ -165,7 +170,43 @@ async def get_artisan_questionnaire(artisan_id: str, _: Any = Depends(get_curren
             }
         )
     answered.sort(key=lambda item: ((item.get("sectionCode") or ""), item.get("sortOrder") or 0))
-    return public_encode({"artisanId": artisan_id, "answered": answered, "total": len(answered)})
+
+    # Every interview the artisan belongs to (alone, in a subset, or in a larger set), with its
+    # recordings and the co-artisans, so the same content is validatable for this artisan individually.
+    interview_rows = await db.questionnaireinterview.find_many(
+        where={"artisans": {"some": {"artisanId": artisan_id}}},
+        include={"artisans": {"include": {"artisan": True}}, "media": True},
+        order={"createdAt": "desc"},
+    )
+    interviews: list[dict[str, Any]] = []
+    for interview in interview_rows:
+        co_artisans = [
+            link.artisan.name
+            for link in (interview.artisans or [])
+            if link.artisan and link.artisanId != artisan_id
+        ]
+        interviews.append(
+            {
+                "interviewId": interview.id,
+                "title": interview.title,
+                "notes": interview.notes,
+                "interviewDate": interview.interviewDate,
+                "place": interview.place,
+                "language": interview.language,
+                "status": interview.status,
+                "artisanCount": len(interview.artisans or []),
+                "coArtisans": co_artisans,
+                "media": public_encode(interview.media or []),
+            }
+        )
+    return public_encode(
+        {
+            "artisanId": artisan_id,
+            "answered": answered,
+            "total": len(answered),
+            "interviews": interviews,
+        }
+    )
 
 
 @router.delete("/{artisan_id}", status_code=status.HTTP_204_NO_CONTENT)

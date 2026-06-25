@@ -25,7 +25,11 @@ from app.schemas.media import (
     TranscriptUpdateRequest,
 )
 from app.services.ai import analyze_measurement_image, refine_transcript_text, transcribe_audio
-from app.services.media_queue import enqueue_media_processing_jobs, process_next_media_jobs
+from app.services.media_queue import (
+    enqueue_media_processing_jobs,
+    process_next_media_jobs,
+    transcribe_media_now,
+)
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
     public_encode,
@@ -347,6 +351,27 @@ async def refine_media_transcript(
     media = await require_record(db.mediafile, media_id)
     transcript = getattr(media, "transcriptText", None)
     return await refine_transcript_text(transcript, payload.translate, get_settings())
+
+
+@router.post("/{media_id}/transcribe-now")
+async def transcribe_media_now_route(
+    media_id: str,
+    _: Any = Depends(require_admin),
+) -> dict[str, Any]:
+    """Admin/master-admin: transcribe this audio file right now, applying the transcription mode set on
+    the settings page, and store the result — bypassing the queue and the off-peak window. Returns the
+    updated media row (its ``transcriptStatus``/``transcriptText`` reflect the outcome, including a
+    FAILED/UNAVAILABLE status when the AI key is missing or the call failed). Declared before
+    ``GET /{media_id}`` so the two-segment path resolves here."""
+    media = await require_record(db.mediafile, media_id)
+    if str(getattr(media, "mediaType", "") or "").upper() != "AUDIO":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only audio files can be transcribed.",
+        )
+    await transcribe_media_now(media, get_settings())
+    updated = await db.mediafile.find_unique(where={"id": media_id}, include=INCLUDE)
+    return public_encode(updated)
 
 
 @router.post("/{media_id}/transcript")

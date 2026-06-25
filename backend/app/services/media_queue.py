@@ -146,6 +146,47 @@ async def process_next_media_jobs(
     return {"processed": processed, "succeeded": succeeded, "failed": failed}
 
 
+async def transcribe_media_now(media: Any, settings: Settings | None = None) -> dict[str, Any]:
+    """Transcribe one audio media file immediately and store the result, applying the transcription
+    mode configured in the settings page (RAW / REFINED / REFINED+TRANSLATED). This is the admin
+    "Transcribe now" action: it bypasses the queue AND the off-peak window so the result is produced on
+    the spot. Mirrors the worker's TRANSCRIPTION path so a manual run and a queued run agree. Never
+    raises on an AI failure — it records the status/error on the media row and returns the result so the
+    caller can surface it."""
+    settings = settings or get_settings()
+    media_id = str(_value(media, "id"))
+    await db.mediafile.update(where={"id": media_id}, data={"transcriptStatus": PROCESSING})
+    content = await asyncio.to_thread(get_object_bytes, _value(media, "objectKey"))
+    result = await transcribe_audio_bytes(
+        content,
+        _value(media, "originalFilename") or "recording.webm",
+        _value(media, "mimeType") or "audio/webm",
+        settings,
+    )
+    mode = transcription_mode(await load_app_settings())
+    if result.get("status") == "COMPLETED" and mode in {"REFINED", "REFINED_TRANSLATED"} and result.get("text"):
+        refined = await refine_transcript_text(result.get("text"), mode == "REFINED_TRANSLATED", settings)
+        if refined.get("status") == "COMPLETED" and refined.get("refined"):
+            result = {
+                **result,
+                "formattedTranscript": refined["refined"],
+                "transcriptionMode": mode,
+                "translated": mode == "REFINED_TRANSLATED",
+            }
+    status = str(result.get("status") or FAILED).upper()
+    transcript = result.get("formattedTranscript") or result.get("text")
+    await db.mediafile.update(
+        where={"id": media_id},
+        data={
+            "transcriptStatus": status,
+            "transcriptText": transcript,
+            "transcriptSummary": result.get("text"),
+            "transcriptError": None if status in {COMPLETED, "EMPTY"} else result.get("message"),
+        },
+    )
+    return result
+
+
 async def recover_stale_processing_jobs() -> int:
     cutoff = datetime.now(UTC) - STALE_PROCESSING_AFTER
     stale_jobs = await db.mediaprocessingjob.find_many(

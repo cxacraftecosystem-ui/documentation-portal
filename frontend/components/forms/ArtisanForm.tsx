@@ -49,6 +49,8 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         place: requiredText(form, "place"),
         address: textValue(form, "address"),
         notes: appendRemarksWithExif(textValue(form, "notes") as string | null, exifRemark),
+        dos: requiredText(form, "dos"),
+        donts: requiredText(form, "donts"),
         craftId: textValue(form, "craftId"),
         status: requiredText(form, "status") || "PENDING",
         recordedAt,
@@ -159,6 +161,24 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         </Field>
         <Field label="Notes">
           <TextArea name="notes" defaultValue={initial?.notes ?? ""} />
+        </Field>
+        <Field label="Do's (positive prompt)" required>
+          <TextArea
+            name="dos"
+            required
+            rows={4}
+            placeholder="What to do / emphasise — one point per line"
+            defaultValue={initial?.dos ?? ""}
+          />
+        </Field>
+        <Field label="Don'ts (negative prompt)" required>
+          <TextArea
+            name="donts"
+            required
+            rows={4}
+            placeholder="What to avoid — one point per line"
+            defaultValue={initial?.donts ?? ""}
+          />
         </Field>
       </div>
       {initial ? <ExistingMedia linkedRecordType="artisan" linkedRecordId={initial.id} /> : null}

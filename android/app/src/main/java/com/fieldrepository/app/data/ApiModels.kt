@@ -384,6 +384,10 @@ data class ArtisanCreateRequest(
     val place: String,
     val address: String? = null,
     val notes: String? = null,
+    // Newline-separated, numbered Do's (positive prompt) and Don'ts (negative prompt). Required on the
+    // form; the backend requires them on create (nullable here so an update PATCH stays flexible).
+    val dos: String? = null,
+    val donts: String? = null,
     val craftId: String? = null,
     val craftName: String? = null,
     val status: String = "PENDING",
@@ -577,6 +581,8 @@ data class ArtisanDetailDto(
     val place: String = "",
     val address: String? = null,
     val notes: String? = null,
+    val dos: String? = null,
+    val donts: String? = null,
     val craftId: String? = null,
     val craft: CraftDto? = null,
     val status: String = "PENDING",
@@ -710,7 +716,24 @@ data class ArtisanAnswerDto(
 data class ArtisanQuestionnaireDto(
     val artisanId: String,
     val answered: List<ArtisanAnswerDto> = emptyList(),
-    val total: Int = 0
+    val total: Int = 0,
+    // Every interview this artisan belongs to (alone, in a subset, or in a larger set), with its
+    // recordings and the co-artisans — so a group recording surfaces for each member individually.
+    val interviews: List<ArtisanInterviewDto> = emptyList()
+)
+
+@Serializable
+data class ArtisanInterviewDto(
+    val interviewId: String,
+    val title: String = "",
+    val notes: String? = null,
+    val interviewDate: String? = null,
+    val place: String? = null,
+    val language: String? = null,
+    val status: String? = null,
+    val artisanCount: Int = 0,
+    val coArtisans: List<String> = emptyList(),
+    val media: List<MediaFileDto> = emptyList()
 )
 
 @Serializable

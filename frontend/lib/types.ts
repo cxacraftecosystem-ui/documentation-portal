@@ -42,7 +42,26 @@ export type ArtisanAnswer = {
   answeredByName?: string | null;
 };
 
-export type ArtisanQuestionnaire = { artisanId: string; answered: ArtisanAnswer[]; total: number };
+export type ArtisanInterview = {
+  interviewId: string;
+  title: string;
+  notes?: string | null;
+  interviewDate?: string | null;
+  place?: string | null;
+  language?: string | null;
+  status?: string | null;
+  artisanCount?: number;
+  coArtisans?: string[];
+  media?: MediaFile[];
+};
+
+export type ArtisanQuestionnaire = {
+  artisanId: string;
+  answered: ArtisanAnswer[];
+  total: number;
+  // Every interview this artisan belongs to (alone, in a subset, or in a larger set), with recordings.
+  interviews?: ArtisanInterview[];
+};
 
 export type LocationPayload = {
   latitude?: number | "";
@@ -76,6 +95,10 @@ export type Artisan = {
   place: string;
   address?: string | null;
   notes?: string | null;
+  // Newline-separated, numbered Do's (positive prompt) and Don'ts (negative prompt). Required on new
+  // records; existing rows may be null until backfilled.
+  dos?: string | null;
+  donts?: string | null;
   status: RecordStatus;
   craftId?: string | null;
   craft?: Craft | null;

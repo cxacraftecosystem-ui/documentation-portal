@@ -195,6 +195,13 @@ class FieldRepository(
     suspend fun applyTranscript(mediaId: String, text: String): MediaFileDto =
         api.setTranscript(mediaId, TranscriptUpdateRequest(text = text))
 
+    /**
+     * Admin/master-admin: transcribe an audio media file right now, applying the transcription mode
+     * configured on the settings page (raw / refined / refined+translated), bypassing the off-peak
+     * window. Returns the updated media row (its transcriptStatus/Text reflect the outcome).
+     */
+    suspend fun transcribeNow(mediaId: String): MediaFileDto = api.transcribeNow(mediaId)
+
     /** Download an update APK to the cache and return the file, for handing to the system installer. */
     suspend fun downloadApk(context: Context, url: String, versionCode: Int): File = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "updates").apply { mkdirs() }

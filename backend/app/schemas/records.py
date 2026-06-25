@@ -16,6 +16,9 @@ class ArtisanCreate(APIModel):
     place: str = Field(min_length=1, max_length=180)
     address: str | None = None
     notes: str | None = None
+    # Required on create: newline-separated Do's (positive prompt) and Don'ts (negative prompt).
+    dos: str = Field(min_length=1)
+    donts: str = Field(min_length=1)
     craftId: str | None = None
     craftName: str | None = None
     status: str = "PENDING"
@@ -40,6 +43,8 @@ class ArtisanUpdate(APIModel):
     place: str | None = Field(default=None, min_length=1, max_length=180)
     address: str | None = None
     notes: str | None = None
+    dos: str | None = None
+    donts: str | None = None
     craftId: str | None = None
     craftName: str | None = None
     status: str | None = None

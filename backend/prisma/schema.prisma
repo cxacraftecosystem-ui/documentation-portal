@@ -239,6 +239,11 @@ model Artisan {
   place         String
   address       String?
   notes         String?
+  // Newline-separated, numbered guidance for working with this artisan: dos = positive prompt (what to
+  // do / emphasise), donts = negative prompt (what to avoid). Required on new records; nullable so the
+  // existing rows from before this field can be backfilled later instead of blocking the migration.
+  dos           String?
+  donts         String?
   status        RecordStatus @default(PENDING)
   reviewNotes   String?
   reviewedById  String?

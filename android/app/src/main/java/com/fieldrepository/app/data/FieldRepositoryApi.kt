@@ -208,6 +208,11 @@ interface FieldRepositoryApi {
     @POST("media/{id}/refine-transcript")
     suspend fun refineTranscript(@Path("id") id: String, @Body body: TranscriptRefineRequest): TranscriptRefineResponse
 
+    // Admin/master-admin: transcribe this audio file now, applying the settings-page transcription
+    // mode, bypassing the queue + off-peak window. Returns the updated media row.
+    @POST("media/{id}/transcribe-now")
+    suspend fun transcribeNow(@Path("id") id: String): MediaFileDto
+
     // Save an (approved, AI-refined) transcript in place of the stored one. Uploader or admin only.
     @POST("media/{id}/transcript")
     suspend fun setTranscript(@Path("id") id: String, @Body body: TranscriptUpdateRequest): MediaFileDto
