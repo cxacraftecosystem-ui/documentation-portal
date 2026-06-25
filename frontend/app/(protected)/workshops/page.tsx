@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { MapPinned } from "lucide-react";
 
 import { EmptyState } from "@/components/EmptyState";
-import { Field, Select, TextArea, TextInput } from "@/components/FormControls";
+import { Field, MultiNoteField, Select, TextArea, TextInput } from "@/components/FormControls";
 import { DateRangeField } from "@/components/forms/DateRangeField";
 import { LocationFields } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
@@ -142,9 +142,7 @@ export default function WorkshopsPage() {
           <Field label="Description">
             <TextArea name="description" defaultValue={editing?.description ?? ""} />
           </Field>
-          <Field label="Notes">
-            <TextArea name="notes" defaultValue={editing?.notes ?? ""} />
-          </Field>
+          <MultiNoteField defaultValue={editing?.notes ?? ""} />
         </div>
         <MediaCaptureField files={mediaFiles} onFilesChange={setMediaFiles} title="Workshop media" description="Attach workshop images, videos, audio notes, attendance references, and documents." />
         <RecordedAtField value={editing?.recordedAt} timezone={editing?.recordedTimezone} />

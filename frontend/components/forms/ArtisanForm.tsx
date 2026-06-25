@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { CarryForwardCards } from "@/components/CarryForwardCards";
-import { Field, Select, TextArea, TextInput } from "@/components/FormControls";
+import { Field, MultiNoteField, Select, TextArea, TextInput } from "@/components/FormControls";
 import { LocationFields } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { RecordedAtField } from "@/components/forms/RecordedAtField";
@@ -159,15 +159,13 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         <Field label="Address">
           <TextArea name="address" defaultValue={initial?.address ?? ""} />
         </Field>
-        <Field label="Notes">
-          <TextArea name="notes" defaultValue={initial?.notes ?? ""} />
-        </Field>
+        <MultiNoteField defaultValue={initial?.notes ?? ""} />
         <Field label="Do's (positive prompt)" required>
           <TextArea
             name="dos"
             required
             rows={4}
-            placeholder="What to do / emphasise — one point per line"
+            placeholder="Lessons from years at the craft — what the artisan has learnt to do (one per line)"
             defaultValue={initial?.dos ?? ""}
           />
         </Field>
@@ -176,7 +174,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
             name="donts"
             required
             rows={4}
-            placeholder="What to avoid — one point per line"
+            placeholder="Lessons from years at the craft — what the artisan has learnt not to do / to avoid (one per line)"
             defaultValue={initial?.donts ?? ""}
           />
         </Field>

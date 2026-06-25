@@ -1,4 +1,5 @@
 import asyncio
+import os
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -23,8 +24,61 @@ PROCESSING = "PROCESSING"
 COMPLETED = "COMPLETED"
 FAILED = "FAILED"
 UNAVAILABLE = "UNAVAILABLE"
+RATE_LIMITED = "RATE_LIMITED"
 
 STALE_PROCESSING_AFTER = timedelta(minutes=30)
+
+# Rate-limit backoff. When transcription is throttled (HTTP 429/503), we pause transcription for a
+# growing cooldown and requeue the job WITHOUT consuming an attempt — so every clip is transcribed
+# eventually instead of burning out its retries. Measurement jobs keep flowing through the cooldown.
+RATE_LIMIT_BASE_SECONDS = 30
+RATE_LIMIT_MAX_SECONDS = 900
+# Outside the off-peak window, transcription still runs when the box is idle — 1-minute load average
+# below this fraction of the CPU count — so spare daytime capacity is used instead of waiting for night.
+IDLE_LOAD_FACTOR = 0.6
+
+# Single elected worker (see main.py), so module-level cooldown state is safe.
+_rate_limit_cooldown_until: datetime | None = None
+_consecutive_rate_limits = 0
+
+
+class RateLimited(Exception):
+    """Raised when a transcription call is throttled. Carries an optional provider Retry-After (s)."""
+
+    def __init__(self, retry_after: float | None = None) -> None:
+        super().__init__("Transcription rate-limited")
+        self.retry_after = retry_after
+
+
+def _server_is_idle() -> bool:
+    """True when the host has spare capacity (low 1-minute load average). Used to let transcription
+    run outside the off-peak window when nothing else is keeping the box busy. Conservatively False
+    where load average is unavailable (e.g. Windows dev)."""
+    try:
+        load1 = os.getloadavg()[0]
+    except (OSError, AttributeError):
+        return False
+    return load1 < (os.cpu_count() or 1) * IDLE_LOAD_FACTOR
+
+
+def _transcription_in_cooldown(now: datetime | None = None) -> bool:
+    return _rate_limit_cooldown_until is not None and (now or datetime.now(UTC)) < _rate_limit_cooldown_until
+
+
+def _enter_rate_limit_cooldown(retry_after: float | None) -> None:
+    global _rate_limit_cooldown_until, _consecutive_rate_limits
+    _consecutive_rate_limits += 1
+    if retry_after and retry_after > 0:
+        delay = max(retry_after, RATE_LIMIT_BASE_SECONDS)
+    else:
+        delay = min(RATE_LIMIT_BASE_SECONDS * (2 ** (_consecutive_rate_limits - 1)), RATE_LIMIT_MAX_SECONDS)
+    _rate_limit_cooldown_until = datetime.now(UTC) + timedelta(seconds=delay)
+
+
+def _clear_rate_limit_cooldown() -> None:
+    global _rate_limit_cooldown_until, _consecutive_rate_limits
+    _rate_limit_cooldown_until = None
+    _consecutive_rate_limits = 0
 
 
 def _value(record: Any, key: str) -> Any:
@@ -115,12 +169,17 @@ async def process_next_media_jobs(
     settings = settings or get_settings()
     batch_size = max(1, limit or settings.media_queue_batch_size)
     await recover_stale_processing_jobs()
-    where: dict[str, Any] = {"status": QUEUED, "runAfter": {"lte": datetime.now(UTC)}}
-    # Off-peak optimization: when the master admin has enabled the processing window and we're outside
-    # it, defer the heavy TRANSCRIPTION (and its auto-refinement) work to the window. Lighter
-    # MEASUREMENT jobs still run immediately so product/tool dimensions keep auto-filling during the day.
+    now = datetime.now(UTC)
+    where: dict[str, Any] = {"status": QUEUED, "runAfter": {"lte": now}}
+    # When transcription may run: inside the configured off-peak window, OR whenever the server is idle
+    # (spare capacity) so we don't wait for the night when nothing else is happening — but never while a
+    # rate-limit cooldown is in effect. Lighter MEASUREMENT jobs always run.
     app_settings = await load_app_settings()
-    if not within_processing_window(app_settings):
+    allow_transcription = (
+        (within_processing_window(app_settings) or _server_is_idle())
+        and not _transcription_in_cooldown(now)
+    )
+    if not allow_transcription:
         where["jobType"] = {"not": TRANSCRIPTION}
     jobs = await db.mediaprocessingjob.find_many(
         where=where,
@@ -140,10 +199,35 @@ async def process_next_media_jobs(
                 continue
             await _process_job(locked, settings)
             succeeded += 1
+            if locked.jobType == TRANSCRIPTION:
+                _clear_rate_limit_cooldown()  # a clean success ends any backoff
+        except RateLimited as exc:
+            # Throttled: requeue this job without consuming an attempt, then pause transcription for a
+            # cooldown and stop draining the batch so we don't keep hammering a throttled provider.
+            await _defer_rate_limited_job(job, exc.retry_after)
+            _enter_rate_limit_cooldown(exc.retry_after)
+            break
         except Exception as exc:  # noqa: BLE001
             failed += 1
             await _handle_job_failure(job.id, exc)
     return {"processed": processed, "succeeded": succeeded, "failed": failed}
+
+
+async def _defer_rate_limited_job(job: Any, retry_after: float | None) -> None:
+    """Requeue a throttled transcription job, restoring its pre-lock attempt count so rate limiting
+    never exhausts its retries — it will be picked up again after the cooldown."""
+    delay = retry_after if (retry_after and retry_after > 0) else RATE_LIMIT_BASE_SECONDS
+    await db.mediaprocessingjob.update(
+        where={"id": job.id},
+        data={
+            "status": QUEUED,
+            "lockedAt": None,
+            "lockedBy": None,
+            "attempts": job.attempts,
+            "runAfter": datetime.now(UTC) + timedelta(seconds=delay),
+            "error": "Rate-limited; awaiting cooldown before automatic retry.",
+        },
+    )
 
 
 async def transcribe_media_now(media: Any, settings: Settings | None = None) -> dict[str, Any]:
@@ -174,6 +258,13 @@ async def transcribe_media_now(media: Any, settings: Settings | None = None) -> 
                 "translated": mode == "REFINED_TRANSLATED",
             }
     status = str(result.get("status") or FAILED).upper()
+    if status == RATE_LIMITED:
+        # Throttled even on a manual run — keep it QUEUED so the background worker finishes it later.
+        await db.mediafile.update(
+            where={"id": media_id},
+            data={"transcriptStatus": QUEUED, "transcriptError": result.get("message")},
+        )
+        return result
     transcript = result.get("formattedTranscript") or result.get("text")
     await db.mediafile.update(
         where={"id": media_id},
@@ -267,6 +358,13 @@ async def _process_job(job: Any, settings: Settings) -> None:
 async def _apply_transcription_result(job: Any, result: dict[str, Any]) -> None:
     status = str(result.get("status") or FAILED).upper()
     message = result.get("message")
+    if status == RATE_LIMITED:
+        # Leave the clip QUEUED and let the queue back off + retry without consuming an attempt.
+        await db.mediafile.update(
+            where={"id": job.mediaFileId},
+            data={"transcriptStatus": QUEUED, "transcriptError": message},
+        )
+        raise RateLimited(result.get("retryAfter"))
     transcript = result.get("formattedTranscript") or result.get("text")
     media_data = {
         "transcriptStatus": status,

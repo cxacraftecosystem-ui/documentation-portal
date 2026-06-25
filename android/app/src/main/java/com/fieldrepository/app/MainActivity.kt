@@ -3101,20 +3101,20 @@ private fun ArtisanForm(
         TextInput("Phone", phone) { phone = it }
         TextInput("Email", email) { email = it }
         TextInput("Address", address, minLines = 2) { address = it }
-        TextInput("Notes", notes, minLines = 3) { notes = it }
+        MultiNoteInput(value = notes) { notes = it }
         NumberedListInput(
             label = "Do's (positive prompt)",
             items = dosItems,
             error = dosError,
             focusRequester = dosFocus,
-            helper = "What to do / emphasise with this artisan. Press Enter for each new point."
+            helper = "Lessons from years at the craft — the things the artisan has learnt to do. Press Enter for each new point."
         ) { dosItems = it; dosError = null }
         NumberedListInput(
             label = "Don'ts (negative prompt)",
             items = dontsItems,
             error = dontsError,
             focusRequester = dontsFocus,
-            helper = "What to avoid with this artisan. Press Enter for each new point."
+            helper = "Lessons from years at the craft — the things the artisan has learnt not to do / to avoid. Press Enter for each new point."
         ) { dontsItems = it; dontsError = null }
         StatusDropdown(value = status) { status = it }
         if (isEdit) {
@@ -3249,7 +3249,7 @@ private fun WorkshopForm(
         }
         StatusDropdown(value = status) { status = it }
         TextInput("Description", description, minLines = 3) { description = it }
-        TextInput("Notes", notes, minLines = 3) { notes = it }
+        MultiNoteInput(value = notes) { notes = it }
         ArtisanMultiSelectField(
             label = "Linked artisans",
             artisans = artisans,
@@ -4119,7 +4119,7 @@ private fun ProcessForm(
                                 Text("Record additional information", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
                             }
                             if (step.recordAdditional) {
-                                TextInput("Additional context for this step", step.notes, minLines = 3) { step.notes = it }
+                                MultiNoteInput(label = "Additional context for this step", value = step.notes, resetKey = step.key) { step.notes = it }
                             }
                         },
                         onMessage = onError,
@@ -4179,7 +4179,7 @@ private fun ProcessForm(
 
 private val viewDataModes = listOf(
     EntryMode.ARTISAN, EntryMode.PRODUCT, EntryMode.PROCESS, EntryMode.TOOL,
-    EntryMode.QUESTIONNAIRE, EntryMode.WORKSHOP, EntryMode.CRAFT
+    EntryMode.QUESTIONNAIRE, EntryMode.WORKSHOP, EntryMode.CRAFT, EntryMode.MEDIA
 )
 
 private fun EntryMode.linkedRecordType(): String = when (this) {
@@ -4216,6 +4216,10 @@ private suspend fun loadViewEntries(repository: FieldRepository, mode: EntryMode
     EntryMode.TOOL -> repository.tools().map { it.id to "${it.toolkitName} · ${it.artisanName}" }
     EntryMode.WORKSHOP -> repository.workshops().map { it.id to it.title.ifBlank { "Untitled workshop" } }
     EntryMode.QUESTIONNAIRE -> repository.interviews().map { it.id to it.title.ifBlank { "Untitled interview" } }
+    EntryMode.MEDIA -> repository.mediaList().map { m ->
+        val tag = m.linkedRecordType?.takeIf { it.isNotBlank() }?.replaceFirstChar { it.uppercase() }
+        m.id to (m.originalFilename.ifBlank { "Media" } + " · " + listOfNotNull(m.mediaType, tag).joinToString(" · "))
+    }
     else -> emptyList()
 }
 
@@ -6126,6 +6130,17 @@ private fun ViewDataDetail(
                 else groupMedia.forEach { MediaWithTranscript(context, it, repository) }
             }
         }
+        EntryMode.MEDIA -> {
+            var d by remember(recordId) { mutableStateOf<MediaFileDto?>(null) }
+            LaunchedEffect(recordId) { runCatching { repository.mediaItem(recordId) }.onSuccess { d = it }.onFailure { onError(it.message ?: "Unable to load media") } }
+            val v = d ?: return run { LoadingCard(mode) }
+            RecordCard(title = v.originalFilename.ifBlank { "Media" }) {
+                DetailRow("Type", v.mediaType)
+                DetailRow("Caption", v.caption)
+                v.linkedRecordType?.takeIf { it.isNotBlank() }?.let { DetailRow("Linked to", it.replaceFirstChar { c -> c.uppercase() }) }
+                MediaWithTranscript(context, v, repository)
+            }
+        }
         else -> Text("This record type cannot be viewed here.", color = Muted)
     }
 }
@@ -7051,7 +7066,7 @@ private fun QuestionnaireForm(
         // Attach photos, video, audio files and other media to this interview (with live upload
         // progress) — the same media array used by every other record form.
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
-        TextInput("Notes", notes, minLines = 3) { notes = it }
+        MultiNoteInput(value = notes) { notes = it }
         fun submit() {
             if (!validateRequired(listOf(
                     RequiredCheck(title.isBlank(), { titleError = it }, titleFocus)
@@ -7681,6 +7696,55 @@ private fun NumberedListInput(
             Text("Add point")
         }
         if (error != null) Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+    }
+}
+
+// Notes can hold several distinct entries. They are stored in the existing single `notes` column,
+// joined by a blank line, and split back on a blank line for editing. A note may itself span lines.
+private const val NOTE_SEPARATOR = "\n\n"
+
+private fun splitNotes(value: String?): List<String> =
+    value?.split(Regex("\\n\\s*\\n"))?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+
+private fun joinNotes(items: List<String>): String =
+    items.map { it.trim() }.filter { it.isNotEmpty() }.joinToString(NOTE_SEPARATOR)
+
+/**
+ * Multi-note editor: several free-text notes, each its own multi-line field, with an "Add note" button
+ * and per-note remove. Drop-in for a single notes field — reads/writes the same stored string (notes
+ * joined by a blank line). Optional, unlike the required numbered Do's/Don'ts.
+ */
+@Composable
+private fun MultiNoteInput(label: String = "Notes", value: String, resetKey: Any? = null, onValueChange: (String) -> Unit) {
+    var rows by remember(resetKey) { mutableStateOf(splitNotes(value).ifEmpty { listOf("") }) }
+    fun emit(updated: List<String>) {
+        val next = updated.ifEmpty { listOf("") }
+        rows = next
+        onValueChange(joinNotes(next))
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        Text(label, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+        rows.forEachIndexed { index, note ->
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { v -> emit(rows.toMutableList().also { it[index] = v }) },
+                    label = { Text(if (rows.size > 1) "Note ${index + 1}" else "Note") },
+                    minLines = 2,
+                    modifier = Modifier.weight(1f)
+                )
+                if (rows.size > 1) {
+                    IconButton(onClick = { emit(rows.toMutableList().also { it.removeAt(index) }) }) {
+                        Icon(Icons.Filled.Close, contentDescription = "Remove note", tint = Muted)
+                    }
+                }
+            }
+        }
+        TextButton(onClick = { emit(rows + "") }) {
+            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("Add note")
+        }
     }
 }
 

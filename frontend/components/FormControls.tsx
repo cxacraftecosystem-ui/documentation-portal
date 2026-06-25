@@ -32,6 +32,69 @@ export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
   return <textarea {...props} className={`field-input min-h-24 ${props.className ?? ""}`} />;
 }
 
+/**
+ * Multiple free-text notes with an "Add note" button and per-note remove. Each note is its own
+ * textarea; they are submitted via FormData under a single hidden input (joined by a blank line), so
+ * the existing single `notes` column/handlers are unchanged. Splits an existing note back on blank
+ * lines for editing.
+ */
+export function MultiNoteField({
+  name = "notes",
+  defaultValue,
+  label = "Notes"
+}: {
+  name?: string;
+  defaultValue?: string | null;
+  label?: string;
+}) {
+  const [notes, setNotes] = useState<string[]>(() => {
+    const split = (defaultValue ?? "")
+      .split(/\n\s*\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return split.length ? split : [""];
+  });
+  const joined = notes
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join("\n\n");
+  return (
+    <div className="grid gap-1">
+      <span className="field-label">{label}</span>
+      <input type="hidden" name={name} value={joined} />
+      <div className="grid gap-2">
+        {notes.map((note, index) => (
+          <div key={index} className="flex items-start gap-2">
+            <textarea
+              className="field-input min-h-16 flex-1"
+              rows={2}
+              value={note}
+              placeholder={notes.length > 1 ? `Note ${index + 1}` : "Note"}
+              onChange={(event) => setNotes((prev) => prev.map((n, j) => (j === index ? event.target.value : n)))}
+            />
+            {notes.length > 1 ? (
+              <button
+                type="button"
+                className="field-button-secondary shrink-0"
+                onClick={() => setNotes((prev) => prev.filter((_, j) => j !== index))}
+              >
+                Remove
+              </button>
+            ) : null}
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        className="field-button-secondary justify-self-start"
+        onClick={() => setNotes((prev) => [...prev, ""])}
+      >
+        + Add note
+      </button>
+    </div>
+  );
+}
+
 /** Flatten the <option> children of a <Select> into themed-dropdown options. */
 function optionsFromChildren(children: ReactNode): DropdownOption[] {
   const options: DropdownOption[] = [];

@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { ClipboardList, GripVertical, Mic, Plus, Save, Square, Trash2 } from "lucide-react";
 
 import { EmptyState } from "@/components/EmptyState";
-import { Field, Select, TextArea, TextInput } from "@/components/FormControls";
+import { Field, MultiNoteField, Select, TextArea, TextInput } from "@/components/FormControls";
 import { LocationFields } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
@@ -448,9 +448,7 @@ export default function QuestionnairePage() {
             </details>
           ))}
         </div>
-        <Field label="Interview notes">
-          <TextArea name="notes" />
-        </Field>
+        <MultiNoteField name="notes" label="Interview notes" />
         <Field label="Extra metadata JSON">
           <TextArea name="extraMetadata" placeholder='{"interpreter":"...","consent":"verbal"}' />
         </Field>

@@ -143,6 +143,34 @@ async def transcribe_audio_bytes(
             mime_type,
             settings,
         )
+    except requests.HTTPError as exc:
+        # A 429 (or a 503 "overloaded") is transient throttling, not a real failure — surface it as
+        # RATE_LIMITED so the queue backs off and retries WITHOUT consuming the job's attempts (so the
+        # clip is transcribed eventually). Honour a Retry-After header when the provider sends one.
+        response = exc.response
+        code = response.status_code if response is not None else None
+        if code in {429, 503}:
+            retry_after = None
+            if response is not None:
+                try:
+                    retry_after = float(response.headers.get("Retry-After")) if response.headers.get("Retry-After") else None
+                except (TypeError, ValueError):
+                    retry_after = None
+            return {
+                "available": True,
+                "status": "RATE_LIMITED",
+                "text": None,
+                "formattedTranscript": None,
+                "retryAfter": retry_after,
+                "message": f"Transcription rate-limited (HTTP {code}); will retry automatically.",
+            }
+        return {
+            "available": True,
+            "status": "FAILED",
+            "text": None,
+            "formattedTranscript": None,
+            "message": str(exc),
+        }
     except requests.RequestException as exc:
         return {
             "available": True,

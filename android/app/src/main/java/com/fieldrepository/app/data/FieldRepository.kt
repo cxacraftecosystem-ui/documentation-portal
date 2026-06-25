@@ -254,6 +254,12 @@ class FieldRepository(
 
     suspend fun media(): List<MediaFileDto> = api.media(pageSize = 20).items
 
+    /** A broader media list for the View Data "Miscellaneous Media" browser (most recent first). */
+    suspend fun mediaList(): List<MediaFileDto> = api.media(pageSize = 100).items
+
+    /** One media file by id, for the View Data media detail. */
+    suspend fun mediaItem(id: String): MediaFileDto = api.getMedia(id)
+
     /** Delete one saved media file (its DB row + S3 object). Backend allows the uploader or an admin. */
     suspend fun deleteMedia(id: String) = api.deleteMedia(id)
 
