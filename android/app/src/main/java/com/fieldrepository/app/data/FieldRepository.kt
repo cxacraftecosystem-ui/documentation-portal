@@ -8,7 +8,11 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -47,6 +51,9 @@ class FieldRepository(
         .readTimeout(60, TimeUnit.SECONDS)
         .callTimeout(12, TimeUnit.MINUTES)
         .build()
+
+    private val offlineJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val syncMutex = Mutex()
 
     fun hasToken(): Boolean = !tokenStore.getToken().isNullOrBlank()
 
@@ -766,6 +773,142 @@ class FieldRepository(
     /** Delete a staged object that was cancelled before save. */
     suspend fun deleteStaged(objectKey: String) {
         api.deleteMediaObject(objectKey)
+    }
+
+    // --- Offline outbox: make entries with no connection, sync them when it returns ---
+
+    /** True when the device currently has validated internet. */
+    fun isOnline(context: Context): Boolean = ConnectivityObserver.isOnline(context)
+
+    /** How many records are waiting in the local outbox to be uploaded. */
+    suspend fun pendingUploads(context: Context): Int = OfflineOutbox.count(context)
+
+    /**
+     * Save a new record to the local outbox (no network). Copies the attached media into app storage so
+     * nothing is lost, then enqueues the serialized create request. [payloadJson] is the record's
+     * create request serialized with [offlineJson]. Synced later by [syncOutbox].
+     */
+    suspend fun queueOffline(
+        context: Context,
+        type: String,
+        payloadJson: String,
+        label: String,
+        mediaUris: List<Uri>,
+        recordName: String?,
+        caption: String?
+    ) = queueOfflineEntry(
+        context, type, payloadJson, label,
+        mediaUris.mapIndexed { index, uri ->
+            OfflineMediaSpec(uri = uri, caption = caption, recordName = recordName, batchIndex = index + 1)
+        }
+    )
+
+    /** Queue an offline entry with a fully specified media list (e.g. attachments + stage captures). */
+    suspend fun queueOfflineEntry(
+        context: Context,
+        type: String,
+        payloadJson: String,
+        label: String,
+        items: List<OfflineMediaSpec>
+    ) = withContext(Dispatchers.IO) {
+        val media = items.map { spec ->
+            OfflineOutbox.stageMedia(
+                context = context,
+                uri = spec.uri,
+                caption = spec.caption,
+                recordName = spec.recordName,
+                customSegment = spec.customSegment,
+                overrideBaseName = spec.overrideBaseName,
+                batchIndex = spec.batchIndex,
+                processing = spec.processing,
+                stageStep = spec.stageStep
+            )
+        }
+        OfflineOutbox.enqueue(
+            context,
+            PendingEntry(
+                id = java.util.UUID.randomUUID().toString(),
+                type = type,
+                payloadJson = payloadJson,
+                label = label,
+                media = media,
+                createdAt = Instant.now().toString()
+            )
+        )
+    }
+
+    /**
+     * Replay every queued offline entry: create the record, then upload its copied media, then drop the
+     * local copy. Stops at the first failure (e.g. connection lost again) and leaves the rest queued, so
+     * a later pass finishes them. Returns the number of entries successfully synced. Safe to call often.
+     */
+    suspend fun syncOutbox(context: Context): Int = syncMutex.withLock {
+        if (!ConnectivityObserver.isOnline(context)) return@withLock 0
+        var synced = 0
+        for (entry in OfflineOutbox.all(context)) {
+            val ok = runCatching {
+                val serverId = createFromEntry(entry)
+                entry.media.forEach { uploadLocalFile(it, entry.type, serverId) }
+            }.isSuccess
+            if (!ok) break
+            OfflineOutbox.remove(context, entry)
+            synced++
+        }
+        synced
+    }
+
+    private suspend fun createFromEntry(entry: PendingEntry): String = when (entry.type) {
+        "artisan" -> api.createArtisan(offlineJson.decodeFromString<ArtisanCreateRequest>(entry.payloadJson)).id
+        "product" -> api.createProduct(offlineJson.decodeFromString<ProductCreateRequest>(entry.payloadJson)).id
+        "tool" -> api.createTool(offlineJson.decodeFromString<ToolCreateRequest>(entry.payloadJson)).id
+        "workshop" -> api.createWorkshop(offlineJson.decodeFromString<WorkshopCreateRequest>(entry.payloadJson)).id
+        "craft" -> api.createCraft(offlineJson.decodeFromString<CraftCreateRequest>(entry.payloadJson)).id
+        else -> throw IllegalStateException("Unknown offline entry type: ${entry.type}")
+    }
+
+    /** Upload one media file already copied into local storage, attaching it to the synced record. */
+    private suspend fun uploadLocalFile(pm: PendingMedia, linkedRecordType: String, linkedRecordId: String) {
+        val file = File(pm.localPath)
+        if (!file.exists()) return
+        val extension = pm.originalFilename.substringAfterLast('.', "").takeIf { it.isNotBlank() }
+        val filename = if (!pm.overrideBaseName.isNullOrBlank()) {
+            applyOverrideName(pm.overrideBaseName, extension)
+        } else mediaFilename(
+            recordType = linkedRecordType,
+            recordName = pm.recordName ?: pm.caption,
+            mediaType = pm.mediaType,
+            index = pm.batchIndex,
+            stageStep = pm.stageStep,
+            customSegment = pm.customSegment,
+            originalName = pm.originalFilename
+        )
+        val source = UploadSource(size = file.length(), open = { FileInputStream(file) }, cleanup = {})
+        val target = uploadBytesToS3(
+            filename = filename,
+            mimeType = pm.mimeType,
+            mediaType = pm.mediaType,
+            source = source,
+            linkedRecordType = linkedRecordType,
+            linkedRecordId = linkedRecordId,
+            onProgress = null
+        )
+        val resolvedProcessing = pm.processing ?: if (pm.mediaType == "AUDIO") listOf("TRANSCRIPTION") else emptyList()
+        api.completeMedia(
+            MediaCompleteRequest(
+                originalFilename = filename,
+                mediaType = pm.mediaType,
+                mimeType = pm.mimeType,
+                sizeBytes = file.length(),
+                objectKey = target.objectKey,
+                bucket = target.bucket,
+                url = target.publicUrl,
+                caption = pm.caption.blankToNull(),
+                linkedRecordType = linkedRecordType,
+                linkedRecordId = linkedRecordId,
+                recordedAt = Instant.now().toString(),
+                processingRequests = resolvedProcessing
+            )
+        )
     }
 
     /**

@@ -62,6 +62,10 @@ import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.LocalContentColor
+import kotlinx.coroutines.delay
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.encodeToString
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -153,7 +157,9 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.SystemUpdate
@@ -315,6 +321,33 @@ private fun RepositoryApp(repository: FieldRepository, googleAuthClient: GoogleA
         loading = false
     }
 
+    // Offline outbox auto-sync: drain queued entries on login/start, whenever the network returns, and
+    // on a periodic fallback. `pendingUploads` powers the "saved offline — uploading" banner.
+    val appContext = LocalContext.current.applicationContext
+    var pendingUploads by remember { mutableStateOf(0) }
+    LaunchedEffect(user) {
+        if (user == null) return@LaunchedEffect
+        while (true) {
+            runCatching { repository.syncOutbox(appContext) }
+            pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
+            delay(if (pendingUploads > 0) 12_000L else 45_000L)
+        }
+    }
+    DisposableEffect(user) {
+        if (user == null) return@DisposableEffect onDispose {}
+        val cm = appContext.getSystemService(android.net.ConnectivityManager::class.java)
+        val callback = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) {
+                scope.launch {
+                    runCatching { repository.syncOutbox(appContext) }
+                    pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
+                }
+            }
+        }
+        runCatching { cm?.registerDefaultNetworkCallback(callback) }
+        onDispose { runCatching { cm?.unregisterNetworkCallback(callback) } }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -361,6 +394,26 @@ private fun RepositoryApp(repository: FieldRepository, googleAuthClient: GoogleA
                     }
                 }
             )
+        }
+        if (user != null && pendingUploads > 0) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+                    .background(Color(0xFF2A2520), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(Icons.Filled.CloudOff, contentDescription = null, tint = Color(0xFFE0C9B0), modifier = Modifier.size(16.dp))
+                Text(
+                    "$pendingUploads entr${if (pendingUploads == 1) "y" else "ies"} saved on this device — uploading when you're online.",
+                    color = Color(0xFFE0C9B0),
+                    fontSize = 12.sp,
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
     }
 }
@@ -2948,13 +3001,10 @@ private fun CraftForm(
             RecordMediaSection(repository = repository, context = context, linkedType = "craft", recordId = editing!!.id, onError = onError)
         }
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
-        Button(
-            onClick = { submit() },
-            enabled = !saving,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(if (saving) "Saving..." else if (isEdit) "Update craft" else "Save craft")
-        }
+        SaveButton(
+            state = if (saving) SaveState.SAVING else SaveState.IDLE,
+            idleLabel = if (isEdit) "Update craft" else "Save craft"
+        ) { submit() }
     }
 }
 
@@ -3016,24 +3066,36 @@ private fun ArtisanForm(
             ))) { onError("Please fill the required field highlighted above."); return }
         scope.launch {
             saving = true
+            val body = ArtisanCreateRequest(
+                name = name.trim(),
+                localName = localName.blankToNull(),
+                gender = gender.blankToNull(),
+                phone = phone.blankToNull(),
+                email = email.blankToNull(),
+                place = place.trim(),
+                address = address.blankToNull(),
+                notes = notes.blankToNull(),
+                dos = dosText,
+                donts = dontsText,
+                craftId = craftId.ifBlank { null },
+                craftName = if (craftId.isBlank()) newCraftName.blankToNull() else null,
+                status = status,
+                recordedAt = if (isEdit) null else Instant.now().toString(),
+                location = locationForBody(isEdit, media.location, editing?.location)
+            )
+            // No connection: save to the device and sync on reconnect, instead of failing the upload.
+            val queuedOffline = runCatching {
+                trySaveOffline(repository, context, isEdit, "artisan", offlineFormJson.encodeToString(body),
+                    name.trim(), media, name.trim(), "Field media for ${name.trim()}")
+            }.getOrElse { false }
+            if (queuedOffline) {
+                media.reset()
+                onError("Saved on this device. It'll upload automatically when you're back online.")
+                onDone()
+                saving = false
+                return@launch
+            }
             runCatching {
-                val body = ArtisanCreateRequest(
-                    name = name.trim(),
-                    localName = localName.blankToNull(),
-                    gender = gender.blankToNull(),
-                    phone = phone.blankToNull(),
-                    email = email.blankToNull(),
-                    place = place.trim(),
-                    address = address.blankToNull(),
-                    notes = notes.blankToNull(),
-                    dos = dosText,
-                    donts = dontsText,
-                    craftId = craftId.ifBlank { null },
-                    craftName = if (craftId.isBlank()) newCraftName.blankToNull() else null,
-                    status = status,
-                    recordedAt = if (isEdit) null else Instant.now().toString(),
-                    location = locationForBody(isEdit, media.location, editing?.location)
-                )
                 val artisanId = if (isEdit) {
                     repository.updateArtisan(editing!!.id, body).id
                 } else {
@@ -3121,13 +3183,10 @@ private fun ArtisanForm(
             RecordMediaSection(repository = repository, context = context, linkedType = "artisan", recordId = editing!!.id, onError = onError)
         }
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
-        Button(
-            onClick = { submit() },
-            enabled = !saving,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(if (saving) "Saving..." else if (isEdit) "Update artisan" else "Save artisan")
-        }
+        SaveButton(
+            state = if (saving) SaveState.SAVING else SaveState.IDLE,
+            idleLabel = if (isEdit) "Update artisan" else "Save artisan"
+        ) { submit() }
     }
 }
 
@@ -3184,28 +3243,39 @@ private fun WorkshopForm(
             ))) { onError("Please fill the required field highlighted above."); return }
         scope.launch {
             saving = true
+            val start = (startDate ?: LocalDate.now()).toIsoInstant()
+            val end = (endDate ?: startDate ?: LocalDate.now()).toIsoInstant()
+            val originalArtisans = editing?.artisans?.map { it.artisanId }?.toSet() ?: emptySet()
+            val originalCrafts = editing?.crafts?.map { it.craftId }?.toSet() ?: emptySet()
+            // On edit, only send the relation when it changed (the backend replaces & re-checks it).
+            val artisanIdsParam = if (!isEdit || selectedArtisans != originalArtisans) selectedArtisans.toList() else null
+            val craftIdsParam = if (!isEdit || selectedCrafts != originalCrafts) selectedCrafts.toList() else null
+            val body = WorkshopCreateRequest(
+                title = title.trim(),
+                date = start,
+                startDate = start,
+                endDate = end,
+                place = place.trim(),
+                description = description.blankToNull(),
+                notes = notes.blankToNull(),
+                artisanIds = artisanIdsParam,
+                craftIds = craftIdsParam,
+                status = status,
+                recordedAt = if (isEdit) null else Instant.now().toString(),
+                location = locationForBody(isEdit, media.location, editing?.location)
+            )
+            val queuedOffline = runCatching {
+                trySaveOffline(repository, context, isEdit, "workshop", offlineFormJson.encodeToString(body),
+                    title.trim(), media, title.trim(), "Field media for ${title.trim()}")
+            }.getOrElse { false }
+            if (queuedOffline) {
+                media.reset()
+                onError("Saved on this device. It'll upload automatically when you're back online.")
+                onDone()
+                saving = false
+                return@launch
+            }
             runCatching {
-                val start = (startDate ?: LocalDate.now()).toIsoInstant()
-                val end = (endDate ?: startDate ?: LocalDate.now()).toIsoInstant()
-                val originalArtisans = editing?.artisans?.map { it.artisanId }?.toSet() ?: emptySet()
-                val originalCrafts = editing?.crafts?.map { it.craftId }?.toSet() ?: emptySet()
-                // On edit, only send the relation when it changed (the backend replaces & re-checks it).
-                val artisanIdsParam = if (!isEdit || selectedArtisans != originalArtisans) selectedArtisans.toList() else null
-                val craftIdsParam = if (!isEdit || selectedCrafts != originalCrafts) selectedCrafts.toList() else null
-                val body = WorkshopCreateRequest(
-                    title = title.trim(),
-                    date = start,
-                    startDate = start,
-                    endDate = end,
-                    place = place.trim(),
-                    description = description.blankToNull(),
-                    notes = notes.blankToNull(),
-                    artisanIds = artisanIdsParam,
-                    craftIds = craftIdsParam,
-                    status = status,
-                    recordedAt = if (isEdit) null else Instant.now().toString(),
-                    location = locationForBody(isEdit, media.location, editing?.location)
-                )
                 val workshopId = if (isEdit) {
                     repository.updateWorkshop(editing!!.id, body).id
                 } else {
@@ -3269,13 +3339,10 @@ private fun WorkshopForm(
             RecordMediaSection(repository = repository, context = context, linkedType = "workshop", recordId = editing!!.id, onError = onError)
         }
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
-        Button(
-            onClick = { submit() },
-            enabled = !saving,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(if (saving) "Saving..." else if (isEdit) "Update workshop" else "Save workshop")
-        }
+        SaveButton(
+            state = if (saving) SaveState.SAVING else SaveState.IDLE,
+            idleLabel = if (isEdit) "Update workshop" else "Save workshop"
+        ) { submit() }
     }
 }
 
@@ -3339,32 +3406,43 @@ private fun ProductForm(
             ))) { onError("Please fill the required field highlighted above."); return }
         scope.launch {
             saving = true
+            val body = ProductCreateRequest(
+                productName = productName.trim(),
+                localName = localName.blankToNull(),
+                craftName = craftName.trim(),
+                artisanName = artisanName.trim(),
+                place = place.trim(),
+                productType = productType,
+                timeTakenToCompleteProduct = timeTaken.blankToNull(),
+                size = size.blankToNull(),
+                lengthInches = length.toDoubleOrNull(),
+                breadthInches = breadth.toDoubleOrNull(),
+                heightInches = height.toDoubleOrNull(),
+                costOfMaking = costOfMaking.toDoubleOrNull(),
+                sellingPrice = sellingPrice.toDoubleOrNull(),
+                marketDemand = marketDemand,
+                rawMaterialsUsed = rawMaterials.blankToNull(),
+                mainToolsUsed = mainTools.blankToNull(),
+                productFunctionUse = functionUse.blankToNull(),
+                remarks = remarks.blankToNull(),
+                artisanId = artisanId.ifBlank { null },
+                craftId = craftId.ifBlank { null },
+                status = status,
+                recordedAt = if (isEdit) null else Instant.now().toString(),
+                location = locationForBody(isEdit, media.location, editing?.location)
+            )
+            val queuedOffline = runCatching {
+                trySaveOffline(repository, context, isEdit, "product", offlineFormJson.encodeToString(body),
+                    productName.trim(), media, productName.trim(), "Field media for ${productName.trim()}")
+            }.getOrElse { false }
+            if (queuedOffline) {
+                media.reset()
+                onError("Saved on this device. It'll upload automatically when you're back online.")
+                onDone()
+                saving = false
+                return@launch
+            }
             runCatching {
-                val body = ProductCreateRequest(
-                    productName = productName.trim(),
-                    localName = localName.blankToNull(),
-                    craftName = craftName.trim(),
-                    artisanName = artisanName.trim(),
-                    place = place.trim(),
-                    productType = productType,
-                    timeTakenToCompleteProduct = timeTaken.blankToNull(),
-                    size = size.blankToNull(),
-                    lengthInches = length.toDoubleOrNull(),
-                    breadthInches = breadth.toDoubleOrNull(),
-                    heightInches = height.toDoubleOrNull(),
-                    costOfMaking = costOfMaking.toDoubleOrNull(),
-                    sellingPrice = sellingPrice.toDoubleOrNull(),
-                    marketDemand = marketDemand,
-                    rawMaterialsUsed = rawMaterials.blankToNull(),
-                    mainToolsUsed = mainTools.blankToNull(),
-                    productFunctionUse = functionUse.blankToNull(),
-                    remarks = remarks.blankToNull(),
-                    artisanId = artisanId.ifBlank { null },
-                    craftId = craftId.ifBlank { null },
-                    status = status,
-                    recordedAt = if (isEdit) null else Instant.now().toString(),
-                    location = locationForBody(isEdit, media.location, editing?.location)
-                )
                 val productId = if (isEdit) {
                     repository.updateProduct(editing!!.id, body).id
                 } else {
@@ -3460,13 +3538,10 @@ private fun ProductForm(
             RecordMediaSection(repository = repository, context = context, linkedType = "product", recordId = editing!!.id, onError = onError)
         }
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
-        Button(
-            onClick = { submit() },
-            enabled = !saving,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(if (saving) "Saving..." else if (isEdit) "Update product" else "Save product")
-        }
+        SaveButton(
+            state = if (saving) SaveState.SAVING else SaveState.IDLE,
+            idleLabel = if (isEdit) "Update product" else "Save product"
+        ) { submit() }
     }
 }
 
@@ -3534,35 +3609,51 @@ private fun ToolForm(
             ))) { onError("Please fill the required field highlighted above."); return }
         scope.launch {
             saving = true
+            val body = ToolCreateRequest(
+                toolkitName = toolkitName.trim(),
+                localName = localName.blankToNull(),
+                englishName = englishName.blankToNull(),
+                craftName = craftName.trim(),
+                artisanName = artisanName.trim(),
+                place = place.trim(),
+                processUsedIn = processUsedIn.blankToNull(),
+                material = material.blankToNull(),
+                yearsInUse = yearsInUse.toIntOrNull(),
+                height = height.toDoubleOrNull(),
+                width = width.toDoubleOrNull(),
+                lengthInches = length.toDoubleOrNull(),
+                breadthInches = breadth.toDoubleOrNull(),
+                thickness = thickness.toDoubleOrNull(),
+                weight = weight.toDoubleOrNull(),
+                radius = radius.toDoubleOrNull(),
+                maker = maker,
+                traditionType = traditionType,
+                replacementCost = replacementCost.toDoubleOrNull(),
+                suggestionsForToolImprovement = suggestions.blankToNull(),
+                remarks = remarks.blankToNull(),
+                artisanId = artisanId.ifBlank { null },
+                craftId = craftId.ifBlank { null },
+                status = status,
+                recordedAt = if (isEdit) null else Instant.now().toString(),
+                location = locationForBody(isEdit, media.location, editing?.location)
+            )
+            if (!isEdit && !repository.isOnline(context)) {
+                val ok = runCatching {
+                    val items = media.uris.mapIndexed { i, uri ->
+                        com.fieldrepository.app.data.OfflineMediaSpec(uri = uri, caption = "Field media for ${toolkitName.trim()}", recordName = toolkitName.trim(), batchIndex = i + 1)
+                    } + stages.uris.mapIndexed { i, uri ->
+                        com.fieldrepository.app.data.OfflineMediaSpec(uri = uri, caption = "Process stage step ${i + 1} for ${toolkitName.trim()}", recordName = toolkitName.trim(), stageStep = i + 1)
+                    }
+                    repository.queueOfflineEntry(context, "tool", offlineFormJson.encodeToString(body), toolkitName.trim(), items)
+                }.isSuccess
+                if (ok) {
+                    media.reset(); stages.reset()
+                    onError("Saved on this device. It'll upload automatically when you're back online.")
+                    onDone(); saving = false; return@launch
+                } else onError("Couldn't save offline")
+                saving = false; return@launch
+            }
             runCatching {
-                val body = ToolCreateRequest(
-                    toolkitName = toolkitName.trim(),
-                    localName = localName.blankToNull(),
-                    englishName = englishName.blankToNull(),
-                    craftName = craftName.trim(),
-                    artisanName = artisanName.trim(),
-                    place = place.trim(),
-                    processUsedIn = processUsedIn.blankToNull(),
-                    material = material.blankToNull(),
-                    yearsInUse = yearsInUse.toIntOrNull(),
-                    height = height.toDoubleOrNull(),
-                    width = width.toDoubleOrNull(),
-                    lengthInches = length.toDoubleOrNull(),
-                    breadthInches = breadth.toDoubleOrNull(),
-                    thickness = thickness.toDoubleOrNull(),
-                    weight = weight.toDoubleOrNull(),
-                    radius = radius.toDoubleOrNull(),
-                    maker = maker,
-                    traditionType = traditionType,
-                    replacementCost = replacementCost.toDoubleOrNull(),
-                    suggestionsForToolImprovement = suggestions.blankToNull(),
-                    remarks = remarks.blankToNull(),
-                    artisanId = artisanId.ifBlank { null },
-                    craftId = craftId.ifBlank { null },
-                    status = status,
-                    recordedAt = if (isEdit) null else Instant.now().toString(),
-                    location = locationForBody(isEdit, media.location, editing?.location)
-                )
                 val toolId = if (isEdit) {
                     repository.updateTool(editing!!.id, body).id
                 } else {
@@ -3681,13 +3772,10 @@ private fun ToolForm(
             RecordMediaSection(repository = repository, context = context, linkedType = "tool", recordId = editing!!.id, onError = onError)
         }
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
-        Button(
-            onClick = { submit() },
-            enabled = !saving,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(if (saving) "Saving..." else if (isEdit) "Update tool" else "Save tool")
-        }
+        SaveButton(
+            state = if (saving) SaveState.SAVING else SaveState.IDLE,
+            idleLabel = if (isEdit) "Update tool" else "Save tool"
+        ) { submit() }
     }
 }
 
@@ -4163,13 +4251,10 @@ private fun ProcessForm(
             )
         }
 
-        Button(
-            onClick = { submit() },
-            enabled = !saving,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(if (saving) "Saving..." else if (isEdit) "Update process" else "Save process")
-        }
+        SaveButton(
+            state = if (saving) SaveState.SAVING else SaveState.IDLE,
+            idleLabel = if (isEdit) "Update process" else "Save process"
+        ) { submit() }
     }
 }
 
@@ -6694,6 +6779,7 @@ private fun QuestionnaireForm(
     val scope = rememberCoroutineScope()
     val isEdit = editing != null
     var syncing by remember { mutableStateOf(false) }
+    var saveState by remember { mutableStateOf(SaveState.IDLE) }
     var title by remember(editing) { mutableStateOf(editing?.title ?: prefill?.artisanName?.let { "Interview with $it" } ?: "") }
     var selectedArtisans by remember(editing) {
         mutableStateOf(
@@ -7071,6 +7157,7 @@ private fun QuestionnaireForm(
             if (!validateRequired(listOf(
                     RequiredCheck(title.isBlank(), { titleError = it }, titleFocus)
                 ))) { onError("Please fill the required field highlighted above."); return }
+                saveState = SaveState.SAVING
                 scope.launch {
                     val now = Instant.now().toString()
                     // Only send answers this interviewer actually added or changed; untouched answers
@@ -7186,6 +7273,7 @@ private fun QuestionnaireForm(
                             "Field media for ${title.trim().ifBlank { "interview" }}"
                         )
                     }.onFailure {
+                        saveState = SaveState.IDLE
                         onError(it.message ?: "Unable to save questionnaire")
                         return@launch
                     }
@@ -7206,6 +7294,8 @@ private fun QuestionnaireForm(
                         capturedLocation = null
                         answers.values.forEach { it.value = "" }
                     }
+                    saveState = SaveState.SAVED
+                    delay(SAVED_CONFIRM_MS)
                     onSaved()
                 }
         }
@@ -7218,12 +7308,10 @@ private fun QuestionnaireForm(
         // interview "dirty" so an accidental Back offers to save it (including in-progress recordings).
         val dirty = qSig() != initialSig || qMedia.uris.isNotEmpty() || media.uris.isNotEmpty()
         RegisterUnsavedGuard(dirty = dirty) { submit() }
-        Button(
-            onClick = { submit() },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(if (isEdit) "Update interview" else "Save questionnaire")
-        }
+        SaveButton(
+            state = saveState,
+            idleLabel = if (isEdit) "Update interview" else "Save questionnaire"
+        ) { submit() }
         Text("Recordings and attached media upload as you go and link to this interview automatically; audio is queued for transcription.", color = Muted, fontSize = 12.sp)
     }
 }
@@ -7616,6 +7704,72 @@ private fun RecordCard(title: String, icon: ImageVector? = null, content: @Compo
         }
     }
 }
+
+/** Serializer for offline-queued create requests (record forms persist their request as JSON). */
+private val offlineFormJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+/**
+ * Offline save: when there's no connection, persist this new record (and copies of its captured media)
+ * to the local outbox and return true so the form can confirm "saved on device" and navigate. Returns
+ * false when online (the form should take its normal upload path). Only for NEW records — edits need
+ * the existing server record. The outbox auto-syncs on reconnect.
+ */
+private suspend fun trySaveOffline(
+    repository: FieldRepository,
+    context: Context,
+    isEdit: Boolean,
+    type: String,
+    payloadJson: String,
+    label: String,
+    media: MediaCaptureState,
+    recordName: String?,
+    caption: String?
+): Boolean {
+    if (isEdit || repository.isOnline(context)) return false
+    repository.queueOffline(context, type, payloadJson, label, media.uris, recordName, caption)
+    return true
+}
+
+/** Save-button lifecycle: idle, in-flight (spinner + "Saving…"), then a brief "Saved ✓" confirmation. */
+private enum class SaveState { IDLE, SAVING, SAVED }
+
+/**
+ * Primary save button that reflects the save lifecycle: a buffering spinner with "Saving…" while the
+ * record (and its uploads) are processing, then "Saved ✓" before the screen navigates away. Disabled
+ * except when IDLE so a record can't be double-submitted. Drive it with a [SaveState]: set SAVING on
+ * submit, SAVED on success (then navigate after a short beat), back to IDLE on failure.
+ */
+@Composable
+private fun SaveButton(
+    state: SaveState,
+    idleLabel: String,
+    modifier: Modifier = Modifier.fillMaxWidth(),
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    Button(onClick = onClick, enabled = enabled && state == SaveState.IDLE, modifier = modifier) {
+        when (state) {
+            SaveState.SAVING -> {
+                androidx.compose.material3.CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = LocalContentColor.current
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("Saving…")
+            }
+            SaveState.SAVED -> {
+                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Saved ✓")
+            }
+            SaveState.IDLE -> Text(idleLabel)
+        }
+    }
+}
+
+/** How long the "Saved ✓" confirmation lingers before the screen returns to the dashboard. */
+private const val SAVED_CONFIRM_MS = 750L
 
 @Composable
 private fun TextInput(label: String, value: String, minLines: Int = 1, onValueChange: (String) -> Unit) {
