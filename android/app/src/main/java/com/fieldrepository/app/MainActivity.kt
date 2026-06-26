@@ -2959,15 +2959,26 @@ private fun CraftForm(
             ))) { onError("Please fill the required field highlighted above."); return }
         scope.launch {
             saving = true
+            val body = CraftCreateRequest(
+                name = name.trim(),
+                localName = localName.blankToNull(),
+                category = category.blankToNull(),
+                place = place.blankToNull(),
+                description = description.blankToNull(),
+                recordedAt = if (isEdit) null else Instant.now().toString()
+            )
+            val queuedOffline = runCatching {
+                trySaveOffline(repository, context, isEdit, "craft", offlineFormJson.encodeToString(body),
+                    name.trim(), media, name.trim(), "Field media for ${name.trim()}")
+            }.getOrElse { false }
+            if (queuedOffline) {
+                media.reset()
+                onError("Saved on this device. It'll upload automatically when you're back online.")
+                onDone()
+                saving = false
+                return@launch
+            }
             runCatching {
-                val body = CraftCreateRequest(
-                    name = name.trim(),
-                    localName = localName.blankToNull(),
-                    category = category.blankToNull(),
-                    place = place.blankToNull(),
-                    description = description.blankToNull(),
-                    recordedAt = if (isEdit) null else Instant.now().toString()
-                )
                 val craftId = if (isEdit) {
                     repository.updateCraft(editing!!.id, body).id
                 } else {
@@ -4018,25 +4029,55 @@ private fun ProcessForm(
 
         scope.launch {
             saving = true
-            runCatching {
-                val stepRequests = steps.mapIndexed { i, s ->
-                    ProcessStepRequest(
-                        id = s.serverId,
-                        name = s.name.trim(),
-                        stepType = s.stepType,
-                        sortOrder = i + 1,
-                        notes = if (s.recordAdditional) s.notes.trim().ifBlank { null } else null
-                    )
-                }
-                val body = ProcessCreateRequest(
-                    name = name.trim(),
-                    productId = productId,
-                    preProcessAvailable = preProcessAvailable,
-                    notes = notes.blankToNull(),
-                    status = status,
-                    steps = stepRequests,
-                    recordedAt = if (isEdit) null else Instant.now().toString()
+            val stepRequests = steps.mapIndexed { i, s ->
+                ProcessStepRequest(
+                    id = s.serverId,
+                    name = s.name.trim(),
+                    stepType = s.stepType,
+                    sortOrder = i + 1,
+                    notes = if (s.recordAdditional) s.notes.trim().ifBlank { null } else null
                 )
+            }
+            val body = ProcessCreateRequest(
+                name = name.trim(),
+                productId = productId,
+                preProcessAvailable = preProcessAvailable,
+                notes = notes.blankToNull(),
+                status = status,
+                steps = stepRequests,
+                recordedAt = if (isEdit) null else Instant.now().toString()
+            )
+            // Offline: queue the process with its pre-process media (linked to the process) and each
+            // step's media (linked to that step on sync, by index), preserving the step nomenclature.
+            if (!isEdit && !repository.isOnline(context)) {
+                val ok = runCatching {
+                    val items = mutableListOf<com.fieldrepository.app.data.OfflineMediaSpec>()
+                    if (preProcessAvailable) {
+                        preMedia.uris.forEachIndexed { i, uri ->
+                            items.add(com.fieldrepository.app.data.OfflineMediaSpec(
+                                uri = uri, caption = "Pre-process media for ${name.trim()}", recordName = name.trim(),
+                                customSegment = "PRE", batchIndex = i + 1, linkedType = "process"))
+                        }
+                    }
+                    steps.forEachIndexed { index, local ->
+                        local.media.uris.forEachIndexed { fileIndex, uri ->
+                            items.add(com.fieldrepository.app.data.OfflineMediaSpec(
+                                uri = uri, caption = "Process step ${local.name.trim()}", recordName = name.trim(),
+                                customSegment = processStepSegment(index + 1, local.stepType, fileIndex),
+                                batchIndex = fileIndex + 1, linkedType = "processstep", stepIndex = index))
+                        }
+                    }
+                    repository.queueOfflineEntry(context, "process", offlineFormJson.encodeToString(body), name.trim(), items)
+                }.isSuccess
+                if (ok) {
+                    preMedia.reset(); steps.forEach { it.media.reset() }
+                    onError("Saved on this device. It'll upload automatically when you're back online.")
+                    onDone()
+                } else onError("Couldn't save offline")
+                saving = false
+                return@launch
+            }
+            runCatching {
                 val detail = if (isEdit) repository.updateProcess(editing!!.id, body) else repository.createProcess(body)
                 if (preProcessAvailable) {
                     uploadAttachments(repository, context, preMedia, "process", detail.id, name, "Pre-process media for ${name.trim()}", customSegment = "PRE")
@@ -7168,6 +7209,72 @@ private fun QuestionnaireForm(
                         if (current.isNotBlank() && current != initial) {
                             QuestionnaireResponseRequest(questionId = question.id, answerText = current)
                         } else null
+                    }
+                    // Offline: queue the interview + every recorded clip (with its section/question
+                    // nomenclature) and attachments, to upload on reconnect. New interviews only.
+                    if (!isEdit && !repository.isOnline(context)) {
+                        val ok = runCatching {
+                            val request = QuestionnaireInterviewCreateRequest(
+                                title = title.trim(),
+                                place = place.blankToNull(),
+                                language = language.blankToNull(),
+                                notes = notes.blankToNull(),
+                                artisanIds = selectedArtisans.toList(),
+                                location = capturedLocation,
+                                responses = responsesToSend,
+                                recordedAt = now
+                            )
+                            val questionsById = questions.associateBy { it.id }
+                            val sectionsById = sections.associateBy { it.id }
+                            val items = mutableListOf<com.fieldrepository.app.data.OfflineMediaSpec>()
+                            questionAudio.forEach { (key, uris) ->
+                                val caption: String
+                                val hint: String
+                                val sectionCodePart: String?
+                                val questionNumberPart: String?
+                                if (key.startsWith("section:")) {
+                                    val section = sectionsById[key.removePrefix("section:")]
+                                    caption = "Section audio: ${section?.code ?: ""} ${section?.title ?: ""}".trim()
+                                    hint = title.ifBlank { section?.title ?: "Section recording" }
+                                    sectionCodePart = section?.code
+                                    questionNumberPart = "SEC"
+                                } else {
+                                    val question = questionsById[key]
+                                    caption = "Question audio: ${question?.sectionCode ?: ""}${question?.sortOrder ?: ""} ${question?.prompt ?: ""}".trim()
+                                    hint = title.ifBlank { question?.prompt ?: "Question recording" }
+                                    sectionCodePart = question?.sectionCode
+                                    questionNumberPart = question?.sortOrder?.toString()
+                                }
+                                uris.forEachIndexed { index, uri ->
+                                    val baseName = questionnaireClipBaseName(context, sectionCodePart, questionNumberPart, title, uri)
+                                        .let { if (uris.size > 1) "${it}_${index + 1}" else it }
+                                    items.add(com.fieldrepository.app.data.OfflineMediaSpec(
+                                        uri = uri, caption = caption, recordName = hint,
+                                        overrideBaseName = baseName, batchIndex = index + 1))
+                                }
+                            }
+                            media.uris.forEachIndexed { i, uri ->
+                                items.add(com.fieldrepository.app.data.OfflineMediaSpec(
+                                    uri = uri,
+                                    caption = "Field media for ${title.trim().ifBlank { "interview" }}",
+                                    recordName = title.ifBlank { "Interview" },
+                                    batchIndex = i + 1))
+                            }
+                            repository.queueOfflineEntry(context, "questionnaire", offlineFormJson.encodeToString(request),
+                                title.trim().ifBlank { "Interview" }, items)
+                        }.isSuccess
+                        if (ok) {
+                            media.reset(); qMedia.reset(); questionAudio = emptyMap()
+                            title = ""; selectedArtisans = emptySet(); place = ""; language = "Hindi"; notes = ""
+                            capturedLocation = null; answers.values.forEach { it.value = "" }
+                            saveState = SaveState.SAVED
+                            delay(SAVED_CONFIRM_MS)
+                            onSaved()
+                        } else {
+                            saveState = SaveState.IDLE
+                            onError("Couldn't save offline")
+                        }
+                        return@launch
                     }
                     runCatching {
                         val interviewId = if (isEdit) {

@@ -821,7 +821,9 @@ class FieldRepository(
                 overrideBaseName = spec.overrideBaseName,
                 batchIndex = spec.batchIndex,
                 processing = spec.processing,
-                stageStep = spec.stageStep
+                stageStep = spec.stageStep,
+                linkedType = spec.linkedType,
+                stepIndex = spec.stepIndex
             )
         }
         OfflineOutbox.enqueue(
@@ -847,8 +849,13 @@ class FieldRepository(
         var synced = 0
         for (entry in OfflineOutbox.all(context)) {
             val ok = runCatching {
-                val serverId = createFromEntry(entry)
-                entry.media.forEach { uploadLocalFile(it, entry.type, serverId) }
+                if (entry.type == "process") {
+                    syncProcessEntry(entry)
+                } else {
+                    val serverId = createFromEntry(entry)
+                    // Media attaches to the created record (or an overridden link type, e.g. a clip).
+                    entry.media.forEach { uploadLocalFile(it, it.linkedType ?: entry.type, serverId) }
+                }
             }.isSuccess
             if (!ok) break
             OfflineOutbox.remove(context, entry)
@@ -863,7 +870,26 @@ class FieldRepository(
         "tool" -> api.createTool(offlineJson.decodeFromString<ToolCreateRequest>(entry.payloadJson)).id
         "workshop" -> api.createWorkshop(offlineJson.decodeFromString<WorkshopCreateRequest>(entry.payloadJson)).id
         "craft" -> api.createCraft(offlineJson.decodeFromString<CraftCreateRequest>(entry.payloadJson)).id
+        "questionnaire" -> api.createQuestionnaireInterview(offlineJson.decodeFromString<QuestionnaireInterviewCreateRequest>(entry.payloadJson)).id
         else -> throw IllegalStateException("Unknown offline entry type: ${entry.type}")
+    }
+
+    /**
+     * Sync a queued process: create it, then attach each pending media to the right target — pre-process
+     * media to the process itself, and each step's media to that step's freshly-created server id (steps
+     * come back in submit order, so `stepIndex` selects the matching one). Mirrors the online save.
+     */
+    private suspend fun syncProcessEntry(entry: PendingEntry) {
+        val detail = api.createProcess(offlineJson.decodeFromString<ProcessCreateRequest>(entry.payloadJson))
+        for (pm in entry.media) {
+            val stepIndex = pm.stepIndex
+            if (stepIndex != null) {
+                val step = detail.steps.getOrNull(stepIndex) ?: continue
+                uploadLocalFile(pm, "processstep", step.id)
+            } else {
+                uploadLocalFile(pm, pm.linkedType ?: "process", detail.id)
+            }
+        }
     }
 
     /** Upload one media file already copied into local storage, attaching it to the synced record. */

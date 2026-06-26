@@ -35,7 +35,11 @@ data class PendingMedia(
     val overrideBaseName: String? = null,
     val batchIndex: Int = 1,
     val stageStep: Int? = null,
-    val processing: List<String>? = null
+    val processing: List<String>? = null,
+    // Override the link target type (e.g. "processstep" for a process step's media). Null = the entry's
+    // own type. `stepIndex` (process only) selects which created step's server id to attach to on sync.
+    val linkedType: String? = null,
+    val stepIndex: Int? = null
 )
 
 /** One queued create: the record type, its serialized create request, and the media to attach after. */
@@ -58,7 +62,9 @@ data class OfflineMediaSpec(
     val overrideBaseName: String? = null,
     val batchIndex: Int = 1,
     val stageStep: Int? = null,
-    val processing: List<String>? = null
+    val processing: List<String>? = null,
+    val linkedType: String? = null,
+    val stepIndex: Int? = null
 )
 
 /** Live connectivity check (validated internet, not just an attached interface). */
@@ -114,7 +120,9 @@ object OfflineOutbox {
         overrideBaseName: String?,
         batchIndex: Int,
         processing: List<String>?,
-        stageStep: Int? = null
+        stageStep: Int? = null,
+        linkedType: String? = null,
+        stepIndex: Int? = null
     ): PendingMedia {
         val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
         val originalName = displayName(context, uri) ?: "field-media-${System.currentTimeMillis()}"
@@ -134,7 +142,9 @@ object OfflineOutbox {
             overrideBaseName = overrideBaseName,
             batchIndex = batchIndex,
             stageStep = stageStep,
-            processing = processing
+            processing = processing,
+            linkedType = linkedType,
+            stepIndex = stepIndex
         )
     }
 
