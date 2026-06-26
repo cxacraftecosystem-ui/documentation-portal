@@ -1,8 +1,12 @@
+import asyncio
+import logging
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from prisma import Prisma
 
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 _POOLER_HOST_SUFFIX = ".pooler.supabase.com"
 
@@ -64,8 +68,30 @@ db = Prisma(datasource={"url": build_runtime_database_url(get_settings().databas
 
 
 async def connect_db() -> None:
-    if not db.is_connected():
-        await db.connect()
+    """Connect the runtime Prisma client, retrying a transient pooler-full / engine-connect failure.
+
+    If the pooler is momentarily at its client-connection ceiling (e.g. overlapping connections during
+    a deploy/restart), connecting raises and — without a retry — uvicorn exits and systemd restarts it,
+    which opens YET MORE connection attempts and turns a brief spike into a crash-loop that keeps the
+    pooler saturated. Retrying in-process instead waits for connections to drain, breaking the spiral.
+    """
+    if db.is_connected():
+        return
+    attempts = 6
+    delay = 2.0
+    for attempt in range(1, attempts + 1):
+        try:
+            await db.connect()
+            return
+        except Exception as exc:  # noqa: BLE001 - any connect failure should back off, not crash-loop
+            if attempt == attempts:
+                raise
+            logger.warning(
+                "Database connect failed (attempt %s/%s): %s — retrying in %.0fs",
+                attempt, attempts, exc, delay,
+            )
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 30.0)
 
 
 async def disconnect_db() -> None:

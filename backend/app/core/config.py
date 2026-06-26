@@ -15,10 +15,13 @@ class Settings(BaseSettings):
     database_use_transaction_pooler: bool = Field(
         default=True, alias="DATABASE_USE_TRANSACTION_POOLER"
     )
-    # Max client connections the runtime engine opens to the pooler, PER uvicorn worker. With 2
-    # workers and a 200-client pooler ceiling this leaves wide headroom; raise it to scale burst
-    # capacity further (real query concurrency is still gated by the pooler's server pool).
-    database_connection_limit: int = Field(default=40, alias="DATABASE_CONNECTION_LIMIT")
+    # Max client connections the runtime engine opens to the pooler, PER uvicorn worker. Kept SMALL on
+    # purpose: the pooler enforces a 200 *client*-connection ceiling shared across every worker AND
+    # every overlapping process during a deploy/restart. At 40 × 2 workers (plus restart overlap and
+    # the background queue worker) we were tripping (EMAXCONN) "max client connections reached", which
+    # crash-looped startup and made uploads fail intermittently. Real query concurrency is gated by the
+    # pooler's ~15 server connections anyway, so a small client pool loses nothing and leaves headroom.
+    database_connection_limit: int = Field(default=10, alias="DATABASE_CONNECTION_LIMIT")
     # Optional Prisma pool acquire timeout (seconds). Left unset uses Prisma's default (10s).
     database_pool_timeout: int | None = Field(default=None, alias="DATABASE_POOL_TIMEOUT")
     jwt_secret: str = Field(alias="JWT_SECRET")
