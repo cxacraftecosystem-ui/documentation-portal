@@ -54,7 +54,11 @@ WorkingDirectory=/home/ubuntu/app/backend
 EnvironmentFile=/home/ubuntu/app/backend/.env
 ExecStart=/home/ubuntu/app/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
 Restart=always
-RestartSec=3
+# 10s (not 3s) between restarts so that IF the process ever does exit while the Supabase
+# transaction pooler is at its client-connection ceiling, restarts don't hammer the pooler
+# faster than its connections can drain. (The app also now keeps serving and reconnects to
+# the DB in the background instead of exiting, so this is defense-in-depth.)
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target

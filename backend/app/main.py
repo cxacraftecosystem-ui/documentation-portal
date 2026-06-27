@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.core.config import get_settings
-from app.core.db import connect_db, disconnect_db
+from app.core.db import connect_db, db, disconnect_db
 from app.services.media_queue import process_next_media_jobs
 
 logger = logging.getLogger(__name__)
@@ -43,9 +43,41 @@ def _acquire_queue_worker_lock() -> Any | None:
         return None
 
 
+async def _keep_db_connected() -> None:
+    """Keep retrying the DB connect, forever, in the background.
+
+    This is the recovery path when the Supabase transaction pooler is momentarily at its
+    200 client-connection ceiling. It must NEVER let the process exit: systemd restarts a
+    dead uvicorn in seconds, and each restart spawns fresh query-engine connections, which
+    amplifies a brief pooler spike into a self-sustaining storm that keeps the pooler full
+    (the exact failure that took the API down twice). Staying alive and retrying gently —
+    one connection attempt at a time — lets the pooler drain and the app self-heal with no
+    restart. ``/health`` keeps returning 200 throughout (it does not touch the DB), so the
+    box stays a healthy CloudFront origin while it waits.
+    """
+    delay = 2.0
+    while not db.is_connected():
+        try:
+            await db.connect()
+        except Exception as exc:  # noqa: BLE001 - any connect failure should back off, not crash
+            logger.warning("Background DB reconnect failed: %s — retrying in %.0fs", exc, delay)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 30.0)
+    logger.info("Database connected (background reconnect succeeded)")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await connect_db()
+    db_reconnect_task: asyncio.Task[None] | None = None
+    try:
+        await connect_db()
+    except Exception as exc:  # noqa: BLE001 - never crash-loop on a full pooler; recover in background
+        logger.error(
+            "Initial DB connect failed (%s); starting anyway and reconnecting in the background "
+            "so a saturated pooler cannot crash-loop the service",
+            exc,
+        )
+        db_reconnect_task = asyncio.create_task(_keep_db_connected())
     settings = get_settings()
     queue_task: asyncio.Task[None] | None = None
     queue_lock: Any | None = None
@@ -61,6 +93,10 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        if db_reconnect_task:
+            db_reconnect_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await db_reconnect_task
         if queue_task:
             queue_task.cancel()
             with suppress(asyncio.CancelledError):
