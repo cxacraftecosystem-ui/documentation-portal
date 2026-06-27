@@ -1,11 +1,12 @@
 import re
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
 
 from app.core.db import db
-from app.core.deps import get_current_user, require_dataset_downloader
+from app.core.deps import can_download_dataset, get_current_user
+from app.services.access import owner_download_scope
 from app.services.csv_export import PRODUCT_FIELDS, TOOL_FIELDS, records_to_csv
 from app.services.records import visibility_where
 
@@ -42,21 +43,56 @@ def _details(pairs: list[tuple[str, Any]]) -> str:
 
 
 @router.get("/dataset")
-async def dataset_manifest(current_user: Any = Depends(require_dataset_downloader)) -> dict[str, Any]:
-    vis = visibility_where(current_user)
+async def dataset_manifest(
+    ownerId: str | None = None, current_user: Any = Depends(get_current_user)
+) -> dict[str, Any]:
+    """Build the downloadable manifest.
+
+    Without ``ownerId`` this is the whole repository and requires the global dataset-download
+    permission. With ``ownerId`` it is scoped to one researcher's data and is authorized by tiered
+    data access: an all-data DOWNLOAD+ grant yields everything that owner uploaded; a subset grant
+    yields only the granted records. Admins/global downloaders/the owner always get everything.
+    """
+    rec_where: dict[str, Any] = {}
+    media_where: dict[str, Any] = {}
+    scope: dict[str, set[str]] | None = None
+    if ownerId:
+        scope = await owner_download_scope(current_user, ownerId)
+        rec_where = {"createdById": ownerId}
+        media_where = {"uploadedById": ownerId}
+    elif not can_download_dataset(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Dataset download access required. Ask an admin to grant it, or download a "
+            "specific researcher's data you have access to.",
+        )
+    else:
+        rec_where = visibility_where(current_user)
+
+    def _in_scope(rtype: str, rid: str) -> bool:
+        return scope is None or rid in scope.get(rtype, set())
+
     workshops = await db.workshop.find_many(
-        where=vis,
+        where=rec_where,
         include={"crafts": {"include": {"craft": True}}, "artisans": {"include": {"artisan": True}}},
     )
-    artisans = await db.artisan.find_many(where=vis, include={"craft": True})
-    products = await db.productdocumentation.find_many(where=vis)
-    tools = await db.tooldocumentation.find_many(where=vis)
+    artisans = await db.artisan.find_many(where=rec_where, include={"craft": True})
+    products = await db.productdocumentation.find_many(where=rec_where)
+    tools = await db.tooldocumentation.find_many(where=rec_where)
     interviews = await db.questionnaireinterview.find_many(
-        where=vis,
+        where=rec_where,
         include={"artisans": True, "responses": {"include": {"question": True}}},
     )
-    processes = await db.process.find_many(where=vis, include={"steps": True})
-    media = await db.mediafile.find_many()
+    processes = await db.process.find_many(where=rec_where, include={"steps": True})
+    media = await db.mediafile.find_many(where=media_where)
+
+    if scope is not None:
+        # Subset grant: keep only the explicitly granted records of each type.
+        workshops = [w for w in workshops if _in_scope("workshop", w.id)]
+        artisans = [a for a in artisans if _in_scope("artisan", a.id)]
+        products = [p for p in products if _in_scope("product", p.id)]
+        tools = [t for t in tools if _in_scope("tool", t.id)]
+        interviews = [i for i in interviews if _in_scope("questionnaire", i.id)]
 
     # Group media by (lower record type, record id).
     media_by: dict[tuple[str, str], list[Any]] = {}

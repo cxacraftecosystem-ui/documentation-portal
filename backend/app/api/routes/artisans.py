@@ -4,12 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.db import db
 from app.core.deps import (
-    assert_can_contribute_fields,
     assert_can_delete,
     can_manage_crafts,
     get_current_user,
 )
 from app.schemas.records import ArtisanCreate, ArtisanUpdate
+from app.services.access import guard_record_edit
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
     public_encode,
@@ -119,7 +119,7 @@ async def update_artisan(
     data = clean_data(payload.model_dump(exclude_unset=True))
     data = await resolve_craft_id(data, current_user)
     data = await attach_location(data)
-    assert_can_contribute_fields(artisan, current_user, data)
+    await guard_record_edit(artisan, current_user, data, "artisan")
     merge_field_provenance(data, current_user, previous=artisan)
     updated = await db.artisan.update(where={"id": artisan_id}, data=data, include=INCLUDE)
     return public_encode(updated)

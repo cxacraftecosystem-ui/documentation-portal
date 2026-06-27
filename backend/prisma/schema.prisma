@@ -97,6 +97,23 @@ enum ProcessStepType {
   GROUP
 }
 
+/// Tiers of cross-researcher data access, strictly increasing in privilege:
+/// DOWNLOAD (minimum) < COMMENT (medium) < EDIT (maximum). Each tier includes everything below it.
+enum DataAccessTier {
+  DOWNLOAD
+  COMMENT
+  EDIT
+}
+
+/// Lifecycle of a DataAccessGrant row. PENDING = a request from the grantee awaiting the owner's
+/// decision; GRANTED = active; DENIED = owner refused; REVOKED = owner withdrew a previously active grant.
+enum DataAccessStatus {
+  PENDING
+  GRANTED
+  DENIED
+  REVOKED
+}
+
 model User {
   id           String       @id @default(cuid())
   email        String       @unique
@@ -128,6 +145,14 @@ model User {
   appReleases AppRelease[] @relation("AppReleasePublishedBy")
   feedback    Feedback?    @relation("FeedbackUser")
   sectionStatusesSet QuestionnaireSectionStatus[] @relation("SectionStatusSetBy")
+  workshopAssignments     WorkshopAssignment[] @relation("WorkshopAssignmentUser")
+  workshopAssignmentsMade WorkshopAssignment[] @relation("WorkshopAssignmentAssignedBy")
+  dataAccessAsOwner   DataAccessGrant[] @relation("DataAccessOwner")
+  dataAccessAsGrantee DataAccessGrant[] @relation("DataAccessGrantee")
+  dataAccessRequested DataAccessGrant[] @relation("DataAccessRequestedBy")
+  dataAccessDecided   DataAccessGrant[] @relation("DataAccessDecidedBy")
+  entryComments   EntryComment[]   @relation("EntryCommentAuthor")
+  recordRevisions RecordRevision[] @relation("RecordRevisionEditedBy")
 
   @@index([role])
   @@index([canManageQuestionnaire])
@@ -304,6 +329,7 @@ model Workshop {
   products  ProductDocumentation[]
   tools     ToolDocumentation[]
   media     MediaFile[]
+  assignments WorkshopAssignment[] @relation("WorkshopAssignments")
 
   @@index([date])
   @@index([startDate])
@@ -757,4 +783,104 @@ model AppSetting {
   batchTimezone      String   @default("Asia/Kolkata")
   updatedAt          DateTime @updatedAt
   updatedById        String?
+}
+
+/// A workshop-to-researcher assignment made by an admin. Only researchers assigned to a workshop may
+/// create records tied to it, and a submission made outside the workshop's [startDate, endDate] window
+/// is flagged as needing admin approval. A workshop with NO assignment rows is open to everyone
+/// (backward compatible with data created before assignments existed).
+model WorkshopAssignment {
+  id           String   @id @default(cuid())
+  workshopId   String
+  userId       String
+  assignedById String?
+  createdAt    DateTime @default(now())
+
+  workshop   Workshop @relation("WorkshopAssignments", fields: [workshopId], references: [id], onDelete: Cascade)
+  user       User     @relation("WorkshopAssignmentUser", fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy User?    @relation("WorkshopAssignmentAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  @@unique([workshopId, userId])
+  @@index([userId])
+  @@index([workshopId])
+}
+
+/// Tiered data-access sharing between researchers. OWNER = the author whose uploaded records are being
+/// shared; GRANTEE = the researcher who receives access at `tier` (DOWNLOAD < COMMENT < EDIT). Exactly
+/// one row per (owner, grantee) pair: status PENDING is an outstanding request raised by the grantee;
+/// GRANTED is active. `allData` true covers everything the owner uploaded; otherwise the covered set is
+/// the explicit `scopeItems` subset.
+model DataAccessGrant {
+  id            String           @id @default(cuid())
+  ownerId       String
+  granteeId     String
+  tier          DataAccessTier   @default(DOWNLOAD)
+  status        DataAccessStatus @default(PENDING)
+  allData       Boolean          @default(true)
+  requestNote   String?
+  decisionNote  String?
+  requestedById String?
+  decidedById   String?
+  decidedAt     DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  owner       User  @relation("DataAccessOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  grantee     User  @relation("DataAccessGrantee", fields: [granteeId], references: [id], onDelete: Cascade)
+  requestedBy User? @relation("DataAccessRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  decidedBy   User? @relation("DataAccessDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  scopeItems  DataAccessScopeItem[]
+
+  @@unique([ownerId, granteeId])
+  @@index([granteeId])
+  @@index([ownerId])
+  @@index([status])
+}
+
+/// One record in the subset covered by a non-allData DataAccessGrant.
+model DataAccessScopeItem {
+  id         String   @id @default(cuid())
+  grantId    String
+  recordType String
+  recordId   String
+  createdAt  DateTime @default(now())
+
+  grant DataAccessGrant @relation(fields: [grantId], references: [id], onDelete: Cascade)
+
+  @@unique([grantId, recordType, recordId])
+  @@index([grantId])
+}
+
+/// A comment on any record (generic over recordType/recordId), left by the record owner, an admin, or a
+/// user holding COMMENT-tier-or-higher data access to the owner.
+model EntryComment {
+  id         String   @id @default(cuid())
+  recordType String
+  recordId   String
+  authorId   String
+  body       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  author User @relation("EntryCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([recordType, recordId])
+  @@index([authorId])
+}
+
+/// An immutable audit row capturing one edit to a record's fields. `changes` is a JSON object shaped
+/// {field: {old, new}}. Recorded whenever a record's fields change through the contribute path so an
+/// admin can reconstruct the original values alongside every subsequent edit and see who made each one.
+model RecordRevision {
+  id         String   @id @default(cuid())
+  recordType String
+  recordId   String
+  editedById String?
+  changes    Json
+  createdAt  DateTime @default(now())
+
+  editedBy User? @relation("RecordRevisionEditedBy", fields: [editedById], references: [id], onDelete: SetNull)
+
+  @@index([recordType, recordId])
+  @@index([editedById])
 }

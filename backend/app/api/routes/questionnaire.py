@@ -7,7 +7,6 @@ from prisma.errors import UniqueViolationError
 
 from app.core.db import db
 from app.core.deps import (
-    assert_can_contribute_fields,
     assert_can_contribute_relation,
     assert_can_delete,
     get_current_user,
@@ -17,6 +16,7 @@ from app.core.deps import (
     require_admin,
     require_questionnaire_manager,
 )
+from app.services.access import guard_record_edit
 from app.schemas.questionnaire import (
     CompletionCellUpdate,
     QuestionnaireInterviewCreate,
@@ -661,14 +661,15 @@ async def update_interview(
     interview = await require_record(db.questionnaireinterview, interview_id)
     data = clean_data(payload.model_dump(exclude_unset=True, exclude={"artisanIds", "responses"}))
     data = await attach_location(data)
-    assert_can_contribute_fields(interview, current_user, data)
+    privileged = await guard_record_edit(interview, current_user, data, "questionnaire")
     merge_field_provenance(data, current_user, previous=interview)
     jsonify_metadata(data)
     if data:
         await db.questionnaireinterview.update(where={"id": interview_id}, data=data)
     if payload.artisanIds is not None:
         link_count = await db.questionnaireinterviewartisan.count(where={"interviewId": interview_id})
-        assert_can_contribute_relation(interview, current_user, link_count > 0, "artisanIds")
+        if not privileged:
+            assert_can_contribute_relation(interview, current_user, link_count > 0, "artisanIds")
         await replace_interview_artisans(interview_id, payload.artisanIds)
     if payload.responses is not None:
         await upsert_responses(interview_id, payload.responses, current_user)

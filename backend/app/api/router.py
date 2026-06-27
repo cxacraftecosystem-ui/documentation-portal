@@ -6,6 +6,7 @@ from app.api.routes import (
     auth,
     crafts,
     dashboard,
+    data_access,
     export,
     feedback,
     media,
@@ -40,3 +41,4 @@ api_router.include_router(export.router)
 api_router.include_router(app_release.router)
 api_router.include_router(feedback.router)
 api_router.include_router(settings.router)
+api_router.include_router(data_access.router)

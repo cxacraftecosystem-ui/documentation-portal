@@ -4,8 +4,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, status
 
 from app.core.db import db
-from app.core.deps import assert_can_contribute_fields, assert_can_delete, get_current_user
+from app.core.deps import assert_can_delete, get_current_user
 from app.schemas.records import ProductCreate, ProductUpdate
+from app.services.access import guard_record_edit
+from app.services.workshop_access import enforce_workshop_submission, merge_extra
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
     public_encode,
@@ -105,6 +107,9 @@ async def create_product(
 ) -> dict[str, Any]:
     data = decimal_to_string(clean_data(payload.model_dump()))
     data = await attach_location(data)
+    # Workshop entries: enforce assignment + flag out-of-window submissions for admin approval.
+    workshop_flag = await enforce_workshop_submission(current_user, data.get("workshopId"))
+    data = merge_extra(data, workshop_flag)
     data["createdById"] = current_user.id
     merge_field_provenance(data, current_user, previous=None)
     created = await db.productdocumentation.create(data=data, include=INCLUDE)
@@ -127,7 +132,7 @@ async def update_product(
     product = await require_record(db.productdocumentation, product_id)
     data = decimal_to_string(clean_data(payload.model_dump(exclude_unset=True)))
     data = await attach_location(data)
-    assert_can_contribute_fields(product, current_user, data)
+    await guard_record_edit(product, current_user, data, "product")
     merge_field_provenance(data, current_user, previous=product)
     updated = await db.productdocumentation.update(where={"id": product_id}, data=data, include=INCLUDE)
     return public_encode(updated)

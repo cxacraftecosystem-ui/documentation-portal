@@ -288,6 +288,10 @@ def _relink_delegate(record_type: str) -> Any:
         "tool": db.tooldocumentation,
         "questionnaire": db.questionnaireinterview,
         "questionnaireinterview": db.questionnaireinterview,
+        # Miscellaneous media can be linked to another miscellaneous media item (no typed FK; the
+        # generic linkedRecordType/linkedRecordId tags carry the association).
+        "media": db.mediafile,
+        "misc": db.mediafile,
     }.get(record_type)
 
 

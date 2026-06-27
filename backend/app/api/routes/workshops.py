@@ -2,16 +2,18 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, status
+from pydantic import BaseModel, Field
 
 from app.core.db import db
 from app.core.deps import (
-    assert_can_contribute_fields,
     assert_can_contribute_relation,
     assert_can_delete,
     get_current_user,
+    require_admin,
     require_workshop_manager,
 )
 from app.schemas.records import WorkshopCreate, WorkshopUpdate
+from app.services.access import guard_record_edit
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
     public_encode,
@@ -25,6 +27,11 @@ from app.services.records import (
 )
 
 router = APIRouter(prefix="/workshops", tags=["workshops"])
+
+
+class WorkshopAssignmentIn(BaseModel):
+    """The full set of researchers assigned to a workshop (replaces the existing set)."""
+    userIds: list[str] = Field(default_factory=list)
 
 INCLUDE = {
     "location": True,
@@ -127,19 +134,52 @@ async def update_workshop(
     craft_ids = data.pop("craftIds", None)
     data = normalize_workshop_dates(data)
     data = await attach_location(data)
-    assert_can_contribute_fields(workshop, current_user, data)
+    privileged = await guard_record_edit(workshop, current_user, data, "workshop")
     merge_field_provenance(data, current_user, previous=workshop)
     await db.workshop.update(where={"id": workshop_id}, data=data)
     if artisan_ids is not None:
         link_count = await db.workshopartisan.count(where={"workshopId": workshop_id})
-        assert_can_contribute_relation(workshop, current_user, link_count > 0, "artisanIds")
+        if not privileged:
+            assert_can_contribute_relation(workshop, current_user, link_count > 0, "artisanIds")
         await replace_workshop_artisans(workshop_id, artisan_ids)
     if craft_ids is not None:
         craft_link_count = await db.workshopcraft.count(where={"workshopId": workshop_id})
-        assert_can_contribute_relation(workshop, current_user, craft_link_count > 0, "craftIds")
+        if not privileged:
+            assert_can_contribute_relation(workshop, current_user, craft_link_count > 0, "craftIds")
         await replace_workshop_crafts(workshop_id, craft_ids)
     updated = await db.workshop.find_unique(where={"id": workshop_id}, include=INCLUDE)
     return public_encode(updated)
+
+
+@router.get("/{workshop_id}/assignments")
+async def list_workshop_assignments(workshop_id: str, _: Any = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """The researchers assigned to this workshop. Empty list means the workshop is open to everyone."""
+    await require_record(db.workshop, workshop_id)
+    rows = await db.workshopassignment.find_many(
+        where={"workshopId": workshop_id}, include={"user": True, "assignedBy": True}, order={"createdAt": "asc"}
+    )
+    return public_encode(rows)
+
+
+@router.put("/{workshop_id}/assignments")
+async def set_workshop_assignments(
+    workshop_id: str, payload: WorkshopAssignmentIn, current_user: Any = Depends(require_admin)
+) -> list[dict[str, Any]]:
+    """Admin sets the exact set of researchers assigned to this workshop (replaces the previous set)."""
+    await require_record(db.workshop, workshop_id)
+    wanted = {uid for uid in payload.userIds if uid}
+    existing = await db.workshopassignment.find_many(where={"workshopId": workshop_id})
+    have = {r.userId for r in existing}
+    for uid in have - wanted:
+        await db.workshopassignment.delete_many(where={"workshopId": workshop_id, "userId": uid})
+    for uid in wanted - have:
+        await db.workshopassignment.create(
+            data={"workshopId": workshop_id, "userId": uid, "assignedById": current_user.id}
+        )
+    rows = await db.workshopassignment.find_many(
+        where={"workshopId": workshop_id}, include={"user": True, "assignedBy": True}, order={"createdAt": "asc"}
+    )
+    return public_encode(rows)
 
 
 @router.delete("/{workshop_id}", status_code=status.HTTP_204_NO_CONTENT)

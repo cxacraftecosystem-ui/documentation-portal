@@ -5,11 +5,11 @@ from prisma.errors import UniqueViolationError
 
 from app.core.db import db
 from app.core.deps import (
-    assert_can_contribute_fields,
     assert_can_delete,
     get_current_user,
     require_craft_manager,
 )
+from app.services.access import guard_record_edit
 from app.schemas.records import CraftCreate, CraftUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import clean_data, contains, merge_field_provenance, require_record
@@ -68,7 +68,7 @@ async def update_craft(
 ) -> dict[str, Any]:
     craft = await require_record(db.craft, craft_id)
     data = clean_data(payload.model_dump(exclude_unset=True))
-    assert_can_contribute_fields(craft, current_user, data)
+    await guard_record_edit(craft, current_user, data, "craft")
     merge_field_provenance(data, current_user, previous=craft)
     updated = await db.craft.update(where={"id": craft_id}, data=data)
     return public_encode(updated)

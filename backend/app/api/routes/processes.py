@@ -4,7 +4,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, status
 
 from app.core.db import db
-from app.core.deps import assert_can_contribute_fields, assert_can_delete, get_current_user
+from app.core.deps import assert_can_delete, get_current_user
+from app.services.access import guard_record_edit
 from app.schemas.records import ProcessCreate, ProcessStepInput, ProcessUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
@@ -146,7 +147,7 @@ async def update_process(
     data = clean_data(payload.model_dump(exclude_unset=True, exclude={"steps"}))
     if "productId" in data:
         await require_record(db.productdocumentation, data["productId"])
-    assert_can_contribute_fields(process, current_user, data)
+    await guard_record_edit(process, current_user, data, "process")
     merge_field_provenance(data, current_user, previous=process)
     if data:
         await db.process.update(where={"id": process_id}, data=data)
