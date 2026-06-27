@@ -7,8 +7,21 @@ import { EmptyState } from "@/components/EmptyState";
 import { Field, Select, TextInput } from "@/components/FormControls";
 import { PageHeader } from "@/components/PageHeader";
 import { useAuth } from "@/components/AuthProvider";
-import { apiFetch } from "@/lib/api";
-import type { DataAccessGrant, DataAccessTier, MyGrants, TierInfo, User } from "@/lib/types";
+import { apiFetch, listResource } from "@/lib/api";
+import type {
+  Artisan,
+  DataAccessGrant,
+  DataAccessTier,
+  MyGrants,
+  ProductDocumentation,
+  QuestionnaireInterview,
+  TierInfo,
+  ToolDocumentation,
+  User,
+  Workshop
+} from "@/lib/types";
+
+type OwnRecord = { recordType: string; recordId: string; label: string };
 
 const TIER_LABEL: Record<DataAccessTier, string> = {
   DOWNLOAD: "Download (minimum)",
@@ -45,6 +58,50 @@ export default function SharingPage() {
   const [reqOwnerId, setReqOwnerId] = useState("");
   const [reqTier, setReqTier] = useState<DataAccessTier>("DOWNLOAD");
   const [reqNote, setReqNote] = useState("");
+
+  // Direct-grant form state (owner grants a colleague access to all, or a chosen subset, of their data)
+  const [grantGranteeId, setGrantGranteeId] = useState("");
+  const [grantTier, setGrantTier] = useState<DataAccessTier>("DOWNLOAD");
+  const [grantScopeAll, setGrantScopeAll] = useState(true);
+  const [myRecords, setMyRecords] = useState<OwnRecord[] | null>(null);
+  const [loadingRecords, setLoadingRecords] = useState(false);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+
+  async function loadMyRecords() {
+    if (myRecords || loadingRecords || !currentUser?.id) return;
+    setLoadingRecords(true);
+    try {
+      const mine = currentUser.id;
+      const [a, p, t, w, q] = await Promise.all([
+        listResource<Artisan>("/artisans", { pageSize: 100 }),
+        listResource<ProductDocumentation>("/products", { pageSize: 100 }),
+        listResource<ToolDocumentation>("/tools", { pageSize: 100 }),
+        listResource<Workshop>("/workshops", { pageSize: 100 }),
+        listResource<QuestionnaireInterview>("/questionnaire/interviews", { pageSize: 100 })
+      ]);
+      const recs: OwnRecord[] = [
+        ...a.items.filter((x) => x.createdById === mine).map((x) => ({ recordType: "artisan", recordId: x.id, label: `Artisan · ${x.name}` })),
+        ...p.items.filter((x) => x.createdById === mine).map((x) => ({ recordType: "product", recordId: x.id, label: `Product · ${x.productName}` })),
+        ...t.items.filter((x) => x.createdById === mine).map((x) => ({ recordType: "tool", recordId: x.id, label: `Tool · ${x.toolkitName}` })),
+        ...w.items.filter((x) => x.createdById === mine).map((x) => ({ recordType: "workshop", recordId: x.id, label: `Workshop · ${x.title}` })),
+        ...q.items.filter((x) => x.createdById === mine).map((x) => ({ recordType: "questionnaire", recordId: x.id, label: `Interview · ${x.title}` }))
+      ];
+      setMyRecords(recs);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load your records");
+    } finally {
+      setLoadingRecords(false);
+    }
+  }
+
+  function toggleRecord(key: string) {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   const load = useCallback(async () => {
     try {
@@ -104,6 +161,34 @@ export default function SharingPage() {
       "Request sent."
     );
     setReqNote("");
+  }
+
+  async function submitGrant() {
+    if (!grantGranteeId) {
+      setError("Choose a colleague to grant access to.");
+      return;
+    }
+    const scopeItems = grantScopeAll
+      ? []
+      : Array.from(selectedKeys).map((k) => {
+          const [recordType, recordId] = k.split("::");
+          return { recordType, recordId };
+        });
+    if (!grantScopeAll && scopeItems.length === 0) {
+      setError("Pick at least one record to share, or choose All my data.");
+      return;
+    }
+    await act(
+      () =>
+        apiFetch("/data-access/grants", {
+          method: "POST",
+          body: JSON.stringify({ granteeId: grantGranteeId, tier: grantTier, allData: grantScopeAll, scopeItems })
+        }),
+      "Access granted."
+    );
+    setGrantGranteeId("");
+    setSelectedKeys(new Set());
+    setGrantScopeAll(true);
   }
 
   async function decide(grant: DataAccessGrant, status: "GRANTED" | "DENIED", tier?: DataAccessTier) {
@@ -202,6 +287,78 @@ export default function SharingPage() {
           </button>
         </div>
         <p className="mt-2 text-xs text-ink-muted">Requests cover all of that researcher&apos;s data. The owner can narrow it to a subset when they approve.</p>
+      </section>
+
+      {/* Grant access directly — owner shares all, or a chosen subset, of their own data. */}
+      <section className="panel mb-5 p-4">
+        <h2 className="font-serif text-lg text-ink">Grant access to your data</h2>
+        <div className="mt-3 grid gap-3 md:grid-cols-[2fr_1.4fr_auto] md:items-end">
+          <Field label="Colleague">
+            <Select value={grantGranteeId} onChange={(e) => setGrantGranteeId(e.target.value)}>
+              <option value="">Select…</option>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name} · {u.email}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Tier">
+            <Select value={grantTier} onChange={(e) => setGrantTier(e.target.value as DataAccessTier)}>
+              <option value="DOWNLOAD">{TIER_LABEL.DOWNLOAD}</option>
+              <option value="COMMENT">{TIER_LABEL.COMMENT}</option>
+              <option value="EDIT">{TIER_LABEL.EDIT}</option>
+            </Select>
+          </Field>
+          <button className="field-button" disabled={busy} onClick={submitGrant}>
+            Grant
+          </button>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-4 text-sm">
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              name="grantScope"
+              checked={grantScopeAll}
+              onChange={() => setGrantScopeAll(true)}
+            />
+            All my data
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              name="grantScope"
+              checked={!grantScopeAll}
+              onChange={() => {
+                setGrantScopeAll(false);
+                loadMyRecords();
+              }}
+            />
+            Only selected records
+          </label>
+        </div>
+        {!grantScopeAll ? (
+          <div className="mt-2 max-h-64 overflow-y-auto rounded-md border border-[#e6dfd8] bg-field-50 p-2">
+            {loadingRecords ? (
+              <p className="px-2 py-1 text-sm text-ink-muted">Loading your records…</p>
+            ) : (myRecords ?? []).length === 0 ? (
+              <p className="px-2 py-1 text-sm text-ink-muted">You have no records to share.</p>
+            ) : (
+              (myRecords ?? []).map((r) => {
+                const key = `${r.recordType}::${r.recordId}`;
+                return (
+                  <label key={key} className="flex items-center gap-2 rounded px-2 py-1 hover:bg-field-100">
+                    <input type="checkbox" checked={selectedKeys.has(key)} onChange={() => toggleRecord(key)} />
+                    <span className="min-w-0 flex-1 truncate text-sm text-ink">{r.label}</span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+        ) : null}
+        <p className="mt-2 text-xs text-ink-muted">
+          Granted immediately. The recipient can download (and, at higher tiers, comment on or edit) exactly what you share here.
+        </p>
       </section>
 
       {/* Incoming: requests and grants on MY data. */}

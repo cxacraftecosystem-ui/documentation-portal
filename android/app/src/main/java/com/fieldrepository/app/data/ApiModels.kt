@@ -2,6 +2,7 @@ package com.fieldrepository.app.data
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
 @Serializable
@@ -948,6 +949,7 @@ data class DataAccessGrantBody(
     val granteeId: String,
     val tier: String = "DOWNLOAD",
     val allData: Boolean = true,
+    val scopeItems: List<DataAccessScopeItemDto> = emptyList(),
     val decisionNote: String? = null
 )
 
@@ -974,6 +976,22 @@ data class EntryCommentBody(
     val recordType: String,
     val recordId: String,
     val body: String
+)
+
+@Serializable
+data class RevisionChange(
+    val old: JsonElement? = null,
+    val new: JsonElement? = null
+)
+
+@Serializable
+data class RecordRevisionDto(
+    val id: String,
+    val recordType: String,
+    val recordId: String,
+    val editedBy: UserDto? = null,
+    val changes: Map<String, RevisionChange> = emptyMap(),
+    val createdAt: String
 )
 
 @Serializable

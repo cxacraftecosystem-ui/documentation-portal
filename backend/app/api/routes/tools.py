@@ -131,6 +131,10 @@ async def update_tool(
     tool = await require_record(db.tooldocumentation, tool_id)
     data = decimal_to_string(clean_data(payload.model_dump(exclude_unset=True)))
     data = await attach_location(data)
+    # Re-check workshop assignment + window if this edit moves the tool into/between workshops, so the
+    # create-time guard can't be bypassed by PATCHing the workshop in afterwards.
+    if "workshopId" in data and data.get("workshopId") != tool.workshopId:
+        data = merge_extra(data, await enforce_workshop_submission(current_user, data.get("workshopId")))
     await guard_record_edit(tool, current_user, data, "tool")
     merge_field_provenance(data, current_user, previous=tool)
     updated = await db.tooldocumentation.update(where={"id": tool_id}, data=data, include=INCLUDE)

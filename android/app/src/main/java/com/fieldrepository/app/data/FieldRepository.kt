@@ -119,6 +119,8 @@ class FieldRepository(
     suspend fun dataAccessGrants(): MyGrantsDto = api.dataAccessGrants()
     suspend fun requestDataAccess(ownerId: String, tier: String, note: String?): DataAccessGrantDto =
         api.requestDataAccess(DataAccessRequestBody(ownerId = ownerId, tier = tier, allData = true, requestNote = note?.ifBlank { null }))
+    suspend fun grantDataAccess(granteeId: String, tier: String, allData: Boolean, scopeItems: List<DataAccessScopeItemDto>): DataAccessGrantDto =
+        api.grantDataAccess(DataAccessGrantBody(granteeId = granteeId, tier = tier, allData = allData, scopeItems = scopeItems))
     suspend fun decideDataAccess(id: String, status: String, tier: String?): DataAccessGrantDto =
         api.decideDataAccess(id, DataAccessDecisionBody(status = status, tier = tier))
     suspend fun revokeDataAccess(id: String): DataAccessGrantDto = api.revokeDataAccess(id)
@@ -127,6 +129,8 @@ class FieldRepository(
         api.entryComments(recordType, recordId)
     suspend fun addEntryComment(recordType: String, recordId: String, body: String): EntryCommentDto =
         api.addEntryComment(EntryCommentBody(recordType = recordType, recordId = recordId, body = body))
+    suspend fun recordRevisions(recordType: String, recordId: String): List<RecordRevisionDto> =
+        api.recordRevisions(recordType, recordId)
 
     // --- Workshop assignment (admin) ---
     suspend fun workshopAssignments(workshopId: String): List<WorkshopAssignmentDto> =

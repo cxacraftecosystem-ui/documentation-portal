@@ -106,8 +106,11 @@ import com.fieldrepository.app.data.CompletionCellDto
 import com.fieldrepository.app.data.CompletionMatrixDto
 import com.fieldrepository.app.data.CraftCreateRequest
 import com.fieldrepository.app.data.DataAccessGrantDto
+import com.fieldrepository.app.data.DataAccessScopeItemDto
 import com.fieldrepository.app.data.DataAccessTierInfo
+import com.fieldrepository.app.data.EntryCommentDto
 import com.fieldrepository.app.data.MyGrantsDto
+import com.fieldrepository.app.data.RecordRevisionDto
 import com.fieldrepository.app.data.DashboardStats
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.GoogleAuthClient
@@ -6283,6 +6286,93 @@ private fun ViewDataDetail(
         }
         else -> Text("This record type cannot be viewed here.", color = Muted)
     }
+    // Comments (Comment tier) + edit history (owner/admin) for this record — same data-access model as web.
+    if (mode in setOf(
+            EntryMode.ARTISAN, EntryMode.PRODUCT, EntryMode.TOOL, EntryMode.WORKSHOP,
+            EntryMode.PROCESS, EntryMode.QUESTIONNAIRE, EntryMode.CRAFT, EntryMode.MEDIA
+        )
+    ) {
+        RecordCollabSection(repository, mode.linkedRecordType(), recordId, onError)
+    }
+}
+
+/**
+ * Per-record comments + edit history, powered by the data-access API. Anyone who can view the record
+ * can read comments; posting needs Comment-tier access (or owner/admin). Edit history is owner/admin
+ * only (the endpoint 403s otherwise, which we hide). Mirrors the web CollabPanel.
+ */
+@Composable
+private fun RecordCollabSection(
+    repository: FieldRepository,
+    recordType: String,
+    recordId: String,
+    onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var comments by remember(recordId) { mutableStateOf<List<EntryCommentDto>>(emptyList()) }
+    var revisions by remember(recordId) { mutableStateOf<List<RecordRevisionDto>?>(null) }
+    var draft by remember(recordId) { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+
+    fun reload() {
+        scope.launch {
+            runCatching { comments = repository.entryComments(recordType, recordId) }
+                .onFailure { onError(it.message ?: "Unable to load comments") }
+            // Edit history is owner/admin only; silently hide if not permitted.
+            revisions = runCatching { repository.recordRevisions(recordType, recordId) }.getOrNull()
+        }
+    }
+
+    LaunchedEffect(recordType, recordId) { reload() }
+
+    RecordCard(title = "Comments & edit history") {
+        Text("Comments", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+        if (comments.isEmpty()) Text("No comments yet.", color = Muted, fontSize = 12.sp)
+        comments.forEach { c ->
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(c.body, color = Body, fontSize = 13.sp)
+                Text("${c.author?.name ?: "Someone"} · ${c.createdAt.take(10)}", color = Muted, fontSize = 11.sp)
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(modifier = Modifier.weight(1f)) { TextInput("Add a comment (needs comment access)", draft) { draft = it } }
+            Button(
+                enabled = !busy && draft.isNotBlank(),
+                onClick = {
+                    scope.launch {
+                        busy = true
+                        runCatching { repository.addEntryComment(recordType, recordId, draft.trim()); draft = "" }
+                            .onSuccess { reload() }
+                            .onFailure { onError(it.message ?: "Unable to post comment") }
+                        busy = false
+                    }
+                }
+            ) { Text("Post") }
+        }
+        revisions?.let { revs ->
+            HorizontalDivider()
+            Text("Edit history", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            if (revs.isEmpty()) Text("No edits recorded.", color = Muted, fontSize = 12.sp)
+            revs.forEach { r ->
+                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    Text("${r.editedBy?.name ?: "Unknown"} · ${r.createdAt.take(10)}", color = Muted, fontSize = 11.sp)
+                    r.changes.forEach { (field, change) ->
+                        Text(
+                            "$field: ${jsonText(change.old)} → ${jsonText(change.new)}",
+                            color = Body, fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Render a JSON value (string/number/bool/null) from an edit-history change for display. */
+private fun jsonText(value: kotlinx.serialization.json.JsonElement?): String {
+    if (value == null || value is kotlinx.serialization.json.JsonNull) return "—"
+    val prim = value as? kotlinx.serialization.json.JsonPrimitive ?: return value.toString()
+    return prim.content
 }
 
 /** Record types a miscellaneous-media upload can be linked to (item: Misc Media). */
@@ -7911,6 +8001,8 @@ private fun SharingForm(
         ) { Text("Send request") }
     }
 
+    GrantDirectlyCard(repository = repository, directory = directory, onGranted = { reload() }, onError = onError)
+
     RecordCard(title = "Access to your data") {
         val incoming = grants.incoming
         if (incoming.isEmpty()) Text("No requests yet.", color = Muted, fontSize = 13.sp)
@@ -8033,6 +8125,93 @@ private fun tierLabel(tier: String): String = when (tier) {
     "COMMENT" -> "Comment"
     "EDIT" -> "Edit"
     else -> tier
+}
+
+/**
+ * Owner-side: grant a colleague access to ALL of your data, or a chosen SUBSET of your own records.
+ * Mirrors the web "Grant access to your data" panel.
+ */
+@Composable
+private fun GrantDirectlyCard(
+    repository: FieldRepository,
+    directory: List<UserDto>,
+    onGranted: () -> Unit,
+    onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val myId = repository.cachedUser()?.id
+    var granteeId by remember { mutableStateOf("") }
+    var tier by remember { mutableStateOf("DOWNLOAD") }
+    var allData by remember { mutableStateOf(true) }
+    // recordType, recordId, label
+    var myRecords by remember { mutableStateOf<List<Triple<String, String, String>>?>(null) }
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var busy by remember { mutableStateOf(false) }
+
+    fun loadMine() {
+        if (myRecords != null) return
+        scope.launch {
+            runCatching {
+                val recs = mutableListOf<Triple<String, String, String>>()
+                repository.artisans().filter { it.createdById == myId }.forEach { recs += Triple("artisan", it.id, "Artisan · ${it.name}") }
+                repository.products().filter { it.createdById == myId }.forEach { recs += Triple("product", it.id, "Product · ${it.productName}") }
+                repository.tools().filter { it.createdById == myId }.forEach { recs += Triple("tool", it.id, "Tool · ${it.toolkitName}") }
+                repository.workshops().filter { it.createdById == myId }.forEach { recs += Triple("workshop", it.id, "Workshop · ${it.title}") }
+                repository.interviews().filter { it.createdById == myId }.forEach { recs += Triple("questionnaire", it.id, "Interview · ${it.title}") }
+                recs
+            }.onSuccess { myRecords = it }.onFailure { onError(it.message ?: "Unable to load your records") }
+        }
+    }
+
+    RecordCard(title = "Grant access to your data") {
+        Text("Share all of your data, or pick specific records, with a colleague.", color = Muted, fontSize = 12.sp)
+        DropdownField(
+            label = "Colleague",
+            options = directory.map { it.id to "${it.name} · ${it.email}" },
+            selectedValue = granteeId,
+            placeholder = "Select colleague",
+            onSelect = { granteeId = it }
+        )
+        DropdownField(label = "Tier", options = sharingTierOptions, selectedValue = tier, includeNone = false, onSelect = { tier = it })
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RadioButton(selected = allData, onClick = { allData = true })
+            Text("All my data", color = Body, fontSize = 13.sp)
+            Spacer(Modifier.width(12.dp))
+            RadioButton(selected = !allData, onClick = { allData = false; loadMine() })
+            Text("Selected records", color = Body, fontSize = 13.sp)
+        }
+        if (!allData) {
+            val recs = myRecords
+            if (recs == null) {
+                Text("Loading your records…", color = Muted, fontSize = 12.sp)
+            } else if (recs.isEmpty()) {
+                Text("You have no records to share.", color = Muted, fontSize = 12.sp)
+            } else {
+                recs.forEach { (rType, rId, label) ->
+                    val key = "$rType::$rId"
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Checkbox(checked = selected.contains(key), onCheckedChange = { c -> selected = if (c) selected + key else selected - key })
+                        Text(label, color = Body, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
+        Button(
+            enabled = !busy && granteeId.isNotBlank() && (allData || selected.isNotEmpty()),
+            onClick = {
+                scope.launch {
+                    busy = true
+                    val scopeItems = if (allData) emptyList() else selected.map {
+                        val (t, i) = it.split("::"); DataAccessScopeItemDto(recordType = t, recordId = i)
+                    }
+                    runCatching { repository.grantDataAccess(granteeId, tier, allData, scopeItems) }
+                        .onSuccess { granteeId = ""; selected = emptySet(); allData = true; onGranted() }
+                        .onFailure { onError(it.message ?: "Unable to grant access") }
+                    busy = false
+                }
+            }
+        ) { Text("Grant access") }
+    }
 }
 
 @Composable

@@ -132,6 +132,10 @@ async def update_product(
     product = await require_record(db.productdocumentation, product_id)
     data = decimal_to_string(clean_data(payload.model_dump(exclude_unset=True)))
     data = await attach_location(data)
+    # Moving a record into (or to a different) workshop is a workshop submission too — re-check
+    # assignment + window, so the create-time guard can't be bypassed by PATCHing the workshop in later.
+    if "workshopId" in data and data.get("workshopId") != product.workshopId:
+        data = merge_extra(data, await enforce_workshop_submission(current_user, data.get("workshopId")))
     await guard_record_edit(product, current_user, data, "product")
     merge_field_provenance(data, current_user, previous=product)
     updated = await db.productdocumentation.update(where={"id": product_id}, data=data, include=INCLUDE)

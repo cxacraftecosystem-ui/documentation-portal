@@ -366,6 +366,12 @@ interface FieldRepositoryApi {
     @POST("data-access/comments")
     suspend fun addEntryComment(@Body body: EntryCommentBody): EntryCommentDto
 
+    @GET("data-access/revisions")
+    suspend fun recordRevisions(
+        @Query("recordType") recordType: String,
+        @Query("recordId") recordId: String
+    ): List<RecordRevisionDto>
+
     // --- Workshop assignment (admin) ---
     @GET("workshops/{id}/assignments")
     suspend fun workshopAssignments(@Path("id") id: String): List<WorkshopAssignmentDto>
