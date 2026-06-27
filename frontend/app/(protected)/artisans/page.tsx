@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Boxes, ClipboardList, Hammer, Plus, Users } from "lucide-react";
 
+import { CollabPanel } from "@/components/CollabPanel";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
@@ -19,6 +20,7 @@ export default function ArtisansPage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [selectedArtisan, setSelectedArtisan] = useState<Artisan | null>(null);
+  const [collabId, setCollabId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -136,6 +138,9 @@ export default function ArtisansPage() {
                       <Link className="mr-2 text-sm font-semibold text-field-700" href={`/artisans/${artisan.id}/edit`} onClick={(event) => event.stopPropagation()}>
                         Edit
                       </Link>
+                      <button className="mr-2 text-sm font-semibold text-field-700" onClick={(event) => { event.stopPropagation(); setCollabId(artisan.id); }}>
+                        Discuss
+                      </button>
                       {adminMode ? (
                         <button className="text-sm font-semibold text-red-700" onClick={(event) => { event.stopPropagation(); remove(artisan.id); }}>
                           Delete
@@ -150,6 +155,19 @@ export default function ArtisansPage() {
         )}
         {data ? <Pagination page={data.page} pages={data.pages} total={data.total} onPage={setPage} /> : null}
       </section>
+      {collabId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setCollabId(null)}>
+          <div className="panel max-h-[85vh] w-full max-w-lg overflow-y-auto p-4" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="font-serif text-lg text-ink">Comments &amp; edit history</h2>
+              <button className="text-sm text-ink-muted" onClick={() => setCollabId(null)}>
+                Close
+              </button>
+            </div>
+            <CollabPanel recordType="artisan" recordId={collabId} />
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

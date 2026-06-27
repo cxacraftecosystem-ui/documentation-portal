@@ -283,6 +283,8 @@ export default function MediaPage() {
               <option value="product">Product</option>
               <option value="tool">Tool</option>
               <option value="questionnaire">Questionnaire</option>
+              <option value="process">Process</option>
+              <option value="media">Miscellaneous (another media item)</option>
             </Select>
           </Field>
           <Field label="Linked record ID">

@@ -17,7 +17,13 @@ type ReviewItem = {
   place?: string;
   status: string;
   createdAt: string;
+  outOfWindow?: boolean;
 };
+
+function isOutOfWindow(item: { extraMetadata?: Record<string, unknown> | null }): boolean {
+  const ws = item.extraMetadata?.workshopSubmission as { outOfWindow?: boolean } | undefined;
+  return Boolean(ws?.outOfWindow);
+}
 
 export default function ReviewPage() {
   const [items, setItems] = useState<ReviewItem[]>([]);
@@ -36,8 +42,8 @@ export default function ReviewPage() {
         [
           ...artisans.items.map((item) => ({ id: item.id, type: "artisan" as const, title: item.name, place: item.place, status: item.status, createdAt: item.createdAt })),
           ...workshops.items.map((item) => ({ id: item.id, type: "workshop" as const, title: item.title, place: item.place, status: item.status, createdAt: item.createdAt })),
-          ...products.items.map((item) => ({ id: item.id, type: "product" as const, title: item.productName, place: item.place, status: item.status, createdAt: item.createdAt })),
-          ...tools.items.map((item) => ({ id: item.id, type: "tool" as const, title: item.toolkitName, place: item.place, status: item.status, createdAt: item.createdAt })),
+          ...products.items.map((item) => ({ id: item.id, type: "product" as const, title: item.productName, place: item.place, status: item.status, createdAt: item.createdAt, outOfWindow: isOutOfWindow(item) })),
+          ...tools.items.map((item) => ({ id: item.id, type: "tool" as const, title: item.toolkitName, place: item.place, status: item.status, createdAt: item.createdAt, outOfWindow: isOutOfWindow(item) })),
           ...media.items.map((item) => ({ id: item.id, type: "media" as const, title: item.originalFilename, place: item.linkedRecordType ?? undefined, status: item.status, createdAt: item.createdAt }))
         ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       );
@@ -90,7 +96,12 @@ export default function ReviewPage() {
                 {items.map((item) => (
                   <tr key={`${item.type}-${item.id}`}>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-neutral-900">{item.title}</div>
+                      <div className="font-medium text-neutral-900">
+                        {item.title}
+                        {item.outOfWindow ? (
+                          <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">Out of workshop window — needs approval</span>
+                        ) : null}
+                      </div>
                       <div className="text-xs text-neutral-500">{item.id}</div>
                     </td>
                     <td className="px-4 py-3 capitalize text-neutral-600">{item.type}</td>

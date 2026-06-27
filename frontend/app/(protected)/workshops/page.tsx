@@ -18,13 +18,14 @@ import { apiFetch, listResource } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { locationFromForm, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue } from "@/lib/forms";
 import { uploadMediaBatch } from "@/lib/media";
-import { canManageWorkshops } from "@/lib/permissions";
-import type { Artisan, PageResult, Workshop } from "@/lib/types";
+import { canManageWorkshops, isAdmin } from "@/lib/permissions";
+import type { Artisan, PageResult, User, Workshop, WorkshopAssignment } from "@/lib/types";
 
 export default function WorkshopsPage() {
   const { user } = useAuth();
   const { adminMode } = useAdminView();
   const allowManage = canManageWorkshops(user);
+  const allowAssign = isAdmin(user);
   const [data, setData] = useState<PageResult<Workshop> | null>(null);
   const [artisans, setArtisans] = useState<Artisan[]>([]);
   const [search, setSearch] = useState("");
@@ -32,6 +33,48 @@ export default function WorkshopsPage() {
   const [editing, setEditing] = useState<Workshop | null>(null);
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Assignment manager (admin only).
+  const [assigning, setAssigning] = useState<Workshop | null>(null);
+  const [researchers, setResearchers] = useState<User[]>([]);
+  const [assignIds, setAssignIds] = useState<Set<string>>(new Set());
+  const [assignBusy, setAssignBusy] = useState(false);
+
+  async function openAssign(workshop: Workshop) {
+    setAssigning(workshop);
+    setError(null);
+    try {
+      const [assignments, users] = await Promise.all([
+        apiFetch<WorkshopAssignment[]>(`/workshops/${workshop.id}/assignments`),
+        researchers.length ? Promise.resolve({ items: researchers }) : listResource<User>("/users", { pageSize: 200 })
+      ]);
+      if (!researchers.length) setResearchers((users as { items: User[] }).items ?? []);
+      setAssignIds(new Set(assignments.map((a) => a.userId)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load assignments");
+    }
+  }
+
+  async function saveAssignments() {
+    if (!assigning) return;
+    setAssignBusy(true);
+    try {
+      await apiFetch(`/workshops/${assigning.id}/assignments`, { method: "PUT", body: JSON.stringify({ userIds: Array.from(assignIds) }) });
+      setAssigning(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save assignments");
+    } finally {
+      setAssignBusy(false);
+    }
+  }
+
+  function toggleAssign(id: string) {
+    setAssignIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   async function load() {
     try {
@@ -216,6 +259,11 @@ export default function WorkshopsPage() {
                           Edit
                         </button>
                       ) : null}
+                      {allowAssign ? (
+                        <button className="mr-2 text-sm font-semibold text-field-700" onClick={() => openAssign(workshop)}>
+                          Assign
+                        </button>
+                      ) : null}
                       {adminMode ? (
                         <button className="text-sm font-semibold text-red-700" onClick={() => remove(workshop.id)}>
                           Delete
@@ -232,6 +280,41 @@ export default function WorkshopsPage() {
         )}
         {data ? <Pagination page={data.page} pages={data.pages} total={data.total} onPage={setPage} /> : null}
       </section>
+
+      {assigning ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setAssigning(null)}>
+          <div className="panel w-full max-w-lg p-4" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-serif text-lg text-ink">Assign researchers</h2>
+            <p className="mt-1 text-sm text-ink-muted">
+              Only assigned researchers can create entries for <span className="font-medium">{assigning.title}</span>. Submissions outside the
+              workshop dates are flagged for admin approval. Leave empty to keep the workshop open to everyone.
+            </p>
+            <div className="mt-3 grid max-h-72 gap-1 overflow-y-auto rounded-md border border-[#e6dfd8] bg-field-50 p-2">
+              {researchers.length === 0 ? (
+                <p className="px-2 py-1 text-sm text-ink-muted">No users to assign.</p>
+              ) : (
+                researchers.map((r) => (
+                  <label key={r.id} className="flex items-center gap-2 rounded px-2 py-1 hover:bg-field-100">
+                    <input type="checkbox" checked={assignIds.has(r.id)} onChange={() => toggleAssign(r.id)} />
+                    <span className="min-w-0 flex-1 truncate text-sm text-ink">
+                      {r.name} <span className="text-ink-muted">· {r.email}</span>
+                    </span>
+                    <span className="rounded-full bg-field-200 px-2 py-0.5 text-xs text-ink-muted">{r.role}</span>
+                  </label>
+                ))
+              )}
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button className="field-button-secondary" onClick={() => setAssigning(null)}>
+                Cancel
+              </button>
+              <button className="field-button" disabled={assignBusy} onClick={saveAssignments}>
+                {assignBusy ? "Saving…" : `Save (${assignIds.size})`}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

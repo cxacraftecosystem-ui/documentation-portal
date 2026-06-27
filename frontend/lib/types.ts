@@ -272,6 +272,64 @@ export type QuestionnaireInterview = {
   createdAt: string;
 };
 
+export type DataAccessTier = "DOWNLOAD" | "COMMENT" | "EDIT";
+export type DataAccessStatus = "PENDING" | "GRANTED" | "DENIED" | "REVOKED";
+
+export type DataAccessScopeItem = { id?: string; recordType: string; recordId: string };
+
+export type DataAccessGrant = {
+  id: string;
+  ownerId: string;
+  granteeId: string;
+  tier: DataAccessTier;
+  status: DataAccessStatus;
+  allData: boolean;
+  requestNote?: string | null;
+  decisionNote?: string | null;
+  owner?: User;
+  grantee?: User;
+  requestedBy?: User | null;
+  decidedBy?: User | null;
+  scopeItems?: DataAccessScopeItem[];
+  decidedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type MyGrants = { incoming: DataAccessGrant[]; outgoing: DataAccessGrant[] };
+
+export type TierInfo = { tier: DataAccessTier; description: string };
+
+export type EntryComment = {
+  id: string;
+  recordType: string;
+  recordId: string;
+  authorId: string;
+  body: string;
+  author?: User;
+  createdAt: string;
+  updatedAt?: string;
+};
+
+export type RecordRevision = {
+  id: string;
+  recordType: string;
+  recordId: string;
+  editedById?: string | null;
+  editedBy?: User | null;
+  changes: Record<string, { old: unknown; new: unknown }>;
+  createdAt: string;
+};
+
+export type WorkshopAssignment = {
+  id: string;
+  workshopId: string;
+  userId: string;
+  user?: User;
+  assignedBy?: User | null;
+  createdAt?: string;
+};
+
 export const productTypes = ["FINISHED_GOOD", "SAMPLE", "RAW_MATERIAL", "COMPONENT", "PACKAGING", "OTHER"];
 export const marketDemandOptions = ["LOW", "MEDIUM", "HIGH", "SEASONAL", "UNKNOWN"];
 export const makerOptions = ["ARTISAN", "LOCAL_BLACKSMITH", "CARPENTER", "WORKSHOP", "FACTORY", "UNKNOWN", "OTHER"];

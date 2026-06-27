@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Boxes, Plus } from "lucide-react";
 
+import { CollabPanel } from "@/components/CollabPanel";
 import { DownloadCsvButton } from "@/components/DownloadCsvButton";
 import { EmptyState } from "@/components/EmptyState";
 import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
@@ -21,6 +22,7 @@ export default function ProductsPage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [activePreview, setActivePreview] = useState<PreviewMedia | null>(null);
+  const [collabId, setCollabId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -137,6 +139,9 @@ export default function ProductsPage() {
                       <Link className="mr-2 text-sm font-semibold text-field-700" href={`/products/${product.id}/edit`}>
                         Edit
                       </Link>
+                      <button className="mr-2 text-sm font-semibold text-field-700" onClick={() => setCollabId(product.id)}>
+                        Discuss
+                      </button>
                       {adminMode ? (
                         <button className="text-sm font-semibold text-red-700" onClick={() => remove(product.id)}>
                           Delete
@@ -152,6 +157,19 @@ export default function ProductsPage() {
         {data ? <Pagination page={data.page} pages={data.pages} total={data.total} onPage={setPage} /> : null}
       </section>
       {activePreview ? <MediaLightbox item={activePreview} onClose={() => setActivePreview(null)} /> : null}
+      {collabId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setCollabId(null)}>
+          <div className="panel max-h-[85vh] w-full max-w-lg overflow-y-auto p-4" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="font-serif text-lg text-ink">Comments &amp; edit history</h2>
+              <button className="text-sm text-ink-muted" onClick={() => setCollabId(null)}>
+                Close
+              </button>
+            </div>
+            <CollabPanel recordType="product" recordId={collabId} />
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

@@ -17,6 +17,7 @@ import {
   Menu,
   MapPinned,
   Search,
+  Share2,
   ShieldCheck,
   Sparkle,
   Users,
@@ -43,6 +44,7 @@ const baseNav: NavItem[] = [
   { href: "/tools", label: "Tools", icon: Hammer },
   { href: "/questionnaire", label: "Questionnaire", icon: ClipboardList },
   { href: "/search", label: "Search", icon: Search },
+  { href: "/sharing", label: "Sharing", icon: Share2 },
   { href: "/review", label: "Review", admin: true, icon: ClipboardCheck },
   { href: "/users", label: "Users", admin: true, icon: ShieldCheck },
   // Crafts and workshops sit at the end so the everyday capture flow stays front and centre.
