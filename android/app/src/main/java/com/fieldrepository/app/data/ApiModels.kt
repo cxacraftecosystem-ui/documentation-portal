@@ -900,3 +900,91 @@ data class AppSettingUpdateRequest(
     val batchWindowEnd: String? = null,
     val batchTimezone: String? = null
 )
+
+// --- Cross-researcher data access (Sharing) ---
+
+@Serializable
+data class DataAccessTierInfo(val tier: String, val description: String)
+
+@Serializable
+data class DataAccessScopeItemDto(
+    val recordType: String,
+    val recordId: String
+)
+
+@Serializable
+data class DataAccessGrantDto(
+    val id: String,
+    val ownerId: String,
+    val granteeId: String,
+    val tier: String,
+    val status: String,
+    val allData: Boolean = true,
+    val requestNote: String? = null,
+    val decisionNote: String? = null,
+    val owner: UserDto? = null,
+    val grantee: UserDto? = null,
+    val scopeItems: List<DataAccessScopeItemDto> = emptyList(),
+    val createdAt: String? = null,
+    val updatedAt: String? = null
+)
+
+@Serializable
+data class MyGrantsDto(
+    val incoming: List<DataAccessGrantDto> = emptyList(),
+    val outgoing: List<DataAccessGrantDto> = emptyList()
+)
+
+@Serializable
+data class DataAccessRequestBody(
+    val ownerId: String,
+    val tier: String = "DOWNLOAD",
+    val allData: Boolean = true,
+    val requestNote: String? = null
+)
+
+@Serializable
+data class DataAccessGrantBody(
+    val granteeId: String,
+    val tier: String = "DOWNLOAD",
+    val allData: Boolean = true,
+    val decisionNote: String? = null
+)
+
+@Serializable
+data class DataAccessDecisionBody(
+    val status: String,
+    val tier: String? = null,
+    val decisionNote: String? = null
+)
+
+@Serializable
+data class EntryCommentDto(
+    val id: String,
+    val recordType: String,
+    val recordId: String,
+    val authorId: String,
+    val body: String,
+    val author: UserDto? = null,
+    val createdAt: String
+)
+
+@Serializable
+data class EntryCommentBody(
+    val recordType: String,
+    val recordId: String,
+    val body: String
+)
+
+@Serializable
+data class WorkshopAssignmentDto(
+    val id: String,
+    val workshopId: String,
+    val userId: String,
+    val user: UserDto? = null
+)
+
+@Serializable
+data class WorkshopAssignmentBody(
+    val userIds: List<String>
+)

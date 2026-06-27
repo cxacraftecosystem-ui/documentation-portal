@@ -105,6 +105,9 @@ import com.fieldrepository.app.data.ArtisanCreateRequest
 import com.fieldrepository.app.data.CompletionCellDto
 import com.fieldrepository.app.data.CompletionMatrixDto
 import com.fieldrepository.app.data.CraftCreateRequest
+import com.fieldrepository.app.data.DataAccessGrantDto
+import com.fieldrepository.app.data.DataAccessTierInfo
+import com.fieldrepository.app.data.MyGrantsDto
 import com.fieldrepository.app.data.DashboardStats
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.GoogleAuthClient
@@ -179,6 +182,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Quiz
 import androidx.compose.material.icons.filled.RateReview
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Stop
@@ -253,6 +257,7 @@ private enum class EntryMode(
     QUESTIONNAIRE("Questionnaire", "Take interview", editable = true),
     MEDIA("Miscellaneous Media", "Upload media"),
     VIEW_DATA("View Data", "Browse records"),
+    SHARING("Sharing", "Share data access"),
     USERS("Users", "Manage users"),
     // Craft and Workshop are the least frequently edited, so they sit last on the dashboard.
     CRAFT("Craft", "Add craft", editable = true),
@@ -292,6 +297,7 @@ private fun EntryMode.icon(): ImageVector = when (this) {
     EntryMode.CRAFT -> Icons.Filled.Brush
     EntryMode.MEDIA -> Icons.Filled.PermMedia
     EntryMode.VIEW_DATA -> Icons.Filled.Visibility
+    EntryMode.SHARING -> Icons.Filled.Share
     EntryMode.USERS -> Icons.Filled.ManageAccounts
 }
 
@@ -854,6 +860,11 @@ private fun HomeScreen(
                     },
                     onError = { showMessage(it) },
                     onSaved = { message = "Questionnaire interview saved"; refresh(); goDashboard() }
+                )
+                EntryMode.SHARING -> SharingForm(
+                    repository = repository,
+                    isAdmin = isAdmin,
+                    onError = { showMessage(it) }
                 )
                 EntryMode.USERS -> UserManagementForm(
                     repository = repository,
@@ -2633,6 +2644,9 @@ private fun RecordPickerScreen(
                 EntryMode.PROCESS -> repository.processes().map { it.id to (it.name + (it.product?.productName?.let { p -> " · $p" } ?: "")) }
                 EntryMode.TOOL -> repository.tools().map { it.id to "${it.toolkitName} · ${it.artisanName}" }
                 EntryMode.WORKSHOP -> repository.workshops().map { it.id to it.title.ifBlank { "Untitled workshop" } }
+                EntryMode.MEDIA -> repository.media().map { m ->
+                    m.id to (m.caption?.takeIf { it.isNotBlank() } ?: m.originalFilename)
+                }
                 EntryMode.QUESTIONNAIRE -> {
                     // Idempotent: all saved interview records for the same set of artisan(s) collapse
                     // into one entry (open the most recent); the label notes how many sessions exist.
@@ -6274,7 +6288,7 @@ private fun ViewDataDetail(
 /** Record types a miscellaneous-media upload can be linked to (item: Misc Media). */
 private val mediaLinkModes = listOf(
     EntryMode.ARTISAN, EntryMode.WORKSHOP, EntryMode.CRAFT, EntryMode.TOOL,
-    EntryMode.PRODUCT, EntryMode.PROCESS, EntryMode.QUESTIONNAIRE
+    EntryMode.PRODUCT, EntryMode.PROCESS, EntryMode.QUESTIONNAIRE, EntryMode.MEDIA
 )
 
 @Composable
@@ -7705,6 +7719,30 @@ private fun UserManagementForm(
                     }
                     if (expanded) {
                         HorizontalDivider()
+                        // Role elevation (master admin only): promote a researcher to admin, or step back down.
+                        if (isMasterAdmin && !isMaster) {
+                            val isUserAdmin = appUser.role == "ADMIN"
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Administrator role", color = Body, fontSize = 13.sp)
+                                    Text(
+                                        if (isUserAdmin) "This user is an admin" else "Researcher — can be elevated to admin",
+                                        color = Muted,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                                OutlinedButton(onClick = {
+                                    val nextRole = if (isUserAdmin) "RESEARCHER" else "ADMIN"
+                                    scope.launch {
+                                        runCatching { repository.updateUserRole(appUser.id, nextRole); refreshUsers() }
+                                            .onFailure { onError(it.message ?: "Unable to update role") }
+                                    }
+                                }) {
+                                    Text(if (isUserAdmin) "Make researcher" else "Make admin")
+                                }
+                            }
+                            HorizontalDivider()
+                        }
                         GrantToggleRow(
                             label = "Questionnaire builder",
                             granted = isMaster || appUser.canManageQuestionnaire,
@@ -7776,6 +7814,225 @@ private fun UserManagementForm(
             }
         }
     }
+}
+
+private val sharingTierOptions = listOf(
+    "DOWNLOAD" to "Download (minimum)",
+    "COMMENT" to "Comment (medium)",
+    "EDIT" to "Edit (maximum)"
+)
+
+/**
+ * Cross-researcher data sharing. A researcher can request access to another's data at a tier
+ * (Download < Comment < Edit, with definitions shown), and manage requests/grants on their own data:
+ * approve, deny, change tier, or revoke. Mirrors the web Sharing page.
+ */
+@Composable
+private fun SharingForm(
+    repository: FieldRepository,
+    isAdmin: Boolean,
+    onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val myId = repository.cachedUser()?.id
+    var tiers by remember { mutableStateOf<List<DataAccessTierInfo>>(emptyList()) }
+    var grants by remember { mutableStateOf(MyGrantsDto()) }
+    var directory by remember { mutableStateOf<List<UserDto>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var busy by remember { mutableStateOf(false) }
+
+    var reqOwnerId by remember { mutableStateOf("") }
+    var reqTier by remember { mutableStateOf("DOWNLOAD") }
+    var reqNote by remember { mutableStateOf("") }
+
+    fun reload() {
+        scope.launch {
+            loading = true
+            runCatching {
+                tiers = repository.dataAccessTiers()
+                grants = repository.dataAccessGrants()
+                directory = repository.userDirectory().filter { it.id != myId }
+            }.onFailure { onError(it.message ?: "Unable to load sharing data") }
+            loading = false
+        }
+    }
+
+    LaunchedEffect(Unit) { reload() }
+
+    fun run(block: suspend () -> Unit, ok: String) {
+        scope.launch {
+            busy = true
+            runCatching { block() }
+                .onSuccess { reload() }
+                .onFailure { onError(it.message ?: "Action failed") }
+            busy = false
+        }
+    }
+
+    RecordCard(title = "Access tiers", icon = Icons.Filled.Share) {
+        if (tiers.isEmpty()) Text("Loading…", color = Muted)
+        tiers.forEach { t ->
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    when (t.tier) {
+                        "DOWNLOAD" -> "Download (minimum)"
+                        "COMMENT" -> "Comment (medium)"
+                        else -> "Edit (maximum)"
+                    },
+                    fontWeight = FontWeight.SemiBold, fontSize = 13.sp
+                )
+                Text(t.description, color = Muted, fontSize = 12.sp)
+            }
+        }
+    }
+
+    RecordCard(title = "Request access") {
+        Text("Ask another researcher for access to their data. They decide and can narrow it to a subset.", color = Muted, fontSize = 12.sp)
+        DropdownField(
+            label = "Researcher",
+            options = directory.map { it.id to "${it.name} · ${it.email}" },
+            selectedValue = reqOwnerId,
+            placeholder = "Select researcher",
+            onSelect = { reqOwnerId = it }
+        )
+        DropdownField(
+            label = "Tier",
+            options = sharingTierOptions,
+            selectedValue = reqTier,
+            includeNone = false,
+            onSelect = { reqTier = it }
+        )
+        TextInput("Note (optional)", reqNote) { reqNote = it }
+        Button(
+            enabled = !busy && reqOwnerId.isNotBlank(),
+            onClick = {
+                run({ repository.requestDataAccess(reqOwnerId, reqTier, reqNote); reqNote = "" }, "Request sent")
+            }
+        ) { Text("Send request") }
+    }
+
+    RecordCard(title = "Access to your data") {
+        val incoming = grants.incoming
+        if (incoming.isEmpty()) Text("No requests yet.", color = Muted, fontSize = 13.sp)
+        incoming.forEach { g ->
+            ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard)) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(g.grantee?.name ?: g.granteeId, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "${g.grantee?.email ?: ""} · ${tierLabel(g.tier)} · ${g.status}" +
+                            (if (g.allData) " · all data" else " · ${g.scopeItems.size} records"),
+                        color = Muted, fontSize = 12.sp
+                    )
+                    if (!g.requestNote.isNullOrBlank()) Text("“${g.requestNote}”", color = Muted, fontSize = 12.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        when (g.status) {
+                            "PENDING" -> {
+                                Button(enabled = !busy, onClick = { run({ repository.decideDataAccess(g.id, "GRANTED", g.tier) }, "Granted") }) { Text("Approve") }
+                                OutlinedButton(enabled = !busy, onClick = { run({ repository.decideDataAccess(g.id, "DENIED", null) }, "Denied") }) { Text("Deny") }
+                            }
+                            "GRANTED" -> OutlinedButton(enabled = !busy, onClick = { run({ repository.revokeDataAccess(g.id) }, "Revoked") }) { Text("Revoke") }
+                            else -> OutlinedButton(enabled = !busy, onClick = { run({ repository.deleteDataAccess(g.id) }, "Removed") }) { Text("Remove") }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    RecordCard(title = "Your access to others' data") {
+        val outgoing = grants.outgoing
+        if (outgoing.isEmpty()) Text("No access yet.", color = Muted, fontSize = 13.sp)
+        outgoing.forEach { g ->
+            ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard)) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(g.owner?.name ?: g.ownerId, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "${g.owner?.email ?: ""} · ${tierLabel(g.tier)} · ${g.status}",
+                        color = Muted, fontSize = 12.sp
+                    )
+                    OutlinedButton(enabled = !busy, onClick = { run({ repository.deleteDataAccess(g.id) }, "Removed") }) {
+                        Text(if (g.status == "PENDING") "Withdraw" else "Remove")
+                    }
+                }
+            }
+        }
+    }
+
+    if (isAdmin) {
+        WorkshopAssignmentCard(repository = repository, directory = directory, onError = onError)
+    }
+}
+
+/**
+ * Admin-only: assign researchers to a workshop. Only assigned researchers may submit entries for it,
+ * and out-of-window submissions are flagged for approval. Mirrors the web Assign modal.
+ */
+@Composable
+private fun WorkshopAssignmentCard(
+    repository: FieldRepository,
+    directory: List<UserDto>,
+    onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var workshops by remember { mutableStateOf<List<WorkshopDetailDto>>(emptyList()) }
+    var selectedWorkshop by remember { mutableStateOf("") }
+    var assigned by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var busy by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        runCatching { workshops = repository.workshops() }
+            .onFailure { onError(it.message ?: "Unable to load workshops") }
+    }
+
+    fun loadAssignments(workshopId: String) {
+        if (workshopId.isBlank()) { assigned = emptySet(); return }
+        scope.launch {
+            runCatching { assigned = repository.workshopAssignments(workshopId).map { it.userId }.toSet() }
+                .onFailure { onError(it.message ?: "Unable to load assignments") }
+        }
+    }
+
+    RecordCard(title = "Workshop assignments", icon = Icons.Filled.Groups) {
+        Text("Pick a workshop, then choose who may submit entries for it. Leave empty to keep it open to everyone.", color = Muted, fontSize = 12.sp)
+        DropdownField(
+            label = "Workshop",
+            options = workshops.map { it.id to it.title.ifBlank { "Untitled workshop" } },
+            selectedValue = selectedWorkshop,
+            placeholder = "Select workshop",
+            onSelect = { selectedWorkshop = it; loadAssignments(it) }
+        )
+        if (selectedWorkshop.isNotBlank()) {
+            directory.forEach { u ->
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Checkbox(
+                        checked = assigned.contains(u.id),
+                        onCheckedChange = { checked ->
+                            assigned = if (checked) assigned + u.id else assigned - u.id
+                        }
+                    )
+                    Text("${u.name} · ${u.email}", color = Body, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            Button(
+                enabled = !busy,
+                onClick = {
+                    scope.launch {
+                        busy = true
+                        runCatching { repository.setWorkshopAssignments(selectedWorkshop, assigned.toList()) }
+                            .onFailure { onError(it.message ?: "Unable to save assignments") }
+                        busy = false
+                    }
+                }
+            ) { Text("Save assignments (${assigned.size})") }
+        }
+    }
+}
+
+private fun tierLabel(tier: String): String = when (tier) {
+    "DOWNLOAD" -> "Download"
+    "COMMENT" -> "Comment"
+    "EDIT" -> "Edit"
+    else -> tier
 }
 
 @Composable

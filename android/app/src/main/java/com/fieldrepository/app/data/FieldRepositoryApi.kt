@@ -37,6 +37,9 @@ interface FieldRepositoryApi {
         @Body body: UserUpdateRequest
     ): UserDto
 
+    @GET("users/directory")
+    suspend fun userDirectory(): List<UserDto>
+
     @GET("review/pending")
     suspend fun pendingReviews(): PendingReviewListDto
 
@@ -331,4 +334,45 @@ interface FieldRepositoryApi {
 
     @PUT("questionnaire/completion")
     suspend fun setCompletionCell(@Body body: CompletionCellRequest): JsonElement
+
+    // --- Cross-researcher data access (Sharing) ---
+    @GET("data-access/tiers")
+    suspend fun dataAccessTiers(): List<DataAccessTierInfo>
+
+    @GET("data-access/grants")
+    suspend fun dataAccessGrants(): MyGrantsDto
+
+    @POST("data-access/requests")
+    suspend fun requestDataAccess(@Body body: DataAccessRequestBody): DataAccessGrantDto
+
+    @POST("data-access/grants")
+    suspend fun grantDataAccess(@Body body: DataAccessGrantBody): DataAccessGrantDto
+
+    @POST("data-access/grants/{id}/decide")
+    suspend fun decideDataAccess(@Path("id") id: String, @Body body: DataAccessDecisionBody): DataAccessGrantDto
+
+    @POST("data-access/grants/{id}/revoke")
+    suspend fun revokeDataAccess(@Path("id") id: String): DataAccessGrantDto
+
+    @DELETE("data-access/grants/{id}")
+    suspend fun deleteDataAccess(@Path("id") id: String)
+
+    @GET("data-access/comments")
+    suspend fun entryComments(
+        @Query("recordType") recordType: String,
+        @Query("recordId") recordId: String
+    ): List<EntryCommentDto>
+
+    @POST("data-access/comments")
+    suspend fun addEntryComment(@Body body: EntryCommentBody): EntryCommentDto
+
+    // --- Workshop assignment (admin) ---
+    @GET("workshops/{id}/assignments")
+    suspend fun workshopAssignments(@Path("id") id: String): List<WorkshopAssignmentDto>
+
+    @PUT("workshops/{id}/assignments")
+    suspend fun setWorkshopAssignments(
+        @Path("id") id: String,
+        @Body body: WorkshopAssignmentBody
+    ): List<WorkshopAssignmentDto>
 }

@@ -53,3 +53,6 @@ android/.idea/
 android/app/build/
 android/build/
 local.properties
+
+# Local-only transcription implementation reference (do not commit)
+TRANSCRIPTION_SERVICE.md

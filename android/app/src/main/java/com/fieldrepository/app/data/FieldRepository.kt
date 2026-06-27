@@ -109,6 +109,31 @@ class FieldRepository(
     suspend fun updateUserDatasetAccess(id: String, canDownloadDataset: Boolean): UserDto =
         api.updateUser(id, UserUpdateRequest(canDownloadDataset = canDownloadDataset))
 
+    /** Change a user's role (e.g. elevate RESEARCHER -> ADMIN). Master-admin gated server-side for ADMIN+. */
+    suspend fun updateUserRole(id: String, role: String): UserDto =
+        api.updateUser(id, UserUpdateRequest(role = role))
+
+    // --- Cross-researcher data access (Sharing) ---
+    suspend fun userDirectory(): List<UserDto> = api.userDirectory()
+    suspend fun dataAccessTiers(): List<DataAccessTierInfo> = api.dataAccessTiers()
+    suspend fun dataAccessGrants(): MyGrantsDto = api.dataAccessGrants()
+    suspend fun requestDataAccess(ownerId: String, tier: String, note: String?): DataAccessGrantDto =
+        api.requestDataAccess(DataAccessRequestBody(ownerId = ownerId, tier = tier, allData = true, requestNote = note?.ifBlank { null }))
+    suspend fun decideDataAccess(id: String, status: String, tier: String?): DataAccessGrantDto =
+        api.decideDataAccess(id, DataAccessDecisionBody(status = status, tier = tier))
+    suspend fun revokeDataAccess(id: String): DataAccessGrantDto = api.revokeDataAccess(id)
+    suspend fun deleteDataAccess(id: String) = api.deleteDataAccess(id)
+    suspend fun entryComments(recordType: String, recordId: String): List<EntryCommentDto> =
+        api.entryComments(recordType, recordId)
+    suspend fun addEntryComment(recordType: String, recordId: String, body: String): EntryCommentDto =
+        api.addEntryComment(EntryCommentBody(recordType = recordType, recordId = recordId, body = body))
+
+    // --- Workshop assignment (admin) ---
+    suspend fun workshopAssignments(workshopId: String): List<WorkshopAssignmentDto> =
+        api.workshopAssignments(workshopId)
+    suspend fun setWorkshopAssignments(workshopId: String, userIds: List<String>): List<WorkshopAssignmentDto> =
+        api.setWorkshopAssignments(workshopId, WorkshopAssignmentBody(userIds))
+
     /** Records awaiting review (status PENDING), newest first, across record types. */
     suspend fun pendingReviews(): List<PendingReviewDto> = api.pendingReviews().items
 
