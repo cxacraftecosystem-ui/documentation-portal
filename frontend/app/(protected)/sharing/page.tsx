@@ -7,7 +7,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { Field, Select, TextInput } from "@/components/FormControls";
 import { PageHeader } from "@/components/PageHeader";
 import { useAuth } from "@/components/AuthProvider";
-import { apiFetch, listResource } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import type { DataAccessGrant, DataAccessTier, MyGrants, TierInfo, User } from "@/lib/types";
 
 const TIER_LABEL: Record<DataAccessTier, string> = {
@@ -51,11 +51,11 @@ export default function SharingPage() {
       const [g, t, u] = await Promise.all([
         apiFetch<MyGrants>("/data-access/grants"),
         apiFetch<TierInfo[]>("/data-access/tiers"),
-        listResource<User>("/users", { pageSize: 200 }).catch(() => ({ items: [] as User[] }))
+        apiFetch<User[]>("/users/directory").catch(() => [] as User[])
       ]);
       setGrants(g);
       setTiers(t);
-      setUsers((u.items ?? []).filter((x) => x.id !== currentUser?.id));
+      setUsers((u ?? []).filter((x) => x.id !== currentUser?.id));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load sharing data");

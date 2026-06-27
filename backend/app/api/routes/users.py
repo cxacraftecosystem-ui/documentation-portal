@@ -5,7 +5,7 @@ from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
 from app.core.config import get_settings
-from app.core.deps import is_master_admin, require_admin
+from app.core.deps import get_current_user, is_master_admin, require_admin
 from app.core.security import hash_password
 from app.schemas.users import UserCreate, UserUpdate
 from app.services.pagination import normalize_pagination, page_payload
@@ -58,6 +58,26 @@ def assert_not_demoting_master(target_user: Any, payload_role: str | None, curre
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="The master admin account is protected")
     if payload_role and payload_role != "MASTER_ADMIN":
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="The master admin must keep MASTER_ADMIN role")
+
+
+@router.get("/directory")
+async def user_directory(
+    current_user: Any = Depends(get_current_user),
+    search: str | None = None,
+) -> list[dict[str, Any]]:
+    """A minimal directory of all users (id, name, email, role) readable by ANY authenticated user.
+
+    Powers the data-access "request access from a researcher" picker, where a non-admin needs to choose
+    a colleague. Returns no privileges or password material — just enough to identify a person.
+    """
+    where: dict[str, Any] = {}
+    if search:
+        where["OR"] = [{"name": contains(search)}, {"email": contains(search)}]
+    users = await db.user.find_many(where=where, order={"name": "asc"}, take=500)
+    return [
+        {"id": u.id, "name": u.name, "email": u.email, "role": str(getattr(u.role, "value", u.role))}
+        for u in users
+    ]
 
 
 @router.get("")
