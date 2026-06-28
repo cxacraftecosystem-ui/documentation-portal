@@ -75,6 +75,12 @@ jobs:
             echo "migrate attempt ${attempt} failed; waiting for pooler sessions to drain..."; sleep 10
           done
           sudo systemctl restart fieldrepo
+          # The media queue runs in its OWN service (decoupled from uvicorn so its heavy AI/ffmpeg
+          # work can never starve uvicorn's worker health-ping and get the worker SIGKILLed, which
+          # used to orphan Prisma query-engines and exhaust the pooler -> HTTP 500). Restart it too
+          # so it picks up the new code; '|| true' keeps deploys working on a box provisioned before
+          # this service existed.
+          sudo systemctl restart fieldrepo-queue 2>/dev/null || true
           if [ "$migrate_ok" != "1" ]; then echo "prisma migrate deploy failed after retries"; exit 1; fi
           # App startup connects to Supabase (cross-region), so poll instead of a fixed sleep.
           for i in $(seq 1 40); do
