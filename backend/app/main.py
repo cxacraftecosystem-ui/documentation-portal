@@ -54,16 +54,26 @@ async def _keep_db_connected() -> None:
     one connection attempt at a time — lets the pooler drain and the app self-heal with no
     restart. ``/health`` keeps returning 200 throughout (it does not touch the DB), so the
     box stays a healthy CloudFront origin while it waits.
+
+    Why it disconnects first and probes with ``SELECT 1``: the Prisma client keeps its engine
+    reference even when ``connect()`` *raised*, so ``is_connected()`` can read ``True`` while the
+    engine is actually unusable. A naive ``while not db.is_connected()`` loop would then exit
+    immediately and declare success without ever reconnecting. Disconnecting clears any such
+    half-initialized engine, and the probe proves the link really works before we stop retrying.
     """
     delay = 2.0
-    while not db.is_connected():
+    while True:
         try:
+            with suppress(Exception):
+                await db.disconnect()  # tear down any half-initialized engine before reconnecting
             await db.connect()
+            await db.query_raw("SELECT 1")  # prove the link works; is_connected() alone can lie
+            logger.info("Database connected (background reconnect succeeded)")
+            return
         except Exception as exc:  # noqa: BLE001 - any connect failure should back off, not crash
             logger.warning("Background DB reconnect failed: %s — retrying in %.0fs", exc, delay)
             await asyncio.sleep(delay)
             delay = min(delay * 2, 30.0)
-    logger.info("Database connected (background reconnect succeeded)")
 
 
 @asynccontextmanager
