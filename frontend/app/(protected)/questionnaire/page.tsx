@@ -29,7 +29,7 @@ import { locationFromForm, recordedAtFromForm, recordedTimezoneFromForm, textVal
 import { handleFormEnter } from "@/lib/formNav";
 import { audioExtensionForMimeType, pickAudioRecorderMimeType, uploadMediaBatch, type BatchProgress } from "@/lib/media";
 import { canManageQuestionnaire, hasRank, isAdmin } from "@/lib/permissions";
-import { UploadsProvider, useUploads } from "@/lib/uploads";
+import { UploadsProvider, useEagerStaging, useUploads } from "@/lib/uploads";
 import type { Artisan, PageResult, QuestionnaireInterview, QuestionnaireQuestion, QuestionnaireSection } from "@/lib/types";
 
 /** Section ids the two questionnaire upload paths publish under, for the page-level tray. */
@@ -200,6 +200,32 @@ function QuestionnairePageBody() {
       streamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, []);
+
+  // Eager upload for the per-question recordings, matching every other capture surface. An
+  // interview is the longest form in the app — a researcher can spend half an hour working down
+  // the sections — and each answer is an audio clip. Waiting until Save to start the transfer
+  // means the whole interview's audio goes up in one blocking burst at the end, on whatever
+  // connection the field site has; staging each clip when the recorder stops spreads it across
+  // the time already being spent. Saving then only links the objects. One owner for all of them
+  // (rather than per question) keeps this a single row in the tray instead of thirty.
+  const stagedQuestionAudio = useMemo(() => Object.values(questionAudioFiles).flat(), [questionAudioFiles]);
+  const questionAudioStaging = useEagerStaging(stagedQuestionAudio, "Question recordings");
+  const stagedByFile = useMemo(
+    () => new Map(stagedQuestionAudio.map((file, index) => [file, questionAudioStaging.entries[index]])),
+    [stagedQuestionAudio, questionAudioStaging.entries]
+  );
+
+  /** "3 clips · 2 uploaded" — the chip under a question's recorder, so "ready" is a fact not a hope. */
+  function questionAudioLabel(questionId: string): string {
+    const files = questionAudioFiles[questionId] ?? [];
+    const entries = files.map((file) => stagedByFile.get(file) ?? null);
+    const ready = entries.filter((entry) => entry?.status === "ready").length;
+    const failed = entries.filter((entry) => entry?.status === "error").length;
+    const clips = `${files.length} clip${files.length === 1 ? "" : "s"}`;
+    if (failed) return `${clips} · ${failed} failed to upload, will retry on save`;
+    if (ready === files.length) return `${clips} · uploaded`;
+    return `${clips} · ${ready} of ${files.length} uploaded`;
+  }
 
   useEffect(() => {
     const nextPreviews: Record<string, PreviewMedia[]> = {};
@@ -553,7 +579,7 @@ function QuestionnairePageBody() {
                       </button>
                       {questionAudioFiles[question.id]?.length ? (
                         <>
-                          <span className="text-xs text-ink-muted">{questionAudioFiles[question.id].length} audio clip(s) ready</span>
+                          <span className="text-xs text-ink-muted">{questionAudioLabel(question.id)}</span>
                           <button
                             type="button"
                             className="text-xs font-semibold text-red-700"
