@@ -219,6 +219,53 @@ A zero-byte file used to reach `/media/presign` and come back as an opaque 422 (
 
 ---
 
+## 3.1 The offline outbox — `frontend/lib/offline.ts`
+
+The last Android tactic the web was missing. A save made with no connection is written to an
+IndexedDB queue instead of failing, and sent when the network returns.
+
+**What is stored.** One entry per attempted save: the record request (endpoint, method, JSON body)
+and the attached files as `File` objects. IndexedDB stores those by structured clone, so the bytes,
+the name and the MIME type survive a browser restart — a blob: URL or an in-memory array would not.
+The attachments are the part that cannot be recreated: by the time signal returns the artisan has
+gone home.
+
+**Media is a LIST of batches, not one lump.** A product queues its two measurement-grid photos —
+each with the caption naming its dimension — beside the general field media; a tool adds its numbered
+process-stage captures on top; an interview adds one batch per question carrying that question's
+`questionId` metadata. Flattening them would put every file under one caption, and for a grid photo
+the caption is the only thing that says which dimension it measures.
+
+**Server-created children.** The process form's step captures link to `processstep` rows that do not
+exist until the server makes them, so those batches carry a `stepIndex` and the replay resolves the
+real id from the create response's `steps[]`.
+
+**How a failure is triaged** — the one place this deliberately differs from Android, whose outbox
+stops at the first failure:
+
+| Failure | Verdict | What happens |
+| --- | --- | --- |
+| No connection, 5xx, 408, 429 | transient | Stop the pass, keep everything queued, retry on the next `online` event. |
+| 4xx (validation, permission) | permanent | Mark **that** entry with the server's reason, leave it for the user to read and discard, carry on to the next. |
+| 409 on replay | already saved | Drop the entry. The create landed on an earlier pass whose response was lost; re-queueing would duplicate the record forever. |
+
+Stopping at the first failure is right for a connection that dropped again and wrong for a request
+the server will never accept: one 422 at the head of the queue would block every entry behind it
+indefinitely with nothing on screen to say why.
+
+**Where it shows.** `components/OutboxBanner.tsx`, mounted once in the protected layout above the
+page. An outbox nobody can see is worse than no outbox — the researcher believes the record is filed
+when it is sitting in one laptop's browser storage — so the banner names every entry, says plainly
+that they live in this browser, drains automatically on `online`, and offers "Sync now" for captive
+portals that report `navigator.onLine === true` while nothing routes.
+
+**Wired into:** artisan, product, tool, process, craft, workshop and questionnaire saves — every form
+that creates a record in the field. `saveOrQueue` deliberately does not upload the media when online;
+the caller keeps its own `uploadMediaBatch` call so progress, per-file retry and the eager-staging
+claim all behave exactly as before, and the files are handed over only if the save is queued.
+
+---
+
 ## 4. Tactic matrix
 
 | Tactic | Android | Web |
@@ -236,7 +283,7 @@ A zero-byte file used to reach `/media/presign` and come back as an opaque 422 (
 | Safe-request retry on 502/503/504 | yes | **yes (new)** |
 | Retriable, idempotent `/complete` | server-side | **yes (new, client too)** |
 | Content checksum | no | **yes (new)** |
-| Offline outbox for whole records | yes | no — see §5 |
+| Offline outbox for whole records | yes | **yes (new)** — see §3.1 |
 | Streams from disk, never buffers the file | yes | yes (XHR streams a `File`/`Blob`) |
 
 ---
@@ -252,12 +299,6 @@ unchanged"). The bandwidth problem is better solved by not making the user *wait
 transfer (stall watchdog). If it is ever wanted, it should be an explicit, off-by-default
 "low-bandwidth mode" that transplants the original EXIF onto the resized JPEG and records
 `extraMetadata.downscaledFrom` — never a silent default.
-
-**A web offline outbox (IndexedDB) for whole records.** Genuinely valuable and the one real gap
-versus Android. It is out of scope here because it has to hook the *record create* calls, which live
-in the page and form components, not in the media layer. `File`/`Blob` are structured-cloneable so
-IndexedDB can hold the bytes; the missing pieces are a queue, a replay pass keyed by record type, and
-a UI for "N records waiting". Listed as follow-up work.
 
 **Resumable uploads across a page reload.** S3 multipart *is* resumable in principle (the `uploadId`
 and completed part ETags could be journalled and the transfer picked up later), but a browser cannot

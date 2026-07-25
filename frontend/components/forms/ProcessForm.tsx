@@ -15,6 +15,7 @@ import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import { apiFetch, listResource } from "@/lib/api";
 import { handleFormEnter } from "@/lib/formNav";
 import { inferMediaType, uploadMediaFile } from "@/lib/media";
+import { saveOrQueue } from "@/lib/offline";
 import { hasRank } from "@/lib/permissions";
 import type { Artisan, ExtraMetadata, MediaFile, ProductDocumentation, RecordStatus, User, Workshop } from "@/lib/types";
 import { useConfirm } from "@/components/dialogs";
@@ -478,10 +479,40 @@ export function ProcessForm({
         })),
         ...(isEdit ? {} : { recordedAt: new Date().toISOString() })
       };
-      const saved = await apiFetch<ProcessRecord>(isEdit ? `/processes/${initial!.id}` : "/processes", {
+      // Offline this queues to the outbox. The step captures are the awkward part: they link to
+      // `processstep` rows the server has not minted yet, so each step's batch carries its index and
+      // the replay resolves the real id from the create response's `steps[]`.
+      const outcome = await saveOrQueue<ProcessRecord>({
+        label: `Process · ${trimmedName || "Untitled"}`,
+        endpoint: isEdit ? `/processes/${initial!.id}` : "/processes",
         method: isEdit ? "PATCH" : "POST",
-        body: JSON.stringify(payload)
+        body: payload,
+        media: [
+          {
+            files: preProcessAvailable
+              ? preFiles.map((file, index) => nomenclatureFile("process", trimmedName, "PRE", file, index + 1))
+              : [],
+            linkedRecordType: "process",
+            caption: `Pre-process media for ${trimmedName}`
+          },
+          ...steps.map((step, index) => ({
+            files: step.files.map((file, fileIndex) =>
+              nomenclatureFile("processstep", trimmedName, processStepSegment(index + 1, step.stepType, fileIndex), file, fileIndex + 1)
+            ),
+            linkedRecordType: "processstep",
+            caption: `Process step ${step.name}`,
+            stepIndex: index
+          }))
+        ]
       });
+      if (outcome.queued) {
+        // OutboxBanner at the top of the page names the entry and says where it lives.
+        setGuardOpen(false);
+        setSaving(false);
+        onDone();
+        return;
+      }
+      const saved = outcome.saved;
 
       // Upload media after the record exists: pre-process clips link to the process itself,
       // each step's files link to that step (linkedRecordType "processstep" + the step id),

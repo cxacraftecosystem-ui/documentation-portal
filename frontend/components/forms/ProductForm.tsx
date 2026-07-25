@@ -17,6 +17,7 @@ import { apiFetch, listResource } from "@/lib/api";
 import { locationFromForm, numericValue, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue, useUnsavedChanges } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import { appendRemarksWithExif, collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, uploadMediaFile, type BatchProgress } from "@/lib/media";
+import { saveOrQueue } from "@/lib/offline";
 import { hasRank } from "@/lib/permissions";
 import type { Artisan, Craft, ProductDocumentation, RecordStatus } from "@/lib/types";
 import { marketDemandOptions, productTypes } from "@/lib/types";
@@ -177,10 +178,42 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         // extraMetadata stays programmatic (EXIF etc.) — the raw JSON textarea was removed.
         extraMetadata: exifItems.length ? { mediaExif: exifItems } : {}
       };
-      const saved = await apiFetch<ProductDocumentation>(initial ? `/products/${initial.id}` : "/products", {
+      // Offline this queues instead of failing, carrying the grid photos and the field media with
+      // it — each group as its own batch so the captions that identify a grid photo survive.
+      const outcome = await saveOrQueue<ProductDocumentation>({
+        label: `Product · ${payload.productName || "Untitled"}`,
+        endpoint: initial ? `/products/${initial.id}` : "/products",
         method: initial ? "PATCH" : "POST",
-        body: JSON.stringify(payload)
+        body: payload,
+        media: [
+          ...(Object.entries(gridFiles) as [GridGroup, File][]).map(([group, file]) => ({
+            files: [file],
+            linkedRecordType: "product",
+            caption: `${group === "lengthBreadth" ? "Length & breadth" : "Height"} grid (measurement) for ${payload.productName || "product"}`,
+            location,
+            recordedAt,
+            recordedTimezone,
+            transcribeAudio: false
+          })),
+          {
+            files: mediaFiles,
+            linkedRecordType: "product",
+            caption: `Field media for ${payload.productName || "product"}`,
+            location,
+            recordedAt,
+            recordedTimezone,
+            extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined
+          }
+        ]
       });
+      if (outcome.queued) {
+        // OutboxBanner at the top of the page names the entry and says where it lives.
+        resetDirty();
+        if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+        setSaving(false);
+        return;
+      }
+      const saved = outcome.saved;
       // Store each captured grid photo as media linked to the product (the measured value is already
       // in the field). Best-effort per file so one failure doesn't lose the record.
       for (const [group, file] of Object.entries(gridFiles) as [GridGroup, File][]) {

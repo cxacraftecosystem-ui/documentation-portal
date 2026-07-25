@@ -26,6 +26,7 @@ import { formatDate } from "@/lib/format";
 import { requiredText, textValue } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, type BatchProgress } from "@/lib/media";
+import { saveOrQueue } from "@/lib/offline";
 import { canManageCrafts } from "@/lib/permissions";
 import { UploadsProvider, useUploads } from "@/lib/uploads";
 import type { Craft, PageResult } from "@/lib/types";
@@ -150,10 +151,29 @@ function CraftsPageBody() {
         description
       };
       if (exifItems.length) payload.extraMetadata = { mediaExif: exifItems };
-      const saved = await apiFetch<Craft>(editing ? `/crafts/${editing.id}` : "/crafts", {
+      // Offline this queues to the outbox with its media rather than failing at the Save button.
+      const outcome = await saveOrQueue<Craft>({
+        label: `Craft · ${payload.name || "Untitled"}`,
+        endpoint: editing ? `/crafts/${editing.id}` : "/crafts",
         method: editing ? "PATCH" : "POST",
-        body: JSON.stringify(payload)
+        body: payload,
+        media: [
+          {
+            files: mediaFiles,
+            linkedRecordType: "craft",
+            caption: `Field media for ${payload.name || "craft"}`,
+            extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined
+          }
+        ]
       });
+      if (outcome.queued) {
+        // OutboxBanner at the top of the page names the entry and says where it lives.
+        resetForm(null);
+        setSaving(false);
+        if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      const saved = outcome.saved;
       if (mediaFiles.length) {
         const { uploaded, failed } = await uploadMediaBatch({
           files: mediaFiles,

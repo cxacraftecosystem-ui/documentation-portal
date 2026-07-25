@@ -17,6 +17,7 @@ import { apiFetch, listResource } from "@/lib/api";
 import { locationFromForm, numericValue, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue, useUnsavedChanges } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import { appendRemarksWithExif, collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, uploadMediaFile, type BatchProgress } from "@/lib/media";
+import { saveOrQueue } from "@/lib/offline";
 import { hasRank } from "@/lib/permissions";
 import type { Artisan, Craft, RecordStatus, ToolDocumentation } from "@/lib/types";
 import { makerOptions, traditionOptions } from "@/lib/types";
@@ -181,10 +182,52 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
         // extraMetadata stays programmatic (EXIF etc.) — the raw JSON textarea was removed.
         extraMetadata: exifItems.length ? { mediaExif: exifItems } : {}
       };
-      const saved = await apiFetch<ToolDocumentation>(initial ? `/tools/${initial.id}` : "/tools", {
+      // Offline this queues instead of failing. Three groups, three batches: the measurement grids,
+      // the numbered process-stage captures and the general field media each keep their own caption,
+      // because the caption is the only thing that says which photo is which.
+      const outcome = await saveOrQueue<ToolDocumentation>({
+        label: `Tool · ${payload.toolkitName || "Untitled"}`,
+        endpoint: initial ? `/tools/${initial.id}` : "/tools",
         method: initial ? "PATCH" : "POST",
-        body: JSON.stringify(payload)
+        body: payload,
+        media: [
+          ...(Object.entries(gridFiles) as [GridGroup, File][]).map(([group, file]) => ({
+            files: [file],
+            linkedRecordType: "tool",
+            caption: `${group === "lengthBreadth" ? "Length & breadth" : "Height"} grid (measurement) for ${payload.toolkitName || "tool"}`,
+            location,
+            recordedAt,
+            recordedTimezone,
+            transcribeAudio: false
+          })),
+          ...stageFiles.map((file, index) => ({
+            files: [new File([file], `STAGE_STEP_${index + 1}_${file.name}`, { type: file.type, lastModified: file.lastModified })],
+            linkedRecordType: "tool",
+            caption: `Process stage step ${index + 1} for ${payload.toolkitName || "tool"}`,
+            location,
+            recordedAt,
+            recordedTimezone,
+            transcribeAudio: false
+          })),
+          {
+            files: mediaFiles,
+            linkedRecordType: "tool",
+            caption: `Field media for ${payload.toolkitName || "tool"}`,
+            location,
+            recordedAt,
+            recordedTimezone,
+            extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined
+          }
+        ]
       });
+      if (outcome.queued) {
+        // OutboxBanner at the top of the page names the entry and says where it lives.
+        resetDirty();
+        if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+        setSaving(false);
+        return;
+      }
+      const saved = outcome.saved;
       // Store each captured grid photo as media linked to the tool (the measured value is already in
       // the field). Best-effort per file so one failure doesn't lose the record.
       for (const [group, file] of Object.entries(gridFiles) as [GridGroup, File][]) {

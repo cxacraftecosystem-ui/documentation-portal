@@ -29,6 +29,7 @@ import { formatDate, formatDateTime } from "@/lib/format";
 import { locationFromForm, requiredText, textValue } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import { uploadMediaBatch, type BatchProgress } from "@/lib/media";
+import { saveOrQueue } from "@/lib/offline";
 import { canManageWorkshops, hasRank, isAdmin } from "@/lib/permissions";
 import { UploadsProvider, useUploads } from "@/lib/uploads";
 import type { Artisan, Craft, PageResult, RecordStatus, User, Workshop, WorkshopAssignment } from "@/lib/types";
@@ -235,10 +236,28 @@ function WorkshopsPageBody() {
         craftIds,
         location: locationFromForm(form)
       };
-      const saved = await apiFetch<Workshop>(editing ? `/workshops/${editing.id}` : "/workshops", {
+      // Offline this queues to the outbox with its media rather than failing at the Save button.
+      const outcome = await saveOrQueue<Workshop>({
+        label: `Workshop · ${payload.title || "Untitled"}`,
+        endpoint: editing ? `/workshops/${editing.id}` : "/workshops",
         method: editing ? "PATCH" : "POST",
-        body: JSON.stringify(payload)
+        body: payload,
+        media: [
+          {
+            files: mediaFiles,
+            linkedRecordType: "workshop",
+            caption: `Field media for ${payload.title || "workshop"}`,
+            location: payload.location
+          }
+        ]
       });
+      if (outcome.queued) {
+        // OutboxBanner at the top of the page names the entry and says where it lives.
+        setSaving(false);
+        if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      const saved = outcome.saved;
       if (mediaFiles.length) {
         const { uploaded, failed } = await uploadMediaBatch({
           files: mediaFiles,

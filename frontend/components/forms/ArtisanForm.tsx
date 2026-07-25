@@ -22,6 +22,7 @@ import { ApiError, apiFetch, buildQuery, listResource } from "@/lib/api";
 import { locationFromForm, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue, useUnsavedChanges } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import { appendRemarksWithExif, collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, type BatchProgress } from "@/lib/media";
+import { saveOrQueue } from "@/lib/offline";
 import { hasRank } from "@/lib/permissions";
 import type { AadhaarLookupResult, Artisan, ArtisanIdentityConflict, ArtisanIdentityMatch, Craft, RecordStatus } from "@/lib/types";
 
@@ -378,10 +379,34 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         // extraMetadata stays programmatic (EXIF etc.) — the raw JSON textarea was removed.
         extraMetadata: exifItems.length ? { mediaExif: exifItems } : {}
       };
-      const saved = await apiFetch<Artisan>(initial ? `/artisans/${initial.id}` : "/artisans", {
+      // With no connection this queues to the offline outbox instead of failing at the Save button;
+      // the media goes with it, because the artisan will have gone home by the time signal returns.
+      const outcome = await saveOrQueue<Artisan>({
+        label: `Artisan · ${payload.name || "Untitled"}`,
+        endpoint: initial ? `/artisans/${initial.id}` : "/artisans",
         method: initial ? "PATCH" : "POST",
-        body: JSON.stringify(payload)
+        body: payload,
+        media: [
+          {
+            files: mediaFiles,
+            linkedRecordType: "artisan",
+            caption: `Field media for ${payload.name || "artisan"}`,
+            location,
+            recordedAt,
+            recordedTimezone,
+            extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined
+          }
+        ]
       });
+      if (outcome.queued) {
+        // No per-form "queued" banner: OutboxBanner at the top of the page already names the entry
+        // and is the one place that says where it lives. Scroll so it is the next thing seen.
+        resetDirty();
+        if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+        setSaving(false);
+        return;
+      }
+      const saved = outcome.saved;
       if (mediaFiles.length) {
         const { failed } = await uploadMediaBatch({
           files: mediaFiles,

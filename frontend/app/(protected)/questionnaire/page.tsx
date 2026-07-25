@@ -28,6 +28,7 @@ import { formatDate } from "@/lib/format";
 import { locationFromForm, recordedAtFromForm, recordedTimezoneFromForm, textValue } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import { audioExtensionForMimeType, pickAudioRecorderMimeType, uploadMediaBatch, type BatchProgress } from "@/lib/media";
+import { saveOrQueue } from "@/lib/offline";
 import { canManageQuestionnaire, hasRank, isAdmin } from "@/lib/permissions";
 import { UploadsProvider, useEagerStaging, useUploads } from "@/lib/uploads";
 import type { Artisan, PageResult, QuestionnaireInterview, QuestionnaireQuestion, QuestionnaireSection } from "@/lib/types";
@@ -333,10 +334,9 @@ function QuestionnairePageBody() {
       const location = locationFromForm(form);
       const recordedAt = recordedAtFromForm(form);
       const recordedTimezone = recordedTimezoneFromForm(form);
-      const saved = await apiFetch<QuestionnaireInterview>("/questionnaire/interviews", {
-        method: "POST",
-        body: JSON.stringify({
-          title: textValue(form, "title") || `Interview ${new Date().toLocaleDateString()}`,
+      const interviewTitle = textValue(form, "title") || `Interview ${new Date().toLocaleDateString()}`;
+      const interviewPayload = {
+          title: interviewTitle,
           // interviewDate is deliberately not sent: the server derives it from recordedAt.
           place: textValue(form, "place"),
           language: textValue(form, "language"),
@@ -348,8 +348,58 @@ function QuestionnairePageBody() {
           recordedAt,
           recordedTimezone,
           location
-        })
+      };
+      // Offline this queues the whole interview — answers, the interview audio and every
+      // per-question clip — to the outbox. An interview is the one record that cannot be
+      // reconstructed later: the artisan has gone home.
+      const questionsForQueue = new Map(questions.map((question) => [question.id, question]));
+      const outcome = await saveOrQueue<QuestionnaireInterview>({
+        label: `Interview · ${interviewTitle}`,
+        endpoint: "/questionnaire/interviews",
+        method: "POST",
+        body: interviewPayload,
+        media: [
+          {
+            files: mediaFiles,
+            linkedRecordType: "questionnaire",
+            caption: `Interview audio for ${interviewTitle}`,
+            location,
+            recordedAt,
+            recordedTimezone,
+            transcribeAudio: true
+          },
+          // One batch per question so the caption and the questionId metadata that place a clip
+          // under its answer survive the round trip through IndexedDB.
+          ...Object.entries(questionAudioFiles).flatMap(([questionId, files]) => {
+            const question = questionsForQueue.get(questionId);
+            if (!question || !files.length) return [];
+            return [
+              {
+                files,
+                linkedRecordType: "questionnaire",
+                caption: `Question audio: ${question.sectionCode}${question.sortOrder} - ${question.prompt}`,
+                location,
+                recordedAt,
+                recordedTimezone,
+                transcribeAudio: true,
+                extraMetadata: { questionId, questionPrompt: question.prompt, sectionCode: question.sectionCode }
+              }
+            ];
+          })
+        ]
       });
+      if (outcome.queued) {
+        // OutboxBanner at the top of the page names the entry and says where it lives.
+        formElement.reset();
+        setAnswers({});
+        setMediaFiles([]);
+        setQuestionAudioFiles({});
+        setAdditionalArtisanIds([]);
+        setSaving(false);
+        if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      const saved = outcome.saved;
       if (mediaFiles.length) {
         const { uploaded } = await uploadMediaBatch({
           files: mediaFiles,
