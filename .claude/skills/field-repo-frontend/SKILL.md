@@ -1,14 +1,15 @@
 ---
 name: field-repo-frontend
-description: The Field Repository web design system — ChartMate-derived tokens, Android-parity naming, and layout rules. Load before ANY frontend UI work in this repo.
+description: The Field Repository web design system — colour and type tokens, Android-parity naming, and layout rules. Load before ANY frontend UI work in this repo.
 ---
 
 # Field Repository frontend design system
 
-The web UI **emulates D:\ChartmateV1-main\ChartmateV1-main\frontend** (fonts, colors, theme,
-surfaces) while mirroring the **Android app** (D:\Portal_Development_Web\android) for feature
-names, menu labels, and card layouts. When in doubt: visual language = ChartMate, information
-architecture + wording = Android.
+The visual language of this product — fonts, colours, theme, surfaces — is defined by the tokens
+below and by `frontend/tailwind.config.ts`, which is the single source of truth. Information
+architecture (feature names, menu labels, card layouts) mirrors the **Android app**
+(D:\Portal_Development_Web\android). When in doubt: visual language = the tokens in this file,
+wording and structure = Android.
 
 ## Fonts
 
@@ -83,7 +84,9 @@ Menu extras: My Activity, Tasks, Assign tools to artisans, Give app feedback, Se
 
 ## Auth
 
-Login mirrors ChartMate's `AuthShell`: left brand panel (deep purple, logo in cream tile,
-gold-accent copy), right frosted card on a mesh backdrop. Buttons: email+password, then
+The sign-in shell is a split: left brand panel (deep purple, logo in a cream tile, gold-accent
+copy), right frosted card on a mesh backdrop. The Android auth screen
+(`android/.../ui/AuthScreen.kt`) is built against this same description, so change them together.
+Buttons: email+password, then
 "Continue with Google" (live), "Continue with Microsoft" and "Continue with Yahoo" — both
 render a **"Coming soon"** badge and toast, never a dead request.

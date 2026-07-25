@@ -1,0 +1,5 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "//": "Repository-root config, read by Vercel ONLY while the project's Root Directory is unset. That is the state that produces 'No Next.js version detected': Vercel builds this directory, and this package.json has no next in it. Until Root Directory is set to frontend (scripts/vercel-ci-setup.mjs, or the dashboard), this file turns those doomed Git builds into a clean skip instead of a failure email on every push.",
+  "ignoreCommand": "exit 0"
+}

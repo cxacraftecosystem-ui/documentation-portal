@@ -71,7 +71,7 @@ const SURFACES = [
 ];
 
 /**
- * The public hero — ChartMate's signature dark-purple mesh treatment applied to
+ * The public hero — the product's signature dark-purple mesh treatment applied to
  * Field Repository: gold-gradient headline line, GSAP line-mask entrance,
  * ambient orbs, and a live-transcript preview card in place of the note card.
  *

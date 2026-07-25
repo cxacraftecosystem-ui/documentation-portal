@@ -12,6 +12,8 @@ import {
   GitBranch,
   Hammer,
   Images,
+  ListTodo,
+  LockOpen,
   MapPinned,
   Package,
   Settings,
@@ -38,6 +40,7 @@ import {
   canManageCrafts,
   canManageUsers,
   canManageWorkshops,
+  canReview,
   isAdmin,
   roleLabel
 } from "@/lib/permissions";
@@ -58,12 +61,45 @@ type Tile = {
   newHref: string;
   updateHref?: string;
   /**
+   * The primary button's wording. Defaults to "New"; the exceptions are copied verbatim from
+   * Android's `EntryMode.createButtonLabel()` so the same tile says the same word in both apps.
+   */
+  newLabel?: string;
+  /**
    * Whether this tile is offered at all. Every tile leads with a "New …" action, so the predicate
    * is the CREATE entitlement for that record type — the same one DynamicIslandNav's NAV_ITEMS use,
    * so the dashboard and the menu can never disagree about what a user may do.
    */
   visible?: boolean;
 };
+
+/**
+ * Where a "recent submission" row goes when it is clicked.
+ *
+ * Only the types with a per-record route can be linked; workshops, crafts and interviews are
+ * edited inline on their own list pages, so those land on the list rather than a URL that 404s.
+ */
+function recordHref(type: string, id: string): string | null {
+  switch ((type || "").toLowerCase()) {
+    case "artisan":
+      return `/artisans/${id}/edit`;
+    case "product":
+      return `/products/${id}/edit`;
+    case "tool":
+      return `/tools/${id}/edit`;
+    case "process":
+      return `/processes?edit=${id}`;
+    case "workshop":
+      return "/workshops";
+    case "craft":
+      return "/crafts";
+    case "questionnaire":
+    case "interview":
+      return "/questionnaire";
+    default:
+      return null;
+  }
+}
 
 export default function DashboardPage() {
   // ToastProvider lives in app/layout.tsx — see the note in `ui/Toast`.
@@ -101,13 +137,17 @@ function DashboardView() {
     { label: "Tool", icon: Wrench, newHref: "/tools/new", updateHref: "/tools", visible: creator },
     // Answering an interview and uploading media are open to every signed-in user — they are how a
     // volunteer contributes.
-    { label: "Questionnaire", icon: ClipboardList, newHref: "/questionnaire?new=1", updateHref: "/questionnaire" },
-    { label: "Miscellaneous Media", icon: Images, newHref: "/media" },
+    { label: "Questionnaire", icon: ClipboardList, newHref: "/questionnaire?new=1", updateHref: "/questionnaire", newLabel: "New interview" },
+    { label: "Miscellaneous Media", icon: Images, newHref: "/media", newLabel: "Upload" },
     // Reading is never gated: without dataset access the tile leads to Browse records instead.
-    { label: "View Data", icon: Eye, newHref: canDownloadDataset(user) ? "/data" : "/search" },
+    { label: "View Data", icon: Eye, newHref: canDownloadDataset(user) ? "/data" : "/search", newLabel: "Open" },
+    // Tasks and Workshop access are dashboard tiles on Android and were menu-only here, which is
+    // the difference between a new researcher finding "how do I get into this workshop" and not.
+    { label: "Tasks", icon: ListTodo, newHref: "/tasks", newLabel: "Open" },
     { label: "Sharing", icon: Share2, newHref: "/sharing" },
-    { label: "Users", icon: UserCog, newHref: "/users", visible: adminSurface(canManageUsers(user)) },
-    { label: "Settings", icon: Settings, newHref: "/admin", visible: adminSurface(isAdmin(user)) },
+    { label: "Workshop access", icon: LockOpen, newHref: "/settings/workshop-access", newLabel: "Open" },
+    { label: "Users", icon: UserCog, newHref: "/users", visible: adminSurface(canManageUsers(user)), newLabel: "Manage" },
+    { label: "Settings", icon: Settings, newHref: "/admin", visible: adminSurface(isAdmin(user)), newLabel: "Open" },
     { label: "Craft", icon: Brush, newHref: "/crafts?new=1", updateHref: "/crafts", visible: canManageCrafts(user) },
     {
       label: "Workshop",
@@ -118,14 +158,28 @@ function DashboardView() {
     }
   ];
 
+  /**
+   * Every total is a question ("which 74 tools?"), and a number you cannot click is a dead end.
+   * Each card opens the search view already filtered to that record type — `?type=` is read by
+   * app/(protected)/search — so the count and the list behind it can never disagree.
+   *
+   * Pending review is the exception: it opens the review queue, and only for someone who may
+   * actually act on it. A researcher who cannot review still SEES the backlog (it tells them
+   * their own submissions are waiting) but the card does not pretend to be a door they can open.
+   */
   const statCards = stats
     ? [
-        { label: "Artisans", value: stats.totalArtisans, icon: Users },
-        { label: "Workshops", value: stats.totalWorkshops, icon: MapPinned },
-        { label: "Products", value: stats.totalProductRecords, icon: Boxes },
-        { label: "Tools", value: stats.totalToolRecords, icon: Hammer },
-        { label: "Media files", value: stats.totalMediaFiles, icon: Camera },
-        { label: "Pending review", value: stats.pendingSubmissions, icon: ClipboardCheck }
+        { label: "Artisans", value: stats.totalArtisans, icon: Users, href: "/search?type=artisans" },
+        { label: "Workshops", value: stats.totalWorkshops, icon: MapPinned, href: "/search?type=workshops" },
+        { label: "Products", value: stats.totalProductRecords, icon: Boxes, href: "/search?type=products" },
+        { label: "Tools", value: stats.totalToolRecords, icon: Hammer, href: "/search?type=tools" },
+        { label: "Media files", value: stats.totalMediaFiles, icon: Camera, href: "/search?type=media" },
+        {
+          label: "Pending review",
+          value: stats.pendingSubmissions,
+          icon: ClipboardCheck,
+          href: canReview(user) ? "/review" : null
+        }
       ]
     : [];
 
@@ -148,7 +202,14 @@ function DashboardView() {
           {tiles
             .filter((tile) => tile.visible !== false)
             .map((tile) => (
-              <DashboardCard key={tile.label} label={tile.label} icon={tile.icon} newHref={tile.newHref} updateHref={tile.updateHref} />
+              <DashboardCard
+                key={tile.label}
+                label={tile.label}
+                icon={tile.icon}
+                newHref={tile.newHref}
+                updateHref={tile.updateHref}
+                newLabel={tile.newLabel}
+              />
             ))}
         </div>
       </div>
@@ -173,17 +234,33 @@ function DashboardView() {
           <div className="panel p-4 text-sm text-ink-500">Loading...</div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {statCards.map((card) => (
-              <div className="panel p-4" key={card.label}>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm font-medium text-ink-500">{card.label}</div>
-                  <div className="grid h-9 w-9 place-items-center rounded-md bg-purple-50 text-purple-700">
-                    <card.icon className="h-[18px] w-[18px]" aria-hidden />
+            {statCards.map((card) => {
+              const body = (
+                <>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-medium text-ink-500">{card.label}</div>
+                    <div className="grid h-9 w-9 place-items-center rounded-md bg-purple-50 text-purple-700">
+                      <card.icon className="h-[18px] w-[18px]" aria-hidden />
+                    </div>
                   </div>
+                  <div className="mt-3 font-display text-3xl font-bold text-ink-900">{card.value}</div>
+                </>
+              );
+              return card.href ? (
+                <Link
+                  key={card.label}
+                  href={card.href}
+                  aria-label={`${card.label}: ${card.value}. Open the full list.`}
+                  className="panel block p-4 transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-700"
+                >
+                  {body}
+                </Link>
+              ) : (
+                <div className="panel p-4" key={card.label}>
+                  {body}
                 </div>
-                <div className="mt-3 font-display text-3xl font-bold text-ink-900">{card.value}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
@@ -212,8 +289,21 @@ function DashboardView() {
               </thead>
               <tbody className="divide-y divide-line-200">
                 {stats.recentSubmissions.map((item) => (
-                  <tr key={`${item.type}-${item.id}`}>
-                    <td className="px-4 py-3 font-medium text-ink-900">{item.title}</td>
+                  <tr key={`${item.type}-${item.id}`} className="hover:bg-surface-50">
+                    <td className="px-4 py-3 font-medium text-ink-900">
+                      {/* The row a researcher recognises is the one they want to correct, so the
+                          title is the link — straight into the edit view for that record type. */}
+                      {recordHref(item.type, item.id) ? (
+                        <Link
+                          href={recordHref(item.type, item.id)!}
+                          className="text-purple-700 underline-offset-2 hover:underline"
+                        >
+                          {item.title}
+                        </Link>
+                      ) : (
+                        item.title
+                      )}
+                    </td>
                     <td className="px-4 py-3 capitalize text-ink-700">{item.type}</td>
                     <td className="px-4 py-3 text-ink-700">{item.place ?? "-"}</td>
                     <td className="px-4 py-3">

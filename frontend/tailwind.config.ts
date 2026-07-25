@@ -1,8 +1,8 @@
 import type { Config } from "tailwindcss";
 
 /**
- * Field Repository design tokens — ported from the ChartMate design system
- * (D:\ChartmateV1-main frontend/src/app/globals.css) onto Tailwind v3.
+ * Field Repository design tokens on Tailwind v3. THIS FILE IS THE SOURCE OF TRUTH for
+ * every colour, radius, shadow and gradient the web app uses.
  *
  * Purple ramp: OKLCH, hue locked at 305°; purple-700 is THE action color.
  * Tinted neutrals (ink/line/surface/bg-0) replace grey. Gold is a marketing

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Pencil, Plus, type LucideIcon } from "lucide-react";
+import { ArrowRight, Pencil, Plus, type LucideIcon } from "lucide-react";
 
 import { GLASS_TILE, GlassSurface } from "@/components/ui/GlassSurface";
 
@@ -18,12 +18,22 @@ export function DashboardCard({
   label,
   icon: Icon,
   newHref,
-  updateHref
+  updateHref,
+  newLabel = "New"
 }: {
   label: string;
   icon: LucideIcon;
   newHref: string;
   updateHref?: string;
+  /**
+   * The primary action's wording, from the Android app's `EntryMode.createButtonLabel()`.
+   *
+   * Every tile used to say "New", which is wrong for more than a third of them: you do not create
+   * a new View Data, and "New" on the Users tile reads as "add a user" when the button opens the
+   * list. The two apps are the same product and a researcher moves between them mid-workshop, so
+   * the wording has to be the same word.
+   */
+  newLabel?: string;
 }) {
   return (
     <GlassSurface
@@ -36,8 +46,14 @@ export function DashboardCard({
       <div className="font-display text-base font-bold leading-snug text-ink-900">{label}</div>
       <div className="mt-auto flex flex-col gap-1.5 pt-1">
         <Link className="field-button h-9 min-h-0 px-3 text-xs" href={newHref}>
-          <Plus className="h-3.5 w-3.5" aria-hidden />
-          New
+          {/* "Open"/"Manage" are not creations, so they do not get the plus. Android draws the same
+              distinction (`primaryIcon`), and a plus on a button that only navigates is a lie. */}
+          {newLabel === "Open" || newLabel === "Manage" ? (
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+          ) : (
+            <Plus className="h-3.5 w-3.5" aria-hidden />
+          )}
+          {newLabel}
         </Link>
         {updateHref ? (
           <Link className="field-button-secondary h-9 min-h-0 px-3 text-xs" href={updateHref}>

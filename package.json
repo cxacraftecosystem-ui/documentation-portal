@@ -8,7 +8,8 @@
     "doc": "docs"
   },
   "scripts": {
-    "keep-alive": "node scripts/keep-supabase-active.mjs"
+    "keep-alive": "node scripts/keep-supabase-active.mjs",
+    "vercel-ci-setup": "node scripts/vercel-ci-setup.mjs"
   },
   "repository": {
     "type": "git",
@@ -22,6 +23,7 @@
   },
   "homepage": "https://github.com/cxacraftecosystem-ui/documentation-portal#readme",
   "dependencies": {
+    "libsodium-wrappers": "^0.7.16",
     "pg": "^8.21.0"
   }
 }

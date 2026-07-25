@@ -39,6 +39,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { useAuth } from "@/components/AuthProvider";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
 import { ComboBox, Dropdown } from "@/components/ui/Dropdown";
+import { DataSearchPanel } from "@/components/data/DataSearchPanel";
 import { API_BASE, apiFetch, buildQuery, getToken, listResource } from "@/lib/api";
 import { bytes, formatDateTime } from "@/lib/format";
 import { canDownloadDataset } from "@/lib/permissions";
@@ -1169,6 +1170,32 @@ export default function DataBrowserPage() {
     if (!(path in treeByPath)) loadFolder(path);
   }
 
+  /**
+   * Open a folder the user did not walk to — a search hit's "Show in folders".
+   *
+   * Selecting the leaf alone is not enough: the tree on the left renders a child only under an
+   * EXPANDED parent, and it only fetches a level it has been asked for, so a deep path would select
+   * a folder that is nowhere on screen. Expand and fetch every ancestor as well, and the row is
+   * visible in the tree at the same moment its contents appear on the right.
+   */
+  function revealPath(path: string) {
+    const segments = path.split("/").filter(Boolean);
+    const ancestors: string[] = [""];
+    for (let i = 1; i <= segments.length; i += 1) ancestors.push(segments.slice(0, i).join("/"));
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      ancestors.forEach((ancestor) => next.add(ancestor));
+      return next;
+    });
+    ancestors.forEach((ancestor) => {
+      if (!(ancestor in treeByPath)) loadFolder(ancestor);
+    });
+    setSelectedPath(path);
+    setOpenTranscripts(new Set());
+    setOpenInline(new Set());
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   // Taxonomy metadata rides along with every tree level, so read it off whichever level is
   // loaded — the current one first, falling back to the root.
   const taxonomies = useMemo<Taxonomy[]>(
@@ -1397,6 +1424,10 @@ export default function DataBrowserPage() {
     <>
       {header}
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-error-600">{error}</div> : null}
+
+      {/* Search first, then the taxonomy chooser, then the browser — the order the Android data
+          screen uses, and the order a researcher works in: they usually know the NAME. */}
+      <DataSearchPanel onReveal={revealPath} />
 
       {/* The same repository, re-rooted three ways. */}
       <TaxonomySwitcher taxonomies={taxonomies} active={activeTaxonomy} onSelect={selectFolder} />

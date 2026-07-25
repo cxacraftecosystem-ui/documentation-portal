@@ -79,7 +79,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 
 from app.core.db import db
@@ -406,6 +406,35 @@ async def _media(where: dict[str, Any], scope: Scope) -> list[Any]:
     )
 
 
+async def _workshop_misc_media(wid: str, scope: Scope) -> list[Any]:
+    """Media that belongs to the WORKSHOP itself: nothing finer-grained claims it."""
+    return await _media(
+        {
+            "AND": [
+                {"artisanId": None},
+                {"productId": None},
+                {"toolId": None},
+                {"questionnaireInterviewId": None},
+                _record_media_where("workshopId", wid, ["workshop"]),
+            ]
+        },
+        scope,
+    )
+
+
+async def _artisan_own_media(aid: str, scope: Scope) -> list[Any]:
+    """Media that belongs to the ARTISAN itself, not to a product, tool or interview of theirs."""
+    return await _media(
+        {
+            "OR": [
+                {"AND": [{"linkedRecordType": "artisan"}, {"linkedRecordId": aid}]},
+                {"AND": [{"artisanId": aid}, {"linkedRecordType": None}]},
+            ]
+        },
+        scope,
+    )
+
+
 def _record_media_where(fk_field: str, rec_id: str, tags: list[str]) -> dict[str, Any]:
     """Media attached to one record — via its typed FK column OR the string tag pair."""
     return {
@@ -661,11 +690,39 @@ async def _list_level(path: str, scope: Scope) -> Level:
 
 
 async def _linked_artisans(ws: Any, scope: Scope) -> list[Any]:
-    """The workshop's linked artisans (from the ``artisans->artisan`` include) the caller may see."""
-    linked = [
-        link.artisan for link in ws.artisans or [] if getattr(link, "artisan", None) is not None
+    """Every artisan this workshop reaches, by any of the three routes the data actually uses.
+
+    A workshop is joined to its artisans three different ways, because three different features
+    wrote the link at three different times:
+
+    1. ``WorkshopArtisan`` — the explicit "linked artisans" multi-select on the workshop form;
+    2. ``Artisan.workshopId`` — the workshop dropdown that later went on every record form;
+    3. ``WorkshopCraft`` -> ``Artisan.craftId`` — the workshop declares the crafts it covers, and an
+       artisan practising one of those crafts was documented at it.
+
+    Only route 1 used to count here, and on the live repository route 1 is EMPTY: the workshop has
+    nine linked crafts and sixteen artisans hanging off those crafts, and not one ``WorkshopArtisan``
+    row. That is why every craft folder in the browser opened onto nothing. Reaching an artisan
+    through the craft is not a fallback — it is the relationship the data was entered with.
+
+    Visibility is applied in the query, so an artisan the caller may not open never appears and
+    never conjures a craft folder.
+    """
+    ors: list[dict[str, Any]] = [{"workshopId": ws.id}]
+    linked_ids = [
+        link.artisanId for link in ws.artisans or [] if getattr(link, "artisanId", None)
     ]
-    return await _visible_only(db.artisan, linked, scope.records)
+    if linked_ids:
+        ors.append({"id": {"in": linked_ids}})
+    craft_ids = [link.craftId for link in ws.crafts or [] if getattr(link, "craftId", None)]
+    if craft_ids:
+        ors.append({"craftId": {"in": craft_ids}})
+    return await db.artisan.find_many(
+        where=_and({"OR": ors}, scope.records),
+        include={"craft": True},
+        take=TAKE,
+        order={"name": "asc"},
+    )
 
 
 def _craft_folder_entries(ws: Any, base: str, artisans: list[Any]) -> list[dict[str, Any]]:
@@ -699,18 +756,19 @@ def _craft_folder_entries(ws: Any, base: str, artisans: list[Any]) -> list[dict[
 
 
 async def _workshop_craft_artisans(wid: str, cid: str, scope: Scope) -> list[Any]:
-    """The workshop's visible linked artisans having the given craft (NO_CRAFT = ones without any)."""
+    """The workshop's visible artisans practising ``cid`` (NO_CRAFT = the ones with no craft).
+
+    Loads with ``_WS_CRAFTS_INCLUDE`` so :func:`_linked_artisans` can see the workshop's crafts and
+    therefore reach artisans through them; loading only the ``artisans`` relation (as this used to)
+    silently removed route 3 and returned an empty folder.
+    """
     ws = await _require(
-        db.workshop,
-        wid,
-        "Workshop",
-        include={"artisans": {"include": {"artisan": True}}},
-        scope_where=scope.records,
+        db.workshop, wid, "Workshop", include=_WS_CRAFTS_INCLUDE, scope_where=scope.records
     )
-    linked = await _linked_artisans(ws, scope)
+    reachable = await _linked_artisans(ws, scope)
     if cid == NO_CRAFT:
-        return [a for a in linked if not a.craftId]
-    return [a for a in linked if a.craftId == cid]
+        return [a for a in reachable if not a.craftId]
+    return [a for a in reachable if a.craftId == cid]
 
 
 _WS_CRAFTS_INCLUDE = {
@@ -738,10 +796,14 @@ async def _list_workshops_level(segs: list[str], parent: str, scope: Scope) -> L
         )
         info = _workshop_info(ws)
         entries = _craft_folder_entries(ws, f"{parent}/crafts", await _linked_artisans(ws, scope))
-        entries.append(_folder("Miscellaneous", f"{parent}/_misc"))
         details = _text(parent, "details.txt", _info_text(info))
         if details:
             entries.append(details)
+        # The workshop OWN media, in the workshop folder - not behind a "Miscellaneous" door.
+        # Every level of this tree shows the same three things together: the folders below it, its
+        # own fields as a table, and the files that belong to it. A folder whose files are one more
+        # click away reads as a folder with no files. (`_misc` still resolves, for saved links.)
+        entries.extend(_media_entries(parent, await _workshop_misc_media(wid, scope)))
         return entries, info
 
     if segs[2] == "crafts":
@@ -769,6 +831,13 @@ async def _list_workshops_level(segs: list[str], parent: str, scope: Scope) -> L
             details = _text(parent, "details.txt", _info_text(info))
             if details:
                 entries.append(details)
+            # Media captured against the craft itself (the craft form has its own capture field).
+            if cid != NO_CRAFT:
+                entries.extend(
+                    _media_entries(
+                        parent, await _media(_record_media_where("craftId", cid, ["craft"]), scope)
+                    )
+                )
             return entries, info
 
         if len(segs) == 5 and segs[4] == "artisans":
@@ -789,20 +858,9 @@ async def _list_workshops_level(segs: list[str], parent: str, scope: Scope) -> L
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown data path")
 
     if len(segs) == 3 and segs[2] == "_misc":
-        # Workshop-linked media not tied to an artisan (or to any finer-grained record).
-        media = await _media(
-            {
-                "AND": [
-                    {"artisanId": None},
-                    {"productId": None},
-                    {"toolId": None},
-                    {"questionnaireInterviewId": None},
-                    _record_media_where("workshopId", wid, ["workshop"]),
-                ]
-            },
-            scope,
-        )
-        return _media_entries(parent, media), None
+        # No longer listed as a folder (the same files now render in the workshop folder itself),
+        # but still resolvable so a link saved or bookmarked before that change does not 404.
+        return _media_entries(parent, await _workshop_misc_media(wid, scope)), None
 
     if len(segs) == 3 and segs[2] == "artisans":
         # Legacy intermediate 'artisans' path (pre-craft-level tree): lists every linked artisan
@@ -839,11 +897,13 @@ async def _list_artisan_level(segs: list[str], parent: str, scope: Scope) -> Lev
             _folder("Products", f"{parent}/products"),
             _folder("Tools", f"{parent}/tools"),
             _folder("Questionnaire", f"{parent}/questionnaire"),
-            _folder("Miscellaneous", f"{parent}/misc"),
         ]
         details = _text(parent, "details.txt", _info_text(info))
         if details:
             entries.append(details)
+        # The artisan own photographs and clips sit here with the sub-folders and the table, the
+        # same shape as every other level. ("misc" still resolves for links saved before this.)
+        entries.extend(_media_entries(parent, await _artisan_own_media(aid, scope)))
         return entries, info
 
     sub = segs[4]
@@ -935,17 +995,8 @@ async def _list_artisan_level(segs: list[str], parent: str, scope: Scope) -> Lev
             return entries, info
 
     if sub == "misc" and len(segs) == 5:
-        # Artisan-linked media not attached to a product, tool, or interview.
-        media = await _media(
-            {
-                "OR": [
-                    {"AND": [{"linkedRecordType": "artisan"}, {"linkedRecordId": aid}]},
-                    {"AND": [{"artisanId": aid}, {"linkedRecordType": None}]},
-                ]
-            },
-            scope,
-        )
-        return _media_entries(parent, media), None
+        # Same as the workshop "_misc": kept resolvable for older links, no longer a folder.
+        return _media_entries(parent, await _artisan_own_media(aid, scope)), None
 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown data path")
 
@@ -1289,6 +1340,145 @@ async def _list_uploader_level(segs: list[str], parent: str, scope: Scope) -> Le
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Reverse lookup: record -> its folder.
+#
+# Search finds a record by name; this says where that record LIVES, so a hit can drop the
+# reader into the right folder instead of a dead end. The web View Data page ("Show in
+# folders") and the Android data screen both call it. Everything below reuses the same
+# reachability rule the tree itself walks (:func:`_linked_artisans`), so a path this returns
+# is always a path :func:`data_tree` can open.
+# ---------------------------------------------------------------------------
+
+
+async def _workshop_for_artisan(artisan: Any, scope: Scope) -> Any | None:
+    """The workshop whose folder holds this artisan, by the same three routes the tree uses."""
+    if artisan.workshopId:
+        found = await db.workshop.find_first(
+            where=_and({"id": artisan.workshopId}, scope.records)
+        )
+        if found:
+            return found
+    link = await db.workshopartisan.find_first(
+        where={"artisanId": artisan.id}, include={"workshop": True}
+    )
+    if link is not None and getattr(link, "workshop", None) is not None:
+        if not scope.records or await db.workshop.find_first(
+            where=_and({"id": link.workshopId}, scope.records)
+        ):
+            return link.workshop
+    if artisan.craftId:
+        craft_link = await db.workshopcraft.find_first(
+            where={"craftId": artisan.craftId}, include={"workshop": True}
+        )
+        if craft_link is not None and getattr(craft_link, "workshop", None) is not None:
+            if not scope.records or await db.workshop.find_first(
+                where=_and({"id": craft_link.workshopId}, scope.records)
+            ):
+                return craft_link.workshop
+    return None
+
+
+async def _artisan_path(aid: str, scope: Scope) -> str | None:
+    artisan = await db.artisan.find_first(where=_and({"id": aid}, scope.records))
+    if artisan is None:
+        return None
+    workshop = await _workshop_for_artisan(artisan, scope)
+    if workshop is None:
+        return None
+    craft = artisan.craftId or NO_CRAFT
+    return f"by-workshop/{workshop.id}/crafts/{craft}/artisans/{artisan.id}"
+
+
+async def _locate_path(record_type: str, record_id: str, scope: Scope) -> str | None:
+    kind = (record_type or "").strip().lower()
+
+    if kind == "workshop":
+        found = await db.workshop.find_first(where=_and({"id": record_id}, scope.records))
+        return f"by-workshop/{found.id}" if found else None
+
+    if kind == "artisan":
+        return await _artisan_path(record_id, scope)
+
+    if kind == "craft":
+        link = await db.workshopcraft.find_first(where={"craftId": record_id})
+        if link is None:
+            return None
+        if scope.records and not await db.workshop.find_first(
+            where=_and({"id": link.workshopId}, scope.records)
+        ):
+            return None
+        return f"by-workshop/{link.workshopId}/crafts/{record_id}"
+
+    if kind in {"product", "tool"}:
+        delegate = db.productdocumentation if kind == "product" else db.tooldocumentation
+        record = await delegate.find_first(where=_and({"id": record_id}, scope.records))
+        if record is None:
+            return None
+        owner = record.artisanId
+        if owner is None and kind == "tool":
+            link = await db.toolartisan.find_first(where={"toolId": record_id})
+            owner = link.artisanId if link else None
+        if owner is None:
+            return None
+        base = await _artisan_path(owner, scope)
+        return f"{base}/{kind}s/{record_id}" if base else None
+
+    if kind == "process":
+        process = await db.process.find_first(where=_and({"id": record_id}, scope.records))
+        if process is None or not process.productId:
+            return None
+        product_path = await _locate_path("product", process.productId, scope)
+        return f"{product_path}/processes/{record_id}" if product_path else None
+
+    if kind in {"interview", "questionnaire", "questionnaireinterview"}:
+        link = await db.questionnaireartisan.find_first(
+            where={"questionnaireInterviewId": record_id}
+        )
+        if link is None:
+            return None
+        base = await _artisan_path(link.artisanId, scope)
+        return f"{base}/questionnaire/{record_id}" if base else None
+
+    if kind in {"media", "mediafile"}:
+        media = await db.mediafile.find_first(where=_and({"id": record_id}, scope.media))
+        if media is None:
+            return None
+        # Deepest owner wins: a clip on a product belongs in the product folder, not the artisan's.
+        for owner_kind, owner_id in (
+            ("interview", media.questionnaireInterviewId),
+            ("product", media.productId),
+            ("tool", media.toolId),
+            ("artisan", media.artisanId),
+            ("craft", media.craftId),
+            ("workshop", media.workshopId),
+        ):
+            if owner_id:
+                found = await _locate_path(owner_kind, owner_id, scope)
+                if found:
+                    return found
+        # No owner at all: it can still be reached in the by-type taxonomy.
+        bucket = _TYPE_TOKEN.get(str(_ev(media.mediaType)).upper())
+        return f"by-type/{bucket}" if bucket else "by-type"
+
+    return None
+
+
+@router.get("/locate")
+async def data_locate(
+    type: str = Query(..., description="workshop | craft | artisan | product | tool | process | interview | media"),
+    id: str = Query(..., min_length=1),
+    current_user: Any = Depends(require_dataset_downloader),
+) -> dict[str, str | None]:
+    """The tree path that holds this record, or ``{"path": null}`` when nothing files it yet.
+
+    A null is not an error: a product whose artisan has never been attached to a workshop genuinely
+    has no folder, and the caller should say so rather than open the wrong one.
+    """
+    scope = await _scope_for(current_user)
+    return {"path": await _locate_path(type, id, scope)}
 
 
 @router.get("/tree")

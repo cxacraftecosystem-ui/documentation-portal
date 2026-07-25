@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
 
 import { EmptyState } from "@/components/EmptyState";
@@ -54,14 +55,77 @@ const PAGE_SIZE = 20;
 /** Filters as they were when Search was pressed — the pager must not drift with the live inputs. */
 type AppliedFilters = { q: string; place: string };
 
+/** The five result buckets, plus "all". Also the `?type=` vocabulary the dashboard links use. */
+const BUCKET_IDS = ["all", "artisans", "workshops", "products", "tools", "media"] as const;
+type BucketId = (typeof BUCKET_IDS)[number];
+
+const BUCKET_LABEL: Record<BucketId, string> = {
+  all: "Everything",
+  artisans: "Artisans",
+  workshops: "Workshops",
+  products: "Products",
+  tools: "Tools",
+  media: "Media"
+};
+
+/** Chips that switch `?type=` without losing the query already typed into the box. */
+function TypeFilter({ active, q }: { active: BucketId; q: string }) {
+  return (
+    <div className="mb-4 flex flex-wrap gap-1.5" role="group" aria-label="Filter results by record type">
+      {BUCKET_IDS.map((id) => {
+        const href = id === "all" ? `/search${q ? `?q=${encodeURIComponent(q)}` : ""}` : `/search?type=${id}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
+        return (
+          <Link
+            key={id}
+            href={href}
+            aria-current={active === id ? "page" : undefined}
+            className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+              active === id
+                ? "border-purple-700 bg-purple-700 text-white"
+                : "border-line-200 bg-surface-50 text-ink-700 hover:border-purple-300 hover:text-purple-700"
+            }`}
+          >
+            {BUCKET_LABEL[id]}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function SearchPage() {
-  const [query, setQuery] = useState("");
+  /**
+   * `?type=` narrows the page to ONE bucket, and is how the dashboard's repository totals open.
+   *
+   * A total is a question — "which 74 tools?" — and the honest answer is the list of those tools,
+   * not a page of five headings where four are empty. The filter is applied to the RENDER, not to
+   * the request: `GET /search` returns all five buckets in one round trip either way, so filtering
+   * here costs nothing and keeps "All results" a click away rather than a second query.
+   */
+  const searchParams = useSearchParams();
+  const typeParam = (searchParams.get("type") || "").toLowerCase();
+  const activeType: BucketId = (BUCKET_IDS as readonly string[]).includes(typeParam)
+    ? (typeParam as BucketId)
+    : "all";
+
+  const [query, setQuery] = useState(searchParams.get("q") ?? "");
   const [place, setPlace] = useState("");
   const [applied, setApplied] = useState<AppliedFilters | null>(null);
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<SearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Arriving from a dashboard total (or any /search?type=… link) must SHOW the list, not an empty
+  // form: the click already said what it wanted. An empty q is a valid search here — it means
+  // "everything of this type" — which is exactly what a total is asking for.
+  const arrived = useRef(false);
+  useEffect(() => {
+    if (arrived.current) return;
+    if (!typeParam && !searchParams.get("q")) return;
+    arrived.current = true;
+    setApplied({ q: (searchParams.get("q") ?? "").trim(), place: "" });
+  }, [searchParams, typeParam]);
 
   // Runs on submit (new `applied` object, even for the same text) and on every page step.
   useEffect(() => {
@@ -92,7 +156,16 @@ export default function SearchPage() {
     setApplied({ q: query.trim(), place: place.trim() });
   }
 
-  const buckets = result ? [result.artisans, result.workshops, result.products, result.tools, result.media] : [];
+  const show = (id: Exclude<BucketId, "all">) => activeType === "all" || activeType === id;
+  const buckets = result
+    ? [
+        show("artisans") ? result.artisans : [],
+        show("workshops") ? result.workshops : [],
+        show("products") ? result.products : [],
+        show("tools") ? result.tools : [],
+        show("media") ? result.media : []
+      ]
+    : [];
   const shown = buckets.reduce((sum, bucket) => sum + bucket.length, 0);
   // /search now returns a real `pageCount` (the page count of its longest bucket), so "Next" is
   // exact. The old heuristic — "some bucket exactly filled the page" — walked one page too far
@@ -117,6 +190,8 @@ export default function SearchPage() {
         </button>
       </form>
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+      <TypeFilter active={activeType} q={applied?.q ?? query} />
+
       {result && shown === 0 ? (
         <EmptyState
           title={page > 1 ? "No more results" : "No matching records"}
@@ -125,6 +200,7 @@ export default function SearchPage() {
       ) : null}
       {result ? (
         <div className="grid gap-5">
+          {show("artisans") ? (
           <ResultSection
             title="Artisans"
             items={result.artisans.map((item) => ({
@@ -136,6 +212,8 @@ export default function SearchPage() {
               href: `/artisans/${item.id}/edit`
             }))}
           />
+          ) : null}
+          {show("workshops") ? (
           <ResultSection
             title="Workshops"
             items={result.workshops.map((item) => ({
@@ -149,6 +227,8 @@ export default function SearchPage() {
               actionLabel: "Open in Workshops"
             }))}
           />
+          ) : null}
+          {show("products") ? (
           <ResultSection
             title="Products"
             items={result.products.map((item) => ({
@@ -160,6 +240,8 @@ export default function SearchPage() {
               href: `/products/${item.id}/edit`
             }))}
           />
+          ) : null}
+          {show("tools") ? (
           <ResultSection
             title="Tools"
             items={result.tools.map((item) => ({
@@ -171,6 +253,8 @@ export default function SearchPage() {
               href: `/tools/${item.id}/edit`
             }))}
           />
+          ) : null}
+          {show("media") ? (
           <ResultSection
             title="Media"
             items={result.media.map((item) => ({
@@ -186,6 +270,7 @@ export default function SearchPage() {
               actionLabel: item.url ? "Open file" : "Open in Media"
             }))}
           />
+          ) : null}
           <SearchPager page={page} shown={shown} hasMore={hasMore} loading={loading} onPage={setPage} />
         </div>
       ) : null}
