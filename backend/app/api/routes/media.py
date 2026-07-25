@@ -42,6 +42,11 @@ from app.services.records import (
     require_record,
     visibility_where,
 )
+from app.services.workshop_access import (
+    enforce_workshop_submission,
+    pin_pending_if_late,
+    stamp_workshop_submission,
+)
 from app.services.s3 import (
     abort_multipart_upload,
     complete_multipart_upload,
@@ -202,16 +207,49 @@ async def complete_media_upload(
     # resilience), but that first call may already have created the row. ``objectKey`` is unique and
     # embeds the uploader id + a per-upload uuid, so a row already present for this key IS this same
     # upload — return it instead of failing with a 500 UniqueViolationError (the bug users hit).
+    # The replay is only honoured for the row's own uploader; anyone else gets a 403.
     existing = await db.mediafile.find_unique(where={"objectKey": payload.objectKey}, include=INCLUDE)
     if existing is not None:
+        if getattr(existing, "uploadedById", None) != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This upload belongs to another user",
+            )
         return await _finish_pending_media(existing, processing_requests, current_user.id, settings)
+
+    # New row: the staged object must live under the caller's own media/<user_id>/ prefix, so a user
+    # cannot register a media row over another user's staged object.
+    _assert_owns_object(payload.objectKey, current_user)
 
     data = clean_data(payload.model_dump(exclude={"processingRequests"}))
     data = await attach_location(data)
     data["bucket"] = data.get("bucket") or settings.aws_s3_bucket
     data["url"] = data.get("url") or public_url_for_key(data["objectKey"])
     data["uploadedById"] = current_user.id
-    data.update(media_relation_data(data.get("linkedRecordType"), data.get("linkedRecordId")))
+    relation_data = media_relation_data(data.get("linkedRecordType"), data.get("linkedRecordId"))
+    if relation_data:
+        # The link maps to a typed FK — verify the target exists (mirrors /relink) so a bad id is a
+        # clean 404 instead of a ForeignKeyViolation 500 at create time.
+        delegate = _relink_delegate(str(data["linkedRecordType"]).lower())
+        if delegate is None or await delegate.find_unique(where={"id": data["linkedRecordId"]}) is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Linked record not found")
+    data.update(relation_data)
+
+    # A media upload attached to a workshop IS a workshop submission: MediaFile carries both
+    # workshopId and status, and the review routes approve media exactly like any other record — so
+    # it has to pass the gate products.py applies, or an unassigned user can push files into a
+    # restricted workshop and a recording made long after the workshop ended is never flagged for
+    # admin approval. The effective workshop is whatever `relation_data` resolved (the /complete
+    # payload has no workshopId of its own; a "workshop"-tagged upload sets it from
+    # linkedRecordId), which is why this runs after the update above and before the metadata is
+    # Json-wrapped — stamp_workshop_submission writes a plain dict into extraMetadata.
+    check = await enforce_workshop_submission(current_user, data.get("workshopId"))
+    stamp_workshop_submission(data, check=check)
+    # The column already defaults to PENDING and the payload carries no status, so seed the key the
+    # pin acts on: a late upload must be pinned to PENDING even if a client ever starts sending one.
+    data.setdefault("status", "PENDING")
+    pin_pending_if_late(data, current_user, check=check)
+
     jsonify_metadata(data)
     try:
         created = await db.mediafile.create(data=data, include=INCLUDE)
@@ -240,7 +278,11 @@ async def list_media(
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
     page, page_size, skip = normalize_pagination(page, pageSize)
-    where = visibility_where(current_user, owner_field="uploadedById")
+    where: dict[str, Any] = {}
+    # Visibility is AND-composed so the search OR (assigned below) can never overwrite it.
+    vis = await visibility_where(current_user, owner_field="uploadedById")
+    if vis:
+        where["AND"] = [vis]
     if search:
         where["OR"] = [{"originalFilename": contains(search)}, {"caption": contains(search)}, {"mimeType": contains(search)}]
     if mediaType:
@@ -342,17 +384,23 @@ async def relink_media(
 async def refine_media_transcript(
     media_id: str,
     payload: TranscriptRefineRequest,
-    _: Any = Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Refine this media file's existing transcript into a clean interviewer/interviewee conversation
     (Markdown), optionally translating it to English. On-demand and billable — the client warns the
-    user about extra cost before calling. Returns the refined text; it is not persisted, so each call
+    user about extra cost before calling, and it is restricted to the uploader or an admin (the same
+    rule as replacing the transcript). Returns the refined text; it is not persisted, so each call
     reflects the current transcript and the user stays in control of when the cost is incurred.
 
     Declared before the ``GET /{media_id}`` catch-all so the ``{media_id}/refine-transcript`` path is
     matched as this route, not swallowed by the single-segment id route.
     """
     media = await require_record(db.mediafile, media_id)
+    if not is_admin(current_user) and getattr(media, "uploadedById", None) != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only refine the transcript of media you uploaded",
+        )
     transcript = getattr(media, "transcriptText", None)
     return await refine_transcript_text(transcript, payload.translate, get_settings())
 

@@ -1,5 +1,7 @@
 package com.fieldrepository.app.data
 
+import okhttp3.ResponseBody
+import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -10,6 +12,7 @@ import retrofit2.http.PUT
 import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.Streaming
 import kotlinx.serialization.json.JsonElement
 
 interface FieldRepositoryApi {
@@ -78,6 +81,24 @@ interface FieldRepositoryApi {
         @Body body: ReviewActionRequest
     ): JsonElement
 
+    // Send back to the creator with mandatory comments (status NEEDS_REVISION). A blank `notes` is a
+    // 422 — the whole point is that the creator is told what to fix.
+    @POST("review/{type}/{id}/revise")
+    suspend fun reviseRecord(
+        @Path("type") type: String,
+        @Path("id") id: String,
+        @Body body: ReviewActionRequest
+    ): JsonElement
+
+    // Correct a record's field values from the review queue instead of bouncing it back. Leaves the
+    // status untouched unless `approve` is set. See [ReviewEditRequest] for the refused keys.
+    @POST("review/{type}/{id}/edit")
+    suspend fun editReviewedRecord(
+        @Path("type") type: String,
+        @Path("id") id: String,
+        @Body body: ReviewEditRequest
+    ): JsonElement
+
     @GET("artisans")
     suspend fun artisans(
         @Query("page") page: Int = 1,
@@ -92,6 +113,12 @@ interface FieldRepositoryApi {
 
     @POST("artisans")
     suspend fun createArtisan(@Body body: ArtisanCreateRequest): ArtisanDto
+
+    // Pre-flight duplicate check for the artisan form's Aadhaar field. Declared BEFORE `artisan(id)`
+    // only for readability — Retrofit matches on the literal path, so "lookup/aadhaar" can never be
+    // swallowed by the "{id}" route the way a server-side router would.
+    @GET("artisans/lookup/aadhaar")
+    suspend fun lookupArtisanByAadhaar(@Query("number") number: String): AadhaarLookupDto
 
     @GET("artisans/{id}")
     suspend fun artisan(@Path("id") id: String): ArtisanDetailDto
@@ -157,6 +184,11 @@ interface FieldRepositoryApi {
 
     @PATCH("workshops/{id}")
     suspend fun updateWorkshop(@Path("id") id: String, @Body body: WorkshopCreateRequest): WorkshopDetailDto
+
+    // Pre-flight for a record form: what would submitting into this workshop mean for me? Reports
+    // only — it never 403s, so a caller must treat a failure as "no answer", never as "refused".
+    @GET("workshops/{id}/submission-check")
+    suspend fun workshopSubmissionCheck(@Path("id") id: String): WorkshopSubmissionCheckDto
 
     @Multipart
     @POST("media/analyze-measurement")
@@ -225,6 +257,15 @@ interface FieldRepositoryApi {
 
     @GET("export/dataset")
     suspend fun datasetManifest(): DatasetManifestDto
+
+    // Styled relational report of the whole dataset (or a subtree) as a .xlsx workbook. Streamed so
+    // large workbooks aren't buffered entirely in memory before being written to Downloads.
+    @Streaming
+    @GET("data/report")
+    suspend fun dataReport(
+        @Query("format") format: String = "xlsx",
+        @Query("path") path: String = ""
+    ): Response<ResponseBody>
 
     // Admin-only record deletion (backend enforces is_admin).
     @DELETE("artisans/{id}")
@@ -381,4 +422,62 @@ interface FieldRepositoryApi {
         @Path("id") id: String,
         @Body body: WorkshopAssignmentBody
     ): List<WorkshopAssignmentDto>
+
+    // Grant ONE user access at a level (upsert: re-grants a REVOKED/DENIED row) without touching the
+    // rest of the roster — unlike the whole-set PUT above.
+    @POST("workshops/{id}/assignments")
+    suspend fun grantWorkshopAssignment(
+        @Path("id") id: String,
+        @Body body: WorkshopGrantBody
+    ): WorkshopAssignmentDto
+
+    @PATCH("workshops/{id}/assignments/{userId}")
+    suspend fun updateWorkshopAssignment(
+        @Path("id") id: String,
+        @Path("userId") userId: String,
+        @Body body: WorkshopAssignmentUpdateBody
+    ): WorkshopAssignmentDto
+
+    // Sets the row to REVOKED and RETURNS it — the row is the audit trail, so it is never deleted.
+    @DELETE("workshops/{id}/assignments/{userId}")
+    suspend fun revokeWorkshopAssignment(
+        @Path("id") id: String,
+        @Path("userId") userId: String
+    ): WorkshopAssignmentDto
+
+    // --- Workshop access requests (user side + the admin's cross-workshop queue) ---
+    @GET("workshops/access-levels")
+    suspend fun workshopAccessLevels(): List<WorkshopAccessLevelDto>
+
+    @POST("workshops/access-requests")
+    suspend fun requestWorkshopAccess(@Body body: WorkshopAccessRequestBody): WorkshopAccessRequestResultDto
+
+    @GET("workshops/access-requests/mine")
+    suspend fun myWorkshopAccess(): List<WorkshopAssignmentDto>
+
+    // Admin: the approval queue across ALL workshops. `statusFilter=ALL` widens it to full history.
+    @GET("workshops/access-requests")
+    suspend fun workshopAccessRequests(
+        @Query("statusFilter") statusFilter: String = "PENDING"
+    ): List<WorkshopAssignmentDto>
+
+    @POST("workshops/access-requests/{id}/decide")
+    suspend fun decideWorkshopAccess(
+        @Path("id") id: String,
+        @Body body: WorkshopAccessDecisionBody
+    ): WorkshopAssignmentDto
+
+    // --- Assigned tasks ---
+    // view=assigned (default) is "my tasks"; view=created / view=all are the admin planning views.
+    @GET("tasks")
+    suspend fun tasks(
+        @Query("view") view: String = "assigned",
+        @Query("status") status: String? = null,
+        @Query("workshopId") workshopId: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("pageSize") pageSize: Int = 100
+    ): PageResponse<TaskDto>
+
+    @PATCH("tasks/{id}")
+    suspend fun updateTask(@Path("id") id: String, @Body body: TaskUpdateBody): TaskDto
 }

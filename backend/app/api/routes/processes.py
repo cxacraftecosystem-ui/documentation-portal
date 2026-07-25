@@ -4,23 +4,31 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, status
 
 from app.core.db import db
-from app.core.deps import assert_can_delete, get_current_user
+from app.core.deps import require_record_creator, assert_can_delete, get_current_user
 from app.services.access import guard_record_edit
 from app.schemas.records import ProcessCreate, ProcessStepInput, ProcessUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
     public_encode,
     add_date_range,
+    apply_status_policy_create,
+    apply_status_policy_update,
     clean_data,
     contains,
     merge_field_provenance,
     require_record,
+    resubmit_status,
     visibility_where,
+)
+from app.services.workshop_access import (
+    enforce_workshop_submission,
+    pin_pending_if_late,
+    stamp_workshop_submission,
 )
 
 router = APIRouter(prefix="/processes", tags=["processes"])
 
-INCLUDE = {"product": True, "createdBy": True, "steps": True}
+INCLUDE = {"product": True, "createdBy": True, "steps": True, "workshop": True}
 
 
 def _encode_light(process: Any) -> dict[str, Any]:
@@ -88,6 +96,9 @@ async def list_processes(
     current_user: Any = Depends(get_current_user),
     search: str | None = None,
     productId: str | None = None,
+    craftId: str | None = None,
+    artisanId: str | None = None,
+    workshopId: str | None = None,
     statusFilter: str | None = None,
     dateFrom: datetime | None = None,
     dateTo: datetime | None = None,
@@ -95,13 +106,37 @@ async def list_processes(
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
     page, page_size, skip = normalize_pagination(page, pageSize)
-    where = visibility_where(current_user)
+    where: dict[str, Any] = {}
+    # OR-bearing conditions are collected here and combined under a single top-level "AND" so the
+    # free-text search OR and the workshop OR can never overwrite one another — nor the row-visibility
+    # filter, which joins the same AND.
+    and_filters: list[dict[str, Any]] = []
+    vis = await visibility_where(current_user)
+    if vis:
+        and_filters.append(vis)
     if search:
         where["OR"] = [{"name": contains(search)}, {"notes": contains(search)}]
     if productId:
         where["productId"] = productId
+    # The craft/artisan funnel narrows processes through their parent product.
+    product_is: dict[str, Any] = {}
+    if craftId:
+        product_is["craftId"] = craftId
+    if artisanId:
+        product_is["artisanId"] = artisanId
+    if product_is:
+        where["product"] = {"is": product_is}
+    if workshopId:
+        # Either reading counts: the process's own workshopId column, or its parent product's — which
+        # is how every process recorded before the column got its workshop.
+        and_filters.append({"OR": [
+            {"workshopId": workshopId},
+            {"product": {"is": {"workshopId": workshopId}}},
+        ]})
     if statusFilter:
         where["status"] = statusFilter
+    if and_filters:
+        where["AND"] = and_filters
     add_date_range(where, "createdAt", dateFrom, dateTo)
     total = await db.process.count(where=where)
     items = await db.process.find_many(
@@ -117,12 +152,18 @@ async def list_processes(
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_process(
     payload: ProcessCreate,
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_record_creator),
 ) -> dict[str, Any]:
     await require_record(db.productdocumentation, payload.productId)
     data = clean_data(payload.model_dump(exclude={"steps"}))
+    # Workshop entries: enforce assignment, then flag + pin a late submission for admin approval.
+    check = await enforce_workshop_submission(current_user, data.get("workshopId"))
+    stamp_workshop_submission(data, check=check)
     data["createdById"] = current_user.id
     merge_field_provenance(data, current_user, previous=None)
+    apply_status_policy_create(current_user, data)
+    # After the status policy, so a late submission outranks the submitter's own approval rights.
+    pin_pending_if_late(data, current_user, check=check)
     created = await db.process.create(data=data)
     await _sync_steps(created.id, payload.steps)
     hydrated = await db.process.find_unique(where={"id": created.id}, include=INCLUDE)
@@ -147,8 +188,19 @@ async def update_process(
     data = clean_data(payload.model_dump(exclude_unset=True, exclude={"steps"}))
     if "productId" in data:
         await require_record(db.productdocumentation, data["productId"])
+    # Moving a record into (or between) workshops is a workshop submission too, so the create-time
+    # guard can't be bypassed by PATCHing the workshop in afterwards.
+    check = None
+    if "workshopId" in data and data.get("workshopId") != process.workshopId:
+        check = await enforce_workshop_submission(current_user, data.get("workshopId"))
     await guard_record_edit(process, current_user, data, "process")
+    await apply_status_policy_update(current_user, process, data)
+    # Stamped after the edit guard (the stamp is the API's bookkeeping, never a contributor's edit)
+    # and pinned after the status policy, so an already-flagged record cannot be self-approved.
+    stamp_workshop_submission(data, check=check, record=process)
+    pin_pending_if_late(data, current_user, check=check, record=process)
     merge_field_provenance(data, current_user, previous=process)
+    resubmit_status(process, current_user, data)
     if data:
         await db.process.update(where={"id": process_id}, data=data)
     if payload.steps is not None:

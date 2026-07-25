@@ -10,7 +10,7 @@ export function Pagination({
   onPage: (page: number) => void;
 }) {
   return (
-    <div className="flex flex-col gap-2 border-t border-neutral-200 px-4 py-3 text-sm text-neutral-600 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-2 border-t border-line-200 px-4 py-3 text-sm text-ink-700 sm:flex-row sm:items-center sm:justify-between">
       <span>
         Page {pages ? page : 0} of {pages} · {total} records
       </span>

@@ -6,6 +6,7 @@ import { Share2 } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { Field, Select, TextInput } from "@/components/FormControls";
 import { PageHeader } from "@/components/PageHeader";
+import { RowActions, rowAction } from "@/components/RowActions";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
 import type {
@@ -33,11 +34,11 @@ const STATUS_STYLE: Record<string, string> = {
   PENDING: "bg-amber-100 text-amber-800",
   GRANTED: "bg-emerald-100 text-emerald-800",
   DENIED: "bg-red-100 text-red-700",
-  REVOKED: "bg-neutral-200 text-neutral-600"
+  REVOKED: "bg-line-200 text-ink-700"
 };
 
 function StatusPill({ status }: { status: string }) {
-  return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLE[status] ?? "bg-neutral-200"}`}>{status}</span>;
+  return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLE[status] ?? "bg-line-200"}`}>{status}</span>;
 }
 
 function tierAtLeast(tier: DataAccessTier, min: DataAccessTier) {
@@ -192,6 +193,8 @@ export default function SharingPage() {
   }
 
   async function decide(grant: DataAccessGrant, status: "GRANTED" | "DENIED", tier?: DataAccessTier) {
+    const who = grant.grantee?.name ?? grant.granteeId;
+    if (status === "DENIED" && !window.confirm(`Deny ${who} access to your data?`)) return;
     await act(
       () =>
         apiFetch(`/data-access/grants/${grant.id}/decide`, {
@@ -207,24 +210,75 @@ export default function SharingPage() {
   }
 
   async function revoke(grant: DataAccessGrant) {
+    const who = grant.grantee?.name ?? grant.granteeId;
+    if (!window.confirm(`Revoke ${who}'s access to your data? They lose it immediately.`)) return;
     await act(() => apiFetch(`/data-access/grants/${grant.id}/revoke`, { method: "POST" }), "Access revoked.");
   }
 
+  // Destructive on both sides of the table: as owner it deletes a denied/revoked row, as grantee it
+  // withdraws a pending request or drops access already held. Confirm before it fires.
   async function remove(grant: DataAccessGrant) {
+    if (!window.confirm("Remove this sharing entry? This permanently deletes the grant record.")) return;
     await act(() => apiFetch(`/data-access/grants/${grant.id}`, { method: "DELETE" }), "Removed.");
   }
 
   async function downloadOwnerData(ownerId: string, ownerLabel: string) {
+    let capped = false;
     await act(async () => {
-      const manifest = await apiFetch<{ files: unknown[]; totalFiles: number; totalMedia: number }>(`/export/dataset?ownerId=${encodeURIComponent(ownerId)}`);
-      const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: "application/json" });
+      const manifest = await apiFetch<{
+        files: Array<{ path: string; url?: string | null; content?: string | null }>;
+        totalFiles: number;
+        totalMedia: number;
+        /** The server hit a per-table row cap: this archive is a prefix of the data, not all of it. */
+        truncated?: boolean;
+      }>(`/export/dataset?ownerId=${encodeURIComponent(ownerId)}`);
+      capped = Boolean(manifest.truncated);
+      // Assemble a real zip in the browser: text entries inline, media fetched from storage.
+      const { default: JSZip } = await import("jszip");
+      const zip = new JSZip();
+      const failed: string[] = [];
+      let done = 0;
+      for (const file of manifest.files) {
+        done += 1;
+        setMessage(`Preparing download… ${done}/${manifest.files.length}`);
+        if (file.content != null) {
+          zip.file(file.path, file.content);
+          continue;
+        }
+        if (!file.url) {
+          failed.push(file.path);
+          continue;
+        }
+        try {
+          const response = await fetch(file.url);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          zip.file(file.path, await response.blob());
+        } catch {
+          failed.push(file.path);
+        }
+      }
+      if (failed.length) {
+        zip.file(
+          "_failed-downloads.txt",
+          `These files could not be fetched and are not in the archive:\n\n${failed.join("\n")}`
+        );
+      }
+      const blob = await zip.generateAsync({ type: "blob" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `data-${ownerLabel.replace(/[^A-Za-z0-9]+/g, "_")}.json`;
+      a.download = `data-${ownerLabel.replace(/[^A-Za-z0-9]+/g, "_")}.zip`;
       a.click();
       URL.revokeObjectURL(url);
-    }, "Download started.");
+    }, "Download ready.");
+    // Said AFTER `act`, which writes its own success message last. A partial archive that presents
+    // itself as complete is worse than a failed one, because nobody goes back for the rest.
+    if (capped) {
+      setMessage(
+        "Download ready — but this export hit the server's row cap, so it does NOT contain all of " +
+          `${ownerLabel}'s data. Ask an admin for a full extract.`
+      );
+    }
   }
 
   const incoming = grants?.incoming ?? [];
@@ -243,10 +297,10 @@ export default function SharingPage() {
 
       {/* Tier definitions, shown so a user knows exactly what each tier confers. */}
       <section className="panel mb-5 p-4">
-        <h2 className="font-serif text-lg text-ink">Access tiers</h2>
+        <h2 className="font-display font-bold text-lg text-ink">Access tiers</h2>
         <ul className="mt-2 grid gap-2 md:grid-cols-3">
           {tiers.map((t) => (
-            <li key={t.tier} className="rounded-md border border-[#e6dfd8] bg-field-50 p-3 text-sm">
+            <li key={t.tier} className="rounded-md border border-line-200 bg-field-50 p-3 text-sm">
               <div className="font-semibold text-ink">{TIER_LABEL[t.tier]}</div>
               <div className="mt-1 text-ink-muted">{t.description}</div>
             </li>
@@ -256,7 +310,7 @@ export default function SharingPage() {
 
       {/* Request access from another researcher. */}
       <section className="panel mb-5 p-4">
-        <h2 className="font-serif text-lg text-ink">Request access to a researcher&apos;s data</h2>
+        <h2 className="font-display font-bold text-lg text-ink">Request access to a researcher&apos;s data</h2>
         <div className="mt-3 grid gap-3 md:grid-cols-[2fr_1.4fr_2fr_auto] md:items-end">
           <Field label="Researcher">
             {canPickUsers ? (
@@ -291,7 +345,7 @@ export default function SharingPage() {
 
       {/* Grant access directly — owner shares all, or a chosen subset, of their own data. */}
       <section className="panel mb-5 p-4">
-        <h2 className="font-serif text-lg text-ink">Grant access to your data</h2>
+        <h2 className="font-display font-bold text-lg text-ink">Grant access to your data</h2>
         <div className="mt-3 grid gap-3 md:grid-cols-[2fr_1.4fr_auto] md:items-end">
           <Field label="Colleague">
             <Select value={grantGranteeId} onChange={(e) => setGrantGranteeId(e.target.value)}>
@@ -338,7 +392,7 @@ export default function SharingPage() {
           </label>
         </div>
         {!grantScopeAll ? (
-          <div className="mt-2 max-h-64 overflow-y-auto rounded-md border border-[#e6dfd8] bg-field-50 p-2">
+          <div className="mt-2 max-h-64 overflow-y-auto rounded-md border border-line-200 bg-field-50 p-2">
             {loadingRecords ? (
               <p className="px-2 py-1 text-sm text-ink-muted">Loading your records…</p>
             ) : (myRecords ?? []).length === 0 ? (
@@ -363,8 +417,8 @@ export default function SharingPage() {
 
       {/* Incoming: requests and grants on MY data. */}
       <section className="panel mb-5 overflow-hidden">
-        <div className="border-b border-[#e6dfd8] p-4">
-          <h2 className="font-serif text-lg text-ink">Access to your data</h2>
+        <div className="border-b border-line-200 p-4">
+          <h2 className="font-display font-bold text-lg text-ink">Access to your data</h2>
           <p className="text-sm text-ink-muted">People who requested or hold access to data you uploaded.</p>
         </div>
         {incoming.length === 0 ? (
@@ -387,26 +441,26 @@ export default function SharingPage() {
                   <option value="COMMENT">{TIER_LABEL.COMMENT}</option>
                   <option value="EDIT">{TIER_LABEL.EDIT}</option>
                 </Select>
-                <div className="flex gap-2">
+                <RowActions>
                   {g.status === "PENDING" ? (
                     <>
                       <button className="field-button" disabled={busy} onClick={() => decide(g, "GRANTED")}>
                         Approve
                       </button>
-                      <button className="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-700" disabled={busy} onClick={() => decide(g, "DENIED")}>
+                      <button className={rowAction("danger")} disabled={busy} onClick={() => decide(g, "DENIED")}>
                         Deny
                       </button>
                     </>
                   ) : g.status === "GRANTED" ? (
-                    <button className="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-700" disabled={busy} onClick={() => revoke(g)}>
+                    <button className={rowAction("danger")} disabled={busy} onClick={() => revoke(g)}>
                       Revoke
                     </button>
                   ) : (
-                    <button className="text-sm text-ink-muted underline" disabled={busy} onClick={() => remove(g)}>
+                    <button className={rowAction("neutral")} disabled={busy} onClick={() => remove(g)}>
                       Remove
                     </button>
                   )}
-                </div>
+                </RowActions>
               </li>
             ))}
           </ul>
@@ -415,8 +469,8 @@ export default function SharingPage() {
 
       {/* Outgoing: access I hold on others' data. */}
       <section className="panel overflow-hidden">
-        <div className="border-b border-[#e6dfd8] p-4">
-          <h2 className="font-serif text-lg text-ink">Your access to others&apos; data</h2>
+        <div className="border-b border-line-200 p-4">
+          <h2 className="font-display font-bold text-lg text-ink">Your access to others&apos; data</h2>
           <p className="text-sm text-ink-muted">Data you requested or were granted access to.</p>
         </div>
         {outgoing.length === 0 ? (
@@ -434,14 +488,16 @@ export default function SharingPage() {
                   </div>
                 </div>
                 <StatusPill status={g.status} />
-                {g.status === "GRANTED" && tierAtLeast(g.tier, "DOWNLOAD") ? (
-                  <button className="field-button" disabled={busy} onClick={() => downloadOwnerData(g.ownerId, g.owner?.name ?? g.ownerId)}>
-                    Download data
+                <RowActions>
+                  {g.status === "GRANTED" && tierAtLeast(g.tier, "DOWNLOAD") ? (
+                    <button className="field-button" disabled={busy} onClick={() => downloadOwnerData(g.ownerId, g.owner?.name ?? g.ownerId)}>
+                      Download data
+                    </button>
+                  ) : null}
+                  <button className={rowAction("neutral")} disabled={busy} onClick={() => remove(g)}>
+                    {g.status === "PENDING" ? "Withdraw" : "Remove"}
                   </button>
-                ) : null}
-                <button className="text-sm text-ink-muted underline" disabled={busy} onClick={() => remove(g)}>
-                  {g.status === "PENDING" ? "Withdraw" : "Remove"}
-                </button>
+                </RowActions>
               </li>
             ))}
           </ul>

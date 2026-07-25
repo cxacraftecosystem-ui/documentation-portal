@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { ClipboardList } from "lucide-react";
 
+import { AudioPlayer } from "@/components/ui/AudioPlayer";
+import { Markdown } from "@/components/Markdown";
 import { apiFetch } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import type { ArtisanAnswer, ArtisanQuestionnaire } from "@/lib/types";
@@ -49,7 +51,7 @@ export function ArtisanQuestionnairePanel({ artisanId }: { artisanId: string }) 
     <section className="panel p-4">
       <div className="mb-2 flex items-center gap-2">
         <ClipboardList className="h-5 w-5 text-field-700" aria-hidden />
-        <h3 className="font-serif text-lg text-ink">Questionnaire answers ({data.total})</h3>
+        <h3 className="font-display font-bold text-lg text-ink">Questionnaire answers ({data.total})</h3>
       </div>
       <p className="mb-3 text-sm text-ink-muted">Only questions this artisan actually answered are shown.</p>
       {data.answered.length > 0 ? (
@@ -108,32 +110,40 @@ export function ArtisanQuestionnairePanel({ artisanId }: { artisanId: string }) 
                   <div className="mt-1 whitespace-pre-wrap text-sm text-ink-muted">{interview.notes}</div>
                 ) : null}
                 <div className="mt-2 grid gap-2">
-                  {(interview.media ?? []).map((media) => (
-                    <div key={media.id} className="rounded border border-field-200 bg-paper p-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <a
-                          href={media.url ?? "#"}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="truncate text-xs font-medium text-field-700 hover:underline"
-                        >
-                          {media.originalFilename}
-                        </a>
+                  {(interview.media ?? []).map((media) => {
+                    const isAudio = media.mediaType === "AUDIO" || media.mimeType?.startsWith("audio/");
+                    return (
+                      <div key={media.id} className="rounded border border-field-200 bg-paper p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          {isAudio && media.url ? (
+                            <span className="truncate text-xs font-medium text-ink">{media.originalFilename}</span>
+                          ) : (
+                            <a
+                              href={media.url ?? "#"}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="truncate text-xs font-medium text-field-700 hover:underline"
+                            >
+                              {media.originalFilename}
+                            </a>
+                          )}
+                          {media.transcriptText?.trim() ? (
+                            <button
+                              type="button"
+                              className="shrink-0 text-xs text-field-700 hover:underline"
+                              onClick={() => navigator.clipboard?.writeText(media.transcriptText ?? "")}
+                            >
+                              Copy transcript
+                            </button>
+                          ) : null}
+                        </div>
+                        {isAudio && media.url ? <AudioPlayer src={media.url} className="mt-2" /> : null}
                         {media.transcriptText?.trim() ? (
-                          <button
-                            type="button"
-                            className="shrink-0 text-xs text-field-700 hover:underline"
-                            onClick={() => navigator.clipboard?.writeText(media.transcriptText ?? "")}
-                          >
-                            Copy transcript
-                          </button>
+                          <Markdown text={media.transcriptText ?? ""} className="mt-1" />
                         ) : null}
                       </div>
-                      {media.transcriptText?.trim() ? (
-                        <div className="mt-1 whitespace-pre-wrap text-xs text-ink-muted">{media.transcriptText}</div>
-                      ) : null}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ))}

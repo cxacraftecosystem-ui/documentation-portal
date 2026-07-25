@@ -2,7 +2,7 @@ import { Archive } from "lucide-react";
 
 export function EmptyState({ title, body }: { title: string; body?: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-[#e6dfd8] bg-field-100 px-6 py-10 text-center">
+    <div className="rounded-xl border border-dashed border-line-200 bg-field-100 px-6 py-10 text-center">
       <div className="mx-auto mb-3 grid h-11 w-11 place-items-center rounded-full bg-field-200 text-field-600">
         <Archive className="h-5 w-5" aria-hidden />
       </div>

@@ -10,8 +10,9 @@ both talk to it. Nothing needs to run on the researcher's machine except the app
 
 ### Android app
 
-1. **Get the APK** to each researcher: `android/app/build/outputs/apk/debug/app-debug.apk`
-   (share via Drive / WhatsApp / email / USB).
+1. **Get the app**: existing installs self-update — the master admin publishes a signed release
+   from inside the app ("Push update to all") and every device picks it up on next launch. For a
+   FIRST install, share the current signed release APK (Drive / WhatsApp / email / USB).
 2. **Install a non-Play APK** (one-time per device): when they tap the file, Android asks to
    allow installs from that app (Files / Chrome / WhatsApp, whichever opened it):
    - Tap the APK → "For your security, your phone is not allowed to install unknown apps from
@@ -22,22 +23,23 @@ both talk to it. Nothing needs to run on the researcher's machine except the app
 4. **Internet** is required (the app calls the AWS API). Works on Wi-Fi or mobile data, anywhere
    — it is no longer tied to a local network.
 
-No other settings. It is a **debug build** (fine for internal distribution). For a Play Store
-listing you'd produce a signed **release** build instead.
+No other settings. Installs are **signed release builds** distributed over the app's built-in
+OTA update channel; only the very first install is side-loaded.
 
 ### Web app
 
 Once Vercel is configured (see DEPLOY_AWS.md §8.3), researchers just open the Vercel URL in a
-browser and sign in. **Important:** the web app is HTTPS and the API is currently HTTP, so until
-the API has TLS (a domain + cert) browsers will block the calls (mixed content). The **Android app
-is unaffected**.
+browser and sign in. The API is served over **HTTPS through CloudFront**
+(`https://d2b34i3e92al6i.cloudfront.net/api/`), so there is no mixed-content problem.
 
 ---
 
 ## How researchers get an account (two options)
 
-- **Google sign-in (easiest):** tapping *Continue with Google* auto-creates a **RESEARCHER**
-  account on first sign-in. Requires the app/web origin to be registered in Google Cloud (below).
+- **Google sign-in (easiest):** tapping *Continue with Google* auto-creates an account on first
+  sign-in at the **lowest tier (Crowdsource Volunteer)**; an admin then promotes them to Field
+  Contributor / Researcher / Professor as appropriate. Requires the app/web origin to be
+  registered in Google Cloud (below).
 - **Email + password:** an **admin** creates the account from the **Users** screen, then shares
   the credentials. (There is no public self-signup for email/password.)
 
@@ -75,7 +77,14 @@ Until these are registered, use **email/password** accounts.
 
 ## Roles
 
+Six tiers, highest to lowest — each includes everything below it:
+
+- **MASTER_ADMIN** — whoever signs in as `MASTER_ADMIN_EMAIL`; everything, including settings and
+  publishing app updates.
+- **ADMIN** — manage users below their tier, review, and **edit and delete any record** (the red
+  *Danger zone → Delete* button on the edit screen, Android and web).
+- **PROFESSOR** — review submissions, manage crafts/workshops/questionnaire, download datasets.
 - **RESEARCHER** — create and edit their own records; contribute fields to others' records.
-- **ADMIN / MASTER_ADMIN** — everything, plus **edit and delete any record** (the red *Danger
-  zone → Delete* button on the edit screen, Android and web), manage users, and manage the
-  questionnaire. `MASTER_ADMIN` is whoever signs in as `MASTER_ADMIN_EMAIL`.
+- **FIELD_CONTRIBUTOR** — capture-focused: create records and upload media; edit only their own.
+- **CROWDSOURCE_VOLUNTEER** — the default for new Google sign-ins: upload media, answer
+  questionnaires, comment.

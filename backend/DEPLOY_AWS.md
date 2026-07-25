@@ -78,17 +78,43 @@ After=network.target
 User=ubuntu
 WorkingDirectory=/home/ubuntu/app/backend
 EnvironmentFile=/home/ubuntu/app/backend/.env
-ExecStart=/home/ubuntu/app/backend/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+# ONE worker, bound to localhost (nginx fronts it). Two workers reintroduced the
+# SIGKILL/orphaned-Prisma-engine 500 outage (commit 44923bc); the media queue runs in its own
+# service below, so the web process must have MEDIA_QUEUE_WORKER_ENABLED=false in .env.
+Environment=MEDIA_QUEUE_WORKER_ENABLED=false
+ExecStart=/home/ubuntu/app/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+KillMode=control-group
 Restart=always
-RestartSec=3
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`/etc/systemd/system/fieldrepo-queue.service` (the media/transcription queue, decoupled from the
+web process so ffmpeg + AI work never blocks requests):
+
+```ini
+[Unit]
+Description=Field Repository media queue worker
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/app/backend
+EnvironmentFile=/home/ubuntu/app/backend/.env
+ExecStart=/home/ubuntu/app/backend/.venv/bin/python -m app.worker
+KillMode=control-group
+Restart=always
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
 ```
 
 ```bash
-sudo systemctl daemon-reload && sudo systemctl enable --now fieldrepo
-sudo systemctl status fieldrepo
+sudo systemctl daemon-reload && sudo systemctl enable --now fieldrepo fieldrepo-queue
+sudo systemctl status fieldrepo fieldrepo-queue
 curl http://localhost:8000/health
 ```
 
@@ -141,20 +167,35 @@ curl http://localhost:8000/health
 
 ## 5. backend/.env template (production)
 
+Fully annotated version: `backend/.env.example`. Every variable with its default, whether it is
+required and whether it is a secret: [docs/ENVIRONMENT.md](../docs/ENVIRONMENT.md).
+
 ```dotenv
+# SESSION pooler URL (:5432) — migrations need it; the app re-routes runtime queries to the
+# transaction pooler (:6543) automatically (DATABASE_USE_TRANSACTION_POOLER, default true).
 DATABASE_URL=postgresql://...supabase-pooler...:5432/postgres   # keep Supabase
+# DATABASE_CONNECTION_LIMIT=10   # per worker; do NOT raise to 40 — that exhausted the pooler
 JWT_SECRET=<long-random>
 MASTER_ADMIN_EMAIL=you@example.com
+# DEFAULT_SIGNUP_ROLE=CROWDSOURCE_VOLUNTEER  # tier for brand-new Google sign-ins
 
-# Real S3 — leave AWS_S3_ENDPOINT UNSET so boto3 talks to AWS (it was localhost:9000 for MinIO)
+# Real S3 — leave AWS_S3_ENDPOINT UNSET so boto3 talks to AWS (it was localhost:9000 for MinIO).
+# Use the DUAL-STACK public base URL so media loads on IPv6-only mobile networks.
 AWS_ACCESS_KEY_ID=AKIA...
 AWS_SECRET_ACCESS_KEY=...
 AWS_REGION=ap-south-1
 AWS_S3_BUCKET=your-bucket
-AWS_S3_PUBLIC_BASE_URL=https://your-bucket.s3.ap-south-1.amazonaws.com
+AWS_S3_PUBLIC_BASE_URL=https://your-bucket.s3.dualstack.ap-south-1.amazonaws.com
 
+# Speech-to-text provider chain (any subset; priority: ElevenLabs -> Deepgram -> Whisper).
+# OPENAI_API_KEY also powers transcript refinement/translation.
+ELEVENLABS_API_KEY=...
+DEEPGRAM_API_KEY=...
 OPENAI_API_KEY=...
 GEMINI_API_KEYS=...,...
+
+# The web service must NOT drain the media queue (fieldrepo-queue does).
+MEDIA_QUEUE_WORKER_ENABLED=false
 
 BACKEND_CORS_ORIGINS=https://your-frontend-domain
 ```
@@ -166,11 +207,19 @@ region works.
 
 ## 6. Point the apps at it
 
-- **Android**: set `android/local.properties` → `apiBaseUrl=http://<ELASTIC_IP>:8000/api/` (or your
-  HTTPS domain), then `./gradlew.bat :app:assembleDebug` and reinstall. If you stay on plain HTTP,
-  keep `usesCleartextTraffic="true"` (already set) or front the API with nginx + TLS and use `https`.
-- **Web**: set `NEXT_PUBLIC_API_BASE_URL` (or equivalent) to the API URL and add the frontend origin
-  to `BACKEND_CORS_ORIGINS` and the bucket CORS.
+- **Android**: set `android/local.properties` → `apiBaseUrl=https://<YOUR_HTTPS_DOMAIN>/api/`, then
+  `./gradlew.bat :app:assembleDebug` and reinstall. **Plain `http://` to a production host no longer
+  works**: the manifest sets `android:usesCleartextTraffic="false"` and
+  `res/xml/network_security_config.xml` permits cleartext only for `10.0.2.2`, `127.0.0.1` and
+  `localhost`, so an `http://<ELASTIC_IP>:8000/api/` call fails with a
+  `CLEARTEXT communication not permitted` error. Front the API with TLS (CloudFront, or nginx +
+  certbot per §7) and use `https`. Developing against a LAN backend from a real phone: add your
+  machine's private IP as an extra `<domain>` in the network security config **temporarily**, and do
+  not commit it. Rationale in [docs/SECURITY.md](../docs/SECURITY.md) §1.4.
+- **Web**: set `NEXT_PUBLIC_API_URL` to the API **origin only** — `https://d2b34i3e92al6i.cloudfront.net`,
+  with no `/api` suffix and no trailing slash, because `frontend/lib/api.ts` appends `/api` itself.
+  Then add the frontend origin to `BACKEND_CORS_ORIGINS` and to the bucket CORS. Full runbook:
+  [docs/DEPLOYMENT_VERCEL.md](../docs/DEPLOYMENT_VERCEL.md).
 
 ---
 
@@ -184,7 +233,8 @@ sudo apt install -y nginx certbot python3-certbot-nginx
 sudo certbot --nginx -d api.yourdomain.com
 ```
 
-Then the API is `https://api.yourdomain.com/api/` and you can drop the cleartext allowance.
+Then the API is `https://api.yourdomain.com/api/`, which is what the Android app already requires —
+no change to the network security config is needed.
 
 ---
 
@@ -242,14 +292,24 @@ the workflow logs or a command line.
 
 ### 8.3 Vercel (frontend)
 
+> Full step-by-step runbook — import, env vars, preview vs production, custom domain, redeploy,
+> troubleshooting — is **[docs/DEPLOYMENT_VERCEL.md](../docs/DEPLOYMENT_VERCEL.md)**. The summary
+> below is what matters from the backend's point of view.
+
 The Vercel project is linked to this GitHub repo (same account), so each push to
 `main` auto-deploys. In the Vercel project settings:
 
-- **Root Directory:** `frontend` (this is a monorepo; `frontend/vercel.json`
-  pins the Next.js framework).
+- **Root Directory:** `frontend` (this is a monorepo; `frontend/vercel.json` pins the Next.js
+  framework, `npm ci` install and `next build`). Leaving it at the repo root fails the build with
+  "No Next.js version detected".
 - **Environment variables:** `NEXT_PUBLIC_API_URL = https://d2b34i3e92al6i.cloudfront.net` — the
-  **origin only, without** `/api` (the web client appends `/api` itself). Also set
-  `NEXT_PUBLIC_GOOGLE_CLIENT_ID = …`.
+  **origin only, without** `/api` and without a trailing slash (the web client appends `/api`
+  itself; `…/api` produces `…/api/api/…` and every screen 404s). Also set
+  `NEXT_PUBLIC_APP_URL = https://<your-project>.vercel.app`, plus the optional
+  `NEXT_PUBLIC_GOOGLE_CLIENT_ID` and `NEXT_PUBLIC_MAPTILER_API_KEY`.
+- **Redeploy after any env change.** `NEXT_PUBLIC_*` values are inlined into the bundle at build
+  time, so editing them in the dashboard changes nothing until a fresh build runs (redeploy with
+  the build cache disabled).
 - **Mixed content:** an HTTPS Vercel page cannot call an HTTP API — browsers block it. The API is now
   fronted by **CloudFront over HTTPS** (`https://d2b34i3e92al6i.cloudfront.net`, dual-stack), so use
   that `https://…` value above and the block is gone. (Hitting the raw EC2 origin over `http://…`
@@ -257,7 +317,9 @@ The Vercel project is linked to this GitHub repo (same account), so each push to
 - **Google sign-in:** add the Vercel origin to the Google OAuth web client's *Authorized JavaScript
   origins*, or the GSI button returns 403.
 - Add the resulting Vercel URL to `BACKEND_CORS_ORIGINS` (in `BACKEND_ENV`) and to
-  the bucket's `cors_allowed_origins` Terraform var.
+  the bucket's `cors_allowed_origins` Terraform var. Both take **exact** origins — scheme + host,
+  no trailing slash, no wildcards — so preview deployments (per-deployment hostnames) are not
+  covered by the production entry.
 
 ### 8.4 Point the Android app at the box
 

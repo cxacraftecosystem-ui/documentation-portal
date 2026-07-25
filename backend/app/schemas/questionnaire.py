@@ -55,6 +55,9 @@ class QuestionnaireInterviewCreate(APIModel):
     place: str | None = None
     language: str | None = None
     notes: str | None = None
+    # The workshop this interview was conducted at. Optional: an omitted workshopId behaves exactly as
+    # before, while a supplied one is subject to the workshop's assignment + submission-window rules.
+    workshopId: str | None = None
     status: str = "PENDING"
     recordedAt: datetime | None = None
     recordedTimezone: str = "Asia/Kolkata"
@@ -79,6 +82,7 @@ class QuestionnaireInterviewUpdate(APIModel):
     place: str | None = None
     language: str | None = None
     notes: str | None = None
+    workshopId: str | None = None
     status: str | None = None
     recordedAt: datetime | None = None
     recordedTimezone: str | None = None

@@ -13,6 +13,11 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -20,6 +25,7 @@ import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.MediaType.Companion.toMediaType
 import okio.BufferedSink
+import retrofit2.HttpException
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
@@ -38,6 +44,70 @@ import java.util.zip.ZipOutputStream
  * multipart upload (resilient/resumable, no 5 GB ceiling) that S3 stitches back into one object.
  */
 private const val MULTIPART_THRESHOLD = 64L * 1024 * 1024
+
+/** MIME type for the .xlsx report workbook (OOXML spreadsheet). */
+private const val XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+/**
+ * When a workshop actually took place, as a sortable ISO-8601 timestamp.
+ *
+ * `GET /workshops` orders rows by `createdAt` like every other record list, but for a researcher in
+ * the field "the most recent workshop" means the most recent date of OCCURRENCE — so we prefer the
+ * workshop's own `startDate`, fall back to the single-day `date`, and only use `createdAt` when the
+ * row carries neither. Every value is ISO-8601, so lexicographic ordering is chronological.
+ */
+fun WorkshopDetailDto.occurrenceDate(): String = startDate ?: date ?: createdAt ?: ""
+
+/** Reader for API error bodies only — lenient, because a failing server can return anything. */
+private val errorBodyJson = Json { ignoreUnknownKeys = true; isLenient = true }
+
+/**
+ * The message the API meant the user to read; failing that, the exception's own text, and only then
+ * [fallback]. Never swallows a gateway/transport failure ("HTTP 504 Gateway Time-out", "Unable to
+ * resolve host") behind a generic sentence — that text is the one clue that the save never landed.
+ *
+ * Retrofit collapses every non-2xx response into an `HttpException` whose `message` is just
+ * "HTTP 409 Conflict" — nothing a researcher can act on when what they need to know is WHICH artisan
+ * already holds the Aadhaar number they typed. FastAPI puts the usable text in `detail`, in one of
+ * three shapes, all unwrapped here:
+ *
+ * - a plain string, from `raise HTTPException(detail="…")`;
+ * - an object carrying a `message`, e.g. the artisan identity 409, whose message names the existing
+ *   artisan and their place;
+ * - a list of Pydantic validation errors (422), where each `msg` holds the field validator's own
+ *   wording ("That Aadhaar number fails its checksum…") behind a "Value error, " prefix worth
+ *   stripping. Those messages are written for the person filling the form, so they are surfaced
+ *   verbatim rather than replaced with something generic.
+ *
+ * Retrofit buffers the error body, but reading it CONSUMES the buffer — call this once per failure.
+ */
+fun Throwable.apiErrorMessage(fallback: String): String {
+    val plain = message?.takeIf { it.isNotBlank() } ?: fallback
+    // Not an HTTP failure at all (no connection, timeout, serialization): the platform message is all
+    // there is, and it is more informative than anything this function could invent.
+    val http = this as? HttpException ?: return plain
+    val raw = runCatching { http.response()?.errorBody()?.string() }.getOrNull()
+    if (raw.isNullOrBlank()) return plain
+    val detail = (runCatching { errorBodyJson.parseToJsonElement(raw) }.getOrNull() as? JsonObject)
+        ?.get("detail")
+        ?: return plain
+    return detailMessage(detail) ?: plain
+}
+
+/** Pull the human-readable text out of whichever `detail` shape FastAPI returned. */
+private fun detailMessage(detail: JsonElement): String? = when (detail) {
+    is JsonPrimitive -> detail.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+    is JsonObject -> (detail["message"] as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+    is JsonArray -> detail
+        .mapNotNull { entry ->
+            ((entry as? JsonObject)?.get("msg") as? JsonPrimitive)?.contentOrNull
+                ?.removePrefix("Value error, ")?.trim()?.takeIf { it.isNotEmpty() }
+        }
+        .distinct()
+        .joinToString(" ")
+        .takeIf { it.isNotEmpty() }
+    else -> null
+}
 
 class FieldRepository(
     private val api: FieldRepositoryApi,
@@ -132,11 +202,69 @@ class FieldRepository(
     suspend fun recordRevisions(recordType: String, recordId: String): List<RecordRevisionDto> =
         api.recordRevisions(recordType, recordId)
 
-    // --- Workshop assignment (admin) ---
+    // --- Workshop assignment (admin roster for ONE workshop) ---
     suspend fun workshopAssignments(workshopId: String): List<WorkshopAssignmentDto> =
         api.workshopAssignments(workshopId)
-    suspend fun setWorkshopAssignments(workshopId: String, userIds: List<String>): List<WorkshopAssignmentDto> =
-        api.setWorkshopAssignments(workshopId, WorkshopAssignmentBody(userIds))
+
+    /**
+     * Replace the whole roster. Everyone in [userIds] becomes GRANTED; everyone dropped is REVOKED
+     * (not deleted, so "X had access until Y removed them" survives). An EMPTY set therefore revokes
+     * everybody, which — with no granted admin row left — reopens the workshop to all.
+     */
+    suspend fun setWorkshopAssignments(workshopId: String, userIds: List<String>, accessLevel: String? = null): List<WorkshopAssignmentDto> =
+        api.setWorkshopAssignments(workshopId, WorkshopAssignmentBody(userIds, accessLevel))
+
+    /** Grant one user access at a level without disturbing the rest of the roster (upsert). */
+    suspend fun grantWorkshopAccess(workshopId: String, userId: String, accessLevel: String, note: String? = null): WorkshopAssignmentDto =
+        api.grantWorkshopAssignment(workshopId, WorkshopGrantBody(userId = userId, accessLevel = accessLevel, note = note?.blankToNull()))
+
+    /** Raise/lower one roster row's level, and/or set it GRANTED | DENIED | REVOKED. */
+    suspend fun updateWorkshopAccess(workshopId: String, userId: String, accessLevel: String? = null, status: String? = null, note: String? = null): WorkshopAssignmentDto =
+        api.updateWorkshopAssignment(
+            workshopId,
+            userId,
+            WorkshopAssignmentUpdateBody(accessLevel = accessLevel, status = status, note = note?.blankToNull())
+        )
+
+    suspend fun revokeWorkshopAccess(workshopId: String, userId: String): WorkshopAssignmentDto =
+        api.revokeWorkshopAssignment(workshopId, userId)
+
+    // --- Workshop access requests (user side + admin queue) ---
+    suspend fun workshopAccessLevels(): List<WorkshopAccessLevelDto> = api.workshopAccessLevels()
+
+    /** Ask for access to several workshops at once. Idempotent per workshop; see the outcomes list. */
+    suspend fun requestWorkshopAccess(workshopIds: List<String>, accessLevel: String?, note: String?): WorkshopAccessRequestResultDto =
+        api.requestWorkshopAccess(
+            WorkshopAccessRequestBody(
+                workshopIds = workshopIds,
+                accessLevel = accessLevel?.blankToNull(),
+                note = note?.blankToNull()
+            )
+        )
+
+    /** Every workshop-access row belonging to me: held, waiting, and refused — not just the pending ones. */
+    suspend fun myWorkshopAccess(): List<WorkshopAssignmentDto> = api.myWorkshopAccess()
+
+    /** Admin: the PENDING approval queue across ALL workshops (oldest first). */
+    suspend fun workshopAccessQueue(statusFilter: String = "PENDING"): List<WorkshopAssignmentDto> =
+        api.workshopAccessRequests(statusFilter)
+
+    /** Admin: answer a PENDING request. [status] is GRANTED or DENIED; anything else is a 422. */
+    suspend fun decideWorkshopAccess(requestId: String, status: String, accessLevel: String? = null, note: String? = null): WorkshopAssignmentDto =
+        api.decideWorkshopAccess(
+            requestId,
+            WorkshopAccessDecisionBody(status = status, accessLevel = accessLevel, note = note?.blankToNull())
+        )
+
+    // --- Assigned tasks ---
+
+    /** My to-do list. [view] "created"/"all" are admin-only planning views and 403 for everyone else. */
+    suspend fun tasks(view: String = "assigned", status: String? = null): List<TaskDto> =
+        api.tasks(view = view, status = status?.blankToNull()).items
+
+    /** Assignee-side update: move the status and/or report how much is done. */
+    suspend fun updateTaskProgress(taskId: String, status: String? = null, progressCount: Int? = null): TaskDto =
+        api.updateTask(taskId, TaskUpdateBody(status = status, progressCount = progressCount))
 
     /** Records awaiting review (status PENDING), newest first, across record types. */
     suspend fun pendingReviews(): List<PendingReviewDto> = api.pendingReviews().items
@@ -149,6 +277,23 @@ class FieldRepository(
     /** Reject a pending record (admins, or users granted the review permission). */
     suspend fun rejectRecord(recordType: String, recordId: String) {
         api.rejectRecord(recordType, recordId, ReviewActionRequest())
+    }
+
+    /** Send a record back to its creator. [notes] is mandatory — the API 422s on a blank one. */
+    suspend fun reviseRecord(recordType: String, recordId: String, notes: String) {
+        api.reviseRecord(recordType, recordId, ReviewActionRequest(notes = notes))
+    }
+
+    /**
+     * Reviewer edit: fix the record's values in place rather than bouncing it back. Only the keys in
+     * [fields] are written and the status is left alone, so this is never a back-door approval.
+     */
+    suspend fun editReviewedRecord(recordType: String, recordId: String, fields: Map<String, String>, note: String?) {
+        api.editReviewedRecord(
+            recordType,
+            recordId,
+            ReviewEditRequest(fields = fields, note = note?.blankToNull())
+        )
     }
 
     // --- Over-the-air app update ---
@@ -280,9 +425,43 @@ class FieldRepository(
 
     suspend fun workshops(): List<WorkshopDetailDto> = api.workshops(pageSize = 100).items
 
+    /**
+     * The workshops this user can SEE — `GET /workshops` is scoped by row visibility — ordered by
+     * date of occurrence, most recent first. This is the single source of truth for every record
+     * form's workshop dropdown: the list order is what the picker shows, and its first entry is the
+     * one pre-selected when creating a new record.
+     *
+     * Visible is NOT the same as submittable. The API separately 403s a submission into a workshop
+     * that has assignments the user is not part of, and flags a submission made outside the
+     * workshop's [startDate, endDate] window as needing admin approval — neither of which this list
+     * filters out. `GET /workshops/{id}/submission-check` is the pre-flight for both.
+     */
+    suspend fun workshopsByOccurrence(): List<WorkshopDetailDto> =
+        workshops().sortedByDescending { it.occurrenceDate() }
+
+    /**
+     * The pre-flight above: what submitting a record into [workshopId] would mean for this user.
+     *
+     * Returns null instead of throwing when the answer cannot be had — the endpoint is missing, the
+     * phone is offline, or the server hiccupped. A record form MUST read null as "no answer" and let
+     * the save proceed: a researcher standing in a field must never lose an entry to a failed
+     * courtesy request. The endpoint itself never 403s, so a real refusal always arrives as
+     * `canSubmit = false` inside a successful response.
+     */
+    suspend fun workshopSubmissionCheck(workshopId: String): WorkshopSubmissionCheckDto? =
+        runCatching { api.workshopSubmissionCheck(workshopId) }.getOrNull()
+
     suspend fun createArtisan(body: ArtisanCreateRequest): ArtisanDto = api.createArtisan(body)
 
     suspend fun artisan(id: String): ArtisanDetailDto = api.artisan(id)
+
+    /**
+     * Is this Aadhaar number already on an artisan? The form's pre-flight duplicate check, run while
+     * the researcher is still typing so a duplicate surfaces before the whole form is filled in rather
+     * than as a 409 on save. [number] may be typed with spacing; the API normalises it.
+     */
+    suspend fun lookupArtisanByAadhaar(number: String): AadhaarLookupDto =
+        api.lookupArtisanByAadhaar(number.trim())
 
     suspend fun updateArtisan(id: String, body: ArtisanCreateRequest): ArtisanDetailDto = api.updateArtisan(id, body)
 
@@ -347,17 +526,34 @@ class FieldRepository(
                 onProgress(index + 1, total)
             }
         }
-        val location = persistZipToDownloads(context, tmp, zipName)
+        val location = persistFileToDownloads(context, tmp, zipName, "application/zip")
         tmp.delete()
         DatasetDownloadResult(displayLocation = location, saved = total - failed, total = total, failed = failed)
     }
 
-    /** Copy the built zip into the public Downloads collection (MediaStore on Q+, file path below). */
-    private fun persistZipToDownloads(context: Context, source: File, name: String): String {
+    /**
+     * Download the styled .xlsx relational report of the entire dataset straight into the public
+     * Downloads folder (same MediaStore path the dataset zip uses) and return where it was saved.
+     */
+    suspend fun downloadReport(context: Context): String = withContext(Dispatchers.IO) {
+        val response = api.dataReport(format = "xlsx", path = "")
+        if (!response.isSuccessful) throw IllegalStateException("Report request failed (HTTP ${response.code()})")
+        val body = response.body() ?: throw IllegalStateException("The report response was empty")
+        val stamp = DateTimeFormatter.ofPattern("ddMMyyyyHHmmss").withZone(ZoneId.systemDefault()).format(Instant.now())
+        val name = "FieldRepository_report_$stamp.xlsx"
+        val tmp = File(context.cacheDir, name)
+        body.byteStream().use { input -> FileOutputStream(tmp).use { out -> input.copyTo(out) } }
+        val location = persistFileToDownloads(context, tmp, name, XLSX_MIME)
+        tmp.delete()
+        location
+    }
+
+    /** Copy a built file into the public Downloads collection (MediaStore on Q+, file path below). */
+    private fun persistFileToDownloads(context: Context, source: File, name: String, mimeType: String): String {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, name)
-                put(MediaStore.Downloads.MIME_TYPE, "application/zip")
+                put(MediaStore.Downloads.MIME_TYPE, mimeType)
                 put(MediaStore.Downloads.IS_PENDING, 1)
             }
             val resolver = context.contentResolver
@@ -893,8 +1089,21 @@ class FieldRepository(
         synced
     }
 
+    /**
+     * An artisan queued by a build that predates the identity fields carries no Pehchan answer at all,
+     * and the API refuses a create that claims a card without giving its number. One such entry would
+     * 422 on every sync pass — and because the outbox stops at the first failure, it would block every
+     * record queued behind it indefinitely. Replaying it as "no card recorded" gets the field capture
+     * safely onto the server, where the researcher can correct the answer on the record itself.
+     */
+    private fun withIdentityAnswer(body: ArtisanCreateRequest): ArtisanCreateRequest =
+        if (body.pehchanCardAvailable != null) body
+        else body.copy(pehchanCardAvailable = body.pehchanCardNumber != null)
+
     private suspend fun createFromEntry(entry: PendingEntry): String = when (entry.type) {
-        "artisan" -> api.createArtisan(offlineJson.decodeFromString<ArtisanCreateRequest>(entry.payloadJson)).id
+        "artisan" -> api.createArtisan(
+            withIdentityAnswer(offlineJson.decodeFromString<ArtisanCreateRequest>(entry.payloadJson))
+        ).id
         "product" -> api.createProduct(offlineJson.decodeFromString<ProductCreateRequest>(entry.payloadJson)).id
         "tool" -> api.createTool(offlineJson.decodeFromString<ToolCreateRequest>(entry.payloadJson)).id
         "workshop" -> api.createWorkshop(offlineJson.decodeFromString<WorkshopCreateRequest>(entry.payloadJson)).id

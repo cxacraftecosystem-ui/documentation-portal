@@ -15,6 +15,35 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Ordered by preference. Safari/iOS cannot record WebM at all (it produces audio/mp4), so hardcoding
+// "audio/webm" there yields a file whose extension and MIME lie about its contents — which breaks
+// both playback and server-side transcription. Ask MediaRecorder what it actually supports instead.
+const AUDIO_RECORDER_MIME_TYPES = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/mp4;codecs=mp4a.40.2",
+  "audio/mp4",
+  "audio/ogg;codecs=opus",
+  "audio/ogg"
+];
+
+/** The best container this browser can record, or null to let MediaRecorder pick its own default. */
+export function pickAudioRecorderMimeType(): string | null {
+  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") return null;
+  return AUDIO_RECORDER_MIME_TYPES.find((type) => MediaRecorder.isTypeSupported(type)) ?? null;
+}
+
+/** File extension for a recorded blob's REAL mime type (recorder.mimeType), never a guess. */
+export function audioExtensionForMimeType(mimeType: string | null | undefined): string {
+  const type = (mimeType ?? "").toLowerCase();
+  if (type.includes("webm")) return "webm";
+  if (type.includes("mp4") || type.includes("m4a") || type.includes("aac")) return "m4a";
+  if (type.includes("ogg") || type.includes("opus")) return "ogg";
+  if (type.includes("wav")) return "wav";
+  if (type.includes("mpeg") || type.includes("mp3")) return "mp3";
+  return "webm";
+}
+
 /**
  * PUT a file to object storage with real byte-level progress, via XHR (fetch cannot report upload
  * progress). Reports (loaded, total) so the caller can drive a progress bar + ETA.
@@ -61,8 +90,8 @@ export async function uploadMediaFile({
   onProgress
 }: {
   file: File;
-  linkedRecordType?: string;
-  linkedRecordId?: string;
+  linkedRecordType?: string | null;
+  linkedRecordId?: string | null;
   caption?: string;
   location?: unknown;
   extraMetadata?: Record<string, unknown>;
@@ -160,8 +189,10 @@ export async function uploadMediaBatch({
   onProgress
 }: {
   files: File[];
-  linkedRecordType: string;
-  linkedRecordId: string;
+  // Nullable so the Miscellaneous Media page (where the linked entry is optional) can share this
+  // path instead of keeping its own upload implementation.
+  linkedRecordType?: string | null;
+  linkedRecordId?: string | null;
   caption?: string;
   location?: unknown;
   extraMetadata?: Record<string, unknown>;

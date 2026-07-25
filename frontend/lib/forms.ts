@@ -1,3 +1,5 @@
+import { useCallback, useEffect, useState } from "react";
+
 import { numberOrNull } from "@/lib/format";
 
 export function textValue(form: FormData, key: string) {
@@ -49,4 +51,28 @@ export function recordedTimezoneFromForm(form: FormData) {
 export function parseJsonMetadata(raw: FormDataEntryValue | null) {
   if (typeof raw !== "string" || !raw.trim()) return undefined;
   return JSON.parse(raw);
+}
+
+/**
+ * Dirty-state tracker for record forms. Call `markDirty` on any user change (the forms wire it to
+ * the form's onInput plus every themed-dropdown onChange and media picker); while dirty the browser
+ * warns before a full page unload. In-app navigation is guarded separately by each form's Back
+ * button + UnsavedChangesDialog. `resetDirty` after a successful save.
+ */
+export function useUnsavedChanges() {
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  const markDirty = useCallback(() => setDirty(true), []);
+  const resetDirty = useCallback(() => setDirty(false), []);
+  return { dirty, markDirty, resetDirty };
 }

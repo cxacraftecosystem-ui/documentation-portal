@@ -9,16 +9,38 @@ import { Field, TextInput } from "@/components/FormControls";
 
 const maptilerKey = process.env.NEXT_PUBLIC_MAPTILER_API_KEY;
 
-export function LocationFields() {
+/** Initial location values for edit forms (matches the API's Location payload). */
+export type LocationInitialValues = {
+  latitude?: number | string | null;
+  longitude?: number | string | null;
+  altitude?: number | string | null;
+  accuracy?: number | string | null;
+  placeName?: string | null;
+  address?: string | null;
+};
+
+function asText(value: number | string | null | undefined) {
+  return value === null || value === undefined ? "" : String(value);
+}
+
+/**
+ * "Location" card (Android `LocationEditor` parity): two centered actions — "Use current GPS"
+ * (primary) and "Pick on map" (secondary) — with the coordinate/place fields below. Pass `initial`
+ * on edit forms (the record's stored location, or null when it has none): the fields are pre-filled
+ * and the device location is NOT auto-captured on mount — capture then only happens on the explicit
+ * "Use current GPS" button. Omitting `initial` (new-record forms) keeps the silent auto-capture on
+ * mount.
+ */
+export function LocationFields({ initial }: { initial?: LocationInitialValues | null }) {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapInstance = useRef<maplibregl.Map | null>(null);
   const marker = useRef<maplibregl.Marker | null>(null);
-  const [latitude, setLatitude] = useState("");
-  const [longitude, setLongitude] = useState("");
-  const [altitude, setAltitude] = useState("");
-  const [accuracy, setAccuracy] = useState("");
-  const [placeName, setPlaceName] = useState("");
-  const [address, setAddress] = useState("");
+  const [latitude, setLatitude] = useState(asText(initial?.latitude));
+  const [longitude, setLongitude] = useState(asText(initial?.longitude));
+  const [altitude, setAltitude] = useState(asText(initial?.altitude));
+  const [accuracy, setAccuracy] = useState(asText(initial?.accuracy));
+  const [placeName, setPlaceName] = useState(initial?.placeName ?? "");
+  const [address, setAddress] = useState(initial?.address ?? "");
   const [mapOpen, setMapOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -31,26 +53,36 @@ export function LocationFields() {
   }
 
   useEffect(() => {
-    if (!mapOpen || !mapRef.current || !maptilerKey || mapInstance.current) return;
+    if (!mapOpen || !mapRef.current || !maptilerKey) return;
     const center: [number, number] = [Number(longitude) || 87.3105, Number(latitude) || 22.3149];
-    mapInstance.current = new maplibregl.Map({
+    const map = new maplibregl.Map({
       container: mapRef.current,
       style: `https://api.maptiler.com/maps/streets-v2/style.json?key=${maptilerKey}`,
       center,
       zoom: latitude && longitude ? 14 : 4
     });
-    mapInstance.current.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+    mapInstance.current = map;
+    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
     if (latitude && longitude) {
       syncMapMarker(latitude, longitude, 14);
     }
-    mapInstance.current.on("click", (event) => {
+    map.on("click", (event) => {
       const lat = event.lngLat.lat.toFixed(7);
       const lng = event.lngLat.lng.toFixed(7);
       setLatitude(lat);
       setLongitude(lng);
       syncMapMarker(lat, lng);
     });
-  }, [latitude, longitude, mapOpen]);
+    return () => {
+      // Destroy the instance when the panel closes/unmounts so reopening re-initialises cleanly.
+      marker.current?.remove();
+      marker.current = null;
+      map.remove();
+      if (mapInstance.current === map) mapInstance.current = null;
+    };
+    // Recreate only when the panel opens/closes; lat/lng are read at open time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapOpen]);
 
   function capturePreciseLocation(silent = false) {
     if (!navigator.geolocation) {
@@ -67,7 +99,7 @@ export function LocationFields() {
         setAltitude(position.coords.altitude == null ? "" : position.coords.altitude.toFixed(2));
         setAccuracy(position.coords.accuracy.toFixed(2));
         syncMapMarker(lat, lng);
-        setMessage(silent ? "Precise location populated. You can edit it or point a different place on the map." : "Precise location captured.");
+        setMessage(silent ? "Precise location populated. You can edit it or point a different place on the map." : "Location tagged: " + `${lat}, ${lng}`);
       },
       (error) => {
         if (!silent) setMessage(error.message);
@@ -77,26 +109,33 @@ export function LocationFields() {
   }
 
   useEffect(() => {
+    // Edit forms (initial provided, even as null) never auto-capture: the stored values must not be
+    // silently overwritten by the editor's current device position. Capture is button-only there.
+    if (initial !== undefined) return;
     capturePreciseLocation(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
-    <section className="grid gap-3 border-t border-[#e6dfd8] pt-4">
-      <div className="flex flex-wrap gap-2">
-        <button type="button" className="field-button-secondary" onClick={() => capturePreciseLocation(false)}>
+    <section className="grid gap-3 rounded-lg border border-line-200 bg-card p-4 shadow-sm">
+      <div>
+        <h3 className="font-display font-bold text-lg text-ink-900">Location</h3>
+        <p className="mt-1 text-sm text-ink-500">Tag where this was documented. Enter coordinates, capture a GPS fix, or drop a pin on the map.</p>
+      </div>
+      <div className="flex flex-wrap justify-center gap-2">
+        <button type="button" className="field-button" onClick={() => capturePreciseLocation(false)}>
           <LocateFixed className="h-4 w-4" aria-hidden />
-          Use precise location
+          Use current GPS
         </button>
         <button type="button" className="field-button-secondary" onClick={() => setMapOpen((value) => !value)}>
           <MapPinned className="h-4 w-4" aria-hidden />
-          Point it on map
+          Pick on map
         </button>
       </div>
-      {message ? <div className="rounded-md border border-[#e6dfd8] bg-field-100 px-3 py-2 text-sm text-ink-muted">{message}</div> : null}
+      {message ? <div className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-500">{message}</div> : null}
       {mapOpen ? (
         maptilerKey ? (
-          <div ref={mapRef} className="h-80 overflow-hidden rounded-md border border-[#d8d0c4]" />
+          <div ref={mapRef} className="h-80 overflow-hidden rounded-md border border-line-200" />
         ) : (
           <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
             Add NEXT_PUBLIC_MAPTILER_API_KEY to enable map pointing. Coordinates can still be entered manually.

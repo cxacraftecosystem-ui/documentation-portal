@@ -30,8 +30,8 @@ async def recent_for(delegate: Any, record_type: str, where: dict[str, Any]) -> 
 
 @router.get("/stats")
 async def dashboard_stats(current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    owner_where = visibility_where(current_user)
-    media_where = visibility_where(current_user, owner_field="uploadedById")
+    owner_where = await visibility_where(current_user)
+    media_where = await visibility_where(current_user, owner_field="uploadedById")
 
     artisans = await db.artisan.count(where=owner_where)
     workshops = await db.workshop.count(where=owner_where)
@@ -53,6 +53,7 @@ async def dashboard_stats(current_user: Any = Depends(get_current_user)) -> dict
         + await db.workshop.count(where=pending_where)
         + await db.productdocumentation.count(where=pending_where)
         + await db.tooldocumentation.count(where=pending_where)
+        + await db.questionnaireinterview.count(where=pending_where)
     )
 
     return jsonable_encoder(

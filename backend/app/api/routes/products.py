@@ -4,20 +4,27 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, status
 
 from app.core.db import db
-from app.core.deps import assert_can_delete, get_current_user
+from app.core.deps import require_record_creator, assert_can_delete, get_current_user
 from app.schemas.records import ProductCreate, ProductUpdate
 from app.services.access import guard_record_edit
-from app.services.workshop_access import enforce_workshop_submission, merge_extra
+from app.services.workshop_access import (
+    enforce_workshop_submission,
+    pin_pending_if_late,
+    stamp_workshop_submission,
+)
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
     public_encode,
     add_date_range,
+    apply_status_policy_create,
+    apply_status_policy_update,
     attach_location,
     clean_data,
     contains,
     decimal_to_string,
     merge_field_provenance,
     require_record,
+    resubmit_status,
     visibility_where,
 )
 
@@ -44,10 +51,14 @@ async def list_products(
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
     page, page_size, skip = normalize_pagination(page, pageSize)
-    where = visibility_where(current_user)
+    where: dict[str, Any] = {}
     # OR-bearing conditions are collected here and combined under a single top-level "AND" so that,
-    # e.g., a free-text search OR and the artisan-name OR never overwrite one another.
+    # e.g., a free-text search OR and the artisan-name OR never overwrite one another. The row-visibility
+    # filter joins the same AND, so it too is safe from being clobbered by any OR.
     and_filters: list[dict[str, Any]] = []
+    vis = await visibility_where(current_user)
+    if vis:
+        and_filters.append(vis)
     if search:
         and_filters.append({"OR": [
             {"productName": contains(search)},
@@ -103,15 +114,18 @@ async def list_products(
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_product(
     payload: ProductCreate,
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_record_creator),
 ) -> dict[str, Any]:
     data = decimal_to_string(clean_data(payload.model_dump()))
     data = await attach_location(data)
-    # Workshop entries: enforce assignment + flag out-of-window submissions for admin approval.
-    workshop_flag = await enforce_workshop_submission(current_user, data.get("workshopId"))
-    data = merge_extra(data, workshop_flag)
+    # Workshop entries: enforce assignment, then flag + pin a late submission for admin approval.
+    check = await enforce_workshop_submission(current_user, data.get("workshopId"))
+    stamp_workshop_submission(data, check=check)
     data["createdById"] = current_user.id
     merge_field_provenance(data, current_user, previous=None)
+    apply_status_policy_create(current_user, data)
+    # After the status policy, so a late submission outranks the submitter's own approval rights.
+    pin_pending_if_late(data, current_user, check=check)
     created = await db.productdocumentation.create(data=data, include=INCLUDE)
     return public_encode(created)
 
@@ -134,10 +148,17 @@ async def update_product(
     data = await attach_location(data)
     # Moving a record into (or to a different) workshop is a workshop submission too — re-check
     # assignment + window, so the create-time guard can't be bypassed by PATCHing the workshop in later.
+    check = None
     if "workshopId" in data and data.get("workshopId") != product.workshopId:
-        data = merge_extra(data, await enforce_workshop_submission(current_user, data.get("workshopId")))
+        check = await enforce_workshop_submission(current_user, data.get("workshopId"))
     await guard_record_edit(product, current_user, data, "product")
+    await apply_status_policy_update(current_user, product, data)
+    # Stamped after the edit guard (the stamp is the API's bookkeeping, never a contributor's edit)
+    # and pinned after the status policy, so an already-flagged record cannot be self-approved.
+    stamp_workshop_submission(data, check=check, record=product)
+    pin_pending_if_late(data, current_user, check=check, record=product)
     merge_field_provenance(data, current_user, previous=product)
+    resubmit_status(product, current_user, data)
     updated = await db.productdocumentation.update(where={"id": product_id}, data=data, include=INCLUDE)
     return public_encode(updated)
 

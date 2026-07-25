@@ -45,6 +45,13 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 
   if (!response.ok) {
     const detail = typeof body === "object" && body && "detail" in body ? String((body as { detail: unknown }).detail) : response.statusText;
+    if (response.status === 401 && token && typeof window !== "undefined") {
+      // A previously-valid session expired: drop the stored token and send the user to login
+      // (unless they are already there). Anonymous requests — e.g. the landing page's /me probe —
+      // sent no token, so they fail without navigating the visitor away from public pages.
+      setToken(null);
+      if (window.location.pathname !== "/login") window.location.assign("/login");
+    }
     throw new ApiError(response.status, detail, body);
   }
 

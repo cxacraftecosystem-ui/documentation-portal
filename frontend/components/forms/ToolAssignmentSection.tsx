@@ -93,7 +93,7 @@ export function ToolAssignmentSection() {
       <div className="flex items-center gap-2">
         <Link2 className="h-5 w-5 text-field-700" aria-hidden />
         <div>
-          <h2 className="font-serif text-xl text-ink">Assign a tool to multiple artisans</h2>
+          <h2 className="font-display font-bold text-xl text-ink">Assign a tool to multiple artisans</h2>
           <p className="text-sm text-ink-muted">
             Map one documented tool to several artisans — across the same or different crafts — instead of re-entering the
             same tool for each craft.
@@ -147,7 +147,7 @@ export function ToolAssignmentSection() {
           ) : (
             <ul className="flex flex-wrap gap-2">
               {assigned.map((artisan) => (
-                <li key={artisan.id} className="inline-flex items-center gap-2 rounded-full border border-[#e6dfd8] bg-field-100 px-3 py-1 text-sm text-ink">
+                <li key={artisan.id} className="inline-flex items-center gap-2 rounded-full border border-line-200 bg-field-100 px-3 py-1 text-sm text-ink">
                   <span>
                     {artisan.name}
                     {artisan.craft?.name ? ` · ${artisan.craft.name}` : ""}

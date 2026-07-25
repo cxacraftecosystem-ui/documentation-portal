@@ -1,11 +1,68 @@
+"""S3 object storage: presigned uploads, multipart uploads and object access.
+
+Security shape of this module (the full picture, including the console-side pieces, is in
+docs/SECURITY.md):
+
+* **In transit** — every AWS endpoint built here is ``https://``, so bytes are TLS-protected on the
+  browser/phone -> S3 hop as well as on the API -> S3 hop. A custom ``AWS_S3_ENDPOINT`` (MinIO) is
+  honoured verbatim; a plaintext one is logged as a warning unless it is a local dev host.
+* **At rest** — the multipart path requests SSE-S3 explicitly. The single-PUT presign path *cannot*
+  (see ``presign_put_url``), so encryption for those objects comes from the bucket's **default
+  encryption** setting, which S3 applies server-side to every object regardless of what the client
+  sends. That bucket setting is the load-bearing control; the header here is belt-and-braces.
+"""
+
+import logging
 from pathlib import PurePath
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 import boto3
 from botocore.client import Config
 
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+# Hosts where a plaintext object-storage endpoint is expected and harmless (local MinIO).
+_LOCAL_ENDPOINT_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "minio", "host.docker.internal"})
+_insecure_endpoint_warned = False
+
+
+def _warn_if_insecure_endpoint(endpoint: str | None) -> None:
+    """Log once if media bytes would travel to storage over plaintext HTTP.
+
+    Uploads go CLIENT -> storage directly (presigned URL), so a plaintext endpoint means every
+    photo, recording and transcript crosses the network unencrypted, and the presigned URL itself —
+    a bearer credential for writing that object — is exposed to anyone on the path. Local MinIO on
+    a loopback host is exempt.
+    """
+    global _insecure_endpoint_warned
+    if not endpoint or _insecure_endpoint_warned:
+        return
+    parts = urlsplit(endpoint)
+    if parts.scheme != "http":
+        return
+    if (parts.hostname or "").lower() in _LOCAL_ENDPOINT_HOSTS:
+        return
+    _insecure_endpoint_warned = True
+    logger.error(
+        "AWS_S3_ENDPOINT is plaintext HTTP (%s): media and presigned upload URLs are exposed in "
+        "transit. Point it at an https:// endpoint.",
+        endpoint,
+    )
+
+
+def _sse_params() -> dict[str, str]:
+    """Server-side-encryption parameters for uploads the API itself starts.
+
+    Empty when ``AWS_S3_SSE_ALGORITHM`` is blank — local MinIO without a KMS backend rejects the
+    header outright, and failing an upload is worse than falling back to the storage layer's own
+    at-rest behaviour in development.
+    """
+    algorithm = (get_settings().aws_s3_sse_algorithm or "").strip()
+    return {"ServerSideEncryption": algorithm} if algorithm else {}
 
 
 def _client():
@@ -26,6 +83,7 @@ def _client():
         # Dual-stack serves IPv4 too, so Wi-Fi is unaffected, and SigV4 signs the dual-stack host.
         endpoint = f"https://s3.dualstack.{settings.aws_region}.amazonaws.com"
         s3_config = {"addressing_style": "virtual"}
+    _warn_if_insecure_endpoint(endpoint)
     return boto3.client(
         "s3",
         region_name=settings.aws_region,
@@ -76,6 +134,20 @@ def public_url_for_key(object_key: str) -> str | None:
 
 
 def presign_put_url(object_key: str, mime_type: str) -> str:
+    """Presigned PUT URL for a whole (small) file, valid for 15 minutes.
+
+    **Why there is no ``ServerSideEncryption`` here, deliberately.** Adding it would put
+    ``x-amz-server-side-encryption: AES256`` into the SigV4 *signed headers*, which makes the header
+    mandatory for the client: every PUT that omits it fails with ``SignatureDoesNotMatch``. The web
+    client and the Android client both send only the headers ``/media/presign`` hands them
+    (currently ``Content-Type``), and Android builds already installed in the field can never be
+    updated retroactively — so signing the header here would break all existing uploads.
+
+    Objects uploaded this way are still encrypted at rest, by the bucket's **default encryption**
+    setting: S3 applies it server-side to every object, whatever the client sends, and it needs no
+    cooperation from the signature. docs/SECURITY.md has the exact bucket configuration (default
+    SSE-S3 + a policy denying non-TLS requests) that a human must apply in the console.
+    """
     settings = get_settings()
     return _client().generate_presigned_url(
         ClientMethod="put_object",
@@ -93,14 +165,15 @@ def create_multipart_upload(object_key: str, mime_type: str) -> str:
     """Begin an S3 multipart upload (for large files). Returns the UploadId the client uploads parts
     against; S3 stitches the parts into one object on complete, so the stored file stays whole.
 
-    Requests SSE-S3 (AES-256) server-side encryption at rest explicitly. (Buckets also have default
-    SSE-S3 since 2023, which covers the single-PUT presign path too — this makes it explicit for the
-    large-file path and is independent of the bucket setting.)"""
+    Requests server-side encryption at rest explicitly (SSE-S3 / AES-256 by default). This call is
+    made by the API with its own credentials, not presigned, so the encryption header costs the
+    client nothing — unlike the single-PUT path above. The parts themselves inherit the setting, so
+    ``presign_upload_part`` needs no encryption header either."""
     response = _client().create_multipart_upload(
         Bucket=get_settings().aws_s3_bucket,
         Key=object_key,
         ContentType=mime_type,
-        ServerSideEncryption="AES256",
+        **_sse_params(),
     )
     return str(response["UploadId"])
 

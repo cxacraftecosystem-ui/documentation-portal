@@ -5,7 +5,15 @@ from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
 from app.core.config import get_settings
-from app.core.deps import get_current_user, is_master_admin, require_admin
+from app.core.deps import (
+    ROLE_RANK,
+    get_current_user,
+    is_admin,
+    is_master_admin,
+    require_admin,
+    require_professor,
+    role_rank,
+)
 from app.core.security import hash_password
 from app.schemas.users import UserCreate, UserUpdate
 from app.services.pagination import normalize_pagination, page_payload
@@ -13,7 +21,7 @@ from app.services.records import clean_data, contains
 
 router = APIRouter(prefix="/users", tags=["users"])
 
-ALLOWED_ROLES = {"MASTER_ADMIN", "ADMIN", "RESEARCHER"}
+ALLOWED_ROLES = set(ROLE_RANK)
 
 
 def serialize_user(user: Any) -> dict[str, Any]:
@@ -23,25 +31,30 @@ def serialize_user(user: Any) -> dict[str, Any]:
 
 
 def assert_role(role: str | None, current_user: Any) -> None:
-    if role and role not in ALLOWED_ROLES:
+    """A user may assign roles at or below their own tier: admins promote to their level and
+    beneath; only the master admin can mint MASTER_ADMIN."""
+    if not role:
+        return
+    if role not in ALLOWED_ROLES:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid user role")
     if role == "MASTER_ADMIN" and not is_master_admin(current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the master admin can grant master admin")
-
-
-def assert_questionnaire_permission_change(value: bool | None, current_user: Any) -> None:
-    if value is not None and not is_master_admin(current_user):
+    if ROLE_RANK[role] > role_rank(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the master admin can grant questionnaire management access",
+            detail="You can only assign roles at or below your own tier",
         )
 
 
-def assert_privilege_change(value: bool | None, current_user: Any, label: str) -> None:
-    if value is not None and not is_master_admin(current_user):
+def assert_can_manage_target(current_user: Any, target_user: Any) -> None:
+    """Only the master admin may manage peers; everyone else manages strictly lower tiers.
+    This blocks one admin from silently rewriting another admin's account."""
+    if is_master_admin(current_user):
+        return
+    if role_rank(target_user) >= role_rank(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Only the master admin can grant {label} access",
+            detail="You can only manage users below your own tier",
         )
 
 
@@ -82,7 +95,7 @@ async def user_directory(
 
 @router.get("")
 async def list_users(
-    current_user: Any = Depends(require_admin),
+    current_user: Any = Depends(require_professor),
     search: str | None = None,
     role: str | None = None,
     page: int = Query(1, ge=1),
@@ -104,16 +117,6 @@ async def list_users(
 async def create_user(payload: UserCreate, current_user: Any = Depends(require_admin)) -> dict[str, Any]:
     role = "MASTER_ADMIN" if is_master_email(payload.email) else payload.role
     assert_role(role, current_user)
-    if payload.canManageQuestionnaire:
-        assert_questionnaire_permission_change(payload.canManageQuestionnaire, current_user)
-    if payload.canManageCrafts:
-        assert_privilege_change(payload.canManageCrafts, current_user, "craft creation")
-    if payload.canManageWorkshops:
-        assert_privilege_change(payload.canManageWorkshops, current_user, "workshop creation")
-    if payload.canReview:
-        assert_privilege_change(payload.canReview, current_user, "record review")
-    if payload.canViewProvenance:
-        assert_privilege_change(payload.canViewProvenance, current_user, "provenance viewing")
     existing = await db.user.find_unique(where={"email": payload.email.lower()})
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
@@ -142,15 +145,20 @@ async def create_user(payload: UserCreate, current_user: Any = Depends(require_a
 async def update_user(
     user_id: str,
     payload: UserUpdate,
-    current_user: Any = Depends(require_admin),
+    current_user: Any = Depends(require_professor),
 ) -> dict[str, Any]:
     assert_role(payload.role, current_user)
-    assert_questionnaire_permission_change(payload.canManageQuestionnaire, current_user)
-    assert_privilege_change(payload.canManageCrafts, current_user, "craft creation")
-    assert_privilege_change(payload.canManageWorkshops, current_user, "workshop creation")
-    assert_privilege_change(payload.canReview, current_user, "record review")
-    assert_privilege_change(payload.canViewProvenance, current_user, "provenance viewing")
     data = clean_data(payload.model_dump(exclude_unset=True))
+    if not is_admin(current_user):
+        # Professors manage the ladder, not accounts: they may promote/demote people below them
+        # (up to their own tier, per assert_role + assert_can_manage_target) but everything else —
+        # identity, passwords, privilege flags — stays admin-only.
+        extra_fields = set(data) - {"role"}
+        if extra_fields:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Professors can only change a user's role",
+            )
     if "email" in data:
         data["email"] = data["email"].lower()
     if "password" in data:
@@ -158,7 +166,26 @@ async def update_user(
     user = await db.user.find_unique(where={"id": user_id})
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if user.id == current_user.id:
+        # Self-service is limited to identity fields; nobody edits their own role or privileges.
+        privileged_fields = set(data) - {"name", "email", "passwordHash"}
+        if privileged_fields:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You cannot change your own role or privileges",
+            )
+    else:
+        assert_can_manage_target(current_user, user)
     assert_not_demoting_master(user, data.get("role"), current_user)
+    if "email" in data and data["email"] != user.email:
+        if is_master_email(data["email"]) and not is_master_admin(current_user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the master admin can assign the master admin email",
+            )
+        clash = await db.user.find_unique(where={"email": data["email"]})
+        if clash and clash.id != user_id:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
     if "email" in data and is_master_email(data["email"]):
         data["role"] = "MASTER_ADMIN"
     if data.get("role") == "MASTER_ADMIN":
@@ -181,4 +208,5 @@ async def delete_user(user_id: str, current_user: Any = Depends(require_admin)) 
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="The master admin account cannot be deleted")
     if user.id == current_user.id:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="You cannot delete your own account")
+    assert_can_manage_target(current_user, user)
     await db.user.delete(where={"id": user_id})

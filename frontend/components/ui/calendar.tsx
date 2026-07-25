@@ -7,8 +7,10 @@ import "react-day-picker/style.css";
 
 import { cn } from "@/lib/utils";
 
+// Buttons inherit color (Tailwind preflight) so the selected day's white text on the purple
+// cell flows into the day button; hover wash on selected cells is neutralized in globals.css.
 const buttonClassNames =
-  "relative flex h-9 w-9 items-center justify-center rounded-lg text-sm text-foreground transition hover:bg-accent disabled:pointer-events-none disabled:opacity-60 [&_svg]:pointer-events-none [&_svg]:shrink-0";
+  "relative flex h-9 w-9 items-center justify-center rounded-lg text-sm transition hover:bg-purple-50 disabled:pointer-events-none disabled:opacity-60 [&_svg]:pointer-events-none [&_svg]:shrink-0";
 
 export function Calendar({
   className,
@@ -21,24 +23,24 @@ export function Calendar({
   const defaultClassNames = {
     button_next: buttonClassNames,
     button_previous: buttonClassNames,
-    caption_label: "flex h-full items-center gap-2 text-sm font-medium",
-    day: "h-9 w-9 p-0 text-sm",
-    day_button: cn(buttonClassNames, "data-[selected=true]:bg-primary data-[selected=true]:text-primary-foreground"),
-    dropdown: "absolute inset-0 bg-popover opacity-0",
+    caption_label: "flex h-full items-center gap-2 text-sm font-medium text-ink-900",
+    day: "h-9 w-9 p-0 text-center text-sm text-ink-900",
+    day_button: cn(buttonClassNames, "mx-auto"),
+    dropdown: "absolute inset-0 bg-card opacity-0",
     dropdown_root:
-      "relative h-8 rounded-lg border border-input px-2 text-sm shadow-sm focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20",
+      "relative h-8 rounded-lg border border-line-200 px-2 text-sm shadow-sm focus-within:border-purple-600 focus-within:ring-2 focus-within:ring-purple-600/20",
     month: "space-y-3",
     month_caption: "flex h-9 items-center justify-center",
     months: "relative flex flex-col gap-4 sm:flex-row",
-    nav: "absolute inset-x-0 top-0 flex items-center justify-between",
-    outside: "text-muted-foreground/70",
-    range_end: "range-end",
-    range_middle: "range-middle",
-    range_start: "range-start",
-    selected: "bg-primary text-primary-foreground",
-    today: "font-semibold text-primary",
-    week_number: "h-9 w-9 p-0 text-xs font-medium text-muted-foreground/80",
-    weekday: "h-9 w-9 p-0 text-xs font-medium text-muted-foreground/80",
+    nav: "absolute inset-x-0 top-0 flex items-center justify-between text-ink-700",
+    outside: "text-ink-300",
+    range_end: "cal-edge rounded-l-none rounded-r-lg",
+    range_middle: "cal-middle !rounded-none !bg-purple-50 !text-ink-900",
+    range_start: "cal-edge rounded-l-lg rounded-r-none",
+    selected: "rounded-lg bg-purple-700 font-medium text-white",
+    today: "font-semibold [&:not([data-selected])]:text-purple-700",
+    week_number: "h-9 w-9 p-0 text-xs font-medium text-ink-500",
+    weekday: "h-9 w-9 p-0 text-xs font-medium text-ink-500",
     weeks: "w-full border-collapse",
     hidden: "invisible"
   };

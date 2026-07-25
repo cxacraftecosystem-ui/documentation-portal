@@ -9,8 +9,28 @@ import requests
 from fastapi import UploadFile
 
 from app.core.config import Settings
+from app.services import managed_secrets
 
 logger = logging.getLogger(__name__)
+
+# Provider keys are resolved through app.services.managed_secrets, NOT read off Settings, so a key
+# rotated in the Settings hub takes effect on the next call instead of the next restart. Everything
+# else (model ids, chunk sizes) still comes from Settings — those are deploy-time choices.
+#
+# The lookups below are the SYNCHRONOUS `peek_secret`, because most of them run inside
+# `asyncio.to_thread` where awaiting Prisma is impossible. That is safe only because every async
+# entry point in this module primes the cache with `refresh_if_stale()` before handing off to a
+# thread; without priming, `peek_secret` degrades to the environment value, i.e. the old behaviour.
+
+
+def _key(name: str) -> str:
+    """Effective value of a provider key, or "" when unconfigured.
+
+    Empty rather than None so a header value is always a string: if a key somehow disappears between
+    the provider-chain check and the request, the provider answers 401 and the chain falls through to
+    the next provider — far better than a TypeError crashing the whole transcription job.
+    """
+    return managed_secrets.peek_secret(name) or ""
 
 # HTTP statuses that mean "this key won't work right now" (quota, auth, bad key) -> rotate to next.
 _GEMINI_ROTATE_STATUSES = {400, 401, 403, 429, 500, 503}
@@ -34,19 +54,12 @@ def _next_gemini_start(num_keys: int) -> int:
 # ~10-minute mono segments that are transcribed sequentially and stitched back together.
 WHISPER_MAX_BYTES = 24 * 1024 * 1024
 TRANSCRIPTION_CHUNK_MS = 10 * 60 * 1000
+# Dedicated STT providers accept far larger uploads than Whisper, so they skip local chunking.
+ELEVENLABS_MAX_BYTES = 1000 * 1024 * 1024
+DEEPGRAM_MAX_BYTES = 2 * 1024 * 1024 * 1024
 
 
-def _post_openai_transcription(content: bytes, filename: str, mime_type: str, settings: Settings) -> dict[str, Any]:
-    response = requests.post(
-        "https://api.openai.com/v1/audio/transcriptions",
-        headers={"Authorization": f"Bearer {settings.openai_api_key}"},
-        data={"model": settings.openai_transcription_model, "response_format": "json"},
-        files={"file": (filename, content, mime_type or "application/octet-stream")},
-        timeout=180,
-    )
-    response.raise_for_status()
-    payload = response.json()
-    text = str(payload.get("text") or "").strip()
+def _transcription_result(text: str, payload: Any = None) -> dict[str, Any]:
     return {
         "available": True,
         "status": "COMPLETED" if text else "EMPTY",
@@ -54,6 +67,60 @@ def _post_openai_transcription(content: bytes, filename: str, mime_type: str, se
         "formattedTranscript": f"Transcript\n\n{text}" if text else "",
         "raw": payload,
     }
+
+
+def _post_openai_transcription(content: bytes, filename: str, mime_type: str, settings: Settings) -> dict[str, Any]:
+    response = requests.post(
+        "https://api.openai.com/v1/audio/transcriptions",
+        headers={"Authorization": f"Bearer {_key('OPENAI_API_KEY')}"},
+        data={"model": settings.openai_transcription_model, "response_format": "json"},
+        files={"file": (filename, content, mime_type or "application/octet-stream")},
+        timeout=180,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    text = str(payload.get("text") or "").strip()
+    return _transcription_result(text, payload)
+
+
+def _post_elevenlabs_transcription(content: bytes, filename: str, mime_type: str, settings: Settings) -> dict[str, Any]:
+    """ElevenLabs Scribe speech-to-text. Auto-detects the spoken language (important for Hindi and
+    regional-language field interviews) and accepts files up to ~1 GB, so no local chunking."""
+    response = requests.post(
+        "https://api.elevenlabs.io/v1/speech-to-text",
+        headers={"xi-api-key": _key("ELEVENLABS_API_KEY")},
+        data={"model_id": settings.elevenlabs_stt_model, "tag_audio_events": "false"},
+        files={"file": (filename, content, mime_type or "application/octet-stream")},
+        timeout=600,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    text = str(payload.get("text") or "").strip()
+    result = _transcription_result(text, None)  # word-level payload is huge; don't persist it
+    if payload.get("language_code"):
+        result["languageCode"] = payload.get("language_code")
+    return result
+
+
+def _post_deepgram_transcription(content: bytes, filename: str, mime_type: str, settings: Settings) -> dict[str, Any]:
+    """Deepgram pre-recorded STT (Nova-3 by default). ``language=multi`` enables code-switched
+    multilingual audio (e.g. Hindi + English), the norm in field interviews."""
+    response = requests.post(
+        "https://api.deepgram.com/v1/listen",
+        params={"model": settings.deepgram_stt_model, "smart_format": "true", "language": "multi"},
+        headers={
+            "Authorization": f"Token {_key('DEEPGRAM_API_KEY')}",
+            "Content-Type": mime_type or "application/octet-stream",
+        },
+        data=content,
+        timeout=600,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    channels = (payload.get("results") or {}).get("channels") or []
+    alternatives = (channels[0].get("alternatives") if channels else None) or []
+    text = str((alternatives[0].get("transcript") if alternatives else "") or "").strip()
+    return _transcription_result(text, None)
 
 
 def _split_audio_into_chunks(content: bytes) -> list[tuple[bytes, str, str]] | None:
@@ -85,8 +152,8 @@ def _split_audio_into_chunks(content: bytes) -> list[tuple[bytes, str, str]] | N
     return chunks or None
 
 
-def _transcribe_sync(content: bytes, filename: str, mime_type: str, settings: Settings) -> dict[str, Any]:
-    """Transcribe in one shot when small; otherwise chunk, transcribe sequentially, and stitch."""
+def _transcribe_whisper_sync(content: bytes, filename: str, mime_type: str, settings: Settings) -> dict[str, Any]:
+    """Whisper path: one shot when small; otherwise chunk, transcribe sequentially, and stitch."""
     if len(content) <= WHISPER_MAX_BYTES:
         return _post_openai_transcription(content, filename, mime_type, settings)
 
@@ -102,12 +169,106 @@ def _transcribe_sync(content: bytes, filename: str, mime_type: str, settings: Se
         if piece:
             pieces.append(piece)
     text = " ".join(pieces).strip()
+    result = _transcription_result(text, None)
+    result["chunks"] = len(chunks)
+    return result
+
+
+def transcription_provider_chain(settings: Settings | None = None) -> list[str]:
+    """Configured STT providers in priority order: ElevenLabs, then Deepgram, then Whisper.
+
+    ``settings`` is accepted but unused — the keys that decide the chain now come from the managed
+    secret layer, so adding a Deepgram key in the UI extends the chain immediately. The parameter is
+    kept so existing callers (and the sync transcription path, which passes it along) don't break.
+    """
+    chain: list[str] = []
+    if _key("ELEVENLABS_API_KEY"):
+        chain.append("elevenlabs")
+    if _key("DEEPGRAM_API_KEY"):
+        chain.append("deepgram")
+    if _key("OPENAI_API_KEY"):
+        chain.append("whisper")
+    return chain
+
+
+_PROVIDER_CALLS = {
+    "elevenlabs": (_post_elevenlabs_transcription, ELEVENLABS_MAX_BYTES),
+    "deepgram": (_post_deepgram_transcription, DEEPGRAM_MAX_BYTES),
+    "whisper": (_transcribe_whisper_sync, None),  # chunks internally, no hard cap
+}
+
+
+def _rate_limited_result(provider: str, response: Any, code: int) -> dict[str, Any]:
+    retry_after = None
+    if response is not None:
+        try:
+            header = response.headers.get("Retry-After")
+            retry_after = float(header) if header else None
+        except (TypeError, ValueError):
+            retry_after = None
     return {
         "available": True,
-        "status": "COMPLETED" if text else "EMPTY",
-        "text": text,
-        "formattedTranscript": f"Transcript\n\n{text}" if text else "",
-        "chunks": len(chunks),
+        "status": "RATE_LIMITED",
+        "text": None,
+        "formattedTranscript": None,
+        "retryAfter": retry_after,
+        "provider": provider,
+        "message": f"{provider} transcription rate-limited (HTTP {code}); will retry automatically.",
+    }
+
+
+def _transcribe_sync(content: bytes, filename: str, mime_type: str, settings: Settings) -> dict[str, Any]:
+    """Walk the provider chain until one produces a transcript.
+
+    A provider that hard-fails or is throttled falls through to the next; an EMPTY result is kept as
+    a fallback but the next provider still gets a chance (codecs/languages one engine can't decode are
+    sometimes fine on another). Resolution when nothing returned text: a definitive EMPTY wins (the
+    clip is silent — done); a PURE throttle (no hard failures) returns RATE_LIMITED so the queue backs
+    off without burning attempts; a throttle mixed with hard failures returns FAILED so the job's
+    normal retry/backoff applies and a permanently-broken clip still terminates after maxAttempts.
+    """
+    rate_limited: dict[str, Any] | None = None
+    empty: dict[str, Any] | None = None
+    errors: list[str] = []
+    for provider in transcription_provider_chain(settings):
+        call, max_bytes = _PROVIDER_CALLS[provider]
+        if max_bytes is not None and len(content) > max_bytes:
+            errors.append(f"{provider}: file larger than the provider limit")
+            continue
+        try:
+            result = call(content, filename, mime_type, settings)
+        except requests.HTTPError as exc:
+            response = exc.response
+            code = response.status_code if response is not None else None
+            if code in {429, 503}:
+                rate_limited = rate_limited or _rate_limited_result(provider, response, code)
+                logger.warning("%s transcription throttled (HTTP %s); trying next provider", provider, code)
+            else:
+                errors.append(f"{provider}: {exc}")
+                logger.warning("%s transcription failed (%s); trying next provider", provider, exc)
+            continue
+        except requests.RequestException as exc:
+            errors.append(f"{provider}: {exc}")
+            logger.warning("%s transcription network error (%s); trying next provider", provider, exc)
+            continue
+        if result.get("status") == "COMPLETED":
+            result["provider"] = provider
+            return result
+        if result.get("status") == "EMPTY" and empty is None:
+            result["provider"] = provider
+            empty = result
+    if empty:
+        return empty
+    if rate_limited and not errors:
+        return rate_limited
+    if rate_limited:
+        errors.append(str(rate_limited.get("message")))
+    return {
+        "available": True,
+        "status": "FAILED",
+        "text": None,
+        "formattedTranscript": None,
+        "message": "; ".join(errors) or "All transcription providers failed.",
     }
 
 
@@ -127,13 +288,19 @@ async def transcribe_audio_bytes(
     mime_type: str,
     settings: Settings,
 ) -> dict[str, Any]:
-    if not settings.openai_api_key:
+    # Prime the managed-secret cache on the event loop BEFORE any thread hop, so both the provider
+    # chain below and the header reads inside the thread see keys saved in the UI.
+    await managed_secrets.refresh_if_stale()
+    if not transcription_provider_chain(settings):
         return {
             "available": False,
             "status": "UNAVAILABLE",
             "text": None,
             "formattedTranscript": None,
-            "message": "Transcription unavailable for now because OPENAI_API_KEY is not configured.",
+            "message": (
+                "Transcription unavailable: configure ELEVENLABS_API_KEY, DEEPGRAM_API_KEY, "
+                "or OPENAI_API_KEY."
+            ),
         }
     try:
         return await asyncio.to_thread(
@@ -192,7 +359,7 @@ def _post_openai_chat(messages: list[dict[str, str]], settings: Settings) -> str
     response = requests.post(
         "https://api.openai.com/v1/chat/completions",
         headers={
-            "Authorization": f"Bearer {settings.openai_api_key}",
+            "Authorization": f"Bearer {_key('OPENAI_API_KEY')}",
             "Content-Type": "application/json",
         },
         json={
@@ -251,7 +418,7 @@ async def refine_transcript_text(
 ) -> dict[str, Any]:
     """Refine a raw transcript into a clean interviewer/interviewee conversation (Markdown), optionally
     translating it to English. Uses the configured chat model (gpt-4o-mini by default)."""
-    if not settings.openai_api_key:
+    if not await managed_secrets.get_secret("OPENAI_API_KEY"):
         return {
             "available": False,
             "status": "UNAVAILABLE",
@@ -311,7 +478,9 @@ def _measurement_prompt(dimension: str | None) -> str:
 
 
 def _post_gemini_measurement(content: bytes, mime_type: str, settings: Settings, dimension: str | None = None) -> dict[str, Any]:
-    keys = settings.gemini_api_keys
+    # Managed override first, env pool second — see managed_secrets.gemini_key_pool, which reproduces
+    # Settings.gemini_api_keys exactly when nothing is stored (single key, then the rotation list).
+    keys = managed_secrets.gemini_key_pool()
     if not keys:
         raise RuntimeError("No Gemini API key configured")
 
@@ -400,7 +569,8 @@ async def analyze_measurement_image_bytes(
     settings: Settings,
     dimension: str | None = None,
 ) -> dict[str, Any]:
-    if not settings.gemini_api_keys:
+    await managed_secrets.refresh_if_stale()  # prime before the thread hop (see _key)
+    if not managed_secrets.gemini_key_pool():
         return {
             "available": False,
             "status": "UNAVAILABLE",

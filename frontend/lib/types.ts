@@ -1,5 +1,11 @@
-export type UserRole = "MASTER_ADMIN" | "ADMIN" | "RESEARCHER";
-export type RecordStatus = "DRAFT" | "PENDING" | "APPROVED" | "REJECTED";
+export type UserRole =
+  | "MASTER_ADMIN"
+  | "ADMIN"
+  | "PROFESSOR"
+  | "RESEARCHER"
+  | "FIELD_CONTRIBUTOR"
+  | "CROWDSOURCE_VOLUNTEER";
+export type RecordStatus = "DRAFT" | "PENDING" | "APPROVED" | "REJECTED" | "NEEDS_REVISION";
 export type MediaType = "IMAGE" | "VIDEO" | "AUDIO" | "PDF" | "DOCUMENT" | "OTHER";
 
 export type PageResult<T> = {
@@ -20,6 +26,8 @@ export type User = {
   canManageQuestionnaire?: boolean;
   canManageCrafts?: boolean;
   canManageWorkshops?: boolean;
+  canReview?: boolean;
+  canViewProvenance?: boolean;
   canDownloadDataset?: boolean;
 };
 
@@ -81,6 +89,10 @@ export type Craft = {
   place?: string | null;
   recordedAt?: string | null;
   recordedTimezone?: string | null;
+  // The workshop this craft was documented at. Nullable everywhere: it was added after the join
+  // tables, so historical rows carry none. The API hydrates `workshop` alongside the scalar id.
+  workshopId?: string | null;
+  workshop?: Workshop | null;
   extraMetadata?: ExtraMetadata | null;
   createdAt?: string;
 };
@@ -95,6 +107,19 @@ export type Artisan = {
   place: string;
   address?: string | null;
   notes?: string | null;
+  /**
+   * The artisan deduplication key (UNIQUE server-side): the same person documented at two workshops
+   * resolves to one record through this column. It arrives in TWO shapes under the same name, which
+   * is why it is typed as a plain nullable string rather than as 12 digits — the artisan record
+   * itself (`GET /artisans/{id}`, i.e. the edit form) returns the FULL number, while the data
+   * browser, the .xlsx report and CSV exports return it MASKED ("XXXX XXXX 9012"). Treat any value
+   * as regulated personal data: never render it in a list, a card or an export view.
+   */
+  aadhaarNumber?: string | null;
+  /** Does the artisan hold a PM Vishwakarma Pehchan card? Defaults to true on create. */
+  pehchanCardAvailable?: boolean;
+  /** Only ever set while `pehchanCardAvailable` is true — the API nulls it whenever the answer is No. */
+  pehchanCardNumber?: string | null;
   // Newline-separated, numbered Do's (positive prompt) and Don'ts (negative prompt). Required on new
   // records; existing rows may be null until backfilled.
   dos?: string | null;
@@ -102,12 +127,46 @@ export type Artisan = {
   status: RecordStatus;
   craftId?: string | null;
   craft?: Craft | null;
+  workshopId?: string | null;
+  workshop?: Workshop | null;
   recordedAt?: string | null;
   recordedTimezone?: string | null;
   extraMetadata?: ExtraMetadata | null;
   createdById?: string;
   createdBy?: User;
   createdAt: string;
+};
+
+/**
+ * The artisan already holding an identity number. Deliberately just enough to recognise a person and
+ * navigate to them — the API returns it to a caller who already possesses the number they searched
+ * with, and nothing more than name/place/craft/workshop is needed to answer "is this the same man?".
+ */
+export type ArtisanIdentityMatch = {
+  id: string;
+  name: string;
+  place?: string | null;
+  craft?: string | null;
+  workshop?: string | null;
+};
+
+/**
+ * `GET /artisans/lookup/aadhaar` — the artisan form's pre-flight duplicate check. It never 404s:
+ * `{found: false}` is the expected, successful answer.
+ */
+export type AadhaarLookupResult = { found: boolean; artisan?: ArtisanIdentityMatch | null };
+
+/**
+ * The HTTP 409 `detail` from POST/PATCH /artisans when an identity number is already on another
+ * record. It is an object, not a string, so it must be read off `ApiError.payload` — `ApiError.message`
+ * stringifies to "[object Object]" for structured details.
+ */
+export type ArtisanIdentityConflict = {
+  code: "artisan_identity_conflict";
+  field: "aadhaarNumber" | "pehchanCardNumber";
+  message: string;
+  existingArtisan?: ArtisanIdentityMatch;
+  maskedValue?: string | null;
 };
 
 export type Workshop = {
@@ -127,6 +186,27 @@ export type Workshop = {
   createdById?: string;
   createdBy?: User;
   createdAt: string;
+};
+
+/**
+ * Answer from `GET /workshops/{id}/submission-check` — what submitting a record into one workshop
+ * would mean for the current user, asked BEFORE the record is sent.
+ *
+ * - `canSubmit` false: the workshop has assignments and the user is not one of them, so a create
+ *   would be refused with 403. Warn at select time rather than at save time.
+ * - `needsAdminApproval` true: the submission is accepted but forced to PENDING, and only an admin
+ *   or master admin may approve it. Admins never see this (they are the approval authority), so an
+ *   admin submitting late sees `outOfWindow` true with `needsAdminApproval` false.
+ */
+export type WorkshopSubmissionCheck = {
+  workshopId: string | null;
+  title?: string | null;
+  endDate?: string | null;
+  isOver: boolean;
+  outOfWindow: boolean;
+  needsAdminApproval: boolean;
+  assigned: boolean;
+  canSubmit: boolean;
 };
 
 export type MediaFile = {
@@ -180,6 +260,7 @@ export type ProductDocumentation = {
   artisanId?: string | null;
   craftId?: string | null;
   workshopId?: string | null;
+  workshop?: Workshop | null;
   media?: MediaFile[];
   extraMetadata?: ExtraMetadata | null;
   createdById?: string;
@@ -219,6 +300,7 @@ export type ToolDocumentation = {
   artisanId?: string | null;
   craftId?: string | null;
   workshopId?: string | null;
+  workshop?: Workshop | null;
   media?: MediaFile[];
   extraMetadata?: ExtraMetadata | null;
   createdById?: string;
@@ -264,6 +346,8 @@ export type QuestionnaireInterview = {
   status: RecordStatus;
   recordedAt?: string | null;
   recordedTimezone?: string | null;
+  workshopId?: string | null;
+  workshop?: Workshop | null;
   artisans?: Array<{ artisan: Artisan }>;
   responses?: QuestionnaireResponse[];
   media?: MediaFile[];
@@ -321,6 +405,25 @@ export type RecordRevision = {
   createdAt: string;
 };
 
+export type TaskStatus = "OPEN" | "IN_PROGRESS" | "DONE" | "CANCELLED";
+
+export type AssignedTask = {
+  id: string;
+  title: string;
+  description?: string | null;
+  status: TaskStatus;
+  dueAt?: string | null;
+  completedAt?: string | null;
+  recordType?: string | null;
+  recordId?: string | null;
+  assigneeId: string;
+  createdById: string;
+  assignee?: User;
+  createdBy?: User;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type WorkshopAssignment = {
   id: string;
   workshopId: string;
@@ -328,6 +431,13 @@ export type WorkshopAssignment = {
   user?: User;
   assignedBy?: User | null;
   createdAt?: string;
+  /**
+   * The row's state. `GET /workshops/{id}/assignments` returns EVERY row on the workshop — pending
+   * requests, denials and revocations included — and only GRANTED confers access. A caller building
+   * "who is assigned" must filter on this; taking every `userId` treats a refused request as a member.
+   */
+  status?: "PENDING" | "GRANTED" | "DENIED" | "REVOKED";
+  accessLevel?: string;
 };
 
 export const productTypes = ["FINISHED_GOOD", "SAMPLE", "RAW_MATERIAL", "COMPONENT", "PACKAGING", "OTHER"];

@@ -36,6 +36,17 @@ export function GridMeasurement({
       else next.delete(group);
       return next;
     });
+    if (!on) {
+      // Unchecking a group discards its captured photo (and tells the parent) so a disabled grid
+      // photo is never uploaded on save.
+      if (files[group]) {
+        const nextFiles = { ...files };
+        delete nextFiles[group];
+        setFiles(nextFiles);
+        onFilesChange(nextFiles);
+      }
+      setStatus((prev) => ({ ...prev, [group]: undefined }));
+    }
   }
 
   const isNum = (value: unknown) => value !== null && value !== undefined && Number.isFinite(Number(value)) && Number(value) > 0;
@@ -96,9 +107,9 @@ export function GridMeasurement({
   }
 
   return (
-    <section className="grid gap-3 rounded-lg border border-[#e6dfd8] bg-field-100 p-4">
+    <section className="grid gap-3 rounded-lg border border-line-200 bg-field-100 p-4">
       <div>
-        <h3 className="font-serif text-lg text-ink">Document using grid</h3>
+        <h3 className="font-display font-bold text-lg text-ink">Document using grid</h3>
         <p className="mt-1 text-sm text-ink-muted">
           Place the object on a 1-inch grid sheet. Length and breadth are read from a single top-down photo; height needs its
           own side-on photo. The measured inches auto-fill the matching field(s) (still editable).

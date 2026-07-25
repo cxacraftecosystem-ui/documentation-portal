@@ -41,7 +41,7 @@ export function CarryForwardCards({
   ];
   return (
     <section className="grid gap-3">
-      <h3 className="font-serif text-lg text-ink">{heading}</h3>
+      <h3 className="font-display font-bold text-lg text-ink">{heading}</h3>
       <div className="grid gap-3 md:grid-cols-3">
         {cards.map((card) => (
           <Link
@@ -53,7 +53,7 @@ export function CarryForwardCards({
               <card.icon className="h-5 w-5" aria-hidden />
             </span>
             <span>
-              <span className="block font-serif text-lg text-ink">{card.title}</span>
+              <span className="block font-display font-bold text-lg text-ink">{card.title}</span>
               <span className="mt-1 block text-sm leading-6 text-ink-muted">{card.body}</span>
               {context.artisanName ? <span className="mt-2 block text-xs font-semibold uppercase text-field-700">{context.artisanName}</span> : null}
             </span>

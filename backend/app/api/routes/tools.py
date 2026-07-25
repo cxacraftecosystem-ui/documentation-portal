@@ -1,23 +1,30 @@
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.db import db
-from app.core.deps import assert_can_delete, get_current_user
+from app.core.deps import require_record_creator, assert_can_delete, get_current_user, is_admin
 from app.schemas.records import ToolArtisanAssign, ToolCreate, ToolUpdate
-from app.services.access import guard_record_edit
-from app.services.workshop_access import enforce_workshop_submission, merge_extra
+from app.services.access import effective_tier_for_record, guard_record_edit
+from app.services.workshop_access import (
+    enforce_workshop_submission,
+    pin_pending_if_late,
+    stamp_workshop_submission,
+)
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
     public_encode,
     add_date_range,
+    apply_status_policy_create,
+    apply_status_policy_update,
     attach_location,
     clean_data,
     contains,
     decimal_to_string,
     merge_field_provenance,
     require_record,
+    resubmit_status,
     visibility_where,
 )
 
@@ -61,7 +68,11 @@ async def list_tools(
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
     page, page_size, skip = normalize_pagination(page, pageSize)
-    where = visibility_where(current_user)
+    where: dict[str, Any] = {}
+    # Visibility is AND-composed so the search OR (assigned below) can never overwrite it.
+    vis = await visibility_where(current_user)
+    if vis:
+        where["AND"] = [vis]
     if search:
         where["OR"] = [
             {"toolkitName": contains(search)},
@@ -103,14 +114,17 @@ async def list_tools(
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_tool(
     payload: ToolCreate,
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = Depends(require_record_creator),
 ) -> dict[str, Any]:
     data = decimal_to_string(clean_data(payload.model_dump()))
     data = await attach_location(data)
-    workshop_flag = await enforce_workshop_submission(current_user, data.get("workshopId"))
-    data = merge_extra(data, workshop_flag)
+    check = await enforce_workshop_submission(current_user, data.get("workshopId"))
+    stamp_workshop_submission(data, check=check)
     data["createdById"] = current_user.id
     merge_field_provenance(data, current_user, previous=None)
+    apply_status_policy_create(current_user, data)
+    # After the status policy, so a late submission outranks the submitter's own approval rights.
+    pin_pending_if_late(data, current_user, check=check)
     created = await db.tooldocumentation.create(data=data, include=INCLUDE)
     return public_encode(created)
 
@@ -133,10 +147,17 @@ async def update_tool(
     data = await attach_location(data)
     # Re-check workshop assignment + window if this edit moves the tool into/between workshops, so the
     # create-time guard can't be bypassed by PATCHing the workshop in afterwards.
+    check = None
     if "workshopId" in data and data.get("workshopId") != tool.workshopId:
-        data = merge_extra(data, await enforce_workshop_submission(current_user, data.get("workshopId")))
+        check = await enforce_workshop_submission(current_user, data.get("workshopId"))
     await guard_record_edit(tool, current_user, data, "tool")
+    await apply_status_policy_update(current_user, tool, data)
+    # Stamped after the edit guard (the stamp is the API's bookkeeping, never a contributor's edit)
+    # and pinned after the status policy, so an already-flagged record cannot be self-approved.
+    stamp_workshop_submission(data, check=check, record=tool)
+    pin_pending_if_late(data, current_user, check=check, record=tool)
     merge_field_provenance(data, current_user, previous=tool)
+    resubmit_status(tool, current_user, data)
     updated = await db.tooldocumentation.update(where={"id": tool_id}, data=data, include=INCLUDE)
     return public_encode(updated)
 
@@ -160,15 +181,31 @@ async def assign_tool_artisans(
     payload: ToolArtisanAssign,
     current_user: Any = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
-    """Assign the tool to the given artisans (idempotent: existing links are kept, new ones added)."""
-    await require_record(db.tooldocumentation, tool_id)
+    """Assign the tool to the given artisans (idempotent: existing links are kept, new ones added).
+
+    Permission: an admin, the tool's owner, or a collaborator holding an EDIT-tier grant on the
+    tool may assign it to any artisan; anyone else may only assign it to artisans THEY created.
+    Validation happens for the WHOLE batch before any link is written, so a rejected request never
+    leaves partial state behind."""
+    tool = await require_record(db.tooldocumentation, tool_id)
+    may_assign_any = await _may_manage_tool_links(tool, tool_id, current_user)
     existing = await db.toolartisan.find_many(where={"toolId": tool_id})
     have = {link.artisanId for link in existing}
+    to_add: list[str] = []
     for artisan_id in payload.artisanIds:
         if artisan_id and artisan_id not in have:
-            await require_record(db.artisan, artisan_id)
-            await db.toolartisan.create(data={"toolId": tool_id, "artisanId": artisan_id})
+            artisan = await require_record(db.artisan, artisan_id)
+            if not may_assign_any and getattr(artisan, "createdById", None) != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Only the tool's owner, an EDIT-grant collaborator, or an admin can "
+                    "assign this tool to artisans created by someone else; you may only assign "
+                    "it to your own artisans.",
+                )
+            to_add.append(artisan_id)
             have.add(artisan_id)
+    for artisan_id in to_add:
+        await db.toolartisan.create(data={"toolId": tool_id, "artisanId": artisan_id})
     return await _assigned_artisans(tool_id)
 
 
@@ -178,6 +215,30 @@ async def unassign_tool_artisan(
     artisan_id: str,
     current_user: Any = Depends(get_current_user),
 ) -> None:
+    """Remove a tool-artisan link. Whoever could have created the link can remove it: the tool's
+    owner, an EDIT-grant collaborator, an admin, or the artisan's own creator (so a mistaken
+    self-service link is reversible by the person who made it)."""
+    tool = await require_record(db.tooldocumentation, tool_id)
+    if not await _may_manage_tool_links(tool, tool_id, current_user):
+        artisan = await db.artisan.find_unique(where={"id": artisan_id})
+        if not artisan or getattr(artisan, "createdById", None) != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the tool's owner, the artisan's creator, an EDIT-grant collaborator, "
+                "or an admin can unassign artisans from this tool.",
+            )
     link = await db.toolartisan.find_unique(where={"toolId_artisanId": {"toolId": tool_id, "artisanId": artisan_id}})
     if link:
         await db.toolartisan.delete(where={"id": link.id})
+
+
+async def _may_manage_tool_links(tool: Any, tool_id: str, current_user: Any) -> bool:
+    """Admin, tool owner, or an EDIT-tier collaborator — the same people who may edit the tool's
+    populated fields (guard_record_edit) may manage its artisan links."""
+    if is_admin(current_user) or getattr(tool, "createdById", None) == current_user.id:
+        return True
+    owner_id = getattr(tool, "createdById", None)
+    if not owner_id:
+        return False
+    tier = await effective_tier_for_record(current_user, owner_id, "tool", tool_id)
+    return tier == "EDIT"

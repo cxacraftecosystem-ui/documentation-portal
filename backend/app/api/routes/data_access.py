@@ -141,6 +141,22 @@ async def request_access(payload: DataAccessRequestIn, current_user: Any = Depen
     owner = await db.user.find_unique(where={"id": payload.ownerId})
     if owner is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Owner not found")
+    request_note = payload.requestNote
+    existing = await db.dataaccessgrant.find_unique(
+        where={"ownerId_granteeId": {"ownerId": payload.ownerId, "granteeId": uid}}
+    )
+    if existing is not None and _status_str(existing.status) == "GRANTED":
+        # Never reset an ACTIVE grant back to PENDING: the single (owner, grantee) row means a
+        # re-request would strip the requester's WORKING access while the owner deliberates, and a
+        # deny would destroy the original tier/scope entirely. Upgrades and scope changes go
+        # through the owner, who can edit the grant in place without ever leaving GRANTED.
+        granted_tier = _tier_str(existing.tier)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"You already have an active grant ({granted_tier}) from this researcher. "
+            "To raise the tier or broaden the scope, ask the owner — they can adjust the "
+            "existing grant from their Sharing page without interrupting your access.",
+        )
     grant = await _upsert_grant(
         payload.ownerId,
         uid,
@@ -148,7 +164,7 @@ async def request_access(payload: DataAccessRequestIn, current_user: Any = Depen
         all_data=payload.allData,
         scope_items=payload.scopeItems,
         status_value="PENDING",
-        request_note=payload.requestNote,
+        request_note=request_note,
         decision_note=None,
         requested_by=uid,
         decided_by=None,
@@ -197,6 +213,12 @@ async def decide_request(grant_id: str, payload: DataAccessDecisionIn, current_u
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="status must be GRANTED or DENIED")
     _validate_tier(payload.tier)
     grant = await _require_owned_grant(grant_id, current_user)
+    if _status_str(grant.status) != "PENDING":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only a PENDING request can be decided. Use the grant edit/revoke endpoints to "
+            "change an already-decided grant.",
+        )
     grant = await _upsert_grant(
         grant.ownerId,
         grant.granteeId,

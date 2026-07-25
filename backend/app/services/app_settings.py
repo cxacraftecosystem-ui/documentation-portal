@@ -4,7 +4,7 @@ For now this controls how audio transcripts are produced and an optional off-pea
 the heavy transcription + refinement work runs (so it doesn't compete with daytime field uploads).
 """
 
-from datetime import datetime, time
+from datetime import datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -71,7 +71,10 @@ def within_processing_window(row: Any | None, now: datetime | None = None) -> bo
     try:
         tz = ZoneInfo(tz_name)
     except Exception:  # noqa: BLE001 - bad tz string must not stall the queue
-        tz = ZoneInfo(DEFAULT_TIMEZONE)
+        try:
+            tz = ZoneInfo(DEFAULT_TIMEZONE)
+        except Exception:  # noqa: BLE001 - no tz database at all (Windows without tzdata)
+            tz = timezone(timedelta(hours=5, minutes=30), name="IST")
     current = (now or datetime.now(tz)).astimezone(tz).time()
     start = parse_hhmm(getattr(row, "batchWindowStart", None), time(2, 0))
     end = parse_hhmm(getattr(row, "batchWindowEnd", None), time(5, 0))

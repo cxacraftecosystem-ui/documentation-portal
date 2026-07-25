@@ -6,8 +6,10 @@ Full-stack, API-first repository for field teams documenting artisans, crafts, w
 > CloudFront at **https://d2b34i3e92al6i.cloudfront.net/api/** (Terraform in `infra/terraform/`,
 > auto-deployed by `.github/workflows/deploy-backend.yml`). CloudFront is dual-stack, so the API is
 > reachable on IPv6-only mobile networks where the IPv4-only origin is not. To hand the app to researchers see
-> [docs/RESEARCHER_GUIDE.md](docs/RESEARCHER_GUIDE.md); deployment runbook is
-> [backend/DEPLOY_AWS.md](backend/DEPLOY_AWS.md); known failure modes are in
+> [docs/RESEARCHER_GUIDE.md](docs/RESEARCHER_GUIDE.md); the backend deployment runbook is
+> [backend/DEPLOY_AWS.md](backend/DEPLOY_AWS.md), the web one is
+> [docs/DEPLOYMENT_VERCEL.md](docs/DEPLOYMENT_VERCEL.md); every environment variable is tabulated in
+> [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md); known failure modes are in
 > [docs/QA_AUDIT.md](docs/QA_AUDIT.md).
 
 The app is split into:
@@ -81,10 +83,14 @@ Open API docs at `http://127.0.0.1:8000/docs`.
 
 ```powershell
 cd frontend
-if (-not (Test-Path .env.local)) { Copy-Item .env.example .env.local }
+if (-not (Test-Path .env.local)) { Copy-Item .env.local.example .env.local }
 npm install
 npm run dev
 ```
+
+`.env.local.example` carries the localhost defaults; `.env.example` documents the production shape
+of the same four variables. `NEXT_PUBLIC_API_URL` is the backend **origin only** — `lib/api.ts`
+appends `/api` itself, so a trailing `/api` makes every request 404.
 
 Open the web app at `http://127.0.0.1:3000/login`.
 
@@ -183,11 +189,23 @@ The Android app keeps the web OAuth client ID in `android/app/build.gradle.kts` 
 
 ## Roles And Permissions
 
-- `MASTER_ADMIN`: reserved for the email configured in `MASTER_ADMIN_EMAIL`; has complete user, review, edit and delete rights.
-- `ADMIN`: junior admin; can review, delete records and manage users.
-- `RESEARCHER`: can create records, see all repository entries, edit their own ordinary records, and add/edit questionnaire interviews.
+Six-tier role ladder, strictly ordered by privilege. Each tier inherits everything below it;
+per-user grantable booleans (`canManageQuestionnaire`, `canManageCrafts`, `canManageWorkshops`,
+`canReview`, `canViewProvenance`, `canDownloadDataset`) can additionally lift a single capability
+for a lower tier.
 
-The backend enforces these rules. The web UI hides delete controls from non-admin users.
+| Tier | Rank | Powers |
+| --- | --- | --- |
+| `MASTER_ADMIN` | 60 | Reserved for `MASTER_ADMIN_EMAIL` (ankits1802@gmail.com). Everything, including settings, OTA releases, and managing admins. |
+| `ADMIN` | 50 | Manage users below their tier and promote up to ADMIN; review; delete records; full data access. |
+| `PROFESSOR` | 40 | Everything a researcher can do, plus implicit questionnaire/craft/workshop management, review rights, and dataset download. No user management, no deletes. |
+| `RESEARCHER` | 30 | Create and edit their own records, contribute to others' (fill-empty), run questionnaire interviews. |
+| `FIELD_CONTRIBUTOR` | 20 | Capture-focused: create artisans/products/tools/processes and upload media; edit only their own records. |
+| `CROWDSOURCE_VOLUNTEER` | 10 | Lowest tier and the default for new self-registered Google accounts (`DEFAULT_SIGNUP_ROLE`). Can upload media, answer questionnaires, and comment — cannot create core records. |
+
+Promotion rules: you can assign roles **at or below your own tier**, and manage (edit/delete)
+only users **below** your tier — so one admin can never rewrite another admin's account; only the
+master admin manages peers. The backend enforces all of this; the web UI mirrors it.
 
 ## Field Capture, AI And Media
 
@@ -200,8 +218,25 @@ Media capture is embedded in the craft, artisan, workshop, product, tool and que
 - browser audio recording with a live level meter;
 - original-file upload so image EXIF data is retained;
 - EXIF summaries in remarks/metadata where image metadata is readable;
-- queued OpenAI transcription for audio via `OPENAI_API_KEY`;
+- queued audio transcription through the STT provider chain (see below);
 - collapsed transcript display for completed audio transcripts.
+
+### Transcription Provider Chain
+
+Speech-to-text walks a provider chain in priority order, using whichever keys are configured and
+failing over automatically on provider errors:
+
+1. **ElevenLabs Scribe** (`ELEVENLABS_API_KEY`, model `scribe_v1`) — auto language detection,
+   accepts files up to ~1 GB, no chunking needed.
+2. **Deepgram Nova-3** (`DEEPGRAM_API_KEY`, model `nova-3`, `language=multi`) — code-switched
+   Hindi + English handled natively.
+3. **OpenAI Whisper** (`OPENAI_API_KEY`, `whisper-1`) — fallback only; files over 24 MB are split
+   into 10-minute chunks and stitched.
+
+The OpenAI key's primary role is **refinement and translation**: raw transcripts are rewritten into
+clean interviewer/interviewee dialogue and translated to English per the master-admin
+`transcriptionMode` setting (`RAW` / `REFINED` / `REFINED_TRANSLATED`). Provider throttling
+(HTTP 429/503) still requeues jobs without burning attempts, exactly as before.
 
 The product and tool forms support a "Document using grid" capture alongside manual `lengthInches`, `breadthInches` and height. Tick **Length & breadth** to read both from one top-down photo, and/or **Height** to read it from a side-on photo; each photo is analysed synchronously by Gemini (`GEMINI_MEASUREMENT_MODEL`, default `gemini-2.5-flash-lite`) and the returned inches auto-fill the matching fields (still editable). The grid photos are also stored as media on the record. If `GEMINI_API_KEY` is missing, the fields stay manual.
 
@@ -255,10 +290,35 @@ Researchers can create questionnaire interviews, link one interview to many arti
 - `GET /api/search`
 - `POST /api/review/{recordType}/{recordId}/approve`
 - `POST /api/review/{recordType}/{recordId}/reject`
-- `GET /api/export/products.csv`
-- `GET /api/export/tools.csv`
+- `GET /api/export/products.csv` — dataset-download permission required
+- `GET /api/export/tools.csv` — dataset-download permission required
+- `GET /api/data/tree?path=` — admin data browser: one level of the virtual file system
+  (workshops → artisans → products/tools/questionnaire/misc; users → uploads by type; media-types)
+- `GET /api/data/manifest?path=&include=` — flattened subtree manifest filtered by
+  `text,images,videos,audios,transcripts,documents,other`; client zips in the browser
+- `GET /api/data/media/{id}/download?format=mp4` — single file; audio is converted to `.mp4` (AAC)
 
 Researchers can create and manage their own submissions. Admins can view all records, manage users, review submissions and export CSV.
+
+### Data Browser
+
+Users with the dataset-download permission (Professor and above, or an explicit grant) get a
+**Data Browser** (`/data` on the web) that presents the whole repository as a browsable virtual
+file system with three roots:
+
+- **workshops/** → per-workshop → per-artisan → `products/` (with per-product `processes/`),
+  `tools/`, `questionnaire/`, `misc/` — plus generated `details.txt`/`answers.txt` files;
+- **users/** → per-uploader → their uploads grouped by record type;
+- **media-types/** → `images/`, `videos/`, `audios/`, `documents/`, `other/`.
+
+Any folder can be browsed online (image previews, audio playback, inline transcripts) or
+downloaded as a zip assembled in the browser, filtered by content type (text, images, videos,
+audios, transcripts, documents, other — any combination). **Audio downloads are converted to
+`.mp4` (AAC) server-side**, with automatic fallback to the original file if conversion fails.
+The web front-end and the landing page are Vercel-ready (static prerender, no route handlers, no
+server actions, no `fs` access, no `output: "standalone"`). Step-by-step deploy, the environment
+variables to set in the dashboard, the matching backend CORS change and a troubleshooting section
+are in [docs/DEPLOYMENT_VERCEL.md](docs/DEPLOYMENT_VERCEL.md).
 
 ## Signed Media Upload Flow
 
@@ -272,39 +332,42 @@ Researchers can create and manage their own submissions. Admins can view all rec
 
 ## Environment Variables
 
-Required backend variables:
+**[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) is the complete reference** — one table per service
+listing every variable with its default, whether it is required, and whether it is a secret, plus a
+triage table for the usual misconfigurations. Annotated templates: `backend/.env.example`,
+`frontend/.env.example`, `frontend/.env.local.example`, and the aggregate `.env.example` at the
+repository root. The summary below is the short version.
 
-- `DATABASE_URL`
+Required backend variables (the app refuses to start without them):
+
+- `DATABASE_URL` — Supabase **session** pooler URL (`:5432`); runtime queries are re-routed to the transaction pooler automatically.
 - `JWT_SECRET`
 - `AWS_ACCESS_KEY_ID`
 - `AWS_SECRET_ACCESS_KEY`
-- `AWS_REGION`
 - `AWS_S3_BUCKET`
-- `AWS_S3_ENDPOINT`
-- `NEXT_PUBLIC_APP_URL`
+- `MASTER_ADMIN_EMAIL` — the master administrator's Google account.
 
-Useful optional variables:
+Useful optional backend variables:
 
-- `AWS_S3_PUBLIC_BASE_URL` for preview/export links.
-- `BACKEND_CORS_ORIGINS` comma-separated frontend origins.
-- `GOOGLE_CLIENT_ID` to verify Google OAuth ID tokens.
-- `GOOGLE_ANDROID_CLIENT_ID` to also accept Android OAuth audience tokens if needed.
-- `MASTER_ADMIN_EMAIL` is required and should be set to the master administrator's Google account.
-- `MASTER_ADMIN_NAME` defaults to `Ankit Kumar`.
-- `OPENAI_API_KEY`, `OPENAI_TRANSCRIPTION_MODEL`, `GEMINI_API_KEY`, `GEMINI_MEASUREMENT_MODEL` (default `gemini-2.5-flash-lite`), `NEXT_PUBLIC_MAPTILER_API_KEY` for optional transcription, measurement and map picking.
-- `MEDIA_QUEUE_WORKER_ENABLED`, `MEDIA_QUEUE_INTERVAL_SECONDS`, `MEDIA_QUEUE_BATCH_SIZE`, `MEDIA_QUEUE_JOB_MAX_ATTEMPTS` for the background media-processing queue.
+- `AWS_REGION` (default `us-east-1`; production `ap-south-1`) and `AWS_S3_PUBLIC_BASE_URL` for preview/export links — use the **dual-stack** host so media loads on IPv6-only mobile networks.
+- `AWS_S3_ENDPOINT` only for MinIO or other non-AWS storage; leave it unset on real AWS.
+- `DATABASE_USE_TRANSACTION_POOLER`, `DATABASE_CONNECTION_LIMIT` (default `10` per worker — raising it exhausted the pooler), `DATABASE_POOL_TIMEOUT`.
+- `NEXT_PUBLIC_APP_URL` and `BACKEND_CORS_ORIGINS` — comma-separated **exact** frontend origins, no trailing slash or wildcard.
+- `GOOGLE_CLIENT_ID` to verify Google OAuth ID tokens; `GOOGLE_ANDROID_CLIENT_ID` to also accept Android OAuth audience tokens if needed.
+- `MASTER_ADMIN_NAME` defaults to `Ankit Kumar`; `DEFAULT_SIGNUP_ROLE` defaults to `CROWDSOURCE_VOLUNTEER`.
+- `ELEVENLABS_API_KEY`/`ELEVENLABS_STT_MODEL`, `DEEPGRAM_API_KEY`/`DEEPGRAM_STT_MODEL`, `OPENAI_API_KEY`/`OPENAI_TRANSCRIPTION_MODEL`/`OPENAI_CHAT_MODEL`, `GEMINI_API_KEY`/`GEMINI_API_KEYS`/`GEMINI_MEASUREMENT_MODEL` (default `gemini-2.5-flash-lite`), `NEXT_PUBLIC_MAPTILER_API_KEY` for optional transcription, refinement, measurement and map picking.
+- `MEDIA_QUEUE_WORKER_ENABLED` (set **false** on the production web process — the separate `fieldrepo-queue` service drains the queue), `MEDIA_QUEUE_INTERVAL_SECONDS`, `MEDIA_QUEUE_BATCH_SIZE`, `MEDIA_QUEUE_JOB_MAX_ATTEMPTS`.
 - `SUPABASE_REST_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY` only when a deployment also needs Supabase REST/Admin access. The secret key must stay in private runtime secrets.
 - `ADMIN_EMAIL`, `ADMIN_NAME`, `ADMIN_PASSWORD` for seeding the first admin. Keep the password only in private `.env` files or deployment secrets.
+- Security knobs, all safe at their defaults: `JWT_ALGORITHM` (`HS256`; HS-family only), `ALLOW_WEAK_JWT_SECRET` (local dev only), `DATABASE_REQUIRE_SSL` (unset = `sslmode=require` for remote hosts only), `AWS_S3_SSE_ALGORITHM` (`AES256`; empty for MinIO), and `SECURITY_HSTS_ENABLED`/`SECURITY_HSTS_MAX_AGE`/`SECURITY_FORCE_HSTS` — **set `SECURITY_FORCE_HSTS=true` in production**, because nginx overwrites `X-Forwarded-Proto` and the app otherwise never sees that the viewer used TLS. Details in [docs/SECURITY.md](docs/SECURITY.md).
 
-Required frontend variables:
+Frontend variables — all four are `NEXT_PUBLIC_*`, so they are **inlined into the browser bundle at
+build time**: none can be a secret, and changing one on Vercel needs a redeploy to take effect.
 
-- `NEXT_PUBLIC_API_URL`
-- `NEXT_PUBLIC_APP_URL`
-
-Optional frontend variable:
-
-- `NEXT_PUBLIC_GOOGLE_CLIENT_ID`
-- `NEXT_PUBLIC_MAPTILER_API_KEY`
+- `NEXT_PUBLIC_API_URL` (required) — backend **origin only**, e.g. `https://d2b34i3e92al6i.cloudfront.net`. `frontend/lib/api.ts` appends `/api`, so a trailing `/api` or `/` turns every call into a 404.
+- `NEXT_PUBLIC_APP_URL` (optional in the web build) — public origin of the web app itself. No code under `frontend/` reads it; it shares its name with the **backend** variable so one value can feed both. The origin that actually has to be configured is `BACKEND_CORS_ORIGINS` on the API.
+- `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (optional) — blank hides the Google button.
+- `NEXT_PUBLIC_MAPTILER_API_KEY` (optional) — blank falls back to manual latitude/longitude entry.
 
 ## Supabase Postgres
 

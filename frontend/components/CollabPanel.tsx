@@ -58,11 +58,11 @@ export function CollabPanel({ recordType, recordId }: { recordType: string; reco
       {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
 
       <div>
-        <h3 className="font-serif text-base text-ink">Comments</h3>
+        <h3 className="font-display font-bold text-base text-ink">Comments</h3>
         <ul className="mt-2 grid gap-2">
           {comments.length === 0 ? <li className="text-sm text-ink-muted">No comments yet.</li> : null}
           {comments.map((c) => (
-            <li key={c.id} className="rounded-md border border-[#e6dfd8] bg-field-50 p-2 text-sm">
+            <li key={c.id} className="rounded-md border border-line-200 bg-field-50 p-2 text-sm">
               <div className="text-ink">{c.body}</div>
               <div className="mt-1 text-xs text-ink-muted">
                 {c.author?.name ?? "Someone"} · {formatDateTime(c.createdAt)}
@@ -77,7 +77,7 @@ export function CollabPanel({ recordType, recordId }: { recordType: string; reco
             value={body}
             onChange={(e) => setBody(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") postComment();
+              if (e.key === "Enter" && !busy) postComment();
             }}
           />
           <button className="field-button" disabled={busy} onClick={postComment}>
@@ -88,12 +88,12 @@ export function CollabPanel({ recordType, recordId }: { recordType: string; reco
 
       {revisions ? (
         <div>
-          <h3 className="font-serif text-base text-ink">Edit history</h3>
+          <h3 className="font-display font-bold text-base text-ink">Edit history</h3>
           <p className="text-xs text-ink-muted">Original values are the first &quot;before&quot; of each field. Visible to the owner and admins.</p>
           <ul className="mt-2 grid gap-2">
             {revisions.length === 0 ? <li className="text-sm text-ink-muted">No edits recorded.</li> : null}
             {revisions.map((r) => (
-              <li key={r.id} className="rounded-md border border-[#e6dfd8] bg-field-50 p-2 text-sm">
+              <li key={r.id} className="rounded-md border border-line-200 bg-field-50 p-2 text-sm">
                 <div className="text-xs text-ink-muted">
                   {r.editedBy?.name ?? "Unknown"} · {formatDateTime(r.createdAt)}
                 </div>

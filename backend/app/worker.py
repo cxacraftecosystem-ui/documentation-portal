@@ -31,7 +31,7 @@ import signal
 from contextlib import suppress
 
 from app.core.config import get_settings
-from app.core.db import connect_db, db, disconnect_db
+from app.core.db import connect_db, disconnect_db, ensure_db_connected
 from app.services.media_queue import process_next_media_jobs
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -57,8 +57,10 @@ async def _run() -> None:
     try:
         while not stop.is_set():
             try:
-                if not db.is_connected():
-                    await connect_db()
+                # Self-heal like the web app: probe the connection each iteration and, when the probe
+                # fails (or a previous iteration broke the engine), disconnect-first then reconnect —
+                # is_connected() alone can read True while the engine is actually unusable.
+                await ensure_db_connected()
                 await process_next_media_jobs(
                     limit=settings.media_queue_batch_size,
                     worker_id="queue-service",

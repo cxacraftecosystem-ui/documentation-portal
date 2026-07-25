@@ -34,10 +34,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -93,7 +95,11 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -130,7 +136,11 @@ import com.fieldrepository.app.data.TokenStore
 import com.fieldrepository.app.data.ToolCreateRequest
 import com.fieldrepository.app.data.UserDto
 import com.fieldrepository.app.data.WorkshopCreateRequest
+import com.fieldrepository.app.data.apiErrorMessage
+import com.fieldrepository.app.data.occurrenceDate
 import com.fieldrepository.app.ui.Body
+import com.fieldrepository.app.ui.Countries
+import com.fieldrepository.app.ui.Country
 import com.fieldrepository.app.ui.Canvas
 import com.fieldrepository.app.ui.Coral
 import com.fieldrepository.app.ui.DarkSurface
@@ -158,9 +168,11 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Check
@@ -210,7 +222,13 @@ import com.fieldrepository.app.data.MediaFileDto
 import com.fieldrepository.app.data.AppSettingUpdateRequest
 import com.fieldrepository.app.data.PendingReviewDto
 import com.fieldrepository.app.data.StagedMedia
+import com.fieldrepository.app.data.TaskDto
+import com.fieldrepository.app.data.WorkshopAccessLevelDto
+import com.fieldrepository.app.data.WorkshopAssignmentDto
+import com.fieldrepository.app.data.WorkshopSubmissionCheckDto
+import com.fieldrepository.app.data.titleCasePreview
 import androidx.compose.runtime.DisposableEffect
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
@@ -260,7 +278,14 @@ private enum class EntryMode(
     QUESTIONNAIRE("Questionnaire", "Take interview", editable = true),
     MEDIA("Miscellaneous Media", "Upload media"),
     VIEW_DATA("View Data", "Browse records"),
+    // "Tasks" matches the web nav label exactly. The card is the ASSIGNEE's to-do list; assigning work
+    // is an admin action and lives in the admin hub.
+    TASKS("Tasks", "My tasks"),
     SHARING("Sharing", "Share data access"),
+    // Workshop access is the other half of Sharing: Sharing is researcher-to-researcher over records,
+    // this is admin-to-researcher over a workshop. Kept as its own card so a new user can find "how do
+    // I get into this workshop" without reading the sharing screen first.
+    WORKSHOP_ACCESS("Workshop access", "Request workshop access"),
     USERS("Users", "Manage users"),
     // Craft and Workshop are the least frequently edited, so they sit last on the dashboard.
     CRAFT("Craft", "Add craft", editable = true),
@@ -278,6 +303,8 @@ private sealed interface Screen {
     data object ToolAssign : Screen
     data object Feedback : Screen
     data object Settings : Screen
+    // Admin hub, opened from the dashboard "Settings" card (admins only).
+    data object AdminHub : Screen
 }
 
 /** Context carried forward from a just-saved artisan into a follow-up record. */
@@ -300,7 +327,9 @@ private fun EntryMode.icon(): ImageVector = when (this) {
     EntryMode.CRAFT -> Icons.Filled.Brush
     EntryMode.MEDIA -> Icons.Filled.PermMedia
     EntryMode.VIEW_DATA -> Icons.Filled.Visibility
+    EntryMode.TASKS -> Icons.AutoMirrored.Filled.Assignment
     EntryMode.SHARING -> Icons.Filled.Share
+    EntryMode.WORKSHOP_ACCESS -> Icons.Filled.LockOpen
     EntryMode.USERS -> Icons.Filled.ManageAccounts
 }
 
@@ -518,16 +547,22 @@ private fun HomeScreen(
     var carryForward by remember { mutableStateOf<Prefill?>(null) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var message by remember { mutableStateOf<String?>(null) }
-    val isAdmin = user.role == "MASTER_ADMIN" || user.role == "ADMIN"
-    val isMasterAdmin = user.role == "MASTER_ADMIN"
-    val isQuestionnaireManager = isMasterAdmin || user.canManageQuestionnaire
-    val canReview = isAdmin || user.canReview
+    // Every gate below mirrors one backend dependency (see the capability block near ROLE_RANK).
+    // Do not re-derive a rule inline here: this screen used to hard-code admin-only variants of half
+    // of them, which locked professors out of screens the API would happily have served.
+    val isAdmin = user.isAdminUser()
+    val isMasterAdmin = user.isMasterAdminUser()
+    // `require_questionnaire_manager`: Professor and above, or an explicit grant — NOT master-only.
+    val isQuestionnaireManager = user.canManageTheQuestionnaire()
+    // `require_reviewer`: Field Contributor and above (everyone with someone beneath them on the
+    // ladder), or an explicit review grant. Which records they may act on is decided per record by
+    // the server's can_review_record.
+    val canReview = user.canAccessReview()
     // Provenance (created-by + per-field edit history) on the View Data screen: admins always, plus
     // any user explicitly granted the "view provenance" privilege.
     val canViewProvenance = isAdmin || user.canViewProvenance
-    // Full-dataset download on the View Data screen: admins always, plus any user explicitly granted
-    // the "download dataset" privilege.
-    val canDownloadDataset = isAdmin || user.canDownloadDataset
+    // `require_dataset_downloader`: Professor and above, or an explicit grant.
+    val canDownloadDataset = user.canDownloadTheDataset()
     // Master admin lands in admin view; other admins opt in from the menu.
     var adminView by remember { mutableStateOf(isMasterAdmin) }
 
@@ -580,15 +615,25 @@ private fun HomeScreen(
         message = text
     }
 
+    // Who may START a new entry of each kind, mirroring the backend dependency on the POST route.
+    // A volunteer is deliberately allowed to take interviews, upload media, browse, use tasks and
+    // sharing, and request workshop access — everything `require_record_creator` does NOT cover.
     fun canCreate(mode: EntryMode): Boolean = when (mode) {
-        EntryMode.CRAFT -> isAdmin || user.canManageCrafts
-        EntryMode.WORKSHOP -> isAdmin || user.canManageWorkshops
-        EntryMode.USERS -> isAdmin
-        else -> true
+        // require_craft_manager / require_workshop_manager: Professor+ or an explicit grant.
+        EntryMode.CRAFT -> user.canManageTheCrafts()
+        EntryMode.WORKSHOP -> user.canManageTheWorkshops()
+        // require_professor on GET/PATCH /users.
+        EntryMode.USERS -> user.canManageUsers()
+        // require_record_creator: Field Contributor and above. Showing a volunteer these forms only
+        // bought them a 403 after filling one in.
+        EntryMode.ARTISAN, EntryMode.PRODUCT, EntryMode.PROCESS, EntryMode.TOOL -> user.canCreateRecords()
+        // Open to every authenticated user (the API asks for nothing beyond a token).
+        EntryMode.QUESTIONNAIRE, EntryMode.MEDIA, EntryMode.VIEW_DATA, EntryMode.TASKS,
+        EntryMode.SHARING, EntryMode.WORKSHOP_ACCESS -> true
     }
 
     val dashboardModes = remember(user.role, user.canManageQuestionnaire, user.canManageCrafts, user.canManageWorkshops) {
-        EntryMode.entries.filter { it != EntryMode.USERS || isAdmin }
+        EntryMode.entries.filter { it != EntryMode.USERS || user.canManageUsers() }
     }
 
     fun refresh() {
@@ -632,6 +677,7 @@ private fun HomeScreen(
             is Screen.ToolAssign -> Screen.Dashboard
             is Screen.Feedback -> Screen.Dashboard
             is Screen.Settings -> Screen.Dashboard
+            is Screen.AdminHub -> Screen.Dashboard
             is Screen.Dashboard -> Screen.Dashboard
         }
     }
@@ -655,6 +701,7 @@ private fun HomeScreen(
         is Screen.ToolAssign -> "Assign tools to artisans"
         is Screen.Feedback -> "App feedback"
         is Screen.Settings -> "Settings"
+        is Screen.AdminHub -> "Admin tools"
     }
 
     BackHandler(enabled = drawerState.isOpen) {
@@ -681,11 +728,9 @@ private fun HomeScreen(
                         onDashboard = { goDashboard(); scope.launch { drawerState.close() } },
                         onSelect = { entry -> screen = Screen.Create(entry); scope.launch { drawerState.close() } },
                         onMyActivity = { message = null; screen = Screen.MyActivity; scope.launch { drawerState.close() } },
-                        onAssignTools = { message = null; screen = Screen.ToolAssign; scope.launch { drawerState.close() } },
                         onFeedback = { message = null; screen = Screen.Feedback; scope.launch { drawerState.close() } },
                         onWalkthrough = { showWalkthrough = true; scope.launch { drawerState.close() } },
                         onToggleAdminView = { adminView = !adminView },
-                        onSettings = { message = null; screen = Screen.Settings; scope.launch { drawerState.close() } },
                         onPushUpdate = {
                             scope.launch { drawerState.close() }
                             if (!pushingUpdate) {
@@ -756,8 +801,16 @@ private fun HomeScreen(
                 DashboardScreen(
                     stats = stats,
                     recentArtisans = artisans,
-                    actions = dashboardModes,
-                    canCreate = { canCreate(it) },
+                    // Only the cards this user may actually START, exactly as the web dashboard
+                    // filters its tiles (`visible`) and as the drawer above already filters its
+                    // menu. A card that offered nothing but "Update" told a volunteer neither what
+                    // they could do nor why the rest was missing.
+                    actions = dashboardModes.filter { canCreate(it) },
+                    roleLabel = roleLabel(user.role),
+                    canCreateRecords = user.canCreateRecords(),
+                    showAdminHub = isAdmin,
+                    onOpenAdminHub = { message = null; screen = Screen.AdminHub },
+                    onWalkthrough = { message = null; showWalkthrough = true },
                     onNew = { selected -> message = null; screen = Screen.Create(selected) },
                     onUpdateExisting = { selected -> message = null; screen = Screen.Browse(selected) }
                 )
@@ -864,9 +917,20 @@ private fun HomeScreen(
                     onError = { showMessage(it) },
                     onSaved = { message = "Questionnaire interview saved"; refresh(); goDashboard() }
                 )
+                EntryMode.TASKS -> MyTasksScreen(
+                    repository = repository,
+                    isAdmin = isAdmin,
+                    onMessage = { showMessage(it) },
+                    onError = { showMessage(it) }
+                )
                 EntryMode.SHARING -> SharingForm(
                     repository = repository,
                     isAdmin = isAdmin,
+                    onError = { showMessage(it) }
+                )
+                EntryMode.WORKSHOP_ACCESS -> WorkshopAccessScreen(
+                    repository = repository,
+                    onMessage = { showMessage(it) },
                     onError = { showMessage(it) }
                 )
                 EntryMode.USERS -> UserManagementForm(
@@ -924,6 +988,14 @@ private fun HomeScreen(
 
             is Screen.Settings -> SettingsScreen(
                 repository = repository,
+                onMessage = { showMessage(it) },
+                onError = { showMessage(it) }
+            )
+
+            is Screen.AdminHub -> AdminHubScreen(
+                repository = repository,
+                isMasterAdmin = isMasterAdmin,
+                canReview = canReview,
                 onMessage = { showMessage(it) },
                 onError = { showMessage(it) }
             )
@@ -1216,11 +1288,9 @@ private fun AppDrawerContent(
     onDashboard: () -> Unit,
     onSelect: (EntryMode) -> Unit,
     onMyActivity: () -> Unit,
-    onAssignTools: () -> Unit,
     onFeedback: () -> Unit,
     onWalkthrough: () -> Unit,
     onToggleAdminView: () -> Unit,
-    onSettings: () -> Unit,
     onPushUpdate: () -> Unit,
     onLogout: () -> Unit
 ) {
@@ -1280,13 +1350,6 @@ private fun AppDrawerContent(
             }
             HorizontalDivider()
             NavigationDrawerItem(
-                label = { Text("Assign tools to artisans") },
-                selected = false,
-                icon = { Icon(Icons.Filled.Build, contentDescription = null) },
-                onClick = onAssignTools,
-                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-            )
-            NavigationDrawerItem(
                 label = { Text("Give app feedback") },
                 selected = false,
                 icon = { Icon(Icons.Filled.RateReview, contentDescription = null) },
@@ -1311,13 +1374,6 @@ private fun AppDrawerContent(
                 )
             }
             if (isMasterAdmin) {
-                NavigationDrawerItem(
-                    label = { Text("Settings") },
-                    selected = false,
-                    icon = { Icon(Icons.Filled.Tune, contentDescription = null) },
-                    onClick = onSettings,
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                )
                 NavigationDrawerItem(
                     label = { Text(if (pushingUpdate) "Publishing update…" else "Push update to all") },
                     selected = false,
@@ -1364,8 +1420,15 @@ private fun CarryForwardPanel(
 private fun DashboardScreen(
     stats: DashboardStats?,
     recentArtisans: List<ArtisanDto>,
+    /** Already filtered to what this user may start — every card here leads with its "New …". */
     actions: List<EntryMode>,
-    canCreate: (EntryMode) -> Boolean,
+    /** This user's tier, spelled the way the app spells it, for the short-grid explanation. */
+    roleLabel: String,
+    /** require_record_creator: Field Contributor and above. False = the four record cards are gone. */
+    canCreateRecords: Boolean,
+    showAdminHub: Boolean = false,
+    onOpenAdminHub: () -> Unit = {},
+    onWalkthrough: () -> Unit = {},
     onNew: (EntryMode) -> Unit,
     onUpdateExisting: (EntryMode) -> Unit
 ) {
@@ -1382,13 +1445,43 @@ private fun DashboardScreen(
                 rowItems.forEach { entry ->
                     DashboardActionCard(
                         entry = entry,
-                        canCreate = canCreate(entry),
                         modifier = Modifier.weight(1f),
                         onNew = { onNew(entry) },
                         onUpdateExisting = { onUpdateExisting(entry) }
                     )
                 }
                 repeat(columns - rowItems.size) { Spacer(modifier = Modifier.weight(1f)) }
+            }
+        }
+        // A short grid is otherwise unexplained: say WHY the record cards are missing and where the
+        // tier comes from, rather than leaving a volunteer to assume the app is broken. Web parity
+        // with the dashboard's `!creator` note.
+        if (!canCreateRecords) {
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "You are signed in as $roleLabel. That covers interviews, media uploads and " +
+                            "comments. Creating artisans, products, processes and tools needs Field " +
+                            "Contributor access — ask an admin to raise your tier.",
+                        color = Muted,
+                        fontSize = 13.sp
+                    )
+                    TextButton(onClick = onWalkthrough, contentPadding = PaddingValues(0.dp)) {
+                        Text("Open the walkthrough")
+                    }
+                }
+            }
+        }
+        // Admins get a "Settings" card that opens the Admin tools hub (reviews, recovery, feedback,
+        // tool/workshop assignments, transcription settings).
+        if (showAdminHub) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                AdminSettingsCard(modifier = Modifier.weight(1f), onOpen = onOpenAdminHub)
+                repeat(columns - 1) { Spacer(modifier = Modifier.weight(1f)) }
             }
         }
         StatsCard(stats)
@@ -1414,13 +1507,14 @@ private fun EntryMode.createButtonLabel(): String = when (this) {
     EntryMode.QUESTIONNAIRE -> "New interview"
     EntryMode.USERS -> "Manage"
     EntryMode.VIEW_DATA -> "Open"
+    EntryMode.TASKS -> "Open"
+    EntryMode.WORKSHOP_ACCESS -> "Open"
     else -> "New"
 }
 
 @Composable
 private fun DashboardActionCard(
     entry: EntryMode,
-    canCreate: Boolean,
     modifier: Modifier = Modifier,
     onNew: () -> Unit,
     onUpdateExisting: () -> Unit
@@ -1445,13 +1539,13 @@ private fun DashboardActionCard(
                 Icon(entry.icon(), contentDescription = null, tint = Canvas, modifier = Modifier.size(22.dp))
             }
             Text(entry.label, fontFamily = FontFamily.Serif, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-            if (canCreate) {
-                Button(
-                    onClick = onNew,
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 8.dp)
-                ) { CardButtonLabel(Icons.Filled.Add, entry.createButtonLabel()) }
-            }
+            // The card is only offered when its "New …" is allowed (DashboardScreen filters), so this
+            // action is unconditional — a card that could only "Update" explained nothing.
+            Button(
+                onClick = onNew,
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+            ) { CardButtonLabel(Icons.Filled.Add, entry.createButtonLabel()) }
             if (entry.editable) {
                 OutlinedButton(
                     onClick = onUpdateExisting,
@@ -1459,6 +1553,38 @@ private fun DashboardActionCard(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 8.dp)
                 ) { CardButtonLabel(Icons.Filled.Edit, "Update") }
             }
+        }
+    }
+}
+
+/** Dashboard card (admins only) that opens the Admin tools hub. Styled like a [DashboardActionCard]. */
+@Composable
+private fun AdminSettingsCard(modifier: Modifier = Modifier, onOpen: () -> Unit) {
+    ElevatedCard(
+        colors = CardDefaults.elevatedCardColors(containerColor = Canvas),
+        shape = RoundedCornerShape(16.dp),
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .background(color = ColorCompat.darkElevated, shape = RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Filled.Tune, contentDescription = null, tint = Canvas, modifier = Modifier.size(22.dp))
+            }
+            Text("Settings", fontFamily = FontFamily.Serif, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+            Button(
+                onClick = onOpen,
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+            ) { CardButtonLabel(Icons.Filled.Tune, "Open") }
         }
     }
 }
@@ -1517,6 +1643,77 @@ private val marketDemandOptions = listOf("LOW", "MEDIUM", "HIGH", "SEASONAL", "U
 private val makerOptions = listOf("ARTISAN", "LOCAL_BLACKSMITH", "CARPENTER", "WORKSHOP", "FACTORY", "UNKNOWN", "OTHER")
 private val traditionOptions = listOf("TRADITIONAL", "MODERN", "HYBRID", "UNKNOWN")
 private val statusOptions = listOf("DRAFT", "PENDING", "APPROVED", "REJECTED")
+
+// Role hierarchy, mirroring the backend ROLE_RANK ladder. The record-status control is gated at
+// PROFESSOR+ (rank >= 40): they pick any status and default to APPROVED on create; everyone below sees
+// a locked "Pending" chip and their new records are forced to PENDING (the backend also silently drops
+// any status a below-professor user tries to send).
+private val ROLE_RANK = mapOf(
+    "CROWDSOURCE_VOLUNTEER" to 10,
+    "FIELD_CONTRIBUTOR" to 20,
+    "RESEARCHER" to 30,
+    "PROFESSOR" to 40,
+    "ADMIN" to 50,
+    "MASTER_ADMIN" to 60
+)
+private const val RANK_FIELD_CONTRIBUTOR = 20
+private const val RANK_PROFESSOR = 40
+private const val RANK_ADMIN = 50
+
+/** Human labels for the ladder, byte-for-byte the server's `ROLE_LABELS` (and the web's). */
+private val ROLE_LABELS = mapOf(
+    "CROWDSOURCE_VOLUNTEER" to "Crowdsource Volunteer",
+    "FIELD_CONTRIBUTOR" to "Field Contributor",
+    "RESEARCHER" to "Researcher",
+    "PROFESSOR" to "Professor",
+    "ADMIN" to "Admin",
+    "MASTER_ADMIN" to "Master Admin"
+)
+
+private fun roleLabel(role: String?): String = ROLE_LABELS[role] ?: role.orEmpty()
+private fun roleRank(role: String?): Int = ROLE_RANK[role] ?: 0
+private fun canSetRecordStatus(role: String?): Boolean = roleRank(role) >= RANK_PROFESSOR
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Capability rules — the Kotlin mirror of `backend/app/core/deps.py`.
+ *
+ * These MUST agree with the server, in both directions. A rule that is stricter than the backend
+ * silently removes a screen from someone entitled to it (a professor with no questionnaire builder);
+ * a rule that is looser lets a user fill in a whole form and then eat a 403 on save. Both were
+ * present before this block existed, which is why every rule now lives in exactly one place, named
+ * after the backend dependency it mirrors.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** `is_admin` — admin and master admin. */
+private fun UserDto.isAdminUser(): Boolean = roleRank(role) >= RANK_ADMIN
+
+/** `is_master_admin`. */
+private fun UserDto.isMasterAdminUser(): Boolean = role == "MASTER_ADMIN"
+
+/** `can_create_records` / `require_record_creator` — artisans, products, processes, tools. */
+private fun UserDto.canCreateRecords(): Boolean = roleRank(role) >= RANK_FIELD_CONTRIBUTOR
+
+/** `can_access_review` / `require_reviewer` — Field Contributor and above, or an explicit grant. */
+private fun UserDto.canAccessReview(): Boolean = roleRank(role) >= RANK_FIELD_CONTRIBUTOR || canReview
+
+/** `can_download_dataset` / `require_dataset_downloader` — Professor and above, or a grant. */
+private fun UserDto.canDownloadTheDataset(): Boolean = roleRank(role) >= RANK_PROFESSOR || canDownloadDataset
+
+/** `can_manage_questionnaire` / `require_questionnaire_manager` — Professor and above, or a grant. */
+private fun UserDto.canManageTheQuestionnaire(): Boolean =
+    roleRank(role) >= RANK_PROFESSOR || canManageQuestionnaire
+
+/** `can_manage_crafts` / `require_craft_manager` — Professor and above, or a grant. */
+private fun UserDto.canManageTheCrafts(): Boolean = roleRank(role) >= RANK_PROFESSOR || canManageCrafts
+
+/** `can_manage_workshops` / `require_workshop_manager` — Professor and above, or a grant. */
+private fun UserDto.canManageTheWorkshops(): Boolean = roleRank(role) >= RANK_PROFESSOR || canManageWorkshops
+
+/** `require_professor` on GET/PATCH /users — the user table opens for Professor and above. */
+private fun UserDto.canManageUsers(): Boolean = roleRank(role) >= RANK_PROFESSOR
+
+/** The status a NEW record defaults to for the given role: APPROVED for professor+, PENDING below. */
+private fun defaultCreateStatus(role: String?): String = if (canSetRecordStatus(role)) "APPROVED" else "PENDING"
 private val genderOptions = listOf("Male", "Female", "Transgender", "Other")
 
 /**
@@ -1987,6 +2184,676 @@ private fun StatusDropdown(value: String, onSelect: (String) -> Unit) {
         includeNone = false,
         onSelect = onSelect
     )
+}
+
+/**
+ * Record-status control honouring the create policy. PROFESSOR+ ([canSetStatus]) get the full status
+ * picker (defaulting APPROVED on create); everyone below sees a non-editable "Pending" chip — their
+ * records are forced to PENDING and the backend drops any status they try to change.
+ */
+@Composable
+private fun StatusControl(canSetStatus: Boolean, value: String, onSelect: (String) -> Unit) {
+    if (canSetStatus) {
+        StatusDropdown(value = value, onSelect = onSelect)
+    } else {
+        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Status", color = Muted, fontSize = 12.sp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .background(SurfaceCard, RoundedCornerShape(999.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Box(modifier = Modifier.size(8.dp).background(Color(0xFFE2A400), CircleShape))
+                Text("Pending", color = Body, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            }
+            Text("New records are reviewed before they're published.", color = Muted, fontSize = 11.sp)
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Workshop linkage. Field work happens at a workshop, so the workshop is the
+// primary context for every record: each form opens with the same picker, above
+// the craft / artisan / product (secondary, tertiary) selects. The loading and
+// defaulting rules live here once, in [rememberWorkshopPicker], rather than
+// being re-typed on each form.
+// ---------------------------------------------------------------------------
+
+/**
+ * The workshops offered by a record form's picker plus the one currently linked.
+ *
+ * [baselineId] is what the form treats as "no unsaved change": it moves together with the
+ * create-time auto-default (so the default alone never marks a pristine form dirty) but stays put
+ * when the user picks a workshop themselves, which is exactly the change the unsaved-work guard
+ * should catch.
+ *
+ * It also owns the SUBMISSION PRE-FLIGHT (`GET /workshops/{id}/submission-check`, web parity with
+ * `useWorkshopSelection`). The workshop decides two things the researcher has to learn BEFORE they
+ * save rather than after:
+ *
+ * 1. **Assignment** — a curated workshop 403s a submission from anybody not on its roster.
+ * 2. **The window** — a record filed after the workshop ended is accepted, but pinned to PENDING and
+ *    flagged, after which only an admin can approve it. [confirmSubmission] surfaces that as a
+ *    confirmation and the save proceeds only if the researcher says yes.
+ *
+ * Both answers are advisory. When the pre-flight cannot be reached the state degrades to a local
+ * "this workshop looks like it ended" hint and NEVER blocks the save: a researcher in the field must
+ * not lose work to a flaky courtesy request.
+ */
+private class WorkshopPickerState(private val repository: FieldRepository, initialId: String) {
+    var workshops by mutableStateOf<List<WorkshopDetailDto>>(emptyList())
+    var selectedId by mutableStateOf(initialId)
+    var baselineId by mutableStateOf(initialId)
+
+    /** Pre-flight answer for the CURRENT selection; null while it loads or when it is unavailable. */
+    var check by mutableStateOf<WorkshopSubmissionCheckDto?>(null)
+        private set
+
+    /** The answer the open late-submission confirmation is about; null when no dialog is up. */
+    var pendingConfirm by mutableStateOf<WorkshopSubmissionCheckDto?>(null)
+        private set
+
+    private var awaitingConfirm: CompletableDeferred<Boolean>? = null
+
+    // Successful answers only. A failure is deliberately NOT cached, so a blip retries on the next
+    // selection or at submit time instead of disabling the gate for the rest of the session.
+    private val answers = mutableMapOf<String, WorkshopSubmissionCheckDto>()
+
+    /** The value to put in a create/update body — null when the record is deliberately unlinked. */
+    fun value(): String? = selectedId.ifBlank { null }
+
+    /** True once the user has changed the workshop away from the loaded/auto-defaulted one. */
+    fun isDirty(): Boolean = selectedId != baselineId
+
+    /** Pre-select a workshop without counting as an edit (create-time default only). */
+    fun applyDefault(id: String) {
+        selectedId = id
+        baselineId = id
+    }
+
+    /**
+     * Treat the current selection as saved. Used by forms that stay on screen after a save (the
+     * questionnaire) so the workshop carries over to the next record without still reading as an
+     * unsaved change.
+     */
+    fun markSaved() {
+        baselineId = selectedId
+    }
+
+    private suspend fun answerFor(workshopId: String): WorkshopSubmissionCheckDto? {
+        if (workshopId.isBlank()) return null
+        answers[workshopId]?.let { return it }
+        return repository.workshopSubmissionCheck(workshopId)?.also { answers[workshopId] = it }
+    }
+
+    /** Bring [check] in step with the current selection. Cache hits cost no request. */
+    suspend fun refreshCheck() {
+        val asked = selectedId
+        check = null
+        if (asked.isBlank()) return
+        val answer = answerFor(asked)
+        // The user may have moved on while the request was in flight; a stale answer must not be
+        // shown against a different workshop.
+        if (selectedId == asked) check = answer
+    }
+
+    /**
+     * Call FIRST inside a form's save coroutine, before it sets `saving`. Returns true when the save
+     * may go ahead, false only when the researcher backed out of a late submission.
+     *
+     * No workshop, no answer (offline / endpoint missing), or a workshop still running all return
+     * true immediately — the gate exists to inform, never to block.
+     */
+    suspend fun confirmSubmission(): Boolean {
+        val asked = selectedId
+        if (asked.isBlank()) return true
+        val answer = answerFor(asked) ?: return true
+        if (!answer.outOfWindow && !answer.isOver) return true
+        val gate = CompletableDeferred<Boolean>()
+        awaitingConfirm = gate
+        pendingConfirm = answer
+        return gate.await()
+    }
+
+    /** Close the confirmation and release the waiting save coroutine with the user's answer. */
+    fun settleConfirm(confirmed: Boolean) {
+        pendingConfirm = null
+        awaitingConfirm?.complete(confirmed)
+        awaitingConfirm = null
+    }
+}
+
+/**
+ * Loads the workshops this user may submit to, most recent date of occurrence first, and — on
+ * CREATE only — pre-selects the most recent one.
+ *
+ * [initialId] is the workshop already stored on the record being edited; it is never overwritten,
+ * so opening an existing record leaves its linkage exactly as saved (and a record deliberately left
+ * unlinked stays unlinked, because [isEdit] blocks the default outright). [resetKey] should be the
+ * `editing` record so switching records rebuilds the state.
+ */
+@Composable
+private fun rememberWorkshopPicker(
+    repository: FieldRepository,
+    isEdit: Boolean,
+    initialId: String?,
+    resetKey: Any? = null
+): WorkshopPickerState {
+    val state = remember(resetKey) { WorkshopPickerState(repository, initialId.orEmpty()) }
+    LaunchedEffect(resetKey) {
+        // A failure here is non-fatal: the dropdown simply stays empty and the record saves unlinked,
+        // which is better than blocking a field capture on a list request.
+        runCatching { repository.workshopsByOccurrence() }.onSuccess { list ->
+            state.workshops = list
+            // The list is ordered most-recent-occurrence-first, so its head is the default.
+            if (!isEdit && state.selectedId.isBlank()) {
+                list.firstOrNull()?.let { state.applyDefault(it.id) }
+            }
+        }
+    }
+    // Keep the pre-flight answer in step with whatever is selected, including the auto-default, so
+    // the warning is already on screen by the time the researcher reaches the save button.
+    LaunchedEffect(state, state.selectedId) { state.refreshCheck() }
+    return state
+}
+
+/**
+ * The workshop field every record form mounts as its FIRST field: the picker itself, plus whatever
+ * the submission pre-flight has to say about the current pick, plus the late-submission confirmation
+ * that [WorkshopPickerState.confirmSubmission] opens. Web parity with `<WorkshopSelect>`.
+ *
+ * The two warnings are mutually exclusive by design: "you are not assigned" is the harder problem
+ * and stating both at once would only bury it.
+ */
+@Composable
+private fun WorkshopField(state: WorkshopPickerState, saving: Boolean = false) {
+    val selected = state.workshops.firstOrNull { it.id == state.selectedId }
+    val check = state.check
+    val blocked = check != null && !check.canSubmit
+    // Prefer the server's verdict; fall back to the workshop's own dates when there is no answer.
+    val late = if (check != null) {
+        check.outOfWindow || check.isOver
+    } else {
+        state.selectedId.isNotBlank() && workshopEndedLocally(selected)
+    }
+    val endLabel = formatIsoDate(check?.endDate ?: selected?.endDate ?: selected?.date)
+
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        WorkshopDropdown(
+            workshops = state.workshops,
+            selectedValue = state.selectedId
+        ) { state.selectedId = it }
+        if (blocked) {
+            Text(
+                "You are not assigned to this workshop, so saving will be refused. Ask an admin to " +
+                    "assign you to it, or pick another workshop.",
+                color = MaterialTheme.colorScheme.error,
+                fontSize = 12.sp
+            )
+        } else if (late) {
+            Text(
+                (if (endLabel == null) "This workshop has already ended." else "This workshop ended on $endLabel.") +
+                    " " +
+                    if (check == null || check.needsAdminApproval) {
+                        "Saving now counts as a late submission and needs an admin's approval."
+                    } else {
+                        "Saving now is recorded as a late submission."
+                    },
+                color = Coral,
+                fontSize = 12.sp
+            )
+        }
+    }
+
+    state.pendingConfirm?.let { pending ->
+        LateSubmissionDialog(
+            workshopTitle = pending.title ?: selected?.title,
+            endDate = pending.endDate ?: selected?.endDate ?: selected?.date,
+            needsAdminApproval = pending.needsAdminApproval,
+            saving = saving,
+            onConfirm = { state.settleConfirm(true) },
+            onCancel = { state.settleConfirm(false) }
+        )
+    }
+}
+
+/**
+ * Confirmation shown when a record is about to be saved into a workshop that has already ended.
+ *
+ * The backend ACCEPTS a late submission but pins it to PENDING and stamps
+ * `extraMetadata.workshopSubmission.needsAdminApproval`, after which only an admin or master admin
+ * may approve it. That is a real consequence for the researcher — the professor who normally reviews
+ * their work cannot clear this one — so it is stated up front instead of discovered in the review
+ * queue. Wording is the web's `<LateSubmissionDialog>`, word for word.
+ *
+ * Admins are the approval authority, so their own late submission is never flagged: they get the
+ * shorter sentence and no promise of somebody else's approval.
+ */
+@Composable
+private fun LateSubmissionDialog(
+    workshopTitle: String?,
+    endDate: String?,
+    needsAdminApproval: Boolean,
+    saving: Boolean,
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit
+) {
+    val name = workshopTitle?.trim().orEmpty().ifBlank { "This workshop" }
+    val ended = formatIsoDate(endDate)?.let { " ended on $it" } ?: " has already ended"
+    AlertDialog(
+        onDismissRequest = { if (!saving) onCancel() },
+        title = { Text("Late submission") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "$name$ended. " +
+                        if (needsAdminApproval) {
+                            "Your entry will still be saved, but it is recorded as a late submission: " +
+                                "it stays Pending until an admin or master admin approves it — a " +
+                                "professor cannot approve it for you."
+                        } else {
+                            "Your entry will still be saved, and it is recorded as a late submission."
+                        }
+                )
+                Text(
+                    "Pick a different workshop above if this record belongs to one that is still running.",
+                    color = Muted,
+                    fontSize = 12.sp
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !saving, onClick = onConfirm) {
+                Text(if (saving) "Saving…" else "Submit anyway")
+            }
+        },
+        dismissButton = {
+            TextButton(enabled = !saving, onClick = onCancel) { Text("Go back") }
+        }
+    )
+}
+
+/**
+ * Local "has this workshop ended?", used only when the pre-flight answer is unavailable. Mirrors the
+ * backend rule (and the web's `endedLocally`): the whole of the end day is still in-window.
+ */
+private fun workshopEndedLocally(workshop: WorkshopDetailDto?): Boolean {
+    val raw = workshop?.endDate ?: workshop?.date ?: workshop?.startDate ?: return false
+    val end = parseIsoToLocalDate(raw) ?: return false
+    return LocalDate.now(ZoneId.systemDefault()).isAfter(end)
+}
+
+/**
+ * The workshop dropdown itself. Styling and behaviour are [DropdownField]'s; only the option labels
+ * are workshop-specific. Record forms mount [WorkshopField] rather than this, so they get the
+ * pre-flight warnings with it.
+ */
+@Composable
+private fun WorkshopDropdown(
+    workshops: List<WorkshopDetailDto>,
+    selectedValue: String,
+    label: String = "Workshop",
+    placeholder: String = "Unlinked",
+    enabled: Boolean = true,
+    onSelect: (String) -> Unit
+) {
+    DropdownField(
+        label = label,
+        options = workshops.map { it.id to workshopOptionLabel(it) },
+        selectedValue = selectedValue,
+        placeholder = placeholder,
+        enabled = enabled,
+        onSelect = onSelect
+    )
+}
+
+/** "Chanderi weaving · 2026-07-12" — the date it took place separates repeat visits to one place. */
+private fun workshopOptionLabel(workshop: WorkshopDetailDto): String {
+    val title = workshop.title.ifBlank { "Untitled workshop" }
+    val day = workshop.occurrenceDate().take(10)
+    return if (day.isBlank()) title else "$title · $day"
+}
+
+/**
+ * Split a stored phone into its ISD dial code and national digits. Handles the "+CC number" format this
+ * field writes, a compact "+CCnumber", and legacy bare numbers (assumed Indian, +91). Longest known
+ * dial code wins so multi-digit codes aren't misread as a shorter one.
+ */
+private fun parsePhoneNumber(stored: String): Pair<String, String> {
+    val compact = stored.trim().replace("\\s".toRegex(), "")
+    if (compact.isEmpty()) return "+91" to ""
+    if (compact.startsWith("+")) {
+        val code = Countries.dialCodes.firstOrNull { compact.startsWith(it) }
+        if (code != null) return code to compact.removePrefix(code).filter { it.isDigit() }
+        return "+91" to compact.filter { it.isDigit() }
+    }
+    return "+91" to compact.filter { it.isDigit() }
+}
+
+/** Combine a dial code and national digits into the stored "+CC number" form (blank when no number). */
+private fun composePhoneNumber(dialCode: String, national: String): String {
+    val digits = national.filter { it.isDigit() }
+    return if (digits.isEmpty()) "" else "$dialCode $digits"
+}
+
+/**
+ * The shape an email address has to have, character for character the web form's `EMAIL_RE`
+ * (`/^[^\s@]+@[^\s@]+\.[^\s@]+$/` in components/forms/ArtisanForm.tsx): something, an @, something,
+ * a dot, something — no spaces anywhere.
+ *
+ * Deliberately the WEB's rule rather than `Patterns.EMAIL_ADDRESS` or a stricter RFC pattern: the two
+ * clients write into one column, and the same artisan must not be accepted on the phone and refused
+ * in the browser. "a@b" fails here exactly as it fails there.
+ */
+private val EMAIL_RE = Regex("""[^\s@]+@[^\s@]+\.[^\s@]+""")
+
+/**
+ * Inline validation for a stored phone: null when empty or valid. +91 must be exactly 10 digits; other
+ * codes accept 4–14 digits (loose enough for the range of national number lengths worldwide).
+ */
+private fun phoneValidationError(stored: String?): String? {
+    val (code, national) = parsePhoneNumber(stored ?: "")
+    val digits = national.filter { it.isDigit() }
+    return when {
+        digits.isEmpty() -> null
+        code == "+91" -> if (digits.length == 10) null else "Enter a 10-digit number for +91."
+        else -> if (digits.length in 4..14) null else "Enter a valid phone number (4–14 digits)."
+    }
+}
+
+/**
+ * Artisan phone entry with an ISD-prefix selector. The compact prefix button opens a searchable list of
+ * every country (name + dial code); the default is +91. Changing away from +91 asks to confirm the
+ * artisan is a foreign resident (cancel reverts). The combined value is emitted as a single
+ * "+CC number" string in the existing phone field, and parsed back on edit.
+ */
+@Composable
+private fun ArtisanPhoneField(value: String, error: String?, onValueChange: (String) -> Unit) {
+    val initial = remember { parsePhoneNumber(value) }
+    var dialCode by remember { mutableStateOf(initial.first) }
+    var national by remember { mutableStateOf(initial.second) }
+    var showPicker by remember { mutableStateOf(false) }
+    // A dial code chosen away from +91 that is awaiting the foreign-resident confirmation.
+    var pendingForeign by remember { mutableStateOf<String?>(null) }
+
+    fun applyDialCode(code: String) {
+        if (code == dialCode) return
+        // Leaving +91 marks the artisan as a foreign resident — confirm before applying.
+        if (dialCode == "+91" && code != "+91") {
+            pendingForeign = code
+        } else {
+            dialCode = code
+            onValueChange(composePhoneNumber(code, national))
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Phone", color = Muted, fontSize = 12.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+            OutlinedButton(
+                onClick = { showPicker = true },
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 16.dp)
+            ) {
+                Text(dialCode, color = Body, maxLines = 1)
+                Text(" ▾", color = Muted)
+            }
+            OutlinedTextField(
+                value = national,
+                onValueChange = { input ->
+                    val digits = input.filter { it.isDigit() }
+                    national = digits
+                    onValueChange(composePhoneNumber(dialCode, digits))
+                },
+                label = { Text("Number") },
+                isError = error != null,
+                supportingText = error?.let { msg -> { Text(msg) } },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+
+    if (showPicker) {
+        CountryDialCodePicker(
+            onDismiss = { showPicker = false },
+            onPick = { c -> showPicker = false; applyDialCode(c.dialCode) }
+        )
+    }
+    pendingForeign?.let { code ->
+        AlertDialog(
+            onDismissRequest = { pendingForeign = null },
+            title = { Text("Foreign resident?") },
+            text = { Text("This marks the artisan as a foreign resident. Continue?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    dialCode = code
+                    onValueChange(composePhoneNumber(code, national))
+                    pendingForeign = null
+                }) { Text("Continue") }
+            },
+            dismissButton = { TextButton(onClick = { pendingForeign = null }) { Text("Cancel") } }
+        )
+    }
+}
+
+/** Searchable dialog listing every country (name + dial code) for the phone ISD-prefix selector. */
+@Composable
+private fun CountryDialCodePicker(onDismiss: () -> Unit, onPick: (Country) -> Unit) {
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(query) {
+        val q = query.trim().lowercase()
+        if (q.isEmpty()) Countries.all
+        else Countries.all.filter { it.name.lowercase().contains(q) || it.dialCode.contains(q) }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        title = { Text("Select country code") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Search country or code") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 360.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    if (filtered.isEmpty()) {
+                        Text("No matches", color = Muted, fontSize = 13.sp)
+                    }
+                    filtered.forEach { c ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onPick(c) }
+                                .padding(vertical = 10.dp, horizontal = 4.dp)
+                        ) {
+                            Text(c.name, color = Body, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                            Text(c.dialCode, color = Muted, fontSize = 14.sp)
+                        }
+                    }
+                }
+            }
+        }
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Artisan identity: Aadhaar number and Artisan Pehchan (PM Vishwakarma) card.
+//
+// The Aadhaar number is the repository's DEDUPLICATION key — the same person documented at two
+// workshops by two researchers has to resolve to one artisan, and a unique index on the column is
+// what enforces that. A mistyped number is worse than a blank one: it collides with nobody, so it
+// silently creates exactly the duplicate the field exists to prevent. Hence the rules below are a
+// faithful port of backend/app/services/artisan_identity.py — same three checks, same wording —
+// rather than a looser client-side approximation. Mirroring the server also means a researcher on a
+// dead connection learns the number is wrong while the card is still in their hand, instead of after
+// a round trip that may not even complete.
+// ---------------------------------------------------------------------------
+
+private const val AADHAAR_LENGTH = 12
+
+// Verhoeff tables: `D` is the dihedral-group multiplication table, `P` the position permutation
+// applied to each digit by its distance from the right. UIDAI computes this checksum over the first
+// 11 digits because it catches every single-digit error and every adjacent transposition — the two
+// ways a 12-digit number gets misread off a card.
+private val VERHOEFF_D = arrayOf(
+    intArrayOf(0, 1, 2, 3, 4, 5, 6, 7, 8, 9),
+    intArrayOf(1, 2, 3, 4, 0, 6, 7, 8, 9, 5),
+    intArrayOf(2, 3, 4, 0, 1, 7, 8, 9, 5, 6),
+    intArrayOf(3, 4, 0, 1, 2, 8, 9, 5, 6, 7),
+    intArrayOf(4, 0, 1, 2, 3, 9, 5, 6, 7, 8),
+    intArrayOf(5, 9, 8, 7, 6, 0, 4, 3, 2, 1),
+    intArrayOf(6, 5, 9, 8, 7, 1, 0, 4, 3, 2),
+    intArrayOf(7, 6, 5, 9, 8, 2, 1, 0, 4, 3),
+    intArrayOf(8, 7, 6, 5, 9, 3, 2, 1, 0, 4),
+    intArrayOf(9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
+)
+
+private val VERHOEFF_P = arrayOf(
+    intArrayOf(0, 1, 2, 3, 4, 5, 6, 7, 8, 9),
+    intArrayOf(1, 5, 7, 6, 2, 8, 3, 0, 9, 4),
+    intArrayOf(5, 8, 0, 3, 7, 9, 6, 1, 4, 2),
+    intArrayOf(8, 9, 1, 6, 0, 4, 3, 5, 2, 7),
+    intArrayOf(9, 4, 5, 3, 1, 2, 6, 8, 7, 0),
+    intArrayOf(4, 2, 8, 6, 5, 7, 3, 9, 0, 1),
+    intArrayOf(2, 7, 9, 3, 8, 0, 6, 4, 1, 5),
+    intArrayOf(7, 0, 4, 6, 9, 1, 3, 2, 5, 8)
+)
+
+/** True when [digits] satisfies the Verhoeff checksum (the 12th digit checks the first 11). */
+private fun verhoeffOk(digits: String): Boolean {
+    var checksum = 0
+    digits.reversed().forEachIndexed { index, char ->
+        checksum = VERHOEFF_D[checksum][VERHOEFF_P[index % 8][char - '0']]
+    }
+    return checksum == 0
+}
+
+/**
+ * The reason [value] is not a usable Aadhaar number, or null when it is fine (blank included — the
+ * field is optional). Each message names the specific problem, because "invalid Aadhaar number"
+ * gives a field researcher nothing to act on. Wording matches the API's, so the inline error a
+ * researcher sees offline is the same sentence the server would have sent back.
+ */
+private fun aadhaarValidationError(value: String?): String? {
+    val digits = value?.trim().orEmpty()
+    if (digits.isEmpty()) return null
+    // ASCII digits only, NOT Char.isDigit(): that returns true for Devanagari "१", fullwidth "２" and
+    // every other decimal script, and `char - '0'` on one of those indexes far off the end of the
+    // Verhoeff tables — an ArrayIndexOutOfBoundsException thrown straight out of a Compose callback.
+    // The server rejects the same characters (they would otherwise be stored verbatim and defeat the
+    // unique index), so rejecting them here keeps both sides answering the same sentence.
+    if (!digits.all { it in '0'..'9' }) return "Aadhaar number must be 12 digits — remove any letters or symbols."
+    if (digits.length != AADHAAR_LENGTH) return "Aadhaar number must be exactly 12 digits (this one has ${digits.length})."
+    if (digits[0] == '0' || digits[0] == '1') return "Aadhaar numbers never start with 0 or 1 — please re-check the first digit."
+    if (!verhoeffOk(digits)) {
+        return "That Aadhaar number fails its checksum, so at least one digit is wrong. " +
+            "Please re-read the card and enter it again."
+    }
+    return null
+}
+
+/**
+ * "123456789012" -> "XXXX XXXX 9012", the form every surface EXCEPT the edit form uses.
+ *
+ * Aadhaar is regulated personal data, so a browse screen shows only the last four digits — enough to
+ * confirm this is the right person, not enough to be a usable identifier. Mirrors the API's own
+ * masking (which the data browser, the .xlsx report and exports already get), including its refusal
+ * to partially reveal a malformed short value.
+ */
+private fun maskAadhaar(value: String?): String? {
+    val digits = value?.trim().orEmpty()
+    if (digits.isEmpty()) return null
+    if (digits.length < 4) return "XXXX XXXX XXXX"
+    return "XXXX XXXX ${digits.takeLast(4)}"
+}
+
+/**
+ * Displays the stored bare digits as the "1234 5678 9012" grouping printed on the card, so a
+ * researcher can check what they typed against it at a glance.
+ *
+ * The grouping is presentation only: the state behind the field stays 12 bare digits, which is what
+ * gets submitted and what the unique index compares. Doing this with a transformation rather than by
+ * rewriting the state is also what keeps the cursor sane — inserting spaces into the value itself
+ * jumps the caret every fourth keystroke.
+ */
+private object AadhaarGroupingTransformation : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        val digits = text.text
+        val grouped = digits.chunked(4).joinToString(" ")
+        val mapping = object : OffsetMapping {
+            // Two spaces are inserted, after digit 4 and digit 8; each shifts every later offset by one.
+            override fun originalToTransformed(offset: Int): Int =
+                (offset + ((offset - 1) / 4).coerceIn(0, 2)).coerceIn(0, grouped.length)
+
+            override fun transformedToOriginal(offset: Int): Int =
+                (offset - (offset / 5).coerceIn(0, 2)).coerceIn(0, digits.length)
+        }
+        return TransformedText(AnnotatedString(grouped), mapping)
+    }
+}
+
+/**
+ * The Aadhaar entry field: digits only, capped at 12, shown grouped and submitted bare.
+ *
+ * [error] is the (blocking) validation failure; [warning] is the non-blocking duplicate notice naming
+ * an artisan already recorded with this number — a warning rather than a block, because the
+ * researcher in front of the person is better placed than the app to decide what that means.
+ */
+@Composable
+private fun ArtisanAadhaarField(
+    value: String,
+    error: String?,
+    warning: String?,
+    focusRequester: FocusRequester,
+    onValueChange: (String) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        OutlinedTextField(
+            value = value,
+            // Paste is the common way a wrong character arrives, so filter rather than trust the
+            // keyboard — and filter on the ASCII range, because Char.isDigit() would ADMIT the
+            // Devanagari and fullwidth digits an Indic IME can produce (see aadhaarValidationError).
+            onValueChange = { input -> onValueChange(input.filter { it in '0'..'9' }.take(AADHAAR_LENGTH)) },
+            label = { Text("Aadhaar number") },
+            placeholder = { Text("1234 5678 9012") },
+            isError = error != null,
+            supportingText = {
+                if (error != null) {
+                    Text(error)
+                } else {
+                    Text(
+                        "12 digits from the artisan's card. Used to recognise someone another " +
+                            "researcher has already documented.",
+                        color = Muted,
+                        fontSize = 12.sp
+                    )
+                }
+            },
+            singleLine = true,
+            // NumberPassword, not Number: it gives the same digit pad while telling the keyboard this is
+            // a secret — IMEs neither learn from nor suggest text typed into a password field, which is
+            // the right handling for a regulated identifier.
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+            visualTransformation = AadhaarGroupingTransformation,
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(focusRequester)
+        )
+        warning?.let { msg -> Text(msg, color = Coral, fontSize = 12.sp) }
+    }
 }
 
 @Composable
@@ -2966,6 +3833,7 @@ private fun CraftForm(
     var category by remember(editing) { mutableStateOf(editing?.category ?: "") }
     var place by remember(editing) { mutableStateOf(editing?.place ?: "") }
     var description by remember(editing) { mutableStateOf(editing?.description ?: "") }
+    val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
     var saving by remember { mutableStateOf(false) }
     var nameError by remember { mutableStateOf<String?>(null) }
     val nameFocus = remember { FocusRequester() }
@@ -2975,6 +3843,9 @@ private fun CraftForm(
                 RequiredCheck(name.isBlank(), { nameError = it }, nameFocus)
             ))) { onError("Please fill the required field highlighted above."); return }
         scope.launch {
+            // Late-submission gate: if the chosen workshop has ended, say what that means and save
+            // only if the researcher confirms. Returns true immediately when there is nothing to say.
+            if (!workshop.confirmSubmission()) return@launch
             saving = true
             val body = CraftCreateRequest(
                 name = name.trim(),
@@ -2982,6 +3853,7 @@ private fun CraftForm(
                 category = category.blankToNull(),
                 place = place.blankToNull(),
                 description = description.blankToNull(),
+                workshopId = workshop.value(),
                 recordedAt = if (isEdit) null else Instant.now().toString()
             )
             val queuedOffline = runCatching {
@@ -3012,7 +3884,7 @@ private fun CraftForm(
     val initialSig = remember(editing) { listOf(name, localName, category, place, description).joinToString("") }
     val dirty = !saving && (
         listOf(name, localName, category, place, description).joinToString("") != initialSig ||
-            media.uris.isNotEmpty() || media.measurementUri != null
+            workshop.isDirty() || media.uris.isNotEmpty() || media.measurementUri != null
     )
 
     RecordCard(title = if (isEdit) "Edit craft" else "Add craft") {
@@ -3020,10 +3892,11 @@ private fun CraftForm(
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
-        RequiredInput("Craft name", name, nameError, nameFocus) { name = it }
+        WorkshopField(state = workshop, saving = saving)
+        RequiredInput("Craft name", name, nameError, nameFocus, titleCased = true) { name = it }
         TextInput("Local name", localName) { localName = it }
         TextInput("Category", category) { category = it }
-        TextInput("Place", place) { place = it }
+        TextInput("Place", place, titleCased = true) { place = it }
         TextInput("Description", description, minLines = 3) { description = it }
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "craft", recordId = editing!!.id, onError = onError)
@@ -3059,11 +3932,19 @@ private fun ArtisanForm(
     var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }
     var address by remember(editing) { mutableStateOf(editing?.address ?: "") }
     var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }
+    // Identity. `aadhaar` holds BARE digits — the 4-4-4 grouping is a visual transformation on the
+    // field, never part of the value. The Pehchan card defaults to "available", matching the API's
+    // default and the common case, which is why its number is effectively required on create.
+    var aadhaar by remember(editing) { mutableStateOf(editing?.aadhaarNumber.orEmpty()) }
+    var pehchanAvailable by remember(editing) { mutableStateOf(editing?.pehchanCardAvailable ?: true) }
+    var pehchanNumber by remember(editing) { mutableStateOf(editing?.pehchanCardNumber.orEmpty()) }
     var dosItems by remember(editing) { mutableStateOf(splitNumbered(editing?.dos)) }
     var dontsItems by remember(editing) { mutableStateOf(splitNumbered(editing?.donts)) }
     var craftId by remember(editing) { mutableStateOf(editing?.craftId ?: prefill?.craftId ?: "") }
     var newCraftName by remember(editing) { mutableStateOf("") }
-    var status by remember(editing) { mutableStateOf(editing?.status ?: "PENDING") }
+    val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
+    val canSetStatus = remember { canSetRecordStatus(repository.cachedUser()?.role) }
+    var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }
     var saving by remember { mutableStateOf(false) }
     val hasCraft = craftId.isNotBlank() || newCraftName.isNotBlank()
     var nameError by remember { mutableStateOf<String?>(null) }
@@ -3071,15 +3952,48 @@ private fun ArtisanForm(
     var craftError by remember { mutableStateOf<String?>(null) }
     var dosError by remember { mutableStateOf<String?>(null) }
     var dontsError by remember { mutableStateOf<String?>(null) }
+    var phoneError by remember { mutableStateOf<String?>(null) }
+    var emailError by remember { mutableStateOf<String?>(null) }
+    var aadhaarError by remember { mutableStateOf<String?>(null) }
+    var pehchanError by remember { mutableStateOf<String?>(null) }
+    // Non-blocking: an artisan already recorded with the Aadhaar number being typed.
+    var aadhaarDuplicate by remember(editing) { mutableStateOf<String?>(null) }
     val nameFocus = remember { FocusRequester() }
     val placeFocus = remember { FocusRequester() }
     val craftFocus = remember { FocusRequester() }
     val dosFocus = remember { FocusRequester() }
     val dontsFocus = remember { FocusRequester() }
+    val emailFocus = remember { FocusRequester() }
+    val aadhaarFocus = remember { FocusRequester() }
+    val pehchanFocus = remember { FocusRequester() }
 
     LaunchedEffect(editing) {
         val existing = editing?.location
         if (existing != null && media.location == null) media.location = existing.toRequest()
+    }
+
+    // Pre-flight duplicate check. The moment a complete, well-formed number is on screen, ask the
+    // server whether it already belongs to someone — so the researcher hears "you already have this
+    // person" while the form is still half empty, rather than as a 409 after filling all of it. The
+    // short delay keeps this to one request per number instead of one per keystroke, and a failed
+    // lookup is swallowed: this is a courtesy, and the unique index remains the real guarantee.
+    LaunchedEffect(aadhaar, editing?.id) {
+        aadhaarDuplicate = null
+        if (aadhaar.isBlank() || aadhaarValidationError(aadhaar) != null) return@LaunchedEffect
+        delay(400)
+        val match = runCatching { repository.lookupArtisanByAadhaar(aadhaar) }.getOrNull()?.artisan
+        // Editing the very artisan who holds the number is not a duplicate.
+        if (match == null || match.id == editing?.id) return@LaunchedEffect
+        val where = listOfNotNull(
+            match.place?.takeIf { it.isNotBlank() },
+            match.craft?.takeIf { it.isNotBlank() }
+        ).joinToString(", ")
+        aadhaarDuplicate = buildString {
+            append(match.name.ifBlank { "Another artisan" })
+            if (where.isNotEmpty()) append(" ($where)")
+            append(" is already recorded with this Aadhaar number. Open that artisan instead of ")
+            append("creating a duplicate.")
+        }
     }
 
     fun submit() {
@@ -3092,7 +4006,37 @@ private fun ArtisanForm(
                 RequiredCheck(dosText.isBlank(), { dosError = it }, dosFocus),
                 RequiredCheck(dontsText.isBlank(), { dontsError = it }, dontsFocus)
             ))) { onError("Please fill the required field highlighted above."); return }
+        // Phone (optional) must be a valid number for its ISD code when present.
+        phoneValidationError(phone)?.let { msg -> phoneError = msg; onError("Fix the phone number highlighted above."); return }
+        phoneError = null
+        // Email (optional) must look like an address when present — the same shape the web form
+        // enforces (EMAIL_RE in components/forms/ArtisanForm.tsx). Accepting "a@b" here while the web
+        // refused it meant one artisan got two different verdicts depending on who typed them in.
+        if (email.isNotBlank() && !EMAIL_RE.matches(email.trim())) {
+            emailError = "Enter a valid email address (name@example.com)."
+            runCatching { emailFocus.requestFocus() }
+            onError("Fix the email highlighted above."); return
+        }
+        emailError = null
+        // Aadhaar (optional) must be a genuine number when present — the same three checks the API
+        // runs, applied here so a bad digit is caught with the card still in hand and without needing
+        // a connection at all (this form saves offline).
+        aadhaarValidationError(aadhaar)?.let { msg ->
+            aadhaarError = msg
+            runCatching { aadhaarFocus.requestFocus() }
+            onError("Fix the Aadhaar number highlighted above."); return
+        }
+        aadhaarError = null
+        // "Card available = Yes" without a number is the one combination the API refuses outright.
+        if (pehchanAvailable && pehchanNumber.isBlank()) {
+            pehchanError = "Enter the Artisan Pehchan Card number, or set the card to 'No' if the " +
+                "artisan does not hold one."
+            runCatching { pehchanFocus.requestFocus() }
+            onError("Fix the Artisan Pehchan Card details highlighted above."); return
+        }
+        pehchanError = null
         scope.launch {
+            if (!workshop.confirmSubmission()) return@launch
             saving = true
             val body = ArtisanCreateRequest(
                 name = name.trim(),
@@ -3103,10 +4047,20 @@ private fun ArtisanForm(
                 place = place.trim(),
                 address = address.blankToNull(),
                 notes = notes.blankToNull(),
+                // Sent even when empty. `explicitNulls = false` drops a null from the payload, and an
+                // omitted key means "leave it alone" to a PATCH — which would make a wrongly entered
+                // Aadhaar impossible to retract from the app. The API normalises "" to null, and the
+                // column is one it deliberately allows a client to clear.
+                aadhaarNumber = aadhaar.trim(),
+                // Always sent explicitly, both ways: the API clears a stale card number when this is
+                // false, and only an explicit true can move a record back off "No".
+                pehchanCardAvailable = pehchanAvailable,
+                pehchanCardNumber = if (pehchanAvailable) pehchanNumber.blankToNull() else null,
                 dos = dosText,
                 donts = dontsText,
                 craftId = craftId.ifBlank { null },
                 craftName = if (craftId.isBlank()) newCraftName.blankToNull() else null,
+                workshopId = workshop.value(),
                 status = status,
                 recordedAt = if (isEdit) null else Instant.now().toString(),
                 location = locationForBody(isEdit, media.location, editing?.location)
@@ -3147,16 +4101,26 @@ private fun ArtisanForm(
                     media.reset()
                     onArtisanCreated(prefillOut)
                 }
-            }.onFailure { onError(it.message ?: "Unable to save artisan") }
+            }.onFailure {
+                // A duplicate Aadhaar/Pehchan number comes back as a structured 409 whose message
+                // names the artisan already holding it — far more use than "HTTP 409 Conflict", which
+                // is all the exception itself says.
+                onError(it.apiErrorMessage("Unable to save artisan"))
+            }
             saving = false
         }
     }
-    val initialSig = remember(editing) {
-        listOf(name, localName, gender, phone, email, place, address, notes, joinNumbered(dosItems), joinNumbered(dontsItems), craftId, newCraftName, status).joinToString("")
-    }
+    // Every value the form can change, in one string — the unsaved-work guard compares it against the
+    // value it had on open, so a new field must be listed here or editing it looks like no edit at all.
+    fun formSignature(): String = listOf(
+        name, localName, gender, phone, email, place, address, notes, aadhaar,
+        pehchanAvailable.toString(), pehchanNumber, joinNumbered(dosItems), joinNumbered(dontsItems),
+        craftId, newCraftName, status
+    ).joinToString(" ")
+    val initialSig = remember(editing) { formSignature() }
     val dirty = !saving && (
-        listOf(name, localName, gender, phone, email, place, address, notes, joinNumbered(dosItems), joinNumbered(dontsItems), craftId, newCraftName, status).joinToString("") != initialSig ||
-            media.uris.isNotEmpty() || media.measurementUri != null
+        formSignature() != initialSig ||
+            workshop.isDirty() || media.uris.isNotEmpty() || media.measurementUri != null
     )
 
     RecordCard(title = if (isEdit) "Edit artisan" else "Add artisan") {
@@ -3164,7 +4128,8 @@ private fun ArtisanForm(
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
-        RequiredInput("Name", name, nameError, nameFocus) { name = it }
+        WorkshopField(state = workshop, saving = saving)
+        RequiredInput("Name", name, nameError, nameFocus, titleCased = true) { name = it }
         TextInput("Local name", localName) { localName = it }
         DropdownField(
             label = "Craft *",
@@ -3181,17 +4146,57 @@ private fun ArtisanForm(
             supportingText = craftError?.let { msg -> { Text(msg) } },
             modifier = Modifier.fillMaxWidth().focusRequester(craftFocus)
         )
-        RequiredInput("Place", place, placeError, placeFocus) { place = it }
+        RequiredInput("Place", place, placeError, placeFocus, titleCased = true) { place = it }
         DropdownField(
             label = "Gender",
             options = genderOptions.map { it to it },
             selectedValue = gender,
             includeNone = false
         ) { gender = it }
-        TextInput("Phone", phone) { phone = it }
-        TextInput("Email", email) { email = it }
+        ArtisanPhoneField(value = phone, error = phoneError) { phone = it; phoneError = null }
+        OutlinedTextField(
+            value = email,
+            onValueChange = { email = it; emailError = null },
+            label = { Text("Email") },
+            isError = emailError != null,
+            supportingText = emailError?.let { msg -> { Text(msg) } },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(emailFocus)
+        )
         TextInput("Address", address, minLines = 2) { address = it }
         MultiNoteInput(value = notes) { notes = it }
+        ArtisanAadhaarField(
+            value = aadhaar,
+            error = aadhaarError,
+            warning = aadhaarDuplicate,
+            focusRequester = aadhaarFocus
+        ) { aadhaar = it; aadhaarError = null }
+        DropdownField(
+            label = "Artisan Pehchan Card available",
+            options = listOf("yes" to "Yes", "no" to "No"),
+            selectedValue = if (pehchanAvailable) "yes" else "no",
+            includeNone = false
+        ) { choice ->
+            pehchanAvailable = choice == "yes"
+            // Answering No retires the number with the answer, so a disabled box can never leave a
+            // card number stranded on a record that says the artisan holds no card.
+            if (!pehchanAvailable) { pehchanNumber = ""; pehchanError = null }
+        }
+        OutlinedTextField(
+            value = pehchanNumber,
+            onValueChange = { pehchanNumber = it; pehchanError = null },
+            label = { Text(if (pehchanAvailable) "Artisan Pehchan Card number *" else "Artisan Pehchan Card number") },
+            enabled = pehchanAvailable,
+            isError = pehchanError != null,
+            supportingText = pehchanError?.let { msg -> { Text(msg) } },
+            singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(pehchanFocus)
+        )
         NumberedListInput(
             label = "Do's (positive prompt)",
             items = dosItems,
@@ -3206,7 +4211,7 @@ private fun ArtisanForm(
             focusRequester = dontsFocus,
             helper = "Lessons from years at the craft — the things the artisan has learnt not to do / to avoid. Press Enter for each new point."
         ) { dontsItems = it; dontsError = null }
-        StatusDropdown(value = status) { status = it }
+        StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "artisan", recordId = editing!!.id, onError = onError)
         }
@@ -3238,7 +4243,8 @@ private fun WorkshopForm(
     var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }
     var startDate by remember(editing) { mutableStateOf(parseIsoToLocalDate(editing?.startDate)) }
     var endDate by remember(editing) { mutableStateOf(parseIsoToLocalDate(editing?.endDate)) }
-    var status by remember(editing) { mutableStateOf(editing?.status ?: "PENDING") }
+    val canSetStatus = remember { canSetRecordStatus(repository.cachedUser()?.role) }
+    var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }
     var selectedArtisans by remember(editing) {
         mutableStateOf(
             editing?.artisans?.map { it.artisanId }?.toSet()
@@ -3332,8 +4338,8 @@ private fun WorkshopForm(
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
-        RequiredInput("Workshop title", title, titleError, titleFocus) { title = it }
-        RequiredInput("Place", place, placeError, placeFocus) { place = it }
+        RequiredInput("Workshop title", title, titleError, titleFocus, titleCased = true) { title = it }
+        RequiredInput("Place", place, placeError, placeFocus, titleCased = true) { place = it }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             Box(modifier = Modifier.weight(1f)) {
                 DatePickerField("Start date", startDate) { picked ->
@@ -3345,7 +4351,7 @@ private fun WorkshopForm(
                 DatePickerField("End date", endDate) { endDate = it }
             }
         }
-        StatusDropdown(value = status) { status = it }
+        StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
         TextInput("Description", description, minLines = 3) { description = it }
         MultiNoteInput(value = notes) { notes = it }
         ArtisanMultiSelectField(
@@ -3409,7 +4415,9 @@ private fun ProductForm(
     var mainTools by remember(editing) { mutableStateOf(editing?.mainToolsUsed ?: "") }
     var functionUse by remember(editing) { mutableStateOf(editing?.productFunctionUse ?: "") }
     var remarks by remember(editing) { mutableStateOf(editing?.remarks ?: "") }
-    var status by remember(editing) { mutableStateOf(editing?.status ?: "PENDING") }
+    val canSetStatus = remember { canSetRecordStatus(repository.cachedUser()?.role) }
+    var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }
+    val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
     var saving by remember { mutableStateOf(false) }
     var productNameError by remember { mutableStateOf<String?>(null) }
     var craftNameError by remember { mutableStateOf<String?>(null) }
@@ -3433,6 +4441,7 @@ private fun ProductForm(
                 RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
             ))) { onError("Please fill the required field highlighted above."); return }
         scope.launch {
+            if (!workshop.confirmSubmission()) return@launch
             saving = true
             val body = ProductCreateRequest(
                 productName = productName.trim(),
@@ -3455,6 +4464,7 @@ private fun ProductForm(
                 remarks = remarks.blankToNull(),
                 artisanId = artisanId.ifBlank { null },
                 craftId = craftId.ifBlank { null },
+                workshopId = workshop.value(),
                 status = status,
                 recordedAt = if (isEdit) null else Instant.now().toString(),
                 location = locationForBody(isEdit, media.location, editing?.location)
@@ -3490,14 +4500,17 @@ private fun ProductForm(
             status, craftId, artisanId).joinToString("")
     }
     val initialSig = remember(editing) { productSig() }
-    val dirty = !saving && (productSig() != initialSig || media.uris.isNotEmpty() || media.measurementUri != null)
+    val dirty = !saving && (
+        productSig() != initialSig || workshop.isDirty() || media.uris.isNotEmpty() || media.measurementUri != null
+    )
 
     RecordCard(title = if (isEdit) "Edit product" else "Add product") {
         RegisterUnsavedGuard(dirty = dirty) { submit() }
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
-        RequiredInput("Product name", productName, productNameError, productNameFocus) { productName = it }
+        WorkshopField(state = workshop, saving = saving)
+        RequiredInput("Product name", productName, productNameError, productNameFocus, titleCased = true) { productName = it }
         TextInput("Local name", localName) { localName = it }
         DropdownField("Product type", productTypeOptions.map { it to it }, productType, includeNone = false) { productType = it }
         DropdownField(
@@ -3513,7 +4526,7 @@ private fun ProductForm(
                 artisanId = ""
             }
         }
-        RequiredInput("Craft name", craftName, craftNameError, craftNameFocus) { craftName = it }
+        RequiredInput("Craft name", craftName, craftNameError, craftNameFocus, titleCased = true) { craftName = it }
         // Task 6: the artisan dropdown is gated on a linked craft and only lists that craft's artisans.
         val artisanOptionsForCraft = if (craftId.isNotBlank()) {
             artisans.filter { it.craftId == craftId || it.id == artisanId }
@@ -3536,8 +4549,8 @@ private fun ProductForm(
         if (craftId.isNotBlank() && artisanOptionsForCraft.isEmpty()) {
             Text("No artisans are linked to this craft yet.", color = Muted, fontSize = 12.sp)
         }
-        RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus) { artisanName = it }
-        RequiredInput("Place", place, placeError, placeFocus) { place = it }
+        RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus, titleCased = true) { artisanName = it }
+        RequiredInput("Place", place, placeError, placeFocus, titleCased = true) { place = it }
         TextInput("Time taken to complete", timeTaken) { timeTaken = it }
         TextInput("Size", size) { size = it }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -3561,7 +4574,7 @@ private fun ProductForm(
         TextInput("Main tools used", mainTools, minLines = 2) { mainTools = it }
         TextInput("Function or use", functionUse, minLines = 2) { functionUse = it }
         TextInput("Remarks", remarks, minLines = 3) { remarks = it }
-        StatusDropdown(value = status) { status = it }
+        StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "product", recordId = editing!!.id, onError = onError)
         }
@@ -3612,7 +4625,9 @@ private fun ToolForm(
     var replacementCost by remember(editing) { mutableStateOf(numToText(editing?.replacementCost)) }
     var suggestions by remember(editing) { mutableStateOf(editing?.suggestionsForToolImprovement ?: "") }
     var remarks by remember(editing) { mutableStateOf(editing?.remarks ?: "") }
-    var status by remember(editing) { mutableStateOf(editing?.status ?: "PENDING") }
+    val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
+    val canSetStatus = remember { canSetRecordStatus(repository.cachedUser()?.role) }
+    var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }
     var saving by remember { mutableStateOf(false) }
     var toolkitNameError by remember { mutableStateOf<String?>(null) }
     var craftNameError by remember { mutableStateOf<String?>(null) }
@@ -3636,6 +4651,7 @@ private fun ToolForm(
                 RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
             ))) { onError("Please fill the required field highlighted above."); return }
         scope.launch {
+            if (!workshop.confirmSubmission()) return@launch
             saving = true
             val body = ToolCreateRequest(
                 toolkitName = toolkitName.trim(),
@@ -3661,6 +4677,7 @@ private fun ToolForm(
                 remarks = remarks.blankToNull(),
                 artisanId = artisanId.ifBlank { null },
                 craftId = craftId.ifBlank { null },
+                workshopId = workshop.value(),
                 status = status,
                 recordedAt = if (isEdit) null else Instant.now().toString(),
                 location = locationForBody(isEdit, media.location, editing?.location)
@@ -3717,7 +4734,8 @@ private fun ToolForm(
     }
     val initialSig = remember(editing) { toolSig() }
     val dirty = !saving && (
-        toolSig() != initialSig || media.uris.isNotEmpty() || media.measurementUri != null || stages.uris.isNotEmpty()
+        toolSig() != initialSig || workshop.isDirty() ||
+            media.uris.isNotEmpty() || media.measurementUri != null || stages.uris.isNotEmpty()
     )
 
     RecordCard(title = if (isEdit) "Edit tool" else "Add tool") {
@@ -3725,9 +4743,10 @@ private fun ToolForm(
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
-        RequiredInput("Toolkit name", toolkitName, toolkitNameError, toolkitNameFocus) { toolkitName = it }
+        WorkshopField(state = workshop, saving = saving)
+        RequiredInput("Toolkit name", toolkitName, toolkitNameError, toolkitNameFocus, titleCased = true) { toolkitName = it }
         TextInput("Local name", localName) { localName = it }
-        TextInput("English name", englishName) { englishName = it }
+        TextInput("English name", englishName, titleCased = true) { englishName = it }
         DropdownField(
             label = "Linked craft (fills craft name)",
             options = crafts.map { it.id to it.name },
@@ -3741,7 +4760,7 @@ private fun ToolForm(
                 artisanId = ""
             }
         }
-        RequiredInput("Craft name", craftName, craftNameError, craftNameFocus) { craftName = it }
+        RequiredInput("Craft name", craftName, craftNameError, craftNameFocus, titleCased = true) { craftName = it }
         // Task 6: the artisan dropdown is gated on a linked craft and only lists that craft's artisans.
         val artisanOptionsForCraft = if (craftId.isNotBlank()) {
             artisans.filter { it.craftId == craftId || it.id == artisanId }
@@ -3764,8 +4783,8 @@ private fun ToolForm(
         if (craftId.isNotBlank() && artisanOptionsForCraft.isEmpty()) {
             Text("No artisans are linked to this craft yet.", color = Muted, fontSize = 12.sp)
         }
-        RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus) { artisanName = it }
-        RequiredInput("Place", place, placeError, placeFocus) { place = it }
+        RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus, titleCased = true) { artisanName = it }
+        RequiredInput("Place", place, placeError, placeFocus, titleCased = true) { place = it }
         TextInput("Process used in", processUsedIn) { processUsedIn = it }
         TextInput("Material", material) { material = it }
         TextInput("Years in use", yearsInUse) { yearsInUse = it }
@@ -3794,7 +4813,7 @@ private fun ToolForm(
         TextInput("Replacement cost", replacementCost) { replacementCost = it }
         TextInput("Suggestions for improvement", suggestions, minLines = 2) { suggestions = it }
         TextInput("Remarks", remarks, minLines = 3) { remarks = it }
-        StatusDropdown(value = status) { status = it }
+        StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
         ToolStagesSection(stages = stages, onMessage = onError, onError = onError)
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "tool", recordId = editing!!.id, onError = onError)
@@ -3959,7 +4978,9 @@ private fun ProcessForm(
     var artisanError by remember { mutableStateOf<String?>(null) }
     var preProcessAvailable by remember(editing) { mutableStateOf(editing?.preProcessAvailable ?: false) }
     var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }
-    var status by remember(editing) { mutableStateOf(editing?.status ?: "PENDING") }
+    val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
+    val canSetStatus = remember { canSetRecordStatus(repository.cachedUser()?.role) }
+    var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }
     var saving by remember { mutableStateOf(false) }
     var nameError by remember { mutableStateOf<String?>(null) }
     var productError by remember { mutableStateOf<String?>(null) }
@@ -4045,6 +5066,7 @@ private fun ProcessForm(
         if (blocked) { onError("Please fill the required fields highlighted above."); return }
 
         scope.launch {
+            if (!workshop.confirmSubmission()) return@launch
             saving = true
             val stepRequests = steps.mapIndexed { i, s ->
                 ProcessStepRequest(
@@ -4062,6 +5084,7 @@ private fun ProcessForm(
                 notes = notes.blankToNull(),
                 status = status,
                 steps = stepRequests,
+                workshopId = workshop.value(),
                 recordedAt = if (isEdit) null else Instant.now().toString()
             )
             // Offline: queue the process with its pre-process media (linked to the process) and each
@@ -4144,7 +5167,8 @@ private fun ProcessForm(
     }
     val initialSig = remember(editing) { procSig() }
     val dirty = !saving && (
-        procSig() != initialSig || preMedia.uris.isNotEmpty() || steps.any { it.media.uris.isNotEmpty() }
+        procSig() != initialSig || workshop.isDirty() ||
+            preMedia.uris.isNotEmpty() || steps.any { it.media.uris.isNotEmpty() }
     )
 
     RecordCard(title = if (isEdit) "Edit process" else "Document process") {
@@ -4157,7 +5181,8 @@ private fun ProcessForm(
             color = Muted,
             fontSize = 12.sp
         )
-        RequiredInput("Name of the process", name, nameError, nameFocus) { name = it }
+        WorkshopField(state = workshop, saving = saving)
+        RequiredInput("Name of the process", name, nameError, nameFocus, titleCased = true) { name = it }
         DropdownField(
             label = "Artisan *",
             options = artisans.map { it.id to "${it.name} · ${it.place}" },
@@ -4293,7 +5318,7 @@ private fun ProcessForm(
             }
         }
 
-        StatusDropdown(value = status) { status = it }
+        StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
 
         // Statutory warning per the documentation guidelines.
         Box(
@@ -4352,14 +5377,15 @@ private fun representativeInterview(group: List<QuestionnaireInterviewDetailDto>
     group.maxByOrNull { it.createdAt ?: "" } ?: group.first()
 
 private suspend fun loadViewEntries(repository: FieldRepository, mode: EntryMode): List<Pair<String, String>> = when (mode) {
-    EntryMode.ARTISAN -> repository.artisans().map { it.id to "${it.name} · ${it.place}" }
-    EntryMode.CRAFT -> repository.crafts().map { it.id to (it.name + (it.place?.let { p -> " · $p" } ?: "")) }
-    EntryMode.PRODUCT -> repository.products().map { it.id to "${it.productName} · ${it.artisanName}" }
-    EntryMode.PROCESS -> repository.processes().map { it.id to (it.name + (it.product?.productName?.let { p -> " · $p" } ?: "")) }
-    EntryMode.TOOL -> repository.tools().map { it.id to "${it.toolkitName} · ${it.artisanName}" }
-    EntryMode.WORKSHOP -> repository.workshops().map { it.id to it.title.ifBlank { "Untitled workshop" } }
-    EntryMode.QUESTIONNAIRE -> repository.interviews().map { it.id to it.title.ifBlank { "Untitled interview" } }
-    EntryMode.MEDIA -> repository.mediaList().map { m ->
+    // Every list is ordered most-recent-first (createdAt desc; ISO timestamps sort lexically).
+    EntryMode.ARTISAN -> repository.artisans().sortedByDescending { it.createdAt ?: "" }.map { it.id to "${it.name} · ${it.place}" }
+    EntryMode.CRAFT -> repository.crafts().sortedByDescending { it.createdAt ?: "" }.map { it.id to (it.name + (it.place?.let { p -> " · $p" } ?: "")) }
+    EntryMode.PRODUCT -> repository.products().sortedByDescending { it.createdAt ?: "" }.map { it.id to "${it.productName} · ${it.artisanName}" }
+    EntryMode.PROCESS -> repository.processes().sortedByDescending { it.createdAt ?: "" }.map { it.id to (it.name + (it.product?.productName?.let { p -> " · $p" } ?: "")) }
+    EntryMode.TOOL -> repository.tools().sortedByDescending { it.createdAt ?: "" }.map { it.id to "${it.toolkitName} · ${it.artisanName}" }
+    EntryMode.WORKSHOP -> repository.workshops().sortedByDescending { it.createdAt ?: "" }.map { it.id to it.title.ifBlank { "Untitled workshop" } }
+    EntryMode.QUESTIONNAIRE -> repository.interviews().sortedByDescending { it.createdAt ?: "" }.map { it.id to it.title.ifBlank { "Untitled interview" } }
+    EntryMode.MEDIA -> repository.mediaList().sortedByDescending { it.createdAt ?: "" }.map { m ->
         val tag = m.linkedRecordType?.takeIf { it.isNotBlank() }?.replaceFirstChar { it.uppercase() }
         m.id to (m.originalFilename.ifBlank { "Media" } + " · " + listOfNotNull(m.mediaType, tag).joinToString(" · "))
     }
@@ -5536,6 +6562,94 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
 // Sentinel id for the "Check completion" entry in the questionnaire dropdown (not a real record id).
 private const val COMPLETION_OPTION_ID = "__completion__"
 
+/** Entries of the admin "Settings" hub, each opening an existing admin composable/screen. */
+private enum class AdminHubEntry(
+    val label: String,
+    val description: String,
+    val icon: ImageVector,
+    val masterOnly: Boolean = false,
+    val reviewGated: Boolean = false
+) {
+    REVIEWS("Reviews & approvals", "Approve or reject records the team submitted.", Icons.Filled.ManageAccounts, reviewGated = true),
+    // GET /media/orphans and POST /media/{id}/relink are `require_admin`, and the web exposes the
+    // same recovery table on /admin to any admin — so this is not master-only.
+    RECOVERED("Recovered recordings", "Play & re-link recordings whose record was deleted.", Icons.Filled.RecordVoiceOver),
+    FEEDBACK("User feedback", "Everyone's app feedback, grouped by user.", Icons.Filled.RateReview, masterOnly = true),
+    TOOLS("Assign tools to artisans", "Link tools to the artisans who use them.", Icons.Filled.Build),
+    WORKSHOPS("Workshop assignments", "Choose who may submit entries for each workshop.", Icons.Filled.Groups),
+    ACCESS_REQUESTS("Workshop access requests", "Approve or deny requests to work in a workshop.", Icons.Filled.LockOpen),
+    SETTINGS("Settings", "Transcription output and off-peak processing.", Icons.Filled.Tune, masterOnly = true)
+}
+
+/**
+ * Admin "Settings" hub, opened from the dashboard card. Lists the administrative tools and opens each
+ * one in place (reusing the existing composables/screens). Back from a sub-tool returns to the list.
+ */
+@Composable
+private fun AdminHubScreen(
+    repository: FieldRepository,
+    isMasterAdmin: Boolean,
+    canReview: Boolean,
+    onMessage: (String) -> Unit,
+    onError: (String) -> Unit
+) {
+    var section by remember { mutableStateOf<AdminHubEntry?>(null) }
+    // Loaded once for the Workshop assignments tool (which needs the researcher directory).
+    var directory by remember { mutableStateOf<List<UserDto>>(emptyList()) }
+    LaunchedEffect(Unit) { runCatching { repository.userDirectory() }.onSuccess { directory = it } }
+
+    val entries = AdminHubEntry.entries.filter { (!it.masterOnly || isMasterAdmin) && (!it.reviewGated || canReview) }
+    val current = section
+    // Inside a sub-tool, Back returns to the hub list rather than leaving the screen entirely.
+    BackHandler(enabled = current != null) { section = null }
+
+    if (current == null) {
+        RecordCard(title = "Admin tools", icon = Icons.Filled.Tune) {
+            Text("Administrative tools and settings.", color = Muted, fontSize = 12.sp)
+            entries.forEach { entry ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { section = entry }
+                        .background(SurfaceCard, RoundedCornerShape(12.dp))
+                        .padding(14.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(color = ColorCompat.darkElevated, shape = RoundedCornerShape(10.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(entry.icon, contentDescription = null, tint = Canvas, modifier = Modifier.size(20.dp))
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(entry.label, color = Body, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        Text(entry.description, color = Muted, fontSize = 12.sp)
+                    }
+                    Text("›", color = Muted, fontSize = 20.sp)
+                }
+            }
+        }
+    } else {
+        OutlinedButton(onClick = { section = null }, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("All admin tools")
+        }
+        when (current) {
+            AdminHubEntry.REVIEWS -> ReviewApprovalCard(repository = repository, onError = onError)
+            AdminHubEntry.RECOVERED -> OrphanRecordingsCard(repository = repository, onError = onError)
+            AdminHubEntry.FEEDBACK -> MasterFeedbackCard(repository = repository, onError = onError)
+            AdminHubEntry.TOOLS -> ToolAssignScreen(repository = repository, onError = onError)
+            AdminHubEntry.WORKSHOPS -> WorkshopAssignmentCard(repository = repository, directory = directory, onMessage = onMessage, onError = onError)
+            AdminHubEntry.ACCESS_REQUESTS -> WorkshopAccessQueueCard(repository = repository, onMessage = onMessage, onError = onError)
+            AdminHubEntry.SETTINGS -> SettingsScreen(repository = repository, onMessage = onMessage, onError = onError)
+        }
+    }
+}
+
 @Composable
 private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = false, masterAdmin: Boolean = false, isAdmin: Boolean = false, showProvenance: Boolean = false, canDownloadDataset: Boolean = false, onError: (String) -> Unit) {
     var mode by remember { mutableStateOf(EntryMode.ARTISAN) }
@@ -5695,32 +6809,149 @@ private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = fal
     if (canDownloadDataset) {
         DatasetDownloadCard(repository = repository, onError = onError)
     }
-    if (canReview) {
+    // Reviews & approvals moved to the admin "Settings" hub for admins; a non-admin who was granted the
+    // review permission still reaches the queue here, since they have no admin hub.
+    if (canReview && !isAdmin) {
         ReviewApprovalCard(repository = repository, onError = onError)
-    }
-    // Master-admin recovery: recordings whose original record was deleted stay visible & playable
-    // here (and can be re-linked), so no field audio is silently lost.
-    if (masterAdmin) {
-        OrphanRecordingsCard(repository = repository, onError = onError)
-    }
-    // App feedback, under every other section: the master admin reviews everyone's feedback here,
-    // grouped by user. Ordinary users give/update their own feedback from the hamburger menu instead.
-    if (masterAdmin) {
-        MasterFeedbackCard(repository = repository, onError = onError)
     }
 }
 
 /**
+ * One field a reviewer may correct in place. [key] is the API column name — it travels verbatim in
+ * the `fields` map and is validated against the record type's own PATCH schema, so a typo here is a
+ * 422 rather than a silent no-op.
+ */
+private data class ReviewField(val key: String, val label: String, val multiline: Boolean = false)
+
+/**
+ * The fields the review screen offers per record type: the name-like columns and the prose a reviewer
+ * is actually qualified to fix ("a misspelt village or a craft name in the wrong column").
+ *
+ * Deliberately NOT offered here: status (that moves through approve/reject/revise), the workshop,
+ * location and linked-record lists (all refused by the API with a 422), the measurement/price decimals
+ * and the validated identity fields (Aadhaar, Pehchan, phone, email) — those belong on the record's
+ * own edit screen where their formatting and duplicate rules are enforced by the form.
+ */
+private fun reviewEditableFields(recordType: String): List<ReviewField> = when (recordType.lowercase()) {
+    "artisan" -> listOf(
+        ReviewField("name", "Name"),
+        ReviewField("localName", "Local name"),
+        ReviewField("place", "Place"),
+        ReviewField("address", "Address", multiline = true),
+        ReviewField("notes", "Notes", multiline = true),
+        ReviewField("dos", "Do's", multiline = true),
+        ReviewField("donts", "Don'ts", multiline = true)
+    )
+    "workshop" -> listOf(
+        ReviewField("title", "Workshop title"),
+        ReviewField("place", "Place"),
+        ReviewField("description", "Description", multiline = true),
+        ReviewField("notes", "Notes", multiline = true)
+    )
+    "product" -> listOf(
+        ReviewField("productName", "Product name"),
+        ReviewField("localName", "Local name"),
+        ReviewField("craftName", "Craft name"),
+        ReviewField("artisanName", "Artisan name"),
+        ReviewField("place", "Place"),
+        ReviewField("rawMaterialsUsed", "Raw materials used", multiline = true),
+        ReviewField("mainToolsUsed", "Main tools used", multiline = true),
+        ReviewField("productFunctionUse", "Function / use", multiline = true),
+        ReviewField("remarks", "Remarks", multiline = true)
+    )
+    "tool" -> listOf(
+        ReviewField("toolkitName", "Toolkit name"),
+        ReviewField("localName", "Local name"),
+        ReviewField("englishName", "English name"),
+        ReviewField("craftName", "Craft name"),
+        ReviewField("artisanName", "Artisan name"),
+        ReviewField("place", "Place"),
+        ReviewField("processUsedIn", "Process used in", multiline = true),
+        ReviewField("material", "Material"),
+        ReviewField("suggestionsForToolImprovement", "Suggestions for improvement", multiline = true),
+        ReviewField("remarks", "Remarks", multiline = true)
+    )
+    "process" -> listOf(
+        ReviewField("name", "Name of the process"),
+        ReviewField("notes", "Notes", multiline = true)
+    )
+    "questionnaire" -> listOf(
+        ReviewField("title", "Interview title"),
+        ReviewField("place", "Place"),
+        ReviewField("language", "Language"),
+        ReviewField("notes", "Notes", multiline = true)
+    )
+    "media" -> listOf(
+        ReviewField("caption", "Caption", multiline = true),
+        ReviewField("transcriptText", "Transcript", multiline = true)
+    )
+    else -> emptyList()
+}
+
+/** The record's stored values for the fields above, so the editor opens on what is actually saved. */
+private suspend fun loadReviewRecordValues(
+    repository: FieldRepository,
+    recordType: String,
+    recordId: String
+): Map<String, String> = when (recordType.lowercase()) {
+    "artisan" -> repository.artisan(recordId).let {
+        mapOf(
+            "name" to it.name, "localName" to it.localName.orEmpty(), "place" to it.place,
+            "address" to it.address.orEmpty(), "notes" to it.notes.orEmpty(),
+            "dos" to it.dos.orEmpty(), "donts" to it.donts.orEmpty()
+        )
+    }
+    "workshop" -> repository.workshop(recordId).let {
+        mapOf(
+            "title" to it.title, "place" to it.place,
+            "description" to it.description.orEmpty(), "notes" to it.notes.orEmpty()
+        )
+    }
+    "product" -> repository.product(recordId).let {
+        mapOf(
+            "productName" to it.productName, "localName" to it.localName.orEmpty(),
+            "craftName" to it.craftName, "artisanName" to it.artisanName, "place" to it.place,
+            "rawMaterialsUsed" to it.rawMaterialsUsed.orEmpty(),
+            "mainToolsUsed" to it.mainToolsUsed.orEmpty(),
+            "productFunctionUse" to it.productFunctionUse.orEmpty(),
+            "remarks" to it.remarks.orEmpty()
+        )
+    }
+    "tool" -> repository.tool(recordId).let {
+        mapOf(
+            "toolkitName" to it.toolkitName, "localName" to it.localName.orEmpty(),
+            "englishName" to it.englishName.orEmpty(), "craftName" to it.craftName,
+            "artisanName" to it.artisanName, "place" to it.place,
+            "processUsedIn" to it.processUsedIn.orEmpty(), "material" to it.material.orEmpty(),
+            "suggestionsForToolImprovement" to it.suggestionsForToolImprovement.orEmpty(),
+            "remarks" to it.remarks.orEmpty()
+        )
+    }
+    "process" -> repository.process(recordId).let {
+        mapOf("name" to it.name, "notes" to it.notes.orEmpty())
+    }
+    "questionnaire" -> repository.interview(recordId).let {
+        mapOf(
+            "title" to it.title, "place" to it.place.orEmpty(),
+            "language" to it.language.orEmpty(), "notes" to it.notes.orEmpty()
+        )
+    }
+    "media" -> repository.mediaItem(recordId).let {
+        mapOf("caption" to it.caption.orEmpty(), "transcriptText" to it.transcriptText.orEmpty())
+    }
+    else -> emptyMap()
+}
+
+/**
  * Admin/reviewer-only: the queue of records still awaiting review (status PENDING). Each card can be
- * approved or rejected in place; the list refreshes so cleared items drop off. Gated by [canReview]
- * (any admin, or a user the master admin granted the review permission).
+ * approved, rejected, EDITED in place, or sent back for revision; the list refreshes so cleared items
+ * drop off. Gated by [canReview] (any admin, or a user the master admin granted the review permission).
  */
 @Composable
 private fun ReviewApprovalCard(repository: FieldRepository, onError: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     var pending by remember { mutableStateOf<List<PendingReviewDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
-    var actingId by remember { mutableStateOf<String?>(null) }
     var info by remember { mutableStateOf<String?>(null) }
 
     fun refresh() {
@@ -5728,7 +6959,7 @@ private fun ReviewApprovalCard(repository: FieldRepository, onError: (String) ->
             loading = true
             runCatching { repository.pendingReviews() }
                 .onSuccess { pending = it }
-                .onFailure { onError(it.message ?: "Unable to load the review queue") }
+                .onFailure { onError(it.apiErrorMessage("Unable to load the review queue")) }
             loading = false
         }
     }
@@ -5736,8 +6967,8 @@ private fun ReviewApprovalCard(repository: FieldRepository, onError: (String) ->
 
     RecordCard(title = "Reviews & approvals") {
         Text(
-            "Records submitted by the team that are still pending review. Approve to publish them, or " +
-                "reject to send them back.",
+            "Records submitted by the team that are still pending review. Approve to publish them, fix a " +
+                "small mistake yourself with Edit, send it back for revision with comments, or reject it.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -5751,59 +6982,199 @@ private fun ReviewApprovalCard(repository: FieldRepository, onError: (String) ->
                 Text("${pending.size} record(s) awaiting review", color = Body, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 info?.let { Text(it, color = SuccessGreen, fontSize = 11.sp) }
                 pending.forEach { item ->
-                    ElevatedCard(
-                        colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(item.label, color = Body, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                listOfNotNull(
-                                    item.recordType.replaceFirstChar { it.uppercase() },
-                                    item.place?.takeIf { it.isNotBlank() },
-                                    formatIsoDate(item.createdAt)
-                                ).joinToString(" · "),
-                                color = Muted,
-                                fontSize = 11.sp
-                            )
-                            val busy = actingId == item.id
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                Button(
-                                    onClick = {
-                                        actingId = item.id
-                                        scope.launch {
-                                            runCatching { repository.approveRecord(item.recordType, item.id) }
-                                                .onSuccess {
-                                                    pending = pending.filterNot { it.id == item.id }
-                                                    info = "Approved ${item.label}"
-                                                }
-                                                .onFailure { e -> onError(e.message ?: "Unable to approve") }
-                                            actingId = null
-                                        }
-                                    },
-                                    enabled = !busy,
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
-                                ) { Text(if (busy) "Working…" else "Approve", maxLines = 1, fontSize = 13.sp) }
-                                OutlinedButton(
-                                    onClick = {
-                                        actingId = item.id
-                                        scope.launch {
-                                            runCatching { repository.rejectRecord(item.recordType, item.id) }
-                                                .onSuccess {
-                                                    pending = pending.filterNot { it.id == item.id }
-                                                    info = "Rejected ${item.label}"
-                                                }
-                                                .onFailure { e -> onError(e.message ?: "Unable to reject") }
-                                            actingId = null
-                                        }
-                                    },
-                                    enabled = !busy,
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
-                                ) { Text("Reject", maxLines = 1, fontSize = 13.sp) }
+                    PendingReviewRow(
+                        repository = repository,
+                        item = item,
+                        onResolved = { message ->
+                            // Approve / reject / revise all move the record out of PENDING, so drop it
+                            // from the list rather than re-fetching the whole queue.
+                            pending = pending.filterNot { it.id == item.id }
+                            info = message
+                        },
+                        onInfo = { info = it },
+                        onError = onError
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** One queue row, with its inline edit / send-for-revision panels. */
+@Composable
+private fun PendingReviewRow(
+    repository: FieldRepository,
+    item: PendingReviewDto,
+    onResolved: (String) -> Unit,
+    onInfo: (String) -> Unit,
+    onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    // null | "edit" | "revise" — at most one panel open, so the row never grows two forms tall.
+    var panel by remember { mutableStateOf<String?>(null) }
+    var reviseNote by remember { mutableStateOf("") }
+    var editNote by remember { mutableStateOf("") }
+    // Loaded values (the baseline the diff is taken against) and the reviewer's working copy.
+    var original by remember { mutableStateOf<Map<String, String>?>(null) }
+    val edited = remember { mutableStateMapOf<String, String>() }
+    val fields = remember(item.recordType) { reviewEditableFields(item.recordType) }
+
+    fun act(ok: String, resolves: Boolean, block: suspend () -> Unit) {
+        scope.launch {
+            busy = true
+            runCatching { block() }
+                .onSuccess { if (resolves) onResolved(ok) else onInfo(ok) }
+                .onFailure { onError(it.apiErrorMessage("That review action didn't go through")) }
+            busy = false
+        }
+    }
+
+    // Load the record only when the reviewer actually opens the editor — the queue can be long, and
+    // fetching every record up front would be a request per row for panels nobody opens.
+    LaunchedEffect(panel) {
+        if (panel != "edit" || original != null || fields.isEmpty()) return@LaunchedEffect
+        runCatching { loadReviewRecordValues(repository, item.recordType, item.id) }
+            .onSuccess { values ->
+                original = values
+                edited.clear()
+                edited.putAll(values)
+            }
+            .onFailure {
+                panel = null
+                onError(it.apiErrorMessage("Unable to open ${item.label} for editing"))
+            }
+    }
+
+    ElevatedCard(
+        colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(item.label, color = Body, fontWeight = FontWeight.SemiBold)
+            Text(
+                listOfNotNull(
+                    item.recordType.replaceFirstChar { it.uppercase() },
+                    item.place?.takeIf { it.isNotBlank() },
+                    item.createdBy?.name?.takeIf { it.isNotBlank() }?.let { "by $it" },
+                    formatIsoDate(item.createdAt)
+                ).joinToString(" · "),
+                color = Muted,
+                fontSize = 11.sp
+            )
+            if (item.needsAdminApproval) {
+                Text(
+                    "Submitted outside its workshop's dates — only an admin can edit or approve it.",
+                    color = Coral,
+                    fontSize = 11.sp
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = { act("Approved ${item.label}", resolves = true) { repository.approveRecord(item.recordType, item.id) } },
+                    enabled = !busy,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                ) { Text(if (busy) "Working…" else "Approve", maxLines = 1, fontSize = 13.sp) }
+                OutlinedButton(
+                    onClick = { act("Rejected ${item.label}", resolves = true) { repository.rejectRecord(item.recordType, item.id) } },
+                    enabled = !busy,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                ) { Text("Reject", maxLines = 1, fontSize = 13.sp) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { panel = if (panel == "edit") null else "edit" },
+                    enabled = !busy && fields.isNotEmpty(),
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                ) {
+                    Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (panel == "edit") "Close" else "Edit", maxLines = 1, fontSize = 13.sp)
+                }
+                OutlinedButton(
+                    onClick = { panel = if (panel == "revise") null else "revise" },
+                    enabled = !busy,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                ) { Text(if (panel == "revise") "Close" else "Send for revision", maxLines = 1, fontSize = 12.sp) }
+            }
+
+            when (panel) {
+                "revise" -> {
+                    Text(
+                        "Comments are required — they are what the creator sees and fixes. The record goes " +
+                            "back to them and returns for review once they edit it.",
+                        color = Muted,
+                        fontSize = 11.sp
+                    )
+                    TextInput("What needs to change?", reviseNote, minLines = 2) { reviseNote = it }
+                    Button(
+                        enabled = !busy && reviseNote.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            act("Sent ${item.label} back for revision", resolves = true) {
+                                repository.reviseRecord(item.recordType, item.id, reviseNote.trim())
                             }
+                        }
+                    ) { Text(if (busy) "Sending…" else "Send back with comments") }
+                }
+                "edit" -> {
+                    val baseline = original
+                    if (baseline == null) {
+                        Text("Loading ${item.recordType}…", color = Muted, fontSize = 12.sp)
+                    } else {
+                        Text(
+                            "Fix the values here instead of bouncing the record back. This does NOT approve " +
+                                "it — the status stays pending, and the change is recorded against your name.",
+                            color = Muted,
+                            fontSize = 11.sp
+                        )
+                        fields.forEach { field ->
+                            val value = edited[field.key].orEmpty()
+                            TextInput(field.label, value, minLines = if (field.multiline) 2 else 1) {
+                                edited[field.key] = it
+                            }
+                            // Name-like columns are title-cased server-side, so show what will land.
+                            if (field.key in com.fieldrepository.app.data.TITLE_CASE_FIELDS) {
+                                titleCasePreview(value)?.let { normalised ->
+                                    Text("Will be saved as “$normalised”", color = Muted, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                        TextInput("Why? (optional, logged with the edit)", editNote) { editNote = it }
+                        // Only the keys that actually moved travel — the API logs the diff, and sending
+                        // an unchanged value would put a no-op line in the record's edit history.
+                        val changed = fields
+                            .map { it.key }
+                            .filter { key -> edited[key].orEmpty() != baseline[key].orEmpty() }
+                            .associateWith { key -> edited[key].orEmpty() }
+                        Button(
+                            enabled = !busy && changed.isNotEmpty(),
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                act("Edited ${item.label} (${changed.size} field(s))", resolves = false) {
+                                    repository.editReviewedRecord(item.recordType, item.id, changed, editNote)
+                                    // Re-read so the baseline matches what the server actually stored —
+                                    // it title-cases names, so the box must show the normalised value.
+                                    val fresh = loadReviewRecordValues(repository, item.recordType, item.id)
+                                    original = fresh
+                                    edited.clear()
+                                    edited.putAll(fresh)
+                                    editNote = ""
+                                }
+                            }
+                        ) {
+                            Text(
+                                when {
+                                    busy -> "Saving…"
+                                    changed.isEmpty() -> "No changes yet"
+                                    else -> "Save ${changed.size} change(s)"
+                                }
+                            )
                         }
                     }
                 }
@@ -5821,6 +7192,8 @@ private fun DatasetDownloadCard(repository: FieldRepository, onError: (String) -
     var done by remember { mutableStateOf(0) }
     var total by remember { mutableStateOf(0) }
     var resultMessage by remember { mutableStateOf<String?>(null) }
+    var reportBusy by remember { mutableStateOf(false) }
+    var reportMessage by remember { mutableStateOf<String?>(null) }
 
     RecordCard(title = "Download entire dataset") {
         Text(
@@ -5859,6 +7232,33 @@ private fun DatasetDownloadCard(repository: FieldRepository, onError: (String) -
             Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text(if (downloading) "Downloading…" else "Download all data (.zip)")
+        }
+        HorizontalDivider()
+        Text(
+            "Prefer a spreadsheet? Download a styled .xlsx report of the whole dataset — one sheet per " +
+                "record type, with the relationships between them preserved.",
+            color = Muted,
+            fontSize = 12.sp
+        )
+        reportMessage?.let { Text(it, color = Body, fontSize = 12.sp) }
+        OutlinedButton(
+            onClick = {
+                if (reportBusy) return@OutlinedButton
+                reportMessage = null
+                reportBusy = true
+                scope.launch {
+                    runCatching { repository.downloadReport(context) }
+                        .onSuccess { location -> reportMessage = "Report saved to $location" }
+                        .onFailure { onError(it.message ?: "Unable to download the report") }
+                    reportBusy = false
+                }
+            },
+            enabled = !reportBusy,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(if (reportBusy) "Preparing report…" else "Download report (.xlsx)")
         }
     }
 }
@@ -6146,6 +7546,11 @@ private fun ViewDataDetail(
                 DetailRow("Email", v.email)
                 DetailRow("Address", v.address)
                 DetailRow("Notes", v.notes)
+                // Browsing is a shared surface, so the Aadhaar is masked here even though the edit
+                // form (same record, same DTO) shows it in full to the person about to correct it.
+                DetailRow("Aadhaar number", maskAadhaar(v.aadhaarNumber))
+                DetailRow("Pehchan card", if (v.pehchanCardAvailable) "Yes" else "No")
+                DetailRow("Pehchan card number", v.pehchanCardNumber)
                 NumberedListDisplay("Do's (positive prompt)", v.dos)
                 NumberedListDisplay("Don'ts (negative prompt)", v.donts)
                 DetailRow("Status", v.status)
@@ -6449,8 +7854,11 @@ private fun AndroidMediaForm(
     }
 
     RecordCard(title = "Capture media") {
+        // "transcription", not "Whisper transcription": the backend now runs a provider chain
+        // (ElevenLabs → Deepgram → Whisper), so naming one of them tells the researcher something
+        // that is only sometimes true. The web misc-media screen already says it this way.
         Text(
-            "Images, videos, audio and files upload to the same repository backend. Audio is queued for Whisper transcription after upload.",
+            "Images, videos, audio and files upload to the same repository backend. Audio is queued for transcription after upload.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -6938,6 +8346,7 @@ private fun QuestionnaireForm(
     var language by remember(editing) { mutableStateOf(editing?.language?.takeIf { it.isNotBlank() } ?: "Hindi") }
     var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }
     var capturedLocation by remember(editing) { mutableStateOf(editing?.location?.toRequest()) }
+    val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
     var titleError by remember { mutableStateOf<String?>(null) }
     val titleFocus = remember { FocusRequester() }
     val questions = remember(sections) { sections.flatMap { it.questions }.filter { it.isActive } }
@@ -7091,6 +8500,19 @@ private fun QuestionnaireForm(
         )
     }
 
+    // Completion overview, collapsed by default, sitting right under the sync control. Composing the
+    // matrix (and loading it) is deferred until expanded. Kept in View Data too.
+    val questionnaireIsAdmin = remember { repository.cachedUser()?.role in setOf("ADMIN", "MASTER_ADMIN") }
+    var showCompletion by remember { mutableStateOf(false) }
+    OutlinedButton(onClick = { showCompletion = !showCompletion }, modifier = Modifier.fillMaxWidth()) {
+        Icon(Icons.Filled.GridView, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(if (showCompletion) "Hide completion overview" else "Check completion")
+    }
+    if (showCompletion) {
+        CompletionMatrixCard(repository = repository, artisanId = null, canEdit = questionnaireIsAdmin, onError = onError)
+    }
+
     RecordCard(title = if (isEdit) "Edit interview" else "Add questionnaire interview") {
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
@@ -7098,7 +8520,8 @@ private fun QuestionnaireForm(
         if (isEdit) {
             Text("Add or update answers below. Existing answers from other interviewers are preserved unless you change them.", color = Muted, fontSize = 12.sp)
         }
-        RequiredInput("Interview title", title, titleError, titleFocus) { title = it }
+        WorkshopField(state = workshop, saving = saveState == SaveState.SAVING)
+        RequiredInput("Interview title", title, titleError, titleFocus, titleCased = true) { title = it }
         ArtisanMultiSelectField(
             label = "Linked artisans",
             artisans = artisans,
@@ -7106,7 +8529,7 @@ private fun QuestionnaireForm(
         ) { id ->
             selectedArtisans = if (selectedArtisans.contains(id)) selectedArtisans - id else selectedArtisans + id
         }
-        TextInput("Place", place) { place = it }
+        TextInput("Place", place, titleCased = true) { place = it }
         // Language of the interview: Hindi primary, then English + the major scheduled Indian
         // languages. Any pre-existing free-text value is preserved as an extra option.
         val languageOptions = remember(language) {
@@ -7302,8 +8725,11 @@ private fun QuestionnaireForm(
             if (!validateRequired(listOf(
                     RequiredCheck(title.isBlank(), { titleError = it }, titleFocus)
                 ))) { onError("Please fill the required field highlighted above."); return }
-                saveState = SaveState.SAVING
                 scope.launch {
+                    // Late-submission gate first, so the save button does not sit in "Saving…" while
+                    // the confirmation is on screen.
+                    if (!workshop.confirmSubmission()) return@launch
+                    saveState = SaveState.SAVING
                     val now = Instant.now().toString()
                     // Only send answers this interviewer actually added or changed; untouched answers
                     // (including those entered by other interviewers) are left exactly as they were.
@@ -7324,6 +8750,7 @@ private fun QuestionnaireForm(
                                 language = language.blankToNull(),
                                 notes = notes.blankToNull(),
                                 artisanIds = selectedArtisans.toList(),
+                                workshopId = workshop.value(),
                                 location = capturedLocation,
                                 responses = responsesToSend,
                                 recordedAt = now
@@ -7371,6 +8798,9 @@ private fun QuestionnaireForm(
                             media.reset(); qMedia.reset(); questionAudio = emptyMap()
                             title = ""; selectedArtisans = emptySet(); place = ""; language = "Hindi"; notes = ""
                             capturedLocation = null; answers.values.forEach { it.value = "" }
+                            // Interviews are usually captured back-to-back at one workshop, so the
+                            // selection carries over — re-baselined so it isn't flagged as unsaved.
+                            workshop.markSaved()
                             saveState = SaveState.SAVED
                             delay(SAVED_CONFIRM_MS)
                             onSaved()
@@ -7393,6 +8823,7 @@ private fun QuestionnaireForm(
                                     notes = notes.blankToNull(),
                                     artisanIds = if (selectedArtisans != originalArtisans) selectedArtisans.toList() else null,
                                     responses = responsesToSend.ifEmpty { null },
+                                    workshopId = workshop.value(),
                                     location = locationForBody(true, capturedLocation, original.location)
                                 )
                             )
@@ -7405,6 +8836,7 @@ private fun QuestionnaireForm(
                                     language = language.blankToNull(),
                                     notes = notes.blankToNull(),
                                     artisanIds = selectedArtisans.toList(),
+                                    workshopId = workshop.value(),
                                     location = capturedLocation,
                                     responses = responsesToSend,
                                     recordedAt = now
@@ -7504,6 +8936,9 @@ private fun QuestionnaireForm(
                         notes = ""
                         capturedLocation = null
                         answers.values.forEach { it.value = "" }
+                        // The workshop stays selected for the next interview (same field session),
+                        // re-baselined so the carry-over isn't reported as an unsaved change.
+                        workshop.markSaved()
                     }
                     saveState = SaveState.SAVED
                     delay(SAVED_CONFIRM_MS)
@@ -7517,7 +8952,7 @@ private fun QuestionnaireForm(
         val initialSig = remember(editing) { qSig() }
         // Any changed field, an unsaved general attachment, or an unsaved recorded clip makes the
         // interview "dirty" so an accidental Back offers to save it (including in-progress recordings).
-        val dirty = qSig() != initialSig || qMedia.uris.isNotEmpty() || media.uris.isNotEmpty()
+        val dirty = qSig() != initialSig || workshop.isDirty() || qMedia.uris.isNotEmpty() || media.uris.isNotEmpty()
         RegisterUnsavedGuard(dirty = dirty) { submit() }
         SaveButton(
             state = saveState,
@@ -7765,12 +9200,27 @@ private fun UserManagementForm(
     // Each user is collapsed by default (an accordion); tapping the header expands it to reveal the
     // grantable privileges, so a long user list stays scannable.
     var expandedUsers by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // Who is doing the managing. Read from the cached profile rather than threaded in, so the rules
+    // below can mirror `assert_role` / `assert_can_manage_target` without changing every call site.
+    val actor = remember { repository.cachedUser() }
+    val actorRank = remember(actor) { roleRank(actor?.role) }
+    val actorIsMaster = isMasterAdmin
+    val actorIsAdmin = actorRank >= RANK_ADMIN
+    // `assert_role`: a user may assign roles at or below their OWN tier, and only the master admin
+    // can mint another master admin. Highest first, matching the web picker's order.
+    val assignableRoles = remember(actorRank, actorIsMaster) {
+        ROLE_RANK.entries
+            .filter { it.value <= actorRank && (it.key != "MASTER_ADMIN" || actorIsMaster) }
+            .sortedByDescending { it.value }
+            .map { it.key to roleLabel(it.key) }
+    }
 
     RecordCard(title = "Users and access") {
         Text(
-            "Admins can review users here. The master admin can grant or revoke questionnaire-builder, " +
-                "craft/workshop creation, record review & approval, and view-provenance access. Tap a " +
-                "user to expand and manage their privileges.",
+            "Professors and above can move a user along the six-tier ladder (never above their own " +
+                "tier); admins can additionally grant or revoke questionnaire-builder, craft/workshop " +
+                "creation, record review & approval, view-provenance and dataset-download access. Tap a " +
+                "user to expand and manage them.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -7779,12 +9229,23 @@ private fun UserManagementForm(
         }
         users.forEach { appUser ->
             val isMaster = appUser.role == "MASTER_ADMIN"
-            val canEditGrants = isMasterAdmin && !isMaster
+            // A grant is moot once the target reaches Professor: the rank already confers the power,
+            // exactly as `has_rank(user, "PROFESSOR") or user.canX` reads on the server.
+            val targetIsProfessorPlus = roleRank(appUser.role) >= RANK_PROFESSOR
+            // `assert_can_manage_target`: the master admin manages everyone but other masters;
+            // everyone else manages strictly lower tiers only.
+            val canManageTarget = if (actorIsMaster) !isMaster else roleRank(appUser.role) < actorRank
+            // PATCH /users is `require_professor`, but a non-admin professor may only change `role`
+            // (the server 403s any other field) — so the capability toggles need admin and above.
+            val canEditGrants = actorIsAdmin && canManageTarget && !targetIsProfessorPlus
             val expanded = expandedUsers.contains(appUser.id)
             // Count of granted privileges, for the collapsed summary line.
-            val grantedCount = if (isMaster) 5 else listOf(
-                appUser.canManageQuestionnaire, appUser.canManageCrafts, appUser.canManageWorkshops,
-                appUser.canReview, appUser.canViewProvenance
+            val grantedCount = listOf(
+                targetIsProfessorPlus || appUser.canManageQuestionnaire,
+                targetIsProfessorPlus || appUser.canManageCrafts,
+                targetIsProfessorPlus || appUser.canManageWorkshops,
+                roleRank(appUser.role) >= RANK_FIELD_CONTRIBUTOR || appUser.canReview,
+                roleRank(appUser.role) >= RANK_ADMIN || appUser.canViewProvenance
             ).count { it }
             ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard)) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -7798,9 +9259,10 @@ private fun UserManagementForm(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(appUser.name, fontWeight = FontWeight.SemiBold)
-                            Text("${appUser.email} · ${appUser.role}", color = Muted, fontSize = 12.sp)
+                            Text("${appUser.email} · ${roleLabel(appUser.role)}", color = Muted, fontSize = 12.sp)
                             Text(
-                                if (isMaster) "All privileges (master admin)" else "$grantedCount of 5 privileges granted",
+                                if (isMaster) "All privileges (master admin)"
+                                else "$grantedCount of 5 privileges granted",
                                 color = Muted,
                                 fontSize = 11.sp
                             )
@@ -7809,33 +9271,35 @@ private fun UserManagementForm(
                     }
                     if (expanded) {
                         HorizontalDivider()
-                        // Role elevation (master admin only): promote a researcher to admin, or step back down.
-                        if (isMasterAdmin && !isMaster) {
-                            val isUserAdmin = appUser.role == "ADMIN"
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("Administrator role", color = Body, fontSize = 13.sp)
-                                    Text(
-                                        if (isUserAdmin) "This user is an admin" else "Researcher — can be elevated to admin",
-                                        color = Muted,
-                                        fontSize = 11.sp
-                                    )
-                                }
-                                OutlinedButton(onClick = {
-                                    val nextRole = if (isUserAdmin) "RESEARCHER" else "ADMIN"
+                        // The six-tier ladder, not an admin/researcher switch: the previous two-state
+                        // button could neither reach Crowdsource Volunteer, Field Contributor or
+                        // Professor nor be used by a professor at all, and demoting an admin dropped
+                        // them straight past Professor to Researcher.
+                        if (canManageTarget && !isMaster && assignableRoles.isNotEmpty()) {
+                            DropdownField(
+                                label = "Role",
+                                options = assignableRoles,
+                                selectedValue = appUser.role,
+                                includeNone = false
+                            ) { nextRole ->
+                                if (nextRole != appUser.role) {
                                     scope.launch {
                                         runCatching { repository.updateUserRole(appUser.id, nextRole); refreshUsers() }
-                                            .onFailure { onError(it.message ?: "Unable to update role") }
+                                            .onFailure { onError(it.apiErrorMessage("Unable to update role")) }
                                     }
-                                }) {
-                                    Text(if (isUserAdmin) "Make researcher" else "Make admin")
                                 }
                             }
+                            Text(
+                                "Professor and above already hold every privilege below; the toggles are " +
+                                    "for lifting a single power for someone lower on the ladder.",
+                                color = Muted,
+                                fontSize = 11.sp
+                            )
                             HorizontalDivider()
                         }
                         GrantToggleRow(
                             label = "Questionnaire builder",
-                            granted = isMaster || appUser.canManageQuestionnaire,
+                            granted = targetIsProfessorPlus || appUser.canManageQuestionnaire,
                             enabled = canEditGrants,
                             onToggle = { grant ->
                                 scope.launch {
@@ -7846,7 +9310,7 @@ private fun UserManagementForm(
                         )
                         GrantToggleRow(
                             label = "Craft creation",
-                            granted = isMaster || appUser.canManageCrafts,
+                            granted = targetIsProfessorPlus || appUser.canManageCrafts,
                             enabled = canEditGrants,
                             onToggle = { grant ->
                                 scope.launch {
@@ -7857,7 +9321,7 @@ private fun UserManagementForm(
                         )
                         GrantToggleRow(
                             label = "Workshop creation",
-                            granted = isMaster || appUser.canManageWorkshops,
+                            granted = targetIsProfessorPlus || appUser.canManageWorkshops,
                             enabled = canEditGrants,
                             onToggle = { grant ->
                                 scope.launch {
@@ -7868,8 +9332,9 @@ private fun UserManagementForm(
                         )
                         GrantToggleRow(
                             label = "Record review & approval",
-                            granted = isMaster || appUser.canReview,
-                            enabled = canEditGrants,
+                            granted = roleRank(appUser.role) >= RANK_FIELD_CONTRIBUTOR || appUser.canReview,
+                            // Review is conferred by rank from Field Contributor up, not Professor.
+                            enabled = actorIsAdmin && canManageTarget && roleRank(appUser.role) < RANK_FIELD_CONTRIBUTOR,
                             onToggle = { grant ->
                                 scope.launch {
                                     runCatching { repository.updateUserReviewAccess(appUser.id, grant); refreshUsers() }
@@ -7879,8 +9344,9 @@ private fun UserManagementForm(
                         )
                         GrantToggleRow(
                             label = "View provenance",
-                            granted = isMaster || appUser.canViewProvenance,
-                            enabled = canEditGrants,
+                            granted = roleRank(appUser.role) >= RANK_ADMIN || appUser.canViewProvenance,
+                            // Provenance comes with admin, so only sub-admin tiers need the grant.
+                            enabled = actorIsAdmin && canManageTarget && roleRank(appUser.role) < RANK_ADMIN,
                             onToggle = { grant ->
                                 scope.launch {
                                     runCatching { repository.updateUserProvenanceAccess(appUser.id, grant); refreshUsers() }
@@ -7890,7 +9356,7 @@ private fun UserManagementForm(
                         )
                         GrantToggleRow(
                             label = "Download entire dataset",
-                            granted = isMaster || appUser.role == "ADMIN" || appUser.canDownloadDataset,
+                            granted = targetIsProfessorPlus || appUser.canDownloadDataset,
                             enabled = canEditGrants,
                             onToggle = { grant ->
                                 scope.launch {
@@ -8049,73 +9515,727 @@ private fun SharingForm(
             }
         }
     }
-
-    if (isAdmin) {
-        WorkshopAssignmentCard(repository = repository, directory = directory, onError = onError)
-    }
+    // Workshop assignments moved to the admin "Settings" hub (see AdminHubScreen).
 }
 
+// ===========================================================================
+// Workshop access — ONE row per (workshop, user) holds the whole two-sided
+// conversation: an admin grants and revokes, a user requests and is approved
+// or denied. Only status == GRANTED confers access; a PENDING row confers
+// nothing, and DENIED/REVOKED rows are kept as history rather than deleted.
+// ===========================================================================
+
+/** The ladder, weakest first — the order the pickers offer it in. */
+private val workshopAccessLevels = listOf("VIEW", "CONTRIBUTE", "EDIT")
+
+/** CONTRIBUTE is what "assigned to a workshop" has always meant, so it is the default offered. */
+private const val DEFAULT_WORKSHOP_LEVEL = "CONTRIBUTE"
+
+private fun workshopLevelLabel(level: String): String = when (level) {
+    "VIEW" -> "View"
+    "CONTRIBUTE" -> "Contribute"
+    "EDIT" -> "Edit"
+    else -> level
+}
+
+private fun workshopAccessStatusLabel(status: String): String = when (status) {
+    "PENDING" -> "Waiting for approval"
+    "GRANTED" -> "Granted"
+    "DENIED" -> "Denied"
+    "REVOKED" -> "Revoked"
+    else -> status
+}
+
+private fun workshopAccessStatusColor(status: String): Color = when (status) {
+    "GRANTED" -> SuccessGreen
+    "PENDING" -> Coral
+    else -> FailureRed
+}
+
+/** Level options for a picker, with the API's own descriptions as labels once they have loaded. */
+private fun workshopLevelOptions(levels: List<WorkshopAccessLevelDto>): List<Pair<String, String>> =
+    if (levels.isEmpty()) workshopAccessLevels.map { it to workshopLevelLabel(it) }
+    else levels.map { it.level to workshopLevelLabel(it.level) }
+
+/** "Kutch weaving · 2026-07-12", falling back to the id-only title when the row carries no workshop. */
+private fun assignmentWorkshopLabel(row: WorkshopAssignmentDto): String =
+    row.workshop?.let { workshopOptionLabel(it) } ?: "Workshop ${row.workshopId}"
+
 /**
- * Admin-only: assign researchers to a workshop. Only assigned researchers may submit entries for it,
- * and out-of-window submissions are flagged for approval. Mirrors the web Assign modal.
+ * Admin-only: the roster for ONE workshop, at levels. Only GRANTED researchers may submit entries for
+ * it, and out-of-window submissions are flagged for approval.
+ *
+ * Uses the per-user grant/patch/revoke endpoints rather than the whole-set PUT, because the set-based
+ * call silently REVOKES everybody it does not mention — one stale checkbox state and an admin removes
+ * a colleague they never looked at. Every action here changes exactly the one row it names.
  */
 @Composable
 private fun WorkshopAssignmentCard(
     repository: FieldRepository,
     directory: List<UserDto>,
+    onMessage: (String) -> Unit,
     onError: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var workshops by remember { mutableStateOf<List<WorkshopDetailDto>>(emptyList()) }
+    var levels by remember { mutableStateOf<List<WorkshopAccessLevelDto>>(emptyList()) }
     var selectedWorkshop by remember { mutableStateOf("") }
-    var assigned by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var busy by remember { mutableStateOf(false) }
+    var roster by remember { mutableStateOf<List<WorkshopAssignmentDto>>(emptyList()) }
+    var loadingRoster by remember { mutableStateOf(false) }
+    var busyUserId by remember { mutableStateOf<String?>(null) }
+    // The "add someone" row at the bottom.
+    var addUserId by remember { mutableStateOf("") }
+    var addLevel by remember { mutableStateOf(DEFAULT_WORKSHOP_LEVEL) }
 
     LaunchedEffect(Unit) {
-        runCatching { workshops = repository.workshops() }
-            .onFailure { onError(it.message ?: "Unable to load workshops") }
+        runCatching { workshops = repository.workshopsByOccurrence() }
+            .onFailure { onError(it.apiErrorMessage("Unable to load workshops")) }
+        runCatching { levels = repository.workshopAccessLevels() }
     }
 
-    fun loadAssignments(workshopId: String) {
-        if (workshopId.isBlank()) { assigned = emptySet(); return }
+    fun loadRoster(workshopId: String) {
+        if (workshopId.isBlank()) { roster = emptyList(); return }
         scope.launch {
-            runCatching { assigned = repository.workshopAssignments(workshopId).map { it.userId }.toSet() }
-                .onFailure { onError(it.message ?: "Unable to load assignments") }
+            loadingRoster = true
+            runCatching { repository.workshopAssignments(workshopId) }
+                .onSuccess { roster = it }
+                .onFailure { onError(it.apiErrorMessage("Unable to load the roster")) }
+            loadingRoster = false
+        }
+    }
+
+    /** Run one row-scoped action, then re-read the roster so the shown state is the server's. */
+    fun act(userId: String, ok: String, block: suspend () -> Unit) {
+        scope.launch {
+            busyUserId = userId
+            runCatching { block() }
+                .onSuccess { onMessage(ok); loadRoster(selectedWorkshop) }
+                .onFailure { onError(it.apiErrorMessage("That change didn't go through")) }
+            busyUserId = null
         }
     }
 
     RecordCard(title = "Workshop assignments", icon = Icons.Filled.Groups) {
-        Text("Pick a workshop, then choose who may submit entries for it. Leave empty to keep it open to everyone.", color = Muted, fontSize = 12.sp)
+        Text(
+            "Pick a workshop, then choose who may work in it and at what level. A workshop with nobody " +
+                "granted stays open to everyone.",
+            color = Muted,
+            fontSize = 12.sp
+        )
         DropdownField(
             label = "Workshop",
-            options = workshops.map { it.id to it.title.ifBlank { "Untitled workshop" } },
+            options = workshops.map { it.id to workshopOptionLabel(it) },
             selectedValue = selectedWorkshop,
             placeholder = "Select workshop",
-            onSelect = { selectedWorkshop = it; loadAssignments(it) }
+            onSelect = { selectedWorkshop = it; addUserId = ""; loadRoster(it) }
         )
-        if (selectedWorkshop.isNotBlank()) {
-            directory.forEach { u ->
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Checkbox(
-                        checked = assigned.contains(u.id),
-                        onCheckedChange = { checked ->
-                            assigned = if (checked) assigned + u.id else assigned - u.id
+        if (selectedWorkshop.isBlank()) return@RecordCard
+
+        if (loadingRoster) {
+            Text("Loading the roster…", color = Muted, fontSize = 12.sp)
+        } else if (roster.isEmpty()) {
+            Text("Nobody is assigned yet — this workshop is open to everyone.", color = Muted, fontSize = 12.sp)
+        }
+        // Granted first (the people who actually have access), then anyone waiting, then the history.
+        val ordered = roster.sortedBy { row ->
+            when (row.status) { "GRANTED" -> 0; "PENDING" -> 1; else -> 2 }
+        }
+        ordered.forEach { row ->
+            val busy = busyUserId == row.userId
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(row.user?.name ?: row.userId, color = Body, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        listOfNotNull(
+                            row.user?.email?.takeIf { it.isNotBlank() },
+                            workshopLevelLabel(row.accessLevel)
+                        ).joinToString(" · "),
+                        color = Muted,
+                        fontSize = 11.sp
+                    )
+                    Text(workshopAccessStatusLabel(row.status), color = workshopAccessStatusColor(row.status), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    row.requestNote?.takeIf { it.isNotBlank() }?.let { Text("Asked: “$it”", color = Muted, fontSize = 11.sp) }
+                    row.decisionNote?.takeIf { it.isNotBlank() }?.let { Text("Decision: “$it”", color = Muted, fontSize = 11.sp) }
+                    DropdownField(
+                        label = "Access level",
+                        options = workshopLevelOptions(levels),
+                        selectedValue = row.accessLevel,
+                        includeNone = false,
+                        enabled = !busy,
+                        onSelect = { level ->
+                            if (level != row.accessLevel) {
+                                act(row.userId, "${row.user?.name ?: "Access"} set to ${workshopLevelLabel(level)}") {
+                                    repository.updateWorkshopAccess(selectedWorkshop, row.userId, accessLevel = level)
+                                }
+                            }
                         }
                     )
-                    Text("${u.name} · ${u.email}", color = Body, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        if (row.status == "GRANTED") {
+                            OutlinedButton(
+                                enabled = !busy,
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    act(row.userId, "Access revoked") {
+                                        repository.revokeWorkshopAccess(selectedWorkshop, row.userId)
+                                    }
+                                }
+                            ) { Text(if (busy) "Working…" else "Revoke", maxLines = 1, fontSize = 13.sp) }
+                        } else {
+                            Button(
+                                enabled = !busy,
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    act(row.userId, "Access granted") {
+                                        repository.grantWorkshopAccess(selectedWorkshop, row.userId, row.accessLevel)
+                                    }
+                                }
+                            ) { Text(if (busy) "Working…" else "Grant", maxLines = 1, fontSize = 13.sp) }
+                            if (row.status == "PENDING") {
+                                OutlinedButton(
+                                    enabled = !busy,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = {
+                                        act(row.userId, "Request denied") {
+                                            repository.updateWorkshopAccess(selectedWorkshop, row.userId, status = "DENIED")
+                                        }
+                                    }
+                                ) { Text("Deny", maxLines = 1, fontSize = 13.sp) }
+                            }
+                        }
+                    }
                 }
             }
+        }
+
+        HorizontalDivider()
+        Text("Add a researcher", color = Body, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        // Anyone already on the roster is reachable through their own row above, so they are not
+        // offered here — granting them again from this picker would be a second way to do one thing.
+        val onRoster = roster.map { it.userId }.toSet()
+        val addable = directory.filterNot { it.id in onRoster }
+        if (addable.isEmpty()) {
+            Text("Everyone in the directory already has a row on this workshop.", color = Muted, fontSize = 12.sp)
+        } else {
+            DropdownField(
+                label = "Researcher",
+                options = addable.map { it.id to "${it.name} · ${it.email}" },
+                selectedValue = addUserId,
+                placeholder = "Select researcher",
+                onSelect = { addUserId = it }
+            )
+            DropdownField(
+                label = "Access level",
+                options = workshopLevelOptions(levels),
+                selectedValue = addLevel,
+                includeNone = false,
+                onSelect = { addLevel = it }
+            )
+            levels.firstOrNull { it.level == addLevel }?.description?.takeIf { it.isNotBlank() }
+                ?.let { Text(it, color = Muted, fontSize = 11.sp) }
             Button(
-                enabled = !busy,
+                enabled = busyUserId == null && addUserId.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    val target = addUserId
+                    act(target, "Access granted") {
+                        repository.grantWorkshopAccess(selectedWorkshop, target, addLevel)
+                        addUserId = ""
+                    }
+                }
+            ) { Text("Grant access") }
+        }
+    }
+}
+
+/**
+ * User-side workshop access: ask for one or more workshops at once, and see where every request got to.
+ *
+ * Multi-select because that is how the need arrives — a researcher joining a project needs the same
+ * access to a whole season of workshops, and filing them one at a time produces a queue nobody works
+ * through. Asking twice is safe: the API is idempotent per workshop and reports what it did with each.
+ */
+@Composable
+private fun WorkshopAccessScreen(
+    repository: FieldRepository,
+    onMessage: (String) -> Unit,
+    onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var workshops by remember { mutableStateOf<List<WorkshopDetailDto>>(emptyList()) }
+    var levels by remember { mutableStateOf<List<WorkshopAccessLevelDto>>(emptyList()) }
+    var mine by remember { mutableStateOf<List<WorkshopAssignmentDto>>(emptyList()) }
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var level by remember { mutableStateOf(DEFAULT_WORKSHOP_LEVEL) }
+    var note by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(true) }
+    var busy by remember { mutableStateOf(false) }
+
+    suspend fun loadMine() {
+        runCatching { repository.myWorkshopAccess() }
+            .onSuccess { mine = it }
+            .onFailure { onError(it.apiErrorMessage("Unable to load your access")) }
+    }
+
+    LaunchedEffect(Unit) {
+        loading = true
+        runCatching { workshops = repository.workshopsByOccurrence() }
+            .onFailure { onError(it.apiErrorMessage("Unable to load workshops")) }
+        runCatching { levels = repository.workshopAccessLevels() }
+        loadMine()
+        loading = false
+    }
+
+    RecordCard(title = "Request workshop access", icon = Icons.Filled.LockOpen) {
+        Text(
+            "Pick every workshop you need to work in, then send one request. An admin approves it and " +
+                "sets the level you get.",
+            color = Muted,
+            fontSize = 12.sp
+        )
+        if (loading) {
+            Text("Loading workshops…", color = Muted, fontSize = 12.sp)
+        } else {
+            CheckboxMultiSelectField(
+                label = "Workshops",
+                options = workshops.map { it.id to workshopOptionLabel(it) },
+                selectedIds = selected,
+                emptyMessage = "No workshops to request yet.",
+                onToggle = { id -> selected = if (id in selected) selected - id else selected + id }
+            )
+            DropdownField(
+                label = "Access level you need",
+                options = workshopLevelOptions(levels),
+                selectedValue = level,
+                includeNone = false,
+                onSelect = { level = it }
+            )
+            levels.firstOrNull { it.level == level }?.description?.takeIf { it.isNotBlank() }
+                ?.let { Text(it, color = Muted, fontSize = 11.sp) }
+            TextInput("Why do you need access? (optional)", note, minLines = 2) { note = it }
+            Button(
+                enabled = !busy && selected.isNotEmpty(),
+                modifier = Modifier.fillMaxWidth(),
                 onClick = {
                     scope.launch {
                         busy = true
-                        runCatching { repository.setWorkshopAssignments(selectedWorkshop, assigned.toList()) }
-                            .onFailure { onError(it.message ?: "Unable to save assignments") }
+                        runCatching { repository.requestWorkshopAccess(selected.toList(), level, note) }
+                            .onSuccess { result ->
+                                // Say what actually happened per workshop: pressing the button twice is
+                                // expected, and "already pending" is a different answer from "sent".
+                                val counts = result.outcomes.groupingBy { it.outcome }.eachCount()
+                                val parts = listOfNotNull(
+                                    counts["CREATED"]?.let { "$it sent" },
+                                    counts["RE_REQUESTED"]?.let { "$it asked again" },
+                                    counts["ALREADY_PENDING"]?.let { "$it already waiting" },
+                                    counts["ALREADY_GRANTED"]?.let { "$it already granted" }
+                                )
+                                onMessage("Workshop access: ${parts.joinToString(", ").ifBlank { "request sent" }}")
+                                selected = emptySet()
+                                note = ""
+                                loadMine()
+                            }
+                            .onFailure { onError(it.apiErrorMessage("Unable to send the request")) }
                         busy = false
                     }
                 }
-            ) { Text("Save assignments (${assigned.size})") }
+            ) { Text(if (busy) "Sending…" else "Request access (${selected.size})") }
+        }
+    }
+
+    RecordCard(title = "My workshop access") {
+        Text(
+            "Everything you hold, everything you are waiting on, and anything that was refused.",
+            color = Muted,
+            fontSize = 12.sp
+        )
+        if (mine.isEmpty()) {
+            Text("You have not asked for — or been given — access to any workshop yet.", color = Muted, fontSize = 12.sp)
+        }
+        mine.forEach { row ->
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(assignmentWorkshopLabel(row), color = Body, fontWeight = FontWeight.SemiBold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            workshopAccessStatusLabel(row.status),
+                            color = workshopAccessStatusColor(row.status),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text("· ${workshopLevelLabel(row.accessLevel)}", color = Muted, fontSize = 12.sp)
+                    }
+                    row.decisionNote?.takeIf { it.isNotBlank() }?.let { Text("“$it”", color = Muted, fontSize = 11.sp) }
+                    row.decidedBy?.name?.let { Text("Decided by $it${formatIsoDate(row.decidedAt)?.let { d -> " · $d" } ?: ""}", color = Muted, fontSize = 11.sp) }
+                    if (row.status == "DENIED" || row.status == "REVOKED") {
+                        Text("You can ask again above — that starts a fresh request.", color = Muted, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Admin-only: the workshop-access approval queue across ALL workshops, so an approver works from one
+ * list. Opening each workshop's roster in turn is how requests sit unanswered for a week.
+ */
+@Composable
+private fun WorkshopAccessQueueCard(
+    repository: FieldRepository,
+    onMessage: (String) -> Unit,
+    onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var rows by remember { mutableStateOf<List<WorkshopAssignmentDto>>(emptyList()) }
+    var levels by remember { mutableStateOf<List<WorkshopAccessLevelDto>>(emptyList()) }
+    var showAll by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(true) }
+    var busyId by remember { mutableStateOf<String?>(null) }
+    // Level the admin will hand out, per pending row — seeded from what the user asked for.
+    val chosenLevel = remember { mutableStateMapOf<String, String>() }
+
+    fun refresh() {
+        scope.launch {
+            loading = true
+            runCatching { repository.workshopAccessQueue(if (showAll) "ALL" else "PENDING") }
+                .onSuccess { rows = it }
+                .onFailure { onError(it.apiErrorMessage("Unable to load the access queue")) }
+            loading = false
+        }
+    }
+    LaunchedEffect(showAll) { refresh() }
+    LaunchedEffect(Unit) { runCatching { levels = repository.workshopAccessLevels() } }
+
+    fun decide(row: WorkshopAssignmentDto, status: String) {
+        scope.launch {
+            busyId = row.id
+            runCatching {
+                repository.decideWorkshopAccess(row.id, status, chosenLevel[row.id] ?: row.accessLevel)
+            }
+                .onSuccess {
+                    onMessage(if (status == "GRANTED") "Access granted to ${row.user?.name ?: "the researcher"}" else "Request denied")
+                    refresh()
+                }
+                .onFailure { onError(it.apiErrorMessage("That decision didn't go through")) }
+            busyId = null
+        }
+    }
+
+    RecordCard(title = "Workshop access requests", icon = Icons.Filled.LockOpen) {
+        Text(
+            "Researchers asking to work in a workshop, oldest first. Approving gives them the level you " +
+                "pick — it does not put them on the roster, so an open workshop stays open to everyone else.",
+            color = Muted,
+            fontSize = 12.sp
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = !showAll, onClick = { showAll = false }, label = { Text("Pending") })
+            FilterChip(selected = showAll, onClick = { showAll = true }, label = { Text("Full history") })
+        }
+        when {
+            loading -> Text("Loading requests…", color = Muted, fontSize = 12.sp)
+            rows.isEmpty() -> Text(
+                if (showAll) "No workshop access rows yet." else "Nothing waiting — the queue is clear. 🎉",
+                color = Muted,
+                fontSize = 12.sp
+            )
+            else -> rows.forEach { row ->
+                val busy = busyId == row.id
+                val pending = row.status == "PENDING"
+                ElevatedCard(
+                    colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(row.user?.name ?: row.userId, color = Body, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            listOfNotNull(
+                                row.user?.email?.takeIf { it.isNotBlank() },
+                                assignmentWorkshopLabel(row),
+                                formatIsoDate(row.createdAt)
+                            ).joinToString(" · "),
+                            color = Muted,
+                            fontSize = 11.sp
+                        )
+                        Text(
+                            "${workshopAccessStatusLabel(row.status)} · asked for ${workshopLevelLabel(row.accessLevel)}",
+                            color = workshopAccessStatusColor(row.status),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        row.requestNote?.takeIf { it.isNotBlank() }?.let { Text("“$it”", color = Muted, fontSize = 11.sp) }
+                        if (pending) {
+                            DropdownField(
+                                label = "Grant at level",
+                                options = workshopLevelOptions(levels),
+                                selectedValue = chosenLevel[row.id] ?: row.accessLevel,
+                                includeNone = false,
+                                enabled = !busy,
+                                onSelect = { chosenLevel[row.id] = it }
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                Button(
+                                    enabled = !busy,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { decide(row, "GRANTED") }
+                                ) { Text(if (busy) "Working…" else "Approve", maxLines = 1, fontSize = 13.sp) }
+                                OutlinedButton(
+                                    enabled = !busy,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { decide(row, "DENIED") }
+                                ) { Text("Deny", maxLines = 1, fontSize = 13.sp) }
+                            }
+                        } else {
+                            row.decisionNote?.takeIf { it.isNotBlank() }?.let { Text("Decision: “$it”", color = Muted, fontSize = 11.sp) }
+                            Text(
+                                "Already decided — change it from Workshop assignments.",
+                                color = Muted,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ===========================================================================
+// Tasks — the assignee's to-do list. An admin hands work out as a batch; each
+// person owns, sees and reports progress on their own row.
+// ===========================================================================
+
+private fun taskStatusLabel(status: String): String = when (status) {
+    "OPEN" -> "Open"
+    "IN_PROGRESS" -> "In progress"
+    "DONE" -> "Done"
+    "CANCELLED" -> "Cancelled"
+    else -> status
+}
+
+private fun taskStatusColor(status: String): Color = when (status) {
+    "DONE" -> SuccessGreen
+    "IN_PROGRESS" -> Coral
+    "CANCELLED" -> Muted
+    else -> Body
+}
+
+/** The statuses an ASSIGNEE may move a task between. Cancelling belongs to whoever handed it out. */
+private val assigneeTaskStatuses = listOf("OPEN", "IN_PROGRESS", "DONE")
+
+/**
+ * One line describing everything the task asks for: the record kinds, the questionnaire sections and
+ * the artisans it is scoped to. Built from the server-resolved names so nothing has to be looked up.
+ */
+private fun taskScopeSummary(task: TaskDto): String {
+    val parts = mutableListOf<String>()
+    if (task.recordTypeLabels.isNotEmpty()) {
+        parts += task.targetCount?.let { "${task.recordTypeLabels.joinToString(", ")} (target $it)" }
+            ?: task.recordTypeLabels.joinToString(", ")
+    }
+    if (task.sections.isNotEmpty()) {
+        val codes = task.sections.joinToString(", ") { it.code }
+        parts += if (task.sections.size == 1) "questionnaire section $codes" else "questionnaire sections $codes"
+    }
+    if (task.artisans.isNotEmpty()) {
+        parts += if (task.artisans.size <= 3) {
+            "for ${task.artisans.joinToString(", ") { it.name }}"
+        } else {
+            "for ${task.artisans.size} artisans"
+        }
+    }
+    return parts.joinToString(" · ")
+}
+
+/**
+ * My tasks. Admins can also flip to the work they handed out ("Assigned by me"), which is the same
+ * rows read through `view=created` — the endpoint 403s that view for everyone else, so the toggle is
+ * only offered to admins.
+ */
+@Composable
+private fun MyTasksScreen(
+    repository: FieldRepository,
+    isAdmin: Boolean,
+    onMessage: (String) -> Unit,
+    onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val myId = remember { repository.cachedUser()?.id }
+    var view by remember { mutableStateOf("assigned") }
+    var statusFilter by remember { mutableStateOf("") }
+    var tasks by remember { mutableStateOf<List<TaskDto>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var busyId by remember { mutableStateOf<String?>(null) }
+
+    fun refresh() {
+        scope.launch {
+            loading = true
+            runCatching { repository.tasks(view = view, status = statusFilter.ifBlank { null }) }
+                .onSuccess { tasks = it }
+                .onFailure { onError(it.apiErrorMessage("Unable to load your tasks")) }
+            loading = false
+        }
+    }
+    LaunchedEffect(view, statusFilter) { refresh() }
+
+    /** Assignee-side change: move the status, or report how much is done. */
+    fun update(task: TaskDto, status: String? = null, progressCount: Int? = null, ok: String) {
+        scope.launch {
+            busyId = task.id
+            runCatching { repository.updateTaskProgress(task.id, status = status, progressCount = progressCount) }
+                .onSuccess { updated ->
+                    tasks = tasks.map { if (it.id == updated.id) updated else it }
+                    onMessage(ok)
+                }
+                .onFailure { onError(it.apiErrorMessage("Unable to update the task")) }
+            busyId = null
+        }
+    }
+
+    RecordCard(title = "Tasks", icon = Icons.AutoMirrored.Filled.Assignment) {
+        Text(
+            "Work assigned to you, with what it covers and how far along you are. Move the status as you " +
+                "go so whoever assigned it can see where things stand.",
+            color = Muted,
+            fontSize = 12.sp
+        )
+        if (isAdmin) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = view == "assigned", onClick = { view = "assigned" }, label = { Text("Assigned to me") })
+                FilterChip(selected = view == "created", onClick = { view = "created" }, label = { Text("Assigned by me") })
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+            FilterChip(selected = statusFilter.isBlank(), onClick = { statusFilter = "" }, label = { Text("All") })
+            listOf("OPEN", "IN_PROGRESS", "DONE").forEach { value ->
+                FilterChip(
+                    selected = statusFilter == value,
+                    onClick = { statusFilter = if (statusFilter == value) "" else value },
+                    label = { Text(taskStatusLabel(value)) }
+                )
+            }
+        }
+        OutlinedButton(onClick = { refresh() }, enabled = !loading, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(if (loading) "Loading tasks…" else "Refresh")
+        }
+        when {
+            loading -> Text("Loading tasks…", color = Muted, fontSize = 12.sp)
+            tasks.isEmpty() -> Text(
+                if (view == "created") "You have not assigned any work yet."
+                else "Nothing is assigned to you right now.",
+                color = Muted,
+                fontSize = 12.sp
+            )
+            else -> tasks.forEach { task ->
+                TaskCard(
+                    task = task,
+                    // Only the assignee may move a task; an admin looking at "assigned by me" is
+                    // reading someone else's row and the API would refuse the write anyway.
+                    editable = task.assigneeId != null && task.assigneeId == myId,
+                    busy = busyId == task.id,
+                    onStatus = { status -> update(task, status = status, ok = "Marked ${taskStatusLabel(status).lowercase()}") },
+                    onProgress = { count -> update(task, progressCount = count, ok = "Progress reported") }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TaskCard(
+    task: TaskDto,
+    editable: Boolean,
+    busy: Boolean,
+    onStatus: (String) -> Unit,
+    onProgress: (Int) -> Unit
+) {
+    // Seeded from the server value and re-seeded whenever the server value moves, so a successful
+    // report leaves the box showing what was actually stored (the API clamps to the target).
+    var reported by remember(task.id, task.progressCount) { mutableStateOf(task.progressCount.toString()) }
+    val scopeLine = taskScopeSummary(task)
+
+    ElevatedCard(
+        colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(task.title.ifBlank { "Field task" }, color = Body, fontWeight = FontWeight.SemiBold)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(taskStatusLabel(task.status), color = taskStatusColor(task.status), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                if (task.isOverdue) Text("· Overdue", color = FailureRed, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Text(
+                listOfNotNull(
+                    task.workshopTitle?.takeIf { it.isNotBlank() },
+                    formatIsoDate(task.dueAt)?.let { "due $it" },
+                    // Naming the assignee is only useful on somebody else's row — on my own list it
+                    // would print my own name against every single task.
+                    if (!editable) task.assignee?.name?.takeIf { it.isNotBlank() }?.let { "for $it" } else null
+                ).joinToString(" · ").ifBlank { "No workshop or due date" },
+                color = Muted,
+                fontSize = 11.sp
+            )
+            if (scopeLine.isNotBlank()) Text(scopeLine, color = Body, fontSize = 12.sp)
+            task.description?.takeIf { it.isNotBlank() }?.let { Text(it, color = Muted, fontSize = 12.sp) }
+
+            // Reported vs derived, side by side: "says 8, repository sees 2" is the signal worth seeing.
+            val target = task.targetCount
+            val derived = task.derivedCount
+            Text(
+                buildString {
+                    append("Reported ${task.progressCount}")
+                    if (target != null) append(" of $target")
+                    if (derived != null) {
+                        append(" · repository sees $derived")
+                        task.derivedTarget?.let { append(" of $it") }
+                    }
+                },
+                color = Muted,
+                fontSize = 11.sp
+            )
+            task.percentComplete?.let { percent ->
+                LinearProgressIndicator(progress = { percent / 100f }, modifier = Modifier.fillMaxWidth())
+            }
+
+            if (!editable) return@Column
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                assigneeTaskStatuses.forEach { value ->
+                    val current = task.status == value
+                    OutlinedButton(
+                        enabled = !busy && !current,
+                        onClick = { onStatus(value) },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp)
+                    ) { Text(if (current) "✓ ${taskStatusLabel(value)}" else taskStatusLabel(value), maxLines = 1, fontSize = 12.sp) }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = reported,
+                    onValueChange = { raw -> reported = raw.filter { it.isDigit() }.take(6) },
+                    label = { Text(if (target != null) "Done so far (of $target)" else "Done so far") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f)
+                )
+                Button(
+                    enabled = !busy && reported.toIntOrNull() != null && reported.toIntOrNull() != task.progressCount,
+                    onClick = { reported.toIntOrNull()?.let(onProgress) }
+                ) { Text(if (busy) "Saving…" else "Report") }
+            }
         }
     }
 }
@@ -8314,15 +10434,36 @@ private fun SaveButton(
 /** How long the "Saved ✓" confirmation lingers before the screen returns to the dashboard. */
 private const val SAVED_CONFIRM_MS = 750L
 
+/**
+ * "Will be saved as …" — the API title-cases every name-like column on WRITE, so the form shows the
+ * normalised value BEFORE saving rather than silently rewriting the researcher's text afterwards.
+ * Nothing is shown when what they typed is already exactly what will be stored.
+ */
 @Composable
-private fun TextInput(label: String, value: String, minLines: Int = 1, onValueChange: (String) -> Unit) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        label = { Text(label) },
-        minLines = minLines,
-        modifier = Modifier.fillMaxWidth()
-    )
+private fun TitleCaseHint(value: String) {
+    val normalised = titleCasePreview(value) ?: return
+    Text("Will be saved as “$normalised”", color = Muted, fontSize = 11.sp)
+}
+
+/** Set [titleCased] on a field whose column is in the server's TITLE_CASE_FIELDS (see TextFormat.kt). */
+@Composable
+private fun TextInput(
+    label: String,
+    value: String,
+    minLines: Int = 1,
+    titleCased: Boolean = false,
+    onValueChange: (String) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = { Text(label) },
+            minLines = minLines,
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (titleCased) TitleCaseHint(value)
+    }
 }
 
 /** Split a stored newline-separated list into editable rows (always at least one, for the empty case). */
@@ -8466,19 +10607,23 @@ private fun RequiredInput(
     error: String?,
     focusRequester: FocusRequester,
     minLines: Int = 1,
+    titleCased: Boolean = false,
     onValueChange: (String) -> Unit
 ) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        label = { Text("$label *") },
-        isError = error != null,
-        supportingText = error?.let { msg -> { Text(msg) } },
-        minLines = minLines,
-        modifier = Modifier
-            .fillMaxWidth()
-            .focusRequester(focusRequester)
-    )
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = { Text("$label *") },
+            isError = error != null,
+            supportingText = error?.let { msg -> { Text(msg) } },
+            minLines = minLines,
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(focusRequester)
+        )
+        if (titleCased) TitleCaseHint(value)
+    }
 }
 
 /** One required field's validation hooks: whether it is blank, how to flag it, and where to focus. */

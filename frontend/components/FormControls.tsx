@@ -113,10 +113,21 @@ function optionsFromChildren(children: ReactNode): DropdownOption[] {
   return options;
 }
 
+/** Same call-site API as a browser <select> (select-flavoured value/onChange, <option> children),
+ * while the remaining props land on the mirror <input> that actually lives in the form. */
+type SelectProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "defaultValue" | "onChange" | "type" | "children"> & {
+  value?: SelectHTMLAttributes<HTMLSelectElement>["value"];
+  defaultValue?: SelectHTMLAttributes<HTMLSelectElement>["value"];
+  onChange?: React.ChangeEventHandler<HTMLSelectElement>;
+  children?: ReactNode;
+};
+
 /**
  * Drop-in replacement for the browser <select>: same API (name / value / defaultValue / onChange /
  * disabled and <option> children) so existing forms are unchanged, but rendered as the app's themed
- * dropdown. A hidden input mirrors the value so uncontrolled forms still submit via FormData.
+ * dropdown. A visually hidden input mirrors the value so uncontrolled forms still submit via
+ * FormData, and mirrors `required` so native form validation works. Any remaining props are spread
+ * onto that underlying input instead of being dropped.
  */
 export function Select({
   name,
@@ -124,10 +135,12 @@ export function Select({
   defaultValue,
   onChange,
   disabled,
+  required,
   className,
   children,
-  "aria-label": ariaLabel
-}: SelectHTMLAttributes<HTMLSelectElement>) {
+  "aria-label": ariaLabel,
+  ...rest
+}: SelectProps) {
   const options = useMemo(() => optionsFromChildren(children), [children]);
   const isControlled = value !== undefined;
   const [internal, setInternal] = useState<string>(() => {
@@ -144,7 +157,6 @@ export function Select({
 
   return (
     <>
-      {name ? <input type="hidden" name={name} value={current} /> : null}
       <Dropdown
         value={current}
         onChange={handleChange}
@@ -153,6 +165,22 @@ export function Select({
         className={className}
         ariaLabel={typeof ariaLabel === "string" ? ariaLabel : undefined}
       />
+      {name ? (
+        // Not type="hidden": hidden inputs are exempt from constraint validation, so a required
+        // Select would never block submission. A zero-size text input submits the value AND
+        // participates in native validation.
+        <input
+          {...rest}
+          type="text"
+          name={name}
+          value={current}
+          required={required}
+          onChange={() => undefined}
+          tabIndex={-1}
+          aria-hidden="true"
+          className="pointer-events-none absolute h-0 w-0 border-0 p-0 opacity-0"
+        />
+      ) : null}
     </>
   );
 }

@@ -1,15 +1,45 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Transport policy for the app. The production API is HTTPS through CloudFront
+  (d2b34i3e92al6i.cloudfront.net) and media is HTTPS through S3, both with publicly-trusted
+  certificates, so neither needs an entry here.
+
+  Cleartext (plain HTTP) is permitted ONLY for the loopback/emulator development hosts below. It is
+  deliberately NOT permitted for any production host: an http:// API call would expose the bearer
+  token and every field record to anyone on the network path, and would be trivially modifiable in
+  flight. (The direct EC2 origin — ec2-15-207-145-174…compute.amazonaws.com / 15.207.145.174 — used
+  to be listed here as a manual fallback; it was removed because it is a PRODUCTION host reachable
+  only over plaintext HTTP. Bypass CloudFront only by putting TLS in front of the origin.)
+
+  Developing against a backend on your LAN (a real phone, not the emulator): add your machine's
+  private IP as another <domain> below TEMPORARILY, alongside apiBaseUrl=http://<ip>:8000/api/ in
+  local.properties, and do not commit either change.
+-->
 <network-security-config>
-    <!-- Production API is now HTTPS via CloudFront (d2b34i3e92al6i.cloudfront.net), which uses a
-         publicly-trusted certificate and needs no entry here. Cleartext (HTTP) is permitted only
-         for local development hosts and the direct EC2 origin, the latter kept as a manual fallback
-         if CloudFront is ever bypassed via apiBaseUrl in local.properties. No blanket
-         base-config cleartext, so HTTP is rejected everywhere else. -->
+    <!-- Everything not named below: TLS required, and only the OS certificate store is trusted.
+         Omitting <certificates src="user"/> means a user-installed CA (a corporate MITM root, or a
+         Charles/mitmproxy certificate someone was talked into installing) cannot silently decrypt
+         the app's traffic. Debug builds re-enable it in debug-overrides so proxy debugging still
+         works there. -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Development hosts only: the emulator's host-machine alias and loopback. -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">10.0.2.2</domain>
         <domain includeSubdomains="true">127.0.0.1</domain>
         <domain includeSubdomains="true">localhost</domain>
-        <domain includeSubdomains="true">ec2-15-207-145-174.ap-south-1.compute.amazonaws.com</domain>
-        <domain includeSubdomains="true">15.207.145.174</domain>
     </domain-config>
+
+    <!-- Applies ONLY to builds with android:debuggable=true (never to a release APK), so inspecting
+         traffic with a proxy during development does not require weakening the shipped policy. -->
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
 </network-security-config>

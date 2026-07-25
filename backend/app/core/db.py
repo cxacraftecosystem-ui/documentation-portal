@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from contextlib import suppress
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from prisma import Prisma
@@ -97,3 +98,24 @@ async def connect_db() -> None:
 async def disconnect_db() -> None:
     if db.is_connected():
         await db.disconnect()
+
+
+async def ensure_db_connected() -> None:
+    """Prove the runtime client is genuinely usable, reconnecting (disconnect-first) if it is not.
+
+    ``is_connected()`` alone can lie: the Prisma client keeps its engine reference even when
+    ``connect()`` *raised*, so it can read True while the engine is unusable. So we probe with
+    ``SELECT 1`` and, on any failure, tear down the (possibly half-initialized) engine before
+    reconnecting — the same recovery the web app's background watchdog uses. Raises only if the
+    reconnect itself ultimately fails, so callers can back off and try again.
+    """
+    try:
+        if db.is_connected():
+            await db.query_raw("SELECT 1")
+            return
+    except Exception:  # noqa: BLE001 - a failed probe just means "reconnect below"
+        pass
+    with suppress(Exception):
+        await db.disconnect()  # clear any half-initialized engine before reconnecting
+    await connect_db()
+    await db.query_raw("SELECT 1")  # prove the new link really works

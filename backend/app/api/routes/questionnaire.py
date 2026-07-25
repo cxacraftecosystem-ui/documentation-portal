@@ -1,5 +1,5 @@
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -32,12 +32,21 @@ from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
     public_encode,
     add_date_range,
+    apply_status_policy_create,
+    apply_status_policy_update,
     attach_location,
     clean_data,
     contains,
     jsonify_metadata,
     merge_field_provenance,
     require_record,
+    resubmit_status,
+)
+from app.services.workshop_access import (
+    WorkshopSubmissionCheck,
+    enforce_workshop_submission,
+    pin_pending_if_late,
+    stamp_workshop_submission,
 )
 
 router = APIRouter(prefix="/questionnaire", tags=["questionnaire"])
@@ -81,6 +90,7 @@ def section_codes_from_title(title: str | None, valid_codes: set[str]) -> set[st
 INTERVIEW_INCLUDE = {
     "createdBy": True,
     "location": True,
+    "workshop": True,
     "artisans": {"include": {"artisan": {"include": {"craft": True}}}},
     "responses": {"include": {"question": True, "answeredBy": True}},
     "media": True,
@@ -104,6 +114,26 @@ def artisan_set_key(artisan_ids: list[str]) -> str | None:
     """
     unique = sorted({aid for aid in artisan_ids if aid})
     return ",".join(unique) if unique else None
+
+
+def default_interview_date(data: dict[str, Any]) -> dict[str, Any]:
+    """Derive ``interviewDate`` server-side when the client did not send one. Mutates ``data``.
+
+    ``interviewDate`` is no longer a form field. Asking a researcher to type the date of the interview
+    they are recording right now was pure friction, and it was answered wrongly often enough (last
+    week's date left in the form, a typo'd year) that the value could not be trusted for the date
+    filters and exports built on it. ``recordedAt`` is the same fact captured for free: the client
+    stamps it when the interview is actually recorded.
+
+    The column STAYS — it is provenance for every interview created while the field existed, and old
+    clients may still send it, in which case the value they sent is honoured untouched. It is only
+    ever derived when absent, so a real answer is never overwritten. ``recordedAt`` itself may also be
+    absent (it is DB-defaulted to ``now()``), so "now" is the last resort — the same instant the
+    database would have stamped.
+    """
+    if data.get("interviewDate") is None:
+        data["interviewDate"] = data.get("recordedAt") or datetime.now(UTC)
+    return data
 
 
 async def next_section_sort_order() -> int:
@@ -382,6 +412,7 @@ async def list_interviews(
     _: Any = Depends(get_current_user),
     search: str | None = None,
     artisanId: str | None = None,
+    workshopId: str | None = None,
     statusFilter: str | None = None,
     dateFrom: datetime | None = None,
     dateTo: datetime | None = None,
@@ -394,6 +425,8 @@ async def list_interviews(
         where["OR"] = [{"title": contains(search)}, {"place": contains(search)}, {"notes": contains(search)}]
     if artisanId:
         where["artisans"] = {"some": {"artisanId": artisanId}}
+    if workshopId:
+        where["workshopId"] = workshopId
     if statusFilter:
         where["status"] = statusFilter
     add_date_range(where, "interviewDate", dateFrom, dateTo)
@@ -410,17 +443,23 @@ async def list_interviews(
 
 # Scalar fields a "create for an existing set" may back-fill on the canonical interview — but ONLY
 # when that field is still empty, so one researcher's create can never overwrite another's content.
-_MERGEABLE_FILL_FIELDS = ("title", "place", "language", "notes", "interviewDate")
+# workshopId joins the list so a later create can name the workshop an earlier one left blank.
+_MERGEABLE_FILL_FIELDS = ("title", "place", "language", "notes", "interviewDate", "workshopId")
 
 
 async def merge_into_interview(
-    existing: Any, payload: QuestionnaireInterviewCreate, current_user: Any
+    existing: Any,
+    payload: QuestionnaireInterviewCreate,
+    current_user: Any,
+    check: WorkshopSubmissionCheck | None = None,
 ) -> dict[str, Any]:
     """Fold a create-for-an-already-existing-set into the single canonical interview.
 
     Fills only empty scalar fields (never clobbers a populated one), upserts the submitted answers
     (``upsert_responses`` already blocks a non-owner from changing someone else's answer), and returns
-    the canonical row so the client attaches any media to the shared entry.
+    the canonical row so the client attaches any media to the shared entry. When this fold is what
+    first links the interview to a workshop, that link is a workshop submission like any other, so it
+    carries the same late-submission stamp and PENDING pin.
     """
     incoming = payload.model_dump()
     fill = {
@@ -428,6 +467,15 @@ async def merge_into_interview(
         for field in _MERGEABLE_FILL_FIELDS
         if not is_empty_value(incoming.get(field)) and is_empty_value(get_value(existing, field))
     }
+    if "workshopId" in fill:
+        # Seed from the stored metadata so stamping the submission never drops the canonical
+        # interview's existing extraMetadata (field provenance and anything else already recorded).
+        existing_extra = get_value(existing, "extraMetadata")
+        if isinstance(existing_extra, dict):
+            fill["extraMetadata"] = dict(existing_extra)
+        stamp_workshop_submission(fill, check=check)
+        pin_pending_if_late(fill, current_user, check=check, record=existing)
+        jsonify_metadata(fill)
     if fill:
         await db.questionnaireinterview.update(where={"id": existing.id}, data=fill)
     if payload.responses:
@@ -443,6 +491,9 @@ async def create_interview(
     payload: QuestionnaireInterviewCreate,
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
+    # Workshop entries: enforce assignment BEFORE the dedupe short-circuit, so folding into an
+    # existing interview can never be used to slip past a workshop the user is not assigned to.
+    check = await enforce_workshop_submission(current_user, payload.workshopId)
     # One interview per exact artisan set: if one already exists for this set, fold into it instead
     # of creating a duplicate. This holds for EVERY client (web + old/new app) regardless of UI.
     set_key = artisan_set_key(payload.artisanIds)
@@ -451,14 +502,20 @@ async def create_interview(
             where={"artisanSetKey": set_key}, include=INTERVIEW_INCLUDE
         )
         if existing is not None:
-            return await merge_into_interview(existing, payload, current_user)
+            return await merge_into_interview(existing, payload, current_user, check)
 
     data = clean_data(payload.model_dump(exclude={"artisanIds", "responses"}))
+    # No longer a user-facing field: fall back to when the interview was actually recorded.
+    default_interview_date(data)
     data = await attach_location(data)
+    stamp_workshop_submission(data, check=check)
     data["createdById"] = current_user.id
     data["artisanSetKey"] = set_key
     merge_field_provenance(data, current_user, previous=None)
     jsonify_metadata(data)
+    apply_status_policy_create(current_user, data)
+    # After the status policy, so a late submission outranks the submitter's own approval rights.
+    pin_pending_if_late(data, current_user, check=check)
     try:
         created = await db.questionnaireinterview.create(data=data)
     except UniqueViolationError:
@@ -467,7 +524,7 @@ async def create_interview(
             where={"artisanSetKey": set_key}, include=INTERVIEW_INCLUDE
         )
         if existing is not None:
-            return await merge_into_interview(existing, payload, current_user)
+            return await merge_into_interview(existing, payload, current_user, check)
         raise
     if payload.artisanIds:
         await replace_interview_artisans(created.id, payload.artisanIds)
@@ -661,8 +718,19 @@ async def update_interview(
     interview = await require_record(db.questionnaireinterview, interview_id)
     data = clean_data(payload.model_dump(exclude_unset=True, exclude={"artisanIds", "responses"}))
     data = await attach_location(data)
+    # Moving a record into (or between) workshops is a workshop submission too, so the create-time
+    # guard can't be bypassed by PATCHing the workshop in afterwards.
+    check = None
+    if "workshopId" in data and data.get("workshopId") != interview.workshopId:
+        check = await enforce_workshop_submission(current_user, data.get("workshopId"))
     privileged = await guard_record_edit(interview, current_user, data, "questionnaire")
+    await apply_status_policy_update(current_user, interview, data)
+    # Stamped after the edit guard (the stamp is the API's bookkeeping, never a contributor's edit)
+    # and pinned after the status policy, so an already-flagged record cannot be self-approved.
+    stamp_workshop_submission(data, check=check, record=interview)
+    pin_pending_if_late(data, current_user, check=check, record=interview)
     merge_field_provenance(data, current_user, previous=interview)
+    resubmit_status(interview, current_user, data)
     jsonify_metadata(data)
     if data:
         await db.questionnaireinterview.update(where={"id": interview_id}, data=data)

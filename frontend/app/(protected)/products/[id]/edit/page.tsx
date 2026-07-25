@@ -30,7 +30,7 @@ export default function EditProductPage() {
           <FieldProvenance extraMetadata={record.extraMetadata} title="Product field contributions" />
         </div>
       ) : (
-        <div className="text-sm text-neutral-600">Loading...</div>
+        <div className="text-sm text-ink-700">Loading...</div>
       )}
     </>
   );

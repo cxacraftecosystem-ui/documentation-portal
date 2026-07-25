@@ -32,7 +32,7 @@ export default function EditArtisanPage() {
           <FieldProvenance extraMetadata={record.extraMetadata} title="Artisan field contributions" />
         </div>
       ) : (
-        <div className="text-sm text-neutral-600">Loading...</div>
+        <div className="text-sm text-ink-700">Loading...</div>
       )}
     </>
   );

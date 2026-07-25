@@ -264,6 +264,30 @@ async def transcribe_media_now(media: Any, settings: Settings | None = None) -> 
             where={"id": media_id},
             data={"transcriptStatus": QUEUED, "transcriptError": result.get("message")},
         )
+        # "Queued" must never be a dead end: if no queue job exists for this clip (e.g. it was
+        # uploaded without a transcription request), create one so the worker actually picks it up.
+        pending = await db.mediaprocessingjob.find_first(
+            where={
+                "mediaFileId": media_id,
+                "jobType": TRANSCRIPTION,
+                "status": {"in": [QUEUED, PROCESSING]},
+            }
+        )
+        if pending is None:
+            job_data: dict[str, Any] = {
+                "jobType": TRANSCRIPTION,
+                "status": QUEUED,
+                "priority": 50,
+                "maxAttempts": max(settings.media_queue_job_max_attempts, 1),
+                "mediaFileId": media_id,
+                **_target_data(media),
+            }
+            # requestedById is a real FK to User, so fall back to NULL (not a placeholder string)
+            # when the uploader is unknown.
+            uploader_id = _value(media, "uploadedById")
+            if uploader_id:
+                job_data["requestedById"] = str(uploader_id)
+            await db.mediaprocessingjob.create(data=job_data)
         return result
     transcript = result.get("formattedTranscript") or result.get("text")
     await db.mediafile.update(
@@ -299,12 +323,15 @@ async def recover_stale_processing_jobs() -> int:
 
 
 async def _lock_job(job_id: str, worker_id: str) -> Any | None:
+    # Read first for the attempts counter, then claim ATOMICALLY: the update only matches while the
+    # row is still QUEUED, so of two concurrent claimers exactly one sees count==1 and the loser
+    # backs off with None instead of double-processing the job.
     job = await db.mediaprocessingjob.find_unique(where={"id": job_id})
     if not job or job.status != QUEUED:
         return None
     now = datetime.now(UTC)
-    return await db.mediaprocessingjob.update(
-        where={"id": job_id},
+    claimed = await db.mediaprocessingjob.update_many(
+        where={"id": job_id, "status": QUEUED},
         data={
             "status": PROCESSING,
             "lockedAt": now,
@@ -313,8 +340,10 @@ async def _lock_job(job_id: str, worker_id: str) -> Any | None:
             "attempts": job.attempts + 1,
             "error": None,
         },
-        include={"mediaFile": True},
     )
+    if claimed != 1:
+        return None
+    return await db.mediaprocessingjob.find_unique(where={"id": job_id}, include={"mediaFile": True})
 
 
 async def _process_job(job: Any, settings: Settings) -> None:

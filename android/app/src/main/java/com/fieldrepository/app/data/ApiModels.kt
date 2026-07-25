@@ -77,6 +77,10 @@ data class CraftDto(
     val category: String? = null,
     val place: String? = null,
     val description: String? = null,
+    // The workshop this craft was documented at. Persisted since the workshop-linkage migration
+    // (Craft.workshopId), so it round-trips; still nullable, because a craft may carry no workshop
+    // and every row created before that migration has none.
+    val workshopId: String? = null,
     val createdById: String? = null,
     val createdAt: String? = null,
     val createdBy: UserDto? = null,
@@ -325,6 +329,17 @@ data class UserUpdateRequest(
     val canDownloadDataset: Boolean? = null
 )
 
+/**
+ * Who created a record awaiting review. A trimmed shape on purpose: `/review/pending` embeds only
+ * id/name/role, so this cannot reuse [UserDto] (whose `email` is required and absent here).
+ */
+@Serializable
+data class ReviewCreatorDto(
+    val id: String,
+    val name: String = "",
+    val role: String? = null
+)
+
 /** One record awaiting review, as surfaced by GET /review/pending. */
 @Serializable
 data class PendingReviewDto(
@@ -332,7 +347,11 @@ data class PendingReviewDto(
     val id: String,
     val label: String,
     val place: String? = null,
-    val createdAt: String? = null
+    val createdAt: String? = null,
+    val createdBy: ReviewCreatorDto? = null,
+    // Submitted after its workshop ended: only an admin/master admin may edit or approve it, so the
+    // queue warns before the reviewer discovers it as a 403.
+    val needsAdminApproval: Boolean = false
 )
 
 @Serializable
@@ -341,10 +360,27 @@ data class PendingReviewListDto(
     val total: Int = 0
 )
 
-/** Optional reviewer notes sent with approve/reject. */
+/** Optional reviewer notes sent with approve/reject; MANDATORY on "send for revision" (422 without). */
 @Serializable
 data class ReviewActionRequest(
     val notes: String? = null
+)
+
+/**
+ * A reviewer correcting a record in place instead of bouncing it back to its creator.
+ *
+ * [fields] is validated server-side against the record type's own PATCH schema, so only real columns
+ * are accepted and every rule the normal edit path enforces still applies. Send ONLY the keys that
+ * actually changed: the API refuses `status`, `extraMetadata`, `workshopId`, `location`, `artisanIds`,
+ * `craftIds`, `responses`, `steps`, `recordedAt` and `recordedTimezone` with a 422.
+ *
+ * The record's status is left ALONE unless [approve] is set — an edit is not an approval.
+ */
+@Serializable
+data class ReviewEditRequest(
+    val fields: Map<String, String>,
+    val note: String? = null,
+    val approve: Boolean = false
 )
 
 @Serializable
@@ -354,6 +390,13 @@ data class CraftCreateRequest(
     val category: String? = null,
     val description: String? = null,
     val place: String? = null,
+    // The workshop this craft was documented at. Every record form now opens with the workshop
+    // picker, so the field is sent for craft too. NOTE: the API's Pydantic base sets
+    // `extra="forbid"`, so this key is NOT optional at the wire level — a backend that predates
+    // `CraftCreate.workshopId` rejects the whole request with 422. Ship the two together. When no
+    // workshop is selected the value is null and `explicitNulls = false` omits the key entirely,
+    // which is the backwards-compatible "no workshop named" path.
+    val workshopId: String? = null,
     val recordedAt: String? = null,
     val recordedTimezone: String = "Asia/Kolkata"
 )
@@ -385,12 +428,24 @@ data class ArtisanCreateRequest(
     val place: String,
     val address: String? = null,
     val notes: String? = null,
+    // Identity. `aadhaarNumber` is the repository's deduplication key (UNIQUE in the DB) and travels as
+    // BARE 12 digits — the form's grouped "1234 5678 9012" display is presentation only. The API also
+    // normalises spacing, but sending the clean value keeps the wire form and the stored form identical.
+    val aadhaarNumber: String? = null,
+    // Nullable on purpose even though the API's create model defaults it to true: the request Json is
+    // built with `encodeDefaults = false`, so a non-null default would be DROPPED from the payload
+    // whenever it matched — and a PATCH that omits the flag cannot flip a "No" record back to "Yes".
+    // With null as the default, whatever the form sets is always on the wire.
+    val pehchanCardAvailable: Boolean? = null,
+    val pehchanCardNumber: String? = null,
     // Newline-separated, numbered Do's (positive prompt) and Don'ts (negative prompt). Required on the
     // form; the backend requires them on create (nullable here so an update PATCH stays flexible).
     val dos: String? = null,
     val donts: String? = null,
     val craftId: String? = null,
     val craftName: String? = null,
+    // The workshop this artisan was documented at (see [CraftCreateRequest.workshopId]).
+    val workshopId: String? = null,
     val status: String = "PENDING",
     val recordedAt: String? = null,
     val recordedTimezone: String = "Asia/Kolkata",
@@ -539,16 +594,23 @@ data class QuestionnaireResponseRequest(
     val notes: String? = null
 )
 
+/**
+ * NOTE: there is deliberately no `interviewDate` here. The date of an interview is no longer a form
+ * field on either client — the server derives it from `recordedAt` (see the questionnaire route's
+ * `derive_interview_date`), which is the moment the interview was actually captured rather than a
+ * date a researcher retypes (and mistypes) at the end of a long session. Do not re-add it.
+ */
 @Serializable
 data class QuestionnaireInterviewCreateRequest(
     val title: String,
-    val interviewDate: String? = null,
     val place: String? = null,
     val language: String? = null,
     val notes: String? = null,
     val status: String = "PENDING",
     val artisanIds: List<String> = emptyList(),
     val responses: List<QuestionnaireResponseRequest> = emptyList(),
+    // The workshop this interview was conducted at (see [CraftCreateRequest.workshopId]).
+    val workshopId: String? = null,
     val recordedAt: String? = null,
     val recordedTimezone: String = "Asia/Kolkata",
     val location: LocationRequest? = null
@@ -582,16 +644,47 @@ data class ArtisanDetailDto(
     val place: String = "",
     val address: String? = null,
     val notes: String? = null,
+    // The artisan record returns the FULL Aadhaar number (every other surface — the data browser, the
+    // .xlsx report, exports — gets the "XXXX XXXX 9012" mask), because the edit form has to show the
+    // researcher what is stored before they change it.
+    val aadhaarNumber: String? = null,
+    val pehchanCardAvailable: Boolean = true,
+    val pehchanCardNumber: String? = null,
     val dos: String? = null,
     val donts: String? = null,
     val craftId: String? = null,
     val craft: CraftDto? = null,
+    // The workshop this artisan was documented at (see [CraftDto.workshopId]).
+    val workshopId: String? = null,
     val status: String = "PENDING",
     val location: LocationDto? = null,
     val createdById: String? = null,
     val createdAt: String? = null,
     val createdBy: UserDto? = null,
     val extraMetadata: JsonObject? = null
+)
+
+/**
+ * The artisan already holding a searched-for Aadhaar number. Deliberately only the fields that let a
+ * researcher recognise the person and go to them — the number itself is never echoed back.
+ */
+@Serializable
+data class ArtisanIdentityMatchDto(
+    val id: String,
+    val name: String = "",
+    val place: String? = null,
+    val craft: String? = null,
+    val workshop: String? = null
+)
+
+/**
+ * Answer from `GET /artisans/lookup/aadhaar`. "Not found" is the expected, successful answer (the
+ * endpoint never 404s), so [found] false with a null [artisan] is the normal case, not an error.
+ */
+@Serializable
+data class AadhaarLookupDto(
+    val found: Boolean = false,
+    val artisan: ArtisanIdentityMatchDto? = null
 )
 
 @Serializable
@@ -755,6 +848,8 @@ data class QuestionnaireInterviewDetailDto(
     val status: String = "PENDING",
     val artisans: List<WorkshopArtisanLinkDto> = emptyList(),
     val responses: List<InterviewResponseDto> = emptyList(),
+    // The workshop this interview was conducted at (see [CraftDto.workshopId]).
+    val workshopId: String? = null,
     val location: LocationDto? = null,
     val createdById: String? = null,
     val createdAt: String? = null,
@@ -785,6 +880,8 @@ data class ProcessCreateRequest(
     val notes: String? = null,
     val status: String = "PENDING",
     val steps: List<ProcessStepRequest> = emptyList(),
+    // The workshop this process was documented at (see [CraftCreateRequest.workshopId]).
+    val workshopId: String? = null,
     val recordedAt: String? = null,
     val recordedTimezone: String = "Asia/Kolkata"
 )
@@ -810,6 +907,8 @@ data class ProcessDetailDto(
     val product: ProductDetailDto? = null,
     val steps: List<ProcessStepDto> = emptyList(),
     val media: List<MediaFileDto> = emptyList(),
+    // The workshop this process was documented at (see [CraftDto.workshopId]).
+    val workshopId: String? = null,
     val createdById: String? = null,
     val createdAt: String? = null,
     val createdBy: UserDto? = null,
@@ -839,6 +938,7 @@ data class QuestionnaireInterviewUpdateRequest(
     val status: String? = null,
     val artisanIds: List<String>? = null,
     val responses: List<QuestionnaireResponseRequest>? = null,
+    val workshopId: String? = null,
     val recordedTimezone: String? = null,
     val location: LocationRequest? = null
 )
@@ -994,15 +1094,192 @@ data class RecordRevisionDto(
     val createdAt: String
 )
 
+// ---------------------------------------------------------------------------
+// Workshop access. ONE row per (workshop, user) carries the whole two-sided
+// conversation: an admin grants/revokes, a user requests and is approved or
+// denied. Only status == "GRANTED" confers access — a PENDING row confers
+// nothing, and DENIED/REVOKED rows are kept as history, never deleted.
+// ---------------------------------------------------------------------------
+
+/**
+ * Answer from `GET /workshops/{id}/submission-check` — what submitting a record into ONE workshop
+ * would mean for the signed-in user, asked BEFORE the record is sent. The endpoint never 403s; it
+ * only reports, so a failure to reach it must never block a save.
+ *
+ * - [canSubmit] false: the workshop is curated and this user is not on its roster, so a create would
+ *   come back 403. Say so at pick time instead of after the form is filled in.
+ * - [needsAdminApproval] true: the submission IS accepted, but it is pinned to PENDING and only an
+ *   admin or master admin can approve it — a professor cannot. Admins are the approval authority, so
+ *   an admin submitting late sees [outOfWindow] true with [needsAdminApproval] false.
+ *
+ * Only the eight documented keys are modelled; the endpoint also returns accessLevel/requestStatus/
+ * restricted/canEdit, which the record forms have no use for (`ignoreUnknownKeys` drops them).
+ */
+@Serializable
+data class WorkshopSubmissionCheckDto(
+    val workshopId: String? = null,
+    val title: String? = null,
+    val endDate: String? = null,
+    /** The whole of the end day has passed. */
+    val isOver: Boolean = false,
+    /** Submitting now falls outside [startDate, endDate] — before it opened, or after it closed. */
+    val outOfWindow: Boolean = false,
+    val needsAdminApproval: Boolean = false,
+    val assigned: Boolean = true,
+    val canSubmit: Boolean = true
+)
+
+/** VIEW < CONTRIBUTE < EDIT. The ladder and its human definitions come from the API. */
+@Serializable
+data class WorkshopAccessLevelDto(
+    val level: String,
+    val description: String = ""
+)
+
 @Serializable
 data class WorkshopAssignmentDto(
     val id: String,
     val workshopId: String,
     val userId: String,
-    val user: UserDto? = null
+    val accessLevel: String = "CONTRIBUTE",
+    // PENDING | GRANTED | DENIED | REVOKED. Anything but GRANTED means no access.
+    val status: String = "GRANTED",
+    val requestNote: String? = null,
+    val decisionNote: String? = null,
+    val decidedAt: String? = null,
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
+    val user: UserDto? = null,
+    // Present on the cross-workshop views (/access-requests and /access-requests/mine), where a row
+    // has to name the workshop it belongs to; null on a single workshop's roster.
+    val workshop: WorkshopDetailDto? = null,
+    val assignedBy: UserDto? = null,
+    val requestedBy: UserDto? = null,
+    val decidedBy: UserDto? = null
+)
+
+/** Legacy whole-set roster replacement (PUT). Still supported; POST/PATCH/DELETE are per-user. */
+@Serializable
+data class WorkshopAssignmentBody(
+    val userIds: List<String>,
+    val accessLevel: String? = null
+)
+
+/**
+ * Ask for access to SEVERAL workshops at once — that is how the need arrives (a researcher joining a
+ * project wants the same access to a whole season), and filing them one at a time produces a queue
+ * nobody works through. Idempotent per workshop server-side.
+ */
+@Serializable
+data class WorkshopAccessRequestBody(
+    val workshopIds: List<String>,
+    val accessLevel: String? = null,
+    val note: String? = null
+)
+
+/** Per-workshop result of a multi-select request: CREATED | ALREADY_PENDING | ALREADY_GRANTED | RE_REQUESTED. */
+@Serializable
+data class WorkshopAccessOutcomeDto(
+    val workshopId: String,
+    val outcome: String
 )
 
 @Serializable
-data class WorkshopAssignmentBody(
-    val userIds: List<String>
+data class WorkshopAccessRequestResultDto(
+    val outcomes: List<WorkshopAccessOutcomeDto> = emptyList(),
+    val requests: List<WorkshopAssignmentDto> = emptyList()
+)
+
+/** Admin answer to a PENDING request: status is GRANTED or DENIED. */
+@Serializable
+data class WorkshopAccessDecisionBody(
+    val status: String,
+    val accessLevel: String? = null,
+    val note: String? = null
+)
+
+/** Admin grants ONE user access at a level without disturbing the rest of the roster (upsert). */
+@Serializable
+data class WorkshopGrantBody(
+    val userId: String,
+    val accessLevel: String? = null,
+    val note: String? = null
+)
+
+/** Admin changes one roster row: its level, its status (GRANTED | DENIED | REVOKED), or both. */
+@Serializable
+data class WorkshopAssignmentUpdateBody(
+    val accessLevel: String? = null,
+    val status: String? = null,
+    val note: String? = null
+)
+
+// ---------------------------------------------------------------------------
+// Assigned tasks. One row is always exactly ONE assignee; handing the same
+// scope to N people writes N rows sharing a batchId. Scope is five orthogonal
+// dimensions: workshop x recordTypes x artisans x sections x targetCount.
+// ---------------------------------------------------------------------------
+
+@Serializable
+data class TaskArtisanDto(
+    val id: String,
+    val name: String = "",
+    val place: String? = null
+)
+
+@Serializable
+data class TaskSectionDto(
+    val id: String,
+    val code: String = "",
+    val title: String = "",
+    val sortOrder: Int = 0
+)
+
+/**
+ * A task with its scope already resolved by the server — workshop title, artisan names, section
+ * codes and both progress numbers — so a task board renders from this one call.
+ *
+ * [progressCount] is what the assignee CLAIMS; [derivedCount] is what the database can see them
+ * having actually produced. The two answer different questions and the gap between them is the whole
+ * point of the accountability view, so neither ever overwrites the other. [derivedCount] is null when
+ * the count could not be run, and [percentComplete] is null for an open-ended task (no target).
+ */
+@Serializable
+data class TaskDto(
+    val id: String,
+    val title: String = "",
+    val description: String? = null,
+    // OPEN | IN_PROGRESS | DONE | CANCELLED
+    val status: String = "OPEN",
+    val dueAt: String? = null,
+    val completedAt: String? = null,
+    val workshopId: String? = null,
+    val workshopTitle: String? = null,
+    val recordTypes: List<String> = emptyList(),
+    val recordTypeLabels: List<String> = emptyList(),
+    val artisans: List<TaskArtisanDto> = emptyList(),
+    val sections: List<TaskSectionDto> = emptyList(),
+    val targetCount: Int? = null,
+    val progressCount: Int = 0,
+    val percentComplete: Int? = null,
+    val isOverdue: Boolean = false,
+    val derivedCount: Int? = null,
+    val derivedTarget: Int? = null,
+    val derivedBreakdown: Map<String, Int> = emptyMap(),
+    val batchId: String? = null,
+    val assigneeId: String? = null,
+    val assignee: UserDto? = null,
+    val createdById: String? = null,
+    val createdBy: UserDto? = null,
+    val createdAt: String? = null
+)
+
+/**
+ * What an ASSIGNEE may change: where the task stands, and how much of it is done. Scope, due date and
+ * reassignment stay with whoever handed the work out — sending anything else is a 403.
+ */
+@Serializable
+data class TaskUpdateBody(
+    val status: String? = null,
+    val progressCount: Int? = null
 )

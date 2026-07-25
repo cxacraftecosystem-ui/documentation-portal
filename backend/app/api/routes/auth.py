@@ -30,7 +30,10 @@ def role_for_email(email: str) -> str:
     settings = get_settings()
     if email.lower() == settings.master_admin_email.lower():
         return "MASTER_ADMIN"
-    return "RESEARCHER"
+    # New self-registered Google accounts start at the configured signup tier (lowest tier by
+    # default) and are elevated by an admin — an unknown Google account no longer becomes a
+    # full researcher automatically.
+    return settings.default_signup_role
 
 
 def verify_google_token(token: str) -> dict[str, Any]:

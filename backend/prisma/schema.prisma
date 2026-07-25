@@ -10,10 +10,16 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Six-tier role ladder, strictly ordered by privilege:
+/// MASTER_ADMIN > ADMIN > PROFESSOR > RESEARCHER > FIELD_CONTRIBUTOR > CROWDSOURCE_VOLUNTEER.
+/// Each tier inherits everything below it; grantable can* booleans lift single capabilities.
 enum UserRole {
   MASTER_ADMIN
   ADMIN
+  PROFESSOR
   RESEARCHER
+  FIELD_CONTRIBUTOR
+  CROWDSOURCE_VOLUNTEER
 }
 
 enum AuthProvider {
@@ -26,6 +32,8 @@ enum RecordStatus {
   PENDING
   APPROVED
   REJECTED
+  /// Reviewer sent the record back with comments (reviewNotes); creator edits and resubmits.
+  NEEDS_REVISION
 }
 
 enum MediaType {
@@ -76,6 +84,10 @@ enum ReviewRecordType {
   WORKSHOP
   PRODUCT
   TOOL
+  // Processes and interviews carry a status and can be pinned PENDING by the late-submission
+  // gate, so they have to be reviewable like any other record.
+  PROCESS
+  QUESTIONNAIRE
   MEDIA
 }
 
@@ -144,18 +156,76 @@ model User {
   questionnaireResponses QuestionnaireResponse[] @relation("QuestionnaireAnsweredBy")
   appReleases AppRelease[] @relation("AppReleasePublishedBy")
   feedback    Feedback?    @relation("FeedbackUser")
+  preferences UserPreference? @relation("UserPreferenceUser")
   sectionStatusesSet QuestionnaireSectionStatus[] @relation("SectionStatusSetBy")
   workshopAssignments     WorkshopAssignment[] @relation("WorkshopAssignmentUser")
   workshopAssignmentsMade WorkshopAssignment[] @relation("WorkshopAssignmentAssignedBy")
+  workshopAccessRequests  WorkshopAssignment[] @relation("WorkshopAssignmentRequestedBy")
+  workshopAccessDecisions WorkshopAssignment[] @relation("WorkshopAssignmentDecidedBy")
+  managedSecretsUpdated   ManagedSecret[]      @relation("ManagedSecretUpdatedBy")
   dataAccessAsOwner   DataAccessGrant[] @relation("DataAccessOwner")
   dataAccessAsGrantee DataAccessGrant[] @relation("DataAccessGrantee")
   dataAccessRequested DataAccessGrant[] @relation("DataAccessRequestedBy")
   dataAccessDecided   DataAccessGrant[] @relation("DataAccessDecidedBy")
   entryComments   EntryComment[]   @relation("EntryCommentAuthor")
   recordRevisions RecordRevision[] @relation("RecordRevisionEditedBy")
+  tasksAssigned   AssignedTask[]   @relation("TaskAssignee")
+  tasksCreated    AssignedTask[]   @relation("TaskCreator")
 
   @@index([role])
   @@index([canManageQuestionnaire])
+}
+
+/// A documentation task assigned by an admin/master admin to a user, so field work is
+/// planned and tracked. Status is a plain String (OPEN | IN_PROGRESS | DONE | CANCELLED)
+/// for client compatibility.
+/// A documentation assignment: what somebody has been asked to record, and how far along they are.
+///
+/// One row is always ONE assignee, so progress and accountability stay per-person; assigning the
+/// same work to five researchers writes five rows sharing a `batchId`. The scope columns describe
+/// the work without naming a specific record, because the record usually does not exist yet — that
+/// is the point of the task. A task can therefore say "record products and tools for these three
+/// artisans in this workshop" or "answer questionnaire sections C and D for every artisan you have",
+/// and `targetCount` turns either into a countable goal.
+model AssignedTask {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  status      String    @default("OPEN")
+  dueAt       DateTime?
+  completedAt DateTime?
+  /// Legacy single-record link, kept so existing rows and the old create path keep working.
+  recordType  String?
+  recordId    String?
+  /// The workshop this work belongs to. Everything a researcher does is workshop-scoped, so the
+  /// assignment screen starts by picking one and every task it creates carries it.
+  workshopId  String?
+  workshop    Workshop? @relation("TaskWorkshop", fields: [workshopId], references: [id], onDelete: SetNull)
+  /// Which kinds of record to produce: artisan / product / process / tool / questionnaire / media.
+  /// A list, so "record products AND tools" is one task rather than two.
+  recordTypes String[]  @default([])
+  /// Optional narrowing to specific artisans. Empty = every artisan in scope for the assignee.
+  artisanIds  String[]  @default([])
+  /// Questionnaire sections this person is responsible for. Empty = not a questionnaire task.
+  sectionIds  String[]  @default([])
+  /// How many records of the given types to produce. Null = "as many as apply".
+  targetCount Int?
+  /// Assignee-reported progress toward targetCount, so a partly-done task is visible as such.
+  progressCount Int     @default(0)
+  /// Shared by every row created in one assignment action, so the creator can see and manage the
+  /// batch ("record tools for these 5 people") as a single unit.
+  batchId     String?
+  assigneeId  String
+  assignee    User      @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User      @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([assigneeId, status])
+  @@index([createdById])
+  @@index([workshopId])
+  @@index([batchId])
 }
 
 /// One piece of app feedback per user: a quantitative rating (1–5) plus a qualitative comment.
@@ -185,6 +255,23 @@ model Feedback {
   user User @relation("FeedbackUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([updatedAt])
+}
+
+/// One row per user holding their appearance + accessibility choices, upserted exactly like
+/// Feedback so a user can flip a switch on any device and have it follow their account. `theme`
+/// is a plain String (system | light | dark) rather than an enum, matching the client contract and
+/// keeping future options additive.
+model UserPreference {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  theme         String   @default("system")
+  reducedMotion Boolean  @default(false)
+  largerText    Boolean  @default(false)
+  highContrast  Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation("UserPreferenceUser", fields: [userId], references: [id], onDelete: Cascade)
 }
 
 /// A published Android app build that the master admin pushed out as an over-the-air update. The
@@ -217,8 +304,13 @@ model Craft {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   createdById   String?
+  /// The workshop this craft was documented at, named EXPLICITLY on the record. Additive to the
+  /// WorkshopCraft join (which every existing query reads through and which is kept in lock-step);
+  /// nullable, so every row recorded before this column keeps behaving exactly as before.
+  workshopId    String?
 
   createdBy User?                  @relation("CraftCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  workshop  Workshop?              @relation("CraftWorkshop", fields: [workshopId], references: [id], onDelete: SetNull)
   artisans  Artisan[]
   products  ProductDocumentation[]
   tools     ToolDocumentation[]
@@ -227,6 +319,7 @@ model Craft {
 
   @@index([name])
   @@index([place])
+  @@index([workshopId])
   @@index([recordedAt])
 }
 
@@ -262,6 +355,21 @@ model Artisan {
   phone         String?
   email         String?
   place         String
+  /// The artisan's Aadhaar number, stored as the bare 12 digits. This is the DEDUPLICATION KEY:
+  /// the same person documented at two workshops by two researchers must collapse to one record,
+  /// and this unique index is what enforces it. Nullable because every row predating the column has
+  /// none, and Postgres allows many NULLs under a unique index — so existing artisans are untouched
+  /// and only newly supplied numbers have to be distinct. Validated (12 digits, leading 2–9,
+  /// Verhoeff checksum) in services/artisan_identity.py, and MASKED to "XXXX XXXX 9012" on every
+  /// exported or shared surface.
+  aadhaarNumber String?      @unique
+  /// Does this artisan hold an Artisan Pehchan Card (the PM Vishwakarma ID)? Defaults to true,
+  /// matching the form's default answer.
+  pehchanCardAvailable Boolean @default(true)
+  /// The Pehchan card number, normalised to uppercase alphanumerics. Required exactly when
+  /// pehchanCardAvailable is true, and force-cleared to NULL when it is false, so a card number can
+  /// never be orphaned on a record that says it has no card.
+  pehchanCardNumber String?  @unique
   address       String?
   notes         String?
   // Newline-separated, numbered guidance for working with this artisan: dos = positive prompt (what to
@@ -281,10 +389,15 @@ model Artisan {
   craftId       String?
   locationId    String?
   createdById   String
+  /// The workshop this artisan was documented at, named EXPLICITLY on the record. Additive to the
+  /// WorkshopArtisan join (which every existing query reads through and which is kept in lock-step);
+  /// nullable, so every row recorded before this column keeps behaving exactly as before.
+  workshopId    String?
 
   craft     Craft?                 @relation(fields: [craftId], references: [id], onDelete: SetNull)
   location  Location?              @relation(fields: [locationId], references: [id], onDelete: SetNull)
   createdBy User                   @relation("ArtisanCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  workshop  Workshop?              @relation("ArtisanWorkshop", fields: [workshopId], references: [id], onDelete: SetNull)
   workshops WorkshopArtisan[]
   products  ProductDocumentation[]
   tools     ToolDocumentation[]
@@ -297,6 +410,7 @@ model Artisan {
   @@index([place])
   @@index([craftId])
   @@index([createdById])
+  @@index([workshopId])
   @@index([status])
   @@index([recordedAt])
 }
@@ -330,6 +444,14 @@ model Workshop {
   tools     ToolDocumentation[]
   media     MediaFile[]
   assignments WorkshopAssignment[] @relation("WorkshopAssignments")
+  tasks       AssignedTask[]       @relation("TaskWorkshop")
+  // Back-relations for the EXPLICIT workshopId column on the remaining record types. `artisans` /
+  // `crafts` above are the join-table links; these are the direct ones, kept in lock-step for
+  // artisans and crafts so both readings of "who was at this workshop" agree.
+  artisansLinked          Artisan[]                @relation("ArtisanWorkshop")
+  craftsLinked            Craft[]                  @relation("CraftWorkshop")
+  processes               Process[]                @relation("ProcessWorkshop")
+  questionnaireInterviews QuestionnaireInterview[] @relation("InterviewWorkshop")
 
   @@index([date])
   @@index([startDate])
@@ -668,14 +790,20 @@ model QuestionnaireInterview {
   // every client lands on the single canonical entry instead of spawning duplicates. NULL only when
   // an interview has no artisans (those are not deduped). A subset is a different set => different key.
   artisanSetKey String?      @unique
+  /// The workshop this interview was conducted at, named EXPLICITLY on the record — previously an
+  /// interview had no path to a workshop at all. Nullable, so every interview recorded before this
+  /// column keeps behaving exactly as before.
+  workshopId    String?
 
   createdBy User                             @relation("QuestionnaireCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   location  Location?                        @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  workshop  Workshop?                        @relation("InterviewWorkshop", fields: [workshopId], references: [id], onDelete: SetNull)
   artisans  QuestionnaireInterviewArtisan[]
   responses QuestionnaireResponse[]
   media     MediaFile[]                      @relation("QuestionnaireMedia")
 
   @@index([createdById])
+  @@index([workshopId])
   @@index([status])
   @@index([interviewDate])
   @@index([recordedAt])
@@ -728,13 +856,19 @@ model Process {
   updatedAt           DateTime     @updatedAt
   productId           String
   createdById         String
+  /// The workshop this process was documented at, named EXPLICITLY on the record. A process used to
+  /// reach a workshop only through its parent product; both readings still work, and this column is
+  /// nullable so every row recorded before it keeps behaving exactly as before.
+  workshopId          String?
 
   product   ProductDocumentation @relation(fields: [productId], references: [id], onDelete: Cascade)
   createdBy User                 @relation("ProcessCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  workshop  Workshop?            @relation("ProcessWorkshop", fields: [workshopId], references: [id], onDelete: SetNull)
   steps     ProcessStep[]
 
   @@index([productId])
   @@index([createdById])
+  @@index([workshopId])
   @@index([status])
   @@index([recordedAt])
 }
@@ -789,20 +923,77 @@ model AppSetting {
 /// create records tied to it, and a submission made outside the workshop's [startDate, endDate] window
 /// is flagged as needing admin approval. A workshop with NO assignment rows is open to everyone
 /// (backward compatible with data created before assignments existed).
+/// Who may work in a workshop, and at what level.
+///
+/// One row covers BOTH directions of the same relationship, because they settle into the same
+/// state: an admin granting access to somebody, and a newly-onboarded user asking for it. The
+/// difference is only where the row starts — an admin's grant begins GRANTED, a self-request begins
+/// PENDING and needs an admin decision — so a single table means the grant list and the request
+/// queue can never disagree about who currently has access.
 model WorkshopAssignment {
   id           String   @id @default(cuid())
   workshopId   String
   userId       String
   assignedById String?
+  /// VIEW (read the workshop's data), CONTRIBUTE (add records), EDIT (change anyone's records here).
+  /// Ordered, so a check is a rank comparison rather than a set membership test.
+  accessLevel  String   @default("CONTRIBUTE")
+  /// PENDING (requested, awaiting an admin) / GRANTED / DENIED / REVOKED. Only GRANTED confers
+  /// access; DENIED and REVOKED are kept rather than deleted so the decision stays auditable and a
+  /// user cannot silently re-request their way around a refusal.
+  status       String   @default("GRANTED")
+  /// Set when the row began as the user's own request, so the queue can tell the two apart.
+  requestedById String?
+  requestNote  String?
+  decidedById  String?
+  decidedAt    DateTime?
+  decisionNote String?
   createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  workshop   Workshop @relation("WorkshopAssignments", fields: [workshopId], references: [id], onDelete: Cascade)
-  user       User     @relation("WorkshopAssignmentUser", fields: [userId], references: [id], onDelete: Cascade)
-  assignedBy User?    @relation("WorkshopAssignmentAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+  workshop    Workshop @relation("WorkshopAssignments", fields: [workshopId], references: [id], onDelete: Cascade)
+  user        User     @relation("WorkshopAssignmentUser", fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy  User?    @relation("WorkshopAssignmentAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+  requestedBy User?    @relation("WorkshopAssignmentRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  decidedBy   User?    @relation("WorkshopAssignmentDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
 
   @@unique([workshopId, userId])
   @@index([userId])
   @@index([workshopId])
+  @@index([status])
+}
+
+/// A runtime-editable API key or service credential.
+///
+/// Keys used to live only in the EC2 `.env`, so rotating one meant an SSH session and a restart —
+/// and nobody but the person holding the server could see whether a provider was even configured.
+/// A master admin can now read (redacted), set and rotate them from the Settings hub, and the
+/// services read through `services/managed_secrets.py`, which prefers a stored value and falls back
+/// to the environment. That fallback is what makes this safe to deploy: an empty table behaves
+/// exactly like today.
+///
+/// `value` is encrypted at rest with Fernet (see managed_secrets.py) rather than stored in the
+/// clear, because a database dump of provider keys is a far worse leak than a config file on one
+/// box. It is NEVER returned to a client in full — only a masked preview plus a reachability check.
+model ManagedSecret {
+  id          String   @id @default(cuid())
+  /// The environment-variable name this overrides, e.g. "OPENAI_API_KEY".
+  key         String   @unique
+  /// Fernet ciphertext. Never logged, never serialised to a response.
+  valueEnc    String
+  /// Last four characters of the plaintext, so the UI can show "…a4f2" without decrypting.
+  hint        String?
+  description String?
+  /// Result of the most recent reachability probe: UNKNOWN / OK / FAILED.
+  lastStatus  String   @default("UNKNOWN")
+  lastCheckedAt DateTime?
+  lastError   String?
+  updatedById String?
+  updatedBy   User?    @relation("ManagedSecretUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([key])
 }
 
 /// Tiered data-access sharing between researchers. OWNER = the author whose uploaded records are being

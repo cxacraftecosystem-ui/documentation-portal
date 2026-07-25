@@ -1,13 +1,17 @@
 "use client";
 
 import { Download, ExternalLink, FileText, Headphones, Image as ImageIcon, Loader2, Maximize2, Video, X } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
+import { Markdown } from "@/components/Markdown";
+import { AudioPlayer } from "@/components/ui/AudioPlayer";
 import { bytes } from "@/lib/format";
 import type { MediaType } from "@/lib/types";
 
 export type PreviewMedia = {
   key: string;
+  /** Persisted MediaFile id — absent for local (not yet uploaded) previews. */
+  id?: string | null;
   name: string;
   mediaType: MediaType;
   mimeType?: string | null;
@@ -19,18 +23,39 @@ export type PreviewMedia = {
   transcriptError?: string | null;
 };
 
+/**
+ * The kind we can actually RENDER for this item. Starts from the stored mediaType, but an unknown
+ * or generic type (DOCUMENT/OTHER) falls back to MIME sniffing — audio/* plays in the audio player,
+ * video/* in the video element, image/* as an image, application/pdf in the PDF frame — so nothing
+ * ends up "downloadable but not previewable".
+ */
+export function resolvePreviewKind(item: Pick<PreviewMedia, "mediaType" | "mimeType" | "name">): MediaType {
+  if (item.mediaType === "IMAGE" || item.mediaType === "VIDEO" || item.mediaType === "AUDIO" || item.mediaType === "PDF") {
+    return item.mediaType;
+  }
+  const mime = (item.mimeType ?? "").toLowerCase();
+  if (mime.startsWith("image/")) return "IMAGE";
+  if (mime.startsWith("video/")) return "VIDEO";
+  if (mime.startsWith("audio/")) return "AUDIO";
+  if (mime === "application/pdf" || item.name.toLowerCase().endsWith(".pdf")) return "PDF";
+  return item.mediaType || "DOCUMENT";
+}
+
 function LightboxTranscript({ item }: { item: PreviewMedia }) {
-  if (item.mediaType !== "AUDIO") return null;
+  if (resolvePreviewKind(item) !== "AUDIO") return null;
   const status = (item.transcriptStatus ?? "").toUpperCase();
   const text = item.transcriptText?.trim();
   if (text) {
     return (
-      <div className="rounded-md border border-[#e6dfd8] bg-field-50 p-3">
+      <div className="rounded-md border border-line-200 bg-field-50 p-3">
         <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-soft">Transcript</div>
-        <p className="whitespace-pre-wrap text-sm text-ink">{text}</p>
+        <Markdown text={text} />
       </div>
     );
   }
+  // A missing status only means "processing" for a persisted MediaFile (it has an id); a local,
+  // not-yet-uploaded preview has no transcript job at all, so show nothing for it.
+  if (!status && !item.id) return null;
   if (["QUEUED", "PROCESSING", "PENDING", "RUNNING"].includes(status) || !status) {
     return (
       <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -40,7 +65,7 @@ function LightboxTranscript({ item }: { item: PreviewMedia }) {
     );
   }
   if (["COMPLETED", "EMPTY", "DONE"].includes(status)) {
-    return <div className="rounded-md border border-[#e6dfd8] bg-field-50 px-3 py-2 text-sm text-ink-muted">Transcript completed — no speech detected.</div>;
+    return <div className="rounded-md border border-line-200 bg-field-50 px-3 py-2 text-sm text-ink-muted">Transcript completed — no speech detected.</div>;
   }
   return (
     <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -74,12 +99,21 @@ export function MediaPreviewTile({
   onRemove?: () => void;
   removeLabel?: string;
 }) {
+  const kind = resolvePreviewKind(item);
   return (
-    <div className="group relative grid gap-2 rounded-md border border-[#e6dfd8] bg-field-50 p-2">
+    // The WHOLE tile opens the lightbox; the remove button and caller-provided actions stop
+    // propagation so they never also open the preview.
+    <div
+      className="group relative grid cursor-pointer gap-2 rounded-md border border-line-200 bg-field-50 p-2 transition hover:border-purple-300"
+      onClick={onOpen}
+    >
       {onRemove ? (
         <button
           type="button"
-          onClick={onRemove}
+          onClick={(event) => {
+            event.stopPropagation();
+            onRemove();
+          }}
           aria-label={`${removeLabel} ${item.name}`}
           title={`${removeLabel} ${item.name}`}
           className="absolute right-1.5 top-1.5 z-10 grid h-7 w-7 place-items-center rounded-full bg-black/70 text-white shadow-sm transition hover:bg-black/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
@@ -90,26 +124,30 @@ export function MediaPreviewTile({
       <button
         type="button"
         className="relative grid aspect-[4/3] w-full place-items-center overflow-hidden rounded-md bg-field-100 text-left text-ink-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-field-600"
-        onClick={onOpen}
+        onClick={(event) => {
+          // The outer tile handles the open; keep the button for keyboard access without firing twice.
+          event.stopPropagation();
+          onOpen();
+        }}
         aria-label={`Open preview for ${item.name}`}
       >
-        {item.mediaType === "IMAGE" && item.url ? (
+        {kind === "IMAGE" && item.url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={item.url} alt={item.caption || item.name} className="h-full w-full object-cover" loading="lazy" />
-        ) : item.mediaType === "VIDEO" && item.url ? (
+        ) : kind === "VIDEO" && item.url ? (
           <video src={item.url} className="h-full w-full object-cover" muted playsInline />
-        ) : item.mediaType === "AUDIO" ? (
+        ) : kind === "AUDIO" ? (
           <div className="grid gap-2 text-center">
-            <div className="mx-auto rounded-full bg-white p-3 text-field-700 shadow-sm">{iconForType(item.mediaType)}</div>
+            <div className="mx-auto rounded-full bg-card p-3 text-field-700 shadow-sm">{iconForType(kind)}</div>
             <span className="text-xs font-semibold">Audio clip</span>
           </div>
         ) : (
           <div className="grid gap-2 text-center">
-            <div className="mx-auto rounded-full bg-white p-3 text-field-700 shadow-sm">{iconForType(item.mediaType)}</div>
-            <span className="text-xs font-semibold">{item.mediaType === "PDF" ? "PDF document" : "Document"}</span>
+            <div className="mx-auto rounded-full bg-card p-3 text-field-700 shadow-sm">{iconForType(kind)}</div>
+            <span className="text-xs font-semibold">{kind === "PDF" ? "PDF document" : "Document"}</span>
           </div>
         )}
-        <span className="absolute bottom-2 right-2 rounded-full bg-white/95 p-1 text-ink shadow-sm">
+        <span className="absolute bottom-2 right-2 rounded-full bg-card/95 p-1 text-ink shadow-sm">
           <Maximize2 className="h-3.5 w-3.5" aria-hidden />
         </span>
       </button>
@@ -117,7 +155,7 @@ export function MediaPreviewTile({
         <div className="truncate text-sm font-medium text-ink" title={item.name}>{item.name}</div>
         <div className="truncate text-xs text-ink-muted">{mediaLabel(item)}</div>
       </div>
-      {action}
+      {action ? <div onClick={(event) => event.stopPropagation()}>{action}</div> : null}
     </div>
   );
 }
@@ -153,12 +191,39 @@ async function saveToDevice(url: string, name: string) {
 }
 
 export function MediaLightbox({ item, onClose }: { item: PreviewMedia; onClose: () => void }) {
+  // Close on backdrop click only when the press ALSO started on the backdrop, so a drag that
+  // begins inside the panel (text selection, seek-bar scrubbing) and ends outside never closes.
+  const downOnBackdrop = useRef(false);
+  const kind = resolvePreviewKind(item);
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label={`Preview ${item.name}`}>
-      <div className="grid max-h-[92vh] w-full max-w-5xl gap-3 overflow-hidden rounded-lg bg-field-50 p-4 shadow-2xl">
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Preview ${item.name}`}
+      onMouseDown={(event) => {
+        downOnBackdrop.current = event.target === event.currentTarget;
+      }}
+      onClick={(event) => {
+        if (downOnBackdrop.current && event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="grid max-h-[92vh] w-full max-w-5xl gap-3 overflow-hidden rounded-lg bg-field-50 p-4 shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="truncate font-serif text-2xl text-ink">{item.caption || item.name}</h2>
+            <h2 className="truncate font-display font-bold text-2xl text-ink">{item.caption || item.name}</h2>
             <p className="text-sm text-ink-muted">{mediaLabel(item)}</p>
           </div>
           <div className="flex items-center gap-2">
@@ -179,24 +244,38 @@ export function MediaLightbox({ item, onClose }: { item: PreviewMedia; onClose: 
             </button>
           </div>
         </div>
-        <div className="grid max-h-[74vh] place-items-center overflow-auto rounded-md bg-white p-3">
-          {item.mediaType === "IMAGE" && item.url ? (
+        <div className="grid max-h-[74vh] place-items-center overflow-auto rounded-md bg-card p-3">
+          {kind === "IMAGE" && item.url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={item.url} alt={item.caption || item.name} className="max-h-[70vh] max-w-full rounded-md object-contain" />
-          ) : item.mediaType === "VIDEO" && item.url ? (
+          ) : kind === "VIDEO" && item.url ? (
             <video src={item.url} controls className="max-h-[70vh] w-full rounded-md bg-black" />
-          ) : item.mediaType === "AUDIO" && item.url ? (
-            <audio src={item.url} controls className="w-full" />
-          ) : item.mediaType === "PDF" && item.url ? (
-            <iframe src={item.url} title={item.name} className="h-[70vh] w-full rounded-md border border-[#e6dfd8]" />
+          ) : kind === "AUDIO" && item.url ? (
+            <AudioPlayer src={item.url} className="w-full" />
+          ) : kind === "PDF" && item.url ? (
+            <iframe src={item.url} title={item.name} className="h-[70vh] w-full rounded-md border border-line-200" />
           ) : item.url ? (
-            <div className="grid gap-3 text-center text-ink-muted">
-              {iconForType(item.mediaType)}
-              <p>This file type cannot be rendered inline. Use Open to view or download it.</p>
+            <div className="grid w-full max-w-md justify-items-center gap-3 rounded-md border border-line-200 bg-field-50 p-6 text-center">
+              <div className="rounded-full bg-card p-3 text-field-700 shadow-sm">{iconForType(kind)}</div>
+              <div className="min-w-0 w-full">
+                <div className="truncate text-sm font-medium text-ink" title={item.name}>{item.name}</div>
+                <div className="text-xs text-ink-muted">{mediaLabel(item)}</div>
+              </div>
+              <p className="text-sm text-ink-muted">This file type cannot be rendered inline — download it to view.</p>
+              <div className="flex flex-wrap justify-center gap-2">
+                <button type="button" className="field-button" onClick={() => saveToDevice(item.url as string, item.name)}>
+                  <Download className="h-4 w-4" aria-hidden />
+                  Download file
+                </button>
+                <a className="field-button-secondary" href={item.url} target="_blank" rel="noreferrer">
+                  <ExternalLink className="h-4 w-4" aria-hidden />
+                  Open in new tab
+                </a>
+              </div>
             </div>
           ) : (
             <div className="grid gap-3 text-center text-ink-muted">
-              {iconForType(item.mediaType)}
+              {iconForType(kind)}
               <p>No preview URL is available yet.</p>
             </div>
           )}

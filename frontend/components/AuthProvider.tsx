@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
-import { apiFetch, setToken } from "@/lib/api";
+import { ApiError, apiFetch, setToken } from "@/lib/api";
 import type { User } from "@/lib/types";
 
 type AuthContextValue = {
@@ -24,8 +24,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const me = await apiFetch<User>("/me");
       setUser(me);
-    } catch {
-      setToken(null);
+    } catch (err) {
+      // Only discard the stored token when the server explicitly rejected it. On network
+      // failures / 5xx the token may still be valid, so keep it for a later retry.
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+        setToken(null);
+      }
       setUser(null);
     } finally {
       setLoading(false);
