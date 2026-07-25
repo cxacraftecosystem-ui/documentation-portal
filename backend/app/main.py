@@ -5,8 +5,9 @@ import tempfile
 from contextlib import asynccontextmanager, suppress
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.router import api_router
@@ -236,6 +237,70 @@ def _request_is_https(scope: Scope) -> bool:
     return False
 
 
+class UnhandledErrorMiddleware:
+    """Turn any unhandled exception into a readable JSON 500 — from *inside* the CORS layer.
+
+    THE FAILURE THIS EXISTS TO PREVENT, observed in production: approving a pending questionnaire
+    raised ``FieldNotFoundError`` (the table was missing ``reviewNotes``). Starlette's built-in
+    ``ServerErrorMiddleware`` caught it and returned a bare ``text/plain`` 500 — but that middleware
+    sits OUTSIDE every middleware the app adds, so the response carried no
+    ``access-control-allow-origin``. A browser cannot read a cross-origin response without that
+    header, so the fetch simply rejected and the web UI said **"Failed to fetch"**, while Android
+    (no CORS) showed the honest **HTTP 500**. One schema gap presented as a network fault on one
+    client and a server fault on the other, and neither message named the real problem.
+
+    Registering ``@app.exception_handler(Exception)`` does NOT fix that: Starlette special-cases the
+    ``Exception`` key onto ``ServerErrorMiddleware``, so the response is still produced outside CORS.
+    Verified — that approach yielded JSON but still no CORS header.
+
+    So this is ASGI middleware installed BELOW ``CORSMiddleware``. Catching here means the error
+    becomes an ordinary response that then travels back out through CORS and the security-header
+    layer, arriving at the client fully readable.
+
+    It never swallows anything: the traceback is logged at exception level exactly as before. Only
+    the *shape* of the reply changes. ``HTTPException`` and friends are untouched — they are handled
+    upstream by the router and never reach here.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        started = False
+
+        async def wrapped_send(message: Message) -> None:
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, wrapped_send)
+        except Exception as exc:  # noqa: BLE001 - deliberate catch-all; re-raised when unusable
+            method = scope.get("method", "?")
+            path = scope.get("path", "?")
+            logger.exception("Unhandled error on %s %s: %s", method, path, exc)
+            if started:
+                # The response is already on the wire; anything we send now would corrupt it. Let it
+                # surface so the server closes the connection rather than emitting a half-response.
+                raise
+            payload = {
+                "detail": "Something went wrong on the server. The error has been logged.",
+                # The exception TYPE is safe and genuinely useful to whoever is debugging; the
+                # message may carry internals, so it stays in the log only.
+                "error": type(exc).__name__,
+                "path": path,
+            }
+            response = JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content=payload
+            )
+            await response(scope, receive, send)
+
+
 class SecurityHeadersMiddleware:
     """Pure-ASGI middleware that adds the standard security headers to every response.
 
@@ -301,6 +366,10 @@ def create_app() -> FastAPI:
             "BACKEND_CORS_ORIGINS to the explicit frontend origin(s).",
             ", ".join(cors_origins),
         )
+    # Added BEFORE CORS, which makes it the INNERMOST of the two — load-bearing, see the class
+    # docstring. An unhandled error must become a normal response *below* CORS so the CORS layer can
+    # still stamp `access-control-allow-origin` on the way out.
+    app.add_middleware(UnhandledErrorMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,

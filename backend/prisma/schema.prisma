@@ -778,6 +778,14 @@ model QuestionnaireInterview {
   language      String?
   notes         String?
   status        RecordStatus @default(PENDING)
+  /// Review audit, identical to every other reviewable record. These were MISSING here while
+  /// Artisan/Workshop/Product/Tool/Process/Media all had them, so the moment interviews became
+  /// reviewable every approve raised
+  ///   FieldNotFoundError: Could not find field at `updateOneQuestionnaireInterview.data.reviewNotes`
+  /// which escaped as a bare 500 ("Failed to fetch" in the browser, HTTP 500 on Android).
+  reviewNotes   String?
+  reviewedById  String?
+  reviewedAt    DateTime?
   extraMetadata Json?
   recordedAt    DateTime     @default(now())
   recordedTimezone String    @default("Asia/Kolkata")
