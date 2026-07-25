@@ -92,6 +92,9 @@ jobs:
           FORCE: ${{ inputs.force }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           BACKEND_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          # Presence only — the value never enters the log. `secrets` is not readable from
+          # an `if:` on a step in a reusable position, so the check happens here in the gate.
+          HAVE_VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN != '' }}
         run: |
           set -euo pipefail
           sha="${HEAD_SHA:-$GITHUB_SHA}"
@@ -109,6 +112,34 @@ jobs:
               echo "The backend workflow concluded \`${BACKEND_CONCLUSION}\`. The web app calls"
               echo "endpoints that may not exist (or may be down mid-migration) until that deploy"
               echo "is green. Fix the backend deploy and re-run it; this workflow will follow."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # ── Not configured yet is a skip, not a failure ──────────────────────────────
+          # Until VERCEL_TOKEN exists the Vercel CLI cannot authenticate, and letting the
+          # deploy job start anyway paints the whole pipeline red for a setup step nobody
+          # has done yet — which trains people to ignore a red X on the release pipeline.
+          # Skip with the instructions instead, so the backend stage's green tick still
+          # means what it says and stage 3 still runs.
+          if [ "${HAVE_VERCEL_TOKEN}" != "true" ]; then
+            echo "VERCEL_TOKEN is not set — skipping the frontend publish."
+            {
+              echo "### Frontend deploy skipped — not configured"
+              echo ""
+              echo "This repository has no \`VERCEL_TOKEN\` secret, so there is nothing to"
+              echo "authenticate the publish with. Add these three under **Settings →"
+              echo "Secrets and variables → Actions**, then re-run this workflow:"
+              echo ""
+              echo "| Secret | Where to get it |"
+              echo "| --- | --- |"
+              echo "| \`VERCEL_TOKEN\` | Vercel → Account Settings → Tokens → Create |"
+              echo "| \`VERCEL_ORG_ID\` | \`.vercel/project.json\` → \`orgId\` |"
+              echo "| \`VERCEL_PROJECT_ID\` | \`.vercel/project.json\` → \`projectId\` |"
+              echo ""
+              echo "Also turn Vercel's own Git auto-deploy for \`main\` off first, or it"
+              echo "will publish ahead of the backend — see \`docs/CI.md\`."
             } >> "$GITHUB_STEP_SUMMARY"
             echo "should_deploy=false" >> "$GITHUB_OUTPUT"
             exit 0

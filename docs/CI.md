@@ -91,6 +91,14 @@ rather than silently skipping a real change.
 `GITHUB_TOKEN` is **not** something you create — GitHub injects it per run. Stage 2 uses it only to
 download stage 1's change-detection artifact (`permissions: actions: read`).
 
+**Until the three Vercel secrets exist, stage 2 skips instead of failing.** Its gate job checks for
+`VERCEL_TOKEN` and, when it is absent, writes the table above into the run summary and reports
+`should_deploy=false`. The run stays green, stage 3 still fires, and the backend deploy's tick keeps
+meaning "the backend deployed". This is deliberate: a red X that everyone knows to ignore is worse
+than no X at all. As of the last check the repository has `BACKEND_ENV`, `DATABASE_URL`, `EC2_HOST`
+and `EC2_SSH_KEY` only — so the first push to `main` after this lands will deploy the backend, skip
+the web publish with instructions, and build the APK.
+
 The Android workflow needs **no secrets at all**. It produces a debug-signed APK, and debug signing
 uses the auto-generated debug keystore. The release key is deliberately not in CI.
 
