@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Boxes, Plus } from "lucide-react";
 
 import { CollabDialog } from "@/components/CollabDialog";
+import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { DownloadCsvButton } from "@/components/DownloadCsvButton";
 import { useAuth } from "@/components/AuthProvider";
 import { canDownloadDataset } from "@/lib/permissions";
@@ -24,6 +25,7 @@ import type { PageResult, ProductDocumentation } from "@/lib/types";
 
 export default function ProductsPage() {
   const { user } = useAuth();
+  const confirm = useConfirm();
   const { adminMode } = useAdminView();
   const [data, setData] = useState<PageResult<ProductDocumentation> | null>(null);
   const [query, setQuery] = useState("");
@@ -82,7 +84,14 @@ export default function ProductsPage() {
   }
 
   async function remove(id: string) {
-    if (!window.confirm("Delete this product documentation record?")) return;
+    const ok = await confirm(
+      deleteConfirm(
+        "Delete this product record?",
+        "This permanently deletes the record. This action cannot be undone.",
+        "Photos and files documenting this product are deleted with it."
+      )
+    );
+    if (!ok) return;
     try {
       await apiFetch(`/products/${id}`, { method: "DELETE" });
       await load();

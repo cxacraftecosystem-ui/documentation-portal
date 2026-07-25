@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Dark neutrals, verbatim from :root[data-theme="dark"] in frontend/app/globals.css. They stay
+    purple-tinted (never pure grey) so the brand cast survives the inversion, and the ink ladder
+    mirrors the light one: 900 = headings, 300 = placeholders.
+
+    Only the tokens that change are redeclared; the purple ramp, the semantic colours and the logo
+    trio come from values/colors.xml unchanged.
+-->
+<resources>
+    <color name="bg_0">#FF110F19</color>
+    <color name="card">#FF1A1725</color>
+    <color name="surface_50">#FF201C2D</color>
+    <color name="surface_100">#FF262135</color>
+    <color name="surface_200">#FF2E2840</color>
+    <color name="surface_300">#FF3A3350</color>
+    <color name="line_200">#FF342E47</color>
+    <color name="ink_900">#FFF2F0F9</color>
+    <color name="ink_700">#FFD0CBDF</color>
+    <color name="ink_500">#FF9E98B2</color>
+    <color name="ink_300">#FF6E6884</color>
+
+    <!-- The ramp does not invert, but the tonal position does: purple_400 clears 7.7:1 on the
+         dark canvas where purple_700 manages 2.3:1. -->
+    <color name="action">@color/purple_400</color>
+    <color name="on_action">@color/purple_950</color>
+</resources>

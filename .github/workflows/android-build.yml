@@ -1,0 +1,197 @@
+name: Android build
+
+# Stage 3 of 3:  deploy-backend.yml → deploy-frontend.yml → [ THIS ]
+#
+# ─── WHY LAST, AND WHY IT STILL RUNS WHEN A DEPLOY FAILED ─────────────────────────────
+# This stage builds and checks the APK; it does not deploy anything. (Shipping a build to
+# devices is a separate, deliberate act: the in-app OTA updater compares versionCode against
+# a release-signed APK uploaded by a master admin — see android/README.md. Nothing here can
+# reach a phone.) So it is ordered last purely as a dependency courtesy: it is the cheapest
+# stage and the least urgent, and putting it ahead of the deploys would delay them.
+#
+# But note there is deliberately NO `conclusion == 'success'` gate on the trigger, unlike
+# deploy-frontend.yml. A build+test gate's inputs are the source tree, not the state of the
+# servers: if the EC2 deploy fails, "does the Android app still compile?" is a question you
+# want answered *more* urgently, not less. Suppressing it would hide a Kotlin compile break
+# behind an unrelated infrastructure failure and you would not find it until the next push.
+# (deploy-frontend.yml's gate job always runs for the same reason — it keeps this workflow
+# reachable even when it decides not to publish.)
+#
+# Pull requests also build directly, without waiting on the chain: nothing is deployed from
+# a PR, so there is nothing to order against, and a contributor should get the compile
+# result on the PR itself rather than after their merge lands on main.
+#
+# No repository secrets are required by this workflow.
+
+on:
+  workflow_run:
+    workflows: ["Deploy frontend to Vercel"]
+    types: [completed]
+    branches: [main]
+  pull_request:
+    paths:
+      - "android/**"
+      - ".github/workflows/android-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Keyed by the commit under test so a re-push supersedes an in-flight build. Safe to
+  # cancel here (unlike the deploy stages) — nothing is mutated outside the runner.
+  group: android-build-${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # On a workflow_run trigger the default ref is the tip of main, which may have
+          # moved past the commit that was deployed. Build the commit that went out.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          # 17 is not a free choice: android/app/build.gradle.kts pins
+          # sourceCompatibility/targetCompatibility to VERSION_17 and kotlinOptions.jvmTarget
+          # to "17". AGP 8.7 rejects a lower JDK, and a higher one changes the default
+          # bytecode target, so this must track that file.
+          java-version: "17"
+          # Caches ~/.gradle/caches and the wrapper distribution (Gradle 8.9, ~130 MB),
+          # keyed on the gradle files. Without it every run re-downloads the whole
+          # AndroidX/Compose dependency graph, which dominates the wall-clock time.
+          cache: gradle
+
+      - name: Make the Gradle wrapper executable
+        # The wrapper is committed with mode 100644 (it was added from Windows), so the
+        # runner cannot exec it as-is. Cheaper than rewriting the file mode in git.
+        run: chmod +x gradlew
+
+      - name: Ensure the required Android SDK packages are installed
+        # ubuntu-latest ships an Android SDK, but which platform/build-tools versions are
+        # preinstalled drifts with the runner image. compileSdk/targetSdk are 35 and AGP
+        # 8.7.3 wants build-tools 35.x, so install them explicitly rather than betting on
+        # the image. Both are no-ops when already present.
+        run: |
+          set -euo pipefail
+          sdkmanager="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$sdkmanager" "platforms;android-35" "build-tools;35.0.0" > /dev/null
+
+      # android/local.properties is gitignored, so it does not exist here. Two consequences,
+      # both intended:
+      #   • sdk.dir falls back to $ANDROID_HOME, which the runner sets.
+      #   • buildConfigField DEFAULT_API_BASE_URL falls back to the CloudFront production
+      #     URL hard-coded in build.gradle.kts — i.e. the CI APK points at production, not
+      #     at anyone's laptop. Do not "helpfully" write a local.properties here.
+
+      - name: Compile Kotlin (debug)
+        id: compile
+        # Run before assembleDebug even though assemble depends on it: a compile break is
+        # by far the most common failure and this surfaces it in ~1 min instead of ~4.
+        run: ./gradlew :app:compileDebugKotlin --console=plain --stacktrace
+
+      - name: Unit tests
+        id: tests
+        # HONEST STATUS, measured on this tree (not assumed): android/app/src contains only
+        # `main/` — no `src/test/`, no `src/androidTest/`. Running the task locally prints
+        #   > Task :app:compileDebugUnitTestKotlin NO-SOURCE
+        #   > Task :app:testDebugUnitTest NO-SOURCE
+        # so it passes without asserting anything. It is wired up anyway so that the first
+        # unit test anyone adds is enforced the moment it lands, with no CI change needed.
+        # The step below prints which case you are in so the green tick is never mistaken
+        # for "the tests passed".
+        run: |
+          set -euo pipefail
+          if [ -d app/src/test ] && [ -n "$(find app/src/test -name '*.kt' -o -name '*.java' 2>/dev/null | head -1)" ]; then
+            echo "Unit-test sources found — running them for real."
+          else
+            echo "::warning::No app/src/test sources exist; :app:testDebugUnitTest is a placeholder (NO-SOURCE) and asserts nothing."
+          fi
+          ./gradlew :app:testDebugUnitTest --console=plain
+          # Instrumented tests (src/androidTest) are NOT run: there are none, and they would
+          # need an emulator/AVD on the runner. Add a separate job with an emulator action
+          # if that ever changes — do not bolt it onto this one.
+
+      - name: Android Lint (debug)
+        # Non-blocking ON PURPOSE, and this is a measured decision, not a guess: running
+        # `./gradlew :app:lintDebug` on this tree today gives "Lint found 1 errors, 44
+        # warnings" and aborts — the error is
+        #   AndroidManifest.xml:6  PermissionImpliesUnsupportedChromeOsHardware
+        #   (uses-permission CAMERA with no matching <uses-feature required="false">)
+        # which is a pre-existing manifest nit, unrelated to any change being tested. A
+        # hard gate would therefore fail 100% of runs from day one and train everyone to
+        # ignore red. The report is uploaded on every run instead. Fix that manifest entry
+        # (or commit a lint-baseline.xml), then delete continue-on-error below and this
+        # becomes a real gate — the fix is one <uses-feature> line, but AndroidManifest.xml
+        # belongs to the Android workstream, not to this CI change.
+        id: lint
+        continue-on-error: true
+        run: ./gradlew :app:lintDebug --console=plain
+
+      - name: Flag lint failures without failing the build
+        if: ${{ steps.lint.outcome == 'failure' }}
+        run: echo "::warning::Android Lint reported problems — see the android-lint-report artifact. Not failing the build (see the comment in this workflow)."
+
+      - name: Assemble the debug APK
+        id: assemble
+        run: ./gradlew :app:assembleDebug --console=plain --stacktrace
+
+      - name: Upload the debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          # DEBUG-SIGNED build. It is a compile artifact for testers to sideload, NOT a
+          # release: the in-app OTA updater only accepts APKs signed with the release key,
+          # and Android refuses to install an APK whose signature differs from the one
+          # already on the device. Cutting a real release is still the manual, key-holding
+          # process in android/README.md.
+          name: app-debug-${{ github.event.workflow_run.head_sha || github.sha }}
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload the lint report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-lint-report
+          path: |
+            android/app/build/reports/lint-results-debug.html
+            android/app/build/reports/lint-results-debug.xml
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload unit-test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-unit-test-results
+          path: android/app/build/reports/tests/
+          # `warn`, not `error`: with no test sources there is no report to upload, and
+          # that is the expected state today.
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Summarise
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### Android build"
+            echo ""
+            echo "| step | result |"
+            echo "|---|---|"
+            echo "| compileDebugKotlin | ${{ steps.compile.outcome }} |"
+            echo "| testDebugUnitTest | ${{ steps.tests.outcome }} (no test sources yet) |"
+            echo "| lintDebug | ${{ steps.lint.outcome }} (advisory, does not fail the build) |"
+            echo "| assembleDebug | ${{ steps.assemble.outcome }} |"
+            echo "| APK | \`app-debug.apk\` — debug-signed, NOT an OTA release |"
+          } >> "$GITHUB_STEP_SUMMARY"

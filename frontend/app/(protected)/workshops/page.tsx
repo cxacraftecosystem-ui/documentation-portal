@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { MapPinned } from "lucide-react";
 
 import { CollabDialog } from "@/components/CollabDialog";
+import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { FieldProvenance } from "@/components/FieldProvenance";
 import { Field, MultiNoteField, Select, TextArea, TextInput } from "@/components/FormControls";
@@ -64,6 +65,7 @@ export default function WorkshopsPage() {
 }
 
 function WorkshopsPageBody() {
+  const confirm = useConfirm();
   const { user } = useAuth();
   const { adminMode } = useAdminView();
   const { addCompleted } = useUploads();
@@ -276,7 +278,14 @@ function WorkshopsPageBody() {
   }
 
   async function remove(id: string) {
-    if (!window.confirm("Delete this workshop?")) return;
+    const ok = await confirm(
+      deleteConfirm(
+        "Delete this workshop?",
+        "This permanently deletes the workshop. This action cannot be undone.",
+        "Researcher assignments to it go too. Records documented during the workshop are kept."
+      )
+    );
+    if (!ok) return;
     try {
       await apiFetch(`/workshops/${id}`, { method: "DELETE" });
       await load();

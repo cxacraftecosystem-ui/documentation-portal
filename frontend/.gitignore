@@ -1,0 +1,7 @@
+.vercel
+
+# Real environment files never get committed — but the checked-in templates a new
+# developer copies from must survive the rule.
+.env*
+!.env.example
+!.env.local.example

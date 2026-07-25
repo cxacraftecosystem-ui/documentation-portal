@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Images, Upload } from "lucide-react";
 
+import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { Field, TextArea, TextInput } from "@/components/FormControls";
 import { LocationFields } from "@/components/forms/LocationFields";
@@ -173,6 +174,7 @@ export default function MediaPage() {
 }
 
 function MediaPageBody() {
+  const confirm = useConfirm();
   const { adminMode } = useAdminView();
   const { addCompleted } = useUploads();
   const [data, setData] = useState<PageResult<MediaFile> | null>(null);
@@ -295,7 +297,17 @@ function MediaPageBody() {
   }
 
   async function remove(id: string) {
-    if (!window.confirm("Remove this media file? This permanently deletes both the record and the object in S3.")) return;
+    const ok = await confirm({
+      ...deleteConfirm(
+        "Remove this media file?",
+        // Android's "Permanently delete recording?" says the same thing: the file leaves storage, so
+        // there is nothing left to re-link afterwards.
+        "This deletes the file from storage and its record from the database. It cannot be undone, and the file can no longer be re-linked.",
+        "Any transcript generated from it is deleted with it."
+      ),
+      confirmLabel: "Remove file"
+    });
+    if (!ok) return;
     try {
       await apiFetch(`/media/${id}`, { method: "DELETE" });
       await load(page, search);

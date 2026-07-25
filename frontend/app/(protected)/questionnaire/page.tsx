@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowDown, ArrowUp, ChevronDown, ClipboardList, GripVertical, Lock, Mic, Pencil, Plus, Save, Square, Trash2 } from "lucide-react";
 
+import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { Field, MultiNoteField, Select, TextArea, TextInput } from "@/components/FormControls";
 import { LocationFields } from "@/components/forms/LocationFields";
@@ -46,6 +47,7 @@ export default function QuestionnairePage() {
 }
 
 function QuestionnairePageBody() {
+  const confirm = useConfirm();
   const { user } = useAuth();
   const { adminMode } = useAdminView();
   const { addCompleted } = useUploads();
@@ -377,7 +379,14 @@ function QuestionnairePageBody() {
   }
 
   async function remove(id: string) {
-    if (!window.confirm("Delete this questionnaire interview?")) return;
+    const ok = await confirm(
+      deleteConfirm(
+        "Delete this interview?",
+        "This permanently deletes the interview and every answer in it. This action cannot be undone.",
+        "The recordings made during the interview, and their transcripts, are deleted with it."
+      )
+    );
+    if (!ok) return;
     try {
       await apiFetch(`/questionnaire/interviews/${id}`, { method: "DELETE" });
       await loadInterviews();
@@ -952,6 +961,7 @@ function moveQuestionInSections(
 }
 
 function QuestionnaireAdminEditor({ sections, onChanged }: { sections: QuestionnaireSection[]; onChanged: () => Promise<void> }) {
+  const confirm = useConfirm();
   const [localSections, setLocalSections] = useState<QuestionnaireSection[]>(sections);
   const [newCode, setNewCode] = useState("");
   const [newTitle, setNewTitle] = useState("");
@@ -1000,7 +1010,21 @@ function QuestionnaireAdminEditor({ sections, onChanged }: { sections: Questionn
   }
 
   async function removeSection(section: QuestionnaireSection) {
-    if (!window.confirm(`Remove section ${section.code}? Questions are deactivated, not erased from historical interviews.`)) return;
+    // Amber, not red: this is a deactivation. Nothing already collected is lost, and saying so is the
+    // difference between a manager pruning the form and a manager afraid to touch it.
+    const ok = await confirm({
+      title: `Remove section ${section.code}?`,
+      body: (
+        <>
+          <span className="font-medium text-ink-900">{section.title}</span> and its questions stop appearing in new
+          interviews.
+        </>
+      ),
+      note: "Questions are deactivated, not erased: answers already recorded against them stay on the interviews that hold them.",
+      tone: "warning",
+      confirmLabel: "Remove section"
+    });
+    if (!ok) return;
     setMessage(null);
     try {
       await apiFetch(`/questionnaire/sections/${section.id}`, { method: "DELETE" });
@@ -1067,7 +1091,18 @@ function QuestionnaireAdminEditor({ sections, onChanged }: { sections: Questionn
   }
 
   async function removeQuestion(question: QuestionnaireQuestion) {
-    if (!window.confirm("Remove this question from future interviews? Historical responses remain linked.")) return;
+    const ok = await confirm({
+      title: "Remove this question?",
+      body: (
+        <>
+          <span className="font-medium text-ink-900">{question.prompt}</span> stops appearing in new interviews.
+        </>
+      ),
+      note: "Answers already recorded against it stay linked to the interviews that hold them.",
+      tone: "warning",
+      confirmLabel: "Remove question"
+    });
+    if (!ok) return;
     setMessage(null);
     try {
       await apiFetch(`/questionnaire/questions/${question.id}`, { method: "DELETE" });

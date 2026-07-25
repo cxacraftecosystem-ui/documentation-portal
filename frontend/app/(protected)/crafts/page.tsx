@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Landmark } from "lucide-react";
 
 import { CollabPanel } from "@/components/CollabPanel";
+import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { FieldProvenance } from "@/components/FieldProvenance";
 import { Field, TextArea, TextInput } from "@/components/FormControls";
@@ -43,6 +44,7 @@ export default function CraftsPage() {
 }
 
 function CraftsPageBody() {
+  const confirm = useConfirm();
   const { user } = useAuth();
   const { adminMode } = useAdminView();
   const { addCompleted } = useUploads();
@@ -191,7 +193,14 @@ function CraftsPageBody() {
   }
 
   async function remove(id: string) {
-    if (!window.confirm("Delete this craft? Linked records will keep their text craft names.")) return;
+    const ok = await confirm(
+      deleteConfirm(
+        "Delete this craft?",
+        "This permanently deletes the craft. This action cannot be undone.",
+        "Artisans, products and tools that reference it keep their craft name as text — they are not deleted and they are not left blank."
+      )
+    );
+    if (!ok) return;
     try {
       await apiFetch(`/crafts/${id}`, { method: "DELETE" });
       await load();

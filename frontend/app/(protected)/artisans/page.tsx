@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Boxes, ClipboardList, Hammer, Plus, Users } from "lucide-react";
 
 import { CollabDialog } from "@/components/CollabDialog";
+import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { EMPTY_FUNNEL, FunnelFilters, type FunnelValue, type FunnelWorkshop } from "@/components/FunnelFilters";
 import { PageHeader } from "@/components/PageHeader";
@@ -20,6 +21,7 @@ import type { Artisan, PageResult } from "@/lib/types";
 
 export default function ArtisansPage() {
   const { adminMode } = useAdminView();
+  const confirm = useConfirm();
   const [data, setData] = useState<PageResult<Artisan> | null>(null);
   const [query, setQuery] = useState("");
   const [applied, setApplied] = useState("");
@@ -77,7 +79,14 @@ export default function ArtisansPage() {
   }
 
   async function remove(id: string) {
-    if (!window.confirm("Delete this artisan record?")) return;
+    const ok = await confirm(
+      deleteConfirm(
+        "Delete this artisan record?",
+        "This permanently deletes the record. This action cannot be undone.",
+        "Media, questionnaire answers and comments attached to this artisan go with it."
+      )
+    );
+    if (!ok) return;
     try {
       await apiFetch(`/artisans/${id}`, { method: "DELETE" });
       await load();

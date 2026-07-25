@@ -91,15 +91,26 @@ export function MediaPreviewTile({
   onOpen,
   action,
   onRemove,
-  removeLabel = "Discard"
+  removeLabel = "Discard",
+  progress = null,
+  failed = false,
+  statusLabel = null,
+  onRetry
 }: {
   item: PreviewMedia;
   onOpen: () => void;
   action?: ReactNode;
   onRemove?: () => void;
   removeLabel?: string;
+  /** 0..1 while this file is being pre-uploaded; null when there is no transfer to show. */
+  progress?: number | null;
+  failed?: boolean;
+  statusLabel?: string | null;
+  /** Offered next to the status line when a pre-upload failed. */
+  onRetry?: () => void;
 }) {
   const kind = resolvePreviewKind(item);
+  const percent = progress === null ? null : Math.round(Math.min(1, Math.max(0, progress)) * 100);
   return (
     // The WHOLE tile opens the lightbox; the remove button and caller-provided actions stop
     // propagation so they never also open the preview.
@@ -155,6 +166,28 @@ export function MediaPreviewTile({
         <div className="truncate text-sm font-medium text-ink" title={item.name}>{item.name}</div>
         <div className="truncate text-xs text-ink-muted">{mediaLabel(item)}</div>
       </div>
+      {percent !== null && !failed ? (
+        <div className="h-1.5 overflow-hidden rounded-full bg-field-200" aria-hidden>
+          <div className="h-full rounded-full bg-field-600 transition-all" style={{ width: `${percent}%` }} />
+        </div>
+      ) : null}
+      {statusLabel ? (
+        <div className="flex items-center justify-between gap-2">
+          <span className={`truncate text-xs ${failed ? "text-error-600" : "text-ink-muted"}`}>{statusLabel}</span>
+          {failed && onRetry ? (
+            <button
+              type="button"
+              className="shrink-0 rounded-sm border border-line-200 bg-card px-2 py-0.5 text-xs font-semibold text-field-600 transition hover:bg-field-50"
+              onClick={(event) => {
+                event.stopPropagation();
+                onRetry();
+              }}
+            >
+              Retry
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {action ? <div onClick={(event) => event.stopPropagation()}>{action}</div> : null}
     </div>
   );

@@ -1271,7 +1271,15 @@ data class TaskDto(
     val assignee: UserDto? = null,
     val createdById: String? = null,
     val createdBy: UserDto? = null,
-    val createdAt: String? = null
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
+    // The raw scope-id columns, next to the resolved [artisans]/[sections] above. An admin screen
+    // needs the ids to pre-tick a picker; the resolved rows are only what the server could still find.
+    val artisanIds: List<String> = emptyList(),
+    val sectionIds: List<String> = emptyList(),
+    // Legacy single-record link ("finish THIS product"), orthogonal to the scope block.
+    val recordType: String? = null,
+    val recordId: String? = null
 )
 
 /**
@@ -1282,4 +1290,418 @@ data class TaskDto(
 data class TaskUpdateBody(
     val status: String? = null,
     val progressCount: Int? = null
+)
+
+// ---------------------------------------------------------------------------
+// Task ADMINISTRATION (admin / master admin): hand work out, then hold it to
+// account. Every route behind these DTOs is `require_admin` server-side.
+// ---------------------------------------------------------------------------
+
+/**
+ * `user_brief()` — just enough to name a person on a task board, never any privilege material.
+ *
+ * Distinct from [UserDto] on purpose: the brief carries [roleLabel] ("Master Admin") and carries
+ * none of the permission booleans, so it can never be mistaken for an authorisation source.
+ */
+@Serializable
+data class TaskUserDto(
+    val id: String,
+    val name: String = "",
+    val email: String? = null,
+    val role: String = "",
+    /** Human label for [role] as the server words it — use this, don't re-derive it on the client. */
+    val roleLabel: String = ""
+)
+
+/** One entry of the record-type catalogue: `{value:"tool", label:"tool", pluralLabel:"tools"}`. */
+@Serializable
+data class TaskRecordTypeOptionDto(
+    val value: String,
+    val label: String = "",
+    val pluralLabel: String = ""
+)
+
+/** A workshop as the assignment picker shows it (not the full [WorkshopDetailDto]). */
+@Serializable
+data class TaskWorkshopOptionDto(
+    val id: String,
+    val title: String = "",
+    val place: String? = null,
+    val date: String? = null
+)
+
+/**
+ * `GET /tasks/options` — every picker the assignment builder needs, in one call.
+ *
+ * [assignees] is already filtered to the people THIS admin may assign to (strictly below their own
+ * tier; the master admin sees everyone but themselves), so the client must never widen it.
+ * [artisans] narrows to the workshop when `workshopId` was passed.
+ */
+@Serializable
+data class TaskOptionsDto(
+    val recordTypes: List<TaskRecordTypeOptionDto> = emptyList(),
+    val assignees: List<TaskUserDto> = emptyList(),
+    val workshops: List<TaskWorkshopOptionDto> = emptyList(),
+    val artisans: List<TaskArtisanDto> = emptyList(),
+    val sections: List<TaskSectionDto> = emptyList()
+)
+
+/**
+ * `POST /tasks/batch` — assign ONE scope to several people at once. Writes one row per assignee, all
+ * sharing a generated `batchId`.
+ *
+ * The scope must contain work: `recordTypes` and/or `sectionIds` non-empty, or the API 422s. Empty
+ * [artisanIds]/[sectionIds] mean "not narrowed", not "nothing" — and because the JSON encoder skips
+ * values equal to their default, an empty list is simply not sent, which is exactly that meaning.
+ * [title] is optional: omit it and the server derives a readable one from the scope. [dueAt] is
+ * ISO-8601 (e.g. `2026-08-01T00:00:00Z`).
+ */
+@Serializable
+data class TaskBatchCreateBody(
+    val assigneeIds: List<String>,
+    val workshopId: String? = null,
+    val recordTypes: List<String> = emptyList(),
+    val artisanIds: List<String> = emptyList(),
+    val sectionIds: List<String> = emptyList(),
+    val targetCount: Int? = null,
+    val title: String? = null,
+    val description: String? = null,
+    val dueAt: String? = null
+)
+
+/** One member of a batch: who it went to and where they have got to. */
+@Serializable
+data class TaskBatchAssigneeDto(
+    val taskId: String,
+    val user: TaskUserDto? = null,
+    val status: String = "OPEN",
+    val progressCount: Int = 0,
+    val derivedCount: Int? = null,
+    /** Null for an open-ended task (no target) that is neither DONE nor CANCELLED. */
+    val percentComplete: Int? = null,
+    val completedAt: String? = null
+)
+
+/**
+ * `GET /tasks/batches` item — one assignment ACTION rolled back up.
+ *
+ * [batchId] is null for rows written before batching existed and for single-assignee creates; use
+ * [key] (the batchId, or `task:{id}`) as the stable list key. The counts always describe the WHOLE
+ * batch even when the request filtered by assignee or status — "3 of 5 done" stops meaning anything
+ * if the filter silently dropped two of the five.
+ *
+ * [reportedTotal] is what the assignees CLAIM; [derivedTotal] is what the repository can actually
+ * find them having produced (null when the counts could not be run). The gap is the point.
+ */
+@Serializable
+data class TaskBatchDto(
+    val key: String,
+    val batchId: String? = null,
+    val title: String = "",
+    val description: String? = null,
+    val dueAt: String? = null,
+    val createdAt: String? = null,
+    val createdBy: TaskUserDto? = null,
+    val workshopId: String? = null,
+    val workshopTitle: String? = null,
+    val recordTypes: List<String> = emptyList(),
+    val recordTypeLabels: List<String> = emptyList(),
+    val artisans: List<TaskArtisanDto> = emptyList(),
+    val sections: List<TaskSectionDto> = emptyList(),
+    val targetCount: Int? = null,
+    val assigneeCount: Int = 0,
+    /** OPEN / IN_PROGRESS / DONE / CANCELLED -> how many of the batch's rows are in that state. */
+    val statusCounts: Map<String, Int> = emptyMap(),
+    val doneCount: Int = 0,
+    val openCount: Int = 0,
+    val overdueCount: Int = 0,
+    val reportedTotal: Int = 0,
+    val derivedTotal: Int? = null,
+    val percentComplete: Int = 0,
+    val assignees: List<TaskBatchAssigneeDto> = emptyList()
+)
+
+/** `POST /tasks/batch` response: the new batch plus every row it wrote. */
+@Serializable
+data class TaskBatchResultDto(
+    val batchId: String = "",
+    val title: String = "",
+    val created: Int = 0,
+    val batch: TaskBatchDto? = null,
+    val tasks: List<TaskDto> = emptyList()
+)
+
+/** One person's line on the accountability rollup, with their tasks attached. */
+@Serializable
+data class TaskProgressAssigneeDto(
+    val user: TaskUserDto? = null,
+    val taskCount: Int = 0,
+    val statusCounts: Map<String, Int> = emptyMap(),
+    val openCount: Int = 0,
+    val overdueCount: Int = 0,
+    /** Sum of the quotas they were given; null when none of their tasks carries one. */
+    val targetTotal: Int? = null,
+    val reportedTotal: Int = 0,
+    val derivedTotal: Int? = null,
+    val percentComplete: Int = 0,
+    val tasks: List<TaskDto> = emptyList()
+)
+
+/**
+ * `GET /tasks/progress` — the accountability rollup: who has what, and how far along they really are.
+ *
+ * [truncated] is true when the 2000-row scan window was hit, which makes this a PARTIAL picture; say
+ * so rather than presenting it as the whole truth. Assignees arrive busiest-outstanding first.
+ */
+@Serializable
+data class TaskProgressReportDto(
+    val workshopId: String? = null,
+    val workshopTitle: String? = null,
+    val assigneeCount: Int = 0,
+    val taskCount: Int = 0,
+    val doneCount: Int = 0,
+    val openCount: Int = 0,
+    val overdueCount: Int = 0,
+    val truncated: Boolean = false,
+    val assignees: List<TaskProgressAssigneeDto> = emptyList()
+)
+
+// ---------------------------------------------------------------------------
+// Managed provider keys (MASTER ADMIN ONLY). Every /secrets route is behind
+// `require_master_admin`, not merely `require_admin`.
+// ---------------------------------------------------------------------------
+
+/**
+ * One manageable API key. This shape NEVER carries the value — only a four-character [hint] — so a
+ * list screen can be rendered without a credential ever reaching it. Only [ManagedSecretRevealDto]
+ * carries plaintext, and fetching it is audit-logged server-side.
+ *
+ * [source] is `database` (an override is stored here), `environment` (only the deployed env var) or
+ * `unset`. [lastStatus] is `UNKNOWN` / `OK` / `FAILED` and only changes when a test is run.
+ */
+@Serializable
+data class ManagedSecretDto(
+    val key: String,
+    val label: String = "",
+    val description: String? = null,
+    /** True when the key resolves to something at all — stored override OR environment value. */
+    val configured: Boolean = false,
+    val source: String = "unset",
+    /** Last four characters of the effective value, so two keys can be told apart safely. */
+    val hint: String? = null,
+    val lastStatus: String = "UNKNOWN",
+    val lastCheckedAt: String? = null,
+    val lastError: String? = null,
+    /** Display name (or email) of whoever last saved the override; null for environment values. */
+    val updatedBy: String? = null,
+    val updatedAt: String? = null
+)
+
+/**
+ * `GET /secrets/{key}/reveal` — the eye button, one key at a time. [value] is the value actually in
+ * force (the stored override, else the environment value), and null when the key is unset or a
+ * stored value can no longer be decrypted.
+ */
+@Serializable
+data class ManagedSecretRevealDto(
+    val key: String,
+    val value: String? = null,
+    val source: String = "unset"
+)
+
+/** `PUT /secrets/{key}` — set or rotate one key. Blank is a 422; use DELETE to fall back to the env. */
+@Serializable
+data class ManagedSecretSetBody(
+    val value: String
+)
+
+// ---------------------------------------------------------------------------
+// Per-user appearance + accessibility preferences.
+// ---------------------------------------------------------------------------
+
+/**
+ * `GET /preferences/me`, `PUT /preferences/me`.
+ *
+ * The GET returns an EMPTY OBJECT when the account has never saved any — which decodes here to a
+ * row with a null [id]. Read that as "this account has no opinion yet" (see [exists]) and keep
+ * whatever the device already applied, seeding the server with it, rather than snapping the user
+ * back to the defaults below.
+ *
+ * [theme] is `system` | `light` | `dark`; anything else is a 422 on save.
+ */
+@Serializable
+data class PreferencesDto(
+    val id: String? = null,
+    val userId: String? = null,
+    val updatedAt: String? = null,
+    val theme: String = "system",
+    /** Force reduced motion. ORs with the OS setting; it can never switch the OS preference off. */
+    val reducedMotion: Boolean = false,
+    val largerText: Boolean = false,
+    val highContrast: Boolean = false
+) {
+    /** False when the server returned `{}` — the account has no saved row yet. */
+    val exists: Boolean get() = id != null
+}
+
+/** `PUT /preferences/me`. Sent WHOLE on every save: an omitted field falls back to off/system. */
+@Serializable
+data class PreferencesUpdateBody(
+    val theme: String = "system",
+    val reducedMotion: Boolean = false,
+    val largerText: Boolean = false,
+    val highContrast: Boolean = false
+)
+
+// ---------------------------------------------------------------------------
+// Global search.
+// ---------------------------------------------------------------------------
+
+/** Per-bucket match counts for the CURRENT filters — the whole result set, not just this page. */
+@Serializable
+data class SearchTotalsDto(
+    val artisans: Int = 0,
+    val workshops: Int = 0,
+    val products: Int = 0,
+    val tools: Int = 0,
+    val media: Int = 0
+)
+
+/**
+ * `GET /search` — five buckets sharing one page/pageSize.
+ *
+ * Each bucket is its own slice of its own result set, so a page can be full in one bucket and empty
+ * in another; [totals] is how many matches each bucket has in total and [pageCount] is the last page
+ * of the LONGEST bucket (at least 1, so an empty result still reads as "page 1 of 1"). Every row is
+ * already filtered by what the caller is allowed to see.
+ */
+@Serializable
+data class SearchResultsDto(
+    val query: String? = null,
+    val page: Int = 1,
+    val pageSize: Int = 10,
+    val artisans: List<ArtisanDto> = emptyList(),
+    val workshops: List<WorkshopDetailDto> = emptyList(),
+    val products: List<ProductDetailDto> = emptyList(),
+    val tools: List<ToolDetailDto> = emptyList(),
+    val media: List<MediaFileDto> = emptyList(),
+    val totals: SearchTotalsDto = SearchTotalsDto(),
+    /** Every bucket's matches added together. */
+    val total: Int = 0,
+    val pageCount: Int = 1
+)
+
+// ---------------------------------------------------------------------------
+// Data browser: a lazily-explorable file-system view over the repository.
+// Gated by the dataset-download permission AND by row visibility.
+// ---------------------------------------------------------------------------
+
+/** One breadcrumb. The server resolves clean names, so never derive these from the path segments. */
+@Serializable
+data class DataCrumbDto(
+    val name: String = "",
+    val path: String = ""
+)
+
+/** One labelled field of a record folder's info card. Both sides are already display-ready text. */
+@Serializable
+data class DataInfoFieldDto(
+    val label: String = "",
+    val value: String = ""
+)
+
+/** The info card shown on a record folder (workshop / artisan / product / tool / process / interview). */
+@Serializable
+data class DataFolderInfoDto(
+    val title: String = "",
+    val fields: List<DataInfoFieldDto> = emptyList()
+)
+
+/**
+ * One of the three ways the same repository can be browsed, served with EVERY tree level so the
+ * client can offer the other two without a second call. [isDefault] marks the one to open on.
+ */
+@Serializable
+data class DataTaxonomyDto(
+    val id: String,
+    val name: String = "",
+    val path: String = "",
+    val description: String = "",
+    @SerialName("default") val isDefault: Boolean = false
+)
+
+/**
+ * One row of a tree level. [kind] is `folder` or `file`.
+ *
+ * A folder carries [recordType] (`workshop`, `artisan`, `product`, `tool`, `process`, `interview`,
+ * `craft`, `category`, `taxonomy`, ...) and is opened by re-requesting the tree at its [path].
+ * A file is either GENERATED TEXT — [content] holds the whole body inline (details.txt, answers.txt,
+ * notes.txt, *.transcript.md), nothing to download — or a real media object, in which case
+ * [mediaId] / [mediaType] / [url] / [sizeBytes] are set. [transcriptAvailable] means that media row
+ * carries transcript text.
+ */
+@Serializable
+data class DataTreeEntryDto(
+    val name: String = "",
+    val path: String = "",
+    val kind: String = "file",
+    val recordType: String? = null,
+    val mediaType: String? = null,
+    val mediaId: String? = null,
+    val url: String? = null,
+    val sizeBytes: Long? = null,
+    val transcriptAvailable: Boolean = false,
+    val content: String? = null
+) {
+    val isFolder: Boolean get() = kind == "folder"
+}
+
+/**
+ * `GET /data/tree?path=` — ONE level of the virtual tree (lazy: only this level's queries run).
+ *
+ * The root (`path=""`) is not a folder listing but the taxonomy chooser. [info] is populated on
+ * record folders and null everywhere else. [truncated] is true when the 500-row per-level cap was
+ * hit. [taxonomy] is which taxonomy the current path sits in, and null at the root.
+ */
+@Serializable
+data class DataTreeDto(
+    val path: String = "",
+    val crumbs: List<DataCrumbDto> = emptyList(),
+    val entries: List<DataTreeEntryDto> = emptyList(),
+    val info: DataFolderInfoDto? = null,
+    val truncated: Boolean = false,
+    val taxonomies: List<DataTaxonomyDto> = emptyList(),
+    val taxonomy: String? = null
+)
+
+/**
+ * One file of a flattened subtree. [path] is relative to the requested folder and is what a zip
+ * entry should be named.
+ *
+ * Exactly one of [content] (generated text, inline) and [url] (an object to fetch) is meaningful.
+ * When [convertToMp4] is true the entry is audio that the SERVER will re-encode: fetch
+ * `data/media/{mediaId}/download?format=mp4`, and only fall back to [url] (the original, named
+ * [originalPath]) if that fails.
+ */
+@Serializable
+data class DataManifestFileDto(
+    val path: String = "",
+    val url: String? = null,
+    val originalPath: String? = null,
+    val content: String? = null,
+    val mediaId: String? = null,
+    val mediaType: String? = null,
+    val convertToMp4: Boolean = false
+)
+
+/**
+ * `GET /data/manifest?path=&include=` — the flattened subtree below a path, for client-side zipping.
+ * [truncated] is true when the walk hit its depth/file ceiling.
+ */
+@Serializable
+data class DataManifestDto(
+    val files: List<DataManifestFileDto> = emptyList(),
+    val totalFiles: Int = 0,
+    val totalMedia: Int = 0,
+    val truncated: Boolean = false
 )

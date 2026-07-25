@@ -24,13 +24,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -63,6 +66,7 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.LocalContentColor
 import kotlinx.coroutines.delay
@@ -138,14 +142,25 @@ import com.fieldrepository.app.data.UserDto
 import com.fieldrepository.app.data.WorkshopCreateRequest
 import com.fieldrepository.app.data.apiErrorMessage
 import com.fieldrepository.app.data.occurrenceDate
+import com.fieldrepository.app.ui.ApiKeysScreen
+import com.fieldrepository.app.ui.AppPreferences
+import com.fieldrepository.app.ui.AppPreferencesStore
+import com.fieldrepository.app.ui.AppearanceScreen
 import com.fieldrepository.app.ui.Body
 import com.fieldrepository.app.ui.Countries
 import com.fieldrepository.app.ui.Country
 import com.fieldrepository.app.ui.Canvas
 import com.fieldrepository.app.ui.Coral
-import com.fieldrepository.app.ui.DarkSurface
+import com.fieldrepository.app.ui.DataBrowserScreen
 import com.fieldrepository.app.ui.FieldRepositoryTheme
+import com.fieldrepository.app.ui.ProvideAppPreferences
+import com.fieldrepository.app.ui.SearchRecordTypes
+import com.fieldrepository.app.ui.SearchScreen
+import com.fieldrepository.app.ui.TaskAdminScreen
+import com.fieldrepository.app.ui.field
 import com.fieldrepository.app.ui.Muted
+import com.fieldrepository.app.ui.resolveDarkTheme
+import com.fieldrepository.app.ui.syncAppPreferences
 import com.fieldrepository.app.ui.SurfaceCard
 import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
@@ -191,13 +206,18 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PermMedia
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Quiz
 import androidx.compose.material.icons.filled.RateReview
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Stop
@@ -258,9 +278,30 @@ class MainActivity : ComponentActivity() {
         val tokenStore = TokenStore(applicationContext)
         val repository = FieldRepository(ApiClient.create(tokenStore), tokenStore)
         val googleAuthClient = GoogleAuthClient(this)
+        // Appearance is read SYNCHRONOUSLY, before the first frame is composed. That is the whole
+        // point of the device-local copy: the account's row arrives over the network, and deciding
+        // the theme from it would flash a light app at somebody who chose Dark. The store outlives
+        // sign-out on purpose, so the look does not reset every time the session does.
+        val preferencesStore = AppPreferencesStore(applicationContext)
+        val storedPreferences = preferencesStore.read()
         setContent {
-            FieldRepositoryTheme {
-                RepositoryApp(repository, googleAuthClient)
+            var preferences by remember { mutableStateOf(storedPreferences) }
+            FieldRepositoryTheme(darkTheme = resolveDarkTheme(preferences.theme, isSystemInDarkTheme())) {
+                // "Larger text" is applied here — ProvideAppPreferences scales the density every `sp`
+                // in the app resolves against, so type grows and the layout does not.
+                ProvideAppPreferences(preferences) {
+                    RepositoryApp(
+                        repository = repository,
+                        googleAuthClient = googleAuthClient,
+                        preferences = preferences,
+                        onPreferencesChanged = { next ->
+                            // Apply first, persist second: the switch must feel instant. The screen
+                            // itself owns the PUT; the device copy is ours.
+                            preferences = next
+                            preferencesStore.write(next)
+                        }
+                    )
+                }
             }
         }
     }
@@ -269,7 +310,13 @@ class MainActivity : ComponentActivity() {
 private enum class EntryMode(
     val label: String,
     val actionTitle: String,
-    val editable: Boolean = false
+    val editable: Boolean = false,
+    /**
+     * False = the menu only, no dashboard tile. The web keeps Search and the Data Browser in the
+     * nav's "Browse" group and off the dashboard grid (its twelve tiles are the record types plus
+     * Users and Settings), so neither earns a tile here either.
+     */
+    val onDashboard: Boolean = true
 ) {
     ARTISAN("Artisan", "Record artisan", editable = true),
     PRODUCT("Product", "Record product", editable = true),
@@ -278,6 +325,13 @@ private enum class EntryMode(
     QUESTIONNAIRE("Questionnaire", "Take interview", editable = true),
     MEDIA("Miscellaneous Media", "Upload media"),
     VIEW_DATA("View Data", "Browse records"),
+    // /search on the web. Its nav entry there is labelled "Browse records" — the phrase this app has
+    // long used for the View Data card — so the page's OWN title is used instead, rather than putting
+    // two identically-named entries in the menu.
+    SEARCH("Search", "Search", onDashboard = false),
+    // /data on the web: the whole repository as a directory tree, gated on require_dataset_downloader.
+    // Named after the page's own title ("Data Browser") for the same reason as SEARCH above.
+    DATA_BROWSER("Data Browser", "Data Browser", onDashboard = false),
     // "Tasks" matches the web nav label exactly. The card is the ASSIGNEE's to-do list; assigning work
     // is an admin action and lives in the admin hub.
     TASKS("Tasks", "My tasks"),
@@ -303,8 +357,19 @@ private sealed interface Screen {
     data object ToolAssign : Screen
     data object Feedback : Screen
     data object Settings : Screen
-    // Admin hub, opened from the dashboard "Settings" card (admins only).
-    data object AdminHub : Screen
+    /** This account's Appearance + Accessibility — /settings on the web. Open to every user. */
+    data object Appearance : Screen
+    /**
+     * The /data directory-tree browser. Its own Screen rather than a Create mode because it owns its
+     * whole viewport: it draws its own top bar and lays out with a LazyColumn, which must never be
+     * nested inside the scrolling Column the rest of the app renders into.
+     */
+    data object DataBrowser : Screen
+    /**
+     * Admin hub, opened from the dashboard "Settings" card (admins only). [section] pre-opens one of
+     * its tools, which is how "Assignment board" on the Tasks screen lands straight on the board.
+     */
+    data class AdminHub(val section: AdminHubEntry? = null) : Screen
 }
 
 /** Context carried forward from a just-saved artisan into a follow-up record. */
@@ -327,6 +392,8 @@ private fun EntryMode.icon(): ImageVector = when (this) {
     EntryMode.CRAFT -> Icons.Filled.Brush
     EntryMode.MEDIA -> Icons.Filled.PermMedia
     EntryMode.VIEW_DATA -> Icons.Filled.Visibility
+    EntryMode.SEARCH -> Icons.Filled.Search
+    EntryMode.DATA_BROWSER -> Icons.Filled.Storage
     EntryMode.TASKS -> Icons.AutoMirrored.Filled.Assignment
     EntryMode.SHARING -> Icons.Filled.Share
     EntryMode.WORKSHOP_ACCESS -> Icons.Filled.LockOpen
@@ -334,7 +401,12 @@ private fun EntryMode.icon(): ImageVector = when (this) {
 }
 
 @Composable
-private fun RepositoryApp(repository: FieldRepository, googleAuthClient: GoogleAuthClient) {
+private fun RepositoryApp(
+    repository: FieldRepository,
+    googleAuthClient: GoogleAuthClient,
+    preferences: AppPreferences,
+    onPreferencesChanged: (AppPreferences) -> Unit
+) {
     val scope = rememberCoroutineScope()
     var user by remember { mutableStateOf(repository.cachedUser()) }
     var loading by remember { mutableStateOf(user == null && repository.hasToken()) }
@@ -357,6 +429,16 @@ private fun RepositoryApp(repository: FieldRepository, googleAuthClient: GoogleA
                 }
         }
         loading = false
+    }
+
+    // Appearance follows the ACCOUNT, not the handset: reconcile this device's copy with
+    // /preferences/me once per sign-in. A saved row wins; no row means this device seeds the account,
+    // so the look travels to the next device the researcher signs in on. Never throws — a failure
+    // simply leaves what the device already had on screen.
+    val latestPreferences by rememberUpdatedState(preferences)
+    LaunchedEffect(user?.id) {
+        if (user == null) return@LaunchedEffect
+        onPreferencesChanged(syncAppPreferences(repository, latestPreferences))
     }
 
     // Offline outbox auto-sync: drain queued entries on login/start, whenever the network returns, and
@@ -424,6 +506,8 @@ private fun RepositoryApp(repository: FieldRepository, googleAuthClient: GoogleA
             else -> HomeScreen(
                 repository = repository,
                 user = user!!,
+                preferences = preferences,
+                onPreferencesChanged = onPreferencesChanged,
                 onLogout = {
                     scope.launch {
                         runCatching { googleAuthClient.clear() }
@@ -474,8 +558,7 @@ private fun LoginScreen(
     ) {
         Text(
             text = "Field Repository",
-            fontFamily = FontFamily.Serif,
-            fontSize = 34.sp,
+                        fontSize = 34.sp,
             color = MaterialTheme.colorScheme.onBackground
         )
         Text(
@@ -536,6 +619,8 @@ private fun LoginScreen(
 private fun HomeScreen(
     repository: FieldRepository,
     user: UserDto,
+    preferences: AppPreferences,
+    onPreferencesChanged: (AppPreferences) -> Unit,
     onLogout: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -565,6 +650,20 @@ private fun HomeScreen(
     val canDownloadDataset = user.canDownloadTheDataset()
     // Master admin lands in admin view; other admins opt in from the menu.
     var adminView by remember { mutableStateOf(isMasterAdmin) }
+
+    /**
+     * Admin view is a NARROWING switch, exactly as on the web (`adminChromeVisible`): with it OFF an
+     * admin browses the repository as an ordinary user, and ADMIN CHROME disappears — the settings
+     * hub, user management, managed API keys, workshop-access administration and the task assignment
+     * board. It can never widen anything: every role/capability check below is still ANDed with it,
+     * and it is `true` for everyone who has no toggle at all (professors, capability grantees), who
+     * must not be narrowed by a control they do not own.
+     *
+     * What is deliberately NOT chrome, matching ADMIN_CHROME_ROUTES on the web: reviewing (a Field
+     * Contributor capability an admin merely also holds), being a task ASSIGNEE, the Data Browser and
+     * Search — an ordinary user reaches all of those, so "browse as an ordinary user" leaves them be.
+     */
+    val adminChrome = !isAdmin || adminView
 
     // Unsaved-changes guard: a record form on screen registers its dirty-state + save action here, and
     // any attempt to leave (system Back / in-app back arrow) is intercepted to offer Save / Discard so
@@ -622,19 +721,31 @@ private fun HomeScreen(
         // require_craft_manager / require_workshop_manager: Professor+ or an explicit grant.
         EntryMode.CRAFT -> user.canManageTheCrafts()
         EntryMode.WORKSHOP -> user.canManageTheWorkshops()
-        // require_professor on GET/PATCH /users.
-        EntryMode.USERS -> user.canManageUsers()
+        // require_professor on GET/PATCH /users, AND admin chrome: /users is listed in the web's
+        // ADMIN_CHROME_ROUTES, so an admin with admin view off loses it while a professor — who has
+        // no toggle — keeps it. Role first, toggle second: the toggle can only ever subtract.
+        EntryMode.USERS -> user.canManageUsers() && adminChrome
         // require_record_creator: Field Contributor and above. Showing a volunteer these forms only
         // bought them a 403 after filling one in.
         EntryMode.ARTISAN, EntryMode.PRODUCT, EntryMode.PROCESS, EntryMode.TOOL -> user.canCreateRecords()
+        // require_dataset_downloader: Professor and above, or an explicit grant — the same gate the
+        // dataset download already uses, because /data/tree serves the same archive.
+        EntryMode.DATA_BROWSER -> canDownloadDataset
         // Open to every authenticated user (the API asks for nothing beyond a token).
         EntryMode.QUESTIONNAIRE, EntryMode.MEDIA, EntryMode.VIEW_DATA, EntryMode.TASKS,
-        EntryMode.SHARING, EntryMode.WORKSHOP_ACCESS -> true
+        EntryMode.SHARING, EntryMode.WORKSHOP_ACCESS, EntryMode.SEARCH -> true
     }
 
     val dashboardModes = remember(user.role, user.canManageQuestionnaire, user.canManageCrafts, user.canManageWorkshops) {
         EntryMode.entries.filter { it != EntryMode.USERS || user.canManageUsers() }
     }
+
+    /**
+     * Where a menu entry / dashboard card actually goes. Almost everything is a Create mode; the
+     * screens that own their whole viewport get their own Screen instead (see [Screen.DataBrowser]).
+     */
+    fun screenFor(mode: EntryMode): Screen =
+        if (mode == EntryMode.DATA_BROWSER) Screen.DataBrowser else Screen.Create(mode)
 
     fun refresh() {
         scope.launch {
@@ -677,6 +788,8 @@ private fun HomeScreen(
             is Screen.ToolAssign -> Screen.Dashboard
             is Screen.Feedback -> Screen.Dashboard
             is Screen.Settings -> Screen.Dashboard
+            is Screen.Appearance -> Screen.Dashboard
+            is Screen.DataBrowser -> Screen.Dashboard
             is Screen.AdminHub -> Screen.Dashboard
             is Screen.Dashboard -> Screen.Dashboard
         }
@@ -696,11 +809,15 @@ private fun HomeScreen(
         is Screen.Dashboard -> "Field Repository"
         is Screen.Create -> s.mode.actionTitle
         is Screen.Browse -> "Update ${s.mode.label.lowercase()}"
-        is Screen.Edit -> "Edit ${s.mode.label.lowercase()}"
+        // A media file has no edit form (the web opens the object itself), so "Edit …" would be a lie
+        // for the one non-editable type search can land on.
+        is Screen.Edit -> if (s.mode.editable) "Edit ${s.mode.label.lowercase()}" else s.mode.label
         is Screen.MyActivity -> "My Activity"
         is Screen.ToolAssign -> "Assign tools to artisans"
         is Screen.Feedback -> "App feedback"
         is Screen.Settings -> "Settings"
+        is Screen.Appearance -> "Appearance & accessibility"
+        is Screen.DataBrowser -> "Data Browser"
         is Screen.AdminHub -> "Admin tools"
     }
 
@@ -726,8 +843,9 @@ private fun HomeScreen(
                         pushingUpdate = pushingUpdate,
                         modes = dashboardModes.filter { canCreate(it) },
                         onDashboard = { goDashboard(); scope.launch { drawerState.close() } },
-                        onSelect = { entry -> screen = Screen.Create(entry); scope.launch { drawerState.close() } },
+                        onSelect = { entry -> message = null; screen = screenFor(entry); scope.launch { drawerState.close() } },
                         onMyActivity = { message = null; screen = Screen.MyActivity; scope.launch { drawerState.close() } },
+                        onAppearance = { message = null; screen = Screen.Appearance; scope.launch { drawerState.close() } },
                         onFeedback = { message = null; screen = Screen.Feedback; scope.launch { drawerState.close() } },
                         onWalkthrough = { showWalkthrough = true; scope.launch { drawerState.close() } },
                         onToggleAdminView = { adminView = !adminView },
@@ -763,6 +881,29 @@ private fun HomeScreen(
                 LocalLayoutDirection provides LayoutDirection.Ltr,
                 LocalUnsavedGuard provides unsavedGuard
             ) {
+                /*
+                 * Two hosting shapes. Almost everything renders into the scrolling Column below,
+                 * under the app's own header + Back pill. The two screens branched off here own
+                 * their whole viewport instead — the Data Browser lays out with a LazyColumn, which
+                 * throws if it is measured inside a parent that scrolls the same way, and both draw
+                 * their own back control, so the shared chrome would only duplicate it.
+                 */
+                when (screen) {
+                    is Screen.DataBrowser -> DataBrowserScreen(
+                        repository = repository,
+                        // Back walks one folder up first; this fires only at the top of the tree.
+                        onBack = { attemptExit { goBack() } },
+                        onMessage = { showMessage(it) }
+                    )
+
+                    is Screen.Appearance -> AppearanceScreen(
+                        repository = repository,
+                        current = preferences,
+                        onChanged = onPreferencesChanged,
+                        onBack = { attemptExit { goBack() } }
+                    )
+
+                    else ->
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -773,8 +914,7 @@ private fun HomeScreen(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     headerTitle,
-                    fontFamily = FontFamily.Serif,
-                    fontSize = 28.sp,
+                                        fontSize = 28.sp,
                     color = MaterialTheme.colorScheme.onBackground
                 )
                 Text("${user.name} · ${user.role}${if (adminView) " · admin view" else ""}", color = Muted, fontSize = 13.sp)
@@ -804,12 +944,15 @@ private fun HomeScreen(
                     // Only the cards this user may actually START, exactly as the web dashboard
                     // filters its tiles (`visible`) and as the drawer above already filters its
                     // menu. A card that offered nothing but "Update" told a volunteer neither what
-                    // they could do nor why the rest was missing.
-                    actions = dashboardModes.filter { canCreate(it) },
+                    // they could do nor why the rest was missing. `onDashboard` additionally keeps
+                    // the two menu-only destinations (Search, Data Browser) off the grid, as on web.
+                    actions = dashboardModes.filter { canCreate(it) && it.onDashboard },
                     roleLabel = roleLabel(user.role),
                     canCreateRecords = user.canCreateRecords(),
-                    showAdminHub = isAdmin,
-                    onOpenAdminHub = { message = null; screen = Screen.AdminHub },
+                    // `adminSurface(isAdmin(user))` on the web dashboard: the role decides, the
+                    // toggle can only take the tile away again.
+                    showAdminHub = isAdmin && adminChrome,
+                    onOpenAdminHub = { message = null; screen = Screen.AdminHub() },
                     onWalkthrough = { message = null; showWalkthrough = true },
                     onNew = { selected -> message = null; screen = Screen.Create(selected) },
                     onUpdateExisting = { selected -> message = null; screen = Screen.Browse(selected) }
@@ -871,9 +1014,27 @@ private fun HomeScreen(
                     canReview = canReview,
                     masterAdmin = isMasterAdmin,
                     isAdmin = isAdmin,
+                    adminChrome = adminChrome,
                     showProvenance = canViewProvenance,
                     canDownloadDataset = canDownloadDataset,
+                    onOpenDataBrowser = { message = null; screen = Screen.DataBrowser },
                     onError = { showMessage(it) }
+                )
+                // /search on the web — open to every signed-in user. It renders into the shared
+                // chrome, which already draws the Back pill, so its own back control stays off.
+                EntryMode.SEARCH -> SearchScreen(
+                    repository = repository,
+                    onOpenRecord = { recordType, recordId ->
+                        message = null
+                        screen = Screen.Edit(searchRecordEntryMode(recordType), recordId)
+                    },
+                    onBack = { attemptExit { goBack() } }
+                )
+                // Routed as Screen.DataBrowser by `screenFor`, since the browser owns its whole
+                // viewport. This branch only exists so the `when` stays exhaustive — and, if anything
+                // ever does route here directly, it offers the way in rather than a blank screen.
+                EntryMode.DATA_BROWSER -> DataBrowserEntryCard(
+                    onOpen = { message = null; screen = Screen.DataBrowser }
                 )
                 EntryMode.TOOL -> ToolForm(
                     repository = repository,
@@ -898,6 +1059,9 @@ private fun HomeScreen(
                     artisans = artisans,
                     prefill = s.prefill,
                     canManageQuestionnaire = isQuestionnaireManager,
+                    // Carries the admin-view state into the form's "Check completion" matrix, whose
+                    // override is `adminMode && isAdmin` on the web.
+                    adminView = adminView,
                     onRefreshSections = {
                         runCatching { repository.questionnaireSections() }
                             .onSuccess { sections = it }
@@ -919,7 +1083,11 @@ private fun HomeScreen(
                 )
                 EntryMode.TASKS -> MyTasksScreen(
                     repository = repository,
-                    isAdmin = isAdmin,
+                    // Being an assignee is never admin chrome; HANDING WORK OUT is (the web lists
+                    // /settings/tasks in ADMIN_CHROME_ROUTES), so the "Assigned by me" view and the
+                    // link to the board follow the toggle while the rest of the screen does not.
+                    canAssign = isAdmin && adminChrome,
+                    onOpenAssignmentBoard = { message = null; screen = Screen.AdminHub(AdminHubEntry.TASKS) },
                     onMessage = { showMessage(it) },
                     onError = { showMessage(it) }
                 )
@@ -933,11 +1101,22 @@ private fun HomeScreen(
                     onMessage = { showMessage(it) },
                     onError = { showMessage(it) }
                 )
-                EntryMode.USERS -> UserManagementForm(
-                    repository = repository,
-                    isMasterAdmin = isMasterAdmin,
-                    onError = { showMessage(it) }
-                )
+                // The card and the menu entry both disappear when admin view is off, but an admin who
+                // was already standing here when they flipped the switch has to be shown the same
+                // thing the web's AppShell shows: their own setting, not a permission they lack.
+                EntryMode.USERS -> if (adminChrome) {
+                    UserManagementForm(
+                        repository = repository,
+                        isMasterAdmin = isMasterAdmin,
+                        onError = { showMessage(it) }
+                    )
+                } else {
+                    AdminViewHiddenCard(
+                        label = "User management",
+                        blurb = "Roles, promotions, capability grants and account administration live there.",
+                        onEnable = { adminView = true }
+                    )
+                }
             }
 
             is Screen.Edit -> if (s.mode == EntryMode.QUESTIONNAIRE) {
@@ -948,7 +1127,9 @@ private fun HomeScreen(
                     artisans = artisans,
                     canManageQuestionnaire = isQuestionnaireManager,
                     adminView = adminView,
-                    canDelete = isAdmin,
+                    // Every record Delete on the web is `{adminMode ? … : null}` — the role is what
+                    // grants it, the toggle is what puts it away while an admin browses as a user.
+                    canDelete = isAdmin && adminChrome,
                     onRefreshSections = {
                         runCatching { repository.questionnaireSections() }
                             .onSuccess { sections = it }
@@ -964,7 +1145,8 @@ private fun HomeScreen(
                 crafts = crafts,
                 artisans = artisans,
                 adminView = adminView,
-                canDelete = isAdmin,
+                // Same rule as the interview loader above: `adminMode` gates Delete on every web list.
+                canDelete = isAdmin && adminChrome,
                 onDone = { message = "${s.mode.label} updated"; refresh(); refreshLookups(); goDashboard() },
                 onError = { showMessage(it) }
             )
@@ -992,100 +1174,123 @@ private fun HomeScreen(
                 onError = { showMessage(it) }
             )
 
-            is Screen.AdminHub -> AdminHubScreen(
-                repository = repository,
-                isMasterAdmin = isMasterAdmin,
-                canReview = canReview,
-                onMessage = { showMessage(it) },
-                onError = { showMessage(it) }
-            )
+            // The whole hub is admin chrome (/admin heads the web's ADMIN_CHROME_ROUTES). The role
+            // check comes first and the toggle only subtracts from it.
+            is Screen.AdminHub -> if (isAdmin && adminChrome) {
+                AdminHubScreen(
+                    repository = repository,
+                    isMasterAdmin = isMasterAdmin,
+                    canReview = canReview,
+                    initialSection = s.section,
+                    onMessage = { showMessage(it) },
+                    onError = { showMessage(it) }
+                )
+            } else {
+                AdminViewHiddenCard(
+                    label = "The settings hub",
+                    blurb = "It gathers reviews, recovered recordings, feedback, tool assignment and user management in one place.",
+                    onEnable = { adminView = true }
+                )
+            }
+
+            // Hosted above, outside this scrolling Column, because they own their whole viewport.
+            is Screen.Appearance, is Screen.DataBrowser -> Unit
         }
 
         message?.let {
             Text(it, color = Body, modifier = Modifier.padding(bottom = 24.dp))
         }
 
-        // The walkthrough never sits on top of a required-update prompt (that must be handled first).
-        if (showWalkthrough && pendingUpdate == null) {
-            WalkthroughDialog(onDismiss = { showWalkthrough = false; markWalkthroughSeen(context) })
-        }
+                }
+                }
 
-        pendingUpdate?.let { release ->
-            // A required update. The dialog is non-dismissable — there is no "Later" and tapping
-            // outside / pressing back does nothing — so the user must install before they can proceed.
-            // (Installing the new APK relaunches the app at the higher version, which clears this check.)
-            AlertDialog(
-                onDismissRequest = { /* required update: cannot be dismissed */ },
-                title = { Text("Update required") },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Version ${release.versionName} is available and must be installed to continue using the app.")
-                        release.notes?.takeIf { it.isNotBlank() }?.let { Text(it, color = Muted, fontSize = 12.sp) }
-                        updateError?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
-                        if (updateBusy) {
-                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                            Text("Downloading and preparing the installer…", color = Muted, fontSize = 12.sp)
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        enabled = !updateBusy,
-                        onClick = {
-                            updateBusy = true
-                            updateError = null
-                            scope.launch {
-                                runCatching {
-                                    if (!canInstallUpdates(context)) {
-                                        requestInstallPermission(context)
-                                        throw IllegalStateException("Enable \"Install unknown apps\" for Field Repository in the screen that just opened, then tap Update now again.")
+                /*
+                 * The dialogs sit OUTSIDE the layout branch above. They are their own windows, so
+                 * where they live in the tree changes nothing visually — but a REQUIRED update prompt
+                 * that only existed on the scrolling branch would never reach a user sitting in the
+                 * Data Browser or their appearance settings when the resume check fires.
+                 */
+
+                // The walkthrough never sits on top of a required-update prompt (that must be handled first).
+                if (showWalkthrough && pendingUpdate == null) {
+                    WalkthroughDialog(onDismiss = { showWalkthrough = false; markWalkthroughSeen(context) })
+                }
+
+                pendingUpdate?.let { release ->
+                    // A required update. The dialog is non-dismissable — there is no "Later" and tapping
+                    // outside / pressing back does nothing — so the user must install before they can proceed.
+                    // (Installing the new APK relaunches the app at the higher version, which clears this check.)
+                    AlertDialog(
+                        onDismissRequest = { /* required update: cannot be dismissed */ },
+                        title = { Text("Update required") },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("Version ${release.versionName} is available and must be installed to continue using the app.")
+                                release.notes?.takeIf { it.isNotBlank() }?.let { Text(it, color = Muted, fontSize = 12.sp) }
+                                updateError?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
+                                if (updateBusy) {
+                                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                    Text("Downloading and preparing the installer…", color = Muted, fontSize = 12.sp)
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(
+                                enabled = !updateBusy,
+                                onClick = {
+                                    updateBusy = true
+                                    updateError = null
+                                    scope.launch {
+                                        runCatching {
+                                            if (!canInstallUpdates(context)) {
+                                                requestInstallPermission(context)
+                                                throw IllegalStateException("Enable \"Install unknown apps\" for Field Repository in the screen that just opened, then tap Update now again.")
+                                            }
+                                            val apk = repository.downloadApk(context, release.url!!, release.versionCode)
+                                            launchApkInstaller(context, apk)
+                                        }.onFailure { updateError = it.message ?: "Unable to download the update — check your connection and try again." }
+                                        // Keep `pendingUpdate` set: if the user backs out of the installer the
+                                        // dialog must stay until the new version is actually installed.
+                                        updateBusy = false
                                     }
-                                    val apk = repository.downloadApk(context, release.url!!, release.versionCode)
-                                    launchApkInstaller(context, apk)
-                                }.onFailure { updateError = it.message ?: "Unable to download the update — check your connection and try again." }
-                                // Keep `pendingUpdate` set: if the user backs out of the installer the
-                                // dialog must stay until the new version is actually installed.
-                                updateBusy = false
+                                }
+                            ) { Text(if (updateBusy) "Updating…" else "Update now") }
+                        }
+                    )
+                }
+
+                // Unsaved-changes prompt: shown when the user tries to leave a form that still has unsaved
+                // work. "Save" runs the form's own validated save (a missing required field keeps them on the
+                // form, highlighted); "Discard" leaves and drops the in-progress data; "Keep editing" stays.
+                pendingExit?.let { exit ->
+                    AlertDialog(
+                        onDismissRequest = { pendingExit = null },
+                        title = { Text("Unsaved changes") },
+                        text = {
+                            Text(
+                                "You have unsaved changes, including any recordings or media you just captured. " +
+                                    "Save them before leaving, or discard them?"
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                pendingExit = null
+                                // The form validates and, on success, saves and navigates itself. On a missing
+                                // required field it stays put with the field highlighted.
+                                unsavedGuard.onSave?.invoke()
+                            }) { Text("Save") }
+                        },
+                        dismissButton = {
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                TextButton(onClick = { pendingExit = null }) { Text("Keep editing") }
+                                TextButton(onClick = {
+                                    pendingExit = null
+                                    unsavedGuard.clear()
+                                    exit()
+                                }) { Text("Discard", color = MaterialTheme.colorScheme.error) }
                             }
                         }
-                    ) { Text(if (updateBusy) "Updating…" else "Update now") }
-                }
-            )
-        }
-
-        // Unsaved-changes prompt: shown when the user tries to leave a form that still has unsaved
-        // work. "Save" runs the form's own validated save (a missing required field keeps them on the
-        // form, highlighted); "Discard" leaves and drops the in-progress data; "Keep editing" stays.
-        pendingExit?.let { exit ->
-            AlertDialog(
-                onDismissRequest = { pendingExit = null },
-                title = { Text("Unsaved changes") },
-                text = {
-                    Text(
-                        "You have unsaved changes, including any recordings or media you just captured. " +
-                            "Save them before leaving, or discard them?"
                     )
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        pendingExit = null
-                        // The form validates and, on success, saves and navigates itself. On a missing
-                        // required field it stays put with the field highlighted.
-                        unsavedGuard.onSave?.invoke()
-                    }) { Text("Save") }
-                },
-                dismissButton = {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        TextButton(onClick = { pendingExit = null }) { Text("Keep editing") }
-                        TextButton(onClick = {
-                            pendingExit = null
-                            unsavedGuard.clear()
-                            exit()
-                        }) { Text("Discard", color = MaterialTheme.colorScheme.error) }
-                    }
-                }
-            )
-        }
                 }
             }
         }
@@ -1115,6 +1320,68 @@ private fun launchApkInstaller(context: Context, apk: File) {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
     )
+}
+
+/**
+ * The record type a search hit belongs to, as the app's own [EntryMode].
+ *
+ * [SearchRecordTypes] is the contract the search screen reports against; anything unrecognised falls
+ * back to ARTISAN rather than throwing, because a new bucket appearing server-side must not crash a
+ * tap. MEDIA is included: it has no edit form (the web opens the object itself), and [EditScreen]
+ * shows the file with its transcript instead.
+ */
+private fun searchRecordEntryMode(recordType: String): EntryMode = when (recordType) {
+    SearchRecordTypes.ARTISAN -> EntryMode.ARTISAN
+    SearchRecordTypes.WORKSHOP -> EntryMode.WORKSHOP
+    SearchRecordTypes.PRODUCT -> EntryMode.PRODUCT
+    SearchRecordTypes.TOOL -> EntryMode.TOOL
+    SearchRecordTypes.MEDIA -> EntryMode.MEDIA
+    else -> EntryMode.ARTISAN
+}
+
+/**
+ * What an admin sees in place of admin chrome they switched off themselves.
+ *
+ * Deliberately NOT the permission copy a genuine non-admin gets: this is self-inflicted and one tap
+ * from being undone, so telling an admin they lack access they in fact hold would be the worse of
+ * the two errors. Wording follows the web's `AdminViewHidden` panel.
+ */
+@Composable
+private fun AdminViewHiddenCard(label: String, blurb: String, onEnable: () -> Unit) {
+    RecordCard(title = "$label is hidden while admin view is off", icon = Icons.Filled.VisibilityOff) {
+        Text(
+            "$blurb You switched admin view off, so the repository is behaving exactly as it does " +
+                "for an ordinary user.",
+            color = Body,
+            fontSize = 13.sp
+        )
+        Text(
+            "Your access has not changed — this is your own setting, not a permission you are missing.",
+            color = Muted,
+            fontSize = 12.sp
+        )
+        Button(onClick = onEnable, modifier = Modifier.fillMaxWidth()) {
+            Text("Turn admin view back on")
+        }
+    }
+}
+
+/** The way in to the /data directory-tree browser, offered wherever the dataset itself is offered. */
+@Composable
+private fun DataBrowserEntryCard(onOpen: () -> Unit) {
+    RecordCard(title = "Data Browser", icon = Icons.Filled.Storage) {
+        Text(
+            "Browse the repository as a directory tree, preview media and transcripts, and download " +
+                "any folder as a zip with content-type filters.",
+            color = Muted,
+            fontSize = 12.sp
+        )
+        Button(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Filled.Storage, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Open the Data Browser")
+        }
+    }
 }
 
 /** Rounded back control with a real icon; steps to the previous screen. */
@@ -1288,6 +1555,7 @@ private fun AppDrawerContent(
     onDashboard: () -> Unit,
     onSelect: (EntryMode) -> Unit,
     onMyActivity: () -> Unit,
+    onAppearance: () -> Unit,
     onFeedback: () -> Unit,
     onWalkthrough: () -> Unit,
     onToggleAdminView: () -> Unit,
@@ -1302,7 +1570,7 @@ private fun AppDrawerContent(
             verticalAlignment = Alignment.Top
         ) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Field Repository", fontFamily = FontFamily.Serif, fontSize = 22.sp, color = MaterialTheme.colorScheme.onSurface)
+                Text("Field Repository", fontSize = 22.sp, color = MaterialTheme.colorScheme.onSurface)
                 Text("${user.name} · ${user.role}", color = Muted, fontSize = 12.sp)
             }
             // Prominent red logout, top-right of the menu.
@@ -1349,6 +1617,16 @@ private fun AppDrawerContent(
                 )
             }
             HorizontalDivider()
+            // The web's "Account" nav group: what belongs to the PERSON rather than to the
+            // repository. Never role-gated — /preferences/me asks for nothing but a login, and
+            // gating this would leave most users with no route to their own accessibility switches.
+            NavigationDrawerItem(
+                label = { Text("Appearance & accessibility") },
+                selected = false,
+                icon = { Icon(Icons.Filled.Palette, contentDescription = null) },
+                onClick = onAppearance,
+                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+            )
             NavigationDrawerItem(
                 label = { Text("Give app feedback") },
                 selected = false,
@@ -1400,7 +1678,7 @@ private fun CarryForwardPanel(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Saved ${prefill.artisanName ?: "artisan"} ✓", fontFamily = FontFamily.Serif, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
+            Text("Saved ${prefill.artisanName ?: "artisan"} ✓", fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
             Text("Keep going for the same artisan — details are pre-filled.", color = Muted, fontSize = 12.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 Button(onClick = { onSelect(EntryMode.PRODUCT) }, modifier = Modifier.weight(1f)) { Text("Add product") }
@@ -1438,16 +1716,54 @@ private fun DashboardScreen(
         configuration.screenWidthDp >= 600 -> 3
         else -> 2
     }
+    // One list for the whole grid. The admin "Settings" card used to be emitted as its own Row below
+    // the grid with `columns - 1` spacers after it, which is exactly why it never lined up with the
+    // cards above: a second Row measures independently of the first. It is a tile like any other.
+    val tiles = buildList {
+        actions.forEach { entry ->
+            add(
+                DashboardTile(
+                    label = entry.label,
+                    icon = entry.icon(),
+                    primaryIcon = Icons.Filled.Add,
+                    primaryLabel = entry.createButtonLabel(),
+                    onPrimary = { onNew(entry) },
+                    onUpdate = if (entry.editable) ({ onUpdateExisting(entry) }) else null
+                )
+            )
+        }
+        if (showAdminHub) {
+            add(
+                DashboardTile(
+                    label = "Settings",
+                    icon = Icons.Filled.Tune,
+                    primaryIcon = Icons.Filled.Tune,
+                    primaryLabel = "Open",
+                    onPrimary = onOpenAdminHub
+                )
+            )
+        }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {
-        Text("What would you like to do?", fontFamily = FontFamily.Serif, fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
-        actions.chunked(columns).forEach { rowItems ->
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                rowItems.forEach { entry ->
+        Text("What would you like to do?", fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
+        tiles.chunked(columns).forEach { rowItems ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                // Height equalisation, the Compose equivalent of the web grid's default
+                // `align-items: stretch`. Without it a Row sizes each child to its own content, so a
+                // card whose label wraps to two lines — or one with no "Update" button — was shorter
+                // than its neighbours and its buttons sat at a different height. IntrinsicSize.Min
+                // measures the row to the tallest card; `fillMaxHeight` then stretches the rest to it.
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min)
+            ) {
+                rowItems.forEach { tile ->
                     DashboardActionCard(
-                        entry = entry,
-                        modifier = Modifier.weight(1f),
-                        onNew = { onNew(entry) },
-                        onUpdateExisting = { onUpdateExisting(entry) }
+                        tile = tile,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
                     )
                 }
                 repeat(columns - rowItems.size) { Spacer(modifier = Modifier.weight(1f)) }
@@ -1476,17 +1792,9 @@ private fun DashboardScreen(
                 }
             }
         }
-        // Admins get a "Settings" card that opens the Admin tools hub (reviews, recovery, feedback,
-        // tool/workshop assignments, transcription settings).
-        if (showAdminHub) {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                AdminSettingsCard(modifier = Modifier.weight(1f), onOpen = onOpenAdminHub)
-                repeat(columns - 1) { Spacer(modifier = Modifier.weight(1f)) }
-            }
-        }
         StatsCard(stats)
         if (recentArtisans.isNotEmpty()) {
-            Text("Recent artisans", fontFamily = FontFamily.Serif, fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
+            Text("Recent artisans", fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
             recentArtisans.take(6).forEach { artisan ->
                 ElevatedCard(
                     colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
@@ -1509,60 +1817,42 @@ private fun EntryMode.createButtonLabel(): String = when (this) {
     EntryMode.VIEW_DATA -> "Open"
     EntryMode.TASKS -> "Open"
     EntryMode.WORKSHOP_ACCESS -> "Open"
+    EntryMode.SEARCH, EntryMode.DATA_BROWSER -> "Open"
     else -> "New"
 }
 
-@Composable
-private fun DashboardActionCard(
-    entry: EntryMode,
-    modifier: Modifier = Modifier,
-    onNew: () -> Unit,
-    onUpdateExisting: () -> Unit
-) {
-    ElevatedCard(
-        colors = CardDefaults.elevatedCardColors(containerColor = Canvas),
-        shape = RoundedCornerShape(16.dp),
-        modifier = modifier
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .background(color = ColorCompat.darkElevated, shape = RoundedCornerShape(10.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(entry.icon(), contentDescription = null, tint = Canvas, modifier = Modifier.size(22.dp))
-            }
-            Text(entry.label, fontFamily = FontFamily.Serif, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-            // The card is only offered when its "New …" is allowed (DashboardScreen filters), so this
-            // action is unconditional — a card that could only "Update" explained nothing.
-            Button(
-                onClick = onNew,
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 8.dp)
-            ) { CardButtonLabel(Icons.Filled.Add, entry.createButtonLabel()) }
-            if (entry.editable) {
-                OutlinedButton(
-                    onClick = onUpdateExisting,
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 8.dp)
-                ) { CardButtonLabel(Icons.Filled.Edit, "Update") }
-            }
-        }
-    }
-}
+/**
+ * One dashboard tile's content: the icon, the display label, the filled primary action and — where
+ * the record type can be edited — the outlined "Update" action.
+ *
+ * Modelled as data rather than as a second card composable so the admin "Settings" card is laid out
+ * by the SAME code path (and the same grid) as every record card. Two near-identical card composables
+ * emitted from two different Rows was how the two drifted out of alignment in the first place.
+ */
+private class DashboardTile(
+    val label: String,
+    val icon: ImageVector,
+    val primaryIcon: ImageVector,
+    val primaryLabel: String,
+    val onPrimary: () -> Unit,
+    val onUpdate: (() -> Unit)? = null
+)
 
-/** Dashboard card (admins only) that opens the Admin tools hub. Styled like a [DashboardActionCard]. */
+/**
+ * Web parity with `components/DashboardCard.tsx`: a card, a small dark icon tile, the display label,
+ * then the filled primary action and the outlined "Update" where editing exists.
+ *
+ * Two rules make a row of these line up, and both live here rather than in padding tweaks:
+ * the caller stretches every card to the row's height (see [DashboardScreen]), and the label carries
+ * `weight(1f)` so it — not the buttons — absorbs the slack. That is the web card's `mt-auto`: the
+ * action row is pinned to the bottom edge, so it sits at one height across the whole row no matter
+ * how many lines each label needs.
+ */
 @Composable
-private fun AdminSettingsCard(modifier: Modifier = Modifier, onOpen: () -> Unit) {
+private fun DashboardActionCard(tile: DashboardTile, modifier: Modifier = Modifier) {
     ElevatedCard(
-        colors = CardDefaults.elevatedCardColors(containerColor = Canvas),
-        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = MaterialTheme.shapes.large,
         modifier = modifier
     ) {
         Column(
@@ -1571,20 +1861,42 @@ private fun AdminSettingsCard(modifier: Modifier = Modifier, onOpen: () -> Unit)
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // Web parity: a small dark-purple tile (bg-purple-800) carrying a light icon. `brandTile`
+            // is the theme's slot for exactly this pairing, so it follows light/dark on its own.
             Box(
                 modifier = Modifier
                     .size(38.dp)
-                    .background(color = ColorCompat.darkElevated, shape = RoundedCornerShape(10.dp)),
+                    .background(color = MaterialTheme.field.brandTile, shape = MaterialTheme.shapes.medium),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Filled.Tune, contentDescription = null, tint = Canvas, modifier = Modifier.size(22.dp))
+                Icon(
+                    tile.icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.field.onBrandTile,
+                    modifier = Modifier.size(22.dp)
+                )
             }
-            Text("Settings", fontFamily = FontFamily.Serif, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+            Text(
+                tile.label,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f)
+            )
+            // The card is only offered when its primary action is allowed (DashboardScreen filters),
+            // so this action is unconditional — a card that could only "Update" explained nothing.
             Button(
-                onClick = onOpen,
+                onClick = tile.onPrimary,
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
-            ) { CardButtonLabel(Icons.Filled.Tune, "Open") }
+            ) { CardButtonLabel(tile.primaryIcon, tile.primaryLabel) }
+            tile.onUpdate?.let { update ->
+                OutlinedButton(
+                    onClick = update,
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                ) { CardButtonLabel(Icons.Filled.Edit, "Update") }
+            }
         }
     }
 }
@@ -1594,32 +1906,42 @@ private fun AdminSettingsCard(modifier: Modifier = Modifier, onOpen: () -> Unit)
 private fun CardButtonLabel(icon: ImageVector, text: String) {
     Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
     Spacer(Modifier.width(6.dp))
-    Text(text, maxLines = 1, softWrap = false, fontSize = 13.sp)
+    // Ellipsis, not a silent clip: the cards are two-to-a-row on a phone and "New interview" is wider
+    // than the button at that width.
+    Text(text, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, fontSize = 13.sp)
 }
 
 @Composable
 private fun StatsCard(stats: DashboardStats?) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = DarkSurface),
-        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.field.brandTile),
+        shape = MaterialTheme.shapes.large,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
-            Text("Repository totals", color = Canvas, fontFamily = FontFamily.Serif, fontSize = 24.sp)
+            Text("Repository totals", color = MaterialTheme.field.onBrandTile, fontSize = 24.sp)
             Spacer(Modifier.height(12.dp))
             if (stats == null) {
-                Text("Loading...", color = SurfaceCard)
+                Text("Loading...", color = MaterialTheme.field.onBrandTileMuted)
             } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                    Stat("Artisans", stats.totalArtisans, Modifier.weight(1f))
-                    Stat("Products", stats.totalProductRecords, Modifier.weight(1f))
-                    Stat("Tools", stats.totalToolRecords, Modifier.weight(1f))
+                // Same height equalisation as the action grid: a stat whose label wraps must not make
+                // its tile taller than the two beside it.
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)
+                ) {
+                    Stat("Artisans", stats.totalArtisans, Modifier.weight(1f).fillMaxHeight())
+                    Stat("Products", stats.totalProductRecords, Modifier.weight(1f).fillMaxHeight())
+                    Stat("Tools", stats.totalToolRecords, Modifier.weight(1f).fillMaxHeight())
                 }
                 Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                    Stat("Media", stats.totalMediaFiles, Modifier.weight(1f))
-                    Stat("Pending", stats.pendingSubmissions, Modifier.weight(1f))
-                    Stat("Workshops", stats.totalWorkshops, Modifier.weight(1f))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)
+                ) {
+                    Stat("Media", stats.totalMediaFiles, Modifier.weight(1f).fillMaxHeight())
+                    Stat("Pending", stats.pendingSubmissions, Modifier.weight(1f).fillMaxHeight())
+                    Stat("Workshops", stats.totalWorkshops, Modifier.weight(1f).fillMaxHeight())
                 }
             }
         }
@@ -1630,11 +1952,13 @@ private fun StatsCard(stats: DashboardStats?) {
 private fun Stat(label: String, value: Int, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
-            .background(color = ColorCompat.darkElevated, shape = RoundedCornerShape(12.dp))
+            // A chip sitting ON the brand tile: a translucent step of the same purple family rather
+            // than a fixed near-black, so it stays one shade off its parent in either theme.
+            .background(color = MaterialTheme.field.accentOnBrandTile.copy(alpha = 0.18f), shape = MaterialTheme.shapes.medium)
             .padding(12.dp)
     ) {
-        Text(value.toString(), color = Canvas, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
-        Text(label, color = SurfaceCard, fontSize = 12.sp)
+        Text(value.toString(), color = MaterialTheme.field.onBrandTile, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+        Text(label, color = MaterialTheme.field.onBrandTileMuted, fontSize = 12.sp)
     }
 }
 
@@ -2242,6 +2566,9 @@ private fun StatusControl(canSetStatus: Boolean, value: String, onSelect: (Strin
  * "this workshop looks like it ended" hint and NEVER blocks the save: a researcher in the field must
  * not lose work to a flaky courtesy request.
  */
+/** How far down the occurrence order the create-time default walks looking for a submittable workshop. */
+private const val DEFAULT_PROBE_LIMIT = 5
+
 private class WorkshopPickerState(private val repository: FieldRepository, initialId: String) {
     var workshops by mutableStateOf<List<WorkshopDetailDto>>(emptyList())
     var selectedId by mutableStateOf(initialId)
@@ -2271,6 +2598,29 @@ private class WorkshopPickerState(private val repository: FieldRepository, initi
     fun applyDefault(id: String) {
         selectedId = id
         baselineId = id
+    }
+
+    /**
+     * The create-time default: the most recent workshop this user may ACTUALLY submit to.
+     *
+     * Web parity with `useWorkshopSelection`'s probe. Taking the head of the list outright landed a
+     * researcher on a workshop they are not assigned to whenever the newest one was somebody else's —
+     * a form that opens already refusing to save. This walks down the occurrence order instead, and
+     * only when every recent workshop is out of reach does it settle on the most recent anyway, so
+     * the inline warning has something to explain rather than the field being silently empty.
+     */
+    suspend fun applyMostRecentSubmittable(list: List<WorkshopDetailDto>) {
+        if (list.isEmpty()) return
+        for (workshop in list.take(DEFAULT_PROBE_LIMIT)) {
+            val answer = answerFor(workshop.id)
+            // The user may have picked one themselves while the probe was in flight; their choice wins.
+            if (selectedId.isNotBlank()) return
+            if (answer == null || answer.canSubmit) {
+                applyDefault(workshop.id)
+                return
+            }
+        }
+        if (selectedId.isBlank()) applyDefault(list.first().id)
     }
 
     /**
@@ -2347,9 +2697,10 @@ private fun rememberWorkshopPicker(
         // which is better than blocking a field capture on a list request.
         runCatching { repository.workshopsByOccurrence() }.onSuccess { list ->
             state.workshops = list
-            // The list is ordered most-recent-occurrence-first, so its head is the default.
+            // The list is ordered most-recent-occurrence-first; the default is the most recent one
+            // this user may actually submit to (see applyMostRecentSubmittable).
             if (!isEdit && state.selectedId.isBlank()) {
-                list.firstOrNull()?.let { state.applyDefault(it.id) }
+                state.applyMostRecentSubmittable(list)
             }
         }
     }
@@ -3325,7 +3676,7 @@ private fun MediaCaptureSection(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(color = ColorCompat.darkElevated, shape = RoundedCornerShape(12.dp))
+                    .background(color = MaterialTheme.field.brandTile, shape = RoundedCornerShape(12.dp))
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -3443,7 +3794,7 @@ private fun AttachedUploadsCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(color = ColorCompat.darkElevated, shape = RoundedCornerShape(12.dp))
+            .background(color = MaterialTheme.field.brandTile, shape = RoundedCornerShape(12.dp))
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
@@ -3767,6 +4118,15 @@ private fun EditScreen(
                 onError = onError
             )
         }
+        // A media file has no edit form — the web's search results open the object itself. Search is
+        // the only route that lands here, so show the file with its transcript rather than the
+        // "cannot be edited" dead end it used to hit.
+        EntryMode.MEDIA -> ViewDataDetail(
+            repository = repository,
+            mode = EntryMode.MEDIA,
+            recordId = recordId,
+            onError = onError
+        )
         else -> Text("This record type cannot be edited here.", color = Muted)
     }
     if (canDelete && mode != EntryMode.MEDIA && mode != EntryMode.USERS && mode != EntryMode.VIEW_DATA) {
@@ -4142,6 +4502,9 @@ private fun ArtisanForm(
             value = newCraftName,
             onValueChange = { newCraftName = it },
             label = { Text("Or new craft name") },
+            // Web parity (components/forms/ArtisanForm.tsx): the box says WHEN it is the one to fill
+            // in, which is the whole point of a field that is only sometimes the right one.
+            placeholder = { Text("Used when no existing craft is selected") },
             isError = craftError != null,
             supportingText = craftError?.let { msg -> { Text(msg) } },
             modifier = Modifier.fillMaxWidth().focusRequester(craftFocus)
@@ -4168,6 +4531,16 @@ private fun ArtisanForm(
         )
         TextInput("Address", address, minLines = 2) { address = it }
         MultiNoteInput(value = notes) { notes = it }
+        // Identity — the same grouped block, in the same position (after notes, before Do's/Don'ts),
+        // as the web form's `role="group"` panel. The heading is what makes the dependency between
+        // "holds a card" and "card number" legible instead of reading as three unrelated boxes.
+        Text("Identity", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+        Text(
+            "Government identifiers, kept so the same artisan documented at two workshops resolves " +
+                "to one record. Stored securely and masked on every shared or exported view.",
+            color = Muted,
+            fontSize = 12.sp
+        )
         ArtisanAadhaarField(
             value = aadhaar,
             error = aadhaarError,
@@ -4187,11 +4560,22 @@ private fun ArtisanForm(
         }
         OutlinedTextField(
             value = pehchanNumber,
-            onValueChange = { pehchanNumber = it; pehchanError = null },
+            // The API stores card numbers upper-cased; showing that as it is typed keeps the box
+            // honest about what will actually be saved (web parity).
+            onValueChange = { pehchanNumber = it.uppercase(); pehchanError = null },
             label = { Text(if (pehchanAvailable) "Artisan Pehchan Card number *" else "Artisan Pehchan Card number") },
+            placeholder = { Text(if (pehchanAvailable) "As printed on the card" else "No card on record") },
             enabled = pehchanAvailable,
             isError = pehchanError != null,
-            supportingText = pehchanError?.let { msg -> { Text(msg) } },
+            supportingText = {
+                val hint = pehchanError
+                    ?: if (pehchanAvailable) {
+                        "The PM Vishwakarma artisan ID printed on the card."
+                    } else {
+                        "Disabled because this artisan holds no Pehchan card. Switch \"available\" to Yes to enter a number."
+                    }
+                Text(hint, color = if (pehchanError != null) MaterialTheme.colorScheme.error else Muted, fontSize = 12.sp)
+            },
             singleLine = true,
             modifier = Modifier
                 .fillMaxWidth()
@@ -4340,6 +4724,9 @@ private fun WorkshopForm(
         }
         RequiredInput("Workshop title", title, titleError, titleFocus, titleCased = true) { title = it }
         RequiredInput("Place", place, placeError, placeFocus, titleCased = true) { place = it }
+        // Web parity (components/forms/DateRangeField): the two dates are one answer — how long the
+        // workshop ran — and they are labelled as one before being split into start and end.
+        Text("Workshop duration", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             Box(modifier = Modifier.weight(1f)) {
                 DatePickerField("Start date", startDate) { picked ->
@@ -4554,10 +4941,10 @@ private fun ProductForm(
         TextInput("Time taken to complete", timeTaken) { timeTaken = it }
         TextInput("Size", size) { size = it }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length) { length = it } }
-            Box(modifier = Modifier.weight(1f)) { TextInput("Breadth (inches)", breadth) { breadth = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length, keyboardType = KeyboardType.Decimal) { length = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Breadth (inches)", breadth, keyboardType = KeyboardType.Decimal) { breadth = it } }
         }
-        TextInput("Height (inches)", height) { height = it }
+        TextInput("Height (inches)", height, keyboardType = KeyboardType.Decimal) { height = it }
         GridMeasurementSection(
             repository = repository,
             media = media,
@@ -4566,8 +4953,8 @@ private fun ProductForm(
             onHeight = { height = numToText(it) }
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Box(modifier = Modifier.weight(1f)) { TextInput("Cost of making", costOfMaking) { costOfMaking = it } }
-            Box(modifier = Modifier.weight(1f)) { TextInput("Selling price", sellingPrice) { sellingPrice = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Cost of making", costOfMaking, keyboardType = KeyboardType.Decimal) { costOfMaking = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Selling price", sellingPrice, keyboardType = KeyboardType.Decimal) { sellingPrice = it } }
         }
         DropdownField("Market demand", marketDemandOptions.map { it to it }, marketDemand, includeNone = false) { marketDemand = it }
         TextInput("Raw materials used", rawMaterials, minLines = 2) { rawMaterials = it }
@@ -4787,20 +5174,20 @@ private fun ToolForm(
         RequiredInput("Place", place, placeError, placeFocus, titleCased = true) { place = it }
         TextInput("Process used in", processUsedIn) { processUsedIn = it }
         TextInput("Material", material) { material = it }
-        TextInput("Years in use", yearsInUse) { yearsInUse = it }
+        TextInput("Years in use", yearsInUse, keyboardType = KeyboardType.Number) { yearsInUse = it }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Box(modifier = Modifier.weight(1f)) { TextInput("Height", height) { height = it } }
-            Box(modifier = Modifier.weight(1f)) { TextInput("Width", width) { width = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Height", height, keyboardType = KeyboardType.Decimal) { height = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Width", width, keyboardType = KeyboardType.Decimal) { width = it } }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length) { length = it } }
-            Box(modifier = Modifier.weight(1f)) { TextInput("Breadth (inches)", breadth) { breadth = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length, keyboardType = KeyboardType.Decimal) { length = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Breadth (inches)", breadth, keyboardType = KeyboardType.Decimal) { breadth = it } }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Box(modifier = Modifier.weight(1f)) { TextInput("Thickness", thickness) { thickness = it } }
-            Box(modifier = Modifier.weight(1f)) { TextInput("Weight", weight) { weight = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Thickness", thickness, keyboardType = KeyboardType.Decimal) { thickness = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Weight", weight, keyboardType = KeyboardType.Decimal) { weight = it } }
         }
-        TextInput("Radius", radius) { radius = it }
+        TextInput("Radius", radius, keyboardType = KeyboardType.Decimal) { radius = it }
         GridMeasurementSection(
             repository = repository,
             media = media,
@@ -4810,7 +5197,7 @@ private fun ToolForm(
         )
         DropdownField("Maker", makerOptions.map { it to it }, maker, includeNone = false) { maker = it }
         DropdownField("Tradition type", traditionOptions.map { it to it }, traditionType, includeNone = false) { traditionType = it }
-        TextInput("Replacement cost", replacementCost) { replacementCost = it }
+        TextInput("Replacement cost", replacementCost, keyboardType = KeyboardType.Decimal) { replacementCost = it }
         TextInput("Suggestions for improvement", suggestions, minLines = 2) { suggestions = it }
         TextInput("Remarks", remarks, minLines = 3) { remarks = it }
         StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
@@ -5846,7 +6233,7 @@ private fun WalkthroughDialog(onDismiss: () -> Unit) {
         title = {
             Column {
                 Text("Walkthrough · ${step + 1}/${steps.size}", color = Muted, fontSize = 11.sp)
-                Text(current.title, fontFamily = FontFamily.Serif, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
+                Text(current.title, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
             }
         },
         text = { Text(current.body, fontSize = 14.sp, color = Body) },
@@ -6576,8 +6963,22 @@ private enum class AdminHubEntry(
     RECOVERED("Recovered recordings", "Play & re-link recordings whose record was deleted.", Icons.Filled.RecordVoiceOver),
     FEEDBACK("User feedback", "Everyone's app feedback, grouped by user.", Icons.Filled.RateReview, masterOnly = true),
     TOOLS("Assign tools to artisans", "Link tools to the artisans who use them.", Icons.Filled.Build),
+    // Label + description verbatim from ADMIN_LINKS on the web's /settings page.
+    TASKS(
+        "Task assignment",
+        "Hand documentation work to the people below you, then hold it to account.",
+        Icons.AutoMirrored.Filled.Assignment
+    ),
     WORKSHOPS("Workshop assignments", "Choose who may submit entries for each workshop.", Icons.Filled.Groups),
     ACCESS_REQUESTS("Workshop access requests", "Approve or deny requests to work in a workshop.", Icons.Filled.LockOpen),
+    // Every /secrets route is require_master_admin, not require_admin: handing out live provider
+    // credentials (reveal returns plaintext) is a different class of power from managing people.
+    API_KEYS(
+        "API keys",
+        "Rotate, test and reveal the provider keys the repository runs on.",
+        Icons.Filled.VpnKey,
+        masterOnly = true
+    ),
     SETTINGS("Settings", "Transcription output and off-peak processing.", Icons.Filled.Tune, masterOnly = true)
 }
 
@@ -6590,10 +6991,12 @@ private fun AdminHubScreen(
     repository: FieldRepository,
     isMasterAdmin: Boolean,
     canReview: Boolean,
+    /** Pre-opened tool, so "Assignment board" on the Tasks screen lands straight on the board. */
+    initialSection: AdminHubEntry? = null,
     onMessage: (String) -> Unit,
     onError: (String) -> Unit
 ) {
-    var section by remember { mutableStateOf<AdminHubEntry?>(null) }
+    var section by remember(initialSection) { mutableStateOf(initialSection) }
     // Loaded once for the Workshop assignments tool (which needs the researcher directory).
     var directory by remember { mutableStateOf<List<UserDto>>(emptyList()) }
     LaunchedEffect(Unit) { runCatching { repository.userDirectory() }.onSuccess { directory = it } }
@@ -6619,7 +7022,7 @@ private fun AdminHubScreen(
                     Box(
                         modifier = Modifier
                             .size(36.dp)
-                            .background(color = ColorCompat.darkElevated, shape = RoundedCornerShape(10.dp)),
+                            .background(color = MaterialTheme.field.brandTile, shape = RoundedCornerShape(10.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(entry.icon, contentDescription = null, tint = Canvas, modifier = Modifier.size(20.dp))
@@ -6643,15 +7046,42 @@ private fun AdminHubScreen(
             AdminHubEntry.RECOVERED -> OrphanRecordingsCard(repository = repository, onError = onError)
             AdminHubEntry.FEEDBACK -> MasterFeedbackCard(repository = repository, onError = onError)
             AdminHubEntry.TOOLS -> ToolAssignScreen(repository = repository, onError = onError)
+            // The hub's own "All admin tools" pill is the back control here, so the board's built-in
+            // arrow stays off (`onBack = null`).
+            AdminHubEntry.TASKS -> TaskAdminScreen(
+                repository = repository,
+                onBack = null,
+                onMessage = onMessage,
+                onError = onError
+            )
             AdminHubEntry.WORKSHOPS -> WorkshopAssignmentCard(repository = repository, directory = directory, onMessage = onMessage, onError = onError)
             AdminHubEntry.ACCESS_REQUESTS -> WorkshopAccessQueueCard(repository = repository, onMessage = onMessage, onError = onError)
+            // Same as the task board above: the hub's "All admin tools" pill is the back control,
+            // so the screen's own arrow stays off (`onBack = null`).
+            AdminHubEntry.API_KEYS -> ApiKeysScreen(
+                repository = repository,
+                onBack = null,
+                onMessage = onMessage,
+                onError = onError
+            )
             AdminHubEntry.SETTINGS -> SettingsScreen(repository = repository, onMessage = onMessage, onError = onError)
         }
     }
 }
 
 @Composable
-private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = false, masterAdmin: Boolean = false, isAdmin: Boolean = false, showProvenance: Boolean = false, canDownloadDataset: Boolean = false, onError: (String) -> Unit) {
+private fun ViewDataScreen(
+    repository: FieldRepository,
+    canReview: Boolean = false,
+    masterAdmin: Boolean = false,
+    isAdmin: Boolean = false,
+    /** False only for an admin browsing with admin view OFF; always true for everyone else. */
+    adminChrome: Boolean = true,
+    showProvenance: Boolean = false,
+    canDownloadDataset: Boolean = false,
+    onOpenDataBrowser: (() -> Unit)? = null,
+    onError: (String) -> Unit
+) {
     var mode by remember { mutableStateOf(EntryMode.ARTISAN) }
     var options by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var selectedId by remember { mutableStateOf("") }
@@ -6801,17 +7231,32 @@ private fun ViewDataScreen(repository: FieldRepository, canReview: Boolean = fal
             ) { selectedId = it }
         }
     }
+    // The completion override is `adminMode && isAdmin(user)` on the web — the role decides, the
+    // admin-view toggle can only take the ability to override away again.
+    val canOverrideCompletion = isAdmin && adminChrome
     if (selectedId == COMPLETION_OPTION_ID && mode == EntryMode.QUESTIONNAIRE) {
-        CompletionMatrixCard(repository = repository, artisanId = null, canEdit = isAdmin, onError = onError)
+        CompletionMatrixCard(repository = repository, artisanId = null, canEdit = canOverrideCompletion, onError = onError)
     } else if (selectedId.isNotBlank()) {
-        ViewDataDetail(repository = repository, mode = mode, recordId = selectedId, isAdmin = isAdmin, showProvenance = showProvenance, onError = onError)
+        ViewDataDetail(
+            repository = repository,
+            mode = mode,
+            recordId = selectedId,
+            canOverrideCompletion = canOverrideCompletion,
+            showProvenance = showProvenance,
+            onError = onError
+        )
     }
     if (canDownloadDataset) {
+        // The dataset lives behind the same entitlement whichever way you take it out: the browser
+        // walks it folder by folder, the card below pulls the whole thing in one zip.
+        onOpenDataBrowser?.let { DataBrowserEntryCard(onOpen = it) }
         DatasetDownloadCard(repository = repository, onError = onError)
     }
     // Reviews & approvals moved to the admin "Settings" hub for admins; a non-admin who was granted the
-    // review permission still reaches the queue here, since they have no admin hub.
-    if (canReview && !isAdmin) {
+    // review permission still reaches the queue here, since they have no admin hub. Reviewing is NOT
+    // admin chrome (the web keeps /review open with admin view off), so when the hub is hidden the
+    // queue has to reappear here — otherwise the toggle would take away a capability, not just chrome.
+    if (canReview && !(isAdmin && adminChrome)) {
         ReviewApprovalCard(repository = repository, onError = onError)
     }
 }
@@ -7501,7 +7946,8 @@ private fun ViewDataDetail(
     repository: FieldRepository,
     mode: EntryMode,
     recordId: String,
-    isAdmin: Boolean = false,
+    /** Admin AND admin view on — the web's `adminMode && isAdmin(user)` for the completion matrix. */
+    canOverrideCompletion: Boolean = false,
     showProvenance: Boolean = false,
     onError: (String) -> Unit
 ) {
@@ -7557,7 +8003,7 @@ private fun ViewDataDetail(
                 RecordMediaSection(repository, context, mode.linkedRecordType(), recordId, onError)
             }
             // Per-artisan completion: the same matrix, scoped to just this artisan (one row).
-            CompletionMatrixCard(repository = repository, artisanId = recordId, canEdit = isAdmin, onError = onError)
+            CompletionMatrixCard(repository = repository, artisanId = recordId, canEdit = canOverrideCompletion, onError = onError)
             // Everything recorded against this artisan in the questionnaire — answers + the recordings
             // from every interview they belong to (alone, in a subset, or a larger set), so a group
             // recording surfaces here for this artisan to be validated individually.
@@ -7921,15 +8367,6 @@ private fun AndroidMediaForm(
         if (recording) {
             RecordingIndicator(getAmplitude = { runCatching { recorder?.maxAmplitude ?: 0 }.getOrDefault(0) })
         }
-        LocationEditor(
-            value = location,
-            onUseGps = {
-                permissionLauncher.launch(requiredAndroidPermissions())
-                readLastKnownLocation(context)
-            },
-            onChange = { location = it },
-            onMessage = { localMessage = it }
-        )
         TextInput("Media title / object name", mediaTitle) { mediaTitle = it }
         DropdownField(
             label = "Linked record type *",
@@ -7952,11 +8389,22 @@ private fun AndroidMediaForm(
             enabled = linkedMode != null && !loadingEntries
         ) { linkedEntryId = it }
         TextInput("Caption", caption, minLines = 2) { caption = it }
+        // Web parity (app/(protected)/media/page.tsx): the GPS block closes the form, after the
+        // caption — it describes the upload rather than being one of the things being described.
+        LocationEditor(
+            value = location,
+            onUseGps = {
+                permissionLauncher.launch(requiredAndroidPermissions())
+                readLastKnownLocation(context)
+            },
+            onChange = { location = it },
+            onMessage = { localMessage = it }
+        )
         if (selectedUris.isNotEmpty()) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(color = ColorCompat.darkElevated, shape = RoundedCornerShape(12.dp))
+                    .background(color = MaterialTheme.field.brandTile, shape = RoundedCornerShape(12.dp))
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -8347,6 +8795,12 @@ private fun QuestionnaireForm(
     var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }
     var capturedLocation by remember(editing) { mutableStateOf(editing?.location?.toRequest()) }
     val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
+    // Status policy, identical to every other record form and to the web questionnaire page: a
+    // professor+ picks any status (APPROVED by default on create), everyone below sees the locked
+    // "Pending" chip. Without this control the interview was the ONE record type an interviewing
+    // professor could not approve as they filed it — the request defaulted to PENDING regardless.
+    val canSetStatus = remember { canSetRecordStatus(repository.cachedUser()?.role) }
+    var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }
     var titleError by remember { mutableStateOf<String?>(null) }
     val titleFocus = remember { FocusRequester() }
     val questions = remember(sections) { sections.flatMap { it.questions }.filter { it.isActive } }
@@ -8510,7 +8964,14 @@ private fun QuestionnaireForm(
         Text(if (showCompletion) "Hide completion overview" else "Check completion")
     }
     if (showCompletion) {
-        CompletionMatrixCard(repository = repository, artisanId = null, canEdit = questionnaireIsAdmin, onError = onError)
+        // `canOverride={adminMode && isAdmin(user)}` on the web's questionnaire page: the role is
+        // checked first, and admin view can only take the override away.
+        CompletionMatrixCard(
+            repository = repository,
+            artisanId = null,
+            canEdit = questionnaireIsAdmin && adminView,
+            onError = onError
+        )
     }
 
     RecordCard(title = if (isEdit) "Edit interview" else "Add questionnaire interview") {
@@ -8522,13 +8983,9 @@ private fun QuestionnaireForm(
         }
         WorkshopField(state = workshop, saving = saveState == SaveState.SAVING)
         RequiredInput("Interview title", title, titleError, titleFocus, titleCased = true) { title = it }
-        ArtisanMultiSelectField(
-            label = "Linked artisans",
-            artisans = artisans,
-            selectedIds = selectedArtisans
-        ) { id ->
-            selectedArtisans = if (selectedArtisans.contains(id)) selectedArtisans - id else selectedArtisans + id
-        }
+        // Web parity (app/(protected)/questionnaire/page.tsx): title → place → language → status →
+        // the artisans this interview is about. There is deliberately NO date field: the server
+        // derives interviewDate from recordedAt, which is when the interview was actually captured.
         TextInput("Place", place, titleCased = true) { place = it }
         // Language of the interview: Hindi primary, then English + the major scheduled Indian
         // languages. Any pre-existing free-text value is preserved as an extra option.
@@ -8551,6 +9008,14 @@ private fun QuestionnaireForm(
             placeholder = "Select language",
             includeNone = false
         ) { language = it }
+        StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
+        ArtisanMultiSelectField(
+            label = "Linked artisans",
+            artisans = artisans,
+            selectedIds = selectedArtisans
+        ) { id ->
+            selectedArtisans = if (selectedArtisans.contains(id)) selectedArtisans - id else selectedArtisans + id
+        }
         DropdownField(
             label = "Recording mode",
             options = listOf(
@@ -8614,7 +9079,7 @@ private fun QuestionnaireForm(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("${section.code}. ${section.title}", color = MaterialTheme.colorScheme.onSurface, fontFamily = FontFamily.Serif, fontSize = 18.sp)
+                                Text("${section.code}. ${section.title}", color = MaterialTheme.colorScheme.onSurface, fontSize = 18.sp)
                                 Text(
                                     "${activeQuestions.size} questions · $answeredCount answered" +
                                         (if (sectionSavedMedia.isNotEmpty()) " · ${sectionSavedMedia.size} saved recording(s)" else ""),
@@ -8749,6 +9214,7 @@ private fun QuestionnaireForm(
                                 place = place.blankToNull(),
                                 language = language.blankToNull(),
                                 notes = notes.blankToNull(),
+                                status = status,
                                 artisanIds = selectedArtisans.toList(),
                                 workshopId = workshop.value(),
                                 location = capturedLocation,
@@ -8797,6 +9263,7 @@ private fun QuestionnaireForm(
                         if (ok) {
                             media.reset(); qMedia.reset(); questionAudio = emptyMap()
                             title = ""; selectedArtisans = emptySet(); place = ""; language = "Hindi"; notes = ""
+                            status = defaultCreateStatus(repository.cachedUser()?.role)
                             capturedLocation = null; answers.values.forEach { it.value = "" }
                             // Interviews are usually captured back-to-back at one workshop, so the
                             // selection carries over — re-baselined so it isn't flagged as unsaved.
@@ -8821,6 +9288,8 @@ private fun QuestionnaireForm(
                                     place = place.blankToNull(),
                                     language = language.blankToNull(),
                                     notes = notes.blankToNull(),
+                                    // Unauthorized status changes are dropped server-side either way.
+                                    status = status,
                                     artisanIds = if (selectedArtisans != originalArtisans) selectedArtisans.toList() else null,
                                     responses = responsesToSend.ifEmpty { null },
                                     workshopId = workshop.value(),
@@ -8835,6 +9304,7 @@ private fun QuestionnaireForm(
                                     place = place.blankToNull(),
                                     language = language.blankToNull(),
                                     notes = notes.blankToNull(),
+                                    status = status,
                                     artisanIds = selectedArtisans.toList(),
                                     workshopId = workshop.value(),
                                     location = capturedLocation,
@@ -8934,6 +9404,7 @@ private fun QuestionnaireForm(
                         place = ""
                         language = "Hindi"
                         notes = ""
+                        status = defaultCreateStatus(repository.cachedUser()?.role)
                         capturedLocation = null
                         answers.values.forEach { it.value = "" }
                         // The workshop stays selected for the next interview (same field session),
@@ -8946,7 +9417,7 @@ private fun QuestionnaireForm(
                 }
         }
         val qSig: () -> String = {
-            listOf(title, place, language, notes, selectedArtisans.sorted().joinToString(","),
+            listOf(title, place, language, notes, status, selectedArtisans.sorted().joinToString(","),
                 answers.entries.joinToString("|") { "${it.key}=${it.value.value}" }).joinToString("")
         }
         val initialSig = remember(editing) { qSig() }
@@ -9546,6 +10017,10 @@ private fun workshopAccessStatusLabel(status: String): String = when (status) {
     else -> status
 }
 
+// @Composable: `Coral` is now a theme-aware getter (ui/Theme.kt), so reading it needs a composition.
+// Every call site is already inside one (a `Text(color = …)` argument).
+@Composable
+@ReadOnlyComposable
 private fun workshopAccessStatusColor(status: String): Color = when (status) {
     "GRANTED" -> SuccessGreen
     "PENDING" -> Coral
@@ -10023,6 +10498,9 @@ private fun taskStatusLabel(status: String): String = when (status) {
     else -> status
 }
 
+// @Composable for the same reason as workshopAccessStatusColor: Coral/Muted/Body are theme getters.
+@Composable
+@ReadOnlyComposable
 private fun taskStatusColor(status: String): Color = when (status) {
     "DONE" -> SuccessGreen
     "IN_PROGRESS" -> Coral
@@ -10065,13 +10543,22 @@ private fun taskScopeSummary(task: TaskDto): String {
 @Composable
 private fun MyTasksScreen(
     repository: FieldRepository,
-    isAdmin: Boolean,
+    /**
+     * Admin AND admin view on. Being an ASSIGNEE is open to everyone and is never narrowed; handing
+     * work out is admin chrome, so both the "Assigned by me" view (the endpoint 403s it for everyone
+     * else) and the route to the assignment board follow the toggle.
+     */
+    canAssign: Boolean,
+    onOpenAssignmentBoard: (() -> Unit)? = null,
     onMessage: (String) -> Unit,
     onError: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val myId = remember { repository.cachedUser()?.id }
     var view by remember { mutableStateOf("assigned") }
+    // Flipping admin view off while "Assigned by me" is showing must not strand the user on a view
+    // they can no longer switch away from.
+    LaunchedEffect(canAssign) { if (!canAssign) view = "assigned" }
     var statusFilter by remember { mutableStateOf("") }
     var tasks by remember { mutableStateOf<List<TaskDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -10109,7 +10596,23 @@ private fun MyTasksScreen(
             color = Muted,
             fontSize = 12.sp
         )
-        if (isAdmin) {
+        if (canAssign) {
+            // Web parity with the strip on /tasks: say where handing work out actually happens, and
+            // offer the way there, rather than leaving the board undiscoverable outside the hub.
+            Text(
+                "Handing work out happens on the assignment board: one scope — record types, an " +
+                    "artisan subset, questionnaire sections, a target count — given to several " +
+                    "people at once, with the accountability rollup beside it.",
+                color = Muted,
+                fontSize = 12.sp
+            )
+            onOpenAssignmentBoard?.let { open ->
+                OutlinedButton(onClick = open, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Filled.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Assignment board")
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(selected = view == "assigned", onClick = { view = "assigned" }, label = { Text("Assigned to me") })
                 FilterChip(selected = view == "created", onClick = { view = "created" }, label = { Text("Assigned by me") })
@@ -10358,10 +10861,10 @@ private fun RecordCard(title: String, icon: ImageVector? = null, content: @Compo
             if (icon != null) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(24.dp))
-                    Text(title, fontFamily = FontFamily.Serif, fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text(title, fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurface)
                 }
             } else {
-                Text(title, fontFamily = FontFamily.Serif, fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurface)
+                Text(title, fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurface)
             }
             content()
         }
@@ -10445,13 +10948,20 @@ private fun TitleCaseHint(value: String) {
     Text("Will be saved as “$normalised”", color = Muted, fontSize = 11.sp)
 }
 
-/** Set [titleCased] on a field whose column is in the server's TITLE_CASE_FIELDS (see TextFormat.kt). */
+/**
+ * Set [titleCased] on a field whose column is in the server's TITLE_CASE_FIELDS (see TextFormat.kt).
+ *
+ * [keyboardType] mirrors the web form's `type` attribute: every measurement, count and price box is
+ * `<input type="number">` there, and leaving it at the default here opened the full QWERTY keyboard
+ * for a field that only ever takes digits — the one place on a phone where that difference is felt.
+ */
 @Composable
 private fun TextInput(
     label: String,
     value: String,
     minLines: Int = 1,
     titleCased: Boolean = false,
+    keyboardType: KeyboardType = KeyboardType.Text,
     onValueChange: (String) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -10460,6 +10970,7 @@ private fun TextInput(
             onValueChange = onValueChange,
             label = { Text(label) },
             minLines = minLines,
+            keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
             modifier = Modifier.fillMaxWidth()
         )
         if (titleCased) TitleCaseHint(value)

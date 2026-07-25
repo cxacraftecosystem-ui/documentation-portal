@@ -1,13 +1,13 @@
 "use client";
 
 import { AlertTriangle } from "lucide-react";
-import { useEffect, useId } from "react";
+import { useRef } from "react";
 
+import { FieldDialog } from "@/components/dialogs/FieldDialog";
 import type { ArtisanIdentityMatch } from "@/lib/types";
 
 /**
- * "This artisan is already in the repository" — the decision point at the end of the Aadhaar
- * de-duplication path.
+ * "This artisan already exists" — the decision point at the end of the Aadhaar de-duplication path.
  *
  * `AadhaarField` already whispers the same fact inline while the number is being typed, and that is
  * deliberately only a whisper: a researcher mid-form may still be correcting a digit, and shouting
@@ -25,7 +25,12 @@ import type { ArtisanIdentityMatch } from "@/lib/types";
  * identical whether it is caught before the request or by the unique index behind it.
  *
  * Amber, not red: nothing has gone wrong and nothing was lost — the repository just recognised
- * somebody. Red is reserved for failures the researcher has to recover from.
+ * somebody. Red is reserved for failures the researcher has to recover from. The amber wash IS the
+ * message here, which is why this is the one dialog that overrides the shared card surface
+ * (`surfaceClassName`) instead of settling for the amber tone ring.
+ *
+ * Three ways forward, so no corner X, and Escape means "Keep editing" — the least destructive of the
+ * three and the one a reflex press intends.
  */
 export function DuplicateArtisanDialog({
   open,
@@ -47,57 +52,32 @@ export function DuplicateArtisanDialog({
   onDiscard: () => void;
   onKeepEditing: () => void;
 }) {
-  const titleId = useId();
-  const bodyId = `${titleId}-body`;
-
-  // Escape is "Keep editing": the least destructive of the three, and the one a reflex press means.
-  useEffect(() => {
-    if (!open) return;
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") onKeepEditing();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onKeepEditing]);
-
-  if (!open) return null;
-
+  const keepEditingRef = useRef<HTMLButtonElement | null>(null);
   const description = [artisan?.name, artisan?.place, artisan?.craft, artisan?.workshop].filter(Boolean).join(" · ");
 
   return (
-    <div
-      className="fixed inset-0 z-[100] grid place-items-center bg-ink-900/40 p-4"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onKeepEditing();
-      }}
-    >
-      <div
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={bodyId}
-        className="w-full max-w-md rounded-xl border border-amber-500 bg-amber-100 p-5 text-amber-800 shadow-lg"
-      >
-        <div className="flex items-start gap-3">
-          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden />
-          <div className="min-w-0">
-            <h2 id={titleId} className="font-display text-lg font-bold text-amber-800">
-              This artisan already exists
-            </h2>
-            <p id={bodyId} className="mt-2 text-sm leading-6">
-              {message?.trim() || "Another artisan record already holds this identity number."}
-            </p>
-            {description ? <p className="mt-2 text-sm font-medium leading-6">{description}</p> : null}
-            {maskedValue ? <p className="mt-1 text-xs">Number on file: {maskedValue}</p> : null}
-            <p className="mt-2 text-xs leading-5">
-              Nothing has been saved. Open the record that already exists, throw this entry away, or stay here and
-              correct the number.
-            </p>
-          </div>
+    <FieldDialog
+      open={open}
+      onClose={onKeepEditing}
+      role="alertdialog"
+      tone="warning"
+      icon={<AlertTriangle className="h-4 w-4" aria-hidden />}
+      showClose={false}
+      // Backing out to the form loses nothing, so a click outside is allowed to mean "keep editing".
+      dismissOnBackdrop
+      initialFocusRef={keepEditingRef}
+      surfaceClassName="border-amber-500 bg-amber-100"
+      title={<span className="text-amber-800">This artisan already exists</span>}
+      description={
+        <div className="text-amber-800">
+          <p>{message?.trim() || "Another artisan record already holds this identity number."}</p>
+          {description ? <p className="mt-2 font-medium">{description}</p> : null}
+          {maskedValue ? <p className="mt-1 text-xs">Number on file: {maskedValue}</p> : null}
         </div>
-        <div className="mt-5 grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
-          <button type="button" className="field-button-secondary" onClick={onKeepEditing}>
+      }
+      footer={
+        <>
+          <button type="button" ref={keepEditingRef} className="field-button-secondary" onClick={onKeepEditing}>
             Keep editing
           </button>
           <button type="button" className="field-danger" onClick={onDiscard}>
@@ -109,8 +89,13 @@ export function DuplicateArtisanDialog({
               Open the existing record
             </button>
           ) : null}
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      <p className="mt-2 text-xs leading-5 text-amber-800">
+        Nothing has been saved. Open the record that already exists, throw this entry away, or stay here and
+        correct the number.
+      </p>
+    </FieldDialog>
   );
 }

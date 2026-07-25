@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Dark counterpart of res/values/styles.xml. Selected by the platform whenever the system is in
+    dark mode, which is the same signal isSystemInDarkTheme() gives Compose in ui/Theme.kt — so the
+    launch window and the composed UI agree from the first frame instead of flashing a light canvas.
+
+    The parent is the DARK platform Material theme (no ".Light"), which is what flips the built-in
+    dialog/widget foregrounds; the colour overrides below then pull it onto the design tokens.
+-->
+<resources>
+    <style name="Theme.FieldRepository" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans-serif</item>
+
+        <item name="android:windowBackground">@color/bg_0</item>
+        <item name="android:colorBackground">@color/bg_0</item>
+        <item name="android:statusBarColor">@color/bg_0</item>
+        <item name="android:navigationBarColor">@color/bg_0</item>
+        <!-- Dark bars need light icons. -->
+        <item name="android:windowLightStatusBar">false</item>
+
+        <item name="android:colorPrimary">@color/action</item>
+        <item name="android:colorAccent">@color/action</item>
+        <item name="android:textColorPrimary">@color/ink_900</item>
+        <item name="android:textColorSecondary">@color/ink_500</item>
+        <item name="android:textColorHint">@color/ink_300</item>
+        <item name="android:colorControlNormal">@color/ink_500</item>
+        <item name="android:colorControlActivated">@color/action</item>
+        <item name="android:colorControlHighlight">@color/surface_200</item>
+    </style>
+</resources>

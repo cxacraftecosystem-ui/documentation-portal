@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 
+import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { Field, Select, TextInput } from "@/components/FormControls";
 import { PageHeader } from "@/components/PageHeader";
@@ -10,6 +11,7 @@ import { Pagination } from "@/components/Pagination";
 import { ResizableTh } from "@/components/ResizableTh";
 import { RowActions, rowAction } from "@/components/RowActions";
 import { SearchInput } from "@/components/SearchInput";
+import { adminChromeVisible, useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
 import { requiredText } from "@/lib/forms";
@@ -45,10 +47,22 @@ function GrantCell({
 }
 
 export default function UsersPage() {
+  const confirm = useConfirm();
   const { user: currentUser } = useAuth();
-  // Professors reach this page too, with promotion rights only: the role column is editable for
-  // users beneath them, while creation, deletion, capability grants and the bulk panel stay admin+.
-  const admin = isAdmin(currentUser);
+  const { adminMode } = useAdminView();
+  /**
+   * Professors reach this page too, with promotion rights only: the role column is editable for
+   * users beneath them, while creation, deletion, capability grants and the bulk panel stay admin+.
+   *
+   * `adminChromeVisible` is the admin-view half. For an ADMIN with admin view off AppShell already
+   * replaces the whole route (the nav link is hidden, so the page would otherwise be reachable only
+   * by URL) — this is the second line, keeping the admin-only controls tied to the toggle wherever
+   * the page renders. It cannot narrow a PROFESSOR: they are not `isAdmin`, so `adminChromeVisible`
+   * is true for them and nothing here changes, which matters because they have no toggle to undo.
+   */
+  const chrome = adminChromeVisible(currentUser, adminMode);
+  const admin = isAdmin(currentUser) && chrome;
+  const masterControls = isMasterAdmin(currentUser) && chrome;
   const [data, setData] = useState<PageResult<User> | null>(null);
   const [query, setQuery] = useState("");
   const [applied, setApplied] = useState("");
@@ -120,7 +134,7 @@ export default function UsersPage() {
 
   /** Full roster for the bulk grants panel — the paged table alone would hide most accounts. */
   async function loadAllUsers() {
-    if (!isMasterAdmin(currentUser)) return;
+    if (!masterControls) return;
     try {
       const result = await listResource<User>("/users", { pageSize: 100 });
       setAllUsers(result.items);
@@ -137,7 +151,7 @@ export default function UsersPage() {
   useEffect(() => {
     loadAllUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser?.id]);
+  }, [currentUser?.id, masterControls]);
 
   // Live search: debounce typing by 350ms; Enter applies immediately via onSubmit.
   useEffect(() => {
@@ -202,7 +216,17 @@ export default function UsersPage() {
   }
 
   async function remove(user: User) {
-    if (!window.confirm(`Delete ${user.email}?`)) return;
+    const ok = await confirm(
+      deleteConfirm(
+        "Delete this account?",
+        <>
+          <span className="font-medium text-ink-900">{user.name || user.email}</span> loses access immediately and
+          cannot sign in again. This action cannot be undone.
+        </>,
+        "Records they documented stay in the repository, still attributed to them."
+      )
+    );
+    if (!ok) return;
     try {
       await apiFetch(`/users/${user.id}`, { method: "DELETE" });
       setError(null);
@@ -375,7 +399,7 @@ export default function UsersPage() {
         )}
         {data ? <Pagination page={data.page} pages={data.pages} total={data.total} onPage={setPage} /> : null}
       </section>
-      {isMasterAdmin(currentUser) ? (
+      {masterControls ? (
         <section className="panel mt-6 p-4">
           <h2 className="font-display font-bold text-xl text-ink">Admin management</h2>
           <p className="mt-1 text-sm text-ink-muted">

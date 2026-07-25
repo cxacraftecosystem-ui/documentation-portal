@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Share2 } from "lucide-react";
 
+import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { Field, Select, TextInput } from "@/components/FormControls";
 import { PageHeader } from "@/components/PageHeader";
@@ -47,6 +48,7 @@ function tierAtLeast(tier: DataAccessTier, min: DataAccessTier) {
 }
 
 export default function SharingPage() {
+  const confirm = useConfirm();
   const { user: currentUser } = useAuth();
   const [grants, setGrants] = useState<MyGrants | null>(null);
   const [tiers, setTiers] = useState<TierInfo[]>([]);
@@ -194,7 +196,23 @@ export default function SharingPage() {
 
   async function decide(grant: DataAccessGrant, status: "GRANTED" | "DENIED", tier?: DataAccessTier) {
     const who = grant.grantee?.name ?? grant.granteeId;
-    if (status === "DENIED" && !window.confirm(`Deny ${who} access to your data?`)) return;
+    // Denying is reversible — the requester can ask again, and the owner can grant later — so this is
+    // amber rather than red. Granting needs no confirmation at all.
+    if (status === "DENIED") {
+      const ok = await confirm({
+        title: "Deny this request?",
+        body: (
+          <>
+            <span className="font-medium text-ink-900">{who}</span> will not get access to your data, and will see the
+            request as denied.
+          </>
+        ),
+        note: "They can request access again, and you can grant it at any time.",
+        tone: "warning",
+        confirmLabel: "Deny request"
+      });
+      if (!ok) return;
+    }
     await act(
       () =>
         apiFetch(`/data-access/grants/${grant.id}/decide`, {
@@ -211,14 +229,34 @@ export default function SharingPage() {
 
   async function revoke(grant: DataAccessGrant) {
     const who = grant.grantee?.name ?? grant.granteeId;
-    if (!window.confirm(`Revoke ${who}'s access to your data? They lose it immediately.`)) return;
+    const ok = await confirm({
+      title: "Revoke this access?",
+      body: (
+        <>
+          <span className="font-medium text-ink-900">{who}</span> loses access to your data immediately, including
+          anything they were part-way through downloading.
+        </>
+      ),
+      note: "Comments and edits they already made are kept.",
+      tone: "danger",
+      confirmLabel: "Revoke access"
+    });
+    if (!ok) return;
     await act(() => apiFetch(`/data-access/grants/${grant.id}/revoke`, { method: "POST" }), "Access revoked.");
   }
 
   // Destructive on both sides of the table: as owner it deletes a denied/revoked row, as grantee it
   // withdraws a pending request or drops access already held. Confirm before it fires.
   async function remove(grant: DataAccessGrant) {
-    if (!window.confirm("Remove this sharing entry? This permanently deletes the grant record.")) return;
+    const ok = await confirm({
+      ...deleteConfirm(
+        "Remove this sharing entry?",
+        "This permanently deletes the grant record, along with the history of who asked for what and when.",
+        "As the owner this clears a denied or revoked row; as the requester it withdraws the request or drops access you hold."
+      ),
+      confirmLabel: "Remove entry"
+    });
+    if (!ok) return;
     await act(() => apiFetch(`/data-access/grants/${grant.id}`, { method: "DELETE" }), "Removed.");
   }
 

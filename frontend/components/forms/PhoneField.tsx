@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { Dropdown } from "@/components/ui/Dropdown";
+import { useConfirm } from "@/components/dialogs";
 import {
   COUNTRIES,
   DEFAULT_DIAL_CODE,
@@ -75,13 +76,22 @@ export function PhoneField({
     onValueChange?.(next.digits && nextCountry ? `${nextCountry.dialCode} ${next.digits}` : "");
   }
 
-  function handleCountry(nextIso2: string) {
+  const confirm = useConfirm();
+  async function handleCountry(nextIso2: string) {
     if (nextIso2 === iso2) return;
     const next = countryByIso2(nextIso2);
     if (!next) return;
     if (dialCode === DEFAULT_DIAL_CODE && next.dialCode !== DEFAULT_DIAL_CODE) {
+      // Not destructive — a "did you mean" check — so this warns rather than alarms.
       // Cancel keeps the +91 prefix untouched.
-      if (typeof window !== "undefined" && !window.confirm(FOREIGN_CONFIRM)) return;
+      const ok = await confirm({
+        title: "Use an international number?",
+        body: FOREIGN_CONFIRM,
+        confirmLabel: `Use ${next.dialCode}`,
+        cancelLabel: "Keep +91",
+        tone: "warning"
+      });
+      if (!ok) return;
     }
     emit({ iso2: nextIso2, digits });
   }

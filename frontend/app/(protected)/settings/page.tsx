@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ClipboardCheck, KeyRound, Settings as SettingsIcon, UsersRound, type LucideIcon } from "lucide-react";
 
 import { PageHeader } from "@/components/PageHeader";
+import { adminChromeVisible, useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { AppSettingsPanel } from "@/components/settings/AppSettingsPanel";
 import { AccessibilityCard, AppearanceCard } from "@/components/settings/PersonalSettingsCards";
@@ -25,7 +26,10 @@ import type { User } from "@/lib/types";
  *    actually let through — a non-admin sees no trace that these pages exist.
  *
  * Gating uses `isAdmin` / `isMasterAdmin` from lib/permissions, the same predicates the backend
- * dependencies mirror (`require_admin` / `require_master_admin`).
+ * dependencies mirror (`require_admin` / `require_master_admin`), ANDed with `adminChromeVisible`
+ * so the admin half also disappears while an admin browses with admin view off. The route itself
+ * stays open to everyone: what is left — Appearance, Accessibility and Request workshop access —
+ * belongs to the account rather than to the repository, and is exactly what an ordinary user sees.
  */
 
 type AdminLink = {
@@ -65,9 +69,13 @@ const ADMIN_LINKS: AdminLink[] = [
 
 export default function SettingsPage() {
   const { user, loading } = useAuth();
-  const admin = isAdmin(user);
-  const master = isMasterAdmin(user);
-  const links = ADMIN_LINKS.filter((link) => link.visible(user));
+  const { adminMode } = useAdminView();
+  // Role first, toggle second — every `visible` predicate below is `isAdmin` or `isMasterAdmin`, so
+  // ANDing the toggle in can only ever remove a card, never add one for a user without the rights.
+  const chrome = adminChromeVisible(user, adminMode);
+  const admin = isAdmin(user) && chrome;
+  const master = isMasterAdmin(user) && chrome;
+  const links = ADMIN_LINKS.filter((link) => link.visible(user) && chrome);
 
   const header = (
     <PageHeader

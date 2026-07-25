@@ -258,13 +258,233 @@ class FieldRepository(
 
     // --- Assigned tasks ---
 
-    /** My to-do list. [view] "created"/"all" are admin-only planning views and 403 for everyone else. */
-    suspend fun tasks(view: String = "assigned", status: String? = null): List<TaskDto> =
-        api.tasks(view = view, status = status?.blankToNull()).items
+    /**
+     * My to-do list. [view] "created"/"all" are admin-only planning views and 403 for everyone else.
+     *
+     * [assigneeId] and [batchId] are admin-only narrowings — on the default "assigned" view the API
+     * hard-pins the list to the caller, so they cannot be used to read somebody else's tasks.
+     */
+    suspend fun tasks(
+        view: String = "assigned",
+        status: String? = null,
+        workshopId: String? = null,
+        assigneeId: String? = null,
+        batchId: String? = null,
+        pageSize: Int = 100
+    ): List<TaskDto> =
+        api.tasks(
+            view = view,
+            status = status?.blankToNull(),
+            workshopId = workshopId?.blankToNull(),
+            pageSize = pageSize,
+            assigneeId = assigneeId?.blankToNull(),
+            batchId = batchId?.blankToNull()
+        ).items
+
+    /** One task, enriched exactly like a list item. Visible to the assignee, the creator and admins. */
+    suspend fun task(taskId: String): TaskDto = api.task(taskId)
 
     /** Assignee-side update: move the status and/or report how much is done. */
     suspend fun updateTaskProgress(taskId: String, status: String? = null, progressCount: Int? = null): TaskDto =
         api.updateTask(taskId, TaskUpdateBody(status = status, progressCount = progressCount))
+
+    // --- Task administration (admin) ---
+
+    /**
+     * Every picker the assignment builder needs, in one call. Pass [workshopId] to narrow the artisan
+     * list to that workshop; the assignee list is already filtered to who this admin may assign to.
+     */
+    suspend fun taskOptions(workshopId: String? = null): TaskOptionsDto =
+        api.taskOptions(workshopId?.blankToNull())
+
+    /**
+     * Hand ONE scope to several people at once — the assignment action. All-or-nothing: a bad
+     * assignee or a typo'd artisan id fails the whole call rather than leaving half a batch behind.
+     *
+     * The scope must contain work ([recordTypes] and/or [sectionIds] non-empty) or the API 422s.
+     * Empty [artisanIds]/[sectionIds] mean "not narrowed". Omit [title] to let the server derive a
+     * readable one from the scope. [dueAt] is ISO-8601.
+     */
+    suspend fun createTaskBatch(
+        assigneeIds: List<String>,
+        workshopId: String? = null,
+        recordTypes: List<String> = emptyList(),
+        artisanIds: List<String> = emptyList(),
+        sectionIds: List<String> = emptyList(),
+        targetCount: Int? = null,
+        title: String? = null,
+        description: String? = null,
+        dueAt: String? = null
+    ): TaskBatchResultDto =
+        api.createTaskBatch(
+            TaskBatchCreateBody(
+                assigneeIds = assigneeIds,
+                workshopId = workshopId?.blankToNull(),
+                recordTypes = recordTypes,
+                artisanIds = artisanIds,
+                sectionIds = sectionIds,
+                targetCount = targetCount,
+                title = title?.blankToNull(),
+                description = description?.blankToNull(),
+                dueAt = dueAt?.blankToNull()
+            )
+        )
+
+    /**
+     * Assignments grouped back into the action that created them, newest first. The filters choose
+     * which batches are SHOWN; every count reported is for the whole batch regardless.
+     */
+    suspend fun taskBatches(
+        workshopId: String? = null,
+        view: String = "all",
+        batchId: String? = null,
+        assigneeId: String? = null,
+        status: String? = null,
+        page: Int = 1,
+        pageSize: Int = 20
+    ): PageResponse<TaskBatchDto> =
+        api.taskBatches(
+            view = view,
+            workshopId = workshopId?.blankToNull(),
+            batchId = batchId?.blankToNull(),
+            assigneeId = assigneeId?.blankToNull(),
+            status = status?.blankToNull(),
+            page = page,
+            pageSize = pageSize
+        )
+
+    /**
+     * The accountability rollup: what each person was given, what they claim, and what the repository
+     * can actually find them having produced. Leave [workshopId] off for the organisation-wide view.
+     */
+    suspend fun taskProgress(
+        workshopId: String? = null,
+        assigneeId: String? = null,
+        includeFinished: Boolean = true
+    ): TaskProgressReportDto =
+        api.taskProgress(
+            workshopId = workshopId?.blankToNull(),
+            assigneeId = assigneeId?.blankToNull(),
+            includeFinished = includeFinished
+        )
+
+    /** Withdraw a whole assignment. Only the admin who sent it, or the master admin, may unsend it. */
+    suspend fun deleteTaskBatch(batchId: String) = api.deleteTaskBatch(batchId)
+
+    /** Withdraw ONE row — the way to remove a pre-batch/single-assignee assignment (batchId null). */
+    suspend fun deleteTask(taskId: String) = api.deleteTask(taskId)
+
+    // --- Managed provider keys (MASTER ADMIN ONLY; everyone else gets a 403) ---
+
+    /**
+     * Every manageable key with where its value comes from and how its last test went. No provider is
+     * contacted, and no row here ever carries a value — only a four-character hint.
+     */
+    suspend fun managedSecrets(): List<ManagedSecretDto> = api.managedSecrets()
+
+    /** The plaintext of ONE key, for the eye button. The read is audit-logged server-side. */
+    suspend fun revealSecret(key: String): ManagedSecretRevealDto = api.revealSecret(key)
+
+    /**
+     * Set or rotate a key. Takes effect on the next provider call — no restart, no redeploy. Blank is
+     * a 422 by design: use [clearSecret] to fall back to the deployed environment value.
+     */
+    suspend fun setSecret(key: String, value: String): ManagedSecretDto =
+        api.setSecret(key, ManagedSecretSetBody(value = value.trim()))
+
+    /** Drop the stored override so the environment value applies again. Returns the key's new state. */
+    suspend fun clearSecret(key: String): ManagedSecretDto = api.clearSecret(key)
+
+    /** Call the provider once with the key in force; the verdict is persisted onto the row. */
+    suspend fun testSecret(key: String): ManagedSecretDto = api.testSecret(key)
+
+    // --- Appearance + accessibility preferences ---
+
+    /**
+     * This account's saved preferences, or NULL when it has never saved any.
+     *
+     * Null means "no opinion yet", not "the defaults": keep whatever the device already applied and
+     * seed the server with it via [savePreferences], rather than snapping the user back to system.
+     */
+    suspend fun myPreferences(): PreferencesDto? = api.myPreferences().takeIf { it.exists }
+
+    /**
+     * Create or update this account's preferences. Sent whole on every save. [theme] is
+     * `system` | `light` | `dark`; anything else is a 422.
+     */
+    suspend fun savePreferences(
+        theme: String = "system",
+        reducedMotion: Boolean = false,
+        largerText: Boolean = false,
+        highContrast: Boolean = false
+    ): PreferencesDto =
+        api.updateMyPreferences(
+            PreferencesUpdateBody(
+                theme = theme,
+                reducedMotion = reducedMotion,
+                largerText = largerText,
+                highContrast = highContrast
+            )
+        )
+
+    /** Save a whole [PreferencesDto] back (the round-trip form of [savePreferences]). */
+    suspend fun savePreferences(preferences: PreferencesDto): PreferencesDto =
+        savePreferences(
+            theme = preferences.theme,
+            reducedMotion = preferences.reducedMotion,
+            largerText = preferences.largerText,
+            highContrast = preferences.highContrast
+        )
+
+    // --- Global search ---
+
+    /**
+     * Search artisans, workshops, products, tools and media at once. Every argument is optional; the
+     * five buckets share one [page]/[pageSize] but each has its own length and its own total, so page
+     * against `totals`/`pageCount`, never against how full one bucket happens to be.
+     *
+     * [dateFrom]/[dateTo] are ISO-8601. [pageSize] is capped at 50 server-side.
+     */
+    suspend fun search(
+        q: String? = null,
+        craftId: String? = null,
+        place: String? = null,
+        artisanId: String? = null,
+        mediaType: String? = null,
+        dateFrom: String? = null,
+        dateTo: String? = null,
+        page: Int = 1,
+        pageSize: Int = 10
+    ): SearchResultsDto =
+        api.search(
+            q = q?.blankToNull(),
+            craftId = craftId?.blankToNull(),
+            place = place?.blankToNull(),
+            artisanId = artisanId?.blankToNull(),
+            mediaType = mediaType?.blankToNull(),
+            dateFrom = dateFrom?.blankToNull(),
+            dateTo = dateTo?.blankToNull(),
+            page = page,
+            pageSize = pageSize.coerceIn(1, 50)
+        )
+
+    // --- Data browser ---
+
+    /**
+     * ONE level of the virtual data tree. Lazy: only this level's queries run, so navigate by calling
+     * this again with an entry's `path`. `path = ""` is the taxonomy chooser, not a folder listing.
+     *
+     * Needs the dataset-download permission (403 otherwise) and everything listed is already filtered
+     * to what the caller may see.
+     */
+    suspend fun dataTree(path: String = ""): DataTreeDto = api.dataTree(path)
+
+    /**
+     * The flattened subtree below [path]. [include] is a CSV of
+     * `text,images,videos,audios,transcripts,documents,other`; null means everything.
+     */
+    suspend fun dataManifest(path: String = "", include: String? = null): DataManifestDto =
+        api.dataManifest(path, include?.blankToNull())
 
     /** Records awaiting review (status PENDING), newest first, across record types. */
     suspend fun pendingReviews(): List<PendingReviewDto> = api.pendingReviews().items
@@ -532,11 +752,14 @@ class FieldRepository(
     }
 
     /**
-     * Download the styled .xlsx relational report of the entire dataset straight into the public
-     * Downloads folder (same MediaStore path the dataset zip uses) and return where it was saved.
+     * Download the styled .xlsx relational report straight into the public Downloads folder (same
+     * MediaStore path the dataset zip uses) and return where it was saved.
+     *
+     * [path] scopes the report to one subtree of the data browser; the default, "", is the whole
+     * dataset — which is what every caller before the data browser existed meant.
      */
-    suspend fun downloadReport(context: Context): String = withContext(Dispatchers.IO) {
-        val response = api.dataReport(format = "xlsx", path = "")
+    suspend fun downloadReport(context: Context, path: String = ""): String = withContext(Dispatchers.IO) {
+        val response = api.dataReport(format = "xlsx", path = path)
         if (!response.isSuccessful) throw IllegalStateException("Report request failed (HTTP ${response.code()})")
         val body = response.body() ?: throw IllegalStateException("The report response was empty")
         val stamp = DateTimeFormatter.ofPattern("ddMMyyyyHHmmss").withZone(ZoneId.systemDefault()).format(Instant.now())
@@ -544,6 +767,100 @@ class FieldRepository(
         val tmp = File(context.cacheDir, name)
         body.byteStream().use { input -> FileOutputStream(tmp).use { out -> input.copyTo(out) } }
         val location = persistFileToDownloads(context, tmp, name, XLSX_MIME)
+        tmp.delete()
+        location
+    }
+
+    /**
+     * Zip ONE folder of the data browser into the device's Downloads folder.
+     *
+     * The same shape as [downloadDataset], but scoped to [path] and filterable with [include] (a CSV
+     * of `text,images,videos,audios,transcripts,documents,other`; null means everything). Generated
+     * text entries are written from their inline `content` — no request at all. Audio marked
+     * `convertToMp4` is fetched from the API as an .mp4 and falls back to the original object when
+     * the server cannot convert it, exactly as the web does. A file that fails is counted and
+     * skipped, never fatal.
+     *
+     * [folderName] names the .zip; the requested folder's own name is the natural choice.
+     */
+    suspend fun downloadDataFolder(
+        context: Context,
+        path: String,
+        include: String? = null,
+        folderName: String? = null,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }
+    ): DatasetDownloadResult = withContext(Dispatchers.IO) {
+        val manifest = api.dataManifest(path, include?.blankToNull())
+        val total = manifest.files.size
+        val stamp = DateTimeFormatter.ofPattern("ddMMyyyyHHmmss").withZone(ZoneId.systemDefault()).format(Instant.now())
+        val stem = (folderName ?: path.substringAfterLast('/')).blankToNull()
+            ?.replace(Regex("[^A-Za-z0-9._-]+"), "_")?.take(60)
+            ?: "dataset"
+        val zipName = "FieldRepository_${stem}_$stamp.zip"
+        val tmp = File(context.cacheDir, zipName)
+        var failed = 0
+        ZipOutputStream(BufferedOutputStream(FileOutputStream(tmp))).use { zip ->
+            manifest.files.forEachIndexed { index, f ->
+                runCatching {
+                    zip.putNextEntry(ZipEntry(f.path))
+                    when {
+                        f.content != null -> zip.write(f.content.toByteArray(Charsets.UTF_8))
+                        f.convertToMp4 && f.mediaId != null ->
+                            if (!writeConvertedMedia(f.mediaId, zip)) writeObject(f.url, zip)
+                        else -> writeObject(f.url, zip)
+                    }
+                    zip.closeEntry()
+                }.onFailure {
+                    failed++
+                    runCatching { zip.closeEntry() }
+                }
+                onProgress(index + 1, total)
+            }
+        }
+        val location = persistFileToDownloads(context, tmp, zipName, "application/zip")
+        tmp.delete()
+        DatasetDownloadResult(displayLocation = location, saved = total - failed, total = total, failed = failed)
+    }
+
+    /** Stream the API's .mp4 conversion of one audio row into [sink]. False = let the caller fall back. */
+    private suspend fun writeConvertedMedia(mediaId: String, sink: java.io.OutputStream): Boolean =
+        runCatching {
+            val response = api.downloadDataMedia(mediaId, "mp4")
+            val body = response.body()
+            if (!response.isSuccessful || body == null) return@runCatching false
+            body.byteStream().use { it.copyTo(sink) }
+            true
+        }.getOrDefault(false)
+
+    /** Stream a stored object straight from its (presigned) URL into [sink]. */
+    private fun writeObject(url: String?, sink: java.io.OutputStream) {
+        if (url.isNullOrBlank()) return
+        storageClient.newCall(Request.Builder().url(url).build()).execute().use { resp ->
+            if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
+            resp.body?.byteStream()?.copyTo(sink)
+        }
+    }
+
+    /**
+     * Save ONE media file from the data browser into Downloads and return where it landed. Audio
+     * arrives as an .mp4 (AAC) the server transcodes on the fly, which is what makes a field
+     * recording playable on any device; pass [format] = "original" to bypass that.
+     */
+    suspend fun downloadDataMedia(
+        context: Context,
+        mediaId: String,
+        filename: String,
+        format: String? = null
+    ): String = withContext(Dispatchers.IO) {
+        val response = api.downloadDataMedia(mediaId, format?.blankToNull())
+        if (!response.isSuccessful) throw IllegalStateException("Download failed (HTTP ${response.code()})")
+        val body = response.body() ?: throw IllegalStateException("The download response was empty")
+        val name = filename.blankToNull()?.replace(Regex("[^A-Za-z0-9._-]+"), "_") ?: mediaId
+        val tmp = File(context.cacheDir, name)
+        body.byteStream().use { input -> FileOutputStream(tmp).use { out -> input.copyTo(out) } }
+        val mime = response.headers()["Content-Type"]?.substringBefore(';')?.trim().blankToNull()
+            ?: "application/octet-stream"
+        val location = persistFileToDownloads(context, tmp, name, mime)
         tmp.delete()
         location
     }

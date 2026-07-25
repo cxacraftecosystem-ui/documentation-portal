@@ -14,7 +14,7 @@ Vercel account. Sister documents:
 
 | Piece | Where it runs | Notes |
 |---|---|---|
-| Next.js web app | **Vercel** | 25 of 28 routes prerender to static HTML; the three `[id]/edit` routes render on demand (§8). No route handlers, no server actions, no `fs` access — see §8. |
+| Next.js web app | **Vercel** | Deployed by `.github/workflows/deploy-frontend.yml`, **after** the backend deploy succeeds ([docs/CI.md](CI.md)) — not by Vercel's Git integration (§3). 25 of 28 routes prerender to static HTML; the three `[id]/edit` routes render on demand (§8). No route handlers, no server actions, no `fs` access — see §8. |
 | FastAPI API | **AWS EC2** `t3.micro`, behind nginx | Not deployed by Vercel. Auto-deployed by `.github/workflows/deploy-backend.yml`. |
 | HTTPS + IPv6 edge for the API | **CloudFront** `https://d2b34i3e92al6i.cloudfront.net` | The value the browser actually talks to. |
 | Database | **Supabase** Postgres | Reached only by the backend. |
@@ -123,9 +123,26 @@ project does. Two caveats if you later split them:
 
 ## 3. Deploy
 
-Click **Deploy**. The first build takes 1–3 minutes. Afterwards, every push to `main` triggers a
-production deployment and every other push triggers a preview deployment — no CI configuration is
-needed, Vercel's GitHub integration does it.
+> **Production deploys are now done by GitHub Actions, not by Vercel's Git integration.**
+> `.github/workflows/deploy-frontend.yml` runs `vercel pull` → `vercel build --prod` →
+> `vercel deploy --prebuilt --prod`, and it is chained to run **only after the backend deploy
+> succeeds**. That ordering is the whole point: the browser calls the FastAPI box directly (§0), so
+> a frontend published ahead of its backend spends the gap calling endpoints that answer 404 — and
+> the backend deploy stops the API service to run migrations, so the gap is real. Full pipeline,
+> secrets and troubleshooting: **[docs/CI.md](CI.md)**.
+>
+> This means step 2 below is a **required** one-time change to the project: Vercel's own auto-deploy
+> for `main` must be switched off, or it races ahead of the backend and re-creates exactly the bug
+> the pipeline prevents. Preview deployments for pull requests are unaffected — leave them on.
+
+1. Click **Deploy** for the first build (1–3 minutes) so the project exists and the domain is
+   assigned.
+2. Then disable dashboard-triggered production builds: **Settings → Git → Ignored Build Step** →
+   `exit 0` (or set `"git": { "deploymentEnabled": { "main": false } }` in `frontend/vercel.json`).
+3. Add the `VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` repository secrets — see
+   [docs/CI.md §2](CI.md#2-required-repository-secrets) for exactly where each value comes from.
+
+From then on, a push to `main` deploys the backend first and this project second, automatically.
 
 Verify the deployment:
 
@@ -188,11 +205,20 @@ domain.
 Because `NEXT_PUBLIC_*` values are compiled in, editing them in the dashboard has **no effect on the
 live site** until a new build runs:
 
+**Preferred, now that CI owns production:** GitHub → Actions → *Deploy frontend to Vercel* →
+**Run workflow** (leave `force` = true). It runs `vercel pull` first, so it always picks up the
+current dashboard values. Then hard-reload the site (Ctrl-F5) to drop the cached bundle.
+
+From the Vercel dashboard instead — note this only works if you have not disabled dashboard builds
+per §3, and it bypasses the backend-first ordering:
+
 1. **Deployments** tab → the most recent production deployment → **⋯ → Redeploy**.
 2. **Untick "Use existing Build Cache"** so the variables are read fresh.
 3. Wait for the build, then hard-reload the site (Ctrl-F5) to drop the cached bundle.
 
-Alternatively push an empty commit (`git commit --allow-empty -m "chore: redeploy"`).
+Pushing an empty commit (`git commit --allow-empty -m "chore: redeploy"`) also works and goes
+through the full pipeline — but the change detector sees no `frontend/**` files and skips the
+deploy, so use **Run workflow** rather than an empty commit.
 
 ---
 

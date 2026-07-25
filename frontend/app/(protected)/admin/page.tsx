@@ -39,6 +39,15 @@ type Tile = {
 /** /media/orphans returns the whole recovery list, so the table pages client-side. */
 const PAGE_SIZE = 20;
 
+/**
+ * /admin — the hub, ADMIN and MASTER ADMIN.
+ *
+ * Two gates sit above this page and neither lives here. `require_admin` is mirrored by ROUTE_GUARDS
+ * and by the `permitted` check below, and admin view is mirrored by ADMIN_CHROME_ROUTES: the whole
+ * hub is admin chrome, so an admin browsing with admin view off gets AppShell's "hidden while admin
+ * view is off" panel and this component never mounts — no /media/orphans call, no flash of tiles.
+ * Both gates keep their role check, so the toggle can only ever subtract.
+ */
 export default function AdminHubPage() {
   const { user, loading: authLoading } = useAuth();
   const permitted = isAdmin(user);

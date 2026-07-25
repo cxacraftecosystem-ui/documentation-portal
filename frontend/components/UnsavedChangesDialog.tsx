@@ -1,11 +1,22 @@
 "use client";
 
-import { useEffect, useId } from "react";
+import { FilePenLine } from "lucide-react";
+import { useRef } from "react";
+
+import { FieldDialog } from "@/components/dialogs/FieldDialog";
 
 /**
- * Unsaved-changes prompt (Android parity): shown when the user tries to leave a form that
- * still has unsaved work. "Save" runs the form's own validated save, "Discard" leaves and
- * drops the in-progress data, "Keep editing" stays on the form.
+ * Unsaved-changes prompt (Android parity, `MainActivity` `pendingExit`): shown when the user tries to
+ * leave a form that still has unsaved work. "Save" runs the form's own validated save — a missing
+ * required field keeps them on the form with the field highlighted — "Discard" leaves and drops the
+ * in-progress data, "Keep editing" stays.
+ *
+ * Three ways forward, so there is no corner X (`showClose={false}`): an X would have to silently mean
+ * one of the three, and the user cannot tell which. Escape and a backdrop click both mean "Keep
+ * editing", the only one of the three that loses nothing.
+ *
+ * Built on `FieldDialog` rather than its own overlay, which is what gives it the focus trap, focus
+ * restoration back to the control the user was leaving from, and the shared ARIA wiring.
  */
 export function UnsavedChangesDialog({
   open,
@@ -20,37 +31,31 @@ export function UnsavedChangesDialog({
   onDiscard: () => void;
   onSave: () => void;
 }) {
-  const titleId = useId();
-
-  useEffect(() => {
-    if (!open) return;
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") onKeepEditing();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onKeepEditing]);
-
-  if (!open) return null;
+  const keepEditingRef = useRef<HTMLButtonElement | null>(null);
 
   return (
-    <div
-      className="fixed inset-0 z-[100] grid place-items-center bg-ink-900/40 p-4"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !saving) onKeepEditing();
-      }}
-    >
-      <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="panel w-full max-w-md p-5 shadow-lg">
-        <h2 id={titleId} className="display-title text-lg">
-          Unsaved changes
-        </h2>
-        <p className="mt-2 text-sm leading-6 text-ink-700">
-          You have unsaved changes, including any recordings or media you just captured. Save them before leaving, or
-          discard them?
-        </p>
-        <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <button type="button" className="field-button-secondary" disabled={saving} onClick={onKeepEditing}>
+    <FieldDialog
+      open={open}
+      onClose={onKeepEditing}
+      role="alertdialog"
+      tone="warning"
+      icon={<FilePenLine className="h-4 w-4" aria-hidden />}
+      busy={saving}
+      showClose={false}
+      // A backdrop click is the same reflex as Escape, and here it costs nothing: it keeps editing.
+      dismissOnBackdrop
+      initialFocusRef={keepEditingRef}
+      title="Unsaved changes"
+      description="You have unsaved changes, including any recordings or media you just captured. Save them before leaving, or discard them?"
+      footer={
+        <>
+          <button
+            type="button"
+            ref={keepEditingRef}
+            className="field-button-secondary"
+            disabled={saving}
+            onClick={onKeepEditing}
+          >
             Keep editing
           </button>
           <button type="button" className="field-danger" disabled={saving} onClick={onDiscard}>
@@ -59,8 +64,8 @@ export function UnsavedChangesDialog({
           <button type="button" className="field-button" disabled={saving} onClick={onSave}>
             {saving ? "Saving…" : "Save"}
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    />
   );
 }

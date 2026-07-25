@@ -114,7 +114,10 @@ export const NAV_ITEMS: NavItem[] = [
 
   // Admin — capability holders below admin (professors, grantees) keep these permanently; admins,
   // who own the toggle, see them only while admin view is ON.
-  { href: "/review", label: "Review", icon: Eye, group: "Admin", can: canReview, gate: "require_reviewer", adminSurface: true },
+  // NOT adminSurface. Reviewing is a Field Contributor+ capability, not admin chrome, and AppShell's
+  // ADMIN_CHROME_ROUTES deliberately leaves /review open while admin view is off. Flagging it here
+  // too removed the link from an admin who still had the route — an open page with no way to reach it.
+  { href: "/review", label: "Review", icon: Eye, group: "Browse", can: canReview, gate: "require_reviewer" },
   { href: "/admin", label: "Settings hub", icon: SlidersHorizontal, group: "Admin", can: isAdmin, gate: "require_admin", adminSurface: true },
   { href: "/users", label: "Manage users", icon: UserCog, group: "Admin", can: canManageUsers, gate: "require_professor", adminSurface: true },
 

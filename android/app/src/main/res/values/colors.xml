@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Field Repository design tokens, restated from the web design system
+    (frontend/tailwind.config.ts + frontend/app/globals.css) for the platform theme.
+
+    The Compose side of the same palette lives in ui/Theme.kt (FieldPalette) — keep the two in
+    step. XML only needs the handful of tokens the platform window/dialogs read, but the whole
+    ramp is declared so future XML surfaces have somewhere correct to point.
+
+    Neutrals are overridden in values-night/. The purple ramp and the semantic colours do NOT
+    invert (brand colour is brand colour) and are therefore declared only here.
+-->
+<resources>
+    <!-- Purple ramp — oklch(L C 305) converted to sRGB. purple_700 is THE action colour. -->
+    <color name="purple_50">#FFF9F5FF</color>
+    <color name="purple_100">#FFF2E9FE</color>
+    <color name="purple_200">#FFE7D5FE</color>
+    <color name="purple_300">#FFD6B6FB</color>
+    <color name="purple_400">#FFC090F5</color>
+    <color name="purple_500">#FFAA69E9</color>
+    <color name="purple_600">#FF9148D2</color>
+    <color name="purple_700">#FF762CB1</color>
+    <color name="purple_800">#FF5F1C93</color>
+    <color name="purple_900">#FF4B1674</color>
+    <color name="purple_950">#FF2F0D4B</color>
+
+    <!-- Semantic -->
+    <color name="success_600">#FF15803D</color>
+    <color name="success_100">#FFDCFCE7</color>
+    <color name="error_600">#FFDC2626</color>
+    <color name="error_100">#FFFEE2E2</color>
+    <color name="amber_500">#FFF59E0B</color>
+    <color name="amber_100">#FFFEF3C7</color>
+    <color name="amber_800">#FF92400E</color>
+
+    <!-- Themed neutrals (light) — see values-night/colors.xml for the dark ladder. -->
+    <color name="bg_0">#FFF7F6FB</color>
+    <color name="card">#FFFFFFFF</color>
+    <color name="surface_50">#FFFAF9FD</color>
+    <color name="surface_100">#FFF3F1FA</color>
+    <color name="surface_200">#FFE9E6F5</color>
+    <color name="surface_300">#FFDCD7EE</color>
+    <color name="line_200">#FFE4E2EF</color>
+    <color name="ink_900">#FF1E1B2E</color>
+    <color name="ink_700">#FF3A3651</color>
+    <color name="ink_500">#FF615D7A</color>
+    <color name="ink_300">#FFA7A3BC</color>
+
+    <!-- Action colour resolved per theme: purple_700 on light, purple_400 on dark (purple_700 is
+         only 2.3:1 against the dark canvas). Point platform accents at this, not at the ramp. -->
+    <color name="action">@color/purple_700</color>
+    <color name="on_action">#FFFFFFFF</color>
+
+    <!--
+        LOGO MARK ONLY. The 8-point star keeps its native terracotta on a near-black disc over
+        cream. These three are NOT app colours — never use terracotta as an action colour.
+    -->
+    <color name="logo_terracotta">#FFCC785C</color>
+    <color name="logo_disc">#FF181715</color>
+    <color name="logo_cream">#FFFAF9F5</color>
+</resources>

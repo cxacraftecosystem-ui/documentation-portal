@@ -17,6 +17,7 @@ import { handleFormEnter } from "@/lib/formNav";
 import { inferMediaType, uploadMediaFile } from "@/lib/media";
 import { hasRank } from "@/lib/permissions";
 import type { Artisan, ExtraMetadata, MediaFile, ProductDocumentation, RecordStatus, User, Workshop } from "@/lib/types";
+import { useConfirm } from "@/components/dialogs";
 
 // ---------------------------------------------------------------------------
 // Types for the /processes endpoints (hydrated detail: media on the process =
@@ -131,10 +132,19 @@ function SavedMediaList({
 }) {
   const [active, setActive] = useState<PreviewMedia | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const confirm = useConfirm();
+  // After the hooks: an empty list renders nothing at all (no "Already attached:" heading).
   if (!items.length) return null;
 
   async function remove(media: MediaFile) {
-    if (!window.confirm(`Remove "${media.caption || media.originalFilename}"? This permanently deletes the file.`)) return;
+    const ok = await confirm({
+      title: "Remove this file?",
+      body: `"${media.caption || media.originalFilename}" will be removed from this step.`,
+      note: "The file is permanently deleted from storage. This cannot be undone.",
+      confirmLabel: "Remove file",
+      tone: "danger"
+    });
+    if (!ok) return;
     setRemovingId(media.id);
     try {
       await apiFetch(`/media/${media.id}`, { method: "DELETE" });

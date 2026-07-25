@@ -181,7 +181,7 @@ fun MapPickerDialog(
             modifier = Modifier.fillMaxWidth().padding(16.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Drop a pin", fontFamily = FontFamily.Serif, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
+                Text("Drop a pin", fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
                 Text("Tap the map or drag the marker to set the exact location.", color = Muted, fontSize = 12.sp)
                 AndroidView(
                     modifier = Modifier.fillMaxWidth().height(380.dp).background(SurfaceCard, RoundedCornerShape(12.dp)),
@@ -342,7 +342,7 @@ fun ArtisanQuestionnairePanel(answers: List<ArtisanAnswerDto>, loading: Boolean)
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Questionnaire answers", fontFamily = FontFamily.Serif, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
+            Text("Questionnaire answers", fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
             when {
                 loading -> Text("Loading answers...", color = Muted, fontSize = 12.sp)
                 answers.isEmpty() -> Text("No answered questionnaire questions for this artisan yet.", color = Muted, fontSize = 12.sp)

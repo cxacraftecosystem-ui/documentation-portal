@@ -17,6 +17,11 @@ import { isAdmin } from "@/lib/permissions";
  * and the per-workshop roster of people who HAVE it. They share one WorkshopAssignment row per
  * (workshop, user), so approving in the queue changes what the roster shows and vice versa —
  * `refreshToken` is bumped by either panel to make the other re-read rather than go stale.
+ *
+ * Granting access is an admin act, so the route is admin chrome (ADMIN_CHROME_ROUTES): with admin
+ * view off AppShell replaces it with the "hidden while admin view is off" panel, which points at
+ * /settings — where ASKING for access stays open to everyone, admin view or not. The `isAdmin`
+ * guard below is untouched by the toggle.
  */
 export default function WorkshopAccessPage() {
   const { user, loading } = useAuth();

@@ -4,6 +4,7 @@ import { Fragment, useEffect, useState } from "react";
 import { ClipboardCheck } from "lucide-react";
 
 import { useAuth } from "@/components/AuthProvider";
+import { useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
@@ -50,6 +51,7 @@ const ACTION_COPY: Record<DecisionAction, { noteLabel: string; confirmLabel: str
 };
 
 export default function ReviewPage() {
+  const confirm = useConfirm();
   const { user } = useAuth();
   const [items, setItems] = useState<PendingItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,8 +112,22 @@ export default function ReviewPage() {
     const notes = note.trim();
     // "Send for revision" is meaningless without comments — the button stays disabled, but guard anyway.
     if (action === "revise" && !notes) return;
-    if (action === "reject" && !window.confirm(`Reject "${item.label}"? The contributor will see this record as rejected.`)) {
-      return;
+    // Rejecting is the end of the road for a record, and "Send for revision" is the softer action
+    // sitting right next to it — so the difference between the two is spelled out here rather than
+    // left to the button labels.
+    if (action === "reject") {
+      const ok = await confirm({
+        title: "Reject this record?",
+        body: (
+          <>
+            <span className="font-medium text-ink-900">{item.label}</span> will show as rejected to the contributor.
+          </>
+        ),
+        note: "If you want them to fix it and resubmit, close this and use Send for revision instead.",
+        tone: "danger",
+        confirmLabel: "Reject record"
+      });
+      if (!ok) return;
     }
     setSubmitting(true);
     try {

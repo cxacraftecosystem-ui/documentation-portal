@@ -15,6 +15,11 @@ import { isMasterAdmin } from "@/lib/permissions";
  * manage people and records, while handing out live provider credentials (the reveal endpoint returns
  * plaintext) is a different class of power. The link to this page is hidden from everybody else, and
  * this guard catches the bookmark.
+ *
+ * Admin view is the separate, softer gate and is enforced above the page: the route is listed in
+ * ADMIN_CHROME_ROUTES, so a master admin browsing with admin view off gets AppShell's "hidden while
+ * admin view is off" panel instead and this component never mounts. The role guard below stays,
+ * because the toggle narrows and never widens.
  */
 export default function ApiKeysPage() {
   const { user, loading } = useAuth();

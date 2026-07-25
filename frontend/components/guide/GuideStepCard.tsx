@@ -55,15 +55,26 @@ export function GuideStepCard({
       // reader would say "I'm on this step now".
       viewport={{ margin: "-45% 0px -45% 0px", amount: "some" }}
       onViewportEnter={onEnterView}
-      className="relative scroll-mt-28 pl-12 sm:pl-16"
+      // Two columns: the spine rail, then the card. The rail's width is `--guide-rail`, set once
+      // on the list in `GuideJourney`, which also draws the spine centred in a box of that exact
+      // width — so the number and the spine are centred in the SAME box rather than each guessing
+      // the same axis from its own offset. (`2rem` + the `1rem` gap reproduces the old `pl-12`,
+      // `3rem` + `1rem` the old `sm:pl-16`; the fallback keeps the card usable on its own.)
+      className="grid scroll-mt-28 grid-cols-[var(--guide-rail,2rem)_minmax(0,1fr)] gap-x-4"
     >
-      {/* Spine node. Filled once the step has been reached, hollow before that. */}
+      {/* Spine node. A grid item, not an absolutely positioned one: `justify-self-center` puts it
+          on the rail's centre line without a transform, which leaves `transform` free for the
+          scale below. It was the other way round before — framer-motion's inline
+          `transform: scale(…)` overwrote the `-translate-x-1/2` that did the centring, and every
+          bubble sat half its own width (16px) right of the spine at every breakpoint.
+          `z-10` lifts it over the spine: a grid item with a z-index makes its own stacking
+          context, so it wins against the positioned track without needing `position` itself. */}
       <motion.span
         aria-hidden
         initial={false}
         animate={{ scale: expanded && !reduce ? 1.12 : 1 }}
         transition={springy(reduce)}
-        className="absolute left-4 top-6 z-10 grid h-8 w-8 -translate-x-1/2 place-items-center rounded-full grad-brand font-display text-xs font-bold text-white shadow-md sm:left-6"
+        className="z-10 mt-6 grid h-8 w-8 origin-center place-items-center self-start justify-self-center rounded-full grad-brand font-display text-xs font-bold text-white shadow-md"
       >
         {index + 1}
       </motion.span>

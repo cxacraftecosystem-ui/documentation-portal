@@ -1,29 +1,124 @@
 name: Deploy backend to EC2
 
-# Auto-deploys the FastAPI backend to the EC2 box on every push to main that
-# touches the backend. Requires these repository secrets (Settings → Secrets and
-# variables → Actions):
+# Auto-deploys the FastAPI backend to the EC2 box. Requires these repository secrets
+# (Settings → Secrets and variables → Actions):
 #   EC2_HOST              Elastic IP of the API box (terraform output api_public_ip)
 #   EC2_SSH_KEY           contents of the .pem private key for the EC2 key pair
 #   BACKEND_ENV           the full backend/.env file contents (DATABASE_URL, JWT_SECRET,
 #                         AWS_* keys, OPENAI_API_KEY, GEMINI_API_KEYS, BACKEND_CORS_ORIGINS …)
 #
 # Nothing secret is stored in this file — values come from the secrets above.
+#
+# ─── THIS WORKFLOW IS THE HEAD OF THE RELEASE PIPELINE ────────────────────────────────
+#   deploy-backend.yml  →  deploy-frontend.yml  →  android-build.yml
+#         (push)              (workflow_run)          (workflow_run)
+#
+# The order is a real dependency, not a preference:
+#   • The web app calls API endpoints that only exist after the backend is deployed and
+#     migrated. Ship the frontend first and the live site spends the gap between the two
+#     deploys calling routes that answer 404/422 — visible to users as blank lists and
+#     failed saves. Backend first, frontend second.
+#   • The Android APK is built (not deployed) last: it is a compile/lint gate whose output
+#     is an artifact, so it is the cheapest thing to run and the least urgent.
+#
+# WHY THE `paths:` FILTER IS GONE (this used to be `paths: [backend/**]`):
+# `workflow_run` can only fire when the upstream workflow actually RUNS. With a paths
+# filter, a frontend-only push never starts this workflow, so the frontend workflow would
+# never be triggered either — the pipeline would dead-lock on exactly the change it most
+# needs to ship. So this workflow now starts on EVERY push to main and does the path
+# filtering itself, in the `changes` job below: when nothing under backend/ changed, the
+# `deploy` job is skipped (the run still completes successfully and still triggers the
+# frontend workflow), and nothing is touched on EC2.
 
 on:
   push:
     branches: [main]
-    paths:
-      - "backend/**"
-      - ".github/workflows/deploy-backend.yml"
   workflow_dispatch:
 
+# cancel-in-progress is deliberately OFF. This workflow now starts on every push to main,
+# so overlapping runs are far more likely than they were with the old paths filter — and
+# cancelling mid-deploy is destructive here: the remote script stops the fieldrepo service
+# before running `prisma migrate deploy`, so a run killed in that window can leave the API
+# down with no restart step to come. Queueing is slower and safe; cancelling is not.
 concurrency:
   group: deploy-backend
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
+  # Works out which parts of the monorepo this push touched, so each stage of the pipeline
+  # can skip work it does not need. The result is also uploaded as an artifact because the
+  # downstream workflows run in a separate `workflow_run` context and cannot read job
+  # outputs across workflows — only artifacts cross that boundary.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.detect.outputs.backend }}
+      frontend: ${{ steps.detect.outputs.frontend }}
+      android: ${{ steps.detect.outputs.android }}
+    steps:
+      - name: Checkout (full history so the push range can be diffed)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect which areas changed
+        id: detect
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # Fail SAFE: anything we cannot diff (manual dispatch, first push of a branch,
+          # force-push that orphaned the old head) is treated as "everything changed", so
+          # the pipeline over-deploys rather than silently skipping a real change.
+          if [ "$EVENT" != "push" ] \
+            || [ -z "${BEFORE:-}" ] \
+            || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] \
+            || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            echo "No usable diff range (event=$EVENT before=${BEFORE:-none}); treating all areas as changed."
+            files=""
+            all=true
+          else
+            files="$(git diff --name-only "$BEFORE" "$AFTER")"
+            all=false
+            echo "Changed files:"; printf '%s\n' "$files"
+          fi
+
+          area() {
+            if [ "$all" = "true" ]; then echo true; return; fi
+            if printf '%s\n' "$files" | grep -Eq "$1"; then echo true; else echo false; fi
+          }
+          backend=$(area '^(backend/|\.github/workflows/deploy-backend\.yml$)')
+          frontend=$(area '^(frontend/|\.github/workflows/deploy-frontend\.yml$)')
+          android=$(area '^(android/|\.github/workflows/android-build\.yml$)')
+
+          printf 'backend=%s\nfrontend=%s\nandroid=%s\n' "$backend" "$frontend" "$android" \
+            | tee -a "$GITHUB_OUTPUT" | tee changes.env
+          {
+            echo "### Changed areas"
+            echo ""
+            echo "| area | changed |"
+            echo "|---|---|"
+            echo "| backend | $backend |"
+            echo "| frontend | $frontend |"
+            echo "| android | $android |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish the change summary for the downstream workflows
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-changes
+          path: changes.env
+          retention-days: 7
+          if-no-files-found: error
+
   deploy:
+    needs: changes
+    # Skipped (not failed) when the push did not touch backend/. A skipped job still lets
+    # the workflow run finish as a success, which is what keeps the frontend stage moving
+    # on a frontend-only change. Manual dispatch always deploys.
+    if: ${{ needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

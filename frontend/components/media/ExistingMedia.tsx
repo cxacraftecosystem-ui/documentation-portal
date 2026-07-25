@@ -7,6 +7,7 @@ import { TranscriptBlock } from "@/components/media/TranscriptBlock";
 import { ApiError, apiFetch, listResource } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import type { MediaFile } from "@/lib/types";
+import { useConfirm } from "@/components/dialogs";
 
 // Transcript statuses that mean a job is still running (shared vocabulary with the backend).
 const IN_FLIGHT_TRANSCRIPT = new Set(["QUEUED", "PROCESSING", "PENDING", "RUNNING"]);
@@ -31,8 +32,16 @@ export function ExistingMedia({
   const [error, setError] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
 
+  const confirm = useConfirm();
   async function removeMedia(media: MediaFile) {
-    if (!window.confirm(`Remove "${media.caption || media.originalFilename}" from this record? This permanently deletes the file.`)) return;
+    const ok = await confirm({
+      title: "Remove this file?",
+      body: `"${media.caption || media.originalFilename}" will be removed from this record.`,
+      note: "The file is permanently deleted from storage. This cannot be undone.",
+      confirmLabel: "Remove file",
+      tone: "danger"
+    });
+    if (!ok) return;
     setError(null);
     setRemovingId(media.id);
     try {

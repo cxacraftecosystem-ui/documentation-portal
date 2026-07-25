@@ -11,6 +11,7 @@ import { DueBadge, GapChip, PercentBar, PersonLine, ScopeChips, TaskStatusPill }
 import type { TaskBatch } from "@/components/tasks/types";
 import { apiFetch } from "@/lib/api";
 import { formatDate } from "@/lib/format";
+import { useConfirm } from "@/components/dialogs";
 
 /**
  * Assignments grouped back into the action that created them.
@@ -42,11 +43,19 @@ export function BatchList({
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  const confirm = useConfirm();
   async function remove(batch: TaskBatch) {
-    const what = batch.batchId
-      ? `Withdraw "${batch.title}" from all ${batch.assigneeCount} ${batch.assigneeCount === 1 ? "person" : "people"}?`
-      : `Delete the task "${batch.title}"?`;
-    if (!window.confirm(what)) return;
+    const people = `${batch.assigneeCount} ${batch.assigneeCount === 1 ? "person" : "people"}`;
+    const ok = await confirm({
+      title: batch.batchId ? "Withdraw this assignment?" : "Delete this task?",
+      body: batch.batchId
+        ? `"${batch.title}" will be withdrawn from all ${people}.`
+        : `"${batch.title}" will be deleted.`,
+      note: "Any progress already reported against it is lost.",
+      confirmLabel: batch.batchId ? "Withdraw" : "Delete task",
+      tone: "danger"
+    });
+    if (!ok) return;
     setBusyKey(batch.key);
     setDeleteError(null);
     try {

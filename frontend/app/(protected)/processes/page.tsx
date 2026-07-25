@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { GitBranch, MessageSquare, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { CollabDialog } from "@/components/CollabDialog";
+import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { EMPTY_FUNNEL, FunnelFilters, type FunnelValue, type FunnelWorkshop } from "@/components/FunnelFilters";
 import { PageHeader } from "@/components/PageHeader";
@@ -20,6 +21,7 @@ import { formatDate } from "@/lib/format";
 import type { PageResult } from "@/lib/types";
 
 function ProcessesPageInner() {
+  const confirm = useConfirm();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { adminMode } = useAdminView();
@@ -103,7 +105,14 @@ function ProcessesPageInner() {
   }
 
   async function remove(id: string) {
-    if (!window.confirm("Delete this process record?")) return;
+    const ok = await confirm(
+      deleteConfirm(
+        "Delete this process record?",
+        "This permanently deletes the record. This action cannot be undone.",
+        "Every stage, its photos and its videos are deleted along with the process."
+      )
+    );
+    if (!ok) return;
     try {
       await apiFetch(`/processes/${id}`, { method: "DELETE" });
       await load();

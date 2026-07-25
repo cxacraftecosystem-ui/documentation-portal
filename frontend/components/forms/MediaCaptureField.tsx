@@ -5,7 +5,8 @@ import { Camera, FolderOpen, Mic, Square, Video } from "lucide-react";
 
 import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
 import { RecordingStrip } from "@/components/media/Waveform";
-import { audioExtensionForMimeType, inferMediaType, pickAudioRecorderMimeType } from "@/lib/media";
+import { audioExtensionForMimeType, inferMediaType, pickAudioRecorderMimeType, type StageEntry } from "@/lib/media";
+import { useEagerStaging } from "@/lib/uploads";
 import type { MediaType } from "@/lib/types";
 
 const imageAccept = "image/*,.jpg,.jpeg,.png,.gif,.webp,.heic,.heif,.tif,.tiff,.bmp,.avif";
@@ -32,11 +33,24 @@ function mergeFiles(existing: File[], incoming: File[]) {
   return merged;
 }
 
+/** Per-file transfer wording, mirroring the Android capture screen's attachment rows. */
+function stageStatusLabel(entry: StageEntry | null): string | null {
+  if (!entry) return null;
+  if (entry.status === "ready") return "Uploaded ✓";
+  if (entry.status === "error") return entry.error ? `Upload failed — ${entry.error}` : "Upload failed";
+  const percent = entry.total > 0 ? Math.floor((entry.loaded * 100) / entry.total) : 0;
+  return `Uploading… ${percent}%`;
+}
+
 /**
  * Attach-media card, mirroring the Android `MediaCaptureSection`: the same option buttons in the
  * same order — Pick files, Take photo, Record video, Record audio — plus a live waveform while
- * audio records and a tap-to-preview tile grid with per-file remove. The selected `File[]` flows to
- * the caller unchanged (the presign → PUT → complete upload happens at save time via lib/media).
+ * audio records and a tap-to-preview tile grid with per-file remove.
+ *
+ * Attaching a file starts its upload IMMEDIATELY (Android's eager pre-upload), so the transfer
+ * overlaps the time spent filling the form and saving only has to link the finished object. The
+ * selected `File[]` still flows to the caller unchanged — `uploadMediaBatch` recognises the files
+ * that are already in object storage, so no call site has to know this happened.
  */
 export function MediaCaptureField({
   files,
@@ -69,6 +83,9 @@ export function MediaCaptureField({
   useEffect(() => {
     filesRef.current = files;
   }, [files]);
+
+  // Eager pre-upload: every attached file starts streaming to object storage right away.
+  const staging = useEagerStaging(files, title);
 
   const imageAllowed = !allowedTypes || allowedTypes.includes("IMAGE");
   const videoAllowed = !allowedTypes || allowedTypes.includes("VIDEO");
@@ -217,23 +234,51 @@ export function MediaCaptureField({
           ) : null}
         </div>
         {recording ? <RecordingStrip stream={stream} elapsedMs={elapsedMs} /> : null}
-        <p className="text-xs text-ink-500">Drag and drop files here, or use the buttons above. Captured files are uploaded unchanged so embedded EXIF metadata is retained.</p>
+        <p className="text-xs text-ink-500">
+          Drag and drop files here, or use the buttons above. Uploading starts the moment a file is attached — saving
+          then only links it — and captured files go up unchanged so embedded EXIF metadata is retained.
+        </p>
       </div>
       {previewItems.length ? (
         <div className="grid gap-2">
-          <p className="text-sm font-semibold text-ink-700">
-            {previewItems.length} file{previewItems.length === 1 ? "" : "s"} attached
-          </p>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {previewItems.map((item, index) => (
-              <MediaPreviewTile
-                key={item.key}
-                item={item}
-                onOpen={() => setActivePreview(item)}
-                onRemove={() => onFilesChange(files.filter((_, itemIndex) => itemIndex !== index))}
-                removeLabel="Discard"
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-ink-700">
+              {previewItems.length} file{previewItems.length === 1 ? "" : "s"} attached
+            </p>
+            {/* Android parity wording: "All uploaded ✓ — ready to save". */}
+            <p className={`text-xs ${staging.failed ? "text-error-600" : "text-ink-500"}`}>
+              {staging.allReady
+                ? "All uploaded ✓ — ready to save"
+                : staging.failed
+                  ? `${staging.failed} upload${staging.failed === 1 ? "" : "s"} failed — retry below, or just save to try again`
+                  : `Uploading… ${Math.round(staging.fraction * 100)}% (${staging.ready}/${staging.total} files done)`}
+            </p>
+          </div>
+          {!staging.allReady && !staging.failed ? (
+            <div className="h-1.5 overflow-hidden rounded-full bg-line-200" aria-hidden>
+              <div
+                className="h-full rounded-full bg-purple-700 transition-all"
+                style={{ width: `${Math.round(staging.fraction * 100)}%` }}
               />
-            ))}
+            </div>
+          ) : null}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {previewItems.map((item, index) => {
+              const entry = staging.entries[index] ?? null;
+              return (
+                <MediaPreviewTile
+                  key={item.key}
+                  item={item}
+                  onOpen={() => setActivePreview(item)}
+                  onRemove={() => onFilesChange(files.filter((_, itemIndex) => itemIndex !== index))}
+                  removeLabel="Discard"
+                  progress={entry && entry.total > 0 ? entry.loaded / entry.total : null}
+                  failed={entry?.status === "error"}
+                  statusLabel={stageStatusLabel(entry)}
+                  onRetry={entry ? () => staging.retry(entry.file) : undefined}
+                />
+              );
+            })}
           </div>
         </div>
       ) : null}

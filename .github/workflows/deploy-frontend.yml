@@ -1,0 +1,222 @@
+name: Deploy frontend to Vercel
+
+# Stage 2 of 3:  deploy-backend.yml → [ THIS ] → android-build.yml
+#
+# ─── WHY THIS RUNS AFTER THE BACKEND, AND NEVER BEFORE ────────────────────────────────
+# The web app is a pure client: the browser talks straight to the FastAPI box (there is no
+# Next.js proxy — see docs/DEPLOYMENT_VERCEL.md §0), so the bundle we publish here assumes
+# every endpoint it calls already exists. A commit that adds a page and the API route it
+# reads is a single push; if the Vercel deploy wins the race, the live site spends the next
+# few minutes calling routes that answer 404 — users see empty lists, failed saves, and
+# "Failed to fetch" toasts, and it self-heals only when the EC2 deploy catches up. Worse,
+# the backend deploy stops the service to run `prisma migrate deploy`, so the gap is not
+# theoretical: there is a real window where the API is down. Backend first, always.
+#
+# The gate is `workflow_run` on the backend workflow *completing successfully*. Note that
+# the backend workflow deliberately has no `paths:` filter (see its header): it starts on
+# every push to main and skips its own deploy job when backend/ is untouched. That is what
+# stops a frontend-only change from dead-locking here waiting for a run that never starts.
+#
+# ─── ONE-TIME SETUP THIS WORKFLOW ASSUMES ─────────────────────────────────────────────
+# Vercel's own Git integration must NOT also be auto-deploying `main`, or it will race
+# ahead of the backend and re-create exactly the bug this ordering exists to prevent.
+# Turn it off once, in Vercel → Project → Settings → Git → "Ignored Build Step"
+# (`exit 0`) or by disabling production deployments for `main`. docs/CI.md has the exact
+# steps. Preview deployments for pull requests can stay on — they are not the live site.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   VERCEL_TOKEN       Vercel → Account Settings → Tokens → Create (scope: the team)
+#   VERCEL_ORG_ID      team_pcTf4Alb2DCIwq2IZcdu00dS
+#   VERCEL_PROJECT_ID  prj_EzXN8hhGKpMciFBrZRdxpcgUUzN0
+# The NEXT_PUBLIC_* build-time variables are NOT GitHub secrets: `vercel pull` fetches them
+# from the Vercel project, so the Environment Variables screen stays the single source of
+# truth for them (docs/DEPLOYMENT_VERCEL.md §2).
+
+on:
+  workflow_run:
+    workflows: ["Deploy backend to EC2"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Deploy even if no frontend/ files changed"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  # actions: read is what lets this run download the change-detection artifact that the
+  # backend run produced. Artifacts are the only channel across a workflow_run boundary —
+  # job outputs do not cross it.
+  actions: read
+
+concurrency:
+  group: deploy-frontend
+  cancel-in-progress: false
+
+jobs:
+  # This job always runs — the ordering rule is enforced by the `should_deploy` output it
+  # produces, not by an `if:` on the job itself. Two reasons for that shape:
+  #   1. A run whose only job was skipped is a confusing "grey tick" with no explanation of
+  #      why the site did not update; here the reason is printed in the job summary.
+  #   2. android-build.yml is chained off THIS workflow completing. A workflow run in which
+  #      every job was skipped is a weaker signal to chain from than one that really ran,
+  #      so keeping a job alive keeps stage 3 reliably reachable even on a failed backend
+  #      deploy — which is exactly when you still want to know the APK compiles.
+  # It does NOT fail when the backend deploy failed: the backend workflow is already red,
+  # and a second red X for the same root cause is noise, not information.
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      should_deploy: ${{ steps.decide.outputs.should_deploy }}
+      sha: ${{ steps.decide.outputs.sha }}
+    steps:
+      - name: Fetch the change summary from the backend run
+        id: fetch
+        # Skipped when the backend deploy did not succeed — there is nothing to deploy in
+        # that case, and the artifact may not even have been uploaded.
+        if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+        continue-on-error: true # absent on manual dispatch, and on any older backend run
+        uses: actions/download-artifact@v4
+        with:
+          name: pipeline-changes
+          path: pipeline-changes
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Decide whether to deploy
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          FORCE: ${{ inputs.force }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          BACKEND_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          set -euo pipefail
+          sha="${HEAD_SHA:-$GITHUB_SHA}"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+          # ── The ordering rule, enforced ──────────────────────────────────────────────
+          # Anything other than a green backend run stops the deploy dead. A cancelled or
+          # failed backend deploy can leave the API stopped mid-migration, so publishing a
+          # frontend that depends on it would be strictly worse than publishing nothing.
+          if [ "$EVENT" != "workflow_dispatch" ] && [ "${BACKEND_CONCLUSION}" != "success" ]; then
+            echo "Backend deploy concluded '${BACKEND_CONCLUSION}' — refusing to publish the frontend."
+            {
+              echo "### Frontend deploy skipped"
+              echo ""
+              echo "The backend workflow concluded \`${BACKEND_CONCLUSION}\`. The web app calls"
+              echo "endpoints that may not exist (or may be down mid-migration) until that deploy"
+              echo "is green. Fix the backend deploy and re-run it; this workflow will follow."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Default to deploying. A missing or unreadable summary must never silently skip
+          # a real change — over-deploying costs a build minute, under-deploying ships a
+          # stale site that nobody notices until a user reports it.
+          should=true
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$FORCE" = "true" ]; then
+            echo "Manual dispatch with force=true."
+          elif [ -f pipeline-changes/changes.env ]; then
+            cat pipeline-changes/changes.env
+            # Grepped, not sourced: only an exact `frontend=false` line can turn a deploy
+            # off, so a malformed or truncated artifact falls through to "deploy".
+            if grep -qx 'frontend=false' pipeline-changes/changes.env; then
+              should=false
+              echo "No frontend/ files changed in this push — nothing to publish."
+            fi
+          else
+            echo "No change summary available; deploying to be safe."
+          fi
+          echo "should_deploy=$should" >> "$GITHUB_OUTPUT"
+          echo "Deploying commit $sha: should_deploy=$should" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    needs: gate
+    if: ${{ needs.gate.outputs.should_deploy == 'true' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: production-web
+      url: https://field-repository.vercel.app
+    env:
+      # The CLI reads these two to resolve the project without a committed .vercel/ link
+      # (frontend/.vercel is gitignored, so CI has no link to inherit).
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - name: Checkout the commit the backend deployed
+        uses: actions/checkout@v4
+        with:
+          # A workflow_run run defaults to the tip of the default branch, which may already
+          # have moved on. Pin to the exact commit whose backend deploy just went green so
+          # the API and the site that calls it come from the same tree.
+          ref: ${{ needs.gate.outputs.sha }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22" # Next 16 needs ≥ 20.9; 22 matches Vercel's current build image
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install the Vercel CLI
+        # Unpinned on purpose so token/API changes never strand the pipeline. If a CLI
+        # release ever breaks the build, pin the version here — see docs/CI.md.
+        run: npm install --global vercel@latest
+
+      # Every CLI command below runs from the REPOSITORY ROOT, not from frontend/. The
+      # Vercel project stores Root Directory = frontend (docs/DEPLOYMENT_VERCEL.md §1) and
+      # `vercel build` applies that setting itself; running from inside frontend/ would
+      # make it look for frontend/frontend and fail with "No Next.js version detected".
+      - name: Pull the production project settings and environment
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Assert the project is still rooted at frontend/
+        # Cheap guard against the single most common way this workflow can break: someone
+        # clears Root Directory in the dashboard and the build starts looking at the repo
+        # root, where there is no package.json. Fail here with a readable message instead
+        # of 60 lines into a Next.js build.
+        run: |
+          set -euo pipefail
+          root="$(node -p "require('./.vercel/project.json').settings?.rootDirectory ?? ''")"
+          echo "Vercel Root Directory = '${root}'"
+          if [ "$root" != "frontend" ]; then
+            echo "::error::Vercel project Root Directory is '${root}', expected 'frontend'."
+            echo "::error::Fix it in Vercel → Project → Settings → General → Root Directory."
+            exit 1
+          fi
+
+      - name: Build (uses the project's own install/build commands from frontend/vercel.json)
+        run: vercel build --prod --token="$VERCEL_TOKEN"
+
+      - name: Deploy the prebuilt output to production
+        id: deploy
+        run: |
+          set -euo pipefail
+          # --prebuilt uploads .vercel/output instead of rebuilding on Vercel, so what was
+          # verified in the step above is byte-for-byte what goes live. --prod moves the
+          # production alias (field-repository.vercel.app) onto this deployment.
+          url="$(vercel deploy --prebuilt --prod --yes --token="$VERCEL_TOKEN")"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Deployed $url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Smoke-check the production alias
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+          # Alias propagation is not instant; poll rather than sleep-and-hope.
+          for i in $(seq 1 15); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' https://field-repository.vercel.app/ || true)"
+            if [ "$code" = "200" ]; then
+              echo "production alias healthy after ${i} tries (HTTP $code)"
+              exit 0
+            fi
+            sleep 4
+          done
+          echo "::error::field-repository.vercel.app did not return 200 (last: ${code:-none}). Deployment: ${DEPLOY_URL}"
+          exit 1

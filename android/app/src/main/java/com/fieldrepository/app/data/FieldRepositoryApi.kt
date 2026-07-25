@@ -475,9 +475,125 @@ interface FieldRepositoryApi {
         @Query("status") status: String? = null,
         @Query("workshopId") workshopId: String? = null,
         @Query("page") page: Int = 1,
-        @Query("pageSize") pageSize: Int = 100
+        @Query("pageSize") pageSize: Int = 100,
+        // Admin-only narrowing (ignored on view=assigned, which is hard-pinned to the caller).
+        @Query("assigneeId") assigneeId: String? = null,
+        @Query("batchId") batchId: String? = null,
+        // false skips the data-backed counts (derivedCount comes back null) when only the list is needed.
+        @Query("withDerived") withDerived: Boolean? = null
     ): PageResponse<TaskDto>
+
+    @GET("tasks/{id}")
+    suspend fun task(@Path("id") id: String): TaskDto
 
     @PATCH("tasks/{id}")
     suspend fun updateTask(@Path("id") id: String, @Body body: TaskUpdateBody): TaskDto
+
+    // Withdraw ONE assignment. The creator or an admin only. Used for the pre-batch/single-assignee
+    // rows, which have no batchId to delete by.
+    @DELETE("tasks/{id}")
+    suspend fun deleteTask(@Path("id") id: String)
+
+    // --- Task administration (admin; the master admin may assign to anyone but themselves) ---
+    // Every picker the assignment builder needs in one call. `workshopId` narrows the artisan list.
+    @GET("tasks/options")
+    suspend fun taskOptions(@Query("workshopId") workshopId: String? = null): TaskOptionsDto
+
+    // THE assignment endpoint: one scope handed to N people writes N rows sharing a batchId.
+    // Validated in full before the first row is written, so a bad id can never leave half a batch.
+    @POST("tasks/batch")
+    suspend fun createTaskBatch(@Body body: TaskBatchCreateBody): TaskBatchResultDto
+
+    // Assignments grouped back into the action that created them. The filters select which batches
+    // are SHOWN; the progress reported is always for the whole batch.
+    @GET("tasks/batches")
+    suspend fun taskBatches(
+        @Query("view") view: String = "all",
+        @Query("workshopId") workshopId: String? = null,
+        @Query("batchId") batchId: String? = null,
+        @Query("assigneeId") assigneeId: String? = null,
+        @Query("status") status: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("pageSize") pageSize: Int = 20
+    ): PageResponse<TaskBatchDto>
+
+    // Per-assignee accountability rollup: reported progress next to derived progress on every line.
+    @GET("tasks/progress")
+    suspend fun taskProgress(
+        @Query("workshopId") workshopId: String? = null,
+        @Query("assigneeId") assigneeId: String? = null,
+        @Query("includeFinished") includeFinished: Boolean? = null
+    ): TaskProgressReportDto
+
+    // Withdraw a whole assignment. Only the admin who sent it (or the master admin) may unsend it.
+    @DELETE("tasks/batch/{batchId}")
+    suspend fun deleteTaskBatch(@Path("batchId") batchId: String)
+
+    // --- Managed provider keys (MASTER ADMIN ONLY; every route is require_master_admin) ---
+    // Cheap by design: no provider is contacted here, so the list costs one query however many
+    // keys are configured. The list NEVER carries a value — only /reveal does.
+    @GET("secrets")
+    suspend fun managedSecrets(): List<ManagedSecretDto>
+
+    // Plaintext of ONE key. The read is audit-logged server-side (who + which key, never the value).
+    @GET("secrets/{key}/reveal")
+    suspend fun revealSecret(@Path("key") key: String): ManagedSecretRevealDto
+
+    // Set or rotate a key. Live on the next provider call — no restart, no redeploy.
+    @PUT("secrets/{key}")
+    suspend fun setSecret(@Path("key") key: String, @Body body: ManagedSecretSetBody): ManagedSecretDto
+
+    // Drop the stored override so the deployed environment value applies again. Idempotent, and it
+    // RETURNS the key's new state rather than 204ing.
+    @DELETE("secrets/{key}")
+    suspend fun clearSecret(@Path("key") key: String): ManagedSecretDto
+
+    // Call the provider once with the key in force and persist the verdict onto the row.
+    @POST("secrets/{key}/test")
+    suspend fun testSecret(@Path("key") key: String): ManagedSecretDto
+
+    // --- Appearance + accessibility preferences (every signed-in user owns their own row) ---
+    // Returns an EMPTY OBJECT when the account has never saved any: see [PreferencesDto.exists].
+    @GET("preferences/me")
+    suspend fun myPreferences(): PreferencesDto
+
+    @PUT("preferences/me")
+    suspend fun updateMyPreferences(@Body body: PreferencesUpdateBody): PreferencesDto
+
+    // --- Global search: five buckets sharing one page/pageSize ---
+    // Dates are ISO-8601. pageSize is capped at 50 server-side.
+    @GET("search")
+    suspend fun search(
+        @Query("q") q: String? = null,
+        @Query("craftId") craftId: String? = null,
+        @Query("place") place: String? = null,
+        @Query("artisanId") artisanId: String? = null,
+        @Query("mediaType") mediaType: String? = null,
+        @Query("dateFrom") dateFrom: String? = null,
+        @Query("dateTo") dateTo: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("pageSize") pageSize: Int = 10
+    ): SearchResultsDto
+
+    // --- Data browser (needs the dataset-download permission; rows are visibility-filtered) ---
+    // ONE level of the virtual tree. path="" is the taxonomy chooser, not a folder listing.
+    @GET("data/tree")
+    suspend fun dataTree(@Query("path") path: String = ""): DataTreeDto
+
+    // The flattened subtree below `path`, for client-side zipping. `include` is a CSV of
+    // text,images,videos,audios,transcripts,documents,other; omitted means everything.
+    @GET("data/manifest")
+    suspend fun dataManifest(
+        @Query("path") path: String = "",
+        @Query("include") include: String? = null
+    ): DataManifestDto
+
+    // One media file. Audio defaults to a server-side .mp4 (AAC) conversion; anything else is
+    // redirected to the stored object (OkHttp follows it, dropping the auth header cross-host).
+    @Streaming
+    @GET("data/media/{id}/download")
+    suspend fun downloadDataMedia(
+        @Path("id") id: String,
+        @Query("format") format: String? = null
+    ): Response<ResponseBody>
 }

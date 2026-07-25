@@ -29,6 +29,10 @@ import { cn } from "@/lib/utils";
  * they have done and `derivedCount` is what the repository can actually find them having produced;
  * an admin needs to see the two side by side, because a task marked done with nothing behind it is
  * exactly the failure this board is meant to catch.
+ *
+ * ASSIGNING is admin work, so this route is admin chrome (ADMIN_CHROME_ROUTES) and AppShell hides
+ * it while admin view is off, offering /tasks instead. /tasks itself is never chrome: everybody can
+ * be an assignee. The `isAdmin` guard below mirrors `require_admin` and the toggle never widens it.
  */
 
 type TabKey = "assign" | "progress" | "batches";

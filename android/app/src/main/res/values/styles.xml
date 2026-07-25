@@ -1,9 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    The launch/platform theme. Compose owns everything the user actually looks at (ui/Theme.kt),
+    but this style still decides three things Compose cannot: the window background painted before
+    the first frame, the status/navigation bar colours on API < 35, and the tint of the platform
+    dialogs the app still uses (android.app.DatePickerDialog).
+
+    It used to hardcode the cream launcher-icon canvas (#faf9f5) with no dark counterpart, which is
+    why the app flashed cream on launch and kept cream bars in dark mode. Everything now resolves
+    through the design tokens in res/values/colors.xml, and values-night/ carries the dark variant.
+-->
 <resources>
     <style name="Theme.FieldRepository" parent="android:style/Theme.Material.Light.NoActionBar">
-        <item name="android:fontFamily">sans</item>
+        <!-- The design system is Inter/Plus Jakarta Sans; neither exists as an Android font file
+             in this repo (see the note in ui/Theme.kt), so the platform sans is the stand-in.
+             "sans-serif" is the real family alias — the previous value, "sans", is not a family
+             Android knows and silently fell back to the default. Never serif. -->
+        <item name="android:fontFamily">sans-serif</item>
+
+        <item name="android:windowBackground">@color/bg_0</item>
+        <item name="android:colorBackground">@color/bg_0</item>
+        <item name="android:statusBarColor">@color/bg_0</item>
+        <item name="android:navigationBarColor">@color/bg_0</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:navigationBarColor">#faf9f5</item>
-        <item name="android:statusBarColor">#faf9f5</item>
+
+        <!-- Platform dialogs (date picker) pick their accent up from here; without it they render
+             the stock Material teal/blue, which belongs to no design system. -->
+        <item name="android:colorPrimary">@color/action</item>
+        <item name="android:colorAccent">@color/action</item>
+        <item name="android:textColorPrimary">@color/ink_900</item>
+        <item name="android:textColorSecondary">@color/ink_500</item>
+        <item name="android:textColorHint">@color/ink_300</item>
+        <item name="android:colorControlNormal">@color/ink_500</item>
+        <item name="android:colorControlActivated">@color/action</item>
+        <item name="android:colorControlHighlight">@color/surface_200</item>
     </style>
 </resources>
