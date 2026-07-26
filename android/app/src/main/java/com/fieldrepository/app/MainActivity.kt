@@ -854,7 +854,10 @@ private fun HomeScreen(
             is Screen.Settings -> Screen.Dashboard
             is Screen.Appearance -> Screen.Dashboard
             is Screen.DataBrowser -> Screen.Dashboard
-            is Screen.AdminHub -> Screen.Dashboard
+            // One level at a time: from a tool back to the tool list, and only then out. This is
+            // what lets the single header arrow replace the in-page "All admin tools" button — the
+            // arrow, the system back gesture and the back gesture all route through here.
+            is Screen.AdminHub -> if (s.section != null) Screen.AdminHub() else Screen.Dashboard
             is Screen.Dashboard -> Screen.Dashboard
         }
     }
@@ -1366,7 +1369,8 @@ private fun HomeScreen(
                     repository = repository,
                     isMasterAdmin = isMasterAdmin,
                     canReview = canReview,
-                    initialSection = s.section,
+                    section = s.section,
+                    onSectionChange = { next -> screen = Screen.AdminHub(next) },
                     onMessage = { showMessage(it) },
                     onError = { showMessage(it) }
                 )
@@ -7228,20 +7232,26 @@ private fun AdminHubScreen(
     repository: FieldRepository,
     isMasterAdmin: Boolean,
     canReview: Boolean,
-    /** Pre-opened tool, so "Assignment board" on the Tasks screen lands straight on the board. */
-    initialSection: AdminHubEntry? = null,
+    /**
+     * Which tool is open, owned by the HOST rather than by this screen.
+     *
+     * It used to be local state with its own BackHandler and its own in-page "All admin tools"
+     * button, which is how the app ended up with two back controls stacked on one screen — the
+     * header's arrow (which left the hub) and a rounded rectangle (which popped the tool). Hoisting
+     * it into `Screen.AdminHub.section` lets `goBack()` pop one level, so the arrow already in the
+     * header does both jobs and the extra button is gone.
+     */
+    section: AdminHubEntry? = null,
+    onSectionChange: (AdminHubEntry?) -> Unit,
     onMessage: (String) -> Unit,
     onError: (String) -> Unit
 ) {
-    var section by remember(initialSection) { mutableStateOf(initialSection) }
     // Loaded once for the Workshop assignments tool (which needs the researcher directory).
     var directory by remember { mutableStateOf<List<UserDto>>(emptyList()) }
     LaunchedEffect(Unit) { runCatching { repository.userDirectory() }.onSuccess { directory = it } }
 
     val entries = AdminHubEntry.entries.filter { (!it.masterOnly || isMasterAdmin) && (!it.reviewGated || canReview) }
     val current = section
-    // Inside a sub-tool, Back returns to the hub list rather than leaving the screen entirely.
-    BackHandler(enabled = current != null) { section = null }
 
     if (current == null) {
         RecordCard(title = "Admin tools", icon = Icons.Filled.Tune) {
@@ -7252,7 +7262,7 @@ private fun AdminHubScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { section = entry }
+                        .clickable { onSectionChange(entry) }
                         .background(SurfaceCard, RoundedCornerShape(12.dp))
                         .padding(14.dp)
                 ) {
@@ -7273,11 +7283,8 @@ private fun AdminHubScreen(
             }
         }
     } else {
-        OutlinedButton(onClick = { section = null }, modifier = Modifier.fillMaxWidth()) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("All admin tools")
-        }
+        // No back control here on purpose. The screen already has one — the circular arrow in the
+        // page header — and `goBack()` now pops the open tool before leaving the hub.
         when (current) {
             AdminHubEntry.REVIEWS -> ReviewApprovalCard(repository = repository, onError = onError)
             AdminHubEntry.RECOVERED -> OrphanRecordingsCard(repository = repository, onError = onError)
