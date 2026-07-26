@@ -76,8 +76,10 @@ import asyncio
 import io
 import os
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
@@ -132,7 +134,28 @@ REPORT_TAKE = 5000
 # Pseudo craft-folder id gathering a workshop's artisans that have no craft assigned.
 NO_CRAFT = "_none"
 
-_SAFE = re.compile(r"[^A-Za-z0-9 _.\-]+")
+# The ASCII reduction of a name, used ONLY for the fallback parameter of a Content-Disposition
+# header (see _content_disposition). Folder and file names themselves are NOT reduced to ASCII —
+# see _seg.
+_ASCII_ONLY = re.compile(r"[^A-Za-z0-9 _.\-]+")
+
+# Characters a path segment may never contain: the two path separators plus the punctuation Windows
+# reserves. Control characters go too, by Unicode category below.
+_UNSAFE_CHARS = frozenset('<>:"/\\|?*')
+# Cc is the control characters; Cf the invisible format characters, which include the bidi overrides
+# that can make a filename render back-to-front; Cs lone surrogates, which no encoder will take.
+_UNSAFE_CATEGORIES = frozenset({"Cc", "Cf", "Cs"})
+# ...except the zero-width joiner and non-joiner, which are Cf but LOAD-BEARING in Devanagari and
+# other Indic scripts, where they select conjunct and half forms. Dropping them misspells names.
+_KEEP_FORMAT = frozenset({"‌", "‍"})
+# Windows refuses these device names in any case, with or without an extension.
+_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+)
+# Name caps. File systems limit a name to ~255 BYTES, not characters, and a Devanagari character
+# costs three of them, so both limits are applied.
+_MAX_SEG_CHARS = 80
+_MAX_SEG_BYTES = 200
 
 # MediaType -> the `include` CSV token that selects it in /data/manifest.
 _TYPE_TOKEN = {
@@ -247,8 +270,62 @@ _CATEGORY_LABEL: dict[str, str] = {
 
 
 def _seg(value: str | None, fallback: str) -> str:
-    cleaned = _SAFE.sub("_", (value or "").strip()).strip(" .")
-    return cleaned[:80] if cleaned else fallback
+    """One path segment of a folder or file name, safe for a filesystem and for a zip.
+
+    This used to be ``_SAFE.sub("_", …)`` against ``[^A-Za-z0-9 _.-]``, which replaced every
+    character outside ASCII. For a repository whose subject IS Indian craft that was the wrong
+    failure: an artisan named in Devanagari became ``_ _``, and several such artisans collapsed onto
+    the same segment, so the tree and the exported zip showed a row of identical ``_`` folders and a
+    researcher could not tell whose was whose. Names are the data here, not decoration.
+
+    So the rule is inverted. Instead of allowing a list of characters, it removes the ones that are
+    genuinely unusable — the two path separators and the punctuation Windows reserves, plus control
+    and format characters by Unicode category — and keeps everything else, in any script. The zero
+    width joiner and non joiner are deliberately exempted from the format-character sweep: they are
+    invisible, but in Devanagari and other Indic scripts they select conjunct and half forms, so
+    dropping them misspells the very names this change exists to preserve.
+    """
+    raw = (value or "").strip()
+    kept = [
+        ch
+        for ch in raw
+        if ch not in _UNSAFE_CHARS
+        and (unicodedata.category(ch) not in _UNSAFE_CATEGORIES or ch in _KEEP_FORMAT)
+    ]
+    cleaned = "".join(kept).strip(" .")
+
+    # Two limits, because a filesystem counts BYTES while a slice counts characters, and one
+    # Devanagari character is three bytes. Truncate on characters first, then walk the byte budget
+    # down — never mid-character, which would leave an undecodable name.
+    cleaned = cleaned[:_MAX_SEG_CHARS]
+    while len(cleaned.encode("utf-8")) > _MAX_SEG_BYTES:
+        cleaned = cleaned[:-1]
+    cleaned = cleaned.strip(" .")
+
+    if not cleaned:
+        return fallback
+    # CON, PRN, LPT1 … are refused by Windows with or without an extension, so a craft or an artisan
+    # legitimately called "Aux" would produce a folder that cannot be written on extraction.
+    if cleaned.split(".")[0].upper() in _RESERVED_NAMES:
+        return f"{cleaned}_"
+    return cleaned
+
+
+def _content_disposition(name: str) -> str:
+    """An attachment header that survives a non-ASCII filename.
+
+    Necessary because :func:`_seg` now keeps Devanagari (and every other script). An HTTP header
+    field is latin-1 by definition, so interpolating those bytes straight into `filename="…"`
+    either raises on encode or ships mojibake — a download that used to work would start failing
+    for exactly the names the Unicode fix set out to preserve, which would be a worse bug than the
+    one it replaced.
+
+    RFC 6266 is built for this: `filename=` carries an ASCII reduction for old clients, and
+    `filename*=UTF-8''…` carries the real name percent-encoded. Every current browser prefers the
+    starred form, so the researcher gets the artisan's actual name and nothing breaks in between.
+    """
+    ascii_name = _ASCII_ONLY.sub("_", name).strip(" ._") or "download"
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name, safe='')}"
 
 
 def _join(parent: str, name: str) -> str:
@@ -709,21 +786,52 @@ async def _linked_artisans(ws: Any, scope: Scope) -> list[Any]:
     Visibility is applied in the query, so an artisan the caller may not open never appears and
     never conjures a craft folder.
     """
+    return await db.artisan.find_many(
+        where=_and({"OR": workshop_artisan_reach(ws)}, scope.records),
+        include={"craft": True},
+        take=TAKE,
+        order={"name": "asc"},
+    )
+
+
+def workshop_artisan_reach(ws: Any) -> list[dict[str, Any]]:
+    """The three routes of :func:`_linked_artisans`, as Prisma ``OR`` terms on Artisan.
+
+    ``ws`` must carry its ``artisans`` and ``crafts`` link rows. Exported because /export/dataset
+    files the same artisans into the same folders and must not answer this question differently:
+    the export used route 1 alone, so on the live repository — where route 1 is empty — every
+    artisan's details.txt and own media were left out of the ZIP that the browser showed.
+    """
     ors: list[dict[str, Any]] = [{"workshopId": ws.id}]
-    linked_ids = [
-        link.artisanId for link in ws.artisans or [] if getattr(link, "artisanId", None)
-    ]
+    linked_ids = [link.artisanId for link in ws.artisans or [] if getattr(link, "artisanId", None)]
     if linked_ids:
         ors.append({"id": {"in": linked_ids}})
     craft_ids = [link.craftId for link in ws.crafts or [] if getattr(link, "craftId", None)]
     if craft_ids:
         ors.append({"craftId": {"in": craft_ids}})
-    return await db.artisan.find_many(
-        where=_and({"OR": ors}, scope.records),
-        include={"craft": True},
-        take=TAKE,
-        order={"name": "asc"},
-    )
+    return ors
+
+
+def workshop_reaches_artisan(ws: Any, artisan: Any) -> bool:
+    """Does this workshop reach this artisan? The in-memory twin of :func:`workshop_artisan_reach`,
+    for the export, which already holds every artisan row and must not re-query per workshop.
+
+    It EVALUATES the same OR terms rather than restating the three routes, so a fourth route added
+    to the query is honoured here too instead of quietly splitting the two answers apart.
+    """
+    for term in workshop_artisan_reach(ws):
+        for field, condition in term.items():
+            value = getattr(artisan, field, None)
+            if value is None:
+                break
+            if isinstance(condition, dict):
+                if value not in condition["in"]:
+                    break
+            elif value != condition:
+                break
+        else:
+            return True
+    return False
 
 
 def _craft_folder_entries(ws: Any, base: str, artisans: list[Any]) -> list[dict[str, Any]]:
@@ -2633,7 +2741,7 @@ async def data_report(
     return StreamingResponse(
         io.BytesIO(payload),
         media_type=XLSX_MIME,
-        headers={"Content-Disposition": f'attachment; filename="{slug}-report.xlsx"'},
+        headers={"Content-Disposition": _content_disposition(f"{slug}-report.xlsx")},
     )
 
 
@@ -2707,7 +2815,7 @@ async def download_media(
         return StreamingResponse(
             out,
             media_type="video/mp4",
-            headers={"Content-Disposition": f'attachment; filename="{stem}.mp4"'},
+            headers={"Content-Disposition": _content_disposition(f"{stem}.mp4")},
         )
 
     # Non-audio (or an explicitly non-mp4 format): hand back the original object.
@@ -2724,5 +2832,5 @@ async def download_media(
     return Response(
         content=raw,
         media_type=media.mimeType or "application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+        headers={"Content-Disposition": _content_disposition(name)},
     )
