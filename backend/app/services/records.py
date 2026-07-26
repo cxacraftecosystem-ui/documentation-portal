@@ -168,8 +168,27 @@ async def attach_location(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+# Characters Postgres will not accept inside a text value. NUL is the one that matters: a `text`
+# column cannot hold 0x00 at all, so the driver raises and — because this is a query PARAMETER, not
+# a query the caller composed — the failure surfaces as a 500 rather than as a validation error.
+# The rest are the C0 controls that carry no meaning in a search box and only exist in pasted junk.
+_UNSEARCHABLE = {c: None for c in range(32) if c not in (9, 10, 13)}
+
+
 def contains(value: str) -> dict[str, Any]:
-    return {"contains": value, "mode": "insensitive"}
+    """A case-insensitive `contains` filter, with the bytes Postgres cannot store stripped out.
+
+    Every text search in the app funnels through here (57 call sites), which is why the sanitising
+    lives here rather than in each route: a single NUL byte pasted into any search box — /search,
+    artisans, crafts, tools, products, media, processes, questionnaires, users — returned a 500 from
+    every one of them. Stripping is the right response rather than rejecting: a researcher who
+    pasted a name out of a PDF and picked up a stray control character wants their search to run,
+    not a validation error about a byte they cannot see.
+
+    Tab, newline and carriage return are deliberately kept — Postgres stores them happily and they
+    can legitimately appear in a pasted multi-line name.
+    """
+    return {"contains": value.translate(_UNSEARCHABLE), "mode": "insensitive"}
 
 
 async def visibility_where(user: Any, owner_field: str = "createdById") -> dict[str, Any]:
