@@ -1115,14 +1115,13 @@ private fun HomeScreen(
                 // /search on the web — open to every signed-in user. It renders into the shared
                 // chrome, which already draws the Back pill, so its own back control stays off.
                 EntryMode.SEARCH -> {
-                    // Opened from a dashboard total. SearchScreen keeps its own filter state and
-                    // takes no initial record type, so the bucket that was tapped is named here
-                    // rather than dropped — otherwise five of the six figures lead to one screen
-                    // that says nothing about which of them the researcher pressed.
+                    // Opened from a dashboard total: the tap already said which bucket it wanted, so
+                    // the screen opens listing exactly that one. `initialRecordType` also implies the
+                    // listing itself — sitting on an empty form would make the researcher ask twice.
                     s.searchFocus?.let { focus ->
                         Text(
-                            "From the ${searchFocusLabel(focus)} total on the dashboard — press Search " +
-                                "on an empty form to list them, newest first.",
+                            "Every ${searchFocusLabel(focus)} record, newest first. Use the counts above the " +
+                                "results to widen it, or search to narrow it.",
                             color = Muted,
                             fontSize = 12.sp
                         )
@@ -1133,7 +1132,8 @@ private fun HomeScreen(
                             message = null
                             screen = Screen.Edit(searchRecordEntryMode(recordType), recordId)
                         },
-                        onBack = { attemptExit { goBack() } }
+                        onBack = { attemptExit { goBack() } },
+                        initialRecordType = s.searchFocus
                     )
                 }
                 // Routed as Screen.DataBrowser by `screenFor`, since the browser owns its whole

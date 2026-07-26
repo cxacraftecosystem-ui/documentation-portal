@@ -49,6 +49,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.data.ArtisanDto
 import com.fieldrepository.app.data.CraftDto
@@ -155,6 +156,15 @@ fun SearchScreen(
     onOpenRecord: (recordType: String, recordId: String) -> Unit,
     onBack: () -> Unit,
     showBackAction: Boolean = false,
+    /**
+     * Open showing only this bucket — a [SearchRecordTypes] value, or null for all five.
+     *
+     * This is what a tapped dashboard total means. "74 tools" is a question, and the honest answer
+     * is the list of those tools, not a page of five headings where four are empty. Arriving with
+     * one also implies the listing itself: the tap already said what it wanted, so the screen must
+     * not sit on an empty form waiting to be told again.
+     */
+    initialRecordType: String? = null,
     modifier: Modifier = Modifier
 ) {
     // Live inputs.
@@ -164,8 +174,11 @@ fun SearchScreen(
     var page by remember { mutableStateOf(1) }
     // Bumped by the Search button so pressing it re-runs an identical query (same filters, same page).
     var runCount by remember { mutableStateOf(0) }
-    // Set once the researcher explicitly asks for an unfiltered listing.
-    var browseAll by remember { mutableStateOf(false) }
+    // Set once the researcher explicitly asks for an unfiltered listing — or immediately, when the
+    // screen was opened from a dashboard total, which is that same request made by tapping a number.
+    var browseAll by remember { mutableStateOf(initialRecordType != null) }
+    // Null = every bucket. Seeded from the caller and then owned by the count pills below.
+    var focusType by remember { mutableStateOf(initialRecordType) }
 
     var results by remember { mutableStateOf<SearchResultsDto?>(null) }
     var loading by remember { mutableStateOf(false) }
@@ -397,7 +410,10 @@ fun SearchScreen(
             }
 
             else -> {
-                val buckets = remember(data) { data.toSearchBuckets() }
+                val allBuckets = remember(data) { data.toSearchBuckets() }
+                val buckets = remember(allBuckets, focusType) {
+                    if (focusType == null) allBuckets else allBuckets.filter { it.recordType == focusType }
+                }
                 val shown = buckets.sumOf { it.rows.size }
                 // The API reports `pageCount` (the last page of its LONGEST bucket), so Next is exact.
                 // The fallback — "some bucket came back full" — keeps this working against an API
@@ -425,10 +441,19 @@ fun SearchScreen(
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState())
                     ) {
-                        buckets.forEach { bucket ->
+                        // Every bucket stays listed even while one is focused: the pills are how you
+                        // get back out, and hiding the other four would strand a researcher who
+                        // arrived from a total and then wanted the rest.
+                        SearchCountPill(
+                            text = "Everything ${allBuckets.sumOf { it.total }}",
+                            emphasised = focusType == null,
+                            onClick = { focusType = null }
+                        )
+                        allBuckets.forEach { bucket ->
                             SearchCountPill(
                                 text = "${bucket.title} ${bucket.total}",
-                                emphasised = bucket.total > 0
+                                emphasised = focusType == bucket.recordType,
+                                onClick = { focusType = if (focusType == bucket.recordType) null else bucket.recordType }
                             )
                         }
                     }
@@ -485,6 +510,9 @@ internal data class SearchRow(
 
 /** A result type with its page of rows and how many matches it has in total. */
 private data class SearchBucket(
+    /** A [SearchRecordTypes] value. Carried on the bucket, not read off its first row, because an
+     *  EMPTY bucket still has to be nameable — that is exactly the one a type filter has to match. */
+    val recordType: String,
     val title: String,
     val total: Int,
     val rows: List<SearchRow>
@@ -566,11 +594,11 @@ private fun SearchResultsDto.toSearchBuckets(): List<SearchBucket> {
     }
 
     return listOf(
-        SearchBucket("Artisans", total(totals.artisans, artisanRows.size), artisanRows),
-        SearchBucket("Workshops", total(totals.workshops, workshopRows.size), workshopRows),
-        SearchBucket("Products", total(totals.products, productRows.size), productRows),
-        SearchBucket("Tools", total(totals.tools, toolRows.size), toolRows),
-        SearchBucket("Media", total(totals.media, mediaRows.size), mediaRows)
+        SearchBucket(SearchRecordTypes.ARTISAN, "Artisans", total(totals.artisans, artisanRows.size), artisanRows),
+        SearchBucket(SearchRecordTypes.WORKSHOP, "Workshops", total(totals.workshops, workshopRows.size), workshopRows),
+        SearchBucket(SearchRecordTypes.PRODUCT, "Products", total(totals.products, productRows.size), productRows),
+        SearchBucket(SearchRecordTypes.TOOL, "Tools", total(totals.tools, toolRows.size), toolRows),
+        SearchBucket(SearchRecordTypes.MEDIA, "Media", total(totals.media, mediaRows.size), mediaRows)
     )
 }
 
@@ -827,7 +855,7 @@ private fun SearchCard(
 }
 
 @Composable
-private fun SearchCountPill(text: String, emphasised: Boolean) {
+private fun SearchCountPill(text: String, emphasised: Boolean, onClick: (() -> Unit)? = null) {
     val background = if (emphasised) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.field.surface100
     val foreground = if (emphasised) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.field.placeholder
     Text(
@@ -836,6 +864,10 @@ private fun SearchCountPill(text: String, emphasised: Boolean) {
         color = foreground,
         maxLines = 1,
         modifier = Modifier
+            .clip(CircleShape)
+            // A count that filters has to be clipped before it is clickable, or the ripple squares
+            // off the pill. Non-interactive pills keep the old, unclipped chain exactly.
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .background(background, CircleShape)
             .padding(horizontal = 10.dp, vertical = 4.dp)
     )
