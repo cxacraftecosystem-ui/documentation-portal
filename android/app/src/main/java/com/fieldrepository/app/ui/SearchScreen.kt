@@ -176,9 +176,15 @@ fun SearchScreen(
     var runCount by remember { mutableStateOf(0) }
     // Set once the researcher explicitly asks for an unfiltered listing — or immediately, when the
     // screen was opened from a dashboard total, which is that same request made by tapping a number.
-    var browseAll by remember { mutableStateOf(initialRecordType != null) }
+    var browseAll by remember(initialRecordType) { mutableStateOf(initialRecordType != null) }
     // Null = every bucket. Seeded from the caller and then owned by the count pills below.
-    var focusType by remember { mutableStateOf(initialRecordType) }
+    //
+    // KEYED on initialRecordType, and that is not a detail: Compose keeps this slot's `remember`
+    // across a navigation that lands on the same composable, so an unkeyed one would hold the
+    // FIRST focus for ever. Tapping "Tools" after having tapped "Artisans" showed a page headed
+    // "Every tools record" with the Artisans bucket still selected — the caller had moved on and
+    // the state had not.
+    var focusType by remember(initialRecordType) { mutableStateOf(initialRecordType) }
 
     var results by remember { mutableStateOf<SearchResultsDto?>(null) }
     var loading by remember { mutableStateOf(false) }
