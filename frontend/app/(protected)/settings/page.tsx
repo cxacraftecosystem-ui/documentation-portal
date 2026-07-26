@@ -9,6 +9,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { AppSettingsPanel } from "@/components/settings/AppSettingsPanel";
 import { GetTheAppPanel } from "@/components/settings/GetTheAppPanel";
 import { ProviderOrderPanel } from "@/components/settings/ProviderOrderPanel";
+import { PublishAppUpdatePanel } from "@/components/settings/PublishAppUpdatePanel";
 import { AccessibilityCard, AppearanceCard } from "@/components/settings/PersonalSettingsCards";
 import { WorkshopAccessRequestPanel } from "@/components/settings/WorkshopAccessRequestPanel";
 import { isAdmin, isMasterAdmin } from "@/lib/permissions";
@@ -141,6 +142,7 @@ export default function SettingsPage() {
             rather than replaced by a lock panel for everyone below the master admin. */}
         {master ? <AppSettingsPanel /> : null}
         {master ? <ProviderOrderPanel /> : null}
+        {master ? <PublishAppUpdatePanel /> : null}
       </div>
     </>
   );

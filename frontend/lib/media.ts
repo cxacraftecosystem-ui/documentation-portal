@@ -311,6 +311,18 @@ type ObjectUploadOptions = {
  */
 let multipartAvailable = true;
 
+/**
+ * Push a file to object storage and stop there — no MediaFile row, no record link.
+ *
+ * Everything else in this module ends by calling `/media/complete`, which is right for field media:
+ * a photo that is not attached to a record is an orphan. An Android APK is the one thing that is
+ * legitimately just an object: the release is recorded against `/app/release` by object key, and a
+ * MediaFile row for it would put a 25 MB binary into the researcher's media lists.
+ */
+export function uploadStorageObject(options: ObjectUploadOptions): Promise<StagedObject> {
+  return uploadObject(options);
+}
+
 async function uploadObject(options: ObjectUploadOptions): Promise<StagedObject> {
   const { file } = options;
   if (file.size === 0) throw new Error(`"${file.name}" is empty (0 bytes) — there is nothing to upload.`);
