@@ -61,6 +61,11 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Timeline
+import com.fieldrepository.app.ui.FieldIslandNav
+import com.fieldrepository.app.ui.IslandEntry
+import com.fieldrepository.app.ui.IslandGroup
 import com.fieldrepository.app.ui.Text
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
@@ -910,6 +915,54 @@ private fun HomeScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+        /*
+         * The island bar, the web's DynamicIslandNav on the phone. It carries the same two standalone
+         * roots and the same four groups the drawer does — built from the SAME `dashboardModes`/
+         * `canCreate` filters, so neither can offer a destination the other would refuse — and the
+         * hamburger at its right end is how the full drawer is still reached.
+         */
+        FieldIslandNav(
+            modifier = Modifier.fillMaxWidth(),
+            onBrandClick = { goDashboard() },
+            onOpenDrawer = { scope.launch { drawerState.open() } },
+            adminMode = if (isAdmin) adminView else null,
+            onToggleAdminView = { adminView = !adminView },
+            currentLabel = headerTitle,
+            roots = listOf(
+                IslandEntry("Dashboard", Icons.Filled.Dashboard) { goDashboard() },
+                IslandEntry("Walkthrough", Icons.Filled.Explore) { showWalkthrough = true }
+            ),
+            groups = listOf(
+                IslandGroup(
+                    "Record",
+                    dashboardModes.filter { canCreate(it) && it.onDashboard && it != EntryMode.VIEW_DATA }
+                        .map { mode ->
+                            IslandEntry(mode.actionTitle, Icons.Filled.Add) {
+                                message = null
+                                screen = screenFor(mode)
+                            }
+                        }
+                ),
+                IslandGroup(
+                    "Browse",
+                    listOfNotNull(
+                        IslandEntry("My Activity", Icons.Filled.Timeline) { message = null; screen = Screen.MyActivity },
+                        IslandEntry("Browse records", Icons.Filled.Search) { message = null; screen = screenFor(EntryMode.SEARCH) },
+                        if (canDownloadDataset) {
+                            IslandEntry("View Data", Icons.Filled.Storage) { message = null; screen = screenFor(EntryMode.DATA_BROWSER) }
+                        } else null
+                    )
+                ),
+                IslandGroup(
+                    "Account",
+                    listOf(
+                        IslandEntry("Appearance & accessibility", Icons.Filled.Tune) { message = null; screen = Screen.Appearance },
+                        IslandEntry("Give app feedback", Icons.Filled.RateReview) { message = null; screen = Screen.Feedback }
+                    )
+                )
+            )
+        )
+
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             // The dashboard is the root of every path, so only the screens below it get a back arrow.
             if (screen !is Screen.Dashboard) {
@@ -928,9 +981,6 @@ private fun HomeScreen(
                     color = MaterialTheme.colorScheme.onBackground
                 )
                 Text("${user.name} · ${user.role}${if (adminView) " · admin view" else ""}", color = Muted, fontSize = 13.sp)
-            }
-            IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                Icon(Icons.Filled.Menu, contentDescription = "Open menu", tint = MaterialTheme.colorScheme.primary)
             }
         }
 

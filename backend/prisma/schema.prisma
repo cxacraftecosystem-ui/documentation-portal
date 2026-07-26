@@ -919,6 +919,9 @@ model ReviewLog {
 model AppSetting {
   id                 String   @id @default("singleton")
   transcriptionMode  String   @default("REFINED_TRANSLATED")
+  /// Speech-to-text providers in the order the master admin ranked them. One with no configured key
+  /// is skipped where it sits, so this ranks preference and never gates transcription.
+  sttProviderOrder   String[] @default(["elevenlabs", "deepgram", "whisper"])
   batchWindowEnabled Boolean  @default(false)
   batchWindowStart   String   @default("02:00")
   batchWindowEnd     String   @default("05:00")

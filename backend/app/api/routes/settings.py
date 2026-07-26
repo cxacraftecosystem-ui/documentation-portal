@@ -9,6 +9,7 @@ from app.services.app_settings import (
     SINGLETON_ID,
     VALID_TRANSCRIPTION_MODES,
     get_or_create_app_settings,
+    invalid_stt_provider_order,
     is_valid_hhmm,
 )
 
@@ -39,5 +40,14 @@ async def update_app_settings(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"{field} must be a 24-hour HH:mm time",
             )
+    if "sttProviderOrder" in data:
+        problem = invalid_stt_provider_order(data["sttProviderOrder"])
+        if problem:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"sttProviderOrder {problem}",
+            )
+        # Scalar-list columns take an explicit {"set": [...]} on update, unlike create.
+        data["sttProviderOrder"] = {"set": data["sttProviderOrder"]}
     data["updatedById"] = current_user.id
     return await db.appsetting.update(where={"id": SINGLETON_ID}, data=data)

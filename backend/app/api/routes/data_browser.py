@@ -107,6 +107,7 @@ from app.services.record_fields import (
     sheet_row,
 )
 from app.services.s3 import get_object_bytes
+from app.services.transcript_format import transcript_cell
 from app.services.xlsx_report import XLSX_MIME, build_report_workbook
 
 router = APIRouter(
@@ -2054,12 +2055,16 @@ def _sheet(
     columns: list[str],
     rows: list[list[Any]],
     truncated: bool = False,
+    prose: list[int] | None = None,
 ) -> dict[str, Any]:
     """One sheet payload.
 
     An over-long sheet is clipped and flagged twice: as a trailing note row (so the
     downloaded .xlsx carries the warning inline) and as a ``truncated`` flag (so the web
     viewer can render a banner instead of showing the note as a fake data row).
+
+    ``prose`` names the column indexes whose cells hold stored Markdown rather than a label; see
+    ``_rendered`` for what the .xlsx does with them.
     """
     capped = truncated or len(rows) > REPORT_TAKE
     if capped:
@@ -2072,6 +2077,7 @@ def _sheet(
         "columns": columns,
         "rows": rows,
         "truncated": capped,
+        "prose": prose or [],
     }
 
 
@@ -2400,7 +2406,9 @@ def _transcript_sheet(
                 _cell(m.transcriptText),
             ]
         )
-    return _sheet("Transcripts", TRANSCRIPT_COLOR, columns, rows)
+    return _sheet(
+        "Transcripts", TRANSCRIPT_COLOR, columns, rows, prose=[columns.index("Transcript")]
+    )
 
 
 def _media_by_hierarchy_sheet(
@@ -2554,6 +2562,27 @@ def _report_sheets(data: dict[str, list[Any]]) -> list[dict[str, Any]]:
     ]
 
 
+def _rendered(sheets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The sheets with every ``prose`` column re-expressed as Excel rich text.
+
+    Only the .xlsx render goes through here. ``format=json`` keeps the stored Markdown, because
+    its consumers (the web viewer, the manifest's .md files) render Markdown themselves — Excel
+    is the one reader that cannot, and shows the asterisks instead.
+    """
+    rendered = []
+    for sheet in sheets:
+        prose = sheet["prose"]
+        if not prose:
+            rendered.append(sheet)
+            continue
+        rows = [
+            [transcript_cell(value) if idx in prose else value for idx, value in enumerate(row)]
+            for row in sheet["rows"]
+        ]
+        rendered.append({**sheet, "rows": rows})
+    return rendered
+
+
 @router.get("/report")
 async def data_report(
     path: str = "",
@@ -2581,7 +2610,9 @@ async def data_report(
     crumbs = await _resolve_crumbs(norm)
     level_name = crumbs[-1]["name"] if crumbs else "Repository"
     # openpyxl is sync; building a big workbook off-loop keeps requests flowing.
-    payload = await asyncio.to_thread(build_report_workbook, sheets, f"{level_name} report")
+    payload = await asyncio.to_thread(
+        build_report_workbook, _rendered(sheets), f"{level_name} report"
+    )
     slug = re.sub(r"[^A-Za-z0-9]+", "-", level_name).strip("-").lower() or "repository"
     return StreamingResponse(
         io.BytesIO(payload),

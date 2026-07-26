@@ -480,6 +480,19 @@ class FieldRepository(
     suspend fun dataTree(path: String = ""): DataTreeDto = api.dataTree(path)
 
     /**
+     * The tree folder that holds [recordId], or null when nothing files it yet — an artisan who has
+     * never been attached to a workshop genuinely has no folder, so the caller must say so rather
+     * than open the nearest one, which would belong to somebody else.
+     *
+     * [recordType] is one of `workshop`, `craft`, `artisan`, `product`, `tool`, `process`,
+     * `interview`, `media` — the same vocabulary the search buckets hand back.
+     */
+    suspend fun locateRecord(recordType: String, recordId: String): String? {
+        val body = api.dataLocate(recordType, recordId) as? JsonObject ?: return null
+        return (body["path"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
+    }
+
+    /**
      * The flattened subtree below [path]. [include] is a CSV of
      * `text,images,videos,audios,transcripts,documents,other`; null means everything.
      */

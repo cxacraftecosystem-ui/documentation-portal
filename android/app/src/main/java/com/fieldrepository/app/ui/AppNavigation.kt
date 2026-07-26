@@ -46,6 +46,24 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 import com.fieldrepository.app.data.UserDto
@@ -292,6 +310,177 @@ fun isNavItemVisible(item: NavEntry, user: UserDto?, adminMode: Boolean): Boolea
 /** The visible entries for [user], in web order. */
 fun visibleNavItems(user: UserDto?, adminMode: Boolean): List<NavEntry> =
     FIELD_NAV_ITEMS.filter { isNavItemVisible(it, user, adminMode) }
+
+// ---------------------------------------------------------------------------------------------
+// The floating island bar
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The web's dynamic island, on the phone.
+ *
+ * A previous pass copied only the island's CONTENTS into the drawer and left the pill itself on the
+ * web, on the reasoning that a hover bar is a pointer interface. That reasoning was about hover, not
+ * about the bar: the value of the island is that Dashboard, the Walkthrough and the four groups are
+ * VISIBLE — a newcomer can see the shape of the app without opening anything. Hiding all of it
+ * behind one hamburger costs exactly that, which is why it is back, adapted rather than transplanted:
+ *
+ *  - taps, not hover. Each group chip opens a [DropdownMenu] anchored under it and closes on
+ *    selection or on an outside tap.
+ *  - horizontally scrollable. Six chips plus the brand do not fit across a 360dp phone, and
+ *    shrinking the labels to fit would make them unreadable. Scrolling keeps them full-size, and the
+ *    two a newcomer needs (Dashboard, Walkthrough) are the ones already on screen at rest.
+ *  - the drawer stays. It is still the full list in one thumb-reachable place, and the hamburger at
+ *    the right of the pill is how you get to it — same as the web's sheet.
+ *
+ * Renders exactly [visibleNavItems], so it can no more offer an unauthorised destination than the
+ * drawer can. The admin-view chip mirrors the web's, including reading "Admin view: OFF" while off
+ * rather than disappearing — an admin needs to see that the toggle is why their menu got shorter.
+ */
+/** One destination in the island: what it says, what it looks like, what it does. */
+class IslandEntry(val label: String, val icon: ImageVector, val onClick: () -> Unit)
+
+/** One dropdown chip and the destinations behind it — the web's Record / Browse / Admin / Account. */
+class IslandGroup(val label: String, val entries: List<IslandEntry>)
+
+@Composable
+fun FieldIslandNav(
+    roots: List<IslandEntry>,
+    groups: List<IslandGroup>,
+    onBrandClick: () -> Unit,
+    onOpenDrawer: () -> Unit,
+    modifier: Modifier = Modifier,
+    /** Null hides the chip entirely — a non-admin has no admin view to be in. */
+    adminMode: Boolean? = null,
+    onToggleAdminView: () -> Unit = {},
+    /** Highlights the chip the user is currently inside, the web's `aria-current="page"` state. */
+    currentLabel: String? = null
+) {
+    val shown = groups.filter { it.entries.isNotEmpty() }
+    var openGroup by remember { mutableStateOf<String?>(null) }
+
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
+        shadowElevation = 10.dp,
+        border = BorderStroke(1.dp, MaterialTheme.field.hairline)
+    ) {
+        Row(
+            modifier = Modifier
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            // Brand — tapping it goes home, the same as the web's wordmark.
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .clickable(onClick = onBrandClick)
+                    .padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FieldRepoLogo(modifier = Modifier.size(24.dp), cornerRadius = 7.dp)
+                Spacer(Modifier.width(7.dp))
+                Text(
+                    "Field Repository",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1
+                )
+            }
+
+            roots.forEach { entry ->
+                IslandChip(
+                    label = entry.label,
+                    selected = currentLabel == entry.label,
+                    onClick = entry.onClick
+                )
+            }
+
+            shown.forEach { group ->
+                Box {
+                    IslandChip(
+                        label = group.label,
+                        selected = group.entries.any { it.label == currentLabel },
+                        trailing = Icons.Filled.ExpandMore,
+                        onClick = { openGroup = group.label }
+                    )
+                    DropdownMenu(
+                        expanded = openGroup == group.label,
+                        onDismissRequest = { openGroup = null }
+                    ) {
+                        group.entries.forEach { entry ->
+                            DropdownMenuItem(
+                                text = { Text(entry.label) },
+                                leadingIcon = {
+                                    Icon(entry.icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                                },
+                                onClick = {
+                                    openGroup = null
+                                    entry.onClick()
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (adminMode != null) {
+                IslandChip(
+                    label = if (adminMode) "Admin view: ON" else "Admin view: OFF",
+                    selected = adminMode,
+                    leading = if (adminMode) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                    onClick = onToggleAdminView
+                )
+            }
+
+            IconButton(onClick = onOpenDrawer, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    Icons.Filled.Menu,
+                    contentDescription = "Open menu",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}
+
+/** One pill inside the island: the web's `rounded-full px-3 py-1.5 text-sm` nav link. */
+@Composable
+private fun IslandChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    leading: ImageVector? = null,
+    trailing: ImageVector? = null
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(if (selected) MaterialTheme.field.surface100 else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        val tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.field.body
+        if (leading != null) {
+            Icon(leading, contentDescription = null, tint = tint, modifier = Modifier.size(15.dp))
+        }
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = tint,
+            maxLines = 1
+        )
+        if (trailing != null) {
+            Icon(trailing, contentDescription = null, tint = tint, modifier = Modifier.size(15.dp))
+        }
+    }
+}
+
 
 // ---------------------------------------------------------------------------------------------
 // The drawer

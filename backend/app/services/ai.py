@@ -9,7 +9,7 @@ import requests
 from fastapi import UploadFile
 
 from app.core.config import Settings
-from app.services import managed_secrets
+from app.services import app_settings, managed_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -174,21 +174,30 @@ def _transcribe_whisper_sync(content: bytes, filename: str, mime_type: str, sett
     return result
 
 
-def transcription_provider_chain(settings: Settings | None = None) -> list[str]:
-    """Configured STT providers in priority order: ElevenLabs, then Deepgram, then Whisper.
+_PROVIDER_KEYS = {
+    "elevenlabs": "ELEVENLABS_API_KEY",
+    "deepgram": "DEEPGRAM_API_KEY",
+    "whisper": "OPENAI_API_KEY",
+}
+
+
+def transcription_provider_chain(
+    settings: Settings | None = None,
+    order: list[str] | None = None,
+) -> list[str]:
+    """Configured STT providers in priority order, skipping every one whose key is unset.
+
+    ``order`` is the master admin's ranking (see ``app_settings.stt_provider_order``); omitting it
+    falls back to the order that applied before ranking existed. A provider is dropped wherever it
+    sits the moment its key is missing — ranking expresses a preference, not a requirement, so
+    promoting Deepgram on a deployment that has no Deepgram key must not stop transcription.
 
     ``settings`` is accepted but unused — the keys that decide the chain now come from the managed
     secret layer, so adding a Deepgram key in the UI extends the chain immediately. The parameter is
     kept so existing callers (and the sync transcription path, which passes it along) don't break.
     """
-    chain: list[str] = []
-    if _key("ELEVENLABS_API_KEY"):
-        chain.append("elevenlabs")
-    if _key("DEEPGRAM_API_KEY"):
-        chain.append("deepgram")
-    if _key("OPENAI_API_KEY"):
-        chain.append("whisper")
-    return chain
+    ranked = order if order is not None else list(app_settings.DEFAULT_STT_PROVIDER_ORDER)
+    return [p for p in ranked if p in _PROVIDER_KEYS and _key(_PROVIDER_KEYS[p])]
 
 
 _PROVIDER_CALLS = {
@@ -217,8 +226,14 @@ def _rate_limited_result(provider: str, response: Any, code: int) -> dict[str, A
     }
 
 
-def _transcribe_sync(content: bytes, filename: str, mime_type: str, settings: Settings) -> dict[str, Any]:
-    """Walk the provider chain until one produces a transcript.
+def _transcribe_sync(
+    content: bytes,
+    filename: str,
+    mime_type: str,
+    settings: Settings,
+    chain: list[str],
+) -> dict[str, Any]:
+    """Walk *chain* until one provider produces a transcript.
 
     A provider that hard-fails or is throttled falls through to the next; an EMPTY result is kept as
     a fallback but the next provider still gets a chance (codecs/languages one engine can't decode are
@@ -230,7 +245,7 @@ def _transcribe_sync(content: bytes, filename: str, mime_type: str, settings: Se
     rate_limited: dict[str, Any] | None = None
     empty: dict[str, Any] | None = None
     errors: list[str] = []
-    for provider in transcription_provider_chain(settings):
+    for provider in chain:
         call, max_bytes = _PROVIDER_CALLS[provider]
         if max_bytes is not None and len(content) > max_bytes:
             errors.append(f"{provider}: file larger than the provider limit")
@@ -291,7 +306,11 @@ async def transcribe_audio_bytes(
     # Prime the managed-secret cache on the event loop BEFORE any thread hop, so both the provider
     # chain below and the header reads inside the thread see keys saved in the UI.
     await managed_secrets.refresh_if_stale()
-    if not transcription_provider_chain(settings):
+    # Resolve the chain here, per job, and hand it to the thread: the ranking lives in the database
+    # and awaiting it is impossible once inside `to_thread`. Reading it now is also what makes a
+    # reorder apply to the very next job in both the API and the queue process, with no restart.
+    chain = transcription_provider_chain(settings, await app_settings.load_stt_provider_order())
+    if not chain:
         return {
             "available": False,
             "status": "UNAVAILABLE",
@@ -309,6 +328,7 @@ async def transcribe_audio_bytes(
             filename,
             mime_type,
             settings,
+            chain,
         )
     except requests.HTTPError as exc:
         # A 429 (or a 503 "overloaded") is transient throttling, not a real failure — surface it as

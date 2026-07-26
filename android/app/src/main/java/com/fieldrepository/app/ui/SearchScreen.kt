@@ -37,6 +37,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +55,7 @@ import com.fieldrepository.app.data.CraftDto
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.SearchResultsDto
 import com.fieldrepository.app.data.apiErrorMessage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import java.time.Instant
 import java.time.LocalDate
@@ -199,8 +201,8 @@ fun SearchScreen(
             return@LaunchedEffect
         }
         loading = true
-        runCatching {
-            repository.search(
+        try {
+            results = repository.search(
                 q = applied.query.trim().ifBlank { null },
                 craftId = applied.craftId.ifBlank { null },
                 place = applied.place.trim().ifBlank { null },
@@ -214,9 +216,17 @@ fun SearchScreen(
                 page = page,
                 pageSize = SEARCH_PAGE_SIZE
             )
+            error = null
+        } catch (cancelled: CancellationException) {
+            // Every settled keystroke re-keys this effect, and Compose FORGETS the old one — which
+            // cancels the in-flight call with "The coroutine scope left the composition". runCatching
+            // catches that like any other Throwable, which is how a plain superseded request ended up
+            // reported as a failed search. Rethrowing also skips the `loading = false` below, and must:
+            // the pass that replaced this one already owns the flag.
+            throw cancelled
+        } catch (failure: Throwable) {
+            error = failure.apiErrorMessage("Search failed")
         }
-            .onSuccess { results = it; error = null }
-            .onFailure { error = it.apiErrorMessage("Search failed") }
         loading = false
     }
 
@@ -464,7 +474,7 @@ fun SearchScreen(
  * One tappable result. Deliberately carries no id in anything it RENDERS — [id] exists only to hand
  * back to `onOpenRecord`; the design system never shows an internal id to a researcher.
  */
-private data class SearchRow(
+internal data class SearchRow(
     val recordType: String,
     val id: String,
     val title: String,
@@ -565,6 +575,111 @@ private fun SearchResultsDto.toSearchBuckets(): List<SearchBucket> {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Quick search
+//
+// The same query for screens that search in order to GO somewhere rather than to list results.
+// Shared from here so the app has one debounce, one flattening rule and one result row, instead of
+// a second search that drifts away from this one.
+// ---------------------------------------------------------------------------------------------
+
+/** How many hits a quick search shows. Short enough to sit above a screen's own content. */
+internal const val QUICK_SEARCH_LIMIT = 8
+
+/** Below this a query matches so much of the repository that the list is noise, not a shortlist. */
+internal const val QUICK_SEARCH_MIN_CHARS = 2
+
+/**
+ * A debounced free-text search, owned by [rememberQuickSearch] and written only from its effect.
+ *
+ * Single-flight by construction: the caller re-keys the effect on the typed text, so a superseded
+ * request is cancelled before its response can land on top of a newer one.
+ */
+@Stable
+internal class QuickSearchState(private val repository: FieldRepository) {
+    var hits by mutableStateOf<List<SearchRow>>(emptyList())
+        private set
+
+    var loading by mutableStateOf(false)
+        private set
+
+    var error by mutableStateOf<String?>(null)
+        private set
+
+    /** A query has actually run — the difference between "no matches" and "nothing asked yet". */
+    var searched by mutableStateOf(false)
+        private set
+
+    /** Back to "nothing asked": what a blank or too-short box shows. */
+    fun reset() {
+        hits = emptyList()
+        loading = false
+        error = null
+        searched = false
+    }
+
+    suspend fun run(query: String, limit: Int) {
+        loading = true
+        try {
+            hits = repository.search(q = query, page = 1, pageSize = limit).toQuickHits(limit)
+            error = null
+            searched = true
+        } catch (cancelled: CancellationException) {
+            // Superseded by a newer keystroke, or the screen was left. Neither is a failed search,
+            // and `loading` now belongs to the pass that replaced this one — so rethrow rather than
+            // fall through. See the same guard on the full screen's own request.
+            throw cancelled
+        } catch (failure: Throwable) {
+            error = failure.apiErrorMessage("Search failed")
+        }
+        loading = false
+    }
+}
+
+/**
+ * A [QuickSearchState] bound to [query] and to this composition.
+ *
+ * Re-keying on the typed text is what cancels both the pending debounce and any request already in
+ * flight, so only the newest keystroke can produce hits.
+ */
+@Composable
+internal fun rememberQuickSearch(
+    repository: FieldRepository,
+    query: String,
+    limit: Int = QUICK_SEARCH_LIMIT
+): QuickSearchState {
+    val state = remember(repository) { QuickSearchState(repository) }
+    val trimmed = query.trim()
+    LaunchedEffect(state, trimmed, limit) {
+        if (trimmed.length < QUICK_SEARCH_MIN_CHARS) {
+            state.reset()
+            return@LaunchedEffect
+        }
+        delay(SEARCH_DEBOUNCE_MILLIS)
+        state.run(trimmed, limit)
+    }
+    return state
+}
+
+/**
+ * The five buckets flattened into one shortlist, round-robin rather than concatenated: `GET /search`
+ * fills every bucket to the same page size, so appending them in order would spend the whole list on
+ * artisans and hide the workshop the researcher was actually typing.
+ */
+private fun SearchResultsDto.toQuickHits(limit: Int): List<SearchRow> {
+    val buckets = toSearchBuckets().map { it.rows }.filter { it.isNotEmpty() }
+    val hits = mutableListOf<SearchRow>()
+    var index = 0
+    while (hits.size < limit && buckets.any { index < it.size }) {
+        for (rows in buckets) {
+            if (hits.size == limit) break
+            rows.getOrNull(index)?.let { hits += it }
+        }
+        index++
+    }
+    return hits
+}
+
+// ---------------------------------------------------------------------------------------------
 // Result rendering
 // ---------------------------------------------------------------------------------------------
 
@@ -583,7 +698,7 @@ private fun SearchBucketSection(bucket: SearchBucket, onOpenRecord: (String, Str
 }
 
 @Composable
-private fun SearchResultRow(row: SearchRow, onOpen: () -> Unit) {
+internal fun SearchResultRow(row: SearchRow, onOpen: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()

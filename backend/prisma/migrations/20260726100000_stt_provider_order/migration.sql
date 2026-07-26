@@ -1,0 +1,14 @@
+-- Let the master admin rank the speech-to-text providers instead of the order being compiled in.
+--
+-- WHY A COLUMN ON AppSetting: the chain is resolved per transcription job by BOTH the API and the
+-- separate fieldrepo-queue service. The singleton settings row is the one place both already read on
+-- every job, so a reorder reaches them without redeploying or restarting either — the same promise
+-- ManagedSecret makes for the provider keys themselves.
+--
+-- The default is exactly the order that was hardcoded (ElevenLabs -> Deepgram -> Whisper), so the
+-- existing row and every deployment behave identically until someone reorders them. NOT NULL with a
+-- default rather than nullable: there is a single row and "no ranking" would mean nothing. A stale
+-- value is harmless either way — services/app_settings.py sanitises what it reads (unknown ids
+-- dropped, unmentioned providers appended in default order), so a ranking written before a fourth
+-- engine existed demotes that engine rather than disabling it.
+ALTER TABLE "AppSetting" ADD COLUMN "sttProviderOrder" TEXT[] NOT NULL DEFAULT ARRAY['elevenlabs', 'deepgram', 'whisper']::TEXT[];

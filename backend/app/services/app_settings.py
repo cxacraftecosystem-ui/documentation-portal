@@ -16,6 +16,11 @@ DEFAULT_TRANSCRIPTION_MODE = "REFINED_TRANSLATED"
 VALID_TRANSCRIPTION_MODES = {"RAW", "REFINED", "REFINED_TRANSLATED"}
 DEFAULT_TIMEZONE = "Asia/Kolkata"
 
+# The speech-to-text providers a master admin may rank, listed in the order that was compiled into the
+# transcription chain before ranking existed. Doubles as the tie-breaker for anything a stored ranking
+# does not mention, so introducing a fourth engine here never leaves it stranded behind an old row.
+DEFAULT_STT_PROVIDER_ORDER = ("elevenlabs", "deepgram", "whisper")
+
 
 async def load_app_settings() -> Any | None:
     """The settings row, or None if it has never been created (callers treat None as the defaults)."""
@@ -37,6 +42,42 @@ def transcription_mode(row: Any | None) -> str:
         return DEFAULT_TRANSCRIPTION_MODE
     mode = getattr(row, "transcriptionMode", None)
     return mode if mode in VALID_TRANSCRIPTION_MODES else DEFAULT_TRANSCRIPTION_MODE
+
+
+def stt_provider_order(row: Any | None) -> list[str]:
+    """The ranked speech-to-text providers, sanitised against the known set.
+
+    Unknown and repeated ids are dropped, then any provider the row omits is appended in default
+    order: a ranking saved before a provider existed must demote it, never disable it.
+    """
+    stored = list(getattr(row, "sttProviderOrder", None) or []) if row is not None else []
+    ordered: list[str] = []
+    for provider in stored:
+        if provider in DEFAULT_STT_PROVIDER_ORDER and provider not in ordered:
+            ordered.append(provider)
+    ordered.extend(p for p in DEFAULT_STT_PROVIDER_ORDER if p not in ordered)
+    return ordered
+
+
+async def load_stt_provider_order() -> list[str]:
+    """Read the ranking from the database now, not at import: a reorder saved in the Settings hub has
+    to reach the next transcription job in both the API and the queue process without a restart."""
+    return stt_provider_order(await load_app_settings())
+
+
+def invalid_stt_provider_order(value: list[str]) -> str | None:
+    """None when *value* is a usable ranking, otherwise why it is not, phrased for the admin."""
+    known = list(DEFAULT_STT_PROVIDER_ORDER)
+    unknown = [p for p in value if p not in DEFAULT_STT_PROVIDER_ORDER]
+    if unknown:
+        return f"lists unknown providers {unknown}; expected any of {known}"
+    repeated = sorted({p for p in value if value.count(p) > 1})
+    if repeated:
+        return f"repeats {repeated}; each provider may appear once"
+    missing = [p for p in known if p not in value]
+    if missing:
+        return f"is missing {missing}; it must rank every provider, not just the preferred ones"
+    return None
 
 
 def parse_hhmm(value: str | None, fallback: time) -> time:

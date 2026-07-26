@@ -7,6 +7,7 @@ class AppSettingDto(APIModel):
     batchWindowStart: str
     batchWindowEnd: str
     batchTimezone: str
+    sttProviderOrder: list[str]
 
 
 class AppSettingUpdate(APIModel):
@@ -15,3 +16,4 @@ class AppSettingUpdate(APIModel):
     batchWindowStart: str | None = None
     batchWindowEnd: str | None = None
     batchTimezone: str | None = None
+    sttProviderOrder: list[str] | None = None

@@ -12,6 +12,9 @@ type) and hands them here to be rendered into an Excel workbook:
 - per-sheet styling: a bold white header row on the sheet's brand colour, a matching tab colour,
   thin header borders, a frozen header row (``freeze_panes = "A2"``) and column widths sized to
   content (capped so a transcript column can't blow the layout out),
+- prose cells: a value that is rich text (``CellRichText``, as ``transcript_format`` builds) or
+  simply carries newlines is laid out to be read rather than glanced at — wrapped, top-aligned,
+  in a full-width column, on a row grown to fit it but never past ``_MAX_WRAP_LINES``,
 - defensive cell handling: illegal XML control characters are stripped and over-long strings are
   clipped to Excel's hard 32767-char cell limit, so real transcript/notes text never corrupts the
   file.
@@ -21,10 +24,12 @@ entry point returns the finished workbook as ``bytes``.
 """
 
 from io import BytesIO
+from math import ceil
 from typing import Any
 
 from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.hyperlink import Hyperlink
@@ -51,6 +56,12 @@ _THIN = Side(style="thin", color="FFBFBFBF")
 _HEADER_BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
 _HEADER_ALIGN = Alignment(horizontal="left", vertical="center", wrap_text=False)
 _CELL_ALIGN = Alignment(horizontal="left", vertical="top", wrap_text=False)
+_WRAP_ALIGN = Alignment(horizontal="left", vertical="top", wrap_text=True)
+# Left to auto-fit, a wrapped transcript grows a row hundreds of lines tall and the sheet stops
+# being scrollable. Size wrapped rows to their own text instead, up to a readable window; past
+# that the reader drags the row open.
+_LINE_HEIGHT = 15
+_MAX_WRAP_LINES = 10
 
 
 def _rgb(color: str | None) -> str:
@@ -72,6 +83,8 @@ def _clean(value: Any) -> Any:
     """Make a value safe for an Excel cell: strip illegal control chars, clip over-long text."""
     if value is None:
         return None
+    if isinstance(value, CellRichText):
+        return _clean_runs(value)
     if isinstance(value, (int, float)):
         return value
     text = value if isinstance(value, str) else str(value)
@@ -79,6 +92,43 @@ def _clean(value: Any) -> Any:
     if len(text) > _MAX_CELL_CHARS:
         text = text[: _MAX_CELL_CHARS - 1] + "…"
     return text
+
+
+def _clean_runs(value: CellRichText) -> CellRichText:
+    """``_clean`` for rich text — same guarantees, but the cell limit spans all of its runs.
+
+    Rich text is how the longest cells in the workbook arrive, so the clip has to be honoured
+    across the runs rather than per run; a run cut short ends the cell.
+    """
+    cleaned = CellRichText()
+    budget = _MAX_CELL_CHARS
+    for run in value:
+        block = isinstance(run, TextBlock)
+        text = ILLEGAL_CHARACTERS_RE.sub("", run.text if block else str(run))
+        if not text:
+            continue
+        if len(text) >= budget:
+            text = text[: budget - 1] + "…"
+            budget = 0
+        else:
+            budget -= len(text)
+        cleaned.append(TextBlock(run.font, text) if block else text)
+        if not budget:
+            break
+    return cleaned
+
+
+def _wraps(value: Any) -> bool:
+    """Whether a cell holds prose: rich text, or text the author already broke into lines."""
+    if isinstance(value, CellRichText):
+        return True
+    return isinstance(value, str) and "\n" in value
+
+
+def _wrap_height(text: str) -> float:
+    """How tall a wrapped cell needs to sit: its own lines, each re-broken to the column width."""
+    lines = sum(max(1, ceil(len(line) / _MAX_COL_WIDTH)) for line in text.split("\n"))
+    return min(lines, _MAX_WRAP_LINES) * _LINE_HEIGHT
 
 
 def _safe_title(name: str, used: set[str]) -> str:
@@ -95,8 +145,12 @@ def _safe_title(name: str, used: set[str]) -> str:
     return candidate
 
 
-def _autosize(ws: Worksheet, columns: list[str], rows: list[list[Any]]) -> None:
+def _autosize(ws: Worksheet, columns: list[str], rows: list[list[Any]], wrapped: set[int]) -> None:
     for idx, header in enumerate(columns):
+        if idx in wrapped:
+            # Prose is read down the column, not across it — always give it the full allowance.
+            ws.column_dimensions[get_column_letter(idx + 1)].width = _MAX_COL_WIDTH
+            continue
         longest = len(str(header))
         for row in rows:
             if idx < len(row) and row[idx] is not None:
@@ -121,14 +175,24 @@ def _write_sheet(ws: Worksheet, sheet: dict[str, Any]) -> None:
         cell.border = _HEADER_BORDER
         cell.alignment = _HEADER_ALIGN
 
+    wrapped: set[int] = set()
     for r, row in enumerate(rows, start=2):
-        for idx, value in enumerate(row, start=1):
-            cell = ws.cell(row=r, column=idx, value=_clean(value))
-            cell.alignment = _CELL_ALIGN
+        height = 0.0
+        for idx, value in enumerate(row):
+            cleaned = _clean(value)
+            cell = ws.cell(row=r, column=idx + 1, value=cleaned)
+            if _wraps(cleaned):
+                cell.alignment = _WRAP_ALIGN
+                wrapped.add(idx)
+                height = max(height, _wrap_height(str(cleaned)))
+            else:
+                cell.alignment = _CELL_ALIGN
+        if height:
+            ws.row_dimensions[r].height = height
 
     if columns:
         ws.freeze_panes = "A2"
-    _autosize(ws, columns, rows)
+    _autosize(ws, columns, rows, wrapped)
 
 
 def _write_overview(ws: Worksheet, title: str, sheets: list[dict[str, Any]]) -> None:

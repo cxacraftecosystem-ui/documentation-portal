@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
@@ -47,6 +48,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material3.Button
@@ -61,6 +63,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -215,6 +218,14 @@ class DataBrowserState(
     var restricted by mutableStateOf(false)
         private set
 
+    /** The id of the search hit being resolved to a folder, if any. */
+    var locating by mutableStateOf<String?>(null)
+        private set
+
+    /** Set when a search hit turned out to have no folder at all; cleared by the next navigation. */
+    var unfiled by mutableStateOf<String?>(null)
+        private set
+
     /** Entry paths whose inline `content` is expanded. */
     var openInline by mutableStateOf<Set<String>>(emptySet())
         private set
@@ -227,6 +238,7 @@ class DataBrowserState(
     private val transcriptsByFolder = mutableStateMapOf<String, List<DataManifestFileDto>>()
     private var transcriptFolderLoading by mutableStateOf<String?>(null)
     private var loadJob: Job? = null
+    private var locateJob: Job? = null
 
     // The bare root is only a chooser, so the first resolution drops the user straight into the
     // default taxonomy. One-shot, so navigating back to the root still shows the chooser.
@@ -275,6 +287,7 @@ class DataBrowserState(
             openTranscripts = emptySet()
         }
         error = null
+        unfiled = null
         loadJob?.cancel()
         loadJob = scope.launch {
             var target = path
@@ -299,6 +312,34 @@ class DataBrowserState(
                 break
             }
             loading = false
+        }
+    }
+
+    /**
+     * Open the folder that files a search hit, named [title] so the "no folder" answer can say WHICH
+     * record it is about. `GET /data/locate` returns a null path for a record nothing files yet — a
+     * product whose artisan was never attached to a workshop — and that is reported rather than
+     * approximated, because the nearest folder would be somebody else's.
+     */
+    fun locate(recordType: String, recordId: String, title: String) {
+        locateJob?.cancel()
+        locateJob = scope.launch {
+            locating = recordId
+            unfiled = null
+            error = null
+            try {
+                val path = repository.locateRecord(recordType, recordId)
+                if (path == null) {
+                    unfiled = "$title is not filed under any workshop yet, so it has no folder to open."
+                } else {
+                    open(path)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                error = failure.apiErrorMessage("Unable to locate this record")
+            }
+            locating = null
         }
     }
 
@@ -419,6 +460,8 @@ fun DataBrowserScreen(
     var reporting by remember { mutableStateOf(false) }
     var savingMediaId by remember { mutableStateOf<String?>(null) }
     var viewing by remember { mutableStateOf<DataTreeEntryDto?>(null) }
+    var jumpQuery by remember { mutableStateOf("") }
+    val jump = rememberQuickSearch(repository, jumpQuery)
 
     BackHandler(enabled = true) { if (!state.canGoUp || !state.goUp()) onBack() }
 
@@ -473,6 +516,19 @@ fun DataBrowserScreen(
 
             state.error?.let { message ->
                 item("error") { ErrorBanner(message, onDismiss = state::dismissError) }
+            }
+
+            // Above the browser, not inside it: walking down four levels of folders to reach one
+            // known artisan is the slowest thing this screen asks of a researcher.
+            item("jump") {
+                JumpToRecordPanel(
+                    query = jumpQuery,
+                    onQueryChange = { jumpQuery = it },
+                    search = jump,
+                    locating = state.locating,
+                    unfiled = state.unfiled,
+                    onOpenHit = { hit -> state.locate(hit.recordType, hit.id, hit.title) }
+                )
             }
 
             if (state.taxonomies.isNotEmpty()) {
@@ -872,6 +928,84 @@ private fun RestrictedPanel() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
+    }
+}
+
+/**
+ * Search straight to a folder. The rows are the Search screen's own — same debounce, same shape —
+ * but tapping one resolves the record to a tree path and navigates the browser there instead of
+ * opening an edit form, because this screen is where the record's FILES live.
+ */
+@Composable
+private fun JumpToRecordPanel(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    search: QuickSearchState,
+    locating: String?,
+    unfiled: String?,
+    onOpenHit: (SearchRow) -> Unit
+) {
+    BrowserPanel {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(
+                Icons.Filled.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp)
+            )
+            Text(
+                "Jump to a record",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            label = { Text("Search the repository") },
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
+            trailingIcon = {
+                if (query.isNotBlank()) {
+                    IconButton(onClick = { onQueryChange("") }) {
+                        Icon(Icons.Filled.Close, contentDescription = "Clear search", modifier = Modifier.size(18.dp))
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            "Find an artisan, workshop, product, tool or media file and open the folder that holds it.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        search.error?.let { message ->
+            NoticeBox(
+                message,
+                container = MaterialTheme.colorScheme.errorContainer,
+                content = MaterialTheme.colorScheme.onErrorContainer
+            )
+        }
+        if (search.loading && search.hits.isEmpty()) LoadingRow("Searching…")
+        if (search.searched && !search.loading && search.hits.isEmpty() && search.error == null) {
+            Text(
+                "No matching records.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        search.hits.forEach { hit ->
+            SearchResultRow(row = hit, onOpen = { onOpenHit(hit) })
+        }
+        if (locating != null) LoadingRow("Opening the folder…")
+        unfiled?.let { message ->
+            NoticeBox(
+                message,
+                container = MaterialTheme.field.warningContainer,
+                content = MaterialTheme.field.onWarningContainer
+            )
+        }
     }
 }
 

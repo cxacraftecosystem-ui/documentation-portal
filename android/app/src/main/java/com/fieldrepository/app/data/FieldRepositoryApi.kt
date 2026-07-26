@@ -580,6 +580,11 @@ interface FieldRepositoryApi {
     @GET("data/tree")
     suspend fun dataTree(@Query("path") path: String = ""): DataTreeDto
 
+    // Where a record sits in the tree, so a search hit can be turned into a folder to open. Answers
+    // `{"path": null}` when nothing files the record yet — that is a fact, not an error.
+    @GET("data/locate")
+    suspend fun dataLocate(@Query("type") type: String, @Query("id") id: String): JsonElement
+
     // The flattened subtree below `path`, for client-side zipping. `include` is a CSV of
     // text,images,videos,audios,transcripts,documents,other; omitted means everything.
     @GET("data/manifest")
