@@ -30,7 +30,6 @@ from app.schemas.questionnaire import (
 )
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
-    public_encode,
     add_date_range,
     apply_status_policy_create,
     apply_status_policy_update,
@@ -39,8 +38,10 @@ from app.services.records import (
     contains,
     jsonify_metadata,
     merge_field_provenance,
+    public_encode,
     require_record,
     resubmit_status,
+    visibility_where,
 )
 from app.services.workshop_access import (
     WorkshopSubmissionCheck,
@@ -409,7 +410,7 @@ async def reorder_questions(
 
 @router.get("/interviews")
 async def list_interviews(
-    _: Any = Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
     search: str | None = None,
     artisanId: str | None = None,
     workshopId: str | None = None,
@@ -421,6 +422,22 @@ async def list_interviews(
 ) -> dict[str, Any]:
     page, page_size, skip = normalize_pagination(page, pageSize)
     where: dict[str, Any] = {}
+
+    # Row visibility, which this route was missing entirely — it was the only record-list endpoint
+    # in the app without it (artisans, products, tools, media, workshops and search all call this).
+    # The consequence was not subtle: a CROWDSOURCE_VOLUNTEER, the lowest tier, who cannot even
+    # create a record, could page through every interview in the repository a hundred at a time,
+    # each one carrying its full set of recorded answers.
+    #
+    # Nested under AND so it can never be overwritten by the free-text OR below, which is exactly
+    # how a filter like this gets silently dropped: `where["OR"] = [...]` replaces the key outright.
+    and_filters: list[dict[str, Any]] = []
+    vis = await visibility_where(current_user)
+    if vis:
+        and_filters.append(vis)
+    if and_filters:
+        where["AND"] = and_filters
+
     if search:
         where["OR"] = [{"title": contains(search)}, {"place": contains(search)}, {"notes": contains(search)}]
     if artisanId:

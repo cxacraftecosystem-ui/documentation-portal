@@ -289,17 +289,30 @@ async def transcribe_media_now(media: Any, settings: Settings | None = None) -> 
                 job_data["requestedById"] = str(uploader_id)
             await db.mediaprocessingjob.create(data=job_data)
         return result
-    transcript = result.get("formattedTranscript") or result.get("text")
-    await db.mediafile.update(
-        where={"id": media_id},
-        data={
-            "transcriptStatus": status,
-            "transcriptText": transcript,
-            "transcriptSummary": result.get("text"),
-            "transcriptError": None if status in {COMPLETED, "EMPTY"} else result.get("message"),
-        },
-    )
+    await db.mediafile.update(where={"id": media_id}, data=_transcript_write(result, status))
     return result
+
+
+def _transcript_write(result: dict[str, Any], status: str) -> dict[str, Any]:
+    """The MediaFile columns to write for a finished transcription run.
+
+    A FAILED or UNAVAILABLE run carries ``text: None`` (see services/ai.py), and writing that empty
+    result verbatim NULLED OUT a transcript that was already stored: re-running transcription on a
+    clip that already had a good transcript — the admin "Transcribe now" button, or a requeued job —
+    destroyed it the moment the provider was down, and nothing else holds a copy. A run that produced
+    no text therefore records only its status and its error; the previous transcript stays, and the
+    failure is still visible in ``transcriptStatus``/``transcriptError``. Clearing a transcript stays
+    a deliberate act: POST /media/{id}/transcript is the one path that overwrites stored text.
+    """
+    data: dict[str, Any] = {
+        "transcriptStatus": status,
+        "transcriptError": None if status in {COMPLETED, "EMPTY"} else result.get("message"),
+    }
+    transcript = result.get("formattedTranscript") or result.get("text")
+    if transcript:
+        data["transcriptText"] = transcript
+        data["transcriptSummary"] = result.get("text")
+    return data
 
 
 async def recover_stale_processing_jobs() -> int:
@@ -394,14 +407,9 @@ async def _apply_transcription_result(job: Any, result: dict[str, Any]) -> None:
             data={"transcriptStatus": QUEUED, "transcriptError": message},
         )
         raise RateLimited(result.get("retryAfter"))
-    transcript = result.get("formattedTranscript") or result.get("text")
-    media_data = {
-        "transcriptStatus": status,
-        "transcriptText": transcript,
-        "transcriptSummary": result.get("text"),
-        "transcriptError": None if status in {COMPLETED, "EMPTY"} else message,
-    }
-    await db.mediafile.update(where={"id": job.mediaFileId}, data=media_data)
+    await db.mediafile.update(
+        where={"id": job.mediaFileId}, data=_transcript_write(result, status)
+    )
     if status in {COMPLETED, "EMPTY"}:
         await _complete_job(job.id, result)
     elif status == UNAVAILABLE:

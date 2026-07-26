@@ -7,34 +7,85 @@ from fastapi.encoders import jsonable_encoder
 from prisma import Json
 
 from app.core.db import db
+from app.services.artisan_identity import mask_aadhaar
 from app.services.text_format import title_case_fields
 
 # Keys that must never leave the API, no matter how deeply nested inside an embedded relation
 # (e.g. a media file's ``uploadedBy`` user, or a record's ``createdBy``).
 _SENSITIVE_KEYS = {"passwordHash"}
 
+# Regulated identity numbers. Unlike a password hash these are MASKED rather than dropped: a
+# researcher still has to be able to confirm they are looking at the right person, and
+# "XXXX XXXX 9012" is enough for that while not being a usable identifier.
+#
+# Both columns exist on Artisan and nowhere else, so an encoded dict carrying either key IS an
+# artisan — which means it also carries its own ``createdById``, and the entitlement decision can be
+# made per node without the walk knowing anything about the shape it is walking.
+_IDENTITY_KEYS = ("aadhaarNumber", "pehchanCardNumber")
 
-def _strip_sensitive(value: Any) -> Any:
-    """Recursively remove sensitive keys (password hashes) from an already-encoded payload."""
+
+def mask_identity_number(value: Any) -> Any:
+    """The masked form of an artisan identity number.
+
+    ``mask_aadhaar`` is reused verbatim for the Pehchan card: its rule is "keep the last four
+    characters, X out everything before them, and mask anything shorter than four entirely", which is
+    right for both numbers — and reusing it means one artisan's identity reads identically on every
+    surface instead of gaining a second spelling.
+    """
+    return mask_aadhaar(value)
+
+
+def _redact_sensitive(value: Any, viewer_id: str | None, unmasked: bool) -> Any:
+    """Recursively strip password hashes and mask identity numbers in an already-encoded payload.
+
+    Mutates in place and returns the same object. ``unmasked`` short-circuits the identity masking
+    for a caller entitled to every raw value (professor and above); otherwise each artisan node is
+    judged on its own ``createdById``, because entitlement follows the artisan, not the payload.
+    """
     if isinstance(value, dict):
         for key in _SENSITIVE_KEYS:
             value.pop(key, None)
+        if not unmasked and not (viewer_id and value.get("createdById") == viewer_id):
+            for key in _IDENTITY_KEYS:
+                if key in value:
+                    value[key] = mask_identity_number(value[key])
         for nested in value.values():
-            _strip_sensitive(nested)
+            _redact_sensitive(nested, viewer_id, unmasked)
     elif isinstance(value, list):
         for item in value:
-            _strip_sensitive(item)
+            _redact_sensitive(item, viewer_id, unmasked)
     return value
 
 
-def public_encode(obj: Any) -> Any:
-    """``jsonable_encoder`` plus a recursive scrub of sensitive fields.
+def public_encode(obj: Any, viewer: Any = None) -> Any:
+    """``jsonable_encoder`` plus a recursive scrub of everything that must not leave the API.
 
-    Use this for any response that embeds a User relation (``createdBy``/``uploadedBy``/
-    ``answeredBy``/``reviewedBy``) so a researcher can never read another account's password hash
-    out of the JSON.
+    Two jobs, both performed on the ENCODED structure so neither depends on how the row was loaded:
+
+    * password hashes are removed outright, however deeply an embedded User relation is nested
+      (``createdBy``/``uploadedBy``/``answeredBy``/``reviewedBy``);
+    * ``aadhaarNumber`` and ``pehchanCardNumber`` are masked unless ``viewer`` is entitled to the raw
+      value — professor and above, or the researcher who recorded that particular artisan.
+
+    ``viewer`` DEFAULTS TO MASKED, and that default is the point. The mask used to be applied
+    per-route inside artisans.py, so it held on the three artisan routes and nowhere else: every
+    other response that embedded an Artisan — the questionnaire's interviews, products, tools,
+    workshops, media, search — shipped full 12-digit Aadhaar numbers to anyone signed in, at a
+    hundred artisans a page. Masking here, defaulting to the safe answer, is what makes the schema's
+    "masked on every exported or shared surface" contract hold for includes nobody has written yet:
+    a new route leaks nothing until someone deliberately passes a caller who may see more.
+
+    Pass the current user from any route whose caller legitimately needs the real number — the
+    artisan edit form is the reason that path exists.
     """
-    return _strip_sensitive(jsonable_encoder(obj))
+    from app.core.deps import get_value, has_rank
+
+    encoded = jsonable_encoder(obj)
+    if viewer is None:
+        return _redact_sensitive(encoded, viewer_id=None, unmasked=False)
+    return _redact_sensitive(
+        encoded, viewer_id=get_value(viewer, "id"), unmasked=has_rank(viewer, "PROFESSOR")
+    )
 
 
 def to_json(value: Any) -> Any:

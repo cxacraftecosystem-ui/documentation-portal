@@ -223,11 +223,10 @@ async def list_artisans(
     )
     # A list page hands back many artisans at once, so mask each row the caller is not entitled to
     # read raw — otherwise one request yields every id AND every full Aadhaar on the page.
-    encoded = [
-        _mask_artisan_identity(row, current_user, artisan)
-        for row, artisan in zip(public_encode(items), items)
-    ]
-    return page_payload(encoded, total, page, page_size)
+    # The encoder masks per node against this viewer, so a list of a hundred artisans is one
+    # decision per artisan rather than one blanket decision for the page: the two the caller
+    # recorded come back raw, the rest masked.
+    return page_payload(public_encode(items, current_user), total, page, page_size)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -259,15 +258,19 @@ async def create_artisan(
         raise await _identity_conflict(field, data[field]) from exc
     # The explicit column ADDS to the WorkshopArtisan join every existing query still reads through.
     await link_workshop_artisan(created.workshopId, created.id)
-    return public_encode(created)
+    # The creator is by definition entitled, but pass the viewer anyway rather than relying on
+    # that: a future change to who may create an artisan would otherwise silently leak.
+    return public_encode(created, current_user)
 
 
 @router.get("/{artisan_id}")
 async def get_artisan(artisan_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     artisan = await db.artisan.find_unique(where={"id": artisan_id}, include=INCLUDE)
     artisan = await require_record(db.artisan, artisan_id) if not artisan else artisan
-    # Masked unless this caller is entitled to the raw number (creator, or professor+).
-    return _mask_artisan_identity(public_encode(artisan), current_user, artisan)
+    # Masked unless this caller is entitled to the raw number (creator, or professor+) — decided
+    # inside the encoder now, so the same rule covers this route and every route that merely embeds
+    # an Artisan relation without thinking about it.
+    return public_encode(artisan, current_user)
 
 
 @router.patch("/{artisan_id}")
@@ -328,7 +331,7 @@ async def update_artisan(
             raise
         raise await _identity_conflict(field, data[field], exclude_id=artisan_id) from exc
     await link_workshop_artisan(updated.workshopId, updated.id)
-    return _mask_artisan_identity(public_encode(updated), current_user, updated)
+    return public_encode(updated, current_user)
 
 
 @router.get("/lookup/aadhaar")
