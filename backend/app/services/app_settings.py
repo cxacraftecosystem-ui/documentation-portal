@@ -1,7 +1,8 @@
 """Global, master-admin-configurable application settings (a single DB row).
 
-For now this controls how audio transcripts are produced and an optional off-peak window during which
-the heavy transcription + refinement work runs (so it doesn't compete with daytime field uploads).
+For now this controls how audio transcripts are produced, which speech-to-text provider is tried
+first, and an optional off-peak window during which the heavy transcription + refinement work runs
+(so it doesn't compete with daytime field uploads).
 """
 
 from datetime import datetime, time, timedelta, timezone

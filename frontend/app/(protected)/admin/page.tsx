@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import {
   AudioLines,
   ClipboardCheck,
+  ClipboardList,
   KeyRound,
   Lock,
   MessageSquare,
@@ -12,7 +13,6 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   UserCog,
-  UsersRound,
   Wrench,
   type LucideIcon
 } from "lucide-react";
@@ -123,10 +123,14 @@ export default function AdminHubPage() {
       icon: Wrench
     },
     {
-      label: "Workshop assignments",
-      description: "Open a workshop record to assign researchers and approve out-of-window work.",
-      href: "/workshops",
-      icon: UsersRound
+      // Replaces the old "Workshop assignments" tile, which pointed at /workshops and only told an
+      // admin to go and open a record. Everything it hinted at — the request queue, each roster and
+      // its access levels — is done properly on /settings/workshop-access, the tile below. Two doors
+      // onto one job, one of which was a signpost rather than a page, is worse than one door.
+      label: "Task assignment",
+      description: "Hand documentation work to the people below you, then hold it to account.",
+      href: "/settings/tasks",
+      icon: ClipboardList
     },
     {
       label: "Workshop access",

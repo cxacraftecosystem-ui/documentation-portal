@@ -19,7 +19,7 @@ import {
   type WorkshopAccessLevel,
   type WorkshopAccessRow
 } from "@/components/settings/workshopAccess";
-import { ComboBox, Dropdown } from "@/components/ui/Dropdown";
+import { ComboBox, Dropdown, MultiSelectDropdown } from "@/components/ui/Dropdown";
 import { useToast } from "@/components/ui/Toast";
 import { apiFetch, listResource } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
@@ -52,7 +52,10 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
 
-  const [grantUserId, setGrantUserId] = useState("");
+  // Plural, because granting access is almost never a one-person job: a workshop starts and six
+  // researchers need in at the same level on the same afternoon. One at a time meant six passes
+  // through the same three controls, and six chances to pick the wrong level on one of them.
+  const [grantUserIds, setGrantUserIds] = useState<string[]>([]);
   const [grantLevel, setGrantLevel] = useState<WorkshopAccessLevel>(DEFAULT_ACCESS_LEVEL);
   const [grantNote, setGrantNote] = useState("");
 
@@ -105,23 +108,43 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
 
   async function grant(event: React.FormEvent) {
     event.preventDefault();
-    if (!grantUserId || !workshopId) return;
-    setBusy(`grant:${grantUserId}`);
+    if (!grantUserIds.length || !workshopId) return;
+    setBusy(`grant:${grantUserIds.join(",")}`);
     setError(null);
-    try {
-      await apiFetch<WorkshopAccessRow>(`/workshops/${workshopId}/assignments`, {
-        method: "POST",
-        body: JSON.stringify({ userId: grantUserId, accessLevel: grantLevel, note: grantNote.trim() || null })
+    // One request per person (the endpoint takes one WorkshopAssignment), but settled together so
+    // one failure does not silently abandon the rest of the list. Whoever DID get in stays in.
+    const results = await Promise.allSettled(
+      grantUserIds.map((userId) =>
+        apiFetch<WorkshopAccessRow>(`/workshops/${workshopId}/assignments`, {
+          method: "POST",
+          body: JSON.stringify({ userId, accessLevel: grantLevel, note: grantNote.trim() || null })
+        })
+      )
+    );
+    const failed = results
+      .map((result, index) => (result.status === "rejected" ? grantUserIds[index] : null))
+      .filter((id): id is string => id !== null);
+    const granted = grantUserIds.length - failed.length;
+
+    if (granted) {
+      toast({
+        title: granted === 1 ? "Access granted" : `${granted} people granted access`,
+        description: "They can work in this workshop from now on.",
+        tone: "success"
       });
-      toast({ title: "Access granted", description: "They can work in this workshop from now on.", tone: "success" });
-      setGrantUserId("");
-      setGrantNote("");
-      onChanged(); // bumps the shared token; both panels re-read through their effects
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to grant access");
-    } finally {
-      setBusy(null);
     }
+    if (failed.length) {
+      const names = failed
+        .map((id) => directory.find((person) => person.id === id))
+        .map((person) => (person ? personName(person) : "someone"))
+        .join(", ");
+      setError(`Could not grant access to ${names}. Everyone else on the list is in.`);
+    }
+    // Keep only the ones that failed selected, so a retry is one click and nobody is granted twice.
+    setGrantUserIds(failed);
+    if (!failed.length) setGrantNote("");
+    setBusy(null);
+    onChanged(); // bumps the shared token; both panels re-read through their effects
   }
 
   async function changeLevel(row: WorkshopAccessRow, level: WorkshopAccessLevel) {
@@ -217,10 +240,12 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
       <div className="mt-4 max-w-xl">
         <Field label="Workshop">
           <ComboBox
-            onChange={(next) => {
+            onChange={(next: string) => {
               setWorkshopId(next);
               setConfirmRevoke(null);
-              setGrantUserId("");
+              // A selection made against the previous workshop must not carry over: that roster is
+              // a different set of people, and half of them may already be granted here.
+              setGrantUserIds([]);
             }}
             options={workshopOptions}
             placeholder={workshops.length ? "Select or type to search" : "Loading workshops…"}
@@ -353,11 +378,13 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
           <h3 className="font-display text-sm font-bold text-ink-900">Grant access to somebody new</h3>
           <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)_minmax(0,1.2fr)]">
             <Field label="Person">
-              <ComboBox
-                onChange={setGrantUserId}
+              <MultiSelectDropdown
+                onChange={setGrantUserIds}
                 options={grantableUsers}
-                placeholder="Select or type to search"
-                value={grantUserId}
+                placeholder="Select one or more people"
+                values={grantUserIds}
+                confirmOnSelect
+                confirmLabel="Done"
               />
             </Field>
             <Field label="Level">
@@ -378,9 +405,17 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
               />
             </Field>
           </div>
-          <button className="field-button mt-3" disabled={!grantUserId || busy === `grant:${grantUserId}`} type="submit">
+          <button
+            className="field-button mt-3"
+            disabled={!grantUserIds.length || busy === `grant:${grantUserIds.join(",")}`}
+            type="submit"
+          >
             <UserPlus className="h-4 w-4" aria-hidden />
-            {busy === `grant:${grantUserId}` ? "Granting…" : "Grant access"}
+            {busy === `grant:${grantUserIds.join(",")}`
+              ? "Granting…"
+              : grantUserIds.length > 1
+                ? `Grant access to ${grantUserIds.length} people`
+                : "Grant access"}
           </button>
         </form>
       ) : null}

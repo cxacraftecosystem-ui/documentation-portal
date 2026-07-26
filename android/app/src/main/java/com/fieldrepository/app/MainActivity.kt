@@ -61,7 +61,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
+import com.fieldrepository.app.ui.Text
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material3.TextButton
@@ -883,7 +883,7 @@ private fun HomeScreen(
             ) {
                 /*
                  * Two hosting shapes. Almost everything renders into the scrolling Column below,
-                 * under the app's own header + Back pill. The two screens branched off here own
+                 * under the app's own header. The two screens branched off here own
                  * their whole viewport instead — the Data Browser lays out with a LazyColumn, which
                  * throws if it is measured inside a parent that scrolls the same way, and both draw
                  * their own back control, so the shared chrome would only duplicate it.
@@ -911,6 +911,16 @@ private fun HomeScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            // The dashboard is the root of every path, so only the screens below it get a back arrow.
+            if (screen !is Screen.Dashboard) {
+                IconButton(onClick = { attemptExit { goBack() } }) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     headerTitle,
@@ -922,10 +932,6 @@ private fun HomeScreen(
             IconButton(onClick = { scope.launch { drawerState.open() } }) {
                 Icon(Icons.Filled.Menu, contentDescription = "Open menu", tint = MaterialTheme.colorScheme.primary)
             }
-        }
-
-        if (screen !is Screen.Dashboard) {
-            BackPill(onClick = { attemptExit { goBack() } })
         }
 
         when (val s = screen) {
@@ -1381,20 +1387,6 @@ private fun DataBrowserEntryCard(onOpen: () -> Unit) {
             Spacer(Modifier.width(8.dp))
             Text("Open the Data Browser")
         }
-    }
-}
-
-/** Rounded back control with a real icon; steps to the previous screen. */
-@Composable
-private fun BackPill(onClick: () -> Unit) {
-    OutlinedButton(
-        onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp)
-    ) {
-        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(8.dp))
-        Text("Back")
     }
 }
 
