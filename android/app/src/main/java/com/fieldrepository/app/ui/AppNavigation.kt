@@ -51,8 +51,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -64,6 +70,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 import com.fieldrepository.app.data.UserDto
@@ -326,9 +336,15 @@ fun visibleNavItems(user: UserDto?, adminMode: Boolean): List<NavEntry> =
  *
  *  - taps, not hover. Each group chip opens a [DropdownMenu] anchored under it and closes on
  *    selection or on an outside tap.
- *  - horizontally scrollable. Six chips plus the brand do not fit across a 360dp phone, and
- *    shrinking the labels to fit would make them unreadable. Scrolling keeps them full-size, and the
- *    two a newcomer needs (Dashboard, Walkthrough) are the ones already on screen at rest.
+ *  - it adapts, it does not scroll away. An earlier pass wrapped the whole bar in a horizontal
+ *    scroller and called that the answer to a narrow screen. On a 360dp phone that showed the
+ *    wordmark, Dashboard and part of Walkthrough — all four groups, the admin toggle and the
+ *    hamburger sat off-screen behind a gesture nobody discovers, which reads to the person holding
+ *    the phone as a navigation bar that was never built. A chip the user cannot see is a chip that
+ *    does not exist. So the bar now sheds width in [IslandDensity] steps until it fits: first the
+ *    wordmark, then the chip labels. The scroller survives only as an overflow net for the devices
+ *    and font scales that defeat even the smallest step, and the hamburger is pinned OUTSIDE it so
+ *    the route to the full drawer can never be the thing that scrolls away.
  *  - the drawer stays. It is still the full list in one thumb-reachable place, and the hamburger at
  *    the right of the pill is how you get to it — same as the web's sheet.
  *
@@ -339,8 +355,87 @@ fun visibleNavItems(user: UserDto?, adminMode: Boolean): List<NavEntry> =
 /** One destination in the island: what it says, what it looks like, what it does. */
 class IslandEntry(val label: String, val icon: ImageVector, val onClick: () -> Unit)
 
-/** One dropdown chip and the destinations behind it — the web's Record / Browse / Admin / Account. */
-class IslandGroup(val label: String, val entries: List<IslandEntry>)
+/**
+ * One dropdown chip and the destinations behind it — the web's Record / Browse / Admin / Account.
+ *
+ * [icon] defaults from the label because the web has no group icons to copy and the caller should not
+ * have to invent one: below [IslandDensity.ICON_GROUPS] the glyph IS the chip, so every group needs
+ * one whether or not whoever built the list thought about narrow screens.
+ */
+class IslandGroup(
+    val label: String,
+    val entries: List<IslandEntry>,
+    val icon: ImageVector = islandGroupIcon(label)
+)
+
+/**
+ * The glyph that stands in for a group label. Deliberately distinct from every icon a chip beside it
+ * can carry — the Browse folder against the Dashboard grid, the Account bust against the Walkthrough
+ * compass — because at the narrowest density the user is telling them apart by shape alone.
+ */
+private fun islandGroupIcon(label: String): ImageVector = when (label) {
+    NavGroup.RECORD.label -> Icons.Filled.EditNote
+    NavGroup.BROWSE.label -> Icons.Filled.FolderOpen
+    NavGroup.ADMIN.label -> Icons.Filled.AdminPanelSettings
+    NavGroup.ACCOUNT.label -> Icons.Filled.AccountCircle
+    else -> Icons.Filled.Apps
+}
+
+/**
+ * How much of itself the bar can afford to show. Each step gives up the widest thing that is not
+ * load-bearing, in the order a reader would miss it least.
+ */
+private enum class IslandDensity {
+    /** Everything, as the web shows it: wordmark, and every chip carrying its label. */
+    FULL,
+
+    /** The wordmark goes and the mark stays — decoration for width, and the logo is still home. */
+    MARK,
+
+    /** Group chips shrink to their glyph, which is what buys all four a place beside the roots. */
+    ICON_GROUPS,
+
+    /** Nothing in the bar but glyphs. The only arrangement that fits a 360dp phone whole. */
+    ICON_ONLY
+}
+
+/*
+ * Where the steps sit, and why there.
+ *
+ * These are added up from the real content, worst case — both roots, all four groups, the admin chip
+ * and the hamburger, which is what an admin actually sees. A labelled chip is 20dp of padding plus
+ * its text at labelLarge (14sp Inter, ~7.5dp a character), a group chip adds a 15dp caret, a glyph
+ * chip is 14dp of padding around an 18dp icon, and the hamburger is a fixed 36dp:
+ *
+ *   FULL         wordmark 111 + mark 36 + roots 193 + groups 343 + admin chip 146 + menu 36 ≈ 897dp
+ *   MARK         the same bar with the wordmark gone                                       ≈ 786dp
+ *   ICON_GROUPS  mark 36 + labelled roots 193 + four glyph chips 128 + eye 32 + menu 36     ≈ 457dp
+ *   ICON_ONLY    mark 30 + six glyph chips 192 + eye 32 + menu 36 + padding                 = 318dp
+ *
+ * Each threshold sits a little above its figure because every tier except the last is priced in
+ * TEXT, and text width is an estimate rather than a measurement. ICON_ONLY is glyphs and fixed
+ * padding only, so its 318dp is exact — it fits a 360dp phone (328dp once the app's 16dp gutters are
+ * paid) with room to spare, and it is the terminal step because there is nothing left to shed.
+ */
+private val ISLAND_FULL_WIDTH = 960.dp
+private val ISLAND_MARK_WIDTH = 860.dp
+private val ISLAND_ICON_GROUPS_WIDTH = 500.dp
+
+/**
+ * The densest tier [available] can pay for.
+ *
+ * Scaled by the user's font scale because everything the first three tiers spend width on is text: at
+ * 200% text size a labelled chip is twice as wide while the glyphs, the logo and the hamburger are
+ * not, so a raw dp threshold would promise a bar that fits and hand back a clipped one. Scaling the
+ * whole figure over-corrects — it charges font scale for the icons too — and that is the direction to
+ * be wrong in, because one step too dense costs a word and one step too loose costs a whole chip.
+ */
+private fun islandDensityFor(available: Dp, fontScale: Float): IslandDensity = when {
+    available >= ISLAND_FULL_WIDTH * fontScale -> IslandDensity.FULL
+    available >= ISLAND_MARK_WIDTH * fontScale -> IslandDensity.MARK
+    available >= ISLAND_ICON_GROUPS_WIDTH * fontScale -> IslandDensity.ICON_GROUPS
+    else -> IslandDensity.ICON_ONLY
+}
 
 @Composable
 fun FieldIslandNav(
@@ -366,117 +461,183 @@ fun FieldIslandNav(
         shadowElevation = 10.dp,
         border = BorderStroke(1.dp, MaterialTheme.field.hairline)
     ) {
-        Row(
-            modifier = Modifier
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            // Brand — tapping it goes home, the same as the web's wordmark.
+        BoxWithConstraints {
+            val density = islandDensityFor(maxWidth, LocalDensity.current.fontScale)
+            val tightest = density == IslandDensity.ICON_ONLY
+            // Labels survive on the groups only while there is room for the whole bar to wear them;
+            // the roots keep theirs one step longer, being the two places a newcomer starts.
+            val groupsLabelled = density == IslandDensity.FULL || density == IslandDensity.MARK
+            val rootsLabelled = !tightest
+
             Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
-                    .clickable(onClick = onBrandClick)
-                    .padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.padding(horizontal = if (tightest) 6.dp else 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                FieldRepoLogo(modifier = Modifier.size(24.dp), cornerRadius = 7.dp)
-                Spacer(Modifier.width(7.dp))
-                Text(
-                    "Field Repository",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1
-                )
-            }
+                // Brand — tapping it goes home, the same as the web's wordmark. The wordmark is the
+                // first thing the bar gives up: 111dp spent restating what the screen already is,
+                // against a mark that stays exactly as clickable without it.
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .clickable(onClick = onBrandClick)
+                        // Unlabelled the mark is a bare image, so it has to say what it is out loud.
+                        .then(
+                            if (density == IslandDensity.FULL) Modifier
+                            else Modifier.semantics {
+                                contentDescription = "Field Repository, go to the dashboard"
+                            }
+                        )
+                        .padding(
+                            start = if (tightest) 2.dp else 4.dp,
+                            end = if (tightest) 4.dp else 8.dp,
+                            top = 4.dp,
+                            bottom = 4.dp
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FieldRepoLogo(modifier = Modifier.size(24.dp), cornerRadius = 7.dp)
+                    if (density == IslandDensity.FULL) {
+                        Spacer(Modifier.width(7.dp))
+                        Text(
+                            "Field Repository",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1
+                        )
+                    }
+                }
 
-            roots.forEach { entry ->
-                IslandChip(
-                    label = entry.label,
-                    selected = currentLabel == entry.label,
-                    onClick = entry.onClick
-                )
-            }
+                // The destinations are the only part allowed to overflow, and only after every
+                // density step has been spent. The brand, the admin toggle and the hamburger sit
+                // outside this scroller so that the escape hatch to the full drawer is always on
+                // screen — the old bar scrolled the hamburger away with everything else.
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    roots.forEach { entry ->
+                        IslandChip(
+                            label = entry.label,
+                            selected = currentLabel == entry.label,
+                            leading = if (rootsLabelled) null else entry.icon,
+                            showLabel = rootsLabelled,
+                            onClick = entry.onClick
+                        )
+                    }
 
-            shown.forEach { group ->
-                Box {
-                    IslandChip(
-                        label = group.label,
-                        selected = group.entries.any { it.label == currentLabel },
-                        trailing = Icons.Filled.ExpandMore,
-                        onClick = { openGroup = group.label }
-                    )
-                    DropdownMenu(
-                        expanded = openGroup == group.label,
-                        onDismissRequest = { openGroup = null }
-                    ) {
-                        group.entries.forEach { entry ->
-                            DropdownMenuItem(
-                                text = { Text(entry.label) },
-                                leadingIcon = {
-                                    Icon(entry.icon, contentDescription = null, modifier = Modifier.size(18.dp))
-                                },
-                                onClick = {
-                                    openGroup = null
-                                    entry.onClick()
-                                }
+                    shown.forEach { group ->
+                        Box {
+                            IslandChip(
+                                label = group.label,
+                                selected = group.entries.any { it.label == currentLabel },
+                                leading = if (groupsLabelled) null else group.icon,
+                                // The caret is an affordance, not information: it goes with the label
+                                // rather than crowding a chip that is one glyph wide. The dropdown
+                                // underneath is untouched at every density.
+                                trailing = if (groupsLabelled) Icons.Filled.ExpandMore else null,
+                                showLabel = groupsLabelled,
+                                onClick = { openGroup = group.label }
                             )
+                            DropdownMenu(
+                                expanded = openGroup == group.label,
+                                onDismissRequest = { openGroup = null }
+                            ) {
+                                group.entries.forEach { entry ->
+                                    DropdownMenuItem(
+                                        text = { Text(entry.label) },
+                                        leadingIcon = {
+                                            Icon(entry.icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        },
+                                        onClick = {
+                                            openGroup = null
+                                            entry.onClick()
+                                        }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
-            }
 
-            if (adminMode != null) {
-                IslandChip(
-                    label = if (adminMode) "Admin view: ON" else "Admin view: OFF",
-                    selected = adminMode,
-                    leading = if (adminMode) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
-                    onClick = onToggleAdminView
-                )
-            }
+                if (adminMode != null) {
+                    // "Admin view: OFF" is 146dp of chip, the widest thing here after the wordmark,
+                    // and the eye already carries the state — open or shut. Below MARK the words go
+                    // and the sentence moves into the contentDescription, so the toggle still
+                    // announces which way it is set.
+                    IslandChip(
+                        label = if (adminMode) "Admin view: ON" else "Admin view: OFF",
+                        selected = adminMode,
+                        leading = if (adminMode) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                        showLabel = groupsLabelled,
+                        onClick = onToggleAdminView
+                    )
+                }
 
-            IconButton(onClick = onOpenDrawer, modifier = Modifier.size(36.dp)) {
-                Icon(
-                    Icons.Filled.Menu,
-                    contentDescription = "Open menu",
-                    tint = MaterialTheme.colorScheme.primary
-                )
+                IconButton(onClick = onOpenDrawer, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        Icons.Filled.Menu,
+                        contentDescription = "Open menu",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
     }
 }
 
-/** One pill inside the island: the web's `rounded-full px-3 py-1.5 text-sm` nav link. */
+/**
+ * One pill inside the island: the web's `rounded-full px-3 py-1.5 text-sm` nav link.
+ *
+ * With [showLabel] false the chip is [leading] alone and [label] becomes the icon's
+ * contentDescription — the chip loses its width, never its name.
+ */
 @Composable
 private fun IslandChip(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
     leading: ImageVector? = null,
-    trailing: ImageVector? = null
+    trailing: ImageVector? = null,
+    showLabel: Boolean = true
 ) {
+    // A chip with neither a word nor a glyph would be an invisible tap target, so a caller that asks
+    // for icon-only without supplying one gets the label back rather than a blank pill.
+    val labelled = showLabel || leading == null
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(20.dp))
             .background(if (selected) MaterialTheme.field.surface100 else Color.Transparent)
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 7.dp),
+            .padding(horizontal = if (labelled) 10.dp else 7.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         val tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.field.body
         if (leading != null) {
-            Icon(leading, contentDescription = null, tint = tint, modifier = Modifier.size(15.dp))
+            Icon(
+                leading,
+                // Beside a label the text is the accessible name and a second one would stutter.
+                contentDescription = if (labelled) null else label,
+                tint = tint,
+                // A glyph standing in for a word is read at arm's length, so it is drawn larger than
+                // the same glyph tucked in front of one.
+                modifier = Modifier.size(if (labelled) 15.dp else 18.dp)
+            )
         }
-        Text(
-            label,
-            style = MaterialTheme.typography.labelLarge,
-            color = tint,
-            maxLines = 1
-        )
-        if (trailing != null) {
-            Icon(trailing, contentDescription = null, tint = tint, modifier = Modifier.size(15.dp))
+        if (labelled) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                color = tint,
+                maxLines = 1
+            )
+            if (trailing != null) {
+                Icon(trailing, contentDescription = null, tint = tint, modifier = Modifier.size(15.dp))
+            }
         }
     }
 }

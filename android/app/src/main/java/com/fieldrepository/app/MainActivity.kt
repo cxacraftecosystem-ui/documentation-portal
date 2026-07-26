@@ -67,6 +67,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Timeline
 import com.fieldrepository.app.ui.FieldIslandNav
+import com.fieldrepository.app.ui.NavGroup
+import com.fieldrepository.app.ui.visibleNavItems
 import com.fieldrepository.app.ui.IslandEntry
 import com.fieldrepository.app.ui.IslandGroup
 import com.fieldrepository.app.ui.Text
@@ -157,8 +159,10 @@ import com.fieldrepository.app.data.occurrenceDate
 import com.fieldrepository.app.ui.ApiKeysScreen
 import com.fieldrepository.app.ui.AppPreferences
 import com.fieldrepository.app.ui.AppPreferencesStore
+import com.fieldrepository.app.ui.AppNavigationDrawerContent
 import com.fieldrepository.app.ui.AppearanceScreen
 import com.fieldrepository.app.ui.Body
+import com.fieldrepository.app.ui.NavDestination
 import com.fieldrepository.app.ui.Countries
 import com.fieldrepository.app.ui.Country
 import com.fieldrepository.app.ui.Canvas
@@ -185,10 +189,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.NavigationDrawerItem
-import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -207,19 +208,16 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.RecordVoiceOver
-import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Inventory2
-import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.ManageAccounts
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PermMedia
 import androidx.compose.material.icons.filled.Person
@@ -799,6 +797,50 @@ private fun HomeScreen(
         screen = Screen.Dashboard
     }
 
+    /**
+     * The routing table behind the menu — the one place a [NavDestination] turns into a screen.
+     *
+     * Exhaustive with no `else` branch on purpose. The menu used to be a second, hand-written list of
+     * rows living next to the shared [FIELD_NAV_ITEMS] model, and the two silently drifted apart; a
+     * catch-all here would let that happen again by letting a new destination render as a row that
+     * does nothing when tapped. Without one, adding to the enum breaks the build instead.
+     */
+    fun navigate(destination: NavDestination) {
+        message = null
+        when (destination) {
+            NavDestination.DASHBOARD -> goDashboard()
+            // A dialog rather than a screen: the walkthrough overlays wherever the user already was.
+            NavDestination.WALKTHROUGH -> showWalkthrough = true
+            NavDestination.RECORD_ARTISAN -> screen = screenFor(EntryMode.ARTISAN)
+            NavDestination.RECORD_PRODUCT -> screen = screenFor(EntryMode.PRODUCT)
+            NavDestination.DOCUMENT_PROCESS -> screen = screenFor(EntryMode.PROCESS)
+            NavDestination.RECORD_TOOL -> screen = screenFor(EntryMode.TOOL)
+            NavDestination.TAKE_INTERVIEW -> screen = screenFor(EntryMode.QUESTIONNAIRE)
+            NavDestination.UPLOAD_MEDIA -> screen = screenFor(EntryMode.MEDIA)
+            NavDestination.ADD_CRAFT -> screen = screenFor(EntryMode.CRAFT)
+            NavDestination.RECORD_WORKSHOP -> screen = screenFor(EntryMode.WORKSHOP)
+            NavDestination.MY_ACTIVITY -> screen = Screen.MyActivity
+            NavDestination.TASKS -> screen = screenFor(EntryMode.TASKS)
+            // The web's /search. [EntryMode.SEARCH] keeps the page's own title so the two entries that
+            // both want the words "Browse records" cannot collide in one menu.
+            NavDestination.BROWSE_RECORDS -> screen = screenFor(EntryMode.SEARCH)
+            // The web's /data directory tree, which owns its whole viewport (see [Screen.DataBrowser]).
+            NavDestination.VIEW_DATA -> screen = screenFor(EntryMode.DATA_BROWSER)
+            NavDestination.SHARE_DATA_ACCESS -> screen = screenFor(EntryMode.SHARING)
+            NavDestination.ASSIGN_TOOLS -> screen = Screen.ToolAssign
+            // Android has no standalone review queue: reviewing happens inside the record browser,
+            // which is the surface [EntryMode.VIEW_DATA] opens and where `canReview` is honoured.
+            NavDestination.REVIEW -> screen = screenFor(EntryMode.VIEW_DATA)
+            NavDestination.SETTINGS_HUB -> screen = Screen.AdminHub()
+            NavDestination.MANAGE_USERS -> screen = screenFor(EntryMode.USERS)
+            // "Settings" on the web is a two-column page whose global column is this app's admin hub;
+            // what is left for the person themselves is Appearance & accessibility.
+            NavDestination.SETTINGS -> screen = Screen.Appearance
+            NavDestination.GIVE_FEEDBACK -> screen = Screen.Feedback
+        }
+        scope.launch { drawerState.close() }
+    }
+
     // System back / in-app back: step to the logical previous screen instead of leaving the app.
     fun goBack() {
         message = null
@@ -849,6 +891,47 @@ private fun HomeScreen(
         }
     }
 
+    /**
+     * Which menu row is the page you are on — the drawer's `aria-current`. The inverse of [navigate],
+     * so the two are read side by side and a row that opens one screen cannot light up on another.
+     *
+     * `null` where no row honestly matches. Update and edit screens are the case that matters: their
+     * record type DOES have a row, but that row starts a NEW record, so highlighting it would tell the
+     * user they are somewhere they are not.
+     */
+    val currentDestination: NavDestination? = when (val s = screen) {
+        is Screen.Dashboard -> NavDestination.DASHBOARD
+        is Screen.MyActivity -> NavDestination.MY_ACTIVITY
+        is Screen.ToolAssign -> NavDestination.ASSIGN_TOOLS
+        is Screen.Feedback -> NavDestination.GIVE_FEEDBACK
+        is Screen.Appearance -> NavDestination.SETTINGS
+        is Screen.DataBrowser -> NavDestination.VIEW_DATA
+        is Screen.AdminHub -> NavDestination.SETTINGS_HUB
+        // The legacy app-settings screen, which no menu reaches.
+        is Screen.Settings -> null
+        is Screen.Browse, is Screen.Edit -> null
+        is Screen.Create -> when (s.mode) {
+            EntryMode.ARTISAN -> NavDestination.RECORD_ARTISAN
+            EntryMode.PRODUCT -> NavDestination.RECORD_PRODUCT
+            EntryMode.PROCESS -> NavDestination.DOCUMENT_PROCESS
+            EntryMode.TOOL -> NavDestination.RECORD_TOOL
+            EntryMode.QUESTIONNAIRE -> NavDestination.TAKE_INTERVIEW
+            EntryMode.MEDIA -> NavDestination.UPLOAD_MEDIA
+            EntryMode.CRAFT -> NavDestination.ADD_CRAFT
+            EntryMode.WORKSHOP -> NavDestination.RECORD_WORKSHOP
+            EntryMode.TASKS -> NavDestination.TASKS
+            EntryMode.SEARCH -> NavDestination.BROWSE_RECORDS
+            EntryMode.SHARING -> NavDestination.SHARE_DATA_ACCESS
+            EntryMode.VIEW_DATA -> NavDestination.REVIEW
+            EntryMode.USERS -> NavDestination.MANAGE_USERS
+            // `screenFor` sends this one to [Screen.DataBrowser] instead, so it is unreachable here —
+            // mapped anyway rather than defaulted, so the pair stays a total function of EntryMode.
+            EntryMode.DATA_BROWSER -> NavDestination.VIEW_DATA
+            // Reached from its dashboard tile; the web has no nav entry for it, so neither do we.
+            EntryMode.WORKSHOP_ACCESS -> null
+        }
+    }
+
     BackHandler(enabled = drawerState.isOpen) {
         scope.launch { drawerState.close() }
     }
@@ -863,20 +946,18 @@ private fun HomeScreen(
             drawerState = drawerState,
             drawerContent = {
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                    AppDrawerContent(
+                    /*
+                     * The shared menu, the same model the island bar renders from. It filters itself
+                     * with `visibleNavItems`, so nothing here decides who sees what — passing
+                     * `adminView` through is the whole of this screen's say in it, and that switch can
+                     * only ever subtract the two admin-surface rows from somebody who is an admin.
+                     */
+                    AppNavigationDrawerContent(
                         user = user,
-                        adminView = adminView,
-                        isAdmin = isAdmin,
-                        isMasterAdmin = isMasterAdmin,
+                        adminMode = adminView,
+                        currentDestination = currentDestination,
+                        onNavigate = ::navigate,
                         pushingUpdate = pushingUpdate,
-                        modes = dashboardModes.filter { canCreate(it) },
-                        onDashboard = { goDashboard(); scope.launch { drawerState.close() } },
-                        onSelect = { entry -> message = null; screen = screenFor(entry); scope.launch { drawerState.close() } },
-                        onMyActivity = { message = null; screen = Screen.MyActivity; scope.launch { drawerState.close() } },
-                        onAppearance = { message = null; screen = Screen.Appearance; scope.launch { drawerState.close() } },
-                        onFeedback = { message = null; screen = Screen.Feedback; scope.launch { drawerState.close() } },
-                        onWebPortal = { scope.launch { drawerState.close() }; openWebPortal(context) },
-                        onWalkthrough = { showWalkthrough = true; scope.launch { drawerState.close() } },
                         onToggleAdminView = { adminView = !adminView },
                         onPushUpdate = {
                             scope.launch { drawerState.close() }
@@ -940,11 +1021,24 @@ private fun HomeScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
         /*
-         * The island bar, the web's DynamicIslandNav on the phone. It carries the same two standalone
-         * roots and the same four groups the drawer does — built from the SAME `dashboardModes`/
-         * `canCreate` filters, so neither can offer a destination the other would refuse — and the
-         * hamburger at its right end is how the full drawer is still reached.
+         * The island bar, the web's DynamicIslandNav on the phone.
+         *
+         * Both this and the drawer are projections of ONE list — `visibleNavItems(user, adminView)`,
+         * the same entries, labels, order and permission predicates the web's NAV_ITEMS carries. That
+         * is deliberate and it is load-bearing. This block used to build its groups by hand out of
+         * `dashboardModes`, and the comment here claimed the two were built from the same filters;
+         * they were not, and the divergence was exactly what you would predict from two hand-kept
+         * lists. On the device the bar had no Admin group at all, so a master admin could reach
+         * Settings hub from the drawer and not from the bar; its Record dropdown carried twelve
+         * entries against the drawer's eight, including "Manage users" rendered with a "+" icon
+         * because every entry was hardcoded to Icons.Filled.Add; and it offered "Request workshop
+         * access", a destination that exists in neither the drawer nor the web.
+         *
+         * Deriving both from the shared model makes that class of drift impossible rather than
+         * merely fixed: an entry added to FIELD_NAV_ITEMS appears in both surfaces with its own icon
+         * and its own gate, and one can no longer offer what the other refuses.
          */
+        val navItems = visibleNavItems(user, adminView)
         FieldIslandNav(
             modifier = Modifier.fillMaxWidth(),
             onBrandClick = { goDashboard() },
@@ -952,39 +1046,24 @@ private fun HomeScreen(
             adminMode = if (isAdmin) adminView else null,
             onToggleAdminView = { adminView = !adminView },
             currentLabel = headerTitle,
-            roots = listOf(
-                IslandEntry("Dashboard", Icons.Filled.Dashboard) { goDashboard() },
-                IslandEntry("Walkthrough", Icons.Filled.Explore) { showWalkthrough = true }
-            ),
-            groups = listOf(
+            roots = navItems.filter { it.group == null }
+                .map { entry -> IslandEntry(entry.label, entry.icon) { navigate(entry.destination) } },
+            groups = NavGroup.entries.map { group ->
+                val entries = navItems.filter { it.group == group }
+                    .map { entry -> IslandEntry(entry.label, entry.icon) { navigate(entry.destination) } }
                 IslandGroup(
-                    "Record",
-                    dashboardModes.filter { canCreate(it) && it.onDashboard && it != EntryMode.VIEW_DATA }
-                        .map { mode ->
-                            IslandEntry(mode.actionTitle, Icons.Filled.Add) {
-                                message = null
-                                screen = screenFor(mode)
-                            }
-                        }
-                ),
-                IslandGroup(
-                    "Browse",
-                    listOfNotNull(
-                        IslandEntry("My Activity", Icons.Filled.Timeline) { message = null; screen = Screen.MyActivity },
-                        IslandEntry("Browse records", Icons.Filled.Search) { message = null; screen = screenFor(EntryMode.SEARCH) },
-                        if (canDownloadDataset) {
-                            IslandEntry("View Data", Icons.Filled.Storage) { message = null; screen = screenFor(EntryMode.DATA_BROWSER) }
-                        } else null
-                    )
-                ),
-                IslandGroup(
-                    "Account",
-                    listOf(
-                        IslandEntry("Appearance & accessibility", Icons.Filled.Tune) { message = null; screen = Screen.Appearance },
-                        IslandEntry("Give app feedback", Icons.Filled.RateReview) { message = null; screen = Screen.Feedback }
-                    )
+                    group.label,
+                    // Folded into Account rather than appended as its own group, which would render
+                    // a second chip with the same label. Leaving the app is not a NavDestination and
+                    // cannot be one — a router has no screen to open for it — so the shared model has
+                    // no home for it, but the web app hands out this APK and this is the return leg.
+                    if (group == NavGroup.ACCOUNT) {
+                        entries + IslandEntry("Open the web portal", Icons.Filled.OpenInNew) { openWebPortal(context) }
+                    } else {
+                        entries
+                    }
                 )
-            )
+            }
         )
 
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -1665,136 +1744,6 @@ private fun TimePickerField(label: String, value: String, onChange: (String) -> 
             dismissButton = { TextButton(onClick = { show = false }) { Text("Cancel") } },
             text = { TimePicker(state = state) }
         )
-    }
-}
-
-@Composable
-private fun AppDrawerContent(
-    user: UserDto,
-    adminView: Boolean,
-    isAdmin: Boolean,
-    isMasterAdmin: Boolean,
-    pushingUpdate: Boolean,
-    modes: List<EntryMode>,
-    onDashboard: () -> Unit,
-    onSelect: (EntryMode) -> Unit,
-    onMyActivity: () -> Unit,
-    onAppearance: () -> Unit,
-    onFeedback: () -> Unit,
-    onWebPortal: () -> Unit,
-    onWalkthrough: () -> Unit,
-    onToggleAdminView: () -> Unit,
-    onPushUpdate: () -> Unit,
-    onLogout: () -> Unit
-) {
-    ModalDrawerSheet {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.Top
-        ) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Field Repository", fontSize = 22.sp, color = MaterialTheme.colorScheme.onSurface)
-                Text("${user.name} · ${user.role}", color = Muted, fontSize = 12.sp)
-            }
-            // Prominent red logout, top-right of the menu.
-            OutlinedButton(
-                onClick = onLogout,
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD13438)),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFD13438)),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-            ) {
-                Icon(Icons.Filled.Logout, contentDescription = "Logout", modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Logout")
-            }
-        }
-        HorizontalDivider()
-        // The menu can be long (esp. for admins), so the items scroll within the remaining height
-        // while the header/logout stay pinned.
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-        ) {
-            NavigationDrawerItem(
-                label = { Text("Dashboard") },
-                selected = false,
-                icon = { Icon(Icons.Filled.Dashboard, contentDescription = null) },
-                onClick = onDashboard,
-                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-            )
-            NavigationDrawerItem(
-                label = { Text("My Activity") },
-                selected = false,
-                icon = { Icon(Icons.Filled.Visibility, contentDescription = null) },
-                onClick = onMyActivity,
-                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-            )
-            modes.forEach { entry ->
-                NavigationDrawerItem(
-                    label = { Text(entry.actionTitle) },
-                    selected = false,
-                    icon = { Icon(entry.icon(), contentDescription = null) },
-                    onClick = { onSelect(entry) },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                )
-            }
-            HorizontalDivider()
-            // The web's "Account" nav group: what belongs to the PERSON rather than to the
-            // repository. Never role-gated — /preferences/me asks for nothing but a login, and
-            // gating this would leave most users with no route to their own accessibility switches.
-            NavigationDrawerItem(
-                label = { Text("Appearance & accessibility") },
-                selected = false,
-                icon = { Icon(Icons.Filled.Palette, contentDescription = null) },
-                onClick = onAppearance,
-                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-            )
-            NavigationDrawerItem(
-                label = { Text("Give app feedback") },
-                selected = false,
-                icon = { Icon(Icons.Filled.RateReview, contentDescription = null) },
-                onClick = onFeedback,
-                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-            )
-            // The same repository on a screen big enough for bulk work. The web app already links to
-            // this APK, so this is the half of that round trip the app was missing.
-            NavigationDrawerItem(
-                label = { Text("Open the web portal") },
-                selected = false,
-                icon = { Icon(Icons.Filled.OpenInNew, contentDescription = null) },
-                onClick = onWebPortal,
-                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-            )
-            NavigationDrawerItem(
-                label = { Text("App walkthrough / guide") },
-                selected = false,
-                icon = { Icon(Icons.Filled.Quiz, contentDescription = null) },
-                onClick = onWalkthrough,
-                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-            )
-            if (isAdmin) {
-                HorizontalDivider()
-                NavigationDrawerItem(
-                    label = { Text(if (adminView) "Admin view: ON" else "Admin view: OFF") },
-                    selected = adminView,
-                    icon = { Icon(Icons.Filled.ManageAccounts, contentDescription = null) },
-                    onClick = onToggleAdminView,
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                )
-            }
-            if (isMasterAdmin) {
-                NavigationDrawerItem(
-                    label = { Text(if (pushingUpdate) "Publishing update…" else "Push update to all") },
-                    selected = false,
-                    icon = { Icon(Icons.Filled.SystemUpdate, contentDescription = null) },
-                    onClick = { if (!pushingUpdate) onPushUpdate() },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                )
-            }
-        }
     }
 }
 
