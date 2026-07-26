@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
-import { ClipboardCheck } from "lucide-react";
+import { Check, ClipboardCheck } from "lucide-react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { useConfirm } from "@/components/dialogs/ConfirmDialog";
@@ -37,6 +37,11 @@ type PendingItem = {
   outOfWindow?: boolean;
 };
 
+/** Identifies one queue row. Type + id, because ids are only unique within a record type. */
+function rowKey(item: PendingItem) {
+  return `${item.recordType}-${item.id}`;
+}
+
 /** The queue arrives whole (no server paging), so the table pages client-side like every other list. */
 const PAGE_SIZE = 20;
 
@@ -63,6 +68,19 @@ export default function ReviewPage() {
   const [submitting, setSubmitting] = useState(false);
   /** Receipt for an edit that left the record pending — the row does not move, so say what happened. */
   const [info, setInfo] = useState<string | null>(null);
+  /**
+   * Rows ticked for a bulk approval, by `rowKey`.
+   *
+   * A workshop's output arrives as one batch and is reviewed as one batch: twenty-five interviews
+   * from the same three days, all fine. One at a time is twenty-five open-panel-read-confirm cycles
+   * of identical work, and the cost of that is not tedium — it is that a reviewer facing it starts
+   * approving without reading.
+   *
+   * Only approve is offered in bulk, deliberately. Reject and Send for revision each need a reason
+   * written for THAT record; a shared note across twenty-five rejections is not feedback.
+   */
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
   const viewerIsAdmin = isAdmin(user);
 
   async function load() {
@@ -87,9 +105,83 @@ export default function ReviewPage() {
     if (page > pages) setPage(pages);
   }, [page, pages]);
   const visible = items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const eligible = visible.filter(bulkEligible);
+  const chosen = items.filter((item) => selected.has(rowKey(item)));
+  const allEligibleTicked = eligible.length > 0 && eligible.every((item) => selected.has(rowKey(item)));
 
-  function rowKey(item: PendingItem) {
-    return `${item.recordType}-${item.id}`;
+  // A row decided elsewhere (another reviewer, or this viewer's single-row action) leaves the queue,
+  // and a tick pointing at a row that is gone would silently inflate the "Approve N" count.
+  useEffect(() => {
+    setSelected((current) => {
+      if (current.size === 0) return current;
+      const live = new Set(items.map(rowKey));
+      const next = new Set([...current].filter((key) => live.has(key)));
+      return next.size === current.size ? current : next;
+    });
+  }, [items]);
+
+  /** A row this viewer may approve — the out-of-window ones are admin-only, same rule as Edit. */
+  function bulkEligible(item: PendingItem) {
+    return !editLocked(item);
+  }
+
+  function toggleSelected(item: PendingItem) {
+    const key = rowKey(item);
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  /**
+   * Approve every ticked row.
+   *
+   * Sequential, not parallel: each approval is a write against a different table and the queue is
+   * re-read once at the end, so firing twenty-five at the API buys a second and risks rate limits on
+   * a box that also runs the transcription queue. Failures are collected rather than thrown — one
+   * record another admin approved a moment ago must not abandon the other twenty-four — and the rows
+   * that failed stay ticked, so a retry is one more click and nothing is approved twice.
+   */
+  async function approveSelected(rows: PendingItem[]) {
+    const ok = await confirm({
+      title: `Approve ${rows.length} record${rows.length === 1 ? "" : "s"}?`,
+      body: "Each one is approved exactly as it stands, with no note.",
+      note: "Approving is not reversible from this screen. Anything that needs a change should be sent for revision individually.",
+      confirmLabel: `Approve ${rows.length}`
+    });
+    if (!ok) return;
+
+    setSubmitting(true);
+    setError(null);
+    setInfo(null);
+    const failed: string[] = [];
+    for (const [index, item] of rows.entries()) {
+      setBulkProgress({ done: index, total: rows.length });
+      try {
+        await apiFetch(`/review/${item.recordType}/${item.id}/approve`, {
+          method: "POST",
+          body: JSON.stringify({ notes: null })
+        });
+      } catch {
+        failed.push(rowKey(item));
+      }
+    }
+    setBulkProgress(null);
+    setSubmitting(false);
+    setSelected(new Set(failed));
+
+    const approved = rows.length - failed.length;
+    if (failed.length) {
+      setError(
+        `${approved} approved, ${failed.length} could not be. The ones that failed are still ticked — ` +
+          "they may have been decided by another reviewer already."
+      );
+    } else {
+      setInfo(`${approved} record${approved === 1 ? "" : "s"} approved.`);
+    }
+    await load();
   }
 
   function toggleAction(item: PendingItem, action: PanelAction) {
@@ -170,10 +262,50 @@ export default function ReviewPage() {
             />
           </div>
         ) : (
+          <>
+          {chosen.length ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line-200 bg-purple-50 px-4 py-3">
+              <span className="text-sm font-medium text-ink-900">
+                {chosen.length} record{chosen.length === 1 ? "" : "s"} selected
+                {bulkProgress ? ` · approving ${bulkProgress.done + 1} of ${bulkProgress.total}…` : ""}
+              </span>
+              <div className="flex items-center gap-3">
+                <button type="button" className="text-xs font-semibold text-ink-500" onClick={() => setSelected(new Set())}>
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  className="field-button h-9 min-h-0 px-3 text-xs"
+                  disabled={submitting}
+                  onClick={() => approveSelected(chosen)}
+                >
+                  <Check className="h-3.5 w-3.5" aria-hidden />
+                  Approve {chosen.length}
+                </button>
+              </div>
+            </div>
+          ) : null}
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[880px] text-left text-sm">
+            <table className="w-full min-w-[920px] text-left text-sm">
               <thead className="bg-surface-50 text-xs uppercase text-ink-500">
                 <tr>
+                  <th scope="col" className="w-10 px-4 py-3">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-purple-700"
+                      aria-label="Select every record on this page"
+                      checked={allEligibleTicked}
+                      disabled={eligible.length === 0}
+                      onChange={(event) => {
+                        const on = event.target.checked;
+                        setSelected((current) => {
+                          const next = new Set(current);
+                          eligible.forEach((item) => (on ? next.add(rowKey(item)) : next.delete(rowKey(item))));
+                          return next;
+                        });
+                      }}
+                    />
+                  </th>
                   <ResizableTh>Record</ResizableTh>
                   <ResizableTh>Type</ResizableTh>
                   <ResizableTh>Creator</ResizableTh>
@@ -189,7 +321,18 @@ export default function ReviewPage() {
                   const activeAction = active?.key === key ? active.action : null;
                   return (
                     <Fragment key={key}>
-                      <tr>
+                      <tr className={selected.has(key) ? "bg-purple-50/60" : undefined}>
+                        <td className="px-4 py-3 align-top">
+                          {bulkEligible(item) ? (
+                            <input
+                              type="checkbox"
+                              className="mt-0.5 h-4 w-4 accent-purple-700"
+                              aria-label={`Select ${item.label}`}
+                              checked={selected.has(key)}
+                              onChange={() => toggleSelected(item)}
+                            />
+                          ) : null}
+                        </td>
                         <td className="px-4 py-3">
                           <div className="font-medium text-ink-900">
                             {item.label}
@@ -328,6 +471,7 @@ export default function ReviewPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
         {!loading && items.length > 0 ? <Pagination page={page} pages={pages} total={items.length} onPage={setPage} /> : null}
       </section>
