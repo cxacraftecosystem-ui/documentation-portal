@@ -1441,8 +1441,15 @@ async def _locate_path(record_type: str, record_id: str, scope: Scope) -> str | 
         return f"{product_path}/processes/{record_id}" if product_path else None
 
     if kind in {"interview", "questionnaire", "questionnaireinterview"}:
-        link = await db.questionnaireartisan.find_first(
-            where={"questionnaireInterviewId": record_id}
+        # `questionnaireinterviewartisan` / `interviewId` — the model is
+        # QuestionnaireInterviewArtisan and its column is `interviewId` (schema.prisma:836). The
+        # shorter names I first wrote do not exist, and because a delegate is resolved by attribute
+        # access this failed at RUNTIME with an AttributeError, not at import: every "Show in
+        # folders" on a questionnaire recording returned a 500. Nothing caught it because the media
+        # branch below tries the interview owner FIRST, so no other owner was ever reached, and my
+        # own smoke test only ever asked for an artisan.
+        link = await db.questionnaireinterviewartisan.find_first(
+            where={"interviewId": record_id}
         )
         if link is None:
             return None
