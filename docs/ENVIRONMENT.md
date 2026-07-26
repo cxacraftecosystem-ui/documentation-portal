@@ -21,7 +21,7 @@ Read it top to bottom once; after that use it as a lookup table. Deployment clic
 | `frontend/.env.example` | nothing — template documenting the production shape | Yes | No |
 | `.env.example` (repo root) | nothing — aggregate reference of every variable in the monorepo | Yes | No |
 | `android/local.properties` | Gradle | **No** (gitignored) | No |
-| Vercel dashboard | the frontend build | n/a | No — see the "public means public" rule below |
+| Vercel dashboard | the frontend build (via `vercel pull` on the CI runner) | n/a | No — see the "public means public" rule below, and rule 3 on the variable **type** |
 | GitHub Actions secrets | `.github/workflows/*` | n/a | **Yes** — `BACKEND_ENV`, `EC2_SSH_KEY`, Supabase URL |
 
 Setup, in order, for a fresh machine:
@@ -32,7 +32,7 @@ cd backend;  Copy-Item .env.example .env                # then edit
 cd ..\frontend; Copy-Item .env.local.example .env.local # then edit
 ```
 
-### Two rules that cause most of the confusion
+### Three rules that cause most of the confusion
 
 1. **`NEXT_PUBLIC_*` is not private.** Next.js inlines those values into the JavaScript bundle at
    build time. Anyone can read them in devtools, and changing one requires a **rebuild/redeploy** to
@@ -40,6 +40,14 @@ cd ..\frontend; Copy-Item .env.local.example .env.local # then edit
 2. **The backend caches its settings.** `get_settings()` is `@lru_cache`d, so a running uvicorn
    process never notices an edited `.env`. Always restart (`sudo systemctl restart fieldrepo
    fieldrepo-queue`, or Ctrl-C the dev server) after a change.
+3. **In Vercel, every `NEXT_PUBLIC_*` variable must be type `Encrypted`, never `Sensitive`.**
+   Sensitive is write-only: Vercel will not return that value to anyone afterwards, including to the
+   `vercel pull` our CI runs before it builds. Because the build happens on a GitHub runner rather
+   than on Vercel, a sensitive variable simply is not present when Next.js compiles, and Next.js
+   inlines `undefined` instead of failing — a green pipeline over a site that cannot log anyone in.
+   And it buys nothing even in principle, since rule 1 says the value is published to every visitor
+   regardless. Audit it with `vercel env ls production`; the full story is
+   [DEPLOYMENT_VERCEL.md §2.2](DEPLOYMENT_VERCEL.md).
 
 ---
 
@@ -66,6 +74,7 @@ variable is absent; a blank default means the app **refuses to start** without i
 | `JWT_EXPIRES_MINUTES` | No | `10080` (7 days) | No | Access-token lifetime. |
 | `JWT_ALGORITHM` | No | `HS256` | No | Only `HS256`/`HS384`/`HS512` are accepted; anything else (notably `none`, or an `RS*`/`ES*` algorithm) makes the app refuse to start. That is the algorithm-confusion guard — see `Settings._normalise_jwt_algorithm`. |
 | `ALLOW_WEAK_JWT_SECRET` | No | `false` | No | **Local development only.** Lets the API boot with a short/placeholder `JWT_SECRET` instead of refusing to start (`app/core/security.py::verify_jwt_configuration`). Never set it in a deployed environment — a guessable secret lets anyone mint a master-admin token. |
+| `SECRETS_ENCRYPTION_KEY` | No | unset → derived from `JWT_SECRET` | **Yes** | Fernet key encrypting the runtime-editable provider keys stored in `ManagedSecret` (`app/services/managed_secrets.py`). Left unset it is derived deterministically from `JWT_SECRET`, which is why the feature needs no setup — but it also means **rotating `JWT_SECRET` makes every stored secret undecryptable** and each one has to be re-entered in the Settings hub. Set it explicitly *before* you ever rotate. Accepts a Fernet key or any high-entropy passphrase. |
 
 ### Security response headers
 
@@ -150,10 +159,11 @@ uploads still succeed — transcripts and grid measurements simply stay empty.
 ## Frontend — Next.js (`frontend/.env.local`, or the Vercel dashboard)
 
 **Three** variables are read by application code, and **all of them are public** (see rule 1 above).
-Sources: `frontend/lib/api.ts:3`, `frontend/app/login/page.tsx:115`,
+Sources: `frontend/lib/api.ts:3`, `frontend/app/login/page.tsx:112`,
 `frontend/components/forms/LocationFields.tsx:10`. A fourth, `NEXT_PUBLIC_APP_URL`, is documented
 here because the **backend** reads it — no frontend code does (verified by grepping `process.env.`
-across `frontend/`).
+across `frontend/`, which returns those three plus `NODE_ENV` in `next.config.ts` and the three
+`PW_*` variables in the Playwright script).
 
 | Variable | Required | Default in code | Local value | Production value | Secret | Notes |
 |---|---|---|---|---|---|---|
@@ -161,6 +171,12 @@ across `frontend/`).
 | `NEXT_PUBLIC_APP_URL` | No (frontend) | n/a — **no frontend code reads it** | `http://localhost:3000` | your Vercel/custom domain | No | Shares its name with the backend variable so one `.env` can feed both; only the backend (`config.py`) actually reads it. Setting it in Vercel changes nothing today — it is there so the value stays in sync with the backend and with `BACKEND_CORS_ORIGINS`. |
 | `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | No | none | blank | Google web client ID | No | Blank hides the Google button and leaves email/password login. Must equal the backend's `GOOGLE_CLIENT_ID`, and the origin must be an "Authorized JavaScript origin" on that client or GSI returns 403. |
 | `NEXT_PUBLIC_MAPTILER_API_KEY` | No | none | blank | MapTiler key | No (restrict by domain) | Blank ⇒ the map coordinate picker degrades to manual latitude/longitude entry. Never blocks data entry. |
+
+On Vercel these three exist as **Encrypted** variables on Production, Preview and Development;
+`NEXT_PUBLIC_APP_URL` is deliberately not set there at all, because nothing in the bundle would use
+it. Never re-create any of them as **Sensitive** — see rule 3 above. That mistake does not surface
+as a failed build or a failed deploy; it surfaces as a live site that cannot authenticate, days
+later, with every error message pointing at Google or the backend instead.
 
 There are no server-side environment variables in the frontend: no route handlers, no server
 actions, nothing reads a non-`NEXT_PUBLIC_` value.
@@ -206,9 +222,16 @@ Set at **Settings → Secrets and variables → Actions**. Never in a file.
 | `EC2_HOST` | `deploy-backend.yml` | Yes | No | Elastic IP of the API box. |
 | `EC2_SSH_KEY` | `deploy-backend.yml` | Yes | **Yes** | Private `.pem` contents for the EC2 key pair. |
 | `BACKEND_ENV` | `deploy-backend.yml` | Yes | **Yes** | The **entire** `backend/.env` file. Piped to the box over SSH — never echoed to logs. This is where you edit `BACKEND_CORS_ORIGINS` for production. |
+| `VERCEL_TOKEN` | `deploy-frontend.yml` | Yes | **Yes** | Vercel → Account Settings → Tokens. Must be scoped to the **team** owning `field-repository`, not a personal account, or the CLI 403s. The only genuinely sensitive one of the three. Absent, stage 2 skips with instructions rather than failing. |
+| `VERCEL_ORG_ID` | same | Yes | No | `team_pcTf4Alb2DCIwq2IZcdu00dS`. An identifier, not a credential. |
+| `VERCEL_PROJECT_ID` | same | Yes | No | `prj_EzXN8hhGKpMciFBrZRdxpcgUUzN0`. An identifier, not a credential. |
 | `SUPABASE_KEEPALIVE_URL` / `SUPABASE_DATABASE_URL` | `keep-supabase-active.yml` → `scripts/keep-supabase-active.mjs` | One of them (falls back to `DATABASE_URL`) | **Yes** | The script rewrites a Supabase pooler URL from `:5432` to `:6543`, because a session-mode keep-alive is rejected with `EMAXCONNSESSION` while the live backend holds those 15 slots. |
 | `SUPABASE_KEEPALIVE_NO_REWRITE` | same | No | No | `"true"` disables that `:5432 → :6543` rewrite. Only for a non-Supabase database. |
 | `SUPABASE_DB_SSL` | same | No | No | `"false"` disables TLS for the keep-alive connection; any other value keeps SSL on. |
+
+The `NEXT_PUBLIC_*` values are deliberately **not** in this table. They live in the Vercel project
+and `vercel pull` fetches them into the runner at build time, so the Environment Variables screen
+stays their single source of truth and nobody has to keep the same value correct in two places.
 
 Terraform (`infra/terraform/`) additionally reads `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`
 from your shell — use an IAM admin user's key pair, never root keys. `terraform.tfstate` and
@@ -220,12 +243,14 @@ from your shell — use an IAM admin user's key pair, never root keys. `terrafor
 
 | Symptom | Almost always |
 |---|---|
+| Green pipeline, live site, and **nobody can log in** — Google says `invalid_client`, password login fails too | A `NEXT_PUBLIC_*` variable in Vercel is typed **Sensitive**, so `vercel pull` never gave it to the build and Next.js inlined `undefined`. Grep the live bundle before touching Google: [DEPLOYMENT_VERCEL.md §2.2.1](DEPLOYMENT_VERCEL.md) |
+| Requests go to `http://localhost:8000` from the deployed site | Same cause — `NEXT_PUBLIC_API_URL` never reached the build, so `lib/api.ts`'s local fallback got compiled in |
 | Every page loads but all lists are empty and login fails with 404 | `NEXT_PUBLIC_API_URL` has a trailing `/api` or `/` |
 | Requests never leave the browser; console says "Mixed Content" | `NEXT_PUBLIC_API_URL` is `http://` on an `https://` page |
 | "blocked by CORS policy" but curl works | The origin is missing from `BACKEND_CORS_ORIGINS`, or the backend wasn't restarted |
-| Env change in Vercel had no effect | `NEXT_PUBLIC_*` is compiled in — redeploy without the build cache |
+| Env change in Vercel had no effect | `NEXT_PUBLIC_*` is compiled in — redeploy without the build cache. If a fresh redeploy *still* has no effect, the variable is typed Sensitive and the build never receives it |
 | Backend won't start | A required variable is missing: `DATABASE_URL`, `JWT_SECRET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_S3_BUCKET`, `MASTER_ADMIN_EMAIL` |
 | `EMAXCONNSESSION` / `EMAXCONN` in the logs | `DATABASE_CONNECTION_LIMIT` raised, or more than one uvicorn worker; keep 1 web worker + the separate queue service |
 | Works on Wi-Fi, fails on mobile data | An IPv4-only host slipped in — use the CloudFront and `s3.dualstack.…` hostnames |
-| Google button missing or 403 | `NEXT_PUBLIC_GOOGLE_CLIENT_ID` blank, or the origin is not an Authorized JavaScript origin |
+| Google button missing, or GSI returns **403** | `NEXT_PUBLIC_GOOGLE_CLIENT_ID` blank, or the origin is not an Authorized JavaScript origin. A **401 `invalid_client`** is a different fault — see the first row |
 | Transcripts stay empty | No STT key set (`ELEVENLABS_API_KEY` / `DEEPGRAM_API_KEY` / `OPENAI_API_KEY`), or the queue worker isn't running |

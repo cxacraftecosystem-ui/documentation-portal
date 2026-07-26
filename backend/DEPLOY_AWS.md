@@ -304,9 +304,11 @@ The Vercel project is linked to this GitHub repo (same account), so each push to
   "No Next.js version detected".
 - **Environment variables:** `NEXT_PUBLIC_API_URL = https://d2b34i3e92al6i.cloudfront.net` — the
   **origin only, without** `/api` and without a trailing slash (the web client appends `/api`
-  itself; `…/api` produces `…/api/api/…` and every screen 404s). Also set
-  `NEXT_PUBLIC_APP_URL = https://<your-project>.vercel.app`, plus the optional
-  `NEXT_PUBLIC_GOOGLE_CLIENT_ID` and `NEXT_PUBLIC_MAPTILER_API_KEY`.
+  itself; `…/api` produces `…/api/api/…` and every screen 404s). Plus the optional
+  `NEXT_PUBLIC_GOOGLE_CLIENT_ID` and `NEXT_PUBLIC_MAPTILER_API_KEY`. Do **not** add
+  `NEXT_PUBLIC_APP_URL` here expecting an effect — no code under `frontend/` reads it, so setting it
+  in Vercel changes nothing. What lets the Vercel origin reach the API is its presence in
+  `BACKEND_CORS_ORIGINS` (last bullet below), not its name in this dashboard.
 - **Redeploy after any env change.** `NEXT_PUBLIC_*` values are inlined into the bundle at build
   time, so editing them in the dashboard changes nothing until a fresh build runs (redeploy with
   the build cache disabled).

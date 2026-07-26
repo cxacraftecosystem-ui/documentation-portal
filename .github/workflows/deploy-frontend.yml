@@ -30,7 +30,10 @@ name: Deploy frontend to Vercel
 #   VERCEL_PROJECT_ID  prj_EzXN8hhGKpMciFBrZRdxpcgUUzN0
 # The NEXT_PUBLIC_* build-time variables are NOT GitHub secrets: `vercel pull` fetches them
 # from the Vercel project, so the Environment Variables screen stays the single source of
-# truth for them (docs/DEPLOYMENT_VERCEL.md §2).
+# truth for them (docs/DEPLOYMENT_VERCEL.md §2). They must be stored there as **Encrypted**,
+# never **Sensitive** — Vercel deliberately never hands a sensitive value back to `vercel
+# pull`, and since this pipeline builds on the runner rather than on Vercel, a sensitive
+# NEXT_PUBLIC_* is an empty one. The two steps that enforce that carry the full story.
 
 on:
   workflow_run:
@@ -221,8 +224,116 @@ jobs:
             exit 1
           fi
 
+      - name: Assert the pulled environment carries the values the app cannot run without
+        # 2026-07-26: these variables were marked Sensitive in the dashboard. Vercel never
+        # returns a sensitive value to `vercel pull`, and this pipeline builds on the runner
+        # (`vercel build` below, then `deploy --prebuilt`) rather than on Vercel — so the
+        # build had nothing to inline, Next.js compiled in `undefined`, and every stage of
+        # the pipeline went green over a site that could not log a single person in. Failing
+        # here is the only place that costs nothing; the alternative is finding out from a
+        # user. Presence and shape only — see the note about values in the loop.
+        run: |
+          set -euo pipefail
+          env_file=".vercel/.env.production.local"
+          if [ ! -f "$env_file" ]; then
+            echo "::error::vercel pull wrote no ${env_file}, so the build has no NEXT_PUBLIC_* values at all."
+            exit 1
+          fi
+
+          fail=0
+          for var in NEXT_PUBLIC_API_URL NEXT_PUBLIC_GOOGLE_CLIENT_ID; do
+            # Never echoed. These two are public by definition (they are compiled into the
+            # JavaScript every visitor downloads), but a workflow that prints env values is
+            # the template someone copies the day the variable is not public.
+            value="$(sed -n "s/^${var}=//p" "$env_file" | tail -n 1 | sed -e 's/^"//' -e 's/"$//')"
+
+            if [ -z "$value" ] || [ "$value" = "undefined" ]; then
+              echo "::error::${var} is missing or empty in the pulled production environment."
+              echo "::error::Almost always this means it is stored as Sensitive in Vercel. A Sensitive variable is withheld from 'vercel pull' by design, this pipeline builds on the GitHub runner, and Next.js therefore inlines undefined - the build and the deploy both still succeed and the live site is broken."
+              echo "::error::Fix: Vercel -> Project -> Settings -> Environment Variables, delete ${var} and re-add it as Encrypted (not Sensitive) for Production, Preview and Development, then re-run this workflow."
+              fail=1
+              continue
+            fi
+
+            case "$var" in
+              NEXT_PUBLIC_API_URL)
+                case "$value" in
+                  http://*|https://*) ;;
+                  *)
+                    echo "::error::${var} is set but is not an absolute http(s) origin. lib/api.ts appends /api to it verbatim, so a bare host or a stray quote breaks every request the browser makes."
+                    fail=1
+                    continue ;;
+                esac ;;
+              NEXT_PUBLIC_GOOGLE_CLIENT_ID)
+                case "$value" in
+                  *.apps.googleusercontent.com) ;;
+                  *)
+                    echo "::error::${var} is set but does not end in .apps.googleusercontent.com. Google answers anything else with 'Error 401: invalid_client - The OAuth client was not found', which looks like an outage rather than a typo."
+                    fail=1
+                    continue ;;
+                esac ;;
+            esac
+
+            echo "${var}: present, ${#value} characters, shape OK"
+          done
+
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
+
       - name: Build (uses the project's own install/build commands from frontend/vercel.json)
         run: vercel build --prod --token="$VERCEL_TOKEN"
+
+      - name: Assert the values actually reached the bundle we are about to publish
+        # The step above checks an *input* to the build; this one checks the artifact. A
+        # variable that was pulled fine and still did not get inlined is a different bug
+        # with the same symptom — a stale cache, a build that resolved the wrong Root
+        # Directory, a `process.env[name]` lookup Next cannot statically replace — and it
+        # would sail past every check upstream of here. Grepping .vercel/output for the
+        # host is the literal user-visible symptom: when this broke, searching the live
+        # chunks for the API origin and the client id returned nothing at all.
+        run: |
+          set -euo pipefail
+          env_file=".vercel/.env.production.local"
+          out=".vercel/output"
+          if [ ! -d "$out" ]; then
+            echo "::error::vercel build produced no ${out} to inspect."
+            exit 1
+          fi
+
+          fail=0
+          for var in NEXT_PUBLIC_API_URL NEXT_PUBLIC_GOOGLE_CLIENT_ID; do
+            value="$(sed -n "s/^${var}=//p" "$env_file" | tail -n 1 | sed -e 's/^"//' -e 's/"$//')"
+            needle="$value"
+            if [ "$var" = "NEXT_PUBLIC_API_URL" ]; then
+              # Host[:port] only. The bundle may hold the origin split from its scheme or
+              # joined to a path, but the host is the part whose absence is fatal.
+              needle="$(printf '%s' "$value" | sed -e 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##' -e 's#[/?].*$##')"
+            fi
+
+            # An empty needle would match every file and report a cheerful false pass, so
+            # it has to be its own failure. Reachable via a scheme with no host behind it,
+            # which satisfies the shape check before the build.
+            if [ -z "$needle" ]; then
+              echo "::error::${var} has no value to search for here, so nothing could have been inlined from it."
+              fail=1
+              continue
+            fi
+
+            # -a because the output tree mixes minified JS with binaries; -F because a
+            # host is a literal, not a pattern. The needle is searched for, never printed.
+            if grep -raqF -- "$needle" "$out"; then
+              echo "${var}: found inlined in ${out}"
+            else
+              echo "::error::${var} was present in the pulled environment but its value appears nowhere in ${out}."
+              echo "::error::The bundle cannot use a value it does not contain, so this build would deploy green and fail at runtime. Do not publish it - check that the build resolved Root Directory 'frontend' and that the app reads process.env.${var} as a literal, which is the only form Next.js inlines."
+              fail=1
+            fi
+          done
+
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
 
       - name: Deploy the prebuilt output to production
         id: deploy
@@ -240,6 +351,12 @@ jobs:
           DEPLOY_URL: ${{ steps.deploy.outputs.url }}
         run: |
           set -euo pipefail
+          # This proves the alias moved and the site is being served. It proves nothing
+          # about whether the site works: the build that shipped `undefined` for all three
+          # NEXT_PUBLIC_* values returned 200 on every page it had, and simply could not
+          # log anyone in. A 200 only ever rules out "no deployment" — the step after this
+          # one is what rules out "a deployment nobody can use", by reading the bytes the
+          # CDN is handing out rather than trusting that it has any.
           # Alias propagation is not instant; poll rather than sleep-and-hope.
           for i in $(seq 1 15); do
             code="$(curl -s -o /dev/null -w '%{http_code}' https://field-repository.vercel.app/ || true)"
@@ -250,4 +367,97 @@ jobs:
             sleep 4
           done
           echo "::error::field-repository.vercel.app did not return 200 (last: ${code:-none}). Deployment: ${DEPLOY_URL}"
+          exit 1
+
+      - name: Assert the bundle the CDN is serving is the one that was verified
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
+        # The two assertions before the deploy grade an artifact on the runner; this one
+        # grades the artifact a visitor receives, which is the only one that has ever been
+        # broken. Everything between the two — the upload, `--prod` picking which deployment
+        # the alias lands on, the edge cache — is unverified by anything upstream, so a stale
+        # alias or a `--prod` that aliased a different deployment reads as a clean green run.
+        # Fetching /login and grepping its own chunks for the API host is exactly the check
+        # that was run by hand to diagnose 2026-07-26, promoted out of the incident channel.
+        run: |
+          set -euo pipefail
+          site="https://field-repository.vercel.app"
+          env_file=".vercel/.env.production.local"
+
+          # Read, never echoed — same rule and same extraction as the pre-build assertions.
+          value="$(sed -n "s/^NEXT_PUBLIC_API_URL=//p" "$env_file" | tail -n 1 | sed -e 's/^"//' -e 's/"$//')"
+          host="$(printf '%s' "$value" | sed -e 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##' -e 's#[/?].*$##')"
+          if [ -z "$host" ]; then
+            echo "::error::There is no API host to look for in the live bundle, so this check cannot say anything about it. The pulled production environment should have failed the earlier assertion - do not treat this deployment as verified."
+            exit 1
+          fi
+
+          work="$(mktemp -d)"
+          paths=()
+          total=0
+          searched=0
+
+          # Six attempts, because a fresh alias takes a few seconds to reach every edge and
+          # the first request after a deploy can still be answered by the deployment it just
+          # replaced. Failing on the first miss would page someone for CDN propagation.
+          for attempt in $(seq 1 6); do
+            searched=0
+            paths=()
+            rm -rf "${work:?}/"* 2>/dev/null || true
+
+            # The query string is a cache-buster: without it the edge is free to hand back
+            # the previous deployment's HTML, and this would grade the build just replaced.
+            if ! curl -fsS --max-time 30 -o "$work/login.html" "${site}/login?ci-smoke=${GITHUB_RUN_ID}-${attempt}"; then
+              echo "attempt ${attempt}: /login did not answer yet"
+              sleep 10
+              continue
+            fi
+
+            # The script tags on the page, resolved against the alias, so what gets read is
+            # what a browser would download rather than what the runner still has lying in
+            # .vercel/output. Chunk filenames are content-hashed, hence no cache-buster.
+            while IFS= read -r path; do
+              paths+=("$path")
+            done < <(grep -oE '/_next/static/chunks/[A-Za-z0-9._@/-]+\.js' "$work/login.html" | sort -u)
+            total="${#paths[@]}"
+
+            if [ "$total" -eq 0 ]; then
+              echo "attempt ${attempt}: /login answered but loaded no JavaScript, which is not a page anyone can sign in on"
+              sleep 10
+              continue
+            fi
+
+            found=0
+            for path in "${paths[@]}"; do
+              # A 404 here means the alias moved between the page and its scripts; the retry
+              # picks up a consistent pair instead of counting the miss against the build.
+              if ! curl -fsS --max-time 30 -o "$work/chunk.js" "${site}${path}"; then
+                continue
+              fi
+              searched=$((searched + 1))
+              if grep -aqF -- "$host" "$work/chunk.js"; then
+                found=1
+                break
+              fi
+            done
+
+            if [ "$found" -eq 1 ]; then
+              echo "live bundle calls the expected API host (attempt ${attempt}, found in chunk ${searched} of ${total})"
+              exit 0
+            fi
+
+            echo "attempt ${attempt}: read ${searched} of ${total} chunks, none mentions the API host"
+            sleep 10
+          done
+
+          # Two unrelated failures end up here, and saying which one it was matters: nothing
+          # to read means the site is down, which anyone can see; chunks without the host is
+          # the one that looks perfectly healthy and cannot sign a single person in.
+          if [ "$searched" -eq 0 ]; then
+            echo "::error::Nothing readable came back from ${site}/login on any of 6 attempts - either the page never answered or it loaded no JavaScript at all - so there is no evidence this deployment works."
+          else
+            echo "::error::The live site is serving a login page whose JavaScript never mentions the API host from NEXT_PUBLIC_API_URL (${#host} characters, taken from the environment this build was pulled with). Searched ${searched} of the ${total} chunks that ${site}/login loads, on each of 6 attempts."
+            echo "::error::The upload was checked and did contain that host, so the bytes on the alias are not the bytes that were built - either the production alias is still pointing at an older deployment, or --prod aliased a different one. Whichever it is, the site is in the state it was in on 2026-07-26: every page loads, and nobody can sign in."
+          fi
+          echo "::error::This deployment is ALREADY live, so fix the site before fixing the cause. Roll back first: Vercel -> Project -> Deployments -> the last deployment known to work -> Instant Rollback (or 'vercel rollback <that deployment url>'). Then re-run this workflow to publish ${DEPLOY_URL} again and watch this step."
           exit 1

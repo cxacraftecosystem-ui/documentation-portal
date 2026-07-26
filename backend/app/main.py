@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import tempfile
+import time
 from contextlib import asynccontextmanager, suppress
 from typing import Any
 
@@ -345,6 +346,17 @@ class SecurityHeadersMiddleware:
         await self.app(scope, receive, send_with_security_headers)
 
 
+# --- Readiness ------------------------------------------------------------------------------------
+# The readiness probe's own deadline. Shorter than an uptime monitor's request timeout on purpose, so
+# a stalled database comes back as an explicit 503 the monitor can quote rather than as a client-side
+# timeout, which says only that *something* did not answer. Also far below CloudFront's origin-response
+# timeout, so the probe can never be the request that holds a connection open. The pooler lives in a
+# different AWS region from this box, so a healthy round trip is a couple of hundred milliseconds and
+# the ceiling sits about ten times above that: high enough that ordinary cross-region latency is never
+# mistaken for an outage, low enough to cut short a pool that has stopped handing out connections.
+_READINESS_TIMEOUT_SECONDS = 3.0
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     # Refuse to serve with a guessable token-signing secret. Done before anything else so the
@@ -392,7 +404,63 @@ def create_app() -> FastAPI:
 
     @app.get("/health", tags=["health"])
     async def health() -> dict[str, str]:
+        """Liveness for the CloudFront origin. It must stay dumb — do not make it touch the database.
+
+        The background watchdog can spend minutes reconnecting to a saturated pooler (see
+        ``_keep_db_connected``). If this check failed during that window CloudFront would drop the box
+        as an unhealthy origin, and a database that was busy recovering on its own would become a
+        total outage instead. So a 200 here means only "the process is serving requests".
+
+        Which is exactly why it is the wrong thing to alert on: point uptime alerting at
+        ``/health/ready`` below, which answers the question this one deliberately refuses to.
+        """
         return {"status": "ok"}
+
+    @app.get("/health/ready", tags=["health"])
+    async def health_ready() -> JSONResponse:
+        """Readiness: does the database actually answer? This is what uptime alerting should watch.
+
+        200 means one trivial query completed inside the deadline; 503 means it did not. ``latencyMs``
+        is reported on both paths deliberately — this box has a documented history of connection-pool
+        exhaustion whose first symptom is a probe that still succeeds but takes seconds, so an alert
+        on rising latency fires while there is still time to act, where an alert on outright failure
+        only fires once researchers are already locked out.
+
+        Unauthenticated, because an uptime monitor carries no token — so the body is a boolean and a
+        duration and nothing more. No host, no connection string, no driver text. Whatever actually
+        broke goes to the server log, which is the place it is safe to be specific.
+
+        It never raises: a readiness probe that 500s is an outage signal of its own, and it would sit
+        on top of the one being reported.
+        """
+        started = time.perf_counter()
+        reachable = True
+        try:
+            async with asyncio.timeout(_READINESS_TIMEOUT_SECONDS):
+                # Observe, never repair. ``ensure_db_connected`` would be the tempting call here, but
+                # reconnecting means disconnecting first, which would kill in-flight queries and race
+                # the watchdog that already owns recovery. A probe that heals what it measures cannot
+                # tell you how often it was broken.
+                await db.query_raw("SELECT 1")
+        except TimeoutError:
+            reachable = False
+            logger.warning(
+                "Readiness probe: no answer from the database within %.1fs", _READINESS_TIMEOUT_SECONDS
+            )
+        except Exception as exc:  # noqa: BLE001 - deliberate catch-all; this endpoint must never 500
+            reachable = False
+            logger.warning("Readiness probe failed: %s", exc)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK if reachable else status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "status": "ready" if reachable else "unavailable",
+                "database": reachable,
+                "latencyMs": round((time.perf_counter() - started) * 1000, 1),
+            },
+            # A remembered "ready" is precisely the failure-reporting-success shape this endpoint
+            # exists to break, so nothing between here and the monitor may cache the verdict.
+            headers={"cache-control": "no-store"},
+        )
 
     app.include_router(api_router)
     return app
