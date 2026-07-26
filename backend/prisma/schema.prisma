@@ -331,6 +331,14 @@ model Location {
   accuracy      Float?
   address       String?
   placeName     String?
+  /// Postal state or union territory, stored as the canonical name from the closed list in
+  /// services/address.py — which api/routes/reference.py also SERVES, so a form's dropdown and the
+  /// validator can never hold different lists. Free text here would split one state across four
+  /// spellings in every group-by and export, the way craft names did before title-casing.
+  state         String?
+  /// Indian PIN code as the bare 6 digits ("380001"). Validated as exactly six ASCII digits with a
+  /// leading 1–9: the first digit is the postal zone and there is no zone 0.
+  pincode       String?
   capturedAt    DateTime?
   extraMetadata Json?
   createdAt     DateTime @default(now())
@@ -345,6 +353,9 @@ model Location {
 
   @@index([latitude, longitude])
   @@index([placeName])
+  /// "Every record in Gujarat" is the query this column exists to make possible; without the index
+  /// it is a sequential scan of every location ever captured.
+  @@index([state])
 }
 
 model Artisan {
@@ -357,11 +368,16 @@ model Artisan {
   place         String
   /// The artisan's Aadhaar number, stored as the bare 12 digits. This is the DEDUPLICATION KEY:
   /// the same person documented at two workshops by two researchers must collapse to one record,
-  /// and this unique index is what enforces it. Nullable because every row predating the column has
-  /// none, and Postgres allows many NULLs under a unique index — so existing artisans are untouched
-  /// and only newly supplied numbers have to be distinct. Validated (12 digits, leading 2–9,
-  /// Verhoeff checksum) in services/artisan_identity.py, and MASKED to "XXXX XXXX 9012" on every
-  /// exported or shared surface.
+  /// and this unique index is what enforces it. Validated (12 digits, leading 2–9, Verhoeff
+  /// checksum) in services/artisan_identity.py, and MASKED to "XXXX XXXX 9012" on every exported or
+  /// shared surface.
+  ///
+  /// REQUIRED to create an artisan, and enforced by ArtisanCreate rather than by NOT NULL. The
+  /// column stays nullable on purpose: production holds artisans recorded before this field existed,
+  /// and the only ways to satisfy a NOT NULL would be to invent numbers for them (fabricating a
+  /// national ID, which would also collide with this very unique index) or to delete them. Both are
+  /// unacceptable, so those rows keep NULL — readable, editable, and exempt from the unique index,
+  /// since Postgres permits any number of NULLs under one. Same pattern as dos/donts above.
   aadhaarNumber String?      @unique
   /// Does this artisan hold an Artisan Pehchan Card (the PM Vishwakarma ID)? Defaults to true,
   /// matching the form's default answer.

@@ -101,7 +101,10 @@ CLEARABLE_KEYS = frozenset(
 #   place        Artisan.place, Craft.place, Workshop.place, Product.place, Tool.place,
 #                QuestionnaireInterview.place
 #   placeName    Location.placeName (written through ``attach_location``)
-#   village/district/state
+#   state        Location.state (written through ``attach_location``). Harmless and idempotent: all
+#                36 canonical names in services/address.py are already fixed points of this rule, and
+#                the value has been resolved to one of them by LocationInput before it gets here
+#   village/district
 #                no columns today (artisans keep these in extraMetadata) -- listed so they normalise
 #                from day one if they are ever promoted to real columns
 #

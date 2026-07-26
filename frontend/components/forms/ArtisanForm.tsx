@@ -268,6 +268,14 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
   const initialLocation = initial
     ? ((initial as Artisan & { location?: LocationInitialValues | null }).location ?? null)
     : undefined;
+  /**
+   * Aadhaar is what stops one artisan becoming two records, so a NEW artisan must come with one.
+   * An artisan documented before that rule has none, and a researcher who opened the record to fix a
+   * phone number must not have to invent a government ID to save the correction — so on edit it is
+   * required only when the record already carries one, where the requirement costs nothing and also
+   * stops a stored number being quietly emptied.
+   */
+  const aadhaarRequired = !initial || Boolean(initial.aadhaarNumber?.trim());
   // The workshop this artisan was documented at: shared picker, shared most-recent defaulting, and
   // the late-submission gate (see components/forms/WorkshopSelect).
   const workshop = useWorkshopSelection({
@@ -337,7 +345,13 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
       const exifRemark = exifMetadataToRemark(exifItems);
       const recordedAt = recordedAtFromForm(form);
       const recordedTimezone = recordedTimezoneFromForm(form);
-      const location = locationFromForm(form);
+      // State and pincode are columns on Location (validated against the canonical list in
+      // backend/app/services/address.py), but `locationFromForm` only knows the coordinate half, so
+      // they are attached here — including onto the media batch below, which is the same place.
+      const coordinates = locationFromForm(form);
+      const location = coordinates
+        ? { ...coordinates, state: textValue(form, "state"), pincode: textValue(form, "pincode") }
+        : undefined;
       // Android parity: an artisan needs either an existing craft or a new craft name.
       const craftId = textValue(form, "craftId");
       const newCraftName = textValue(form, "newCraftName");
@@ -584,11 +598,15 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
               <p className="mt-0.5 text-xs text-ink-muted">
                 Government identifiers, kept so the same artisan documented at two workshops resolves
                 to one record. Stored securely and masked on every shared or exported view.
+                {aadhaarRequired
+                  ? ""
+                  : " This artisan was recorded before an Aadhaar number was required, so the record still saves without one — add it only if the artisan is willing."}
               </p>
             </div>
             <AadhaarField
               defaultValue={initial?.aadhaarNumber}
               excludeArtisanId={initial?.id ?? null}
+              required={aadhaarRequired}
               onValueChange={markDirty}
             />
             <PehchanFields
@@ -621,7 +639,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           title="Artisan media"
           description="Attach or capture artisan images, audio introductions, videos, and documents. Image EXIF is retained and summarized in notes."
         />
-        <LocationFields initial={initialLocation} />
+        <LocationFields initial={initialLocation} onDirty={markDirty} />
         {uploadProgress ? <UploadProgress progress={uploadProgress} /> : null}
         <div className="flex justify-end gap-2">
           <button type="button" className="field-button-secondary" onClick={handleBack}>

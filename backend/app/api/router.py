@@ -15,6 +15,7 @@ from app.api.routes import (
     processes,
     products,
     questionnaire,
+    reference,
     review,
     search,
     secrets,
@@ -50,3 +51,4 @@ api_router.include_router(settings.router)
 api_router.include_router(secrets.router)
 api_router.include_router(data_access.router)
 api_router.include_router(tasks.router)
+api_router.include_router(reference.router)

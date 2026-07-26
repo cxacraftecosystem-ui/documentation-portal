@@ -8,6 +8,17 @@ import { Search } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
 import { RowActions, rowAction } from "@/components/RowActions";
+import {
+  EMPTY_SEARCH_FILTERS,
+  RECORD_TYPES,
+  SearchFilterBar,
+  filtersFromSearchParams,
+  filtersToLinkParams,
+  searchFilterParams,
+  typeVisible,
+  type RecordType,
+  type SearchFilters
+} from "@/components/search/SearchFilters";
 import { StatusBadge } from "@/components/StatusBadge";
 import { apiFetch, buildQuery } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
@@ -53,63 +64,26 @@ type ResultItem = {
 const PAGE_SIZE = 20;
 
 /** Filters as they were when Search was pressed — the pager must not drift with the live inputs. */
-type AppliedFilters = { q: string; place: string };
-
-/** The five result buckets, plus "all". Also the `?type=` vocabulary the dashboard links use. */
-const BUCKET_IDS = ["all", "artisans", "workshops", "products", "tools", "media"] as const;
-type BucketId = (typeof BUCKET_IDS)[number];
-
-const BUCKET_LABEL: Record<BucketId, string> = {
-  all: "Everything",
-  artisans: "Artisans",
-  workshops: "Workshops",
-  products: "Products",
-  tools: "Tools",
-  media: "Media"
-};
-
-/** Chips that switch `?type=` without losing the query already typed into the box. */
-function TypeFilter({ active, q }: { active: BucketId; q: string }) {
-  return (
-    <div className="mb-4 flex flex-wrap gap-1.5" role="group" aria-label="Filter results by record type">
-      {BUCKET_IDS.map((id) => {
-        const href = id === "all" ? `/search${q ? `?q=${encodeURIComponent(q)}` : ""}` : `/search?type=${id}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
-        return (
-          <Link
-            key={id}
-            href={href}
-            aria-current={active === id ? "page" : undefined}
-            className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-              active === id
-                ? "border-purple-700 bg-purple-700 text-white"
-                : "border-line-200 bg-surface-50 text-ink-700 hover:border-purple-300 hover:text-purple-700"
-            }`}
-          >
-            {BUCKET_LABEL[id]}
-          </Link>
-        );
-      })}
-    </div>
-  );
-}
+type AppliedFilters = { q: string; filters: SearchFilters };
 
 export default function SearchPage() {
   /**
-   * `?type=` narrows the page to ONE bucket, and is how the dashboard's repository totals open.
+   * The URL SEEDS the filters, it does not own them.
    *
-   * A total is a question — "which 74 tools?" — and the honest answer is the list of those tools,
-   * not a page of five headings where four are empty. The filter is applied to the RENDER, not to
-   * the request: `GET /search` returns all five buckets in one round trip either way, so filtering
-   * here costs nothing and keeps "All results" a click away rather than a second query.
+   * `?type=` narrows the page to one bucket and is how the dashboard's repository totals open — a
+   * total is a question ("which 74 tools?") and the honest answer is the list of those tools, not a
+   * page of five headings where four are empty. Reading it once on arrival keeps every link that
+   * exists today working, while leaving the filters themselves in React state: they now include a
+   * place, a date range and a multi-select, and if a chip click were a navigation it would remount
+   * the page and quietly throw the other three away.
+   *
+   * The type filter is also still applied to the RENDER, not only to the request, so it keeps
+   * working against an API that does not know `types` yet.
    */
   const searchParams = useSearchParams();
-  const typeParam = (searchParams.get("type") || "").toLowerCase();
-  const activeType: BucketId = (BUCKET_IDS as readonly string[]).includes(typeParam)
-    ? (typeParam as BucketId)
-    : "all";
 
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
-  const [place, setPlace] = useState("");
+  const [filters, setFilters] = useState<SearchFilters>(EMPTY_SEARCH_FILTERS);
   const [applied, setApplied] = useState<AppliedFilters | null>(null);
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<SearchResult | null>(null);
@@ -122,17 +96,24 @@ export default function SearchPage() {
   const arrived = useRef(false);
   useEffect(() => {
     if (arrived.current) return;
-    if (!typeParam && !searchParams.get("q")) return;
+    const seeded = filtersFromSearchParams(new URLSearchParams(searchParams.toString()));
+    const q = (searchParams.get("q") ?? "").trim();
+    if (!q && !seeded.types.length && !seeded.place && seeded.range === "any") return;
     arrived.current = true;
-    setApplied({ q: (searchParams.get("q") ?? "").trim(), place: "" });
-  }, [searchParams, typeParam]);
+    setFilters(seeded);
+    setApplied({ q, filters: seeded });
+  }, [searchParams]);
 
-  // Runs on submit (new `applied` object, even for the same text) and on every page step.
+  // Runs on submit (new `applied` object, even for the same text), on every filter change and on
+  // every page step. Every active filter goes into ONE query — buildQuery drops the keys that
+  // resolved to nothing, so an untouched filter costs nothing.
   useEffect(() => {
     if (!applied) return;
     let cancelled = false;
     setLoading(true);
-    apiFetch<SearchResult>(`/search${buildQuery({ q: applied.q, place: applied.place, page, pageSize: PAGE_SIZE })}`)
+    apiFetch<SearchResult>(
+      `/search${buildQuery({ q: applied.q, ...searchFilterParams(applied.filters), page, pageSize: PAGE_SIZE })}`
+    )
       .then((data) => {
         if (cancelled) return;
         setResult(data);
@@ -150,13 +131,34 @@ export default function SearchPage() {
     };
   }, [applied, page]);
 
+  // The chips used to be links, so a narrowed search was a URL you could send someone or reload.
+  // They are buttons now — a navigation would remount the page and take the other filters with it —
+  // so the address bar is written back by hand instead. history.replaceState rather than the router:
+  // this records where the researcher already is, it does not navigate anywhere.
+  useEffect(() => {
+    if (!applied) return;
+    window.history.replaceState(null, "", `/search${buildQuery({ q: applied.q, ...filtersToLinkParams(applied.filters) })}`);
+  }, [applied]);
+
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPage(1);
-    setApplied({ q: query.trim(), place: place.trim() });
+    setApplied({ q: query.trim(), filters });
   }
 
-  const show = (id: Exclude<BucketId, "all">) => activeType === "all" || activeType === id;
+  /**
+   * A chip, a date or a type tick re-runs at once — it narrows the question already asked rather
+   * than asking a new one, so it carries the query text that is IN EFFECT rather than whatever is
+   * half-typed in the box. That is the same bargain the box has always made on this page: text is
+   * applied when Search is pressed, everything else the moment it changes.
+   */
+  function changeFilters(next: SearchFilters) {
+    setFilters(next);
+    setPage(1);
+    setApplied((current) => ({ q: current?.q ?? "", filters: next }));
+  }
+
+  const show = (id: RecordType) => typeVisible(filters, id);
   const buckets = result
     ? [
         show("artisans") ? result.artisans : [],
@@ -167,12 +169,19 @@ export default function SearchPage() {
       ]
     : [];
   const shown = buckets.reduce((sum, bucket) => sum + bucket.length, 0);
-  // /search now returns a real `pageCount` (the page count of its longest bucket), so "Next" is
-  // exact. The old heuristic — "some bucket exactly filled the page" — walked one page too far
-  // whenever a bucket's total happened to be a multiple of PAGE_SIZE, landing the researcher on an
-  // empty page. The fallback keeps the page working against an API that predates the key.
-  const hasMore =
-    result?.pageCount !== undefined ? page < result.pageCount : buckets.some((bucket) => bucket.length === PAGE_SIZE);
+  // /search returns a real `pageCount` (the page count of its longest bucket), so "Next" is exact.
+  // The old heuristic — "some bucket exactly filled the page" — walked one page too far whenever a
+  // bucket's total happened to be a multiple of PAGE_SIZE, landing the researcher on an empty page.
+  //
+  // Recomputed from the SELECTED buckets' totals when they are there, because `pageCount` is the
+  // longest of all five: an API that ignored `types` would otherwise offer pages that exist only in
+  // a bucket this search is not showing. The two fallbacks keep the page working against an API
+  // that predates either key.
+  const selectedTotals = result?.totals ? RECORD_TYPES.filter(show).map((type) => result.totals![type]) : [];
+  const pageCount = selectedTotals.length
+    ? Math.max(1, Math.ceil(Math.max(...selectedTotals) / PAGE_SIZE))
+    : result?.pageCount;
+  const hasMore = pageCount !== undefined ? page < pageCount : buckets.some((bucket) => bucket.length === PAGE_SIZE);
 
   return (
     <>
@@ -183,14 +192,25 @@ export default function SearchPage() {
       />
       <form onSubmit={submit} className="panel mb-5 grid gap-3 p-4 md:grid-cols-[1fr_220px_auto]">
         <input className="field-input" placeholder="Search repository" value={query} onChange={(event) => setQuery(event.target.value)} />
-        <input className="field-input" placeholder="Place filter" value={place} onChange={(event) => setPlace(event.target.value)} />
+        <input
+          className="field-input"
+          placeholder="Place filter"
+          value={filters.place}
+          onChange={(event) => setFilters({ ...filters, place: event.target.value })}
+        />
         <button className="field-button" disabled={loading}>
           <Search className="h-4 w-4" aria-hidden />
           {loading ? "Searching..." : "Search"}
         </button>
       </form>
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
-      <TypeFilter active={activeType} q={applied?.q ?? query} />
+      {/*
+        Place stays in the form row where it has always been, and the advanced panel therefore does
+        not repeat it: one value with two boxes on screen at once is the same confusion the chips and
+        the multi-select are carefully avoiding. It is applied with the text, on Search, because it
+        is typed — the panel's filters are clicked, so they apply immediately.
+      */}
+      <SearchFilterBar value={filters} onChange={changeFilters} showPlace={false} />
 
       {result && shown === 0 ? (
         <EmptyState

@@ -890,8 +890,14 @@ async def _list_artisan_level(segs: list[str], parent: str, scope: Scope) -> Lev
     wid, aid = segs[1], segs[3]
 
     if len(segs) == 4:
+        # `location` is loaded because the info panel below prints the artisan's State and Pincode
+        # from it; `_artisan_info` renders the full spec, not just the name shown in the tree.
         artisan = await _require(
-            db.artisan, aid, "Artisan", include={"craft": True}, scope_where=scope.records
+            db.artisan,
+            aid,
+            "Artisan",
+            include={"craft": True, "location": True},
+            scope_where=scope.records,
         )
         info = _artisan_info(artisan)
         entries = [
@@ -1647,6 +1653,9 @@ _ARTISAN_INCLUDE = {
     "craft": True,
     "createdBy": True,
     "workshops": {"include": {"workshop": True}},
+    # The artisan spec prints State and Pincode off this relation; without it both cells fall back
+    # to the legacy extraMetadata and read blank for every record entered since they became columns.
+    "location": True,
 }
 _PRODUCT_INCLUDE = {"workshop": True, "createdBy": True}
 # product->workshop is nested so a process row can resolve its workshop placement for the

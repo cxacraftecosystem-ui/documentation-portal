@@ -18,6 +18,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Search, X, Loader2, FolderTree, ExternalLink } from "lucide-react";
 import Link from "next/link";
 
+import {
+  EMPTY_SEARCH_FILTERS,
+  RECORD_TYPES,
+  SearchFilterBar,
+  filtersToLinkParams,
+  hasActiveFilters,
+  searchFilterParams,
+  typeVisible,
+  type SearchFilters
+} from "@/components/search/SearchFilters";
 import { apiFetch, buildQuery } from "@/lib/api";
 import type { Artisan, MediaFile, ProductDocumentation, ToolDocumentation, Workshop } from "@/lib/types";
 
@@ -27,6 +37,8 @@ type SearchResult = {
   products: ProductDocumentation[];
   tools: ToolDocumentation[];
   media: MediaFile[];
+  /** Rows matching in each bucket, ignoring the page window — so "of N" can respect the type filter. */
+  totals?: Record<(typeof RECORD_TYPES)[number], number>;
   total?: number;
 };
 
@@ -46,9 +58,14 @@ type Row = {
 
 const EMPTY: Row[] = [];
 
-function rowsFrom(result: SearchResult): Row[] {
+/**
+ * The buckets are dropped here as well as in the request, because `types` is the one filter key the
+ * API may not know yet: an older server answers with all five buckets, and a panel that trusted it
+ * would show artisans to someone who asked for media only.
+ */
+function rowsFrom(result: SearchResult, filters: SearchFilters): Row[] {
   const rows: Row[] = [];
-  for (const a of result.artisans ?? []) {
+  for (const a of typeVisible(filters, "artisans") ? (result.artisans ?? []) : []) {
     rows.push({
       key: `artisan-${a.id}`,
       kind: "Artisan",
@@ -58,7 +75,7 @@ function rowsFrom(result: SearchResult): Row[] {
       locate: { type: "artisan", id: a.id }
     });
   }
-  for (const p of result.products ?? []) {
+  for (const p of typeVisible(filters, "products") ? (result.products ?? []) : []) {
     rows.push({
       key: `product-${p.id}`,
       kind: "Product",
@@ -68,7 +85,7 @@ function rowsFrom(result: SearchResult): Row[] {
       locate: { type: "product", id: p.id }
     });
   }
-  for (const t of result.tools ?? []) {
+  for (const t of typeVisible(filters, "tools") ? (result.tools ?? []) : []) {
     rows.push({
       key: `tool-${t.id}`,
       kind: "Tool",
@@ -78,7 +95,7 @@ function rowsFrom(result: SearchResult): Row[] {
       locate: { type: "tool", id: t.id }
     });
   }
-  for (const w of result.workshops ?? []) {
+  for (const w of typeVisible(filters, "workshops") ? (result.workshops ?? []) : []) {
     rows.push({
       key: `workshop-${w.id}`,
       kind: "Workshop",
@@ -88,7 +105,7 @@ function rowsFrom(result: SearchResult): Row[] {
       locate: { type: "workshop", id: w.id }
     });
   }
-  for (const m of result.media ?? []) {
+  for (const m of typeVisible(filters, "media") ? (result.media ?? []) : []) {
     rows.push({
       key: `media-${m.id}`,
       kind: "Media",
@@ -112,6 +129,7 @@ const KIND_CLASS: Record<Row["kind"], string> = {
 
 export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void }) {
   const [query, setQuery] = useState("");
+  const [filters, setFilters] = useState<SearchFilters>(EMPTY_SEARCH_FILTERS);
   const [rows, setRows] = useState<Row[]>(EMPTY);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -121,11 +139,18 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
   const timer = useRef<number | null>(null);
   // Late responses from a query the user has already changed must not overwrite the current rows.
   const generation = useRef(0);
+  // The text the last run was scheduled for, so a clicked filter can skip the typist's pause.
+  const typedBefore = useRef({ q: "", place: "" });
 
-  const run = useCallback(async (text: string) => {
+  // `filters` is passed in rather than closed over so this stays a stable callback: it is the thing
+  // the debounce timer fires, and a callback that changed identity on every filter tick would
+  // restart the timer instead of the filter doing it.
+  const run = useCallback(async (text: string, active: SearchFilters) => {
     const q = text.trim();
     const mine = ++generation.current;
-    if (q.length < 2) {
+    // Two characters of text OR any filter at all. A chip on its own is a real question here —
+    // "the media from this workshop week" — and answering it with a blank panel reads as broken.
+    if (q.length < 2 && !hasActiveFilters(active)) {
       setRows(EMPTY);
       setTotal(0);
       setLoading(false);
@@ -134,10 +159,21 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
     setLoading(true);
     setError(null);
     try {
-      const result = await apiFetch<SearchResult>(`/search${buildQuery({ q, page: 1, pageSize: 8 })}`);
+      const result = await apiFetch<SearchResult>(
+        `/search${buildQuery({ q: q || undefined, ...searchFilterParams(active), page: 1, pageSize: 8 })}`
+      );
       if (mine !== generation.current) return;
-      setRows(rowsFrom(result));
-      setTotal(result.total ?? 0);
+      setRows(rowsFrom(result, active));
+      // Counted over the SELECTED buckets when per-bucket totals are there, so "of N" cannot promise
+      // more results than the filter allows; `total` is every bucket added up, which is only the
+      // right number when every bucket is being shown.
+      const selected = result.totals
+        ? RECORD_TYPES.filter((type) => typeVisible(active, type)).reduce(
+            (sum, type) => sum + (result.totals?.[type] ?? 0),
+            0
+          )
+        : (result.total ?? 0);
+      setTotal(selected);
     } catch (err) {
       if (mine !== generation.current) return;
       setError(err instanceof Error ? err.message : "Search failed");
@@ -148,12 +184,17 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
   }, []);
 
   useEffect(() => {
+    // Typing waits for a pause; a chip, a date or a type tick is one deliberate click and refreshes
+    // at once. Both still go through the single timer, so the cancel-and-reschedule path — and with
+    // it the generation guard — stays the only way a request is ever made.
+    const typed = query !== typedBefore.current.q || filters.place !== typedBefore.current.place;
+    typedBefore.current = { q: query, place: filters.place };
     if (timer.current) window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => run(query), 300);
+    timer.current = window.setTimeout(() => run(query, filters), typed ? 300 : 0);
     return () => {
       if (timer.current) window.clearTimeout(timer.current);
     };
-  }, [query, run]);
+  }, [query, filters, run]);
 
   async function reveal(row: Row) {
     if (!row.locate) return;
@@ -201,6 +242,9 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
         ) : null}
       </div>
 
+      {/* Directly under the field, so the chips read as part of the search rather than a separate tool. */}
+      <SearchFilterBar value={filters} onChange={setFilters} className="" />
+
       {error ? <p className="text-xs text-error-600">{error}</p> : null}
 
       {loading ? (
@@ -210,8 +254,12 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
         </p>
       ) : null}
 
-      {!loading && query.trim().length >= 2 && rows.length === 0 && !error ? (
-        <p className="text-xs text-ink-500">Nothing matches “{query.trim()}”.</p>
+      {!loading && rows.length === 0 && !error && (query.trim().length >= 2 || hasActiveFilters(filters)) ? (
+        <p className="text-xs text-ink-500">
+          {query.trim().length >= 2
+            ? `Nothing matches “${query.trim()}”${hasActiveFilters(filters) ? " with these filters" : ""}.`
+            : "Nothing matches these filters."}
+        </p>
       ) : null}
 
       {rows.length ? (
@@ -263,7 +311,12 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
           {total > rows.length ? (
             <p className="text-xs text-ink-500">
               Showing {rows.length} of {total}.{" "}
-              <Link href={`/search?q=${encodeURIComponent(query.trim())}`} className="font-semibold text-purple-700">
+              {/* The filters travel with the link, so the full page opens on the same search rather
+                  than a wider one the researcher then has to narrow all over again. */}
+              <Link
+                href={`/search${buildQuery({ q: query.trim() || undefined, ...filtersToLinkParams(filters) })}`}
+                className="font-semibold text-purple-700"
+              >
                 See all results
               </Link>
             </p>

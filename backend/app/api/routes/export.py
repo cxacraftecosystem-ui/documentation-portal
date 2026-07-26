@@ -55,7 +55,13 @@ _WORKSHOP_INCLUDE = {
     "crafts": {"include": {"craft": True}},
     "artisans": {"include": {"artisan": True}},
 }
-_ARTISAN_INCLUDE = {"craft": True, "workshops": {"include": {"workshop": True}}}
+# `location` carries the artisan's State and Pincode, which the record spec prints into details.txt
+# and the workbook; without it those two cells silently fall back to the legacy extraMetadata.
+_ARTISAN_INCLUDE = {
+    "craft": True,
+    "workshops": {"include": {"workshop": True}},
+    "location": True,
+}
 _PRODUCT_INCLUDE = {"workshop": True}
 _TOOL_INCLUDE = {"workshop": True}
 _PROCESS_INCLUDE = {"steps": True, "product": True}

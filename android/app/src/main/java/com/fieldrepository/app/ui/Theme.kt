@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -440,7 +441,7 @@ val FieldDisplayFontFamily: FontFamily = FontFamily(
     variableFont(R.font.jakarta_variable, FontWeight.Medium),   // 500
     variableFont(R.font.jakarta_variable, FontWeight.SemiBold), // 600 — font-semibold sub-heads
     variableFont(R.font.jakarta_variable, FontWeight.Bold),     // 700 — .display-title / headings
-    variableFont(R.font.jakarta_variable, FontWeight.ExtraBold),// 800 — top of the Jakarta axis
+    variableFont(R.font.jakarta_variable, FontWeight.ExtraBold),// 800 — the hero span, display* only
 )
 
 /*
@@ -453,27 +454,57 @@ val FieldDisplayFontFamily: FontFamily = FontFamily(
  *   text-xs 12/16   text-sm 14/20   text-base 16/24   text-lg 18/28   text-xl 20/28
  *   text-2xl 24/32  text-3xl 30/36  text-4xl 36/40    text-5xl 48/1   text-6xl 60/1   text-7xl 72/1
  *
- * Weights come from the classes in use: headings are `font-display font-bold` (`.display-title` =
- * font-display font-bold tracking-tight), sub-heads `font-semibold`, buttons/labels `font-medium`
- * (`.field-button`, `.field-input`, buttonVariants base = text-sm font-medium), body plain 400.
+ * WHICH FACE AT WHICH WEIGHT IS NOT A JUDGEMENT CALL — it was counted. Every `font-display`
+ * occurrence in frontend/app and frontend/components (126, plus `.display-title` in globals.css),
+ * grouped against every bold/semibold element that has NO `font-display` (88):
  *
- * Letter spacing is in **em**, not sp, because Tailwind's `tracking-*` is em-based and therefore
- * scales with the size — tracking-tight is -0.025em at every step. The previous sp values (-1sp on
- * displayLarge, +0.1/+0.2/+0.4sp across body and label) were Material's defaults, not the web's:
- * the web sets `letter-spacing: normal` on all body and UI text and only tightens headings.
+ *   size          font-display (Jakarta)              plain (Inter)
+ *   12 text-xs    bold ×1, medium ×1                  semibold ×45   badges, chips, table <th>
+ *   14 text-sm    bold ×17, semibold ×5               semibold ×15   status pills, count lines
+ *   16 text-base  bold ×17, semibold ×4               semibold ×25, bold ×3   step titles, <strong>
+ *   18 text-lg    bold ×40                            —
+ *   20 text-xl    bold ×7                             —
+ *   24 text-2xl   bold ×4                             —
+ *   30 text-3xl   bold ×9, extrabold ×1               —
+ *   36 text-4xl   bold ×8, extrabold ×2               —
+ *   48/60         extrabold ×1 (the hero span)        —
+ *   (20 further font-display elements take their size from a parent: 16 bold, 3 semibold, 1 medium)
+ *
+ * Read the two columns together and the rule the app used to apply — Jakarta iff bold and >=15sp —
+ * is wrong at both ends. Jakarta starts at 12px (the guide's numbered bubbles are `font-display
+ * text-xs font-bold`) and runs at semibold as well as bold, so the heuristic sent ~30 real headings
+ * to Inter; and 88 semibold/bold elements carry no `font-display` at all, so any "semibold means
+ * Jakarta" repair would have promoted every status pill and count line. There is no size-or-weight
+ * function that reproduces this table, which is why the face now comes from the slot — see
+ * ui/FieldText.kt.
+ *
+ * WEIGHT: bold (700) wins at every size from 14 to 36. Only the hero runs at extrabold, and it is
+ * the only text on the web above 36px, so 48/60/72 take 800 and everything below takes 700.
+ *
+ * TRACKING is in **em**, not sp, because Tailwind's `tracking-*` is em-based and scales with the
+ * size. It is not uniform: `tracking-tight` appears 22 times in the whole web app and clusters at
+ * the top of the ramp — 30px and up is tight 19 times out of 20, while 14–24px is ~70 plain against
+ * ~10 tight. So the title slots take Tailwind's default and only headlineMedium upward tightens.
+ * (The old file tightened every Jakarta slot. AuthScreen's login card h1 is annotated
+ * `font-display text-2xl font-bold`, and that class carries no tracking whatsoever.)
  */
-private val TrackingTight = (-0.025).em // Tailwind `tracking-tight`
-private val TrackingNormal = 0.em       // Tailwind default — body, labels, buttons
+private val TrackingTight = (-0.025).em // Tailwind `tracking-tight` — 30px and up only
+private val TrackingNormal = 0.em       // Tailwind default — body, labels, buttons, small headings
 private val TrackingWide = 0.025.em     // Tailwind `tracking-wide` — .field-label
 private val TrackingEyebrow = 0.14.em   // .eyebrow — tracking-[0.14em]
 
-/** Jakarta headings: `font-display font-bold tracking-tight`. */
-private fun displayStyle(size: Int, lineHeight: Int, weight: FontWeight = FontWeight.Bold) = TextStyle(
+/** Jakarta headings: `font-display font-bold`. */
+private fun displayStyle(
+    size: Int,
+    lineHeight: Int,
+    weight: FontWeight = FontWeight.Bold,
+    tracking: TextUnit = TrackingNormal
+) = TextStyle(
     fontFamily = FieldDisplayFontFamily,
     fontWeight = weight,
     fontSize = size.sp,
     lineHeight = lineHeight.sp,
-    letterSpacing = TrackingTight
+    letterSpacing = tracking
 )
 
 /** Inter body/UI: no tracking, exactly as the web leaves it. */
@@ -486,33 +517,42 @@ private fun bodyStyle(size: Int, lineHeight: Int, weight: FontWeight) = TextStyl
 )
 
 private val FieldTypography = Typography(
-    // Display — text-7xl / 6xl / 5xl, all `leading-none` on the web's hero spans.
-    displayLarge = displayStyle(72, 72),
-    displayMedium = displayStyle(60, 60),
-    displaySmall = displayStyle(48, 48),
+    // Display — text-7xl / 6xl / 5xl. The hero headline span is the ONLY web text this large
+    // (`font-display text-4xl font-extrabold leading-[1.05] tracking-tight … sm:text-5xl
+    // lg:text-6xl`), so these three carry its weight and tracking. Line height stays on the
+    // Tailwind step rather than the hero's 1.05 override: a shared slot should be the ramp, and one
+    // marketing span is free to `.copy(lineHeight = …)`.
+    displayLarge = displayStyle(72, 72, FontWeight.ExtraBold, TrackingTight),
+    displayMedium = displayStyle(60, 60, FontWeight.ExtraBold, TrackingTight),
+    displaySmall = displayStyle(48, 48, FontWeight.ExtraBold, TrackingTight),
 
-    // Headline — text-4xl / 3xl / 2xl. headlineSmall is the login card's
-    // `font-display text-2xl font-bold` h1 exactly.
-    headlineLarge = displayStyle(36, 40),
-    headlineMedium = displayStyle(30, 36),
+    // Headline — text-4xl / 3xl / 2xl. The 36 and 30 steps are the page/section headings
+    // (`font-display text-3xl font-bold tracking-tight … sm:text-4xl`, 8 of them); headlineSmall is
+    // the login card's `font-display text-2xl font-bold` h1, which is where the tracking stops.
+    headlineLarge = displayStyle(36, 40, tracking = TrackingTight),
+    headlineMedium = displayStyle(30, 36, tracking = TrackingTight),
     headlineSmall = displayStyle(24, 32),
 
-    // Title — text-xl / base / sm. titleMedium is `.display-title` on a card header
-    // (font-display font-bold, 16px); titleSmall is the `text-sm font-semibold` sub-head.
+    // Title — text-xl / base / sm. titleMedium is a card header (`<h2 class="font-display
+    // font-bold text-ink-900">`, 16px); titleSmall is the sub-head inside one. titleSmall is BOLD,
+    // not semibold: at text-sm the web writes `font-display text-sm font-bold` 17 times against
+    // `font-semibold` 5 (Markdown.tsx renders h3 bold and only h4 semibold).
     titleLarge = displayStyle(20, 28),
     titleMedium = displayStyle(16, 24),
-    titleSmall = displayStyle(14, 20, FontWeight.SemiBold),
+    titleSmall = displayStyle(14, 20),
 
-    // Body — Inter 400 at text-base / sm / xs.
+    // Body — Inter 400 at text-base / sm / xs. bodyLarge doubles as the app-wide LocalTextStyle,
+    // and 16px Inter 400 is exactly what `<body class="font-sans">` resolves to on the web.
     bodyLarge = bodyStyle(16, 24, FontWeight.Normal),
     bodyMedium = bodyStyle(14, 20, FontWeight.Normal),
     bodySmall = bodyStyle(12, 16, FontWeight.Normal),
 
     // Label — the web's `font-medium` controls and meta: `.field-button` / `.field-input` /
-    // buttonVariants base are all `text-sm font-medium`, `.field-label` is `text-xs font-medium`.
-    // The whole family stays at 500: labelSmall carries running muted meta lines across this app,
-    // not badges, and 600 there would embolden two dozen sentences that the web sets in medium.
-    // The one genuinely semibold 11px thing on the web is the auth pill — [FieldTextStyles.Badge].
+    // buttonVariants base are all `text-sm font-medium`, `.field-label` is `text-xs font-medium`,
+    // and labelSmall is FieldProvenance's `text-[11px] font-medium` chip. The family stays at 500:
+    // labelSmall also carries running muted meta lines across this app, not badges, and 600 there
+    // would embolden two dozen sentences the web sets in medium. The one genuinely semibold 11px
+    // thing on the web is the auth pill — [FieldTextStyles.Badge].
     labelLarge = bodyStyle(14, 20, FontWeight.Medium),
     labelMedium = bodyStyle(12, 16, FontWeight.Medium),
     labelSmall = bodyStyle(11, 16, FontWeight.Medium)
@@ -520,9 +560,23 @@ private val FieldTypography = Typography(
 
 /**
  * Web recipes that are a class combination rather than a size step, so they have no Material slot:
- * `.eyebrow`, `.field-label` and the inline text link. Kept here so a screen never re-invents them.
+ * `.eyebrow`, `.field-label`, the inline text link — and text-lg, which Material's ladder skips.
+ * Kept here so a screen never re-invents them.
  */
 object FieldTextStyles {
+    /**
+     * `font-display text-lg font-bold` — the web's single most common heading recipe (40 uses:
+     * every panel header, card title and accordion title). Material's title ladder jumps 16 → 20
+     * and has nowhere to put 18, so it lives here rather than being rounded to a neighbouring slot.
+     */
+    val CardTitle: TextStyle = TextStyle(
+        fontFamily = FieldDisplayFontFamily,
+        fontWeight = FontWeight.Bold,
+        fontSize = 18.sp,
+        lineHeight = 28.sp,
+        letterSpacing = TrackingNormal
+    )
+
     /** `.eyebrow` — text-[0.8125rem] font-semibold uppercase tracking-[0.14em]. Caller uppercases. */
     val Eyebrow: TextStyle = TextStyle(
         fontFamily = FieldBodyFontFamily,
@@ -550,7 +604,12 @@ object FieldTextStyles {
         letterSpacing = TrackingNormal
     )
 
-    /** Inline text link — `font-medium text-purple-700 hover:underline`. Colour is the caller's. */
+    /**
+     * Inline text link — Markdown.tsx's anchor, `font-medium text-purple-700 underline
+     * decoration-purple-300`. Underlined at rest even though some web links only underline on
+     * hover: a phone has no hover, so an un-underlined link is an invisible link. Colour is the
+     * caller's.
+     */
     val Link: TextStyle = TextStyle(
         fontFamily = FieldBodyFontFamily,
         fontWeight = FontWeight.Medium,

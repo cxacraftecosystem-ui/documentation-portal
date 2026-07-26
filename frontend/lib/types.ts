@@ -35,6 +35,20 @@ export type FieldProvenanceEntry = { by?: string; byName?: string; at?: string }
 export type FieldProvenance = Record<string, FieldProvenanceEntry>;
 export type ExtraMetadata = { fieldProvenance?: FieldProvenance } & Record<string, unknown>;
 
+/**
+ * `GET /reference/address` — the state list the API validates writes against, served so a form's
+ * dropdown and the validator cannot hold different lists (backend/app/services/address.py).
+ * `statesAndUnionTerritories` is the flat list a single-group dropdown binds to; the two grouped
+ * arrays are the same names split for a form that wants a labelled "Union territories" heading.
+ */
+export type AddressReference = {
+  version: number;
+  states: string[];
+  unionTerritories: string[];
+  statesAndUnionTerritories: string[];
+  pincode: { length: number; pattern: string; description: string };
+};
+
 export type ArtisanAnswer = {
   responseId: string;
   questionId: string;
@@ -78,6 +92,10 @@ export type LocationPayload = {
   accuracy?: number | "";
   address?: string;
   placeName?: string;
+  /** Canonical name from `AddressReference`; the API rejects anything off that list. */
+  state?: string | null;
+  /** Bare 6 digits, no separators — the API normalises "380 001" but stores "380001". */
+  pincode?: string | null;
 };
 
 export type Craft = {

@@ -230,8 +230,20 @@ ARTISAN = RecordSpec(
         _f("Craft", lambda a: _rel(a, "craft", "name")),
         _f("Village/Place", lambda a: a.place),
         _f("District", lambda a: meta_val(meta_of(a), "district")),
-        _f("State", lambda a: meta_val(meta_of(a), "state")),
+        # State and pincode became real columns on the shared Location model, but the artisans
+        # recorded before that kept their state as free text in extraMetadata. Reading the column
+        # first and falling back to the metadata is what lets both generations print in one sheet;
+        # dropping the fallback would blank the historical rows, and keeping only the fallback would
+        # blank every row entered from the new dropdown. ``_rel`` answers None when the location
+        # relation was not included, so a caller that loads artisans without it degrades to exactly
+        # the old behaviour rather than erroring.
+        _f("State", lambda a: _rel(a, "location", "state") or meta_val(meta_of(a), "state")),
         _f("Address", lambda a: a.address),
+        _f(
+            "Pincode",
+            lambda a: _rel(a, "location", "pincode")
+            or meta_val(meta_of(a), "pincode", "pinCode", "postalCode"),
+        ),
         _f("Phone", lambda a: a.phone),
         _f("Email", lambda a: a.email),
         # Aadhaar is regulated personal data and this spec feeds every SHARED surface — the data

@@ -4,6 +4,37 @@ The Aadhaar number is the repository's **deduplication key** for artisans — th
 documented at two workshops by two researchers must resolve to one record, and a UNIQUE index on
 ``Artisan.aadhaarNumber`` is what enforces that.
 
+Required to CREATE an artisan, nullable in the database
+-------------------------------------------------------
+A dedup key that may be omitted only deduplicates the records that happened to fill it in, so
+:func:`require_aadhaar` demands one when the artisan is first entered — while the researcher still
+has the card in front of them. That rule lives HERE, in the application, and the column stays
+``String?``. The reason is the rows already in production, recorded before the field existed:
+
+- ``SET NOT NULL`` cannot be applied to them at all. The ALTER aborts on the first NULL, so the
+  migration would simply fail to deploy.
+- The two ways to make it apply are to invent numbers or to delete the rows. Inventing a national
+  identity number is not a data-migration technique; it would also have to be unique, so it would
+  poison the very index this column exists for, and the fabricated number would be masked to
+  "XXXX XXXX 9012" and read as real by everyone downstream. Deleting the rows destroys field
+  research that cannot be re-collected.
+- ``CHECK (aadhaarNumber IS NOT NULL) NOT VALID`` looks like the escape hatch — existing rows go
+  unchecked — but Postgres still enforces a NOT VALID constraint on every subsequent INSERT **and
+  UPDATE**, and an UPDATE re-checks the whole new row version. A legacy artisan with no Aadhaar
+  could then never be edited again: a researcher correcting that artisan's phone number would be
+  refused until they produced an Aadhaar they do not have. That is the exact outcome the constraint
+  was supposed to be worth having, and it is worse than the problem.
+
+So: pre-existing artisans keep NULL. They stay readable, stay editable, stay exempt from the unique
+index (Postgres allows unlimited NULLs under one), and can be completed whenever someone actually
+obtains the number. Only NEW artisans must carry one. This is the same shape as ``dos``/``donts``,
+required by ``ArtisanCreate`` and nullable in the schema for exactly the same reason.
+
+Editing keeps :func:`validate_aadhaar` rather than :func:`require_aadhaar`, for two reasons: a PATCH
+that does not mention the field must not be forced to supply one, and a number entered against the
+WRONG artisan has to be retractable — leaving it stranded there would also block the artisan who
+really holds it from ever being created.
+
 That job only works if the stored value is trustworthy, which is why validation here is strict
 rather than advisory. A mistyped Aadhaar is *worse* than no Aadhaar: it passes a uniqueness check
 against a number nobody owns and silently creates exactly the duplicate the field exists to
@@ -85,7 +116,12 @@ def verhoeff_ok(digits: str) -> bool:
 
 
 def normalize_aadhaar(value: str | None) -> str | None:
-    """"1234 5678 9012" -> "123456789012". ``None``/blank stays ``None`` (the field is optional)."""
+    """"1234 5678 9012" -> "123456789012".
+
+    ``None``/blank collapses to ``None`` — meaning "no number", which is a legitimate state for an
+    artisan recorded before the field was required and for a number being retracted on an edit.
+    :func:`require_aadhaar` is what refuses it on the create path.
+    """
     if value is None:
         return None
     cleaned = _SEPARATORS.sub("", str(value)).strip()
@@ -117,6 +153,30 @@ def aadhaar_error(value: str | None) -> str | None:
 def validate_aadhaar(value: str | None) -> str | None:
     """Normalise and validate in one step; raises ``ValueError`` for a Pydantic field validator."""
     normalized = normalize_aadhaar(value)
+    error = aadhaar_error(normalized)
+    if error:
+        raise ValueError(error)
+    return normalized
+
+
+def require_aadhaar(value: str) -> str:
+    """Like :func:`validate_aadhaar`, but a missing number is itself an error. The CREATE path.
+
+    Separate from ``validate_aadhaar`` rather than a flag on it, because the two callers want
+    genuinely different things and a boolean parameter would let the wrong one be passed at the wrong
+    call site: creating an artisan must not be possible without the dedup key, while editing one must
+    not be blocked by a field the request never mentioned.
+
+    The message explains what the number is FOR. "Field required" tells a researcher that a box is
+    empty; it does not tell them that skipping it is what lets the same artisan be entered twice next
+    month by someone else.
+    """
+    normalized = normalize_aadhaar(value)
+    if not normalized:
+        raise ValueError(
+            "Enter the artisan's 12-digit Aadhaar number — it is what keeps the same artisan from "
+            "being recorded twice."
+        )
     error = aadhaar_error(normalized)
     if error:
         raise ValueError(error)

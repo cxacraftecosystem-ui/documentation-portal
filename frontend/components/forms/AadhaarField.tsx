@@ -77,6 +77,14 @@ export function aadhaarValidationError(value: string | null | undefined): string
 }
 
 /**
+ * Said when the field is required and empty. It names the reason rather than the rule, because the
+ * researcher has to repeat that reason out loud to a stranger before the stranger reads out a
+ * government ID number.
+ */
+const AADHAAR_REQUIRED =
+  "Enter the artisan's 12-digit Aadhaar number — it is what stops the same artisan being recorded twice.";
+
+/**
  * Long enough that a fast typist finishes the last group before we ask the server, short enough that
  * the answer lands while the researcher is still looking at the field rather than three fields later.
  */
@@ -117,11 +125,16 @@ function describeMatch(match: ArtisanIdentityMatch) {
  * focuses and scrolls to the field and names the problem, exactly as the Android form focuses it.
  * The message only appears once a submit has been attempted (Android sets its `aadhaarError` in
  * `submit()`), so a half-typed number is never scolded mid-keystroke.
+ *
+ * `required` blocks an EMPTY number the same way, through the same custom validity rather than the
+ * native `required` attribute: with both set, which of the two sentences the browser shows in its
+ * bubble is up to the browser, and the one worth reading is ours.
  */
 export function AadhaarField({
   name = "aadhaarNumber",
   defaultValue,
   excludeArtisanId,
+  required = false,
   onValueChange
 }: {
   name?: string;
@@ -132,6 +145,11 @@ export function AadhaarField({
   defaultValue?: string | null;
   /** The record being edited: it is expected to match its own Aadhaar, which is not a duplicate. */
   excludeArtisanId?: string | null;
+  /**
+   * Refuse an empty number. The caller decides when that is fair — the artisan form requires it on
+   * create but not when editing a record that never had one (see ArtisanForm).
+   */
+  required?: boolean;
   onValueChange?: (digits: string) => void;
 }) {
   const baseId = useId();
@@ -147,7 +165,7 @@ export function AadhaarField({
   const [problemShown, setProblemShown] = useState(false);
 
   const complete = digits.length === AADHAAR_LENGTH;
-  const problem = aadhaarValidationError(digits);
+  const problem = aadhaarValidationError(digits) ?? (required && !digits ? AADHAAR_REQUIRED : null);
   // Android parity: only a number that could genuinely BE somebody's is worth asking the server
   // about. A 12-digit string that fails its checksum can never match a stored (validated) Aadhaar,
   // so looking it up only spends a request to be told "no".
@@ -200,7 +218,7 @@ export function AadhaarField({
   return (
     <div className="relative grid content-start gap-1">
       <label className="field-label" htmlFor={inputId}>
-        Aadhaar number
+        Aadhaar number{required ? " *" : ""}
       </label>
       <input
         ref={inputRef}
@@ -211,6 +229,7 @@ export function AadhaarField({
         autoComplete="off"
         placeholder="1234 5678 9012"
         value={grouped(digits)}
+        aria-required={required || undefined}
         aria-invalid={problemShown && problem ? true : undefined}
         aria-describedby={match ? `${hintId} ${warningId}` : hintId}
         onInvalid={() => setProblemShown(true)}
@@ -227,8 +246,9 @@ export function AadhaarField({
         </p>
       ) : (
         <p id={hintId} className="text-xs text-ink-muted">
-          12 digits from the artisan&apos;s card. Used to recognise someone another researcher has
-          already documented.
+          {required
+            ? "Required: 12 digits from the artisan's card. It is the only identifier that tells two researchers they have documented the same person, so it is what keeps one artisan from becoming two records — that is the reason to give when you ask for it."
+            : "12 digits from the artisan's card. Used to recognise someone another researcher has already documented."}
           {digits.length > 0 && !complete ? ` ${digits.length} of ${AADHAAR_LENGTH} entered.` : ""}
         </p>
       )}

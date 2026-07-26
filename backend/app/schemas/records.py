@@ -5,7 +5,12 @@ from typing import Any
 from pydantic import Field, field_validator, model_validator
 
 from app.schemas.common import APIModel, LocationInput
-from app.services.artisan_identity import is_masked_aadhaar, validate_aadhaar, validate_pehchan
+from app.services.artisan_identity import (
+    is_masked_aadhaar,
+    require_aadhaar,
+    validate_aadhaar,
+    validate_pehchan,
+)
 
 
 class ArtisanCreate(APIModel):
@@ -17,10 +22,14 @@ class ArtisanCreate(APIModel):
     place: str = Field(min_length=1, max_length=180)
     address: str | None = None
     notes: str | None = None
-    # Identity. aadhaarNumber is the dedup key (unique in the DB); the validators normalise the
-    # typed spacing away and reject a mistyped number outright — see services/artisan_identity.py
-    # for why a bad number is worse here than no number at all.
-    aadhaarNumber: str | None = None
+    # Identity. aadhaarNumber is the dedup key (unique in the DB) and is REQUIRED to create an
+    # artisan: an artisan entered without one can never be deduplicated against, which is the whole
+    # job of the column. Typed as a bare `str` so it is required in the OpenAPI schema too, while
+    # `require_aadhaar` handles the blank-string case with a message worth reading — and normalises
+    # the typed spacing away and rejects a mistyped number outright, because a bad number is worse
+    # here than no number at all. The COLUMN stays nullable; see services/artisan_identity.py for
+    # why the existing artisans with no Aadhaar cannot and must not be forced to have one.
+    aadhaarNumber: str
     # Deliberately Optional rather than `bool = True`. "Yes by default" is the FORM's default, and
     # both current clients send the answer explicitly. Defaulting it to True server-side would make
     # an OMITTED flag mean "has a card", and the validator below would then demand a number every
@@ -43,7 +52,7 @@ class ArtisanCreate(APIModel):
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
 
-    _clean_aadhaar = field_validator("aadhaarNumber")(lambda cls, v: validate_aadhaar(v))
+    _clean_aadhaar = field_validator("aadhaarNumber")(lambda cls, v: require_aadhaar(v))
     _clean_pehchan = field_validator("pehchanCardNumber")(lambda cls, v: validate_pehchan(v))
 
     @model_validator(mode="after")
@@ -101,6 +110,12 @@ class ArtisanUpdate(APIModel):
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
 
+    # Deliberately still optional and still clearable, even though creating an artisan now demands an
+    # Aadhaar. Two edits would otherwise become impossible: correcting the phone number of an artisan
+    # recorded before the field existed (their number is NULL and the researcher cannot invent one),
+    # and retracting a number typed against the wrong artisan — which has to be removable, or the
+    # person who really holds it can never be created past the unique index.
+    #
     # A masked number is passed through untouched rather than validated: it means "I was not shown
     # the real value and did not change it", and the route drops the key before the write. Validating
     # it would 422 a caller who edited some unrelated field.
