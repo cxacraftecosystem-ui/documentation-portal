@@ -49,6 +49,8 @@ test-results/
 # Android / Gradle
 .gradle/
 android/.gradle/
+# Kotlin 2.x writes an incremental-compilation session cache here on every Gradle run.
+android/.kotlin/
 android/.idea/
 android/app/build/
 android/build/

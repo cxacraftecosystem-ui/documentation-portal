@@ -14,6 +14,7 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 import retrofit2.http.Streaming
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 
 interface FieldRepositoryApi {
     @POST("auth/login")
@@ -214,6 +215,14 @@ interface FieldRepositoryApi {
 
     @POST("media/complete")
     suspend fun completeMedia(@Body body: MediaCompleteRequest): MediaFileDto
+
+    /**
+     * [completeMedia] with the endpoint's optional `checksum` key added to the body. Retrofit binds a
+     * body type per method, so carrying that one extra key needs its own declaration; the caller
+     * encodes [MediaCompleteRequest] and adds the key, so the two bodies cannot drift apart.
+     */
+    @POST("media/complete")
+    suspend fun completeMediaChecksummed(@Body body: JsonObject): MediaFileDto
 
     @DELETE("media/object")
     suspend fun deleteMediaObject(@Query("objectKey") objectKey: String)

@@ -8,6 +8,8 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -18,6 +20,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -123,7 +126,13 @@ class FieldRepository(
         .build()
 
     private val offlineJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    // Mirrors the Retrofit converter's config (ApiClient.kt:42) so a body re-encoded here to carry the
+    // checksum is byte-identical to the one the plain call would have sent — same omitted nulls, same
+    // omitted defaults. A `processingRequests: []` that should have been absent changes what the
+    // server does with the file.
+    private val completeJson = Json { ignoreUnknownKeys = true; explicitNulls = false }
     private val syncMutex = Mutex()
+    private val sweptStagedObjects = java.util.concurrent.atomic.AtomicBoolean(false)
 
     fun hasToken(): Boolean = !tokenStore.getToken().isNullOrBlank()
 
@@ -1069,6 +1078,7 @@ class FieldRepository(
         val source = withContext(Dispatchers.IO) { resolveUploadSource(context, uri) }
         try {
             val target = uploadBytesToS3(
+                context = context,
                 filename = filename,
                 mimeType = mimeType,
                 mediaType = mediaType,
@@ -1077,7 +1087,7 @@ class FieldRepository(
                 linkedRecordId = linkedRecordId,
                 onProgress = onProgress
             )
-            return api.completeMedia(
+            val media = completeUpload(
                 MediaCompleteRequest(
                     originalFilename = filename,
                     mediaType = mediaType,
@@ -1092,11 +1102,26 @@ class FieldRepository(
                     recordedAt = Instant.now().toString(),
                     location = location,
                     processingRequests = resolvedProcessing
-                )
+                ),
+                target.checksum
             )
+            StagedJournal.drop(target.objectKey)
+            return media
         } finally {
             source.cleanup()
         }
+    }
+
+    /**
+     * `/media/complete`, carrying the SHA-256 of the bytes that actually went up so a silently
+     * corrupted transfer is detectable later. [MediaCompleteRequest] has no `checksum` field, so the
+     * key is added to the encoded body — derived from the canonical request rather than through a
+     * parallel data class, so a field added to it is still sent here.
+     */
+    private suspend fun completeUpload(body: MediaCompleteRequest, checksum: String?): MediaFileDto {
+        if (checksum == null) return api.completeMedia(body)
+        val encoded = completeJson.encodeToJsonElement(MediaCompleteRequest.serializer(), body).jsonObject
+        return api.completeMediaChecksummed(JsonObject(encoded + ("checksum" to JsonPrimitive(checksum))))
     }
 
     /**
@@ -1118,6 +1143,7 @@ class FieldRepository(
             val provisional = "staged-${System.currentTimeMillis()}-${java.util.UUID.randomUUID().toString().take(8)}" +
                 (extension?.let { ".$it" } ?: "")
             val target = uploadBytesToS3(
+                context = context,
                 filename = provisional,
                 mimeType = mimeType,
                 mediaType = mediaType,
@@ -1126,6 +1152,9 @@ class FieldRepository(
                 linkedRecordId = null,
                 onProgress = onProgress
             )
+            // The hash is computed by the transfer and consumed by a save that may be many minutes
+            // away, so it rides in the journal — the one record of this object that outlives both.
+            StagedJournal.record(context, target.objectKey, target.checksum)
             return StagedMedia(
                 objectKey = target.objectKey,
                 bucket = target.bucket,
@@ -1140,8 +1169,13 @@ class FieldRepository(
         }
     }
 
-    /** Where an uploaded object ended up: its key, bucket, and public URL. */
-    private data class UploadTarget(val objectKey: String, val bucket: String, val publicUrl: String?)
+    /** Where an uploaded object ended up: its key, bucket, public URL, and the hash of what went up. */
+    private data class UploadTarget(
+        val objectKey: String,
+        val bucket: String,
+        val publicUrl: String?,
+        val checksum: String?
+    )
 
     /**
      * Push a resolved source to object storage and return its location. Files at/under
@@ -1151,6 +1185,7 @@ class FieldRepository(
      * file is still whole. Best of both worlds.
      */
     private suspend fun uploadBytesToS3(
+        context: Context,
         filename: String,
         mimeType: String,
         mediaType: String,
@@ -1170,16 +1205,22 @@ class FieldRepository(
                     linkedRecordId = linkedRecordId.blankToNull()
                 )
             )
+            // Journalled before the first byte moves: from here until /media/complete claims the key,
+            // this line on disk is the only thing that would know the bucket holds an unreferenced
+            // object if the process were killed right now.
+            StagedJournal.record(context, presign.objectKey)
+            val digest = ContentDigest()
             withContext(Dispatchers.IO) {
-                putToStorage(presign.uploadUrl, presign.headers, source.size, mimeType, source.open, onProgress)
+                putToStorage(presign.uploadUrl, presign.headers, source.size, mimeType, source.open, onProgress, digest)
             }
-            return UploadTarget(presign.objectKey, presign.bucket, presign.publicUrl)
+            return UploadTarget(presign.objectKey, presign.bucket, presign.publicUrl, digest.hex())
         }
-        return uploadMultipart(filename, mimeType, mediaType, source, linkedRecordType, linkedRecordId, onProgress)
+        return uploadMultipart(context, filename, mimeType, mediaType, source, linkedRecordType, linkedRecordId, onProgress)
     }
 
     /** S3 multipart upload for a large file: chunk → upload parts → S3 stitches into one object. */
     private suspend fun uploadMultipart(
+        context: Context,
         filename: String,
         mimeType: String,
         mediaType: String,
@@ -1198,6 +1239,7 @@ class FieldRepository(
                 linkedRecordId = linkedRecordId.blankToNull()
             )
         )
+        StagedJournal.record(context, create.objectKey)
         try {
             val partUrls = api.presignMultipartParts(
                 MultipartPresignPartsRequest(
@@ -1207,16 +1249,34 @@ class FieldRepository(
                 )
             ).urls
             val completed = ArrayList<CompletedPart>(create.partCount)
+            val digest = ContentDigest()
             withContext(Dispatchers.IO) {
                 source.open().use { input ->
                     var sentTotal = 0L
                     for (partNumber in 1..create.partCount) {
                         val thisSize = minOf(create.partSize, source.size - (partNumber - 1).toLong() * create.partSize)
                         val bytes = readExactly(input, thisSize.toInt())
+                        // Hashed here rather than in the request body: parts are read in order (so the
+                        // hash is of the whole file, as S3 will stitch it) and a part retry re-sends
+                        // bytes already counted.
+                        digest.update(bytes, bytes.size)
                         val url = partUrls[partNumber.toString()]
                             ?: throw IllegalStateException("Missing presigned URL for part $partNumber")
                         val base = sentTotal
-                        val etag = putPart(url, bytes) { sent -> onProgress?.invoke(base + sent, source.size) }
+                        val etag = putPart(
+                            url = url,
+                            bytes = bytes,
+                            onProgress = { sent -> onProgress?.invoke(base + sent, source.size) },
+                            repesign = {
+                                api.presignMultipartParts(
+                                    MultipartPresignPartsRequest(
+                                        objectKey = create.objectKey,
+                                        uploadId = create.uploadId,
+                                        partNumbers = listOf(partNumber)
+                                    )
+                                ).urls[partNumber.toString()]
+                            }
+                        )
                         completed.add(CompletedPart(partNumber = partNumber, etag = etag))
                         sentTotal += bytes.size.toLong()
                     }
@@ -1229,10 +1289,14 @@ class FieldRepository(
                     parts = completed
                 )
             )
-            return UploadTarget(done.objectKey, done.bucket, done.publicUrl)
+            return UploadTarget(done.objectKey, done.bucket, done.publicUrl, digest.hex())
         } catch (t: Throwable) {
             // Clean up the half-done multipart upload so its parts don't linger in storage.
-            runCatching { api.abortMultipart(MultipartAbortRequest(create.objectKey, create.uploadId)) }
+            runCatching {
+                api.abortMultipart(MultipartAbortRequest(create.objectKey, create.uploadId))
+                // The abort discarded the parts, so there is nothing left for a sweep to reclaim.
+                StagedJournal.drop(create.objectKey)
+            }
             throw t
         }
     }
@@ -1249,11 +1313,29 @@ class FieldRepository(
         return if (offset == size) buffer else buffer.copyOf(offset)
     }
 
-    /** Upload one multipart part (with retry) and return its S3 ETag for the complete call. */
-    private fun putPart(url: String, bytes: ByteArray, onProgress: ((sent: Long) -> Unit)?): String {
+    /**
+     * Upload one multipart part (with retry) and return its S3 ETag for the complete call.
+     *
+     * A part URL is signed for an hour (`s3.py:191`) and every part of a 400 MB video is signed at
+     * once, up front — on a field connection the last parts can easily still be waiting when their
+     * signature runs out, and S3 rejects an expired one with 403. [repesign] gets that single part a
+     * fresh URL so the transfer continues, instead of the whole upload dying on the one thing that is
+     * certain to fix itself. The refresh is allowed once and does not spend a retry attempt: it is not
+     * a failure, and the bytes still have to go somewhere.
+     */
+    private suspend fun putPart(
+        url: String,
+        bytes: ByteArray,
+        onProgress: ((sent: Long) -> Unit)?,
+        repesign: suspend () -> String?
+    ): String {
         val maxAttempts = 3
+        var target = url
+        var refreshed = false
+        var failures = 0
         var lastError: Exception? = null
-        for (attempt in 1..maxAttempts) {
+        while (true) {
+            var expired = false
             try {
                 // Content-Type is intentionally unset: the part presign does not sign it, so sending one
                 // would not match. A fresh ByteArrayInputStream per attempt lets a retry re-send cleanly.
@@ -1263,18 +1345,26 @@ class FieldRepository(
                     { java.io.ByteArrayInputStream(bytes) },
                     onProgress?.let { cb -> { sent, _ -> cb(sent) } }
                 )
-                storageClient.newCall(Request.Builder().url(url).put(body).build()).execute().use { response ->
+                storageClient.newCall(Request.Builder().url(target).put(body).build()).execute().use { response ->
                     if (response.isSuccessful) {
                         return response.header("ETag")
                             ?: throw IllegalStateException("S3 returned no ETag for the uploaded part")
                     }
-                    if (response.code < 500) throw IllegalStateException("Part upload failed: HTTP ${response.code}")
+                    if (response.code == 403 && !refreshed) expired = true
+                    else if (response.code < 500) throw IllegalStateException("Part upload failed: HTTP ${response.code}")
                     lastError = IllegalStateException("Part upload failed: HTTP ${response.code}")
                 }
             } catch (e: IOException) {
                 lastError = e
             }
-            if (attempt < maxAttempts) Thread.sleep(800L * attempt)
+            if (expired) {
+                refreshed = true
+                target = repesign() ?: throw (lastError ?: IllegalStateException("Part upload failed: HTTP 403"))
+                continue
+            }
+            failures++
+            if (failures >= maxAttempts) break
+            delay(800L * failures)
         }
         throw lastError ?: IllegalStateException("Part upload failed")
     }
@@ -1306,7 +1396,7 @@ class FieldRepository(
         )
         val resolvedProcessing = processingRequests
             ?: if (staged.mediaType == "AUDIO") listOf("TRANSCRIPTION") else emptyList()
-        return api.completeMedia(
+        val media = completeUpload(
             MediaCompleteRequest(
                 originalFilename = filename,
                 mediaType = staged.mediaType,
@@ -1321,13 +1411,45 @@ class FieldRepository(
                 recordedAt = Instant.now().toString(),
                 location = location,
                 processingRequests = resolvedProcessing
-            )
+            ),
+            StagedJournal.checksumFor(staged.objectKey)
         )
+        StagedJournal.drop(staged.objectKey)
+        return media
     }
 
     /** Delete a staged object that was cancelled before save. */
     suspend fun deleteStaged(objectKey: String) {
+        // Journalled until the server confirms: a delete that never landed still leaves bytes behind,
+        // and the next launch's sweep is what finishes the job.
         api.deleteMediaObject(objectKey)
+        StagedJournal.drop(objectKey)
+    }
+
+    /**
+     * Delete every object a previous run of the app left staged and never attached to a record — the
+     * bytes of a capture that was mid-upload when the process died. Run once on app start (see
+     * [syncOutbox]), never per upload: an object staged by THIS process belongs to a form that may
+     * still be open.
+     *
+     * Nothing is destructive by accident. `/media/object` is scoped to the caller's own
+     * `media/<user_id>/` prefix and 409s on anything a record already points at, so the worst a bad
+     * entry can do is come back refused — which counts as settled, since the object clearly found an
+     * owner. Only an unsettled key (no signal, gateway failure) stays for the next launch.
+     */
+    suspend fun sweepStagedObjects(context: Context): Int {
+        if (!hasToken() || !ConnectivityObserver.isOnline(context)) return 0
+        return StagedJournal.sweep(context) { objectKey ->
+            try {
+                api.deleteMediaObject(objectKey)
+                true
+            } catch (e: HttpException) {
+                // 409 attached, 403 another account's key (this device changed hands), 404 already gone.
+                e.code() == 409 || e.code() == 403 || e.code() == 404
+            } catch (e: IOException) {
+                false
+            }
+        }
     }
 
     // --- Offline outbox: make entries with no connection, sync them when it returns ---
@@ -1399,24 +1521,33 @@ class FieldRepository(
      * local copy. Stops at the first failure (e.g. connection lost again) and leaves the rest queued, so
      * a later pass finishes them. Returns the number of entries successfully synced. Safe to call often.
      */
-    suspend fun syncOutbox(context: Context): Int = syncMutex.withLock {
-        if (!ConnectivityObserver.isOnline(context)) return@withLock 0
-        var synced = 0
-        for (entry in OfflineOutbox.all(context)) {
-            val ok = runCatching {
-                if (entry.type == "process") {
-                    syncProcessEntry(entry)
-                } else {
-                    val serverId = createFromEntry(entry)
-                    // Media attaches to the created record (or an overridden link type, e.g. a clip).
-                    entry.media.forEach { uploadLocalFile(it, it.linkedType ?: entry.type, serverId) }
-                }
-            }.isSuccess
-            if (!ok) break
-            OfflineOutbox.remove(context, entry)
-            synced++
+    suspend fun syncOutbox(context: Context): Int {
+        // App-start housekeeping, not per-upload work. This is the app's existing "signed in, or the
+        // network just came back" hook and the only one that carries a Context, so the first pass of
+        // the process also reclaims objects an earlier run left staged. Detached, so a slow sweep
+        // never delays the queued records — those are the data the researcher is waiting on.
+        if (sweptStagedObjects.compareAndSet(false, true)) {
+            AppScope.io.launch { runCatching { sweepStagedObjects(context) } }
         }
-        synced
+        return syncMutex.withLock {
+            if (!ConnectivityObserver.isOnline(context)) return@withLock 0
+            var synced = 0
+            for (entry in OfflineOutbox.all(context)) {
+                val ok = runCatching {
+                    if (entry.type == "process") {
+                        syncProcessEntry(context, entry)
+                    } else {
+                        val serverId = createFromEntry(entry)
+                        // Media attaches to the created record (or an overridden link type, e.g. a clip).
+                        entry.media.forEach { uploadLocalFile(context, it, it.linkedType ?: entry.type, serverId) }
+                    }
+                }.isSuccess
+                if (!ok) break
+                OfflineOutbox.remove(context, entry)
+                synced++
+            }
+            synced
+        }
     }
 
     /**
@@ -1447,21 +1578,26 @@ class FieldRepository(
      * media to the process itself, and each step's media to that step's freshly-created server id (steps
      * come back in submit order, so `stepIndex` selects the matching one). Mirrors the online save.
      */
-    private suspend fun syncProcessEntry(entry: PendingEntry) {
+    private suspend fun syncProcessEntry(context: Context, entry: PendingEntry) {
         val detail = api.createProcess(offlineJson.decodeFromString<ProcessCreateRequest>(entry.payloadJson))
         for (pm in entry.media) {
             val stepIndex = pm.stepIndex
             if (stepIndex != null) {
                 val step = detail.steps.getOrNull(stepIndex) ?: continue
-                uploadLocalFile(pm, "processstep", step.id)
+                uploadLocalFile(context, pm, "processstep", step.id)
             } else {
-                uploadLocalFile(pm, pm.linkedType ?: "process", detail.id)
+                uploadLocalFile(context, pm, pm.linkedType ?: "process", detail.id)
             }
         }
     }
 
     /** Upload one media file already copied into local storage, attaching it to the synced record. */
-    private suspend fun uploadLocalFile(pm: PendingMedia, linkedRecordType: String, linkedRecordId: String) {
+    private suspend fun uploadLocalFile(
+        context: Context,
+        pm: PendingMedia,
+        linkedRecordType: String,
+        linkedRecordId: String
+    ) {
         val file = File(pm.localPath)
         if (!file.exists()) return
         val extension = pm.originalFilename.substringAfterLast('.', "").takeIf { it.isNotBlank() }
@@ -1478,6 +1614,7 @@ class FieldRepository(
         )
         val source = UploadSource(size = file.length(), open = { FileInputStream(file) }, cleanup = {})
         val target = uploadBytesToS3(
+            context = context,
             filename = filename,
             mimeType = pm.mimeType,
             mediaType = pm.mediaType,
@@ -1487,7 +1624,7 @@ class FieldRepository(
             onProgress = null
         )
         val resolvedProcessing = pm.processing ?: if (pm.mediaType == "AUDIO") listOf("TRANSCRIPTION") else emptyList()
-        api.completeMedia(
+        completeUpload(
             MediaCompleteRequest(
                 originalFilename = filename,
                 mediaType = pm.mediaType,
@@ -1501,8 +1638,10 @@ class FieldRepository(
                 linkedRecordId = linkedRecordId,
                 recordedAt = Instant.now().toString(),
                 processingRequests = resolvedProcessing
-            )
+            ),
+            target.checksum
         )
+        StagedJournal.drop(target.objectKey)
     }
 
     /**
@@ -1558,14 +1697,15 @@ class FieldRepository(
         contentLength: Long,
         mimeType: String,
         openStream: () -> InputStream,
-        onProgress: ((sent: Long, total: Long) -> Unit)?
+        onProgress: ((sent: Long, total: Long) -> Unit)?,
+        digest: ContentDigest? = null
     ) {
         val maxAttempts = 3
         var lastError: Exception? = null
         for (attempt in 1..maxAttempts) {
             try {
                 // A fresh stream per attempt so a retry re-reads from the start.
-                val body = StreamingRequestBody(contentLength, mimeType.toMediaType(), openStream, onProgress)
+                val body = StreamingRequestBody(contentLength, mimeType.toMediaType(), openStream, onProgress, digest)
                 val builder = Request.Builder().url(uploadUrl).put(body)
                 headers.forEach { (name, value) -> builder.header(name, value) }
                 storageClient.newCall(builder.build()).execute().use { response ->
@@ -1631,11 +1771,15 @@ class FieldRepository(
         private val length: Long,
         private val contentType: MediaType?,
         private val openStream: () -> InputStream,
-        private val onProgress: ((sent: Long, total: Long) -> Unit)?
+        private val onProgress: ((sent: Long, total: Long) -> Unit)?,
+        private val digest: ContentDigest? = null
     ) : RequestBody() {
         override fun contentType(): MediaType? = contentType
         override fun contentLength(): Long = length
         override fun writeTo(sink: BufferedSink) {
+            // Every write of this body re-sends the whole file from the start (a retry, or OkHttp
+            // re-issuing the request), so the hash has to start over with it.
+            digest?.reset()
             openStream().use { input ->
                 val buffer = ByteArray(64 * 1024)
                 var sent = 0L
@@ -1643,11 +1787,26 @@ class FieldRepository(
                     val read = input.read(buffer)
                     if (read == -1) break
                     sink.write(buffer, 0, read)
+                    digest?.update(buffer, read)
                     sent += read
                     onProgress?.invoke(sent, length)
                 }
             }
         }
+    }
+
+    /**
+     * SHA-256 of a file's content, fed from the bytes on their way to the socket so hashing a 400 MB
+     * video costs no second read of it. Sent on `/media/complete` as `sha256:<hex>` (the same shape
+     * the web sends) so a transfer that silently corrupted the file is detectable afterwards, and so
+     * identical bytes are recognisable. Nothing verifies it at upload time.
+     */
+    private class ContentDigest {
+        private val digest = java.security.MessageDigest.getInstance("SHA-256")
+        fun reset() = digest.reset()
+        fun update(bytes: ByteArray, length: Int) = digest.update(bytes, 0, length)
+        /** Terminal — reading the hash resets the digest, so call this once, after the last byte. */
+        fun hex(): String = "sha256:" + digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 
     private fun displayName(context: Context, uri: Uri): String? {

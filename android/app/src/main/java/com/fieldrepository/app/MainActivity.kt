@@ -20,9 +20,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -87,9 +90,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -99,6 +104,8 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -211,6 +218,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PermMedia
@@ -354,7 +362,16 @@ private enum class EntryMode(
 /** Where the user currently is. null-mode dashboard is replaced by this explicit machine. */
 private sealed interface Screen {
     data object Dashboard : Screen
-    data class Create(val mode: EntryMode, val prefill: Prefill? = null) : Screen
+    data class Create(
+        val mode: EntryMode,
+        val prefill: Prefill? = null,
+        /**
+         * SEARCH only, and only from a tapped dashboard total: the [SearchRecordTypes] bucket that
+         * figure counted. Carried on the destination alongside [prefill] because the search screen
+         * owns its own filter state and takes no initial record type.
+         */
+        val searchFocus: String? = null
+    ) : Screen
     data class Browse(val mode: EntryMode) : Screen
     data class Edit(val mode: EntryMode, val recordId: String) : Screen
     // Hamburger-only screens (not on the dashboard).
@@ -823,7 +840,13 @@ private fun HomeScreen(
         is Screen.Settings -> "Settings"
         is Screen.Appearance -> "Appearance & accessibility"
         is Screen.DataBrowser -> "Data Browser"
-        is Screen.AdminHub -> "Admin tools"
+        // A reviewer who is not an admin lands on the review tool alone (see the AdminHub branch
+        // below), so the header must not announce a hub of admin tools they were never given.
+        is Screen.AdminHub -> if (s.section == AdminHubEntry.REVIEWS && !(isAdmin && adminChrome)) {
+            AdminHubEntry.REVIEWS.label
+        } else {
+            "Admin tools"
+        }
     }
 
     BackHandler(enabled = drawerState.isOpen) {
@@ -852,6 +875,7 @@ private fun HomeScreen(
                         onMyActivity = { message = null; screen = Screen.MyActivity; scope.launch { drawerState.close() } },
                         onAppearance = { message = null; screen = Screen.Appearance; scope.launch { drawerState.close() } },
                         onFeedback = { message = null; screen = Screen.Feedback; scope.launch { drawerState.close() } },
+                        onWebPortal = { scope.launch { drawerState.close() }; openWebPortal(context) },
                         onWalkthrough = { showWalkthrough = true; scope.launch { drawerState.close() } },
                         onToggleAdminView = { adminView = !adminView },
                         onPushUpdate = {
@@ -1011,7 +1035,19 @@ private fun HomeScreen(
                     onOpenAdminHub = { message = null; screen = Screen.AdminHub() },
                     onWalkthrough = { message = null; showWalkthrough = true },
                     onNew = { selected -> message = null; screen = Screen.Create(selected) },
-                    onUpdateExisting = { selected -> message = null; screen = Screen.Browse(selected) }
+                    onUpdateExisting = { selected -> message = null; screen = Screen.Browse(selected) },
+                    // A total is the size of a bucket search already reports, so tapping one lands
+                    // in search rather than in a second listing built only for the dashboard.
+                    onOpenSearchFor = { recordType ->
+                        message = null
+                        screen = Screen.Create(EntryMode.SEARCH, searchFocus = recordType)
+                    },
+                    // `require_reviewer`, not admin chrome (see canReview above): a Field Contributor
+                    // gets the way in, everyone else keeps the figure and loses only the tap.
+                    onOpenReviews = if (canReview) {
+                        ({ message = null; screen = Screen.AdminHub(AdminHubEntry.REVIEWS) })
+                    } else null,
+                    onOpenArtisan = { artisanId -> message = null; screen = Screen.Edit(EntryMode.ARTISAN, artisanId) }
                 )
             }
 
@@ -1078,14 +1114,28 @@ private fun HomeScreen(
                 )
                 // /search on the web — open to every signed-in user. It renders into the shared
                 // chrome, which already draws the Back pill, so its own back control stays off.
-                EntryMode.SEARCH -> SearchScreen(
-                    repository = repository,
-                    onOpenRecord = { recordType, recordId ->
-                        message = null
-                        screen = Screen.Edit(searchRecordEntryMode(recordType), recordId)
-                    },
-                    onBack = { attemptExit { goBack() } }
-                )
+                EntryMode.SEARCH -> {
+                    // Opened from a dashboard total. SearchScreen keeps its own filter state and
+                    // takes no initial record type, so the bucket that was tapped is named here
+                    // rather than dropped — otherwise five of the six figures lead to one screen
+                    // that says nothing about which of them the researcher pressed.
+                    s.searchFocus?.let { focus ->
+                        Text(
+                            "From the ${searchFocusLabel(focus)} total on the dashboard — press Search " +
+                                "on an empty form to list them, newest first.",
+                            color = Muted,
+                            fontSize = 12.sp
+                        )
+                    }
+                    SearchScreen(
+                        repository = repository,
+                        onOpenRecord = { recordType, recordId ->
+                            message = null
+                            screen = Screen.Edit(searchRecordEntryMode(recordType), recordId)
+                        },
+                        onBack = { attemptExit { goBack() } }
+                    )
+                }
                 // Routed as Screen.DataBrowser by `screenFor`, since the browser owns its whole
                 // viewport. This branch only exists so the `when` stays exhaustive — and, if anything
                 // ever does route here directly, it offers the way in rather than a blank screen.
@@ -1232,8 +1282,8 @@ private fun HomeScreen(
 
             // The whole hub is admin chrome (/admin heads the web's ADMIN_CHROME_ROUTES). The role
             // check comes first and the toggle only subtracts from it.
-            is Screen.AdminHub -> if (isAdmin && adminChrome) {
-                AdminHubScreen(
+            is Screen.AdminHub -> when {
+                isAdmin && adminChrome -> AdminHubScreen(
                     repository = repository,
                     isMasterAdmin = isMasterAdmin,
                     canReview = canReview,
@@ -1241,8 +1291,15 @@ private fun HomeScreen(
                     onMessage = { showMessage(it) },
                     onError = { showMessage(it) }
                 )
-            } else {
-                AdminViewHiddenCard(
+                // Reviewing is a Field Contributor capability an admin merely also holds, so the
+                // dashboard's Pending figure hands a non-admin reviewer the review tool ITSELF —
+                // never the hub around it, whose list is chrome and would offer them tools the API
+                // refuses.
+                s.section == AdminHubEntry.REVIEWS && canReview -> ReviewApprovalCard(
+                    repository = repository,
+                    onError = { showMessage(it) }
+                )
+                else -> AdminViewHiddenCard(
                     label = "The settings hub",
                     blurb = "It gathers reviews, recovered recordings, feedback, tool assignment and user management in one place.",
                     onEnable = { adminView = true }
@@ -1376,6 +1433,31 @@ private fun launchApkInstaller(context: Context, apk: File) {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
     )
+}
+
+/**
+ * Open the web portal in the user's browser. The web app hands out this APK; this is the return leg
+ * of the same trip, for the bulk work a phone is the wrong shape for.
+ */
+private fun openWebPortal(context: Context) {
+    runCatching {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse("https://field-repository.vercel.app"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }.onFailure {
+        Toast.makeText(context, "No app on this device can open web links.", Toast.LENGTH_LONG).show()
+    }
+}
+
+/** A tapped dashboard total, in the plural the tile itself uses rather than the API's singular. */
+private fun searchFocusLabel(recordType: String): String = when (recordType) {
+    SearchRecordTypes.ARTISAN -> "artisans"
+    SearchRecordTypes.WORKSHOP -> "workshops"
+    SearchRecordTypes.PRODUCT -> "products"
+    SearchRecordTypes.TOOL -> "tools"
+    SearchRecordTypes.MEDIA -> "media"
+    else -> "records"
 }
 
 /**
@@ -1599,6 +1681,7 @@ private fun AppDrawerContent(
     onMyActivity: () -> Unit,
     onAppearance: () -> Unit,
     onFeedback: () -> Unit,
+    onWebPortal: () -> Unit,
     onWalkthrough: () -> Unit,
     onToggleAdminView: () -> Unit,
     onPushUpdate: () -> Unit,
@@ -1676,6 +1759,15 @@ private fun AppDrawerContent(
                 onClick = onFeedback,
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
             )
+            // The same repository on a screen big enough for bulk work. The web app already links to
+            // this APK, so this is the half of that round trip the app was missing.
+            NavigationDrawerItem(
+                label = { Text("Open the web portal") },
+                selected = false,
+                icon = { Icon(Icons.Filled.OpenInNew, contentDescription = null) },
+                onClick = onWebPortal,
+                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+            )
             NavigationDrawerItem(
                 label = { Text("App walkthrough / guide") },
                 selected = false,
@@ -1750,7 +1842,12 @@ private fun DashboardScreen(
     onOpenAdminHub: () -> Unit = {},
     onWalkthrough: () -> Unit = {},
     onNew: (EntryMode) -> Unit,
-    onUpdateExisting: (EntryMode) -> Unit
+    onUpdateExisting: (EntryMode) -> Unit,
+    /** A tapped total opens search for the [SearchRecordTypes] bucket it counted. */
+    onOpenSearchFor: (String) -> Unit,
+    /** null = this user cannot review, so "Pending" stays a figure they read but cannot open. */
+    onOpenReviews: (() -> Unit)?,
+    onOpenArtisan: (String) -> Unit
 ) {
     val configuration = LocalConfiguration.current
     val columns = when {
@@ -1834,15 +1931,40 @@ private fun DashboardScreen(
                 }
             }
         }
-        StatsCard(stats)
+        StatsCard(stats = stats, onOpenSearchFor = onOpenSearchFor, onOpenReviews = onOpenReviews)
         if (recentArtisans.isNotEmpty()) {
             Text("Recent artisans", fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
             recentArtisans.take(6).forEach { artisan ->
+                val interaction = remember(artisan.id) { MutableInteractionSource() }
+                val pressed by interaction.collectIsPressedAsState()
                 ElevatedCard(
-                    colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
+                    colors = CardDefaults.elevatedCardColors(
+                        // Purple is the action colour, so a press reads as "this is a way in" rather
+                        // than as a selected row. Composited over the card's own surface instead of
+                        // being a second token, so it follows SurfaceCard into either theme.
+                        containerColor = if (pressed) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f).compositeOver(SurfaceCard)
+                        } else {
+                            SurfaceCard
+                        }
+                    ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
+                    Column(
+                        // The click sits INSIDE the card, not on it: the card clips its own shape, so
+                        // the ripple stops at the rounded corner instead of flashing a square.
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = interaction,
+                                indication = LocalIndication.current,
+                                onClickLabel = "Edit ${artisan.name}"
+                            ) { onOpenArtisan(artisan.id) }
+                            .semantics(mergeDescendants = true) {
+                                contentDescription = "${artisan.name}. Opens this artisan for editing."
+                            }
+                            .padding(12.dp)
+                    ) {
                         Text(artisan.name, fontWeight = FontWeight.SemiBold)
                         Text("${artisan.craft?.name ?: "No craft"} · ${artisan.place}", color = Muted, fontSize = 12.sp)
                     }
@@ -1954,7 +2076,13 @@ private fun CardButtonLabel(icon: ImageVector, text: String) {
 }
 
 @Composable
-private fun StatsCard(stats: DashboardStats?) {
+private fun StatsCard(
+    stats: DashboardStats?,
+    /** Every figure but Pending counts a search bucket, so every figure but Pending opens one. */
+    onOpenSearchFor: (String) -> Unit,
+    /** null = this user cannot review; Pending is then a figure, not a door. */
+    onOpenReviews: (() -> Unit)?
+) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.field.brandTile),
         shape = MaterialTheme.shapes.large,
@@ -1972,31 +2100,86 @@ private fun StatsCard(stats: DashboardStats?) {
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)
                 ) {
-                    Stat("Artisans", stats.totalArtisans, Modifier.weight(1f).fillMaxHeight())
-                    Stat("Products", stats.totalProductRecords, Modifier.weight(1f).fillMaxHeight())
-                    Stat("Tools", stats.totalToolRecords, Modifier.weight(1f).fillMaxHeight())
+                    Stat(
+                        "Artisans", stats.totalArtisans, Modifier.weight(1f).fillMaxHeight(),
+                        onOpen = { onOpenSearchFor(SearchRecordTypes.ARTISAN) },
+                        openDescription = "Opens a search of the artisans"
+                    )
+                    Stat(
+                        "Products", stats.totalProductRecords, Modifier.weight(1f).fillMaxHeight(),
+                        onOpen = { onOpenSearchFor(SearchRecordTypes.PRODUCT) },
+                        openDescription = "Opens a search of the products"
+                    )
+                    Stat(
+                        "Tools", stats.totalToolRecords, Modifier.weight(1f).fillMaxHeight(),
+                        onOpen = { onOpenSearchFor(SearchRecordTypes.TOOL) },
+                        openDescription = "Opens a search of the tools"
+                    )
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)
                 ) {
-                    Stat("Media", stats.totalMediaFiles, Modifier.weight(1f).fillMaxHeight())
-                    Stat("Pending", stats.pendingSubmissions, Modifier.weight(1f).fillMaxHeight())
-                    Stat("Workshops", stats.totalWorkshops, Modifier.weight(1f).fillMaxHeight())
+                    Stat(
+                        "Media", stats.totalMediaFiles, Modifier.weight(1f).fillMaxHeight(),
+                        onOpen = { onOpenSearchFor(SearchRecordTypes.MEDIA) },
+                        openDescription = "Opens a search of the media"
+                    )
+                    Stat(
+                        // The one figure that is not a bucket of records but a queue of work, so it
+                        // leads to the queue — and only for whoever may act on it. It still SHOWS for
+                        // everyone: a researcher has to be able to see their own backlog.
+                        "Pending", stats.pendingSubmissions, Modifier.weight(1f).fillMaxHeight(),
+                        onOpen = onOpenReviews,
+                        openDescription = "Opens reviews and approvals"
+                    )
+                    Stat(
+                        "Workshops", stats.totalWorkshops, Modifier.weight(1f).fillMaxHeight(),
+                        onOpen = { onOpenSearchFor(SearchRecordTypes.WORKSHOP) },
+                        openDescription = "Opens a search of the workshops"
+                    )
                 }
             }
         }
     }
 }
 
+/**
+ * One figure on the totals tile. [onOpen] is what turns it from a readout into a way in; null leaves
+ * the figure exactly as legible and nothing about it invites a tap it would not answer.
+ */
 @Composable
-private fun Stat(label: String, value: Int, modifier: Modifier = Modifier) {
+private fun Stat(
+    label: String,
+    value: Int,
+    modifier: Modifier = Modifier,
+    onOpen: (() -> Unit)? = null,
+    /** Where the tap leads, for TalkBack — a bare number cannot say. */
+    openDescription: String? = null
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val shape = MaterialTheme.shapes.medium
     Column(
         modifier = modifier
+            // Clipped before the fill so a tap's ripple stops at the chip's own rounded edge.
+            .clip(shape)
             // A chip sitting ON the brand tile: a translucent step of the same purple family rather
-            // than a fixed near-black, so it stays one shade off its parent in either theme.
-            .background(color = MaterialTheme.field.accentOnBrandTile.copy(alpha = 0.18f), shape = MaterialTheme.shapes.medium)
+            // than a fixed near-black, so it stays one shade off its parent in either theme. The
+            // press deepens that same step, because a ripple alone barely registers on it.
+            .background(color = MaterialTheme.field.accentOnBrandTile.copy(alpha = if (pressed) 0.34f else 0.18f))
+            .then(
+                if (onOpen == null) Modifier else Modifier
+                    .clickable(
+                        interactionSource = interaction,
+                        indication = LocalIndication.current,
+                        onClickLabel = openDescription
+                    ) { onOpen() }
+                    .semantics(mergeDescendants = true) {
+                        contentDescription = listOfNotNull("$label: $value", openDescription).joinToString(". ")
+                    }
+            )
             .padding(12.dp)
     ) {
         Text(value.toString(), color = MaterialTheme.field.onBrandTile, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)

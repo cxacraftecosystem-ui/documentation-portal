@@ -41,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -49,6 +50,7 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
@@ -290,6 +292,29 @@ private fun AuthCard(
     val tokens = MaterialTheme.field
     val scheme = MaterialTheme.colorScheme
 
+    /*
+     * The glass dressing, which is what makes this a liquid-glass panel rather than a white box.
+     * Both the rim and the glare are WHITE in either theme: they are reflected light, not a themed
+     * line, and the web says the same thing — `.glass-card` rims in rgba(255,255,255,0.6) and
+     * `.glass-dark` in rgba(255,255,255,0.14). Only the strength moves between themes.
+     */
+    val rimBrush = Brush.verticalGradient(
+        listOf(
+            // Brighter at the top: the light sits above the card, so that edge catches it and the
+            // bottom edge falls into the shadow the panel casts.
+            Color.White.copy(alpha = if (tokens.isDark) 0.22f else 0.85f),
+            Color.White.copy(alpha = if (tokens.isDark) 0.05f else 0.34f)
+        )
+    )
+    // `useLiquidGlass` confines its bulge to an edge band; the visible half of that on a flat
+    // surface is the sheen just inside the top rim, so it is painted rather than refracted.
+    val glareDepth = with(LocalDensity.current) { 120.dp.toPx() }
+    val glareBrush = Brush.verticalGradient(
+        0f to Color.White.copy(alpha = if (tokens.isDark) 0.07f else 0.30f),
+        1f to Color.Transparent,
+        endY = glareDepth
+    )
+
     Box(modifier = Modifier.fillMaxWidth()) {
         // `grad-mesh`: three radial orbs — two purple, one faint amber — behind a translucent card.
         // Drawn on the card's own footprint because the phone has no separate right-hand column.
@@ -323,17 +348,25 @@ private fun AuthCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                // `shadow-lg` — 0 8px 32px rgba(46,16,101,0.12), purple-tinted like every shadow in
+                // the system. Cast before the fill so the panel floats off the mesh; Skia culls
+                // shadow geometry behind the outline, so the card's own translucency does not let
+                // its shadow bleed back through the front face.
+                .shadow(
+                    elevation = 16.dp,
+                    shape = AuthCardShape,
+                    clip = false,
+                    ambientColor = tokens.shadow,
+                    spotColor = tokens.shadow
+                )
                 .clip(AuthCardShape)
                 // `.glass-card`: rgba(255,255,255,0.72) with a light rim. Compose cannot blur what is
                 // behind a composable without a RenderEffect on API 31+, so the frost is expressed as
                 // the same translucent fill over the mesh — the surface reads the same either way,
                 // which is exactly the fallback the web itself uses on Safari and Firefox.
                 .background(scheme.surface.copy(alpha = if (tokens.isDark) 0.80f else 0.72f))
-                .border(
-                    1.dp,
-                    if (tokens.isDark) scheme.outline else Color.White.copy(alpha = 0.60f),
-                    AuthCardShape
-                )
+                .background(glareBrush)
+                .border(1.dp, rimBrush, AuthCardShape)
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {

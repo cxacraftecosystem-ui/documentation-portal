@@ -74,10 +74,15 @@ saved, so the transfer overlaps the minutes spent typing.
 object so the stored file is still whole (`uploadBytesToS3`, `FieldRepository.kt:1140`;
 `uploadMultipart`, `:1169`).
 
-- Per-part retry with backoff, 3 attempts: `putPart`, `FieldRepository.kt:1240`.
-- `Content-Type` is deliberately unset on a part — the part presign does not sign it (`:1245`).
-- **Abort on any failure** so half-written parts never linger: `FieldRepository.kt:1222`.
-- Bytes are streamed from the content Uri, never held on the heap: `uploadResolved`, `:1053-1056`.
+- Per-part retry with backoff, 3 attempts: `putPart`, `FieldRepository.kt:1326`.
+- `Content-Type` is deliberately unset on a part — the part presign does not sign it.
+- **Abort on any failure** so half-written parts never linger.
+- **Per-part re-presigning on expiry.** Every part is signed once, up front, for an hour
+  (`s3.py:191`); on a field connection the last parts of a 400 MB video can still be queued when
+  their signature runs out, and S3 rejects it with 403. That part alone is re-signed and re-sent
+  (`putPart`'s `repesign`), which does not spend one of its three retry attempts — an expired URL is
+  not a failed transfer. Allowed once per part, so a genuine `AccessDenied` still fails fast.
+- Bytes are streamed from the content Uri, never held on the heap: `uploadResolved`.
 
 ### 2.4 Safe-request retry with backoff
 
@@ -105,6 +110,51 @@ With no validated internet, a create is written to disk instead of the network a
 
 Android never auto-retries `/complete` at the transport layer, but the server-side idempotency
 (§1) is what makes the app's own save/back-guard retry flow safe.
+
+### 2.7 Journal + sweep of orphaned staged objects
+
+§2.2 covers every abandonment the app is still alive for. This covers the one it isn't: the process
+dies between the PUT and `/media/complete` — swiped away mid-transfer, killed for memory behind the
+camera, battery flat in a workshop — and the bytes sit in the bucket with nothing pointing at them
+and nothing in memory that remembers they exist. Eager upload makes that window as long as the
+researcher spends typing.
+
+So every presigned key is written to disk **before the first byte moves**
+(`FieldRepository.kt:1211` for a single PUT, `:1242` for a multipart), and forgotten the moment it
+settles — `/complete` claimed it, `deleteStaged` removed it, or an aborted multipart discarded its
+parts. `data/StagedJournal.kt` is `filesDir/staged-objects.json`, written through the same
+file + `Mutex` + kotlinx mechanism as the offline outbox, because both have to survive the same kill.
+
+Each entry carries the id of the process that wrote it, and the sweep deletes only entries owned by
+a **previous** one (`StagedJournal.sweep`, `:91`; `sweepStagedObjects`, `FieldRepository.kt:1440`).
+That is the whole ownership rule — a phone has one process, and a process that is gone cannot still
+be waiting to save, so nothing can be deleted out from under an open form. The web needs a 60 s
+heartbeat and a 5-minute staleness cut-off only because one browser has many tabs.
+
+It runs **once per process**, kicked off the first time `syncOutbox` is called (`:1529`) — the app's
+existing "signed in, or the network just came back" hook, and the only start-up path carrying a
+`Context` — detached on `AppScope.io` so a sweep never delays the queued records. A key is dropped
+when the server settles it: 204 (gone), 409 (a record claimed it after all — `/media/object` refuses
+attached objects, so the sweeper can never orphan live data), 403 (another account's key; this
+device changed hands), 404. A gateway failure or no signal leaves the entry for the next launch
+rather than abandoning the bytes.
+
+### 2.8 Content checksum
+
+SHA-256 of what actually went up, sent as `checksum: "sha256:<hex>"` on `/complete`
+(`ContentDigest`, `FieldRepository.kt:1804`). Nothing verifies it server-side yet; it is stored so a
+later integrity sweep *can*, and so identical bytes are recognisable.
+
+Unlike the browser, Android hashes **incrementally from the bytes on their way to the socket** —
+inside `StreamingRequestBody.writeTo` for a single PUT, and per part as each is read for a multipart
+upload — so there is no second read of a 400 MB video and no size cap (the web skips above 32 MiB
+because `crypto.subtle.digest` needs the whole file in one allocation). A retry re-sends from the
+start, so the digest resets with it; multipart parts are hashed in read order, which is the order S3
+stitches them, so the hash is of the whole stored object either way.
+
+For a staged object the hash is produced minutes before the save that sends it, so it is kept in the
+journal entry for that key (`StagedJournal.checksumFor`) — the one record of a staged object that
+outlives the upload coroutine.
 
 ---
 
@@ -273,16 +323,16 @@ claim all behave exactly as before, and the files are handed over only if the sa
 | Eager pre-upload on capture/attach | yes | **yes (new)** |
 | Per-file progress, retry, remove | yes | **yes (new)** |
 | Delete staged object on discard / leave | yes | **yes (new)** |
-| Journal + sweep of orphaned staged objects | no | **yes (new)** |
+| Journal + sweep of orphaned staged objects | **yes (new)** — see §2.7 | **yes (new)** |
 | `beforeunload` guard while bytes are moving | n/a | **yes (new)** |
 | Multipart over 64 MiB, per-part retry, abort | yes | **yes (new)** |
 | ETag capability probe + fallback | no | **yes (new)** |
-| Per-part re-presigning on expiry | no | **yes (new)** |
+| Per-part re-presigning on expiry | **yes (new)** — see §2.3 | **yes (new)** |
 | Parallel files with a concurrency cap | no (sequential) | **yes (new, 3)** |
 | Stall watchdog instead of a flat timeout | n/a (OkHttp) | **yes (new)** |
 | Safe-request retry on 502/503/504 | yes | **yes (new)** |
 | Retriable, idempotent `/complete` | server-side | **yes (new, client too)** |
-| Content checksum | no | **yes (new)** |
+| Content checksum | **yes (new)** — see §2.8 | **yes (new)** |
 | Offline outbox for whole records | yes | **yes (new)** — see §3.1 |
 | Streams from disk, never buffers the file | yes | yes (XHR streams a `File`/`Blob`) |
 
@@ -328,9 +378,11 @@ may or may not have landed, and a duplicate artisan is worse than an error messa
   configured`. For local development set `AWS_S3_SSE_ALGORITHM=` (empty) in `backend/.env`, as
   `.env.example` already advises. Real S3 is unaffected.
 - **Presign lifetimes**: whole-object PUT 15 min (`s3.py:159`), multipart part 1 hour (`s3.py:191`).
-  The web client re-presigns per attempt for whole objects and per part on a 403.
-- **The staged-object journal** is `localStorage["field_repo_staged_objects"]`, a
-  `{ objectKey: lastSeenEpochMs }` map. Clearing it is harmless: the objects simply stop being
+  The web client re-presigns per attempt for whole objects and per part on a 403; Android re-presigns
+  per part on a 403 (§2.3).
+- **The staged-object journal** is `localStorage["field_repo_staged_objects"]` on the web, a
+  `{ objectKey: lastSeenEpochMs }` map, and `filesDir/staged-objects.json` on Android, a list of
+  `{ objectKey, owner, checksum }` (§2.7). Clearing either is harmless: the objects simply stop being
   tracked, and the bucket lifecycle rule (if configured) is the final backstop.
 
 ---
