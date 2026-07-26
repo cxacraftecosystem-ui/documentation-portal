@@ -91,6 +91,21 @@ rather than silently skipping a real change.
 `GITHUB_TOKEN` is **not** something you create — GitHub injects it per run. Stage 2 uses it only to
 download stage 1's change-detection artifact (`permissions: actions: read`).
 
+**The Vercel project is deliberately NOT linked to the GitHub repository.** It was, and every push
+produced a second, competing build: Vercel's own Git integration cloning the repo and building it
+with no knowledge of this pipeline's ordering. Twelve of those failed outright with `No Next.js
+version detected`, because the project's Root Directory was unset and Vercel was building the
+repository root, whose `package.json` has no `next` in it. Setting Root Directory to `frontend`
+fixed the error; `frontend/vercel.json`'s `ignoreCommand` then turned the builds into cancellations
+rather than failures — but a cancelled build is still a deployment record and still an email, for
+work that was never wanted. So the link is removed outright: `DELETE /v9/projects/{id}/link`.
+
+GitHub Actions is the only publisher, it authenticates with `VERCEL_TOKEN` rather than with the
+repository connection, and `vercel deploy --prebuilt` does not need the project to know about GitHub
+at all — verified by deploying successfully immediately after unlinking. The cost is that pull
+requests no longer get automatic preview deployments; if those are ever wanted back, re-link in the
+dashboard and rely on `ignoreCommand` to keep Git builds off `main`.
+
 **Until the three Vercel secrets exist, stage 2 skips instead of failing.** Its gate job checks for
 `VERCEL_TOKEN` and, when it is absent, writes the table above into the run summary and reports
 `should_deploy=false`. The run stays green, stage 3 still fires, and the backend deploy's tick keeps
