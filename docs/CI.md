@@ -207,6 +207,20 @@ root** precisely because that setting is what points the build at `frontend/`; d
 root-directory error by adding `working-directory: frontend`, which makes the CLI look for
 `frontend/frontend`.
 
+**`Invalid vercel.json - should NOT have additional property '//'`.** JSON has no comments, and the
+Vercel CLI validates the file strictly — but only on `deploy`, not on `build`. A `//` key therefore
+survives the whole build and fails at the very last step, after several minutes. Keep
+`frontend/vercel.json` to schema keys only and put the prose here.
+
+**Why `frontend/vercel.json` sets `ignoreCommand: "exit 0"`.** It stops Vercel's own Git
+integration from building this project. Two publishers for one site is the bug: a Git build starts
+the moment `main` moves, which is *before* the backend has deployed and migrated, so the live site
+spends that window calling endpoints that answer 404. GitHub Actions is the single publisher and it
+waits for the backend. The Ignored Build Step is a Git-integration feature only — `vercel build` and
+`vercel deploy --prebuilt` from CI never run it, so this cannot block the pipeline. Git-triggered
+deployments are *also* disabled at the project level (`gitProviderOptions.createDeployments`), so
+this is belt and braces.
+
 **`npm ci can only install packages when … in sync`.** `frontend/package-lock.json` is stale. Run
 `npm install` in `frontend/` and commit the lockfile (DEPLOYMENT_VERCEL.md §7.5).
 

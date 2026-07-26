@@ -5,6 +5,7 @@ import { ArrowDown, Compass, ListOrdered, ShieldCheck } from "lucide-react";
 
 import { riseItem, springy, staggerParent } from "@/components/guide/guideMotion";
 import { useAppReducedMotion } from "@/components/guide/useAppReducedMotion";
+import { useGsapHeadline } from "@/components/guide/useGsapHeadline";
 
 /**
  * The walkthrough's opening band: a dark purple surface (`surface-dark`) carrying the promise
@@ -19,6 +20,7 @@ import { useAppReducedMotion } from "@/components/guide/useAppReducedMotion";
  */
 export function GuideHero({ stepCount, onStart }: { stepCount: number; onStart: () => void }) {
   const reduce = useAppReducedMotion();
+  const headline = useGsapHeadline<HTMLHeadingElement>(reduce);
 
   // Pointer position as a percentage of the band, defaulting to dead centre.
   const pointerX = useMotionValue(50);
@@ -68,12 +70,15 @@ export function GuideHero({ stepCount, onStart }: { stepCount: number; onStart: 
       <motion.p variants={riseItem(reduce)} className="text-[0.8125rem] font-semibold uppercase tracking-[0.14em] text-purple-300">
         Walkthrough
       </motion.p>
-      <motion.h2
-        variants={riseItem(reduce)}
-        className="mt-3 max-w-2xl font-display text-3xl font-bold tracking-tight text-white sm:text-4xl"
+      {/* The one GSAP-owned element on the page: an overlapping per-word timeline, which framer's
+          sequential stagger cannot express. See useGsapHeadline for why. `overflow-hidden` gives
+          the words something to rise out of. */}
+      <h2
+        ref={headline}
+        className="mt-3 max-w-2xl overflow-hidden font-display text-3xl font-bold tracking-tight text-white sm:text-4xl"
       >
         Document a craft, end to end.
-      </motion.h2>
+      </h2>
       <motion.p variants={riseItem(reduce)} className="mt-4 max-w-2xl text-sm leading-relaxed text-purple-100">
         This is the whole process, in the order you actually perform it: from opening a workshop to
         exporting the finished dataset. Each step below names the screen it lives on, the fields it

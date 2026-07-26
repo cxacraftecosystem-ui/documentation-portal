@@ -4,6 +4,5 @@
   "installCommand": "npm ci",
   "buildCommand": "next build",
   "outputDirectory": ".next",
-  "//": "ignoreCommand stops Vercel's own Git integration from building this project. Two publishers for one site is the bug: a Git build starts the moment main moves, which is BEFORE the backend has deployed and migrated, so the live site spends that window calling endpoints that answer 404. GitHub Actions (.github/workflows/deploy-frontend.yml) is the single publisher and it waits for the backend. The Ignored Build Step is a Git-integration feature only \u2014 `vercel build` / `vercel deploy --prebuilt` from CI never run it, so this does not block the pipeline.",
   "ignoreCommand": "exit 0"
 }

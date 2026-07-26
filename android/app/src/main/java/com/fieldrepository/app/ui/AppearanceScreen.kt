@@ -30,6 +30,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
@@ -384,14 +385,25 @@ fun AppearanceScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        AppearanceBackPill(onBack)
-
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            // The same arrow the shared header draws on every other screen. This screen is hosted
+            // outside that header (it owns its viewport), so it repeats the control rather than
+            // inventing a second shape for it.
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
             Text(
                 "Appearance & accessibility",
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onBackground
             )
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 "How this account looks and reads.",
                 style = MaterialTheme.typography.bodyMedium,
@@ -571,16 +583,4 @@ private fun SaveStatusLine(saving: Boolean, error: String?) {
     }
 }
 
-/** Local copy of the app's back pill — MainActivity's is file-private. */
-@Composable
-private fun AppearanceBackPill(onClick: () -> Unit) {
-    OutlinedButton(
-        onClick = onClick,
-        shape = MaterialTheme.shapes.medium,
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp)
-    ) {
-        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(8.dp))
-        Text("Back")
-    }
-}
+

@@ -23,6 +23,7 @@
   },
   "homepage": "https://github.com/cxacraftecosystem-ui/documentation-portal#readme",
   "dependencies": {
+    "libsodium": "^0.8.4",
     "libsodium-wrappers": "^0.7.16",
     "pg": "^8.21.0"
   }

@@ -801,16 +801,14 @@ private fun DataBrowserTopBar(onBack: () -> Unit, loading: Boolean, onReload: ()
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Local copy of MainActivity's BackPill: that one is file-private, and reaching into the
-        // 10k-line activity for a 10-line widget is not worth the coupling.
-        OutlinedButton(
-            onClick = onBack,
-            shape = MaterialTheme.shapes.medium,
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
-        ) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Back")
+        // The same arrow the shared header draws. This screen is hosted outside that header (its
+        // LazyColumn owns the viewport), so it repeats the control rather than inventing a pill.
+        IconButton(onClick = onBack) {
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "Back",
+                tint = MaterialTheme.colorScheme.primary
+            )
         }
         Spacer(Modifier.weight(1f))
         if (loading) {

@@ -326,9 +326,9 @@ claim all behave exactly as before, and the files are handed over only if the sa
 | Journal + sweep of orphaned staged objects | **yes (new)** — see §2.7 | **yes (new)** |
 | `beforeunload` guard while bytes are moving | n/a | **yes (new)** |
 | Multipart over 64 MiB, per-part retry, abort | yes | **yes (new)** |
-| ETag capability probe + fallback | no | **yes (new)** |
+| ETag capability probe + fallback | n/a (OkHttp reads the header directly) | **yes (new)** |
 | Per-part re-presigning on expiry | **yes (new)** — see §2.3 | **yes (new)** |
-| Parallel files with a concurrency cap | no (sequential) | **yes (new, 3)** |
+| Parallel files with a concurrency cap | **yes (new, 3)** | **yes (new, 3)** |
 | Stall watchdog instead of a flat timeout | n/a (OkHttp) | **yes (new)** |
 | Safe-request retry on 502/503/504 | yes | **yes (new)** |
 | Retriable, idempotent `/complete` | server-side | **yes (new, client too)** |

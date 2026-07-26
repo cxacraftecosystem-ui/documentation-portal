@@ -7,6 +7,9 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -111,6 +114,9 @@ private fun detailMessage(detail: JsonElement): String? = when (detail) {
         .takeIf { it.isNotEmpty() }
     else -> null
 }
+
+/** Files in flight at once. Matches the web's UPLOAD_CONCURRENCY; see docs/MEDIA_PIPELINE.md. */
+private const val UPLOAD_CONCURRENCY = 3
 
 class FieldRepository(
     private val api: FieldRepositoryApi,
@@ -1539,7 +1545,7 @@ class FieldRepository(
                     } else {
                         val serverId = createFromEntry(entry)
                         // Media attaches to the created record (or an overridden link type, e.g. a clip).
-                        entry.media.forEach { uploadLocalFile(context, it, it.linkedType ?: entry.type, serverId) }
+                        uploadAll(context, entry.media, { it.linkedType ?: entry.type }, serverId)
                     }
                 }.isSuccess
                 if (!ok) break
@@ -1592,6 +1598,33 @@ class FieldRepository(
     }
 
     /** Upload one media file already copied into local storage, attaching it to the synced record. */
+    /**
+     * Upload a record's attachments a few at a time instead of one after another.
+     *
+     * The web has done this since the eager-upload work (UPLOAD_CONCURRENCY = 3) and Android has
+     * not: an interview with twelve clips uploaded them strictly in series, so the transfer took as
+     * long as the sum of twelve round trips even though a field connection is usually
+     * latency-bound rather than bandwidth-bound. Three at a time is the same cap the web uses, and
+     * the reason for a cap at all is the same: a 2G-ish uplink shared by ten parallel PUTs makes
+     * every one of them time out instead of making any of them finish.
+     *
+     * Failures still propagate — `awaitAll` rethrows the first one — because the caller's contract
+     * is unchanged: if any attachment of a queued record fails, the whole entry stays in the outbox
+     * and is retried, rather than the record being marked synced with media missing.
+     */
+    private suspend fun uploadAll(
+        context: Context,
+        media: List<PendingMedia>,
+        linkedType: (PendingMedia) -> String,
+        recordId: String
+    ) = coroutineScope {
+        media.chunked(UPLOAD_CONCURRENCY).forEach { batch ->
+            batch.map { spec ->
+                async { uploadLocalFile(context, spec, linkedType(spec), recordId) }
+            }.awaitAll()
+        }
+    }
+
     private suspend fun uploadLocalFile(
         context: Context,
         pm: PendingMedia,
