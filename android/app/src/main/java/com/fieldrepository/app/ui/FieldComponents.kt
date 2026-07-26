@@ -22,6 +22,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,6 +57,32 @@ fun LocationEditor(
     var latText by remember { mutableStateOf(value?.latitude?.let(::trimCoord) ?: "") }
     var lngText by remember { mutableStateOf(value?.longitude?.let(::trimCoord) ?: "") }
     var showMap by remember { mutableStateOf(false) }
+    /*
+     * The two boxes TRACK [value]; they are not seeded from it once.
+     *
+     * WHAT WENT WRONG. They were plain unkeyed `remember`s, so each captured whatever `value` held at
+     * the first composition and never looked again. Every edit form fetches its record after mount,
+     * so every edit form showed BLANK coordinates for a record that had a location — and blank here
+     * is not merely wrong to read, it is armed: type one digit into latitude and delete it and both
+     * boxes are blank, which [emit] reads as "the researcher cleared the location" and answers with
+     * `onChange(null)`, destroying the stored coordinates (and, through the caller that folds state
+     * and pincode onto the same row, those two as well). The "Clear location" button that would have
+     * shown the location was still there was hidden by the same blankness.
+     *
+     * WHY AN EFFECT RATHER THAN A KEYED `remember`. `remember(value)` re-seeds on every emit, and an
+     * emit happens on every keystroke — "22.5" would be rewritten to "22.500000" under the cursor as
+     * it was being typed. This adopts an incoming coordinate only when it is a genuinely DIFFERENT
+     * point from the one the boxes already hold, so a `value` that changed because of this editor's
+     * own `onChange` leaves the typing alone and one that changed anywhere else is shown.
+     */
+    LaunchedEffect(value?.latitude, value?.longitude) {
+        val sameLat = value?.latitude == latText.trim().toDoubleOrNull()
+        val sameLng = value?.longitude == lngText.trim().toDoubleOrNull()
+        if (!sameLat || !sameLng) {
+            latText = value?.latitude?.let(::trimCoord) ?: ""
+            lngText = value?.longitude?.let(::trimCoord) ?: ""
+        }
+    }
 
     fun emit() {
         val lat = latText.trim().toDoubleOrNull()

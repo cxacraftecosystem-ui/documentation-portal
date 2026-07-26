@@ -105,6 +105,49 @@ export function assertApiConfigured(): void {
   throw new ApiUnconfiguredError();
 }
 
+/**
+ * The sentence a failed response is actually carrying, dug out of whatever shape `detail` took.
+ *
+ * A route's `detail` is not always a string. FastAPI's own 422 makes it a LIST of per-field error
+ * objects, and a few routes raise a structured object instead (the artisan identity conflict carries
+ * the clashing artisan along with the message, so the form can offer to open it). Both used to go
+ * through `String(detail)`, which yields the literal "[object Object]" — and since every screen
+ * renders `ApiError.message` and nothing else, that string was the entire answer a researcher got
+ * from a rejected save on every form but the two that had privately re-parsed the response body for
+ * themselves. Unpacking it once, here, is what gives the rest of them a real sentence.
+ *
+ * Exported because those private copies (`components/forms/ArtisanForm`, `components/review/
+ * reviewErrors`) exist only to work around this and should eventually just call it.
+ */
+export function describeApiDetail(detail: unknown, fallback: string): string {
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return "";
+        const record = entry as { msg?: unknown; loc?: unknown };
+        const message = "msg" in record ? String(record.msg) : "";
+        if (!message) return "";
+        // `loc` is ["body", "<field>"] — naming the field is the whole point of showing a 422 raised
+        // by a form with a dozen boxes in it. A bare ["body"] names nothing, so it is left off.
+        const field = Array.isArray(record.loc)
+          ? record.loc.filter((part): part is string => typeof part === "string").at(-1)
+          : null;
+        // Pydantic prefixes every custom validator message with "Value error, "; the researcher only
+        // needs the sentence after it.
+        const cleaned = message.replace(/^Value error,\s*/, "").trim();
+        return field && field !== "body" ? `${field}: ${cleaned}` : cleaned;
+      })
+      .filter(Boolean);
+    if (messages.length) return messages.join(" ");
+  }
+  if (detail && typeof detail === "object" && "message" in detail) {
+    const message = String((detail as { message: unknown }).message);
+    if (message.trim()) return message;
+  }
+  return fallback;
+}
+
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
   return window.localStorage.getItem("field_repo_token");
@@ -138,7 +181,10 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   const body = contentType.includes("application/json") ? await response.json() : await response.text();
 
   if (!response.ok) {
-    const detail = typeof body === "object" && body && "detail" in body ? String((body as { detail: unknown }).detail) : response.statusText;
+    const detail = typeof body === "object" && body && "detail" in body ? (body as { detail: unknown }).detail : undefined;
+    // `statusText` is empty over HTTP/2 — which every deployed request is — so it cannot be the last
+    // resort on its own, or a body-less failure reaches the screen as a blank error box.
+    const message = describeApiDetail(detail, response.statusText || `The server refused the request (HTTP ${response.status}).`);
     if (response.status === 401 && token && typeof window !== "undefined") {
       // A previously-valid session expired: drop the stored token and send the user to login
       // (unless they are already there). Anonymous requests — e.g. the landing page's /me probe —
@@ -146,7 +192,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
       setToken(null);
       if (window.location.pathname !== "/login") window.location.assign("/login");
     }
-    throw new ApiError(response.status, detail, body);
+    throw new ApiError(response.status, message, body);
   }
 
   return body as T;

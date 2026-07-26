@@ -17,7 +17,18 @@ import java.util.UUID
 private data class StagedObject(
     val objectKey: String,
     val owner: String,
-    val checksum: String? = null
+    val checksum: String? = null,
+    /**
+     * The S3 multipart upload this key belongs to, when it is one.
+     *
+     * WITHOUT IT THE SWEEP CANNOT RECLAIM A LARGE FILE. Until a multipart upload is completed there
+     * is no object at the key at all — only uploaded parts, which are billed and which nothing but
+     * `AbortMultipartUpload` can remove, and which that call needs the uploadId to name. The journal
+     * recorded the key alone, so a kill part-way through a long video (exactly the transfer most
+     * likely to be interrupted, on exactly the connection most likely to interrupt it) left parts in
+     * the bucket that no sweep, then or ever, could find its way back to.
+     */
+    val uploadId: String? = null
 )
 
 /**
@@ -64,15 +75,34 @@ object StagedJournal {
      * Note a presigned key as staged, before the bytes move, so a kill mid-transfer is still covered.
      * Called again with the [checksum] once the transfer has hashed the content — the staged object's
      * hash has to outlive the upload coroutine to reach the save that eventually claims it.
+     *
+     * MERGES rather than replaces. Each call knows one thing: the presign knows the [uploadId], the
+     * finished transfer knows the [checksum], and neither knows the other's. Overwriting the row
+     * would mean whichever came second erased what the first had learned — and for a multipart that
+     * is the only handle on its uploaded parts.
      */
-    suspend fun record(context: Context, objectKey: String, checksum: String? = null): Unit =
+    suspend fun record(
+        context: Context,
+        objectKey: String,
+        checksum: String? = null,
+        uploadId: String? = null
+    ): Unit =
         // On IO throughout: these are reached from save paths running on the main dispatcher, and the
         // journal is worthless if writing it stutters the form the researcher is filling in.
         withContext(Dispatchers.IO) {
             mutex.withLock {
                 appContext = context.applicationContext
                 val entries = read(context)
-                write(context, entries.filterNot { it.objectKey == objectKey } + StagedObject(objectKey, owner, checksum))
+                val existing = entries.firstOrNull { it.objectKey == objectKey }
+                write(
+                    context,
+                    entries.filterNot { it.objectKey == objectKey } + StagedObject(
+                        objectKey = objectKey,
+                        owner = owner,
+                        checksum = checksum ?: existing?.checksum,
+                        uploadId = uploadId ?: existing?.uploadId
+                    )
+                )
             }
         }
 
@@ -94,21 +124,22 @@ object StagedJournal {
     }
 
     /**
-     * Delete every object a previous run left staged, returning how many were reclaimed. [delete]
-     * reports whether the server settled the key — removed it, or refused because a record now owns
-     * it. Anything unsettled (no signal, a gateway failure) stays journalled for the next launch
+     * Delete every object a previous run left staged, returning how many were reclaimed. [delete] is
+     * handed the key and, for an interrupted multipart, the [StagedObject.uploadId] its parts belong
+     * to; it reports whether the server settled the key — removed it, or refused because a record now
+     * owns it. Anything unsettled (no signal, a gateway failure) stays journalled for the next launch
      * rather than being silently abandoned in the bucket.
      */
-    suspend fun sweep(context: Context, delete: suspend (objectKey: String) -> Boolean): Int {
+    suspend fun sweep(context: Context, delete: suspend (objectKey: String, uploadId: String?) -> Boolean): Int {
         val orphans = withContext(Dispatchers.IO) {
             mutex.withLock {
                 appContext = context.applicationContext
-                read(context).filter { it.owner != owner }.map { it.objectKey }
+                read(context).filter { it.owner != owner }.map { it.objectKey to it.uploadId }
             }
         }
         var reclaimed = 0
-        for (objectKey in orphans) {
-            if (delete(objectKey)) {
+        for ((objectKey, uploadId) in orphans) {
+            if (delete(objectKey, uploadId)) {
                 drop(objectKey)
                 reclaimed++
             }

@@ -226,7 +226,12 @@ export default function SearchPage() {
             items={result.artisans.map((item) => ({
               id: item.id,
               title: item.name,
-              subtitle: `${item.place} · ${item.craft?.name ?? "No craft"}`,
+              // Place alone unless the craft really came back. `GET /search` reads artisans with no
+              // `include`, so `craft` is never populated here and the old "No craft" fallback
+              // labelled EVERY artisan hit as craftless — a statement about the API's include list
+              // dressed up as a fact about the artisan. The join is kept for the day the endpoint
+              // does include it.
+              subtitle: [item.place, item.craft?.name].filter(Boolean).join(" · "),
               status: item.status,
               date: item.createdAt,
               href: `/artisans/${item.id}/edit`

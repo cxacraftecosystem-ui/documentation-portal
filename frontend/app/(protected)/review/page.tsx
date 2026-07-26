@@ -404,7 +404,9 @@ export default function ReviewPage() {
                       </tr>
                       {activeAction === "edit" ? (
                         <tr className="bg-surface-50">
-                          <td className="px-4 py-3" colSpan={7}>
+                          {/* Eight, not seven: the bulk-select checkbox added a column ahead of
+                              Record, and the expanded row stopped reaching the end of the table. */}
+                          <td className="px-4 py-3" colSpan={8}>
                             <ReviewEditPanel
                               recordType={item.recordType}
                               recordId={item.id}
@@ -426,7 +428,7 @@ export default function ReviewPage() {
                         </tr>
                       ) : activeAction ? (
                         <tr className="bg-surface-50">
-                          <td className="px-4 py-3" colSpan={7}>
+                          <td className="px-4 py-3" colSpan={8}>
                             <label className="block text-xs font-semibold uppercase tracking-wide text-ink-500">
                               {ACTION_COPY[activeAction].noteLabel}
                             </label>

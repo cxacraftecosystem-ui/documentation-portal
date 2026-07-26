@@ -124,12 +124,28 @@ object SearchRecordTypes {
     /**
      * The name `GET /search?types=` knows this bucket by.
      *
-     * The API's vocabulary there is PLURAL while the app's is singular everywhere else — singular is
-     * what `onOpenRecord`, `EntryMode` routing and `/data/locate` all take — and the route answers an
-     * unrecognised name with a 422 rather than a silent omission. So the two are translated in one
-     * place instead of a second, plural vocabulary being kept in step by hand.
+     * The API's vocabulary there differs from the app's, which is singular everywhere else — singular
+     * is what `onOpenRecord`, `EntryMode` routing and `/data/locate` all take — so the two are
+     * translated in one place instead of a second vocabulary being kept in step by hand.
+     *
+     * NOT `recordType + "s"`. The API's list is `artisans, workshops, products, tools, media`
+     * (`backend/app/api/routes/search.py`): plural for four of them and `media` for the fifth,
+     * because "medias" is not a word. Appending an s sent `medias`, and that route answers an
+     * unrecognised name with a 422 rather than dropping it — so ticking the Media chip did not
+     * narrow the search, it made every search that included Media fail and show nothing at all.
+     * Written out one bucket at a time so that the next bucket added has to be written out too.
      */
-    fun bucket(recordType: String): String = "${recordType}s"
+    fun bucket(recordType: String): String = when (recordType) {
+        ARTISAN -> "artisans"
+        WORKSHOP -> "workshops"
+        PRODUCT -> "products"
+        TOOL -> "tools"
+        MEDIA -> "media"
+        // Unreachable while every caller filters [ALL] first, and left as-is rather than guessed at:
+        // an unknown name reaching the API as itself is a 422 naming the real problem, where a name
+        // this function invented would be a 422 naming something the app made up.
+        else -> recordType
+    }
 }
 
 /**

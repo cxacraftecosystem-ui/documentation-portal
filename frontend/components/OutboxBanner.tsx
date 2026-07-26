@@ -41,19 +41,29 @@ export function OutboxBanner() {
   const [syncing, setSyncing] = useState(false);
   const { toast } = useToast();
 
-  // Read the store once on mount: entries survive a browser restart, so a fresh tab has to look.
-  useEffect(() => {
-    refreshOutbox();
-  }, []);
-
   // Confirming a queued save belongs HERE, not in each of the six forms that can queue one. A form
   // that queues just stops and scrolls; the count going up is the event, wherever it came from, so
   // one watcher covers every save path and cannot drift out of step with the banner beneath it.
-  const previousCount = useRef<number | null>(null);
+  //
+  // Null until the store has been read, and DELIBERATELY not set by the first render: entries
+  // survive a browser restart, so the mount snapshot is empty and the load that follows looks
+  // exactly like three saves arriving at once. That is how a researcher opening the laptop the next
+  // morning, online, was told her week-old queue had "just been saved on this device with no
+  // connection". Only the load may set the baseline, and only a rise above it is an event.
+  const announcedCount = useRef<number | null>(null);
+
+  // Read the store once on mount: entries survive a browser restart, so a fresh tab has to look.
   useEffect(() => {
-    const seen = previousCount.current;
-    previousCount.current = entries.length;
-    if (seen === null || entries.length <= seen) return;
+    void refreshOutbox().then((rows) => {
+      if (announcedCount.current === null) announcedCount.current = rows.length;
+    });
+  }, []);
+
+  useEffect(() => {
+    const seen = announcedCount.current;
+    if (seen === null) return;
+    announcedCount.current = entries.length;
+    if (entries.length <= seen) return;
     const added = entries.length - seen;
     toast({
       id: "outbox-queued",

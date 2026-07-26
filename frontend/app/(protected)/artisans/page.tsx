@@ -33,20 +33,30 @@ export default function ArtisansPage() {
   const [collabId, setCollabId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const skipFirstDebounce = useRef(true);
+  /**
+   * Which fetch is the current one. Search is debounced and the funnel and pager fire the same
+   * effect, so several requests are routinely in flight at once — and without this the answer to an
+   * abandoned question could land last and win, showing results for a filter the researcher had
+   * already moved on from. Counted rather than aborted because `listResource` takes no signal, and
+   * ignoring a late answer is the part that matters.
+   */
+  const currentLoad = useRef(0);
 
   async function load() {
+    const generation = (currentLoad.current += 1);
     try {
       // /artisans supports craftId but not workshopId — the workshop filter narrows rows client-side below.
-      setData(
-        await listResource<Artisan>("/artisans", {
-          search: applied || undefined,
-          craftId: funnel.craftId || undefined,
-          page,
-          pageSize: 20
-        })
-      );
+      const result = await listResource<Artisan>("/artisans", {
+        search: applied || undefined,
+        craftId: funnel.craftId || undefined,
+        page,
+        pageSize: 20
+      });
+      if (generation !== currentLoad.current) return;
+      setData(result);
       setError(null);
     } catch (err) {
+      if (generation !== currentLoad.current) return;
       setError(err instanceof Error ? err.message : "Unable to load artisans");
     }
   }

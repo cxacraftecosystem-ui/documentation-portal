@@ -6,7 +6,17 @@ from prisma import Json
 from pydantic import Field, ValidationError
 
 from app.core.db import db
-from app.core.deps import can_review_record, enum_or_raw, get_value, is_admin, require_reviewer, values_match
+from app.core.deps import (
+    ROLE_RANK,
+    can_review_record,
+    enum_or_raw,
+    get_value,
+    is_admin,
+    is_master_admin,
+    require_reviewer,
+    role_rank,
+    values_match,
+)
 from app.schemas.common import APIModel, ReviewAction
 from app.schemas.questionnaire import QuestionnaireInterviewUpdate
 from app.schemas.records import ArtisanUpdate, ProcessUpdate, ProductUpdate, ToolUpdate, WorkshopUpdate
@@ -63,6 +73,32 @@ _PENDING_SOURCES: list[tuple[str, Any, tuple[str, ...]]] = [
 ]
 
 
+# Per-record-type row cap on the queue. It is a cap on REVIEWABLE rows (see
+# _reviewable_creator_roles), not on pending rows in general.
+PENDING_TAKE = 200
+
+
+def _reviewable_creator_roles(reviewer: Any) -> list[str] | None:
+    """The creator roles this reviewer may act on, or None for "everyone" (the master admin).
+
+    The peer-review ladder as DATA, so it can go into the query. The queue used to read the newest
+    200 pending rows per record type and drop the unreviewable ones in Python afterwards: a
+    professor whose researchers' submissions all sat behind 200 newer admin-created rows opened an
+    EMPTY queue, and ``total`` counted rows they had no authority to touch. Filtering in the
+    database makes the take apply to rows the caller can actually review.
+
+    Same comparison ``can_review_record`` makes — ranks STRICTLY below the reviewer — expressed
+    against the creator's role column. The two cannot drift apart over a missing role either: every
+    reviewable model has a required ``createdById``, and ``UserRole`` is NOT NULL with a default, so
+    the "no creator role on file" case ``can_review_record`` defends against does not exist in the
+    rows this query walks.
+    """
+    if is_master_admin(reviewer):
+        return None
+    rank = role_rank(reviewer)
+    return [role for role, value in ROLE_RANK.items() if value < rank]
+
+
 def _label_for(row: Any, fields: tuple[str, ...]) -> str:
     for field in fields:
         value = get_value(row, field)
@@ -85,21 +121,30 @@ def _creator_summary(creator: Any) -> dict[str, Any] | None:
 async def list_pending_reviews(reviewer: Any = Depends(require_reviewer)) -> dict[str, Any]:
     """Records still awaiting review (status == PENDING), newest first, across record types.
 
-    Filtered by the peer-review hierarchy: only records whose creator ranks strictly below the
-    viewer show up (the master admin sees everything). Each item carries ``needsAdminApproval``:
-    true means it was submitted outside its workshop's dates, so only an admin can approve it."""
+    Filtered by the peer-review hierarchy IN THE QUERY: only records whose creator ranks strictly
+    below the viewer show up (the master admin sees everything), so the per-type cap holds the
+    newest rows this reviewer can act on rather than the newest rows overall. Each item carries
+    ``needsAdminApproval``: true means it was submitted outside its workshop's dates, so only an
+    admin can approve it."""
+    roles = _reviewable_creator_roles(reviewer)
+    if roles is not None and not roles:
+        # Review access with nobody beneath them on the ladder — a granted ``canReview`` on the
+        # bottom tier. There is no record they may act on; six queries to prove it are wasted.
+        return {"items": [], "total": 0}
+    where: dict[str, Any] = {"status": "PENDING"}
+    if roles is not None:
+        where["createdBy"] = {"is": {"role": {"in": roles}}}
+
     items: list[dict[str, Any]] = []
     for record_type, delegate, label_fields in _PENDING_SOURCES:
         rows = await delegate.find_many(
-            where={"status": "PENDING"},
+            where=where,
             include={"createdBy": True},
             order={"createdAt": "desc"},
-            take=200,
+            take=PENDING_TAKE,
         )
         for row in rows:
             creator = get_value(row, "createdBy")
-            if not can_review_record(reviewer, get_value(creator, "role") if creator else None):
-                continue
             items.append(
                 {
                     "recordType": record_type,

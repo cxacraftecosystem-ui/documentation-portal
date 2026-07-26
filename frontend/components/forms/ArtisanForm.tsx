@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { CarryForwardCards } from "@/components/CarryForwardCards";
 import { Field, MultiNoteField, Select, TextArea, TextInput } from "@/components/FormControls";
-import { AadhaarField, aadhaarValidationError } from "@/components/forms/AadhaarField";
+import { AadhaarField, aadhaarValidationError, isMaskedIdentityNumber } from "@/components/forms/AadhaarField";
 import { DosDontsField } from "@/components/forms/DosDontsField";
 import { DuplicateArtisanDialog } from "@/components/forms/DuplicateArtisanDialog";
 import { LocationFields, type LocationInitialValues } from "@/components/forms/LocationFields";
@@ -102,10 +102,14 @@ function identityConflict(error: unknown): ArtisanIdentityConflict | null {
  * Nothing here ever blocks on its own: a number that fails validation cannot match a stored (already
  * validated) Aadhaar, and a failed request means the server simply gets to answer the question itself
  * with its 409. Being offline must never stop a researcher saving.
+ *
+ * A MASK is skipped outright rather than left to fail validation. It means the number was not
+ * changed, so the only artisan it could ever "match" is this one — and asking the server to look up
+ * "XXXX XXXX 9012" would put a masked identifier in a query string for no answer at all.
  */
 async function findArtisanByAadhaar(digits: string | null, excludeArtisanId: string | null): Promise<ArtisanIdentityMatch | null> {
   const number = (digits ?? "").trim();
-  if (!number || aadhaarValidationError(number)) return null;
+  if (!number || isMaskedIdentityNumber(number) || aadhaarValidationError(number)) return null;
   try {
     const result = await apiFetch<AadhaarLookupResult>(`/artisans/lookup/aadhaar${buildQuery({ number })}`);
     const found = result.found ? (result.artisan ?? null) : null;
@@ -124,6 +128,15 @@ async function findArtisanByAadhaar(digits: string | null, excludeArtisanId: str
  * the answer flipped back to Yes. The API applies the same rule server-side (it forces the number to
  * null whenever availability is false); this is the UI half of that contract, so what the researcher
  * sees and what gets stored never disagree.
+ *
+ * `initialNumber` may be a MASK. `public_encode` runs the Pehchan number through the same
+ * `mask_identity_number` as the Aadhaar, so a caller who is neither the artisan's own researcher nor
+ * a professor upwards is handed "XXXX XXXX 3456" and may still edit the record. Editing the mask has
+ * to be impossible: `validate_pehchan` accepts it (it is alphanumeric once the spaces come off and
+ * comfortably inside 4-32 characters), so the API would have stored the literal "XXXXXXXX3456" over
+ * a real card number — silently, with no error to notice, and then refused the next artisan who
+ * genuinely holds that card on the unique index. The box is therefore read-only while it holds a
+ * mask, and `submit` leaves the field out of the payload entirely rather than posting it back.
  */
 function PehchanFields({
   initialAvailable,
@@ -138,7 +151,14 @@ function PehchanFields({
   const numberId = `${baseId}-pehchan-number`;
   const hintId = `${baseId}-pehchan-hint`;
   const [available, setAvailable] = useState(initialAvailable);
-  const [number, setNumber] = useState(initialNumber ?? "");
+  const storedMask = isMaskedIdentityNumber(initialNumber) ? String(initialNumber).trim() : null;
+  // Set when the editor chooses to type a new card number over one they were never shown.
+  const [replacing, setReplacing] = useState(false);
+  const [number, setNumber] = useState(storedMask ? "" : (initialNumber ?? ""));
+  // The mask still standing in for the stored number: what to show, and what to submit. Dropped when
+  // the answer is No, so the box does not keep displaying a card number under the line that says
+  // this artisan holds no card — and a No that is saved clears the stored number as it always did.
+  const keptMask = replacing || !available ? null : storedMask;
 
   return (
     <>
@@ -168,11 +188,14 @@ function PehchanFields({
         <input
           id={numberId}
           name="pehchanCardNumber"
-          className="field-input disabled:cursor-not-allowed disabled:bg-surface-50 disabled:text-ink-500"
+          className="field-input read-only:bg-surface-50 read-only:text-ink-500 disabled:cursor-not-allowed disabled:bg-surface-50 disabled:text-ink-500"
           type="text"
           autoComplete="off"
           placeholder={available ? "As printed on the card" : "No card on record"}
-          value={number}
+          value={keptMask ?? number}
+          // A read-only box is exempt from constraint validation, which is the right answer here:
+          // `required` must not demand a number the editor is not permitted to read.
+          readOnly={Boolean(keptMask)}
           required={available}
           disabled={!available}
           aria-disabled={!available}
@@ -187,9 +210,38 @@ function PehchanFields({
           }}
         />
         <p id={hintId} className="text-xs text-ink-muted">
-          {available
-            ? "The PM Vishwakarma artisan ID printed on the card."
-            : 'Disabled because this artisan holds no Pehchan card. Switch "available" to Yes to enter a number.'}
+          {!available
+            ? 'Disabled because this artisan holds no Pehchan card. Switch "available" to Yes to enter a number.'
+            : keptMask
+              ? "On file, but hidden from you: the full card number is shown only to the researcher who recorded this artisan and to professors upwards. Saving leaves it exactly as it is."
+              : "The PM Vishwakarma artisan ID printed on the card."}
+          {keptMask ? (
+            <>
+              {" "}
+              <button
+                type="button"
+                className="font-semibold text-purple-700 underline"
+                onClick={() => setReplacing(true)}
+              >
+                Replace this number
+              </button>
+            </>
+          ) : null}
+          {available && storedMask && replacing ? (
+            <>
+              {" "}
+              <button
+                type="button"
+                className="font-semibold text-purple-700 underline"
+                onClick={() => {
+                  setReplacing(false);
+                  setNumber("");
+                }}
+              >
+                Keep the stored number
+              </button>
+            </>
+          ) : null}
         </p>
       </div>
     </>
@@ -273,7 +325,9 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
    * An artisan documented before that rule has none, and a researcher who opened the record to fix a
    * phone number must not have to invent a government ID to save the correction — so on edit it is
    * required only when the record already carries one, where the requirement costs nothing and also
-   * stops a stored number being quietly emptied.
+   * stops a stored number being quietly emptied. A masked number counts as carrying one — it is a
+   * real number this caller may not read — and AadhaarField satisfies the requirement by posting the
+   * mask straight back.
    */
   const aadhaarRequired = !initial || Boolean(initial.aadhaarNumber?.trim());
   // The workshop this artisan was documented at: shared picker, shared most-recent defaulting, and
@@ -345,13 +399,10 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
       const exifRemark = exifMetadataToRemark(exifItems);
       const recordedAt = recordedAtFromForm(form);
       const recordedTimezone = recordedTimezoneFromForm(form);
-      // State and pincode are columns on Location (validated against the canonical list in
-      // backend/app/services/address.py), but `locationFromForm` only knows the coordinate half, so
-      // they are attached here — including onto the media batch below, which is the same place.
-      const coordinates = locationFromForm(form);
-      const location = coordinates
-        ? { ...coordinates, state: textValue(form, "state"), pincode: textValue(form, "pincode") }
-        : undefined;
+      // Everything LocationFields renders, including the state and pincode that used to be merged
+      // in here by hand — `locationFromForm` reads them now, so the five other forms that share it
+      // stopped throwing the two answers away. Also goes onto the media batch below: same place.
+      const location = locationFromForm(form);
       // Android parity: an artisan needs either an existing craft or a new craft name.
       const craftId = textValue(form, "craftId");
       const newCraftName = textValue(form, "newCraftName");
@@ -363,6 +414,12 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
       // The Yes/No dropdown mirrors its option value into FormData; anything other than an explicit
       // "No" means the artisan holds a card, which matches the API's own default of Yes.
       const pehchanAvailable = textValue(form, "pehchanCardAvailable") !== PEHCHAN_NO;
+      const pehchanNumber = textValue(form, "pehchanCardNumber");
+      // A masked card number means the editor was never shown the real one and left it alone. Unlike
+      // the Aadhaar mask the API does NOT recognise this one — `validate_pehchan` happily normalises
+      // "XXXX XXXX 3456" to "XXXXXXXX3456" and stores it over the real card — so the key is dropped
+      // from the payload instead, which a PATCH reads as "not sent, not changed".
+      const pehchanUnchanged = pehchanAvailable && isMaskedIdentityNumber(pehchanNumber);
       const payload = {
         name: requiredText(form, "name"),
         localName: textValue(form, "localName"),
@@ -373,12 +430,15 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         address: textValue(form, "address"),
         notes: appendRemarksWithExif(textValue(form, "notes") as string | null, exifRemark),
         // Identity. The Aadhaar mirror input carries the bare digits (the visible box only groups
-        // them for reading); the card number is sent explicitly as null when the artisan holds no
-        // card, so an edit that flips the answer to No clears the stored number instead of orphaning
-        // it — `aadhaarNumber` and `pehchanCardNumber` are both clearable server-side.
+        // them for reading), or the mask verbatim when the editor was never shown the real number —
+        // which the API recognises and drops, leaving the stored value alone. The Pehchan mask has
+        // no such server-side guard, so it is omitted above instead. The card number IS sent, as an
+        // explicit null, when the artisan holds no card, so an edit that flips the answer to No
+        // clears the stored number instead of orphaning it: `aadhaarNumber` and `pehchanCardNumber`
+        // are both clearable server-side.
         aadhaarNumber: textValue(form, "aadhaarNumber"),
         pehchanCardAvailable: pehchanAvailable,
-        pehchanCardNumber: pehchanAvailable ? textValue(form, "pehchanCardNumber") : null,
+        ...(pehchanUnchanged ? {} : { pehchanCardNumber: pehchanAvailable ? pehchanNumber : null }),
         dos: requiredText(form, "dos"),
         donts: requiredText(form, "donts"),
         craftId,

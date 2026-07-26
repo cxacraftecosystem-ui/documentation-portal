@@ -7,15 +7,20 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.widget.Toast
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -24,12 +29,15 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Response
 import okio.BufferedSink
 import retrofit2.HttpException
 import java.io.BufferedOutputStream
@@ -41,9 +49,12 @@ import java.io.InputStream
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /**
  * Files at/under this size upload as one streamed S3 PUT; larger files switch to a chunked S3
@@ -1275,7 +1286,12 @@ class FieldRepository(
                 linkedRecordId = linkedRecordId.blankToNull()
             )
         )
-        StagedJournal.record(context, create.objectKey)
+        // The uploadId goes to disk WITH the key, because for a multipart the key alone is useless:
+        // until the parts are stitched there is no object at it, only uploaded parts, and the one
+        // call that reclaims those needs the uploadId to name them. Recording the key alone left a
+        // large video killed mid-transfer — the most likely transfer to be killed — costing storage
+        // that no sweep could ever find its way back to.
+        StagedJournal.record(context, create.objectKey, uploadId = create.uploadId)
         try {
             val partUrls = api.presignMultipartParts(
                 MultipartPresignPartsRequest(
@@ -1328,10 +1344,18 @@ class FieldRepository(
             return UploadTarget(done.objectKey, done.bucket, done.publicUrl, digest.hex())
         } catch (t: Throwable) {
             // Clean up the half-done multipart upload so its parts don't linger in storage.
-            runCatching {
-                api.abortMultipart(MultipartAbortRequest(create.objectKey, create.uploadId))
-                // The abort discarded the parts, so there is nothing left for a sweep to reclaim.
-                StagedJournal.drop(create.objectKey)
+            //
+            // NonCancellable because the commonest reason to be here is now cancellation — a sibling
+            // upload in the same batch failed and took this one down with it — and a suspend call
+            // made from a cancelled coroutine gives up at its first suspension point, which would
+            // mean the cancelled transfer's parts were never reclaimed. The journal is still the
+            // backstop if even this cannot reach the server.
+            withContext(NonCancellable) {
+                runCatching {
+                    api.abortMultipart(MultipartAbortRequest(create.objectKey, create.uploadId))
+                    // The abort discarded the parts, so there is nothing left for a sweep to reclaim.
+                    StagedJournal.drop(create.objectKey)
+                }
             }
             throw t
         }
@@ -1371,6 +1395,9 @@ class FieldRepository(
         var failures = 0
         var lastError: Exception? = null
         while (true) {
+            // Same reason as [putToStorage]: a cancelled call arrives as an IOException, and this
+            // loop would otherwise re-send the part instead of standing down.
+            currentCoroutineContext().ensureActive()
             var expired = false
             try {
                 // Content-Type is intentionally unset: the part presign does not sign it, so sending one
@@ -1381,7 +1408,7 @@ class FieldRepository(
                     { java.io.ByteArrayInputStream(bytes) },
                     onProgress?.let { cb -> { sent, _ -> cb(sent) } }
                 )
-                storageClient.newCall(Request.Builder().url(target).put(body).build()).execute().use { response ->
+                executeCancellable(storageClient.newCall(Request.Builder().url(target).put(body).build())).use { response ->
                     if (response.isSuccessful) {
                         return response.header("ETag")
                             ?: throw IllegalStateException("S3 returned no ETag for the uploaded part")
@@ -1468,15 +1495,30 @@ class FieldRepository(
      * [syncOutbox]), never per upload: an object staged by THIS process belongs to a form that may
      * still be open.
      *
-     * Nothing is destructive by accident. `/media/object` is scoped to the caller's own
-     * `media/<user_id>/` prefix and 409s on anything a record already points at, so the worst a bad
-     * entry can do is come back refused — which counts as settled, since the object clearly found an
-     * owner. Only an unsettled key (no signal, gateway failure) stays for the next launch.
+     * Nothing is destructive by accident. `/media/object` and `/media/multipart/abort` are both
+     * scoped to the caller's own `media/<user_id>/` prefix, and the delete 409s on anything a record
+     * already points at, so the worst a bad entry can do is come back refused — which counts as
+     * settled, since the object clearly found an owner. Only an unsettled key (no signal, gateway
+     * failure) stays for the next launch.
      */
     suspend fun sweepStagedObjects(context: Context): Int {
         if (!hasToken() || !ConnectivityObserver.isOnline(context)) return 0
-        return StagedJournal.sweep(context) { objectKey ->
-            try {
+        return StagedJournal.sweep(context) { objectKey, uploadId ->
+            // Abort BEFORE deleting, and only for a key that was journalled as a multipart. An
+            // interrupted multipart has no object to delete — deleting the key removes nothing and
+            // the uploaded parts stay billed for ever — so this is the only call that reclaims them.
+            val abortSettled = uploadId == null || try {
+                api.abortMultipart(MultipartAbortRequest(objectKey, uploadId))
+                true
+            } catch (e: HttpException) {
+                // The server answered, so there is nothing more to do about this uploadId here: a 500
+                // is what S3's NoSuchUpload becomes once the upload DID complete (leaving the finished
+                // object, which the delete below handles), 403/404 mean it was never ours to abort.
+                true
+            } catch (e: IOException) {
+                false
+            }
+            val deleteSettled = try {
                 api.deleteMediaObject(objectKey)
                 true
             } catch (e: HttpException) {
@@ -1485,6 +1527,9 @@ class FieldRepository(
             } catch (e: IOException) {
                 false
             }
+            // Journalled until BOTH halves are settled: forgetting the key after a successful delete
+            // whose abort never landed would strand the parts exactly as before.
+            abortSettled && deleteSettled
         }
     }
 
@@ -1553,9 +1598,26 @@ class FieldRepository(
     }
 
     /**
-     * Replay every queued offline entry: create the record, then upload its copied media, then drop the
-     * local copy. Stops at the first failure (e.g. connection lost again) and leaves the rest queued, so
-     * a later pass finishes them. Returns the number of entries successfully synced. Safe to call often.
+     * Replay every queued offline entry: create the record, then upload its copied media, then drop
+     * the local copy. Returns the number of entries fully synced. Safe to call often.
+     *
+     * TWO THINGS THIS NO LONGER DOES, both of which cost field data.
+     *
+     * IT NEVER RE-CREATES A RECORD THE SERVER ALREADY HAS. "Create, then upload the media" is two
+     * steps and only the first is cheap to repeat — repeating it makes a SECOND record. The server id
+     * is written back to the entry the moment the create lands, and every uploaded file is ticked off
+     * as it goes, so a pass interrupted during the media resumes at the media. Before this, an entry
+     * whose upload failed re-created its record on the next pass, and the pass after that, once per
+     * sync for as long as the signal stayed bad — and a bad signal is the entire reason the entry is
+     * in the outbox.
+     *
+     * AND IT NEVER STOPS THE WHOLE QUEUE AT A RECORD THE SERVER WILL NOT TAKE. A 4xx is the server's
+     * final answer: the payload is wrong, or this user may not do that, and the next pass sends the
+     * identical bytes to the identical rejection. It is recorded on the entry, said out loud, and
+     * stepped over. A 5xx, a timeout or a dead connection is the opposite — everything behind it will
+     * fail the same way — so the pass stops there and the queue keeps its order. This is the triage
+     * `frontend/lib/offline.ts` already makes; without it, one unacceptable record silently blocked
+     * every record queued behind it, for ever.
      */
     suspend fun syncOutbox(context: Context): Int {
         // App-start housekeeping, not per-upload work. This is the app's existing "signed in, or the
@@ -1566,93 +1628,279 @@ class FieldRepository(
             AppScope.io.launch { runCatching { sweepStagedObjects(context) } }
         }
         return syncMutex.withLock {
+            val queue = OfflineOutbox.all(context)
+            // Read first, then reported, and reported before the connection is even checked: a queue
+            // file that would not parse is the one problem the researcher cannot see for themselves,
+            // because its only symptom is a count that quietly drops.
+            OfflineOutbox.takeAlert()?.let { notifyUser(context, it) }
             if (!ConnectivityObserver.isOnline(context)) return@withLock 0
             var synced = 0
-            for (entry in OfflineOutbox.all(context)) {
-                val ok = runCatching {
-                    if (entry.type == "process") {
-                        syncProcessEntry(context, entry)
-                    } else {
-                        val serverId = createFromEntry(entry)
-                        // Media attaches to the created record (or an overridden link type, e.g. a clip).
-                        uploadAll(context, entry.media, { it.linkedType ?: entry.type }, serverId)
+            for (queued in queue) {
+                // Already triaged as permanent: this one is waiting on a person, not on the network.
+                if (queued.failure != null) continue
+                when (val outcome = replayEntry(context, queued)) {
+                    ReplayOutcome.Synced -> {
+                        OfflineOutbox.remove(context, queued)
+                        synced++
                     }
-                }.isSuccess
-                if (!ok) break
-                OfflineOutbox.remove(context, entry)
-                synced++
+                    is ReplayOutcome.Rejected -> {
+                        OfflineOutbox.markFailure(context, queued.id, outcome.reason)
+                        notifyUser(context, "\"${queued.label}\" could not be uploaded. ${outcome.reason}")
+                    }
+                    // Transient: stop here so the queue keeps its order and nothing is marked failed
+                    // for a reason that is really "the signal went away again".
+                    ReplayOutcome.Retry -> return@withLock synced
+                }
             }
             synced
         }
     }
 
+    /** What became of one replayed entry. */
+    private sealed interface ReplayOutcome {
+        /** Record and every attachment are on the server; the local copy can go. */
+        data object Synced : ReplayOutcome
+
+        /** Nothing more will happen until the network comes back. Stop the pass; keep the order. */
+        data object Retry : ReplayOutcome
+
+        /** The server's final answer. Keep the entry AND its files; tell the researcher. */
+        data class Rejected(val reason: String) : ReplayOutcome
+    }
+
+    /**
+     * Replay one entry, writing every step back to disk as it lands.
+     *
+     * Where those writes happen is the whole point. The created id goes down BEFORE the first byte of
+     * media moves, and each finished file is ticked off as soon as it is up — so whatever kills this
+     * pass, the next one starts from what has actually happened rather than from the top.
+     */
+    private suspend fun replayEntry(context: Context, queued: PendingEntry): ReplayOutcome {
+        var entry = queued
+        if (entry.createdId == null) {
+            val created = try {
+                createFromEntry(entry)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                return if (isTransient(e)) ReplayOutcome.Retry
+                else ReplayOutcome.Rejected(e.apiErrorMessage("The server rejected this record."))
+            }
+            entry = entry.copy(createdId = created.id, createdStepIds = created.stepIds)
+            OfflineOutbox.update(context, entry)
+        }
+
+        val alreadyUp = entry.uploadedMedia.toMutableSet()
+        val refused = mutableListOf<String>()
+        val remaining = entry.media.withIndex().filterNot { (index, _) -> index in alreadyUp }
+        // Each worker posts its own result here the instant its file lands, rather than the batch
+        // reporting as a unit — a batch that is torn down because one of its three files failed has
+        // usually finished one of the other two, and a finished file that is not ticked off gets
+        // uploaded again next pass, leaving the record holding the same photograph twice.
+        val landed = ConcurrentLinkedQueue<FileOutcome>()
+
+        /** Fold everything the workers have finished into the entry and write it to disk. */
+        suspend fun persistProgress() {
+            var changed = false
+            while (true) {
+                when (val outcome = landed.poll() ?: break) {
+                    is FileOutcome.Uploaded -> alreadyUp.add(outcome.index)
+                    is FileOutcome.Refused -> refused.add(outcome.reason)
+                }
+                changed = true
+            }
+            if (!changed) return
+            entry = entry.copy(uploadedMedia = alreadyUp.sorted())
+            OfflineOutbox.update(context, entry)
+        }
+
+        var stopped = false
+        try {
+            for (batch in remaining.chunked(UPLOAD_CONCURRENCY)) {
+                try {
+                    uploadBatch(context, entry, batch, landed)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    // Only a transient failure escapes [uploadBatch]. The record and every file that
+                    // did land are on disk, so the next pass resumes at what is left.
+                    stopped = true
+                    break
+                }
+                persistProgress()
+            }
+        } finally {
+            // NonCancellable, because a file that IS on the server has to be ticked off even while
+            // this pass is being torn down. The alternative is the next pass sending it again.
+            withContext(NonCancellable) { persistProgress() }
+        }
+        if (stopped) return ReplayOutcome.Retry
+
+        if (refused.isNotEmpty()) {
+            // The record IS saved, so the entry must never be replayed — but its files are still only
+            // here, so it must not be deleted either. Kept, with the reason, exactly as the web does.
+            return ReplayOutcome.Rejected(
+                "It was saved, but ${refused.size} file(s) were refused: ${refused.distinct().joinToString(" ")} " +
+                    "Re-attach them on the record."
+            )
+        }
+        return ReplayOutcome.Synced
+    }
+
+    /** One file's fate within a replayed batch. */
+    private sealed interface FileOutcome {
+        data class Uploaded(val index: Int) : FileOutcome
+        data class Refused(val index: Int, val reason: String) : FileOutcome
+    }
+
+    /**
+     * Upload up to [UPLOAD_CONCURRENCY] of a record's attachments at once.
+     *
+     * The web has done this since the eager-upload work and Android did not: an interview with twelve
+     * clips uploaded them strictly in series, so the transfer cost the sum of twelve round trips even
+     * though a field connection is usually latency-bound rather than bandwidth-bound. Three at a time
+     * is the cap the web uses, and for the same reason: a 2G-ish uplink shared by ten parallel PUTs
+     * makes every one of them time out instead of making any of them finish.
+     *
+     * WHY THE TWO KINDS OF FAILURE LEAVE BY DIFFERENT DOORS. A transient one is THROWN, so
+     * `coroutineScope` cancels the siblings on the spot: they share the connection that has just been
+     * shown to be gone, and now that the transfers are genuinely cancellable that cancellation stops
+     * real sockets instead of being a note in a log. A refusal is POSTED to [landed] instead, because
+     * a file the server will not take says nothing about the other two — cancelling them would strand
+     * attachments that were seconds from succeeding.
+     *
+     * Every result goes to [landed] as it happens rather than being returned when the batch is over,
+     * so that a torn-down batch still tells the caller which of its files did land.
+     */
+    private suspend fun uploadBatch(
+        context: Context,
+        entry: PendingEntry,
+        batch: List<IndexedValue<PendingMedia>>,
+        landed: ConcurrentLinkedQueue<FileOutcome>
+    ): Unit = coroutineScope {
+        batch.forEach { (index, pm) ->
+            launch(Dispatchers.IO) {
+                val target = linkTargetFor(entry, pm)
+                if (target == null) {
+                    landed.add(
+                        FileOutcome.Refused(
+                            index,
+                            "\"${pm.originalFilename}\" had nowhere to attach — the saved record has fewer " +
+                                "process steps than were captured."
+                        )
+                    )
+                    return@launch
+                }
+                try {
+                    uploadLocalFile(context, pm, target.first, target.second)
+                    landed.add(FileOutcome.Uploaded(index))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    if (isTransient(e)) throw e
+                    landed.add(
+                        FileOutcome.Refused(index, "\"${pm.originalFilename}\": ${e.apiErrorMessage("refused by the server.")}")
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Where one queued file attaches once its record exists: the link type and the server id.
+     *
+     * Null when a process came back with fewer steps than were captured — the caller reports that
+     * rather than attaching the capture to the wrong step or dropping it without a word.
+     */
+    private fun linkTargetFor(entry: PendingEntry, pm: PendingMedia): Pair<String, String>? {
+        val recordId = entry.createdId ?: return null
+        val stepIndex = pm.stepIndex
+        if (entry.type == "process" && stepIndex != null) {
+            val stepId = entry.createdStepIds.getOrNull(stepIndex) ?: return null
+            return "processstep" to stepId
+        }
+        // Media attaches to the created record, or to an overridden link type (e.g. a clip).
+        return (pm.linkedType ?: entry.type) to recordId
+    }
+
+    /**
+     * Will trying this again help?
+     *
+     * The web outbox's `isTransient` (`frontend/lib/offline.ts`), in Kotlin, plus the two failures a
+     * phone has that a browser does not. Being wrong in either direction is expensive: call a
+     * permanent failure transient and one bad record blocks the queue for ever; call a transient one
+     * permanent and a day's work is parked for a human because a tunnel took the signal away.
+     */
+    private fun isTransient(error: Throwable): Boolean = when (error) {
+        is HttpException -> when (val code = error.code()) {
+            // The credential expired, not the record. Every entry would fail this way and re-signing
+            // in fixes all of them at once, so this is the one 4xx that must not condemn an entry.
+            401 -> true
+            408, 429 -> true
+            else -> code >= 500
+        }
+        // No answer at all: no signal, DNS, a socket dropped mid-transfer, a gateway timeout.
+        is IOException -> true
+        // The queued payload itself will not parse. The next pass reads the same bytes off the same
+        // disk and fails identically, so this is as permanent as a 422.
+        is SerializationException -> false
+        // Anything else (a presign that came back malformed, an unexpected state) is treated as worth
+        // another try: the cost of retrying is a delay, and the cost of not retrying is a lost record.
+        else -> true
+    }
+
+    /**
+     * Say something to the researcher from a sync that has no screen.
+     *
+     * A repository raising UI is not where this belongs, and it is here because the alternative is
+     * silence: `syncOutbox` runs from a timer and a network callback, and the only thing the shell
+     * shows is a count of queued entries under the words "uploading when you're online" — which is a
+     * lie for an entry the server has refused for good, and which stays a lie for ever. An entry that
+     * will never send has to say so at the moment it stops trying. The durable half is
+     * [PendingEntry.failure], readable through [outboxFailures] by whatever screen shows it next.
+     */
+    private suspend fun notifyUser(context: Context, message: String) {
+        withContext(Dispatchers.Main) {
+            Toast.makeText(context.applicationContext, message, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** Queued entries the server refused, each carrying the reason it will never be sent. */
+    suspend fun outboxFailures(context: Context): List<PendingEntry> = OfflineOutbox.failed(context)
+
     /**
      * An artisan queued by a build that predates the identity fields carries no Pehchan answer at all,
-     * and the API refuses a create that claims a card without giving its number. One such entry would
-     * 422 on every sync pass — and because the outbox stops at the first failure, it would block every
-     * record queued behind it indefinitely. Replaying it as "no card recorded" gets the field capture
-     * safely onto the server, where the researcher can correct the answer on the record itself.
+     * and the API refuses a create that claims a card without giving its number. Replaying it as "no
+     * card recorded" gets the field capture safely onto the server, where the researcher can correct
+     * the answer on the record itself — rather than the entry being parked as permanently rejected
+     * for a question the build that captured it never asked.
      */
     private fun withIdentityAnswer(body: ArtisanCreateRequest): ArtisanCreateRequest =
         if (body.pehchanCardAvailable != null) body
         else body.copy(pehchanCardAvailable = body.pehchanCardNumber != null)
 
-    private suspend fun createFromEntry(entry: PendingEntry): String = when (entry.type) {
-        "artisan" -> api.createArtisan(
-            withIdentityAnswer(offlineJson.decodeFromString<ArtisanCreateRequest>(entry.payloadJson))
-        ).id
-        "product" -> api.createProduct(offlineJson.decodeFromString<ProductCreateRequest>(entry.payloadJson)).id
-        "tool" -> api.createTool(offlineJson.decodeFromString<ToolCreateRequest>(entry.payloadJson)).id
-        "workshop" -> api.createWorkshop(offlineJson.decodeFromString<WorkshopCreateRequest>(entry.payloadJson)).id
-        "craft" -> api.createCraft(offlineJson.decodeFromString<CraftCreateRequest>(entry.payloadJson)).id
-        "questionnaire" -> api.createQuestionnaireInterview(offlineJson.decodeFromString<QuestionnaireInterviewCreateRequest>(entry.payloadJson)).id
+    /** What a replayed create produced: the record's server id, plus a process's step ids in order. */
+    private data class CreatedRecord(val id: String, val stepIds: List<String> = emptyList())
+
+    private suspend fun createFromEntry(entry: PendingEntry): CreatedRecord = when (entry.type) {
+        "artisan" -> CreatedRecord(
+            api.createArtisan(
+                withIdentityAnswer(offlineJson.decodeFromString<ArtisanCreateRequest>(entry.payloadJson))
+            ).id
+        )
+        "product" -> CreatedRecord(api.createProduct(offlineJson.decodeFromString<ProductCreateRequest>(entry.payloadJson)).id)
+        "tool" -> CreatedRecord(api.createTool(offlineJson.decodeFromString<ToolCreateRequest>(entry.payloadJson)).id)
+        "workshop" -> CreatedRecord(api.createWorkshop(offlineJson.decodeFromString<WorkshopCreateRequest>(entry.payloadJson)).id)
+        "craft" -> CreatedRecord(api.createCraft(offlineJson.decodeFromString<CraftCreateRequest>(entry.payloadJson)).id)
+        "questionnaire" -> CreatedRecord(
+            api.createQuestionnaireInterview(
+                offlineJson.decodeFromString<QuestionnaireInterviewCreateRequest>(entry.payloadJson)
+            ).id
+        )
+        // Steps come back in submit order, so `stepIndex` on a queued file selects the matching one.
+        "process" -> api.createProcess(offlineJson.decodeFromString<ProcessCreateRequest>(entry.payloadJson))
+            .let { detail -> CreatedRecord(detail.id, detail.steps.map { it.id }) }
         else -> throw IllegalStateException("Unknown offline entry type: ${entry.type}")
-    }
-
-    /**
-     * Sync a queued process: create it, then attach each pending media to the right target — pre-process
-     * media to the process itself, and each step's media to that step's freshly-created server id (steps
-     * come back in submit order, so `stepIndex` selects the matching one). Mirrors the online save.
-     */
-    private suspend fun syncProcessEntry(context: Context, entry: PendingEntry) {
-        val detail = api.createProcess(offlineJson.decodeFromString<ProcessCreateRequest>(entry.payloadJson))
-        for (pm in entry.media) {
-            val stepIndex = pm.stepIndex
-            if (stepIndex != null) {
-                val step = detail.steps.getOrNull(stepIndex) ?: continue
-                uploadLocalFile(context, pm, "processstep", step.id)
-            } else {
-                uploadLocalFile(context, pm, pm.linkedType ?: "process", detail.id)
-            }
-        }
-    }
-
-    /** Upload one media file already copied into local storage, attaching it to the synced record. */
-    /**
-     * Upload a record's attachments a few at a time instead of one after another.
-     *
-     * The web has done this since the eager-upload work (UPLOAD_CONCURRENCY = 3) and Android has
-     * not: an interview with twelve clips uploaded them strictly in series, so the transfer took as
-     * long as the sum of twelve round trips even though a field connection is usually
-     * latency-bound rather than bandwidth-bound. Three at a time is the same cap the web uses, and
-     * the reason for a cap at all is the same: a 2G-ish uplink shared by ten parallel PUTs makes
-     * every one of them time out instead of making any of them finish.
-     *
-     * Failures still propagate — `awaitAll` rethrows the first one — because the caller's contract
-     * is unchanged: if any attachment of a queued record fails, the whole entry stays in the outbox
-     * and is retried, rather than the record being marked synced with media missing.
-     */
-    private suspend fun uploadAll(
-        context: Context,
-        media: List<PendingMedia>,
-        linkedType: (PendingMedia) -> String,
-        recordId: String
-    ) = coroutineScope {
-        media.chunked(UPLOAD_CONCURRENCY).forEach { batch ->
-            batch.map { spec ->
-                async { uploadLocalFile(context, spec, linkedType(spec), recordId) }
-            }.awaitAll()
-        }
     }
 
     private suspend fun uploadLocalFile(
@@ -1749,12 +1997,42 @@ class FieldRepository(
     }
 
     /**
+     * Run an OkHttp call so that cancelling the coroutine actually stops the transfer.
+     *
+     * `execute()` blocks a thread nothing can interrupt. Cancel the coroutine around it and the
+     * socket keeps pushing bytes until OkHttp's own call timeout — twelve minutes, on the field
+     * connection that is already the scarce resource. `enqueue` gives the cancellation somewhere to
+     * land, and `call.cancel()` closes the socket at once.
+     */
+    private suspend fun executeCancellable(call: Call): Response =
+        suspendCancellableCoroutine { continuation ->
+            continuation.invokeOnCancellation { runCatching { call.cancel() } }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (continuation.isActive) continuation.resumeWithException(e)
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    // Cancelled while the answer was in flight: nobody downstream will reach the
+                    // `use` that closes this, so close it here rather than leak the connection.
+                    if (continuation.isActive) continuation.resume(response) else response.close()
+                }
+            })
+        }
+
+    /**
      * PUT bytes to object storage with bounded retries and byte-level progress. Transient failures
      * (network drop, or a 5xx from S3 under concurrent load) are retried with linear backoff so a
      * single hiccup never loses an upload; a 4xx (bad signature etc.) fails fast. This is what makes
-     * many files — and many researchers uploading at once — resilient. Runs on the calling IO thread.
+     * many files — and many researchers uploading at once — resilient.
+     *
+     * SUSPENDING AND CANCELLABLE, deliberately. This was a blocking function that slept between
+     * attempts with `Thread.sleep`, so a transfer could not be stopped at all: neither the socket nor
+     * the backoff could hear a cancellation. That is what made a parallel upload batch unable to give
+     * up — when one file failed, its two siblings were cancelled on paper and went on transferring
+     * for real, over the connection that had just been shown to be broken.
      */
-    private fun putToStorage(
+    private suspend fun putToStorage(
         uploadUrl: String,
         headers: Map<String, String>,
         contentLength: Long,
@@ -1766,12 +2044,16 @@ class FieldRepository(
         val maxAttempts = 3
         var lastError: Exception? = null
         for (attempt in 1..maxAttempts) {
+            // A cancelled call surfaces as a plain IOException, which the catch below would retry.
+            // Checked here so a cancellation ends the loop as a cancellation rather than as a
+            // transport failure the caller would then queue for another try.
+            currentCoroutineContext().ensureActive()
             try {
                 // A fresh stream per attempt so a retry re-reads from the start.
                 val body = StreamingRequestBody(contentLength, mimeType.toMediaType(), openStream, onProgress, digest)
                 val builder = Request.Builder().url(uploadUrl).put(body)
                 headers.forEach { (name, value) -> builder.header(name, value) }
-                storageClient.newCall(builder.build()).execute().use { response ->
+                executeCancellable(storageClient.newCall(builder.build())).use { response ->
                     if (response.isSuccessful) return
                     // Client errors (4xx) won't fix themselves — fail immediately.
                     if (response.code < 500) {
@@ -1782,7 +2064,7 @@ class FieldRepository(
             } catch (e: IOException) {
                 lastError = e
             }
-            if (attempt < maxAttempts) Thread.sleep(800L * attempt)
+            if (attempt < maxAttempts) delay(800L * attempt)
         }
         throw lastError ?: IllegalStateException("Object storage upload failed")
     }

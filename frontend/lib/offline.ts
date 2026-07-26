@@ -27,8 +27,21 @@
  *                                      it in the outbox for the user to see and discard, and carry
  *                                      on to the next one. One bad record cannot strand the others.
  *
- * A 409 is treated as already-saved rather than as an error: replaying a create that the server
- * accepted before the response was lost must not leave a duplicate in the outbox for ever.
+ * A REPLAY IS RESUMABLE, because "create then upload" is two steps and only the first is cheap to
+ * repeat — repeating it makes a second record. So each step is written back to the entry the moment
+ * it lands (`created`, `createdId`, `uploadedBatches`), and a pass that dies half way through picks
+ * up at the media instead of starting the record again. Without that the outbox duplicated every
+ * record whose media upload was interrupted, once per sync pass, for as long as the signal stayed
+ * bad — the failure mode with the worst timing possible, since a bad signal is why the entry is here.
+ *
+ * NOTHING IS EVER DELETED BECAUSE THE SERVER SAID 409. This module used to read a 409 as "the create
+ * already landed and we simply lost the response", and drop the entry and its files as sent. No
+ * endpoint in this API means that: a 409 from /artisans is a clashing Aadhaar, from /crafts a craft
+ * of that name, from /questionnaire/interviews the same artisan set already interviewed. So the one
+ * answer that means "someone else's record collides with yours" was destroying the record AND the
+ * photographs and reporting success. A 409 is now surfaced as a conflict for the researcher to
+ * resolve, with everything kept. The lost-response case it was aiming at is covered properly by
+ * `created` above, which knows rather than guesses.
  */
 
 import { ApiError, apiFetch } from "@/lib/api";
@@ -77,6 +90,20 @@ export type OutboxEntry = {
   attempts: number;
   /** Set when the server rejected this permanently; the entry stays for the user to read and discard. */
   failure: string | null;
+  /**
+   * Replay progress. All optional: entries written before this existed simply have none, and start
+   * their replay from the top exactly as they used to.
+   *
+   * `created` is the load-bearing one — true means the record IS on the server and re-sending the
+   * body would make a second one, so the replay must skip straight to the media. The rest say what
+   * the media may link to and which batches are already up there.
+   */
+  created?: boolean;
+  createdId?: string | null;
+  /** Ids of the created record's children, for batches that address a `processstep` by index. */
+  createdStepIds?: string[];
+  /** Indices into `media` whose files have already been sent; never sent twice. */
+  uploadedBatches?: number[];
 };
 
 // ---------------------------------------------------------------------------
@@ -178,6 +205,23 @@ async function markFailure(entry: OutboxEntry, failure: string): Promise<void> {
   await tx("readwrite", (store) => store.put({ ...entry, attempts: entry.attempts + 1, failure }));
 }
 
+/**
+ * Write a replay's progress back to the entry mid-pass.
+ *
+ * Called after the create lands and after each media batch goes up, so the durable record of what
+ * has already happened is never behind what actually happened. The window between the server
+ * committing and this returning is the only place a duplicate can still be born; a few milliseconds
+ * of IndexedDB is as small as that window gets without idempotency keys on the API.
+ */
+async function persistProgress(entry: OutboxEntry): Promise<void> {
+  await tx("readwrite", (store) => store.put(entry));
+}
+
+/** Files across every batch of one entry — what the researcher stands to lose, in one number. */
+function pendingFileCount(entry: OutboxEntry): number {
+  return entry.media.reduce((sum, batch) => sum + batch.files.length, 0);
+}
+
 // ---------------------------------------------------------------------------
 // Drain
 // ---------------------------------------------------------------------------
@@ -212,34 +256,71 @@ async function runSync(): Promise<SyncResult> {
 
   for (const entry of entries) {
     if (entry.failure) continue; // Already triaged as permanent; waiting on the user, not the network.
+    // Everything this pass achieves is recorded on `progress` and written through as it happens, so
+    // that an interruption resumes rather than restarts. See the resumability note at the top.
+    const progress: OutboxEntry = { ...entry };
     try {
-      let savedId: string | null = null;
-      let savedSteps: Array<{ id: string }> = [];
-      try {
-        const saved = await apiFetch<{ id: string; steps?: Array<{ id: string }> }>(entry.endpoint, {
-          method: entry.method,
-          body: entry.body
-        });
-        savedId = saved?.id ?? null;
-        savedSteps = saved?.steps ?? [];
-      } catch (error) {
-        // The create already landed on a previous pass whose response we never saw. Dropping the
-        // entry is right; re-queueing it would duplicate the record on every future sync.
-        if (error instanceof ApiError && error.status === 409) {
-          await discardOutboxEntry(entry.id!);
-          synced += 1;
-          continue;
+      if (!progress.created) {
+        try {
+          const saved = await apiFetch<{ id: string; steps?: Array<{ id: string }> }>(progress.endpoint, {
+            method: progress.method,
+            body: progress.body
+          });
+          // Every endpoint the outbox replays answers with the saved record, so a 2xx carrying no id
+          // did not come from one — a captive portal answering the POST with its own 200 page is the
+          // field case, and this app already knows they exist (see the "Sync now" note in
+          // OutboxBanner). Taking it as success set `createdId` to null, which skipped the media loop
+          // in silence and then discarded the entry: no record written, the photographs deleted, and
+          // "sent" reported. An answer we cannot read is not a save — keep the entry and say so.
+          const createdId = typeof saved?.id === "string" && saved.id ? saved.id : null;
+          if (!createdId) {
+            const files = pendingFileCount(progress);
+            await markFailure(
+              progress,
+              "The server accepted this but did not say what it saved, so it cannot be confirmed or its files " +
+                `attached. This entry${files ? ` and its ${files} file(s)` : ""} are still on this device. If you were ` +
+                "on a wi-fi network that asks you to sign in, connect properly and check whether the record arrived " +
+                "before discarding this."
+            );
+            failed += 1;
+            continue;
+          }
+          progress.created = true;
+          progress.createdId = createdId;
+          progress.createdStepIds = (saved?.steps ?? []).map((step) => step.id);
+        } catch (error) {
+          // A 409 is a COLLISION WITH SOMEONE ELSE'S RECORD — a clashing Aadhaar, a craft already
+          // named that — not an echo of our own earlier create. Deleting the entry here is what used
+          // to throw away the queued record and its photographs and then report them as sent. The
+          // researcher is the only one who can tell whether the existing record is theirs, so hand
+          // it to them with everything intact.
+          if (error instanceof ApiError && error.status === 409) {
+            const files = pendingFileCount(progress);
+            await markFailure(
+              progress,
+              `The server refused this as a duplicate. ${error.message} Nothing has been sent and nothing has been ` +
+                `thrown away — this entry${files ? ` and its ${files} file(s)` : ""} are still on this device. Open the ` +
+                "record it clashes with, carry across anything it is missing, then discard this entry."
+            );
+            failed += 1;
+            continue;
+          }
+          throw error;
         }
-        throw error;
+        // Persisted BEFORE a single byte of media moves: from here on the record exists, and a pass
+        // that dies during the upload must come back to the media, never to the create.
+        await persistProgress(progress);
       }
 
       const mediaFailed: Array<{ name: string }> = [];
-      if (savedId) {
-        for (const batch of entry.media) {
-          if (!batch.files.length) continue;
+      const uploaded = new Set(progress.uploadedBatches ?? []);
+      if (progress.createdId) {
+        for (const [index, batch] of progress.media.entries()) {
+          if (uploaded.has(index) || !batch.files.length) continue;
           // A step batch has to wait for the server to mint the step; if the create came back with
           // fewer steps than were queued, say so rather than silently attaching to the wrong one.
-          const linkedRecordId = batch.stepIndex === undefined ? savedId : (savedSteps[batch.stepIndex]?.id ?? null);
+          const linkedRecordId =
+            batch.stepIndex === undefined ? progress.createdId : (progress.createdStepIds?.[batch.stepIndex] ?? null);
           if (!linkedRecordId) {
             mediaFailed.push(...batch.files.map((file) => ({ name: file.name })));
             continue;
@@ -256,6 +337,12 @@ async function runSync(): Promise<SyncResult> {
             transcribeAudio: batch.transcribeAudio ?? true
           });
           mediaFailed.push(...result.failed);
+          // Returning at all means this batch got as far as it ever will: `uploadMediaBatch` only
+          // throws when NOTHING in it landed, so a throw leaves the batch unrecorded and retriable
+          // while a return — even a partly failed one — must never be replayed into duplicate files.
+          uploaded.add(index);
+          progress.uploadedBatches = Array.from(uploaded);
+          await persistProgress(progress);
         }
       }
       // The record exists now, so the entry cannot simply be retried — re-running it would create a
@@ -263,7 +350,7 @@ async function runSync(): Promise<SyncResult> {
       // of dropping them silently.
       if (mediaFailed.length) {
         await markFailure(
-          entry,
+          progress,
           `Saved, but ${mediaFailed.length} file(s) did not upload: ${mediaFailed.map((f) => f.name).join(", ")}. ` +
             "Re-attach them on the record."
         );
@@ -272,14 +359,14 @@ async function runSync(): Promise<SyncResult> {
         continue;
       }
 
-      await discardOutboxEntry(entry.id!);
+      await discardOutboxEntry(progress.id!);
       synced += 1;
     } catch (error) {
       if (isTransient(error)) {
         stoppedOffline = true;
         break; // Still offline (or the API is down) — everything behind this stays queued.
       }
-      await markFailure(entry, error instanceof Error ? error.message : "The server rejected this entry.");
+      await markFailure(progress, error instanceof Error ? error.message : "The server rejected this entry.");
       failed += 1;
     }
   }

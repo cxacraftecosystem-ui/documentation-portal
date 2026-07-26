@@ -84,6 +84,7 @@ import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -800,6 +801,19 @@ private fun HomeScreen(
             .onFailure { showMessage(it.message) }
     }
 
+    // Leave the current screen, but if a form has unsaved work, route through the Save/Discard prompt
+    // first so an accidental Back can't silently drop a record or its in-progress recordings.
+    //
+    // Declared up here, above the routing functions, because they call it — a Kotlin local function is
+    // only in scope after its own declaration, and the guard is no use to a router that cannot see it.
+    fun attemptExit(leave: () -> Unit) {
+        if (unsavedGuard.dirty && unsavedGuard.onSave != null) {
+            pendingExit = leave
+        } else {
+            leave()
+        }
+    }
+
     fun goDashboard() {
         message = null
         screen = Screen.Dashboard
@@ -812,8 +826,11 @@ private fun HomeScreen(
      * rows living next to the shared [FIELD_NAV_ITEMS] model, and the two silently drifted apart; a
      * catch-all here would let that happen again by letting a new destination render as a row that
      * does nothing when tapped. Without one, adding to the enum breaks the build instead.
+     *
+     * Deliberately raw: it changes the screen and asks nobody. Anything the USER taps must go through
+     * [navigate] instead, which puts the unsaved-changes guard in front of this.
      */
-    fun navigate(destination: NavDestination) {
+    fun openDestination(destination: NavDestination) {
         message = null
         when (destination) {
             NavDestination.DASHBOARD -> goDashboard()
@@ -846,7 +863,29 @@ private fun HomeScreen(
             NavDestination.SETTINGS -> screen = Screen.Appearance
             NavDestination.GIVE_FEEDBACK -> screen = Screen.Feedback
         }
+    }
+
+    /**
+     * A menu tap: the unsaved-changes guard, and then [openDestination].
+     *
+     * The island bar and the drawer used to call the router directly. That made every chip in the new
+     * navigation a silent way out of a half-filled artisan form — taking the audio already recorded
+     * into it with no prompt — while the back arrow sitting beside them asked. The departure is the
+     * same departure whichever control starts it, so it now asks the same question.
+     */
+    fun navigate(destination: NavDestination) {
+        // Closing the sheet is not the navigation and must not wait on the answer: a drawer left open
+        // behind the dialog is still open after "Keep editing", covering the form the user chose to
+        // stay on.
         scope.launch { drawerState.close() }
+        if (destination == NavDestination.WALKTHROUGH) {
+            // The one destination that is not a departure — it draws OVER the page you are already on
+            // (see the branch above), so there is nothing to save or discard, and prompting would
+            // offer to throw away a form that is not going anywhere.
+            openDestination(destination)
+        } else {
+            attemptExit { openDestination(destination) }
+        }
     }
 
     // System back / in-app back: step to the logical previous screen instead of leaving the app.
@@ -867,16 +906,6 @@ private fun HomeScreen(
             // arrow, the system back gesture and the back gesture all route through here.
             is Screen.AdminHub -> if (s.section != null) Screen.AdminHub() else Screen.Dashboard
             is Screen.Dashboard -> Screen.Dashboard
-        }
-    }
-
-    // Leave the current screen, but if a form has unsaved work, route through the Save/Discard prompt
-    // first so an accidental Back can't silently drop a record or its in-progress recordings.
-    fun attemptExit(navigate: () -> Unit) {
-        if (unsavedGuard.dirty && unsavedGuard.onSave != null) {
-            pendingExit = navigate
-        } else {
-            navigate()
         }
     }
 
@@ -1028,7 +1057,13 @@ private fun HomeScreen(
                 // Hoisted out of the modifier so the island bar can be told how far this page has
                 // travelled. It is handed over as a lambda below, never as a number — see
                 // FieldIslandNav's `scrollOffset`.
-                val pageScroll = rememberScrollState()
+                //
+                // Keyed on the screen, because every destination in this branch renders through the one
+                // composition slot below and therefore shared one ScrollState: leaving a long form
+                // half-way down opened the NEXT screen already scrolled past its own first fields, with
+                // nothing on it to explain why. `key` throws the state away when the destination
+                // changes, so each page starts where a page starts.
+                val pageScroll = key(screen) { rememberScrollState() }
                 // Two Columns, and the split is the whole point: the bar lives in the OUTER one, which
                 // does not scroll, so it stays put while the page moves underneath it and can collapse
                 // in response. It used to be the first child of the scroller, which meant it simply
@@ -1055,11 +1090,18 @@ private fun HomeScreen(
         val navItems = visibleNavItems(user, adminView)
         FieldIslandNav(
             modifier = Modifier.fillMaxWidth(),
-            onBrandClick = { goDashboard() },
+            // The wordmark is a Dashboard link that is on screen even mid-form, so it goes through the
+            // router like any other chip rather than jumping home on its own.
+            onBrandClick = { navigate(NavDestination.DASHBOARD) },
             onOpenDrawer = { scope.launch { drawerState.open() } },
             adminMode = if (isAdmin) adminView else null,
             onToggleAdminView = { adminView = !adminView },
-            currentLabel = headerTitle,
+            // The bar highlights by label, so the label has to be looked up from the DESTINATION the
+            // user is on. This used to pass `headerTitle` — a page title, matched against nav labels
+            // that are written for a menu — so the Dashboard ("Field Repository" against "Dashboard")
+            // and most record forms lit nothing, while the handful whose two strings happened to
+            // coincide were the only ones that worked.
+            currentLabel = navItems.firstOrNull { it.destination == currentDestination }?.label,
             // A lambda, not `pageScroll.value`: reading the offset here would make every frame of
             // every scroll recompose this whole screen. The bar reads it inside its own derived
             // state, where it feeds one Boolean.
@@ -3347,6 +3389,19 @@ private fun workshopOptionLabel(workshop: WorkshopDetailDto): String {
 }
 
 /**
+ * The 0-9 in [text] and nothing else — the phone column's one definition of a digit.
+ *
+ * Emphatically NOT `Char.isDigit()`, which the phone field used to filter with: it is true of the
+ * Devanagari "१" and the fullwidth "２" an Indic or CJK IME will happily produce, so a number typed on
+ * a phone with such a keyboard passed straight through into storage. The web's PhoneField parses the
+ * same column with `/\D/g`, which is ASCII-only, and therefore read that artisan as having no phone
+ * number at all — the record looked complete on the device that captured it and blank in the browser.
+ * The Aadhaar and pincode fields have always taken this line (see [aadhaarValidationError]); the phone
+ * field is the one that did not.
+ */
+private fun asciiDigits(text: String): String = text.filter { it in '0'..'9' }
+
+/**
  * Split a stored phone into its ISD dial code and national digits. Handles the "+CC number" format this
  * field writes, a compact "+CCnumber", and legacy bare numbers (assumed Indian, +91). Longest known
  * dial code wins so multi-digit codes aren't misread as a shorter one.
@@ -3356,15 +3411,15 @@ private fun parsePhoneNumber(stored: String): Pair<String, String> {
     if (compact.isEmpty()) return "+91" to ""
     if (compact.startsWith("+")) {
         val code = Countries.dialCodes.firstOrNull { compact.startsWith(it) }
-        if (code != null) return code to compact.removePrefix(code).filter { it.isDigit() }
-        return "+91" to compact.filter { it.isDigit() }
+        if (code != null) return code to asciiDigits(compact.removePrefix(code))
+        return "+91" to asciiDigits(compact)
     }
-    return "+91" to compact.filter { it.isDigit() }
+    return "+91" to asciiDigits(compact)
 }
 
 /** Combine a dial code and national digits into the stored "+CC number" form (blank when no number). */
 private fun composePhoneNumber(dialCode: String, national: String): String {
-    val digits = national.filter { it.isDigit() }
+    val digits = asciiDigits(national)
     return if (digits.isEmpty()) "" else "$dialCode $digits"
 }
 
@@ -3385,7 +3440,7 @@ private val EMAIL_RE = Regex("""[^\s@]+@[^\s@]+\.[^\s@]+""")
  */
 private fun phoneValidationError(stored: String?): String? {
     val (code, national) = parsePhoneNumber(stored ?: "")
-    val digits = national.filter { it.isDigit() }
+    val digits = asciiDigits(national)
     return when {
         digits.isEmpty() -> null
         code == "+91" -> if (digits.length == 10) null else "Enter a 10-digit number for +91."
@@ -3432,7 +3487,7 @@ private fun ArtisanPhoneField(value: String, error: String?, onValueChange: (Str
             OutlinedTextField(
                 value = national,
                 onValueChange = { input ->
-                    val digits = input.filter { it.isDigit() }
+                    val digits = asciiDigits(input)
                     national = digits
                     onValueChange(composePhoneNumber(dialCode, digits))
                 },
@@ -8007,18 +8062,29 @@ private fun ReviewApprovalCard(repository: FieldRepository, onError: (String) ->
                 Text("${pending.size} record(s) awaiting review", color = Body, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 info?.let { Text(it, color = SuccessGreen, fontSize = 11.sp) }
                 pending.forEach { item ->
-                    PendingReviewRow(
-                        repository = repository,
-                        item = item,
-                        onResolved = { message ->
-                            // Approve / reject / revise all move the record out of PENDING, so drop it
-                            // from the list rather than re-fetching the whole queue.
-                            pending = pending.filterNot { it.id == item.id }
-                            info = message
-                        },
-                        onInfo = { info = it },
-                        onError = onError
-                    )
+                    // Keyed by the record, not by position in the list. Every row here remembers state
+                    // of its own — which panel is open, the half-typed rejection comment, the edit
+                    // baseline loaded from the server — and resolving a row REMOVES it, so without a
+                    // key Compose hands all of that to whichever record slides up into the vacated
+                    // slot. A reviewer could finish typing a comment about one submission and send it
+                    // against another.
+                    key(item.recordType, item.id) {
+                        PendingReviewRow(
+                            repository = repository,
+                            item = item,
+                            onResolved = { message ->
+                                // Approve / reject / revise all move the record out of PENDING, so drop
+                                // it from the list rather than re-fetching the whole queue. Matched on
+                                // the same pair as the key above, because an id alone does not name a
+                                // row here: the queue is several tables concatenated, so dropping by id
+                                // could take an unreviewed record of another type off the screen with it.
+                                pending = pending.filterNot { it.recordType == item.recordType && it.id == item.id }
+                                info = message
+                            },
+                            onInfo = { info = it },
+                            onError = onError
+                        )
+                    }
                 }
             }
         }
@@ -8038,6 +8104,7 @@ private fun PendingReviewRow(
     var busy by remember { mutableStateOf(false) }
     // null | "edit" | "revise" — at most one panel open, so the row never grows two forms tall.
     var panel by remember { mutableStateOf<String?>(null) }
+    var confirmReject by remember { mutableStateOf(false) }
     var reviseNote by remember { mutableStateOf("") }
     var editNote by remember { mutableStateOf("") }
     // Loaded values (the baseline the diff is taken against) and the reviewer's working copy.
@@ -8103,7 +8170,12 @@ private fun PendingReviewRow(
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                 ) { Text(if (busy) "Working…" else "Approve", maxLines = 1, fontSize = 13.sp) }
                 OutlinedButton(
-                    onClick = { act("Rejected ${item.label}", resolves = true) { repository.rejectRecord(item.recordType, item.id) } },
+                    // Asks first, as the web's review page does. Rejection is the end of the road for a
+                    // submission and it sits one tap away from "Send for revision", the recoverable
+                    // action with almost the same meaning; on a phone, where the two buttons are a
+                    // thumb-width apart, doing it on the first tap was a mis-tap away from telling a
+                    // contributor their work was thrown out.
+                    onClick = { confirmReject = true },
                     enabled = !busy,
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
@@ -8205,6 +8277,30 @@ private fun PendingReviewRow(
                 }
             }
         }
+    }
+
+    // Word for word the web review page's rejection confirmation, including the pointer at the softer
+    // action, so a reviewer who works on both surfaces is answering the same question either way.
+    if (confirmReject) {
+        AlertDialog(
+            onDismissRequest = { confirmReject = false },
+            title = { Text("Reject this record?") },
+            text = {
+                Text(
+                    "${item.label} will show as rejected to the contributor. If you want them to fix " +
+                        "it and resubmit, close this and use Send for revision instead."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmReject = false
+                    act("Rejected ${item.label}", resolves = true) {
+                        repository.rejectRecord(item.recordType, item.id)
+                    }
+                }) { Text("Reject record", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmReject = false }) { Text("Cancel") } }
+        )
     }
 }
 

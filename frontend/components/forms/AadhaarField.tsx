@@ -77,6 +77,20 @@ export function aadhaarValidationError(value: string | null | undefined): string
 }
 
 /**
+ * True when `value` is the `XXXX XXXX 9012` stand-in the API sends in place of an identity number
+ * the caller is not entitled to read, rather than a number.
+ *
+ * Same rule as `is_masked_aadhaar` in backend/app/services/artisan_identity.py — an X anywhere — so
+ * the two ends of the round trip cannot disagree about what counts as a mask.
+ *
+ * Not Aadhaar-specific despite living here: `public_encode` masks the Pehchan card number through
+ * the very same `mask_identity_number`, so the artisan form tests that one with this too.
+ */
+export function isMaskedIdentityNumber(value: string | null | undefined): boolean {
+  return typeof value === "string" && /x/i.test(value);
+}
+
+/**
  * Said when the field is required and empty. It names the reason rather than the rule, because the
  * researcher has to repeat that reason out loud to a stranger before the stranger reads out a
  * government ID number.
@@ -120,6 +134,16 @@ function describeMatch(match: ArtisanIdentityMatch) {
  *    is a 409 after five minutes of typing. It is a WARNING, never a block: the researcher may be
  *    legitimately correcting a number, and the unique index behind the save is the real gate.
  *
+ * 3. `defaultValue` may be a MASK rather than a number. `GET /artisans/{id}` returns
+ *    "XXXX XXXX 9012" to anyone who is neither the artisan's own researcher nor a professor and
+ *    above, and those callers may still edit the record. The mask is then held aside and posted
+ *    back verbatim, which the API reads as "unchanged" and drops before the write
+ *    (`_drop_unchanged_masked_aadhaar`). It must never reach `digits`: stripping the Xs turned
+ *    "XXXX XXXX 9012" into the four-digit "9012", which failed validation on a field the editor
+ *    could not see well enough to fix, so a reviewer who opened the record to correct a phone
+ *    number could not save at all — and had the browser accepted it, a real Aadhaar would have been
+ *    overwritten with those four digits.
+ *
  * A number that fails `aadhaarValidationError`, by contrast, DOES block the save — through
  * `setCustomValidity` on the visible box rather than a parent-owned error flag, so the browser
  * focuses and scrolls to the field and names the problem, exactly as the Android form focuses it.
@@ -128,7 +152,9 @@ function describeMatch(match: ArtisanIdentityMatch) {
  *
  * `required` blocks an EMPTY number the same way, through the same custom validity rather than the
  * native `required` attribute: with both set, which of the two sentences the browser shows in its
- * bubble is up to the browser, and the one worth reading is ours.
+ * bubble is up to the browser, and the one worth reading is ours. A kept mask satisfies it: the
+ * record does hold a number, and requiring one the editor is not allowed to read would be a demand
+ * they cannot meet.
  */
 export function AadhaarField({
   name = "aadhaarNumber",
@@ -139,8 +165,9 @@ export function AadhaarField({
 }: {
   name?: string;
   /**
-   * The artisan's stored number, FULL (not masked) — `GET /artisans/{id}` returns the raw column
-   * precisely so this form can edit it, while every shared surface gets `XXXX XXXX 9012` instead.
+   * The artisan's stored number as `GET /artisans/{id}` gave it: the raw 12 digits for the artisan's
+   * own researcher and for professor-and-above, and `XXXX XXXX 9012` for everyone else who may edit
+   * the record. Both are handled — see the mask note in the component docstring.
    */
   defaultValue?: string | null;
   /** The record being edited: it is expected to match its own Aadhaar, which is not a duplicate. */
@@ -155,17 +182,28 @@ export function AadhaarField({
   const baseId = useId();
   const inputId = `${baseId}-aadhaar`;
   const hintId = `${baseId}-aadhaar-hint`;
+  const replaceId = `${baseId}-aadhaar-replace`;
   const warningId = `${baseId}-aadhaar-warning`;
   const inputRef = useRef<HTMLInputElement>(null);
-  const [digits, setDigits] = useState(() => digitsOnly(defaultValue));
+  // The mask the record arrived with, or null when the caller was given the real number. It is never
+  // folded into `digits`, which holds bare typed digits and nothing else.
+  const storedMask = isMaskedIdentityNumber(defaultValue) ? String(defaultValue).trim() : null;
+  // Set when the editor chooses to type a new number over one they cannot read. Until then the mask
+  // is what the form submits, and the box is theirs to leave alone.
+  const [replacing, setReplacing] = useState(false);
+  const [digits, setDigits] = useState(() => (isMaskedIdentityNumber(defaultValue) ? "" : digitsOnly(defaultValue)));
   const [match, setMatch] = useState<ArtisanIdentityMatch | null>(null);
   const [checking, setChecking] = useState(false);
   // Raised the first time the browser refuses the form because of this box; until then the problem
   // is enforced but not shown, so typing the number is not narrated back as a series of errors.
   const [problemShown, setProblemShown] = useState(false);
 
+  /** The mask still standing in for the stored number: what to show, and what to post back. */
+  const keptMask = replacing ? null : storedMask;
   const complete = digits.length === AADHAAR_LENGTH;
-  const problem = aadhaarValidationError(digits) ?? (required && !digits ? AADHAAR_REQUIRED : null);
+  // A kept mask is a stored number, so there is nothing here to be wrong or missing. Validating it
+  // would refuse the whole form over a field the editor is not permitted to read.
+  const problem = keptMask ? null : aadhaarValidationError(digits) ?? (required && !digits ? AADHAAR_REQUIRED : null);
   // Android parity: only a number that could genuinely BE somebody's is worth asking the server
   // about. A 12-digit string that fails its checksum can never match a stored (validated) Aadhaar,
   // so looking it up only spends a request to be told "no".
@@ -215,6 +253,21 @@ export function AadhaarField({
     };
   }, [digits, lookupReady, excludeArtisanId]);
 
+  /** Start over with an empty box: the editor is replacing a number they were never shown. */
+  function replaceStoredNumber() {
+    setReplacing(true);
+    setDigits("");
+    setProblemShown(false);
+    inputRef.current?.focus();
+  }
+
+  /** Back to posting the mask — the way out of an accidental "Replace", and of a half-typed number. */
+  function keepStoredNumber() {
+    setReplacing(false);
+    setDigits("");
+    setProblemShown(false);
+  }
+
   return (
     <div className="relative grid content-start gap-1">
       <label className="field-label" htmlFor={inputId}>
@@ -223,15 +276,18 @@ export function AadhaarField({
       <input
         ref={inputRef}
         id={inputId}
-        className="field-input"
+        className="field-input read-only:bg-surface-50 read-only:text-ink-500"
         type="text"
         inputMode="numeric"
         autoComplete="off"
         placeholder="1234 5678 9012"
-        value={grouped(digits)}
+        value={keptMask ?? grouped(digits)}
+        readOnly={Boolean(keptMask)}
         aria-required={required || undefined}
         aria-invalid={problemShown && problem ? true : undefined}
-        aria-describedby={match ? `${hintId} ${warningId}` : hintId}
+        aria-describedby={[hintId, storedMask && replacing ? replaceId : null, match ? warningId : null]
+          .filter(Boolean)
+          .join(" ")}
         onInvalid={() => setProblemShown(true)}
         onChange={(event) => {
           const next = digitsOnly(event.target.value);
@@ -244,6 +300,14 @@ export function AadhaarField({
         <p id={hintId} className="text-xs text-error-600">
           {problem}
         </p>
+      ) : keptMask ? (
+        <p id={hintId} className="text-xs text-ink-muted">
+          On file, but hidden from you: the full number is shown only to the researcher who recorded
+          this artisan and to professors upwards. Saving leaves it exactly as it is.{" "}
+          <button type="button" className="font-semibold text-purple-700 underline" onClick={replaceStoredNumber}>
+            Replace this number
+          </button>
+        </p>
       ) : (
         <p id={hintId} className="text-xs text-ink-muted">
           {required
@@ -252,6 +316,18 @@ export function AadhaarField({
           {digits.length > 0 && !complete ? ` ${digits.length} of ${AADHAAR_LENGTH} entered.` : ""}
         </p>
       )}
+      {/* Deliberately OUTSIDE the block above: it used to sit inside the hint paragraph, which the
+          error message replaces the moment a submit is refused — so someone who hit "Replace this
+          number" by mistake, could not produce a number they are not allowed to read, and then tried
+          to save was shown the error INSTEAD of the only way back to the stored value. */}
+      {storedMask && replacing ? (
+        <p id={replaceId} className="text-xs text-ink-muted">
+          All 12 digits replace the number already on file.{" "}
+          <button type="button" className="font-semibold text-purple-700 underline" onClick={keepStoredNumber}>
+            Keep the stored number
+          </button>
+        </p>
+      ) : null}
       {checking ? <p className="text-xs text-ink-muted">Checking for an existing artisan...</p> : null}
       {match ? (
         <div
@@ -271,11 +347,12 @@ export function AadhaarField({
         </div>
       ) : null}
       {/* Zero-size (not hidden) mirror input: submits the BARE digits under the existing field name
-          while the visible box keeps the card's 4-4-4 grouping. */}
+          while the visible box keeps the card's 4-4-4 grouping — or the mask verbatim, which is how
+          the API is told the number was left alone. */}
       <input
         type="text"
         name={name}
-        value={digits}
+        value={keptMask ?? digits}
         onChange={() => undefined}
         tabIndex={-1}
         aria-hidden="true"

@@ -133,6 +133,20 @@ function QuestionnairePageBody() {
     };
   }, [selectedSetKey, selectedArtisanIds]);
 
+  /**
+   * What this effect last wrote into `answers`, per question. It is how a stale prefill is told apart
+   * from a typed answer, which is the whole difficulty: both are just strings in the same map.
+   */
+  const prefilled = useRef<Record<string, string>>({});
+
+  /**
+   * Which interview-list fetch is the current one. The search box is debounced and the funnel and
+   * the pager fire the same effect, so more than one request is routinely in flight; without this a
+   * slow answer for an abandoned filter could land last and win. Counted rather than aborted because
+   * `listResource` takes no signal, and ignoring the late answer is the part that matters.
+   */
+  const currentInterviewLoad = useRef(0);
+
   useEffect(() => {
     if (!selectedArtisan || questions.length === 0) return;
     const respondentAnswers: Record<string, string> = {};
@@ -148,7 +162,25 @@ function QuestionnairePageBody() {
         else if (prompt.includes("date")) respondentAnswers[question.id] = new Date().toLocaleDateString("en-IN");
         else if (prompt.includes("interviewer")) respondentAnswers[question.id] = user?.name ?? user?.email ?? "";
       });
-    setAnswers((current) => ({ ...respondentAnswers, ...current }));
+    // Overwrite only what is still blank or still exactly what this effect put there last time.
+    // The old rule kept every existing answer ahead of the new prefill, which read as "never clobber
+    // the researcher" but really meant the RESP block froze on the FIRST artisan picked: change the
+    // primary artisan and the interview kept the previous artisan's name, craft, place, gender and
+    // phone, and saved them against the new one.
+    const previous = prefilled.current;
+    prefilled.current = respondentAnswers;
+    setAnswers((current) => {
+      const next = { ...current };
+      let changed = false;
+      Object.entries(respondentAnswers).forEach(([questionId, value]) => {
+        const existing = next[questionId] ?? "";
+        if (existing && existing !== (previous[questionId] ?? "")) return;
+        if (existing === value) return;
+        next[questionId] = value;
+        changed = true;
+      });
+      return changed ? next : current;
+    });
   }, [questions, selectedArtisan, user]);
 
   // Sections + artisans back the capture form and the builder; they change only when an admin edits
@@ -168,6 +200,7 @@ function QuestionnairePageBody() {
   }
 
   async function loadInterviews() {
+    const generation = (currentInterviewLoad.current += 1);
     try {
       const result = await listResource<QuestionnaireInterview>("/questionnaire/interviews", {
         page,
@@ -175,9 +208,12 @@ function QuestionnairePageBody() {
         artisanId: funnel.artisanId || undefined,
         search: searchQuery || undefined
       });
+      // The answer to a question already moved on from must not land last and win — see the ref.
+      if (generation !== currentInterviewLoad.current) return;
       setData(result);
       setError(null);
     } catch (err) {
+      if (generation !== currentInterviewLoad.current) return;
       setError(err instanceof Error ? err.message : "Unable to load questionnaire interviews");
     }
   }

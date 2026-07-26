@@ -33,7 +33,16 @@ export function locationFromForm(form: FormData) {
     altitude: optionalNumberPayload(form, "altitude"),
     accuracy: optionalNumberPayload(form, "accuracy"),
     address: textValue(form, "locationAddress") || undefined,
-    placeName: textValue(form, "placeName") || undefined
+    placeName: textValue(form, "placeName") || undefined,
+    // State and pincode are columns on Location like every field above them, and LocationFields
+    // renders them on all six forms. They were read only by the artisan form, which merged them in
+    // by hand: the other five suggested them from the map, validated them, and then dropped them
+    // here at save. Worse on an edit — a save writes a BRAND NEW Location row (attach_location in
+    // backend/app/services/records.py), so a stored state/pincode was replaced by nothing. Read them
+    // in the one place every form already goes through, rather than in five more call sites that
+    // would each have to remember.
+    state: textValue(form, "state") || undefined,
+    pincode: textValue(form, "pincode") || undefined
   };
 }
 
