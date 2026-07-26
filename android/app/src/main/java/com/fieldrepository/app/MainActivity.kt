@@ -6386,59 +6386,122 @@ private fun markWalkthroughSeen(context: Context) {
 /** One step of the in-app walkthrough: a heading and a short description of a feature area. */
 private data class WalkStep(val title: String, val body: String)
 
+/**
+ * The walkthrough, which is the WEB GUIDE's ten steps rather than a tour of this app's buttons.
+ *
+ * What it used to be — dashboard, menu, forms, attach media, the grid — described the interface. But
+ * a researcher opening this app for the first time does not need to be told what a menu is; they need
+ * to know that a workshop comes before a craft, that a craft comes before an artisan, and that a
+ * process hangs off a product. That ordering is the actual thing to learn, it is what /guide teaches
+ * on the web, and getting it wrong in the field costs a return trip.
+ *
+ * The wording is lifted from frontend/components/guide/steps.ts on purpose: the two apps are one
+ * product, a researcher moves between them mid-workshop, and a step that is worded differently in
+ * each reads as two different instructions.
+ */
 private val walkthroughSteps = listOf(
     WalkStep(
-        "Welcome to Field Repository",
-        "This quick tour shows how to document artisans, crafts, products, tools, workshops, processes " +
-            "and interviews — and how recordings, transcripts and media work. You can Skip any time and " +
-            "reopen this from the menu later."
+        "Ten steps, in this order",
+        "This is the documentation process the whole repository is built around, and it is the same ten steps in the same order on the web. Work down it once and you will not need the guide again. You can leave at any point and reopen this from the menu."
     ),
     WalkStep(
-        "Your dashboard",
-        "The home screen shows repository totals and a tile for each record type. Tap a tile's “New” " +
-            "to add a record, or “Update existing” to find and edit one."
+        "1. Workshop \u00b7 Record workshop",
+        "Open the workshop you are documenting under — or create it — before you record anything " +
+            "else. Every record you make is scoped to a workshop. Products, tools and interviews all " +
+            "carry a linked workshop, and the Data Browser opens on \"By workshop\", which files the " +
+            "whole repository under the workshop it was recorded in. On a create form the most recent " +
+            "workshop you have access to is preselected, so getting this right once saves you picking " +
+            "it on every screen afterwards. Watch out: Create the workshop before you leave for the " +
+            "field — it is the container everything else drops into."
     ),
     WalkStep(
-        "The menu (☰)",
-        "Tap the menu at the top-right to jump straight to any record type, your own activity, app " +
-            "feedback, this walkthrough, and to sign out."
+        "2. Craft \u00b7 Add craft",
+        "Add the craft being documented so artisans, products and tools have something to hang " +
+            "off. Craft is the shared vocabulary of the repository: artisans link to a craft, " +
+            "products and tools inherit the craft name from it, and the Data Browser groups every " +
+            "workshop's contents by craft. Adding it once keeps spellings consistent across " +
+            "everyone's records. Watch out: Check the list first — if the craft already exists, reuse " +
+            "it instead of creating a near-duplicate spelling."
     ),
     WalkStep(
-        "Artisans, crafts & products",
-        "Fill the form fields (required ones are highlighted). Products and tools link to a craft and an " +
-            "artisan — choose the linked craft first, then the artisan, and the names fill in for you."
+        "3. Artisan \u00b7 Record artisan",
+        "Record the person: who they are, where they work, how to reach them, and what they have " +
+            "learnt. The artisan is the anchor of the dataset. Products, processes, tools and " +
+            "questionnaire interviews all link back to an artisan record, and the Do's and Don'ts are " +
+            "the artisan's own hard-won craft knowledge — the part of the archive that cannot be " +
+            "reconstructed later. Watch out: Do's and Don'ts are required. Press Enter for each new " +
+            "point — one lesson per line."
     ),
     WalkStep(
-        "Attach photos, video & audio",
-        "Every form has an attach-media section: capture or pick files. They upload as you go with a live " +
-            "progress card, and you can remove any file with the ✕ cross before saving."
+        "4. Product \u00b7 Record product",
+        "Record one thing this artisan makes, with its measurements, economics and photographs. " +
+            "The product record is where the craft becomes measurable: dimensions, cost of making, " +
+            "selling price and market demand are the fields researchers compare across regions. Link " +
+            "it to the artisan and the craft and the whole chain stays navigable. Watch out: Pick the " +
+            "linked craft first — the artisan dropdown stays disabled until a craft is chosen, then " +
+            "only lists that craft's artisans."
     ),
     WalkStep(
-        "Measure with the grid",
-        "On products and tools, “Document using grid” reads length/breadth/height from a photo of the " +
-            "object on a 1-inch grid sheet and fills the fields. Remove a grid photo with its ✕."
+        "5. Process \u00b7 Document process",
+        "Walk through how that product is made, one step at a time, filming each step as it " +
+            "happens. The process is the craft itself. A product photograph shows the result; the " +
+            "step-by-step record with per-step media shows the knowledge — the sequence, the hand " +
+            "movements, the judgement calls that a text description always loses. Watch out: Add a " +
+            "step with \"Add Another Step\" and pick Sequential for an ordered stage, or Group of " +
+            "activities for things done together."
     ),
     WalkStep(
-        "Questionnaire interviews",
-        "Pick the artisan(s), then record each question — or a whole section in one take. Clips upload as " +
-            "you record, shown in a per-section card and an all-recordings card, and audio is transcribed " +
-            "automatically."
+        "6. Tool \u00b7 Record tool",
+        "Record the toolkit the artisan uses: what it is made of, how big it is, who made it, " +
+            "what it costs to replace. Tools are the most quietly endangered part of a craft — the " +
+            "maker of a tool often disappears before the craft does. Replacement cost, maker and " +
+            "tradition type are the fields that record whether the toolchain behind the craft is " +
+            "still alive. Watch out: Fill only the dimensions that make sense for the tool — a blade " +
+            "has a length and thickness, a wheel has a radius."
     ),
     WalkStep(
-        "Transcripts & AI refine",
-        "Under each audio transcript, tap “Refine transcript” (or “Refine & translate”) to turn it " +
-            "into a clean interviewer/interviewee conversation, then Approve it to save it in place of the " +
-            "raw text. These use AI and cost a little, so you'll be asked to confirm."
+        "7. Questionnaire \u00b7 Take interview",
+        "Sit down with the artisan and work through the interview sections, recording each answer " +
+            "as audio. The questionnaire is the artisan speaking in their own voice and their own " +
+            "language. Recorded audio is auto-transcribed on the server, so you get both the original " +
+            "recording and searchable text without typing during the interview. Watch out: There is " +
+            "one interview per exact set of artisans. If an entry already exists for that set, saving " +
+            "adds your answers to it — it never creates a duplicate."
     ),
     WalkStep(
-        "Browse & view data",
-        "“View Data → Browse records” lets you pick a record type and entry to view everything, " +
-            "including transcribed audio. For questionnaires, choose the involved artisan(s) first."
+        "8. Miscellaneous Media \u00b7 Upload media",
+        "Upload the photographs, video, audio and files that do not belong to any single record. " +
+            "Field work produces context that no form has a slot for: the road into the village, the " +
+            "market, an unplanned conversation. Miscellaneous Media keeps that material inside the " +
+            "repository instead of on a phone that gets wiped. Watch out: Upload stays disabled until " +
+            "you pick a Linked record type. If the file belongs to nothing in particular, pick " +
+            "\"Miscellaneous Media\" and leave the entry blank."
     ),
     WalkStep(
-        "Staying up to date",
-        "When a newer app version is published you'll be prompted to update the next time you open the app " +
-            "— just tap “Update now”. That's it — you're ready to go!"
+        "9. Review \u00b7 Track your submissions",
+        "Everything you submit goes into the review queue and comes back Approved, Rejected, or " +
+            "Sent for revision. Review is what turns a pile of field notes into a dataset anyone can " +
+            "cite. It also means you are never the last check on your own work — a reviewer above " +
+            "your tier reads every record before it counts as final. Watch out: Below Professor the " +
+            "status chip is locked: whatever you create is submitted as Pending. That is normal, not " +
+            "an error."
+    ),
+    WalkStep(
+        "10. View Data \u00b7 Browse records",
+        "Browse the whole repository as a directory tree and export a report of any subtree. This " +
+            "is where the documentation stops being data entry and starts being research material: " +
+            "the same records, filed three different ways, previewable in place and downloadable as a " +
+            "spreadsheet. Watch out: Pick a folder, then use the breadcrumb to move back up — the " +
+            "tree loads lazily as you expand it."
+    ),
+    WalkStep(
+        "Before you leave the field",
+        "A missing field is a phone call; a missing recording is another trip. Every artisan you " +
+            "spoke to has a record with Do's and Don'ts. Every product you photographed has its " +
+            "dimensions and its costs. Every process has its steps in order, and the steps have " +
+            "video. Every tool has a material, a maker and a replacement cost. The questionnaire's " +
+            "completion matrix has no unexplained gaps. Anything you shot that has no home is in " +
+            "Miscellaneous Media."
     )
 )
 
