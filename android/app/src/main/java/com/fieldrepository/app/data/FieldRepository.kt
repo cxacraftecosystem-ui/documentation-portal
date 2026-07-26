@@ -174,6 +174,20 @@ class FieldRepository(
 
     suspend fun stats(): DashboardStats = api.dashboardStats()
 
+    /**
+     * The state / union-territory list an address form renders its dropdown from.
+     *
+     * Cached for the life of the process. The payload is a server-side constant, so re-asking on
+     * every form would buy nothing; a FAILURE is deliberately not cached, so the next form that opens
+     * after the phone finds signal asks again rather than being stuck with an empty dropdown for the
+     * rest of the session.
+     */
+    suspend fun addressReference(): AddressReferenceDto =
+        cachedAddressReference ?: api.addressReference().also { cachedAddressReference = it }
+
+    @Volatile
+    private var cachedAddressReference: AddressReferenceDto? = null
+
     suspend fun users(): List<UserDto> = api.users(pageSize = 100).items
 
     suspend fun updateUserQuestionnaireAccess(id: String, canManageQuestionnaire: Boolean): UserDto =
@@ -458,7 +472,17 @@ class FieldRepository(
      * five buckets share one [page]/[pageSize] but each has its own length and its own total, so page
      * against `totals`/`pageCount`, never against how full one bucket happens to be.
      *
-     * [dateFrom]/[dateTo] are ISO-8601. [pageSize] is capped at 50 server-side.
+     * Every filter ANDs: a query plus a place plus a date range narrows to the rows satisfying all
+     * three, never their union.
+     *
+     * [types] names the buckets to search in the API's own PLURAL vocabulary — `artisans`,
+     * `workshops`, `products`, `tools`, `media` — not the singular record type a search hit reports.
+     * Null or empty searches all five. An unrecognised name is a 422 rather than a silent omission,
+     * so nothing here invents one: the caller passes the canonical list and this only tidies it.
+     *
+     * [dateFrom]/[dateTo] are ISO-8601 instants. The API takes DATES, never preset names — "Last 30
+     * days" is a phrase in a UI and only the client knows the clock it is counted against — so the
+     * caller resolves its presets before it gets here. [pageSize] is capped at 50 server-side.
      */
     suspend fun search(
         q: String? = null,
@@ -466,6 +490,7 @@ class FieldRepository(
         place: String? = null,
         artisanId: String? = null,
         mediaType: String? = null,
+        types: List<String>? = null,
         dateFrom: String? = null,
         dateTo: String? = null,
         page: Int = 1,
@@ -477,6 +502,11 @@ class FieldRepository(
             place = place?.blankToNull(),
             artisanId = artisanId?.blankToNull(),
             mediaType = mediaType?.blankToNull(),
+            types = types
+                ?.mapNotNull { it.trim().lowercase().blankToNull() }
+                ?.distinct()
+                ?.takeIf { it.isNotEmpty() }
+                ?.joinToString(","),
             dateFrom = dateFrom?.blankToNull(),
             dateTo = dateTo?.blankToNull(),
             page = page,

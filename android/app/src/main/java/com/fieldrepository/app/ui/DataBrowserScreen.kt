@@ -460,8 +460,11 @@ fun DataBrowserScreen(
     var reporting by remember { mutableStateOf(false) }
     var savingMediaId by remember { mutableStateOf<String?>(null) }
     var viewing by remember { mutableStateOf<DataTreeEntryDto?>(null) }
-    var jumpQuery by remember { mutableStateOf("") }
-    val jump = rememberQuickSearch(repository, jumpQuery)
+    // The whole filter set, not just the text, and held HERE rather than inside the panel so that
+    // changing one filter cannot reset the others: the panel is an item in a LazyColumn, and a
+    // scrolled-away item is disposed along with anything it remembered.
+    var jumpFilters by remember { mutableStateOf(SearchFilters()) }
+    val jump = rememberQuickSearch(repository, jumpFilters)
 
     BackHandler(enabled = true) { if (!state.canGoUp || !state.goUp()) onBack() }
 
@@ -522,8 +525,8 @@ fun DataBrowserScreen(
             // known artisan is the slowest thing this screen asks of a researcher.
             item("jump") {
                 JumpToRecordPanel(
-                    query = jumpQuery,
-                    onQueryChange = { jumpQuery = it },
+                    filters = jumpFilters,
+                    onFiltersChange = { jumpFilters = it },
                     search = jump,
                     locating = state.locating,
                     unfiled = state.unfiled,
@@ -930,14 +933,17 @@ private fun RestrictedPanel() {
 }
 
 /**
- * Search straight to a folder. The rows are the Search screen's own — same debounce, same shape —
- * but tapping one resolves the record to a tree path and navigates the browser there instead of
- * opening an edit form, because this screen is where the record's FILES live.
+ * Search straight to a folder. The box, the chips, the filter sheet, the debounce and the rows are
+ * the Search screen's own — [SearchFilterBar] and [rememberQuickSearch], not a second copy of
+ * either — but tapping a hit resolves the record to a tree path and navigates the browser there
+ * instead of opening an edit form, because this screen is where the record's FILES live.
+ *
+ * That is the whole difference between the two surfaces: same question, different destination.
  */
 @Composable
 private fun JumpToRecordPanel(
-    query: String,
-    onQueryChange: (String) -> Unit,
+    filters: SearchFilters,
+    onFiltersChange: (SearchFilters) -> Unit,
     search: QuickSearchState,
     locating: String?,
     unfiled: String?,
@@ -958,20 +964,22 @@ private fun JumpToRecordPanel(
             )
         }
         OutlinedTextField(
-            value = query,
-            onValueChange = onQueryChange,
+            value = filters.query,
+            onValueChange = { onFiltersChange(filters.copy(query = it)) },
             label = { Text("Search the repository") },
             singleLine = true,
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
             trailingIcon = {
-                if (query.isNotBlank()) {
-                    IconButton(onClick = { onQueryChange("") }) {
+                if (filters.query.isNotBlank()) {
+                    IconButton(onClick = { onFiltersChange(filters.copy(query = "")) }) {
                         Icon(Icons.Filled.Close, contentDescription = "Clear search", modifier = Modifier.size(18.dp))
                     }
                 }
             },
             modifier = Modifier.fillMaxWidth()
         )
+        // Directly under the field, so the chips read as part of the search and not a separate tool.
+        SearchFilterBar(value = filters, onChange = onFiltersChange)
         Text(
             "Find an artisan, workshop, product, tool or media file and open the folder that holds it.",
             style = MaterialTheme.typography.bodySmall,
@@ -988,13 +996,22 @@ private fun JumpToRecordPanel(
         if (search.loading && search.hits.isEmpty()) LoadingRow("Searching…")
         if (search.searched && !search.loading && search.hits.isEmpty() && search.error == null) {
             Text(
-                "No matching records.",
+                if (filters.query.isBlank()) "Nothing matches these filters." else "No matching records.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
         search.hits.forEach { hit ->
             SearchResultRow(row = hit, onOpen = { onOpenHit(hit) })
+        }
+        // Only the first few hits fit above a folder listing, so say when there are more rather than
+        // letting the shortlist read as the whole answer.
+        if (search.total > search.hits.size) {
+            Text(
+                "Showing ${search.hits.size} of ${search.total}. Narrow the filters to see the rest.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
         if (locating != null) LoadingRow("Opening the folder…")
         unfiled?.let { message ->

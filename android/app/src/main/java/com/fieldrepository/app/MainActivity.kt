@@ -9,6 +9,7 @@ import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.provider.Settings
 import android.content.pm.PackageManager
+import android.location.Geocoder
 import android.location.LocationManager
 import android.media.MediaRecorder
 import android.net.Uri
@@ -238,6 +239,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import com.fieldrepository.app.data.ArtisanDto
 import com.fieldrepository.app.data.ArtisanAnswerDto
 import com.fieldrepository.app.data.ArtisanDetailDto
@@ -245,6 +247,7 @@ import com.fieldrepository.app.data.ArtisanQuestionnaireDto
 import com.fieldrepository.app.data.CraftDto
 import com.fieldrepository.app.data.CreatedRecordDto
 import com.fieldrepository.app.data.AppScope
+import com.fieldrepository.app.data.AddressReferenceDto
 import com.fieldrepository.app.data.LocationDto
 import com.fieldrepository.app.data.AppReleaseDto
 import com.fieldrepository.app.data.FeedbackDto
@@ -260,9 +263,13 @@ import com.fieldrepository.app.data.WorkshopSubmissionCheckDto
 import com.fieldrepository.app.data.titleCasePreview
 import androidx.compose.runtime.DisposableEffect
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.withContext
+import java.util.Locale
 import com.fieldrepository.app.data.ProductDetailDto
 import com.fieldrepository.app.data.ProcessCreateRequest
 import com.fieldrepository.app.data.ProcessDetailDto
@@ -578,7 +585,8 @@ private fun LoginScreen(
     ) {
         Text(
             text = "Field Repository",
-                        fontSize = 34.sp,
+            display = true,
+            fontSize = 34.sp,
             color = MaterialTheme.colorScheme.onBackground
         )
         Text(
@@ -1016,13 +1024,16 @@ private fun HomeScreen(
                         onBack = { attemptExit { goBack() } }
                     )
 
-                    else ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
+                    else -> {
+                // Hoisted out of the modifier so the island bar can be told how far this page has
+                // travelled. It is handed over as a lambda below, never as a number — see
+                // FieldIslandNav's `scrollOffset`.
+                val pageScroll = rememberScrollState()
+                // Two Columns, and the split is the whole point: the bar lives in the OUTER one, which
+                // does not scroll, so it stays put while the page moves underneath it and can collapse
+                // in response. It used to be the first child of the scroller, which meant it simply
+                // slid off the top — a collapsing bar you cannot see collapse.
+                Column(modifier = Modifier.fillMaxSize()) {
         /*
          * The island bar, the web's DynamicIslandNav on the phone.
          *
@@ -1049,6 +1060,10 @@ private fun HomeScreen(
             adminMode = if (isAdmin) adminView else null,
             onToggleAdminView = { adminView = !adminView },
             currentLabel = headerTitle,
+            // A lambda, not `pageScroll.value`: reading the offset here would make every frame of
+            // every scroll recompose this whole screen. The bar reads it inside its own derived
+            // state, where it feeds one Boolean.
+            scrollOffset = { pageScroll.value },
             roots = navItems.filter { it.group == null }
                 .map { entry -> IslandEntry(entry.label, entry.icon) { navigate(entry.destination) } },
             groups = NavGroup.entries.map { group ->
@@ -1069,6 +1084,13 @@ private fun HomeScreen(
             }
         )
 
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(pageScroll),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             // The dashboard is the root of every path, so only the screens below it get a back arrow.
             if (screen !is Screen.Dashboard) {
@@ -1083,7 +1105,8 @@ private fun HomeScreen(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     headerTitle,
-                                        fontSize = 28.sp,
+                    display = true,
+                    fontSize = 28.sp,
                     color = MaterialTheme.colorScheme.onBackground
                 )
                 Text("${user.name} · ${user.role}${if (adminView) " · admin view" else ""}", color = Muted, fontSize = 13.sp)
@@ -1399,6 +1422,8 @@ private fun HomeScreen(
 
                 }
                 }
+                }
+                }
 
                 /*
                  * The dialogs sit OUTSIDE the layout branch above. They are their own windows, so
@@ -1645,7 +1670,7 @@ private fun SettingsScreen(
             }
             return@RecordCard
         }
-        Text("Transcription output", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+        Text("Transcription output", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
         Text(
             "How recorded audio is turned into text after upload. Refinement/translation use AI and " +
                 "always await your approval before they become the saved transcript.",
@@ -1659,7 +1684,7 @@ private fun SettingsScreen(
         HorizontalDivider()
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Process during an off-peak window", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+                Text("Process during an off-peak window", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
                 Text(
                     "When on, transcription & refinement run only between the times below (IST), so the " +
                         "heavy work happens when nobody is uploading. When off, they run immediately.",
@@ -1765,7 +1790,7 @@ private fun CarryForwardPanel(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Saved ${prefill.artisanName ?: "artisan"} ✓", fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
+            Text("Saved ${prefill.artisanName ?: "artisan"} ✓", display = true, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
             Text("Keep going for the same artisan — details are pre-filled.", color = Muted, fontSize = 12.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 Button(onClick = { onSelect(EntryMode.PRODUCT) }, modifier = Modifier.weight(1f)) { Text("Add product") }
@@ -1837,7 +1862,7 @@ private fun DashboardScreen(
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {
-        Text("What would you like to do?", fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
+        Text("What would you like to do?", display = true, fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
         tiles.chunked(columns).forEach { rowItems ->
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1886,7 +1911,7 @@ private fun DashboardScreen(
         }
         StatsCard(stats = stats, onOpenSearchFor = onOpenSearchFor, onOpenReviews = onOpenReviews)
         if (recentArtisans.isNotEmpty()) {
-            Text("Recent artisans", fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
+            Text("Recent artisans", display = true, fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
             recentArtisans.take(6).forEach { artisan ->
                 val interaction = remember(artisan.id) { MutableInteractionSource() }
                 val pressed by interaction.collectIsPressedAsState()
@@ -1918,7 +1943,7 @@ private fun DashboardScreen(
                             }
                             .padding(12.dp)
                     ) {
-                        Text(artisan.name, fontWeight = FontWeight.SemiBold)
+                        Text(artisan.name, display = true, fontWeight = FontWeight.SemiBold)
                         Text("${artisan.craft?.name ?: "No craft"} · ${artisan.place}", color = Muted, fontSize = 12.sp)
                     }
                 }
@@ -1995,6 +2020,7 @@ private fun DashboardActionCard(tile: DashboardTile, modifier: Modifier = Modifi
             }
             Text(
                 tile.label,
+                display = true,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
@@ -2042,7 +2068,7 @@ private fun StatsCard(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
-            Text("Repository totals", color = MaterialTheme.field.onBrandTile, fontSize = 24.sp)
+            Text("Repository totals", display = true, color = MaterialTheme.field.onBrandTile, fontSize = 24.sp)
             Spacer(Modifier.height(12.dp))
             if (stats == null) {
                 Text("Loading...", color = MaterialTheme.field.onBrandTileMuted)
@@ -2135,7 +2161,7 @@ private fun Stat(
             )
             .padding(12.dp)
     ) {
-        Text(value.toString(), color = MaterialTheme.field.onBrandTile, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+        Text(value.toString(), display = true, color = MaterialTheme.field.onBrandTile, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
         Text(label, color = MaterialTheme.field.onBrandTileMuted, fontSize = 12.sp)
     }
 }
@@ -2381,7 +2407,11 @@ private fun locationForBody(isEdit: Boolean, current: LocationRequest?, original
     if (current == null) return null
     if (original != null &&
         kotlin.math.abs(current.latitude - original.latitude) < 1e-6 &&
-        kotlin.math.abs(current.longitude - original.longitude) < 1e-6
+        kotlin.math.abs(current.longitude - original.longitude) < 1e-6 &&
+        // The postal half counts as a change too. Comparing only the coordinate meant a researcher
+        // could add the state and pincode to a legacy location, save, and watch both answers vanish.
+        current.state == original.state &&
+        current.pincode == original.pincode
     ) {
         return null
     }
@@ -2396,8 +2426,279 @@ private fun LocationDto.toRequest(): LocationRequest =
         altitude = altitude,
         accuracy = accuracy,
         address = address,
-        placeName = placeName ?: address
+        placeName = placeName ?: address,
+        state = state,
+        pincode = pincode
     )
+
+// ---------------------------------------------------------------------------
+// The postal half of an address: state (closed list) and pincode (6 digits).
+// ---------------------------------------------------------------------------
+
+/** Indian PIN codes are six digits and never begin with 0 — the first digit is the postal zone. */
+private const val PINCODE_LENGTH = 6
+
+/**
+ * The reason [value] is not a usable pincode, or null when it is fine (blank included — the field is
+ * optional). Same three checks, in the same order and with the same sentences, as `pincode_error` in
+ * backend/app/services/address.py, so the researcher reads one message whether it was caught here or
+ * by the API — and reads it before the round trip rather than as a 422 after it.
+ */
+private fun pincodeValidationError(value: String?): String? {
+    val digits = value?.trim().orEmpty()
+    if (digits.isEmpty()) return null
+    // ASCII digits only, for the same reason as the Aadhaar validator: Char.isDigit() admits the
+    // Devanagari and fullwidth digits an Indic IME produces, and those would be stored verbatim,
+    // giving one village two pincodes no query could ever match to each other.
+    if (!digits.all { it in '0'..'9' }) return "Pincode must be 6 digits — remove any letters or symbols."
+    if (digits.length != PINCODE_LENGTH) return "Pincode must be exactly 6 digits (this one has ${digits.length})."
+    if (digits[0] == '0') return "Pincodes never start with 0 — please re-check the first digit."
+    return null
+}
+
+/** A state name reduced to its comparison key, exactly as `_fold` in services/address.py does it. */
+private fun foldStateName(value: String): String =
+    value.lowercase().replace("&", "and").filter { it in 'a'..'z' || it in '0'..'9' }
+
+/**
+ * The entry of [states] that [text] names, or "" when nothing on the list matches.
+ *
+ * The geocoder's wording is not the register's ("NCT of Delhi", "Daman and Diu"), so an exact fold is
+ * tried first and a containment match second — long enough on either side that a short name like Goa
+ * cannot be swallowed by an unrelated word. Returning "" rather than the raw text is deliberate: the
+ * list is closed, so a name the API would reject is worse than no suggestion at all, and a value the
+ * dropdown cannot show is a value the researcher cannot see, let alone correct.
+ */
+private fun matchIndianState(text: String, states: List<String>): String {
+    val wanted = foldStateName(text)
+    if (wanted.isEmpty()) return ""
+    states.firstOrNull { foldStateName(it) == wanted }?.let { return it }
+    return states.firstOrNull { entry ->
+        val name = foldStateName(entry)
+        (name.length >= 5 && wanted.contains(name)) || (wanted.length >= 5 && name.contains(wanted))
+    }.orEmpty()
+}
+
+/** A geocoded postal code, kept only when it satisfies the same rule the researcher is held to. */
+private fun usablePincode(text: String?): String {
+    val digits = text.orEmpty().filter { it in '0'..'9' }
+    return if (pincodeValidationError(digits) == null) digits else ""
+}
+
+/**
+ * What the device's geocoder says is at these coordinates: (admin area, postal code), either null.
+ *
+ * Runs off the main thread and swallows everything. A geocoder is a network service behind a system
+ * API — absent on some builds, rate-limited on others, and simply wrong about a hamlet often enough
+ * in rural India to matter — so nothing it does may reach the researcher as an error, and nothing it
+ * fails to do may block a save. The worst case here is that the two fields stay empty and are typed.
+ */
+private suspend fun reverseGeocodeAddress(context: Context, lat: Double, lng: Double): Pair<String?, String?> =
+    withContext(Dispatchers.IO) {
+        if (!Geocoder.isPresent()) return@withContext null to null
+        runCatching {
+            @Suppress("DEPRECATION")
+            val results = Geocoder(context, Locale.UK).getFromLocation(lat, lng, 1)
+            val first = results?.firstOrNull() ?: return@runCatching null to null
+            first.adminArea to first.postalCode
+        }.getOrDefault(null to null)
+    }
+
+/**
+ * [LocationEditor] plus the two postal fields the API keeps on the same row: state and pincode.
+ *
+ * WHY THIS WRAPS RATHER THAN EXTENDS. `LocationEditor` rebuilds its [LocationRequest] from scratch on
+ * every coordinate change, so anything this adds would be dropped the next time a digit was typed
+ * into the latitude box. Re-applying the two values inside [onChange] here is what makes them
+ * survive, and keeps the shared editor a coordinate editor.
+ *
+ * WHERE THE TWO VALUES LIVE. On the [LocationRequest] itself, read straight back out of it — no local
+ * mirror, so a record whose location arrives after mount (every edit form fetches its record) shows
+ * what it stored rather than a blank box. A [LocationRequest] cannot exist without a coordinate,
+ * though, so before there is one the answers are parked in [pendingState]/[pendingPincode] and folded
+ * in the moment a fix or a pin arrives. The notice at the bottom says so, because two answers that
+ * silently do not save is the worst version of this.
+ *
+ * PREFILL, NEVER LOCK. A fix or a pin reverse-geocodes and SUGGESTS both, never overwriting something
+ * a human put there and never blocking anything on the geocoder's answer.
+ */
+@Composable
+private fun LocationAddressEditor(
+    repository: FieldRepository,
+    value: LocationRequest?,
+    onUseGps: () -> LocationRequest?,
+    onChange: (LocationRequest?) -> Unit,
+    onMessage: (String) -> Unit = {}
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var states by remember { mutableStateOf<List<String>>(emptyList()) }
+    var pendingState by remember { mutableStateOf("") }
+    var pendingPincode by remember { mutableStateOf("") }
+    /*
+     * What the geocoder last put in each box, and the whole of how "prefill, never lock" is decided.
+     *
+     * Anything in a box that is NOT this came from a human — typed here, or stored on the record and
+     * loaded after mount — and a later pin leaves it alone. Recording what was suggested, rather than
+     * a "the user touched it" flag, is what makes both halves work at once: a second pin can still
+     * replace the FIRST pin's guess, an edit form's stored state is protected without this composable
+     * having to know when the record finished loading, and emptying a field hands it back to the
+     * geocoder. Reverse geocoding is wrong often enough in rural India that overwriting a correction
+     * would be worse than suggesting nothing at all.
+     */
+    val suggested = remember { mutableStateOf<Pair<String?, String?>>(null to null) }
+    // Raised only once the researcher has left the field, so a half-typed code is not narrated back
+    // as an error on the third keystroke (Aadhaar field parity).
+    var pincodeProblemShown by remember { mutableStateOf(false) }
+    // The freshest location, for the geocode callback below: `value` is captured at the composition
+    // that created the lambda, and a lookup started by the very first GPS fix would otherwise come
+    // back and read the null that was there before the fix landed.
+    val latest = rememberUpdatedState(value)
+    // The in-flight reverse-geocode, so a newer point can cancel an older one's answer.
+    val lookup = remember { mutableStateOf<Job?>(null) }
+
+    // Read from the location row itself while one exists — no local mirror, so an edit form whose
+    // record arrives after mount shows what it stored rather than an empty box.
+    val stateName = if (value != null) value.state.orEmpty() else pendingState
+    val pincode = if (value != null) value.pincode.orEmpty() else pendingPincode
+    val pincodeProblem = pincodeValidationError(pincode)
+    val showPincodeProblem = pincodeProblem != null && (pincodeProblemShown || pincode.length == PINCODE_LENGTH)
+
+    LaunchedEffect(Unit) {
+        // Offline, or the endpoint is unhappy: the stored value is still offered below and still
+        // saves. A hard-coded stand-in list is exactly what this fetch exists to avoid.
+        runCatching { repository.addressReference() }
+            .onSuccess { states = it.statesAndUnionTerritories }
+    }
+
+    /** Fold the two postal answers onto whatever coordinate the shared editor just produced. */
+    fun emit(next: LocationRequest?) {
+        if (next == null) {
+            // The coordinate was cleared, and the row the two answers live on goes with it. Park them
+            // so clearing a mis-tapped pin does not also silently discard a typed pincode.
+            pendingState = stateName
+            pendingPincode = pincode
+            onChange(null)
+            return
+        }
+        onChange(next.copy(state = stateName.ifBlank { null }, pincode = pincode.ifBlank { null }))
+    }
+
+    fun setStateName(next: String) {
+        val current = value
+        if (current == null) pendingState = next else onChange(current.copy(state = next.ifBlank { null }))
+    }
+
+    fun setPincode(next: String) {
+        pincodeProblemShown = false
+        val current = value
+        if (current == null) pendingPincode = next else onChange(current.copy(pincode = next.ifBlank { null }))
+    }
+
+    /**
+     * Suggest the state and pincode for the freshly picked point [placed]. Both suggestions are
+     * resolved against the API's own rules first — the region against the served list, the postal code
+     * against the pincode format — so a geocoder answer the server would reject is dropped rather than
+     * offered. A failure is silent and leaves both fields exactly as they were, ready for manual entry.
+     */
+    fun suggestAddressFor(placed: LocationRequest) {
+        // The previous point's answer is no longer the answer, so cancel it: a slow reply must not
+        // land on top of a newer pin.
+        lookup.value?.cancel()
+        lookup.value = scope.launch {
+            // Typing a coordinate by hand re-emits on every keystroke, and each emit is a different
+            // point. Waiting out the typing keeps this to one lookup per place rather than one per
+            // digit — the same reason the Aadhaar duplicate check above waits.
+            delay(400)
+            val (region, postal) = reverseGeocodeAddress(context, placed.latitude, placed.longitude)
+            val suggestedState = region?.let { matchIndianState(it, states) }.orEmpty()
+            val suggestedPincode = usablePincode(postal)
+            if (suggestedState.isBlank() && suggestedPincode.isBlank()) return@launch
+            // The researcher may have moved the pin again, or cleared it, while the lookup ran; the
+            // newer coordinate is the one that must survive, so an answer for an old point is dropped.
+            val current = latest.value ?: return@launch
+            if (!sameCoordinate(placed, current)) return@launch
+            val stateIsHuman = !current.state.isNullOrBlank() && current.state != suggested.value.first
+            val pincodeIsHuman = !current.pincode.isNullOrBlank() && current.pincode != suggested.value.second
+            val nextState = if (stateIsHuman || suggestedState.isBlank()) current.state else suggestedState
+            val nextPincode = if (pincodeIsHuman || suggestedPincode.isBlank()) current.pincode else suggestedPincode
+            if (nextState == current.state && nextPincode == current.pincode) return@launch
+            suggested.value = nextState to nextPincode
+            pincodeProblemShown = false
+            onChange(current.copy(state = nextState, pincode = nextPincode))
+        }
+    }
+
+    LocationEditor(
+        value = value,
+        onUseGps = onUseGps,
+        onChange = { next ->
+            val hadCoordinate = value != null
+            emit(next)
+            // Only a NEW point is worth a lookup; retyping a decimal place on an existing one is not.
+            if (next != null && (!hadCoordinate || !sameCoordinate(next, value))) suggestAddressFor(next)
+        },
+        onMessage = onMessage
+    )
+    DropdownField(
+        label = "State / union territory",
+        options = stateOptionsFor(stateName, states),
+        selectedValue = stateName,
+        placeholder = if (states.isEmpty()) "Loading the state list…" else "Select state"
+    ) { setStateName(it) }
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        OutlinedTextField(
+            value = pincode,
+            // Filtered rather than validated-after-the-fact, so a pasted "380 001" becomes six digits
+            // instead of an error message about spaces.
+            onValueChange = { input -> setPincode(input.filter { it in '0'..'9' }.take(PINCODE_LENGTH)) },
+            label = { Text("Pincode") },
+            placeholder = { Text("700001") },
+            // Narrated the moment the code is complete-but-wrong (a leading zero is the whole of
+            // that case), and otherwise only once the researcher has left the box — five digits on
+            // the way to six is not yet a mistake.
+            isError = showPincodeProblem,
+            supportingText = {
+                val shown = pincodeProblem?.takeIf { showPincodeProblem }
+                Text(
+                    shown ?: "Six digits. A GPS fix or a map pin suggests one — correct it if the map is wrong.",
+                    color = if (shown != null) MaterialTheme.colorScheme.error else Muted,
+                    fontSize = 12.sp
+                )
+            },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { focus -> if (!focus.isFocused && pincode.isNotEmpty()) pincodeProblemShown = true }
+        )
+    }
+    if ((stateName.isNotBlank() || pincode.isNotBlank()) && value == null) {
+        // The API keeps state and pincode ON the location row, which cannot exist without a
+        // coordinate — so say that here rather than letting the two answers vanish at save time.
+        Text(
+            "Add a GPS fix or a map pin: the state and pincode are stored with the coordinates, and " +
+                "without them they are not saved.",
+            color = Coral,
+            fontSize = 12.sp
+        )
+    }
+}
+
+/** Two coordinates the researcher would call the same place (the editor re-emits on every keystroke). */
+private fun sameCoordinate(next: LocationRequest, previous: LocationRequest?): Boolean =
+    previous != null &&
+        kotlin.math.abs(next.latitude - previous.latitude) < 1e-6 &&
+        kotlin.math.abs(next.longitude - previous.longitude) < 1e-6
+
+/**
+ * The dropdown's options: the served list, with the record's own value kept at the front until that
+ * list arrives. Without it an edit form would show "Select state" over a state the record really
+ * holds, which reads as "not answered" and invites the researcher to answer it again.
+ */
+private fun stateOptionsFor(selected: String, states: List<String>): List<Pair<String, String>> =
+    (if (selected.isNotBlank() && selected !in states) listOf(selected) + states else states)
+        .map { it to it }
 
 private suspend fun uploadAttachments(
     repository: FieldRepository,
@@ -2613,7 +2914,7 @@ private fun GridMeasurementSection(
 
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         HorizontalDivider()
-        Text("Document using grid", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+        Text("Document using grid", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
         Text(
             "Place the object on a 1-inch grid sheet. Length and breadth are read from a single top-down " +
                 "photo; height needs its own side-on photo. The measured inches auto-fill the fields (still editable).",
@@ -3340,12 +3641,18 @@ private object AadhaarGroupingTransformation : VisualTransformation {
  * [error] is the (blocking) validation failure; [warning] is the non-blocking duplicate notice naming
  * an artisan already recorded with this number — a warning rather than a block, because the
  * researcher in front of the person is better placed than the app to decide what that means.
+ *
+ * [required] drives the asterisk AND the sentence under the box, and the sentence is the part that
+ * matters. A researcher is about to ask a stranger for a government ID number; being able to say why
+ * — it is the key that stops the same person becoming two records — is the difference between a
+ * reasonable request and an intrusive one.
  */
 @Composable
 private fun ArtisanAadhaarField(
     value: String,
     error: String?,
     warning: String?,
+    required: Boolean,
     focusRequester: FocusRequester,
     onValueChange: (String) -> Unit
 ) {
@@ -3356,7 +3663,7 @@ private fun ArtisanAadhaarField(
             // keyboard — and filter on the ASCII range, because Char.isDigit() would ADMIT the
             // Devanagari and fullwidth digits an Indic IME can produce (see aadhaarValidationError).
             onValueChange = { input -> onValueChange(input.filter { it in '0'..'9' }.take(AADHAAR_LENGTH)) },
-            label = { Text("Aadhaar number") },
+            label = { Text(if (required) "Aadhaar number *" else "Aadhaar number") },
             placeholder = { Text("1234 5678 9012") },
             isError = error != null,
             supportingText = {
@@ -3364,8 +3671,14 @@ private fun ArtisanAadhaarField(
                     Text(error)
                 } else {
                     Text(
-                        "12 digits from the artisan's card. Used to recognise someone another " +
-                            "researcher has already documented.",
+                        if (required) {
+                            "Required. 12 digits from the artisan's card — it is the key that stops " +
+                                "the same artisan being recorded twice by two researchers. Stored " +
+                                "securely and shown as XXXX XXXX 9012 everywhere but this form."
+                        } else {
+                            "This artisan was recorded before an Aadhaar number was required, so the " +
+                                "record still saves without one — add it only if the artisan is willing."
+                        },
                         color = Muted,
                         fontSize = 12.sp
                     )
@@ -3728,7 +4041,7 @@ private fun MediaCaptureSection(
 
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         HorizontalDivider()
-        Text("Attach media", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+        Text("Attach media", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
         Text(
             "Photos, video, audio and files link to this record automatically. Audio is queued for transcription after upload.",
             color = Muted,
@@ -3807,7 +4120,8 @@ private fun MediaCaptureSection(
             RecordingIndicator(getAmplitude = { runCatching { recorder?.maxAmplitude ?: 0 }.getOrDefault(0) })
         }
         beforeLocation?.invoke()
-        LocationEditor(
+        LocationAddressEditor(
+            repository = repository,
             value = media.location,
             onUseGps = {
                 permissionLauncher.launch(requiredAndroidPermissions())
@@ -4496,6 +4810,19 @@ private fun ArtisanForm(
     var pehchanError by remember { mutableStateOf<String?>(null) }
     // Non-blocking: an artisan already recorded with the Aadhaar number being typed.
     var aadhaarDuplicate by remember(editing) { mutableStateOf<String?>(null) }
+    /*
+     * Aadhaar is what stops one artisan becoming two records, so a NEW artisan must come with one —
+     * `POST /artisans` answers 422 without it, and the form would simply be broken if it let the
+     * researcher reach that.
+     *
+     * On EDIT it is required only when the record already carries one. Thousands of artisans were
+     * documented before the column existed, and a researcher correcting a phone number on one of
+     * those must not be blocked behind a government ID they may have no way to obtain — the choice
+     * is between a corrected phone number and no correction at all, never between a phone number and
+     * an Aadhaar. Once a record HAS a number, clearing it is still refused: that is data loss rather
+     * than a legacy gap. Mirrors `aadhaarRequired` in components/forms/ArtisanForm.tsx.
+     */
+    val aadhaarRequired = !isEdit || !editing?.aadhaarNumber.isNullOrBlank()
     val nameFocus = remember { FocusRequester() }
     val placeFocus = remember { FocusRequester() }
     val craftFocus = remember { FocusRequester() }
@@ -4556,9 +4883,17 @@ private fun ArtisanForm(
             onError("Fix the email highlighted above."); return
         }
         emailError = null
-        // Aadhaar (optional) must be a genuine number when present — the same three checks the API
-        // runs, applied here so a bad digit is caught with the card still in hand and without needing
-        // a connection at all (this form saves offline).
+        // Aadhaar. Presence first, then shape. Both are checked HERE rather than left to the API:
+        // this form saves offline, so a form that only learned the number was missing from a 422
+        // would let a researcher walk away from the artisan with an unsavable record in hand.
+        if (aadhaarRequired && aadhaar.isBlank()) {
+            aadhaarError = "Enter the artisan's 12-digit Aadhaar number. It is how the repository " +
+                "recognises someone another researcher has already documented."
+            runCatching { aadhaarFocus.requestFocus() }
+            onError("The Aadhaar number is required — see the highlighted field."); return
+        }
+        // ...and it must be a genuine number when present — the same three checks the API runs,
+        // applied here so a bad digit is caught with the card still in hand.
         aadhaarValidationError(aadhaar)?.let { msg ->
             aadhaarError = msg
             runCatching { aadhaarFocus.requestFocus() }
@@ -4723,6 +5058,7 @@ private fun ArtisanForm(
             value = aadhaar,
             error = aadhaarError,
             warning = aadhaarDuplicate,
+            required = aadhaarRequired,
             focusRequester = aadhaarFocus
         ) { aadhaar = it; aadhaarError = null }
         DropdownField(
@@ -5421,7 +5757,7 @@ private fun ToolStagesSection(
 
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         HorizontalDivider()
-        Text("Process stages", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+        Text("Process stages", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
         Text(
             "Document each step of making or using this tool. Captures are archived in order as STAGE_STEP_1, STAGE_STEP_2, …",
             color = Muted,
@@ -5811,7 +6147,7 @@ private fun ProcessForm(
         }
 
         HorizontalDivider()
-        Text("Steps", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+        Text("Steps", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
         if (stepsError != null) Text(stepsError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
 
         steps.forEachIndexed { index, step ->
@@ -6025,7 +6361,7 @@ private fun MyActivityScreen(
                         .clickable { onOpen(item.mode, item.id) }
                 ) {
                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(item.title, color = Body, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        Text(item.title, display = true, color = Body, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                         Text(
                             item.subtitle + (formatIsoDate(item.createdAt)?.let { " · $it" } ?: ""),
                             color = Muted,
@@ -6474,7 +6810,7 @@ private fun WalkthroughDialog(onDismiss: () -> Unit) {
         title = {
             Column {
                 Text("Walkthrough · ${step + 1}/${steps.size}", color = Muted, fontSize = 11.sp)
-                Text(current.title, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
+                Text(current.title, display = true, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
             }
         },
         text = { Text(current.body, fontSize = 14.sp, color = Body) },
@@ -6656,9 +6992,9 @@ private fun MarkdownText(markdown: String, color: Color = Body) {
             when {
                 line.isEmpty() -> Spacer(Modifier.height(2.dp))
                 isRule -> HorizontalDivider(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), color = Muted)
-                line.startsWith("### ") -> Text(parseInlineMarkdown(line.removePrefix("### ")), color = color, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                line.startsWith("## ") -> Text(parseInlineMarkdown(line.removePrefix("## ")), color = color, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                line.startsWith("# ") -> Text(parseInlineMarkdown(line.removePrefix("# ")), color = color, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                line.startsWith("### ") -> Text(parseInlineMarkdown(line.removePrefix("### ")), display = true, color = color, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                line.startsWith("## ") -> Text(parseInlineMarkdown(line.removePrefix("## ")), display = true, color = color, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                line.startsWith("# ") -> Text(parseInlineMarkdown(line.removePrefix("# ")), display = true, color = color, fontWeight = FontWeight.Bold, fontSize = 17.sp)
                 line.startsWith("- ") || line.startsWith("* ") -> Row(modifier = Modifier.fillMaxWidth()) {
                     Text("•  ", color = color, fontSize = 13.sp)
                     Text(parseInlineMarkdown(line.drop(2)), color = color, fontSize = 13.sp)
@@ -6712,7 +7048,7 @@ private fun RecordMediaSection(
         loading = false
     }
     HorizontalDivider()
-    Text("Media & transcripts", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+    Text("Media & transcripts", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
     when {
         loading -> Text("Loading media…", color = Muted, fontSize = 12.sp)
         media.isEmpty() -> Text("No media attached.", color = Muted, fontSize = 12.sp)
@@ -6853,7 +7189,7 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
             Text("Loading your feedback…", color = Muted, fontSize = 12.sp)
         } else {
             // ---- Quantitative ----
-            Text("Ratings", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+            Text("Ratings", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
             Text("Overall rating", color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
             StarRatingInput(rating = rating) { rating = it }
             Text(
@@ -6877,7 +7213,7 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
 
             HorizontalDivider()
             // ---- Qualitative ----
-            Text("In your words", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+            Text("In your words", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
             TextInput("Your role (e.g. researcher, field documenter)", role) { role = it }
             TextInput("What do you like most?", likeMost, minLines = 2) { likeMost = it }
             TextInput("What should we improve?", improve, minLines = 2) { improve = it }
@@ -7001,7 +7337,7 @@ private fun MasterFeedbackCard(repository: FieldRepository, onError: (String) ->
                             .padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text(fb.user?.name ?: "Unknown user", color = Body, fontWeight = FontWeight.SemiBold)
+                        Text(fb.user?.name ?: "Unknown user", display = true, color = Body, fontWeight = FontWeight.SemiBold)
                         fb.user?.email?.let { Text(it, color = Muted, fontSize = 11.sp) }
                         if (!fb.role.isNullOrBlank()) Text("Role: ${fb.role}", color = Muted, fontSize = 11.sp)
 
@@ -7275,7 +7611,7 @@ private fun AdminHubScreen(
                         Icon(entry.icon, contentDescription = null, tint = Canvas, modifier = Modifier.size(20.dp))
                     }
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(entry.label, color = Body, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        Text(entry.label, display = true, color = Body, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                         Text(entry.description, color = Muted, fontSize = 12.sp)
                     }
                     Text("›", color = Muted, fontSize = 20.sp)
@@ -8211,7 +8547,7 @@ private fun ViewDataDetail(
                 DetailRow("Status", d.status)
                 if (d.media.isNotEmpty()) {
                     HorizontalDivider()
-                    Text("Pre-process media", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+                    Text("Pre-process media", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
                     d.media.forEach { MediaWithTranscript(context, it, repository) }
                 }
                 d.steps.forEach { step ->
@@ -8359,11 +8695,11 @@ private fun ViewDataDetail(
                     .distinctBy { it.questionId to it.answerText }
                 if (allResponses.isNotEmpty()) {
                     HorizontalDivider()
-                    Text("Answers", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+                    Text("Answers", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
                     allResponses.forEach { r -> DetailRow(r.answeredBy?.name ?: "Answer", r.answerText) }
                 }
                 HorizontalDivider()
-                Text("Recordings & media", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+                Text("Recordings & media", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
                 if (groupMedia.isEmpty()) Text("No media attached.", color = Muted, fontSize = 12.sp)
                 else groupMedia.forEach { MediaWithTranscript(context, it, repository) }
             }
@@ -8421,7 +8757,7 @@ private fun RecordCollabSection(
     LaunchedEffect(recordType, recordId) { reload() }
 
     RecordCard(title = "Comments & edit history") {
-        Text("Comments", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+        Text("Comments", display = true, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
         if (comments.isEmpty()) Text("No comments yet.", color = Muted, fontSize = 12.sp)
         comments.forEach { c ->
             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -8446,7 +8782,7 @@ private fun RecordCollabSection(
         }
         revisions?.let { revs ->
             HorizontalDivider()
-            Text("Edit history", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text("Edit history", display = true, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             if (revs.isEmpty()) Text("No edits recorded.", color = Muted, fontSize = 12.sp)
             revs.forEach { r ->
                 Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -8635,7 +8971,8 @@ private fun AndroidMediaForm(
         TextInput("Caption", caption, minLines = 2) { caption = it }
         // Web parity (app/(protected)/media/page.tsx): the GPS block closes the form, after the
         // caption — it describes the upload rather than being one of the things being described.
-        LocationEditor(
+        LocationAddressEditor(
+            repository = repository,
             value = location,
             onUseGps = {
                 permissionLauncher.launch(requiredAndroidPermissions())
@@ -8782,7 +9119,7 @@ private fun AndroidMediaForm(
             )
         }
         if (savedMedia.isNotEmpty()) {
-            Text("Recent saved media", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+            Text("Recent saved media", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
             savedMedia.take(10).forEach { item ->
                 AndroidSavedMediaPreview(
                     context = context,
@@ -9278,7 +9615,8 @@ private fun QuestionnaireForm(
             }
             Switch(checked = hideAnswers, onCheckedChange = { hideAnswers = it })
         }
-        LocationEditor(
+        LocationAddressEditor(
+            repository = repository,
             value = capturedLocation,
             onUseGps = { readLastKnownLocation(context) },
             onChange = { capturedLocation = it },
@@ -9323,7 +9661,7 @@ private fun QuestionnaireForm(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("${section.code}. ${section.title}", color = MaterialTheme.colorScheme.onSurface, fontSize = 18.sp)
+                                Text("${section.code}. ${section.title}", display = true, color = MaterialTheme.colorScheme.onSurface, fontSize = 18.sp)
                                 Text(
                                     "${activeQuestions.size} questions · $answeredCount answered" +
                                         (if (sectionSavedMedia.isNotEmpty()) " · ${sectionSavedMedia.size} saved recording(s)" else ""),
@@ -9374,7 +9712,7 @@ private fun QuestionnaireForm(
                                 .flatMap { it.value }
                             if (sectionUploadUris.isNotEmpty()) {
                                 HorizontalDivider()
-                                Text("This section's recordings (uploading)", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                Text("This section's recordings (uploading)", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                                 AttachedUploadsCard(
                                     context = context,
                                     media = qMedia,
@@ -9387,7 +9725,7 @@ private fun QuestionnaireForm(
                             // user can see (and not lose) what was captured earlier, right where it belongs.
                             if (isEdit && sectionSavedMedia.isNotEmpty()) {
                                 HorizontalDivider()
-                                Text("Saved recordings & media for this section", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                Text("Saved recordings & media for this section", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                                 sectionSavedMedia.forEach { MediaWithTranscript(context, it, repository) }
                             }
                         }
@@ -9412,7 +9750,7 @@ private fun QuestionnaireForm(
         // the matching question/section.
         if (qMedia.uris.isNotEmpty()) {
             HorizontalDivider()
-            Text("All recordings (every section)", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+            Text("All recordings (every section)", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
             Text("Every question/section clip across the whole interview, uploading as you record. They link to this interview on save.", color = Muted, fontSize = 12.sp)
             AttachedUploadsCard(context = context, media = qMedia, label = "recording", repository = repository) { uri -> removeClipUri(uri) }
         }
@@ -9422,7 +9760,7 @@ private fun QuestionnaireForm(
             val otherSavedMedia = savedMedia.filterNot { m -> sections.any { captionBelongsToSection(m.caption, it) } }
             if (otherSavedMedia.isNotEmpty()) {
                 HorizontalDivider()
-                Text("Other saved recordings & media", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+                Text("Other saved recordings & media", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
                 otherSavedMedia.forEach { MediaWithTranscript(context, it, repository) }
             }
         }
@@ -9723,7 +10061,7 @@ private fun QuestionnaireBuilder(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("${section.sortOrder}. ${section.code} - ${section.title}", fontWeight = FontWeight.SemiBold)
+                            Text("${section.sortOrder}. ${section.code} - ${section.title}", display = true, fontWeight = FontWeight.SemiBold)
                             Text("${section.questions.size} question(s)", color = Muted, fontSize = 11.sp)
                         }
                         Text(if (expanded) "Hide ▲" else "Edit ▼", color = Body, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -9973,7 +10311,7 @@ private fun UserManagementForm(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(appUser.name, fontWeight = FontWeight.SemiBold)
+                            Text(appUser.name, display = true, fontWeight = FontWeight.SemiBold)
                             Text("${appUser.email} · ${roleLabel(appUser.role)}", color = Muted, fontSize = 12.sp)
                             Text(
                                 if (isMaster) "All privileges (master admin)"
@@ -10190,7 +10528,7 @@ private fun SharingForm(
         incoming.forEach { g ->
             ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard)) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(g.grantee?.name ?: g.granteeId, fontWeight = FontWeight.SemiBold)
+                    Text(g.grantee?.name ?: g.granteeId, display = true, fontWeight = FontWeight.SemiBold)
                     Text(
                         "${g.grantee?.email ?: ""} · ${tierLabel(g.tier)} · ${g.status}" +
                             (if (g.allData) " · all data" else " · ${g.scopeItems.size} records"),
@@ -10218,7 +10556,7 @@ private fun SharingForm(
         outgoing.forEach { g ->
             ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard)) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(g.owner?.name ?: g.ownerId, fontWeight = FontWeight.SemiBold)
+                    Text(g.owner?.name ?: g.ownerId, display = true, fontWeight = FontWeight.SemiBold)
                     Text(
                         "${g.owner?.email ?: ""} · ${tierLabel(g.tier)} · ${g.status}",
                         color = Muted, fontSize = 12.sp
@@ -10367,7 +10705,7 @@ private fun WorkshopAssignmentCard(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(row.user?.name ?: row.userId, color = Body, fontWeight = FontWeight.SemiBold)
+                    Text(row.user?.name ?: row.userId, display = true, color = Body, fontWeight = FontWeight.SemiBold)
                     Text(
                         listOfNotNull(
                             row.user?.email?.takeIf { it.isNotBlank() },
@@ -10432,7 +10770,7 @@ private fun WorkshopAssignmentCard(
         }
 
         HorizontalDivider()
-        Text("Add a researcher", color = Body, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text("Add a researcher", display = true, color = Body, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         // Anyone already on the roster is reachable through their own row above, so they are not
         // offered here — granting them again from this picker would be a second way to do one thing.
         val onRoster = roster.map { it.userId }.toSet()
@@ -10582,7 +10920,7 @@ private fun WorkshopAccessScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(assignmentWorkshopLabel(row), color = Body, fontWeight = FontWeight.SemiBold)
+                    Text(assignmentWorkshopLabel(row), display = true, color = Body, fontWeight = FontWeight.SemiBold)
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             workshopAccessStatusLabel(row.status),
@@ -10676,7 +11014,7 @@ private fun WorkshopAccessQueueCard(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(row.user?.name ?: row.userId, color = Body, fontWeight = FontWeight.SemiBold)
+                        Text(row.user?.name ?: row.userId, display = true, color = Body, fontWeight = FontWeight.SemiBold)
                         Text(
                             listOfNotNull(
                                 row.user?.email?.takeIf { it.isNotBlank() },
@@ -10919,7 +11257,7 @@ private fun TaskCard(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(task.title.ifBlank { "Field task" }, color = Body, fontWeight = FontWeight.SemiBold)
+            Text(task.title.ifBlank { "Field task" }, display = true, color = Body, fontWeight = FontWeight.SemiBold)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(taskStatusLabel(task.status), color = taskStatusColor(task.status), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 if (task.isOverdue) Text("· Overdue", color = FailureRed, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
@@ -11105,10 +11443,10 @@ private fun RecordCard(title: String, icon: ImageVector? = null, content: @Compo
             if (icon != null) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(24.dp))
-                    Text(title, fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text(title, display = true, fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurface)
                 }
             } else {
-                Text(title, fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurface)
+                Text(title, display = true, fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurface)
             }
             content()
         }

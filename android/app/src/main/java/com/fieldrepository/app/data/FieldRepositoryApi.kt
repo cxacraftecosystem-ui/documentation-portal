@@ -26,6 +26,9 @@ interface FieldRepositoryApi {
     @GET("me")
     suspend fun me(): UserDto
 
+    @GET("reference/address")
+    suspend fun addressReference(): AddressReferenceDto
+
     @GET("dashboard/stats")
     suspend fun dashboardStats(): DashboardStats
 
@@ -578,6 +581,10 @@ interface FieldRepositoryApi {
         @Query("place") place: String? = null,
         @Query("artisanId") artisanId: String? = null,
         @Query("mediaType") mediaType: String? = null,
+        // Which buckets to search, comma-joined ("artisans,media"); omitted searches all five. The
+        // route reads a repeated parameter too, but one value keeps the query string canonical —
+        // the same three buckets cannot arrive spelled two ways depending on tick order.
+        @Query("types") types: String? = null,
         @Query("dateFrom") dateFrom: String? = null,
         @Query("dateTo") dateTo: String? = null,
         @Query("page") page: Int = 1,

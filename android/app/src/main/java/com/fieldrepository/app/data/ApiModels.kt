@@ -520,7 +520,30 @@ data class LocationRequest(
     val altitude: Double? = null,
     val accuracy: Double? = null,
     val address: String? = null,
-    @SerialName("placeName") val placeName: String? = null
+    @SerialName("placeName") val placeName: String? = null,
+    // The postal half of the address, columns on Location itself (see the backend's LocationInput).
+    // [state] must be a canonical name from GET /reference/address — the server validates against the
+    // very list it serves, so a form that renders the served list cannot send a value it refuses.
+    // [pincode] is the bare six digits, no spaces. Both null unless the researcher supplied them: the
+    // API forbids unknown keys but is happy with these absent, and `explicitNulls = false` drops them.
+    val state: String? = null,
+    val pincode: String? = null
+)
+
+/**
+ * `GET /reference/address` — the canonical Indian state / union-territory list and the pincode rule.
+ *
+ * Fetched rather than hard-coded, deliberately. A list copied into this file would be a second copy
+ * of the server's, and the day the two disagree is the day a researcher picks a state the API
+ * refuses. The payload is a pure constant server-side, so it costs one request.
+ */
+@Serializable
+data class AddressReferenceDto(
+    val version: Int = 1,
+    val states: List<String> = emptyList(),
+    val unionTerritories: List<String> = emptyList(),
+    /** The flat list a single-group dropdown binds to, in the server's own order. */
+    val statesAndUnionTerritories: List<String> = emptyList()
 )
 
 @Serializable
@@ -630,7 +653,10 @@ data class LocationDto(
     val altitude: Double? = null,
     val accuracy: Double? = null,
     val address: String? = null,
-    @SerialName("placeName") val placeName: String? = null
+    @SerialName("placeName") val placeName: String? = null,
+    /** Canonical state/union-territory name and bare 6-digit pincode; see [LocationRequest]. */
+    val state: String? = null,
+    val pincode: String? = null
 )
 
 @Serializable

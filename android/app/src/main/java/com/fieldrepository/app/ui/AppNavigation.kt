@@ -46,12 +46,25 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.AdminPanelSettings
@@ -64,9 +77,13 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -347,6 +364,11 @@ fun visibleNavItems(user: UserDto?, adminMode: Boolean): List<NavEntry> =
  *    the route to the full drawer can never be the thing that scrolls away.
  *  - the drawer stays. It is still the full list in one thumb-reachable place, and the hamburger at
  *    the right of the pill is how you get to it — same as the web's sheet.
+ *  - on a phone it gets out of the way. The web bar floats over a viewport that scrolls beneath it;
+ *    a phone has no spare 60dp to float anything over, so once the page has moved (see
+ *    [ISLAND_COLLAPSE_SCROLL]) the destinations fade upward and the bar becomes a header — mark,
+ *    wordmark, hamburger — and comes back whole at the top of the page. A tablet is wide enough to
+ *    be the web and keeps the labelled bar the whole way down.
  *
  * Renders exactly [visibleNavItems], so it can no more offer an unauthorised destination than the
  * drawer can. The admin-view chip mirrors the web's, including reading "Admin view: OFF" while off
@@ -422,6 +444,17 @@ private val ISLAND_MARK_WIDTH = 860.dp
 private val ISLAND_ICON_GROUPS_WIDTH = 500.dp
 
 /**
+ * Where a phone stops and a tablet starts — the web's `md` breakpoint, so one number governs both
+ * clients. It buys two things the density ladder above cannot express on its own: a tablet never
+ * collapses on scroll (it has the height to spare, and the web bar does not collapse either), and a
+ * tablet never falls all the way to glyphs (see [islandDensityFor]).
+ */
+private val ISLAND_TABLET_WIDTH = 768.dp
+
+/** Material's minimum tap target. Also the height of the phone bar's icon row, for the same reason. */
+private val ISLAND_TOUCH_TARGET = 48.dp
+
+/**
  * The densest tier [available] can pay for.
  *
  * Scaled by the user's font scale because everything the first three tiers spend width on is text: at
@@ -434,7 +467,77 @@ private fun islandDensityFor(available: Dp, fontScale: Float): IslandDensity = w
     available >= ISLAND_FULL_WIDTH * fontScale -> IslandDensity.FULL
     available >= ISLAND_MARK_WIDTH * fontScale -> IslandDensity.MARK
     available >= ISLAND_ICON_GROUPS_WIDTH * fontScale -> IslandDensity.ICON_GROUPS
+    // The floor a tablet cannot fall through. Every tier above is priced in text and therefore
+    // multiplied by the font scale, which at 200% prices a 900dp tablet out of ICON_GROUPS and hands
+    // the largest screen in the range the smallest possible bar — glyphs — for the sake of type the
+    // screen has ample room for. A tablet keeps its labelled roots and lets the overflow scroller
+    // take whatever genuinely will not fit, which is the trade the wide screen wants.
+    available >= ISLAND_TABLET_WIDTH -> IslandDensity.ICON_GROUPS
     else -> IslandDensity.ICON_ONLY
+}
+
+/*
+ * Collapsing as the page scrolls, and why there are two thresholds rather than one.
+ *
+ * A phone gives up ~60dp of its 640dp to the bar, and the bar is worth that at the top of a page and
+ * not worth it a screen and a half down, where the user is reading and every destination is one tap
+ * away behind the hamburger anyway. So past [ISLAND_COLLAPSE_SCROLL] the destinations go and the
+ * wordmark comes back: what is left says where you are and how to leave, which is what a header is.
+ *
+ * The two numbers are the whole point. With a single cutoff, a finger resting one pixel either side
+ * of it — which is exactly where a finger rests, because the user stopped scrolling there — flips the
+ * bar open and shut on every jitter of the scroll position. Collapsing at 72dp and expanding only
+ * back at 24dp puts a 48dp dead band between the two decisions: once collapsed the page must travel
+ * most of a bar's height back UP before the bar returns, and a resting thumb never covers that.
+ * 24dp rather than 0 so that a page nudged slightly off the top still reads as "at the top".
+ */
+private val ISLAND_COLLAPSE_SCROLL = 72.dp
+private val ISLAND_EXPAND_SCROLL = 24.dp
+
+/**
+ * Whether the page behind the bar has scrolled past the collapse threshold, with hysteresis.
+ *
+ * This is the part of the feature that decides whether the app still renders at 60fps, so it is worth
+ * being explicit about what does NOT happen here. A scrolling page changes its offset on every frame.
+ * If the bar's caller read `scrollState.value` in its own composition, every one of those frames would
+ * invalidate the CALLER — on this app that is the whole screen. So [scrollOffset] is a lambda: the
+ * read happens inside the [derivedStateOf] below, which makes the scroll state a dependency of this
+ * one derived value and of nothing else in the tree.
+ *
+ * [derivedStateOf] then does the second half of the job. Its calculation reruns on every pixel, but
+ * it PUBLISHES a Boolean, and Compose only invalidates readers when the published value actually
+ * changes. Scrolling a thousand pixels therefore recomposes the bar exactly twice — once when it
+ * collapses and once when it comes back — and recomposes nothing else, ever.
+ *
+ * The latch is captured in the [remember] block rather than kept in a [androidx.compose.runtime.MutableState]
+ * because a derived calculation must not write snapshot state; it is safe to re-enter because the
+ * result is a pure function of the offset and the latch, so evaluating it twice for the same offset
+ * gives the same answer.
+ */
+@Composable
+private fun rememberIslandScrolledPast(
+    scrollOffset: (() -> Int)?,
+    collapseAt: Dp,
+    expandAt: Dp
+): State<Boolean> {
+    val collapsePx = with(LocalDensity.current) { collapseAt.toPx() }
+    val expandPx = with(LocalDensity.current) { expandAt.toPx() }
+    // Held in a State so a caller that rebuilds its lambda cannot reset the latch mid-gesture.
+    val read = rememberUpdatedState(scrollOffset)
+    return remember(collapsePx, expandPx) {
+        var past = false
+        derivedStateOf {
+            val offset = read.value ?: return@derivedStateOf false
+            val y = offset().toFloat()
+            past = when {
+                y >= collapsePx -> true
+                y <= expandPx -> false
+                // Inside the dead band nothing is decided; whatever the bar is doing, it keeps doing.
+                else -> past
+            }
+            past
+        }
+    }
 }
 
 @Composable
@@ -448,10 +551,36 @@ fun FieldIslandNav(
     adminMode: Boolean? = null,
     onToggleAdminView: () -> Unit = {},
     /** Highlights the chip the user is currently inside, the web's `aria-current="page"` state. */
-    currentLabel: String? = null
+    currentLabel: String? = null,
+    /**
+     * How far the page behind the bar has scrolled, in pixels — a LAMBDA, deliberately, and not a
+     * value. Pass `{ scrollState.value }`, never `scrollState.value`: handing over the number reads
+     * the scroll state in the CALLER's composition and recomposes the caller on every frame of every
+     * scroll, which on this app means the whole screen. Handing over the lambda moves that read
+     * inside [rememberIslandScrolledPast], where it feeds one Boolean and nothing else.
+     *
+     * Null — the default — means the host does not scroll underneath the bar, so there is nothing to
+     * collapse in response to and the bar behaves exactly as it did before this parameter existed.
+     */
+    scrollOffset: (() -> Int)? = null,
+    /** Past this much scroll the phone bar collapses. See [ISLAND_COLLAPSE_SCROLL] for the pairing. */
+    collapseAt: Dp = ISLAND_COLLAPSE_SCROLL,
+    /** Back within this much of the top it expands again. Must be well below [collapseAt]. */
+    expandAt: Dp = ISLAND_EXPAND_SCROLL
 ) {
     val shown = groups.filter { it.entries.isNotEmpty() }
     var openGroup by remember { mutableStateOf<String?>(null) }
+    // Hoisted out of the branch below so that shedding a density tier — or collapsing and expanding
+    // — does not silently reset how far the overflow strip was scrolled.
+    val overflow = rememberScrollState()
+    val fontScale = LocalDensity.current.fontScale
+    // "Stops animations and transitions" is a promise the user made the app; a bar that slides and
+    // fades anyway would be the one place it is broken.
+    val stillness = LocalAppPreferences.current.reducedMotion
+
+    // Read as a State, NOT with `by`: unwrapping it here would make the scroll position a dependency
+    // of this function, and the whole point is that only the subcomposition below depends on it.
+    val scrolledPast = rememberIslandScrolledPast(scrollOffset, collapseAt, expandAt)
 
     Surface(
         modifier = modifier,
@@ -462,28 +591,110 @@ fun FieldIslandNav(
         border = BorderStroke(1.dp, MaterialTheme.field.hairline)
     ) {
         BoxWithConstraints {
-            val density = islandDensityFor(maxWidth, LocalDensity.current.fontScale)
+            val density = islandDensityFor(maxWidth, fontScale)
+            val tablet = maxWidth >= ISLAND_TABLET_WIDTH
+            // A tablet behaves like the web and never collapses: it has the vertical room, and the
+            // bar it would collapse FROM is the labelled one the web shows all the way down a page.
+            val collapsed = !tablet && scrolledPast.value
             val tightest = density == IslandDensity.ICON_ONLY
             // Labels survive on the groups only while there is room for the whole bar to wear them;
             // the roots keep theirs one step longer, being the two places a newcomer starts.
             val groupsLabelled = density == IslandDensity.FULL || density == IslandDensity.MARK
             val rootsLabelled = !tightest
+            // Even slots are only meaningful where every child is the same 18dp glyph. One tier up
+            // the chips are different widths — a labelled "Dashboard" beside a bare folder — and
+            // equal slots would space the GAPS evenly while leaving the glyphs visibly adrift.
+            val evenlySpaced = tightest
+            // The collapsed header has no chips to name the app, so the wordmark comes back to do it.
+            val wordmark = density == IslandDensity.FULL || collapsed
+
+            // A dropdown anchored to a chip that is on its way out would be left pointing at nothing.
+            LaunchedEffect(collapsed) { if (collapsed) openGroup = null }
+
+            // One definition of the destination chips, invoked under two different parents below —
+            // evenly weighted slots on a phone, the overflow scroller everywhere else. Written once
+            // so the two layouts cannot drift into offering different chips.
+            val destinations: @Composable RowScope.() -> Unit = {
+                // `weight` needs a RowScope, so the slot can only be built in here, where there is one.
+                val slot = if (evenlySpaced) Modifier.weight(1f).heightIn(min = ISLAND_TOUCH_TARGET) else Modifier
+                roots.forEach { entry ->
+                    IslandChip(
+                        modifier = slot,
+                        label = entry.label,
+                        selected = currentLabel == entry.label,
+                        leading = if (rootsLabelled) null else entry.icon,
+                        showLabel = rootsLabelled,
+                        onClick = entry.onClick
+                    )
+                }
+
+                shown.forEach { group ->
+                    // The dropdown anchors to its chip, so the chip needs a Box of its own; in the
+                    // even layout that Box IS the slot and the chip fills it.
+                    Box(modifier = if (evenlySpaced) Modifier.weight(1f) else Modifier) {
+                        IslandChip(
+                            modifier = if (evenlySpaced) {
+                                Modifier.fillMaxWidth().heightIn(min = ISLAND_TOUCH_TARGET)
+                            } else {
+                                Modifier
+                            },
+                            label = group.label,
+                            selected = group.entries.any { it.label == currentLabel },
+                            leading = if (groupsLabelled) null else group.icon,
+                            // The caret is an affordance, not information: it goes with the label
+                            // rather than crowding a chip that is one glyph wide. The dropdown
+                            // underneath is untouched at every density.
+                            trailing = if (groupsLabelled) Icons.Filled.ExpandMore else null,
+                            showLabel = groupsLabelled,
+                            onClick = { openGroup = group.label }
+                        )
+                        DropdownMenu(
+                            expanded = openGroup == group.label,
+                            onDismissRequest = { openGroup = null }
+                        ) {
+                            group.entries.forEach { entry ->
+                                DropdownMenuItem(
+                                    text = { Text(entry.label) },
+                                    leadingIcon = {
+                                        Icon(entry.icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    },
+                                    onClick = {
+                                        openGroup = null
+                                        entry.onClick()
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
 
             Row(
-                modifier = Modifier.padding(horizontal = if (tightest) 6.dp else 8.dp, vertical = 6.dp),
+                modifier = Modifier
+                    // The one owner of the bar's height. Everything that comes and goes below is
+                    // inside this Row, so whatever they add up to, the Surface follows it in a single
+                    // spring instead of snapping — which is what would otherwise shunt the whole page
+                    // the moment the icons left the layout.
+                    .then(if (stillness) Modifier else Modifier.animateContentSize())
+                    .padding(
+                        horizontal = if (tightest) 6.dp else 8.dp,
+                        vertical = if (collapsed) 4.dp else 6.dp
+                    ),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 // Brand — tapping it goes home, the same as the web's wordmark. The wordmark is the
-                // first thing the bar gives up: 111dp spent restating what the screen already is,
-                // against a mark that stays exactly as clickable without it.
+                // first thing the bar gives up to width: 111dp spent restating what the screen
+                // already is, against a mark that stays exactly as clickable without it. It is also
+                // the first thing it takes back when the destinations go, for the opposite reason —
+                // a header of one anonymous 24dp mark says nothing at all.
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(20.dp))
                         .clickable(onClick = onBrandClick)
                         // Unlabelled the mark is a bare image, so it has to say what it is out loud.
                         .then(
-                            if (density == IslandDensity.FULL) Modifier
+                            if (wordmark) Modifier
                             else Modifier.semantics {
                                 contentDescription = "Field Repository, go to the dashboard"
                             }
@@ -497,87 +708,99 @@ fun FieldIslandNav(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     FieldRepoLogo(modifier = Modifier.size(24.dp), cornerRadius = 7.dp)
-                    if (density == IslandDensity.FULL) {
-                        Spacer(Modifier.width(7.dp))
-                        Text(
-                            "Field Repository",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1
-                        )
+                    AnimatedVisibility(
+                        visible = wordmark,
+                        // Grown from the logo outwards rather than faded in place, so the two read as
+                        // one widening brand block instead of a word materialising beside a mark.
+                        enter = if (stillness) EnterTransition.None else {
+                            fadeIn(tween(180)) + expandHorizontally(tween(180), Alignment.Start)
+                        },
+                        exit = if (stillness) ExitTransition.None else {
+                            fadeOut(tween(110)) + shrinkHorizontally(tween(110), Alignment.Start)
+                        }
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Spacer(Modifier.width(7.dp))
+                            Text(
+                                "Field Repository",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1
+                            )
+                        }
                     }
                 }
 
-                // The destinations are the only part allowed to overflow, and only after every
-                // density step has been spent. The brand, the admin toggle and the hamburger sit
-                // outside this scroller so that the escape hatch to the full drawer is always on
-                // screen — the old bar scrolled the hamburger away with everything else.
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .horizontalScroll(rememberScrollState()),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    roots.forEach { entry ->
-                        IslandChip(
-                            label = entry.label,
-                            selected = currentLabel == entry.label,
-                            leading = if (rootsLabelled) null else entry.icon,
-                            showLabel = rootsLabelled,
-                            onClick = entry.onClick
-                        )
-                    }
+                // The destinations, and the admin toggle that belongs with them. The weight lives on
+                // this Box rather than on what is inside it, so that emptying it costs the bar no
+                // width: collapsed, it is the gap between the wordmark and the hamburger, and the
+                // hamburger therefore does not travel a single pixel between the two states.
+                Box(modifier = Modifier.weight(1f)) {
+                    IslandCollapsingStrip(visible = !collapsed, stillness = stillness) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            // Nothing between the slots: an even layout puts ALL of the slack inside
+                            // them, and a gap on top of that would be slack the icons never see.
+                            horizontalArrangement = Arrangement.spacedBy(if (evenlySpaced) 0.dp else 2.dp)
+                        ) {
+                            if (evenlySpaced) {
+                                // Equal weights, glyph centred in each: identical slot widths give
+                                // identical centre-to-centre spacing, which is the thing the eye
+                                // actually reads as "evenly spaced". This replaced a row that packed
+                                // the icons against the logo and left every pixel of slack in one
+                                // heap on the right. No scroller here, and none wanted — weighted
+                                // slots divide whatever width there is, so nothing can fall off the
+                                // end of a phone in the first place.
+                                destinations()
+                            } else {
+                                // The destinations are the only part allowed to overflow, and only
+                                // after every density step has been spent. The brand, the admin
+                                // toggle and the hamburger sit outside this scroller so that the
+                                // escape hatch to the full drawer is always on screen — the old bar
+                                // scrolled the hamburger away with everything else.
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .horizontalScroll(overflow),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                    content = destinations
+                                )
+                            }
 
-                    shown.forEach { group ->
-                        Box {
-                            IslandChip(
-                                label = group.label,
-                                selected = group.entries.any { it.label == currentLabel },
-                                leading = if (groupsLabelled) null else group.icon,
-                                // The caret is an affordance, not information: it goes with the label
-                                // rather than crowding a chip that is one glyph wide. The dropdown
-                                // underneath is untouched at every density.
-                                trailing = if (groupsLabelled) Icons.Filled.ExpandMore else null,
-                                showLabel = groupsLabelled,
-                                onClick = { openGroup = group.label }
-                            )
-                            DropdownMenu(
-                                expanded = openGroup == group.label,
-                                onDismissRequest = { openGroup = null }
-                            ) {
-                                group.entries.forEach { entry ->
-                                    DropdownMenuItem(
-                                        text = { Text(entry.label) },
-                                        leadingIcon = {
-                                            Icon(entry.icon, contentDescription = null, modifier = Modifier.size(18.dp))
-                                        },
-                                        onClick = {
-                                            openGroup = null
-                                            entry.onClick()
-                                        }
-                                    )
-                                }
+                            if (adminMode != null) {
+                                // "Admin view: OFF" is 146dp of chip, the widest thing here after the
+                                // wordmark, and the eye already carries the state — open or shut.
+                                // Below MARK the words go and the sentence moves into the
+                                // contentDescription, so the toggle still announces which way it is
+                                // set. Collapsed it goes entirely: an indicator nobody can act on is
+                                // just a glyph, and the drawer still states the setting in words.
+                                IslandChip(
+                                    modifier = if (evenlySpaced) {
+                                        Modifier.weight(1f).heightIn(min = ISLAND_TOUCH_TARGET)
+                                    } else {
+                                        Modifier
+                                    },
+                                    label = if (adminMode) "Admin view: ON" else "Admin view: OFF",
+                                    selected = adminMode,
+                                    leading = if (adminMode) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                                    showLabel = groupsLabelled,
+                                    onClick = onToggleAdminView
+                                )
                             }
                         }
                     }
                 }
 
-                if (adminMode != null) {
-                    // "Admin view: OFF" is 146dp of chip, the widest thing here after the wordmark,
-                    // and the eye already carries the state — open or shut. Below MARK the words go
-                    // and the sentence moves into the contentDescription, so the toggle still
-                    // announces which way it is set.
-                    IslandChip(
-                        label = if (adminMode) "Admin view: ON" else "Admin view: OFF",
-                        selected = adminMode,
-                        leading = if (adminMode) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
-                        showLabel = groupsLabelled,
-                        onClick = onToggleAdminView
-                    )
-                }
-
-                IconButton(onClick = onOpenDrawer, modifier = Modifier.size(36.dp)) {
+                // Never hidden and never moved — it is the whole of the collapsed header's right-hand
+                // side, and the one control that must be findable without thinking. Full 48dp on a
+                // phone, where it is thumbed; left at the tablet bar's existing 36dp, where the
+                // pointer or the wider bar makes the extra 12dp cost more than it buys.
+                IconButton(
+                    onClick = onOpenDrawer,
+                    modifier = Modifier.size(if (tablet) 36.dp else ISLAND_TOUCH_TARGET)
+                ) {
                     Icon(
                         Icons.Filled.Menu,
                         contentDescription = "Open menu",
@@ -590,16 +813,52 @@ fun FieldIslandNav(
 }
 
 /**
+ * The half of the bar that comes and goes with the scroll position.
+ *
+ * A plain function rather than the [AnimatedVisibility] call written inline, for one reason that is
+ * pure Kotlin: inline, the nearest implicit receiver would be the bar's own `Row`, and the compiler
+ * would bind the `RowScope` overload — whose content is DISPOSED when hidden, taking the weight with
+ * it and letting the hamburger jump left. Here there is no `RowScope` in scope, the plain overload
+ * binds, and the caller's weighted Box holds the width open with nothing in it.
+ *
+ * Up and out, the direction the page itself is going. The slide is a quarter of the strip's own
+ * height — enough to read as movement, too little to look like the icons are escaping the pill.
+ */
+@Composable
+private fun IslandCollapsingStrip(
+    visible: Boolean,
+    stillness: Boolean,
+    content: @Composable () -> Unit
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = if (stillness) EnterTransition.None else {
+            fadeIn(tween(180)) + slideInVertically(tween(180)) { -it / 4 }
+        },
+        exit = if (stillness) ExitTransition.None else {
+            fadeOut(tween(120)) + slideOutVertically(tween(120)) { -it / 4 }
+        }
+    ) {
+        content()
+    }
+}
+
+/**
  * One pill inside the island: the web's `rounded-full px-3 py-1.5 text-sm` nav link.
  *
  * With [showLabel] false the chip is [leading] alone and [label] becomes the icon's
  * contentDescription — the chip loses its width, never its name.
+ *
+ * [modifier] is how the even phone layout hands the chip a slot to fill. Given a width the chip does
+ * not need, it centres its contents in it and lets the pill — background, ripple and tap target
+ * alike — grow to the slot, which is the point: the slack belongs to the finger, not to the gap.
  */
 @Composable
 private fun IslandChip(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     leading: ImageVector? = null,
     trailing: ImageVector? = null,
     showLabel: Boolean = true
@@ -608,13 +867,15 @@ private fun IslandChip(
     // for icon-only without supplying one gets the label back rather than a blank pill.
     val labelled = showLabel || leading == null
     Row(
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(20.dp))
             .background(if (selected) MaterialTheme.field.surface100 else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(horizontal = if (labelled) 10.dp else 7.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+        // Centred rather than packed, which changes nothing for a chip measured by its contents and
+        // everything for one given a slot to fill.
+        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)
     ) {
         val tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.field.body
         if (leading != null) {
