@@ -147,6 +147,34 @@ jobs:
         env:
           BACKEND_ENV: ${{ secrets.BACKEND_ENV }}
 
+      # Pin CORS to the origins that actually exist, in the workflow rather than in BACKEND_ENV.
+      #
+      # The deployed API answered `access-control-allow-origin: *`. That is not the hole it looks
+      # like — auth is a Bearer token from localStorage, not a cookie, and app/core/config.py forces
+      # `allow_credentials=False` whenever a wildcard is present, so a hostile page could reach only
+      # unauthenticated endpoints and could never read a signed-in user's data. It is still worth
+      # closing, and pinning is what lets credentialed CORS be true rather than silently downgraded.
+      #
+      # Set HERE and not in the secret because these origins are public knowledge — they are in every
+      # browser's address bar — and because BACKEND_ENV cannot be read to edit one line of it. A
+      # wholesale rewrite of a secret nobody can print is how a database URL gets lost.
+      #
+      # Both entries earn their place. The Vercel alias is production. `http://localhost:3000` is the
+      # local dev server, which is routinely pointed at THIS deployed API rather than a local backend
+      # — omitting it would break every developer's browser while looking like an API fault. The
+      # Android client is unaffected either way: a native HTTP client does not do CORS.
+      - name: Pin the CORS origins
+        run: |
+          ssh ubuntu@${{ secrets.EC2_HOST }} 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/app/backend
+          # Drop any inherited value first, so this is authoritative rather than additive.
+          sed -i '/^BACKEND_CORS_ORIGINS=/d' .env
+          printf 'BACKEND_CORS_ORIGINS=%s\n' 'https://field-repository.vercel.app,http://localhost:3000' >> .env
+          # Print the KEY only. The rest of this file is secrets and must never reach a build log.
+          grep -c '^BACKEND_CORS_ORIGINS=' .env
+          REMOTE
+
       - name: Install deps, migrate, restart
         run: |
           ssh ubuntu@${{ secrets.EC2_HOST }} 'bash -s' <<'REMOTE'
