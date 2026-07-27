@@ -168,11 +168,18 @@ jobs:
           ssh ubuntu@${{ secrets.EC2_HOST }} 'bash -s' <<'REMOTE'
           set -euo pipefail
           cd /home/ubuntu/app/backend
-          # Drop any inherited value first, so this is authoritative rather than additive.
+          # The step above writes this file with `printf '%s'`, which emits NO trailing newline, so a
+          # bare `>>` glues the new key onto the end of whatever the last line is and silently
+          # corrupts that variable. Guarantee the newline first. (This is not hypothetical: the first
+          # version of this step did exactly that, and `grep -c` then found zero matches.)
+          [ -s .env ] && [ -n "$(tail -c1 .env)" ] && printf '\n' >> .env
+          # Drop any inherited value, so this is authoritative rather than additive.
           sed -i '/^BACKEND_CORS_ORIGINS=/d' .env
           printf 'BACKEND_CORS_ORIGINS=%s\n' 'https://field-repository.vercel.app,http://localhost:3000' >> .env
-          # Print the KEY only. The rest of this file is secrets and must never reach a build log.
-          grep -c '^BACKEND_CORS_ORIGINS=' .env
+          # Assert the key landed on a line of its own. `grep -q` rather than `grep -c`: a count of
+          # zero exits 1, which under `set -e` fails the step with no explanation of what was wrong.
+          grep -q '^BACKEND_CORS_ORIGINS=' .env || { echo "CORS origins did not land on their own line"; exit 1; }
+          echo "CORS origins pinned"
           REMOTE
 
       - name: Install deps, migrate, restart
