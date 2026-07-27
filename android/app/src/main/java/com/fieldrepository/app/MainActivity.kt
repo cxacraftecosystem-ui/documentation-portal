@@ -9,7 +9,6 @@ import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.provider.Settings
 import android.content.pm.PackageManager
-import android.location.Geocoder
 import android.location.LocationManager
 import android.media.MediaRecorder
 import android.net.Uri
@@ -41,7 +40,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -128,6 +126,9 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.fieldrepository.app.data.ApiClient
 import com.fieldrepository.app.data.ArtisanCreateRequest
+import com.fieldrepository.app.data.CarryContext
+import com.fieldrepository.app.data.CarryContextStore
+import com.fieldrepository.app.data.CarryNode
 import com.fieldrepository.app.data.CompletionCellDto
 import com.fieldrepository.app.data.CompletionMatrixDto
 import com.fieldrepository.app.data.CraftCreateRequest
@@ -165,15 +166,27 @@ import com.fieldrepository.app.ui.AppNavigationDrawerContent
 import com.fieldrepository.app.ui.AppearanceScreen
 import com.fieldrepository.app.ui.Body
 import com.fieldrepository.app.ui.NavDestination
-import com.fieldrepository.app.ui.Countries
-import com.fieldrepository.app.ui.Country
+import com.fieldrepository.app.ui.ArtisanPhoneField
+import com.fieldrepository.app.ui.artisanPhoneValidationError
 import com.fieldrepository.app.ui.Canvas
+import com.fieldrepository.app.ui.CarryPrefillBanner
+import com.fieldrepository.app.ui.CarryPrefillDefaults
+import com.fieldrepository.app.ui.CarryPrefillState
+import com.fieldrepository.app.ui.CarryScope
+import com.fieldrepository.app.ui.CarryScopeState
+import com.fieldrepository.app.ui.carryScope
+import com.fieldrepository.app.ui.rememberCarryPrefill
 import com.fieldrepository.app.ui.Coral
 import com.fieldrepository.app.ui.DataBrowserScreen
 import com.fieldrepository.app.ui.FieldRepositoryTheme
 import com.fieldrepository.app.ui.ProvideAppPreferences
 import com.fieldrepository.app.ui.SearchRecordTypes
 import com.fieldrepository.app.ui.SearchScreen
+import com.fieldrepository.app.ui.SearchableMultiSelectField
+import com.fieldrepository.app.ui.SearchableSelectField
+import com.fieldrepository.app.ui.asSelectOptions
+import com.fieldrepository.app.ui.GrantAccessFields
+import com.fieldrepository.app.ui.RequestAccessFields
 import com.fieldrepository.app.ui.TaskAdminScreen
 import com.fieldrepository.app.ui.field
 import com.fieldrepository.app.ui.Muted
@@ -264,13 +277,10 @@ import com.fieldrepository.app.data.WorkshopSubmissionCheckDto
 import com.fieldrepository.app.data.titleCasePreview
 import androidx.compose.runtime.DisposableEffect
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
-import kotlinx.coroutines.withContext
-import java.util.Locale
 import com.fieldrepository.app.data.ProductDetailDto
 import com.fieldrepository.app.data.ProcessCreateRequest
 import com.fieldrepository.app.data.ProcessDetailDto
@@ -280,7 +290,8 @@ import com.fieldrepository.app.data.ToolDetailDto
 import com.fieldrepository.app.data.WorkshopDetailDto
 import androidx.compose.runtime.mutableStateListOf
 import com.fieldrepository.app.ui.ArtisanQuestionnairePanel
-import com.fieldrepository.app.ui.LocationEditor
+import com.fieldrepository.app.ui.LocationFieldsSection
+import com.fieldrepository.app.ui.artisanLocationRequirementError
 import com.fieldrepository.app.ui.MediaThumb
 import com.fieldrepository.app.ui.MediaViewerDialog
 import com.fieldrepository.app.ui.ProvenanceSection
@@ -408,6 +419,67 @@ private data class Prefill(
     val craftId: String? = null,
     val craftName: String? = null
 )
+
+/**
+ * The same handoff as a carry-context bag, so the in-memory route and the stored one describe the
+ * sitting in one vocabulary and cannot drift apart.
+ *
+ * Nothing regulated crosses over: [CarryContext] has no Aadhaar or Pehchan field to put one in, and
+ * neither does [Prefill]. That is deliberate on both — a shared field handset is the last place to
+ * park a government identifier.
+ */
+private fun Prefill.toCarryContext(): CarryContext = CarryContext(
+    artisanId = artisanId,
+    artisanName = artisanName,
+    place = place,
+    craftId = craftId,
+    craftName = craftName
+)
+
+/**
+ * [rememberCarryPrefill] with the two things every record form would otherwise repeat: where the bag
+ * lives, and whose it is.
+ *
+ * [handoff] is the [Prefill] a tap on [CarryForwardPanel] carried across in memory. It is seconds
+ * old, so it beats anything in storage — and it is banked on arrival, which is what lets a
+ * researcher who leaves via the dashboard and comes back an hour later still be offered it.
+ */
+@Composable
+private fun rememberFormCarry(
+    repository: FieldRepository,
+    enabled: Boolean,
+    applies: Set<CarryNode>,
+    scopes: List<CarryScope>,
+    handoff: Prefill? = null,
+    onApply: (CarryContext) -> Unit
+): CarryPrefillState {
+    val appContext = LocalContext.current.applicationContext
+    val store = remember(appContext) { CarryContextStore(appContext) }
+    // Read once: cachedUser() re-parses the stored account on every call, and a signed-in user can
+    // only change by tearing this whole tree down.
+    val userId = remember(repository) { repository.cachedUser()?.id }
+    return rememberCarryPrefill(
+        store = store,
+        userId = userId,
+        enabled = enabled,
+        handoff = handoff?.toCarryContext(),
+        applies = applies,
+        scopes = scopes,
+        onApply = onApply
+    )
+}
+
+/**
+ * A field as the unsaved-work guard should see it: blank for as long as it still holds exactly what
+ * the carry prefill put there.
+ *
+ * A carried value is the app's suggestion, not the researcher's work, so a prefilled form nobody has
+ * touched must not answer "save your changes?" on the way out. The web arrives at the same place
+ * from the other side — its guard only latches on real input, so a programmatic prefill never
+ * registers at all. Edit the value and it stops matching, and from then on it counts like anything
+ * else they typed.
+ */
+private fun String.exceptCarried(carried: String?): String = if (carried != null && this == carried) "" else this
 
 /** Pictorial icon for each record type, used on the dashboard cards and the drawer. */
 private fun EntryMode.icon(): ImageVector = when (this) {
@@ -659,6 +731,10 @@ private fun HomeScreen(
     var artisans by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
     var carryForward by remember { mutableStateOf<Prefill?>(null) }
+    // "I can no longer see this record" and "there is no signal" are different answers, and the
+    // carry prefill treats them differently: only a list that actually arrived is entitled to
+    // disown a carried id. Held here because the two lookups below feed every create form.
+    var lookupState by remember { mutableStateOf(CarryScopeState.PENDING) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var message by remember { mutableStateOf<String?>(null) }
     // Every gate below mirrors one backend dependency (see the capability block near ROLE_RANK).
@@ -677,8 +753,25 @@ private fun HomeScreen(
     val canViewProvenance = isAdmin || user.canViewProvenance
     // `require_dataset_downloader`: Professor and above, or an explicit grant.
     val canDownloadDataset = user.canDownloadTheDataset()
+    /**
+     * Who is allowed the admin-view switch at all: ADMIN (50) and MASTER_ADMIN (60), nobody else.
+     *
+     * A PROFESSOR (40) is deliberately outside it. The switch does not grant anything — it only
+     * NARROWS an admin's own chrome — so on a professor it would be a control that changes nothing
+     * they can see, while flipping it would quietly subtract from screens (`adminChrome` below) that
+     * their role, not the toggle, is what entitles them to.
+     */
+    val canToggleAdminView = isAdmin
+
     // Master admin lands in admin view; other admins opt in from the menu.
-    var adminView by remember { mutableStateOf(isMasterAdmin) }
+    //
+    // Kept as a REQUEST and read through [adminView] just below, because the request outlives the
+    // entitlement in two ways. A role lowered underneath a live session leaves the flag latched on
+    // with no chip left to turn it off, and the "Turn admin view back on" card is reachable by a
+    // user who never had the switch in the first place. ANDing the gate in at every read means a
+    // stale ON simply cannot survive the gate failing, which a one-shot reset would not guarantee.
+    var adminViewRequested by remember { mutableStateOf(isMasterAdmin) }
+    val adminView = canToggleAdminView && adminViewRequested
 
     /**
      * Admin view is a NARROWING switch, exactly as on the web (`adminChromeVisible`): with it OFF an
@@ -744,28 +837,37 @@ private fun HomeScreen(
     }
 
     // Who may START a new entry of each kind, mirroring the backend dependency on the POST route.
-    // A volunteer is deliberately allowed to take interviews, upload media, browse, use tasks and
+    // A volunteer is deliberately allowed to answer interviews, upload media, browse, use tasks and
     // sharing, and request workshop access — everything `require_record_creator` does NOT cover.
     fun canCreate(mode: EntryMode): Boolean = when (mode) {
-        // require_craft_manager / require_workshop_manager: Professor+ or an explicit grant.
+        // require_craft_manager / require_workshop_manager: Professor+ by rank, no grant.
         EntryMode.CRAFT -> user.canManageTheCrafts()
         EntryMode.WORKSHOP -> user.canManageTheWorkshops()
         // require_professor on GET/PATCH /users, AND admin chrome: /users is listed in the web's
         // ADMIN_CHROME_ROUTES, so an admin with admin view off loses it while a professor — who has
         // no toggle — keeps it. Role first, toggle second: the toggle can only ever subtract.
         EntryMode.USERS -> user.canManageUsers() && adminChrome
-        // require_record_creator: Field Contributor and above. Showing a volunteer these forms only
-        // bought them a 403 after filling one in.
+        // require_record_creator: Researcher and above. Showing a field contributor or a volunteer
+        // these forms only bought them a 403 after filling one in.
         EntryMode.ARTISAN, EntryMode.PRODUCT, EntryMode.PROCESS, EntryMode.TOOL -> user.canCreateRecords()
         // require_dataset_downloader: Professor and above, or an explicit grant — the same gate the
         // dataset download already uses, because /data/tree serves the same archive.
         EntryMode.DATA_BROWSER -> canDownloadDataset
-        // Open to every authenticated user (the API asks for nothing beyond a token).
+        /*
+         * Open to every authenticated user, and QUESTIONNAIRE stays here on purpose even though the
+         * ladder moved. POST /questionnaire/interviews folds a post for an artisan set that has
+         * already been interviewed into the existing row and only calls `assert_can_create_records`
+         * on the branch that OPENS a new one — so a field contributor or a volunteer answering an
+         * interview somebody else started is doing the thing these two tiers exist for, on this
+         * screen. Gating the screen would take that away to save them a 403 on the rarer case.
+         */
         EntryMode.QUESTIONNAIRE, EntryMode.MEDIA, EntryMode.VIEW_DATA, EntryMode.TASKS,
         EntryMode.SHARING, EntryMode.WORKSHOP_ACCESS, EntryMode.SEARCH -> true
     }
 
-    val dashboardModes = remember(user.role, user.canManageQuestionnaire, user.canManageCrafts, user.canManageWorkshops) {
+    // Keyed on role and on the one grant that still widens a rank floor here. Crafts and workshops
+    // used to be in this list; they are rank-only now, so their columns cannot change the answer.
+    val dashboardModes = remember(user.role, user.canManageQuestionnaire) {
         EntryMode.entries.filter { it != EntryMode.USERS || user.canManageUsers() }
     }
 
@@ -785,8 +887,9 @@ private fun HomeScreen(
     }
 
     suspend fun loadLookups() {
-        runCatching { repository.crafts() }.onSuccess { crafts = it }
-        runCatching { repository.artisans() }.onSuccess { artisans = it }
+        val gotCrafts = runCatching { repository.crafts() }.onSuccess { crafts = it }.isSuccess
+        val gotArtisans = runCatching { repository.artisans() }.onSuccess { artisans = it }.isSuccess
+        lookupState = if (gotCrafts && gotArtisans) CarryScopeState.LOADED else CarryScopeState.UNAVAILABLE
     }
 
     fun refreshLookups() {
@@ -909,8 +1012,17 @@ private fun HomeScreen(
         }
     }
 
-    val headerTitle = when (val s = screen) {
-        is Screen.Dashboard -> "Field Repository"
+    // Null where the page has nothing of its own to announce, which is the Dashboard and only the
+    // Dashboard: it used to head itself "Field Repository" one line under the bar that already says
+    // so, and a name repeated a line apart names nothing.
+    //
+    // The identity line that used to sit under this — name, role and whether admin view was on — is
+    // gone too. It was three facts restated on every single screen, and all three are one tap away
+    // in the drawer, where the brand block carries "name · Role" and the admin-view row states the
+    // setting in words. A header that repeats what the menu already holds is a header spending the
+    // page's first line on itself.
+    val headerTitle: String? = when (val s = screen) {
+        is Screen.Dashboard -> null
         is Screen.Create -> s.mode.actionTitle
         is Screen.Browse -> "Update ${s.mode.label.lowercase()}"
         // A media file has no edit form (the web opens the object itself), so "Edit …" would be a lie
@@ -998,7 +1110,7 @@ private fun HomeScreen(
                         currentDestination = currentDestination,
                         onNavigate = ::navigate,
                         pushingUpdate = pushingUpdate,
-                        onToggleAdminView = { adminView = !adminView },
+                        onToggleAdminView = { adminViewRequested = !adminView },
                         onPushUpdate = {
                             scope.launch { drawerState.close() }
                             if (!pushingUpdate) {
@@ -1094,8 +1206,10 @@ private fun HomeScreen(
             // router like any other chip rather than jumping home on its own.
             onBrandClick = { navigate(NavDestination.DASHBOARD) },
             onOpenDrawer = { scope.launch { drawerState.open() } },
-            adminMode = if (isAdmin) adminView else null,
-            onToggleAdminView = { adminView = !adminView },
+            // Null hides the chip outright. ADMIN (50) and MASTER_ADMIN (60) only — see
+            // [canToggleAdminView]; a professor's chrome is granted by their role, not by a switch.
+            adminMode = if (canToggleAdminView) adminView else null,
+            onToggleAdminView = { adminViewRequested = !adminView },
             // The bar highlights by label, so the label has to be looked up from the DESTINATION the
             // user is on. This used to pass `headerTitle` — a page title, matched against nav labels
             // that are written for a menu — so the Dashboard ("Field Repository" against "Dashboard")
@@ -1133,25 +1247,31 @@ private fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
 
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            // The dashboard is the root of every path, so only the screens below it get a back arrow.
-            if (screen !is Screen.Dashboard) {
-                IconButton(onClick = { attemptExit { goBack() } }) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = MaterialTheme.colorScheme.primary
+        // The dashboard is the root of every path, so only the screens below it get a back arrow —
+        // and it is also the only screen with no title of its own, so on the dashboard this whole
+        // row is nothing and is not laid out at all. Rendering it empty would spend the parent's
+        // 16dp of spacing on a strip with nothing in it.
+        val showBack = screen !is Screen.Dashboard
+        if (showBack || headerTitle != null) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                if (showBack) {
+                    IconButton(onClick = { attemptExit { goBack() } }) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+                headerTitle?.let { title ->
+                    Text(
+                        title,
+                        display = true,
+                        modifier = Modifier.weight(1f),
+                        fontSize = 28.sp,
+                        color = MaterialTheme.colorScheme.onBackground
                     )
                 }
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    headerTitle,
-                    display = true,
-                    fontSize = 28.sp,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Text("${user.name} · ${user.role}${if (adminView) " · admin view" else ""}", color = Muted, fontSize = 13.sp)
             }
         }
 
@@ -1159,6 +1279,7 @@ private fun HomeScreen(
             is Screen.Dashboard -> {
                 carryForward?.let { prefill ->
                     CarryForwardPanel(
+                        repository = repository,
                         prefill = prefill,
                         canCreateTool = canCreate(EntryMode.TOOL),
                         onSelect = { mode -> screen = Screen.Create(mode, prefill); carryForward = null },
@@ -1214,6 +1335,7 @@ private fun HomeScreen(
                 EntryMode.ARTISAN -> ArtisanForm(
                     repository = repository,
                     crafts = crafts,
+                    lookupState = lookupState,
                     prefill = s.prefill,
                     adminView = adminView,
                     onArtisanCreated = { prefill ->
@@ -1237,6 +1359,7 @@ private fun HomeScreen(
                     repository = repository,
                     crafts = crafts,
                     artisans = artisans,
+                    lookupState = lookupState,
                     prefill = s.prefill,
                     adminView = adminView,
                     onDone = { message = "Product saved"; refresh(); goDashboard() },
@@ -1293,6 +1416,7 @@ private fun HomeScreen(
                     repository = repository,
                     crafts = crafts,
                     artisans = artisans,
+                    lookupState = lookupState,
                     prefill = s.prefill,
                     adminView = adminView,
                     onDone = { message = "Tool saved"; refresh(); goDashboard() },
@@ -1310,6 +1434,7 @@ private fun HomeScreen(
                     repository = repository,
                     sections = sections,
                     artisans = artisans,
+                    lookupState = lookupState,
                     prefill = s.prefill,
                     canManageQuestionnaire = isQuestionnaireManager,
                     // Carries the admin-view state into the form's "Check completion" matrix, whose
@@ -1367,7 +1492,8 @@ private fun HomeScreen(
                     AdminViewHiddenCard(
                         label = "User management",
                         blurb = "Roles, promotions, capability grants and account administration live there.",
-                        onEnable = { adminView = true }
+                        canToggle = canToggleAdminView,
+                        onEnable = { adminViewRequested = true }
                     )
                 }
             }
@@ -1450,7 +1576,8 @@ private fun HomeScreen(
                 else -> AdminViewHiddenCard(
                     label = "The settings hub",
                     blurb = "It gathers reviews, recovered recordings, feedback, tool assignment and user management in one place.",
-                    onEnable = { adminView = true }
+                    canToggle = canToggleAdminView,
+                    onEnable = { adminViewRequested = true }
                 )
             }
 
@@ -1633,23 +1760,42 @@ private fun searchRecordEntryMode(recordType: String): EntryMode = when (recordT
  * Deliberately NOT the permission copy a genuine non-admin gets: this is self-inflicted and one tap
  * from being undone, so telling an admin they lack access they in fact hold would be the worse of
  * the two errors. Wording follows the web's `AdminViewHidden` panel.
+ *
+ * [canToggle] is why this card takes a flag rather than assuming its reader is an admin. A reviewer
+ * below admin reaches the review tool from the dashboard's Pending figure, and stepping BACK from it
+ * lands on the hub they were never given — where this card used to blame their own admin-view
+ * setting and offer them a switch that is not theirs to hold. With no switch, the card says the
+ * plain thing instead: the tools are not part of their role.
  */
 @Composable
-private fun AdminViewHiddenCard(label: String, blurb: String, onEnable: () -> Unit) {
-    RecordCard(title = "$label is hidden while admin view is off", icon = Icons.Filled.VisibilityOff) {
+private fun AdminViewHiddenCard(
+    label: String,
+    blurb: String,
+    canToggle: Boolean,
+    onEnable: () -> Unit
+) {
+    val title = if (canToggle) "$label is hidden while admin view is off" else "$label is not part of your role"
+    RecordCard(title = title, icon = Icons.Filled.VisibilityOff) {
         Text(
-            "$blurb You switched admin view off, so the repository is behaving exactly as it does " +
-                "for an ordinary user.",
+            if (canToggle) {
+                "$blurb You switched admin view off, so the repository is behaving exactly as it does " +
+                    "for an ordinary user."
+            } else {
+                "$blurb Those tools belong to administrators; everything your role does reach is in " +
+                    "the menu."
+            },
             color = Body,
             fontSize = 13.sp
         )
-        Text(
-            "Your access has not changed — this is your own setting, not a permission you are missing.",
-            color = Muted,
-            fontSize = 12.sp
-        )
-        Button(onClick = onEnable, modifier = Modifier.fillMaxWidth()) {
-            Text("Turn admin view back on")
+        if (canToggle) {
+            Text(
+                "Your access has not changed — this is your own setting, not a permission you are missing.",
+                color = Muted,
+                fontSize = 12.sp
+            )
+            Button(onClick = onEnable, modifier = Modifier.fillMaxWidth()) {
+                Text("Turn admin view back on")
+            }
         }
     }
 }
@@ -1821,11 +1967,20 @@ private fun TimePickerField(label: String, value: String, onChange: (String) -> 
 /** Post-save shortcuts that carry the just-saved artisan into a follow-up record. */
 @Composable
 private fun CarryForwardPanel(
+    repository: FieldRepository,
     prefill: Prefill,
     canCreateTool: Boolean,
     onSelect: (EntryMode) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val appContext = LocalContext.current.applicationContext
+    // These shortcuts hand the artisan on in memory, which only survives a tap made from this panel
+    // — and the panel dies on dismissal, on navigating away, and whenever Android reclaims a
+    // backgrounded app. Banking the same bag covers the route researchers actually take: out via the
+    // dashboard, back into a product form later. Web parity — CarryForwardCards remembers on mount.
+    LaunchedEffect(prefill) {
+        CarryContextStore(appContext).remember(repository.cachedUser()?.id, prefill.toCarryContext())
+    }
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
         shape = RoundedCornerShape(16.dp),
@@ -1856,7 +2011,7 @@ private fun DashboardScreen(
     actions: List<EntryMode>,
     /** This user's tier, spelled the way the app spells it, for the short-grid explanation. */
     roleLabel: String,
-    /** require_record_creator: Field Contributor and above. False = the four record cards are gone. */
+    /** require_record_creator: Researcher and above. False = the four record cards are gone. */
     canCreateRecords: Boolean,
     showAdminHub: Boolean = false,
     onOpenAdminHub: () -> Unit = {},
@@ -1939,9 +2094,10 @@ private fun DashboardScreen(
             ) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "You are signed in as $roleLabel. That covers interviews, media uploads and " +
-                            "comments. Creating artisans, products, processes and tools needs Field " +
-                            "Contributor access — ask an admin to raise your tier.",
+                        "You are signed in as $roleLabel. That covers answering existing " +
+                            "interviews, uploading media and commenting on records other people " +
+                            "opened. Creating artisans, products, processes and tools needs " +
+                            "Researcher access or above — ask an admin to raise your tier.",
                         color = Muted,
                         fontSize = 13.sp
                     )
@@ -2227,6 +2383,7 @@ private val ROLE_RANK = mapOf(
     "MASTER_ADMIN" to 60
 )
 private const val RANK_FIELD_CONTRIBUTOR = 20
+private const val RANK_RESEARCHER = 30
 private const val RANK_PROFESSOR = 40
 private const val RANK_ADMIN = 50
 
@@ -2260,8 +2417,16 @@ private fun UserDto.isAdminUser(): Boolean = roleRank(role) >= RANK_ADMIN
 /** `is_master_admin`. */
 private fun UserDto.isMasterAdminUser(): Boolean = role == "MASTER_ADMIN"
 
-/** `can_create_records` / `require_record_creator` — artisans, products, processes, tools. */
-private fun UserDto.canCreateRecords(): Boolean = roleRank(role) >= RANK_FIELD_CONTRIBUTOR
+/**
+ * `can_create_records` / `require_record_creator` — OPENING an artisan, product, process, tool or
+ * interview. Researcher and above.
+ *
+ * The two tiers below POPULATE records rather than open them: attaching media to an existing
+ * artisan, answering an existing interview, commenting. None of those three passes through here, so
+ * hiding a "New …" card from a field contributor never hides a contribution path — it removes a form
+ * that ended in a 403 after they had filled it in.
+ */
+private fun UserDto.canCreateRecords(): Boolean = roleRank(role) >= RANK_RESEARCHER
 
 /** `can_access_review` / `require_reviewer` — Field Contributor and above, or an explicit grant. */
 private fun UserDto.canAccessReview(): Boolean = roleRank(role) >= RANK_FIELD_CONTRIBUTOR || canReview
@@ -2273,11 +2438,18 @@ private fun UserDto.canDownloadTheDataset(): Boolean = roleRank(role) >= RANK_PR
 private fun UserDto.canManageTheQuestionnaire(): Boolean =
     roleRank(role) >= RANK_PROFESSOR || canManageQuestionnaire
 
-/** `can_manage_crafts` / `require_craft_manager` — Professor and above, or a grant. */
-private fun UserDto.canManageTheCrafts(): Boolean = roleRank(role) >= RANK_PROFESSOR || canManageCrafts
+/**
+ * `can_manage_crafts` / `require_craft_manager` — Professor and above, RANK ALONE.
+ *
+ * The `canManageCrafts` grant is deliberately not consulted. The server stopped reading it (deps.py)
+ * because a per-user grant that lifted a researcher over the taxonomy was invisible in the role
+ * column, and a client that kept ORing it in offers the Add-craft form to someone the API will
+ * refuse. Promote the person instead; deleting a craft is stricter still (admin).
+ */
+private fun UserDto.canManageTheCrafts(): Boolean = roleRank(role) >= RANK_PROFESSOR
 
-/** `can_manage_workshops` / `require_workshop_manager` — Professor and above, or a grant. */
-private fun UserDto.canManageTheWorkshops(): Boolean = roleRank(role) >= RANK_PROFESSOR || canManageWorkshops
+/** `can_manage_workshops` / `require_workshop_manager` — Professor+, rank alone; see above. */
+private fun UserDto.canManageTheWorkshops(): Boolean = roleRank(role) >= RANK_PROFESSOR
 
 /** `require_professor` on GET/PATCH /users — the user table opens for Professor and above. */
 private fun UserDto.canManageUsers(): Boolean = roleRank(role) >= RANK_PROFESSOR
@@ -2453,14 +2625,51 @@ private fun locationForBody(isEdit: Boolean, current: LocationRequest?, original
         // The postal half counts as a change too. Comparing only the coordinate meant a researcher
         // could add the state and pincode to a legacy location, save, and watch both answers vanish.
         current.state == original.state &&
-        current.pincode == original.pincode
+        current.pincode == original.pincode &&
+        // And so does the rest of the stated half — district, village, the subject's pin. Same
+        // reasoning one rung down: a researcher who opens a legacy record purely to say which
+        // district it is in would otherwise watch the answer disappear on save, because the
+        // coordinate did not move. Compared as COLUMNS rather than trusting the metadata mirror
+        // beneath them: the mirror is written for older phones, and a comparison that can only see
+        // it would go blind the day it is finally retired.
+        current.district == original.district &&
+        current.village == original.village &&
+        current.subjectLatitude == original.subjectLatitude &&
+        current.subjectLongitude == original.subjectLongitude &&
+        current.extraMetadata == original.extraMetadata
     ) {
         return null
     }
     return current
 }
 
-/** Convert a read-model location into the request payload used by create/update calls. */
+/**
+ * The reason this form may not open a NEW record yet, or null when it may.
+ *
+ * The server refuses a create that carries no location, and refuses one whose location does not say
+ * which state and district the SUBJECT is in (`require_location`, backend/app/schemas/common.py).
+ * Both dropdowns are filled from `GET /reference/address`, which is a pure constant the phone caches
+ * for good, so this is answerable in a workshop with no signal — and answering it here rather than
+ * at the server is what stops an offline save from sitting in the outbox being retried against a
+ * body that can never be accepted, discovered days later a long way from the artisan.
+ *
+ * NOTHING IS ASKED OF AN EDIT, matching `forbid_clearing_location` exactly. The records written
+ * before those columns existed carry no stated address at all, and a researcher who opened one to
+ * correct a phone number must be able to save it without inventing a district from a desk. The card
+ * flags the gap and invites them to close it; refusing the save would close it by guesswork.
+ */
+private fun newRecordLocationError(isEdit: Boolean, current: LocationRequest?): String? =
+    if (isEdit) null else artisanLocationRequirementError(current)
+
+/**
+ * Convert a read-model location into the request payload used by create/update calls.
+ *
+ * EVERY STATED FIELD HAS TO BE HERE. `attach_location` builds a BRAND NEW Location row out of this
+ * body on update — it does not patch the stored one — and `forbid_clearing_location` deliberately
+ * lets an update through without a stated address, so anything this function forgets is not
+ * rejected, it is erased. That is how district, village and the subject pin came to be silently
+ * nulled by a phone opening a web-entered record to correct a phone number.
+ */
 private fun LocationDto.toRequest(): LocationRequest =
     LocationRequest(
         latitude = latitude,
@@ -2470,7 +2679,15 @@ private fun LocationDto.toRequest(): LocationRequest =
         address = address,
         placeName = placeName ?: address,
         state = state,
-        pincode = pincode
+        district = district,
+        village = village,
+        pincode = pincode,
+        subjectLatitude = subjectLatitude,
+        subjectLongitude = subjectLongitude,
+        capturedAt = capturedAt,
+        // The pre-column shape of the same four answers, carried through untouched so a record that
+        // only has them keeps them (see the note atop ui/LocationFields.kt).
+        extraMetadata = extraMetadata
     )
 
 // ---------------------------------------------------------------------------
@@ -2478,7 +2695,7 @@ private fun LocationDto.toRequest(): LocationRequest =
 // ---------------------------------------------------------------------------
 
 /** Indian PIN codes are six digits and never begin with 0 — the first digit is the postal zone. */
-private const val PINCODE_LENGTH = 6
+internal const val PINCODE_LENGTH = 6
 
 /**
  * The reason [value] is not a usable pincode, or null when it is fine (blank included — the field is
@@ -2486,7 +2703,7 @@ private const val PINCODE_LENGTH = 6
  * backend/app/services/address.py, so the researcher reads one message whether it was caught here or
  * by the API — and reads it before the round trip rather than as a 422 after it.
  */
-private fun pincodeValidationError(value: String?): String? {
+internal fun pincodeValidationError(value: String?): String? {
     val digits = value?.trim().orEmpty()
     if (digits.isEmpty()) return null
     // ASCII digits only, for the same reason as the Aadhaar validator: Char.isDigit() admits the
@@ -2511,7 +2728,7 @@ private fun foldStateName(value: String): String =
  * list is closed, so a name the API would reject is worse than no suggestion at all, and a value the
  * dropdown cannot show is a value the researcher cannot see, let alone correct.
  */
-private fun matchIndianState(text: String, states: List<String>): String {
+internal fun matchIndianState(text: String, states: List<String>): String {
     val wanted = foldStateName(text)
     if (wanted.isEmpty()) return ""
     states.firstOrNull { foldStateName(it) == wanted }?.let { return it }
@@ -2521,226 +2738,52 @@ private fun matchIndianState(text: String, states: List<String>): String {
     }.orEmpty()
 }
 
-/** A geocoded postal code, kept only when it satisfies the same rule the researcher is held to. */
-private fun usablePincode(text: String?): String {
-    val digits = text.orEmpty().filter { it in '0'..'9' }
-    return if (pincodeValidationError(digits) == null) digits else ""
-}
-
 /**
- * What the device's geocoder says is at these coordinates: (admin area, postal code), either null.
+ * The record's location, in the two halves it actually has: what the researcher says about the
+ * artisan, and what this device says about itself.
  *
- * Runs off the main thread and swallows everything. A geocoder is a network service behind a system
- * API — absent on some builds, rate-limited on others, and simply wrong about a hamlet often enough
- * in rural India to matter — so nothing it does may reach the researcher as an error, and nothing it
- * fails to do may block a save. The worst case here is that the two fields stay empty and are typed.
- */
-private suspend fun reverseGeocodeAddress(context: Context, lat: Double, lng: Double): Pair<String?, String?> =
-    withContext(Dispatchers.IO) {
-        if (!Geocoder.isPresent()) return@withContext null to null
-        runCatching {
-            @Suppress("DEPRECATION")
-            val results = Geocoder(context, Locale.UK).getFromLocation(lat, lng, 1)
-            val first = results?.firstOrNull() ?: return@runCatching null to null
-            first.adminArea to first.postalCode
-        }.getOrDefault(null to null)
-    }
-
-/**
- * [LocationEditor] plus the two postal fields the API keeps on the same row: state and pincode.
+ * A thin wrapper now. Everything below the name lives in ui/LocationFields.kt — the two groups, the
+ * offline-cached state and district dropdowns, the accuracy gate on the geocoder, and the rule that
+ * a point with no address CLEARS the last point's guess instead of leaving it behind. The name is
+ * kept because three forms call it and the concurrency of this file is not worth spending on a
+ * rename.
  *
- * WHY THIS WRAPS RATHER THAN EXTENDS. `LocationEditor` rebuilds its [LocationRequest] from scratch on
- * every coordinate change, so anything this adds would be dropped the next time a digit was typed
- * into the latitude box. Re-applying the two values inside [onChange] here is what makes them
- * survive, and keeps the shared editor a coordinate editor.
- *
- * WHERE THE TWO VALUES LIVE. On the [LocationRequest] itself, read straight back out of it — no local
- * mirror, so a record whose location arrives after mount (every edit form fetches its record) shows
- * what it stored rather than a blank box. A [LocationRequest] cannot exist without a coordinate,
- * though, so before there is one the answers are parked in [pendingState]/[pendingPincode] and folded
- * in the moment a fix or a pin arrives. The notice at the bottom says so, because two answers that
- * silently do not save is the worst version of this.
- *
- * PREFILL, NEVER LOCK. A fix or a pin reverse-geocodes and SUGGESTS both, never overwriting something
- * a human put there and never blocking anything on the geocoder's answer.
+ * WHAT THE OLD BODY GOT WRONG, kept here as the reason not to put it back. It offered the geocoder
+ * a state and a pincode for every fix regardless of its accuracy radius, and it read a geocoder
+ * that answered "nothing" as "leave what is there" — so a pin corrected from Bagru to Dehradun
+ * kept Bagru's pincode, silently, on a record that now said Uttarakhand. It also had no field in
+ * which a researcher could say where the ARTISAN was, which is why fifteen live records carry a
+ * Kharagpur coordinate under a Rajasthani place name typed into a free-text box.
  */
 @Composable
 private fun LocationAddressEditor(
     repository: FieldRepository,
     value: LocationRequest?,
-    onUseGps: () -> LocationRequest?,
+    // Retained so the three call sites need no edit. LocationCaptureCard drives its own permission
+    // flow and its own live fix, so nothing has needed a caller-supplied one-shot read since.
+    @Suppress("UNUSED_PARAMETER") onUseGps: () -> LocationRequest?,
     onChange: (LocationRequest?) -> Unit,
-    onMessage: (String) -> Unit = {}
+    onMessage: (String) -> Unit = {},
+    required: Boolean = true,
+    isEdit: Boolean = false,
+    showRequirementError: Boolean = false
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var states by remember { mutableStateOf<List<String>>(emptyList()) }
-    var pendingState by remember { mutableStateOf("") }
-    var pendingPincode by remember { mutableStateOf("") }
-    /*
-     * What the geocoder last put in each box, and the whole of how "prefill, never lock" is decided.
-     *
-     * Anything in a box that is NOT this came from a human — typed here, or stored on the record and
-     * loaded after mount — and a later pin leaves it alone. Recording what was suggested, rather than
-     * a "the user touched it" flag, is what makes both halves work at once: a second pin can still
-     * replace the FIRST pin's guess, an edit form's stored state is protected without this composable
-     * having to know when the record finished loading, and emptying a field hands it back to the
-     * geocoder. Reverse geocoding is wrong often enough in rural India that overwriting a correction
-     * would be worse than suggesting nothing at all.
-     */
-    val suggested = remember { mutableStateOf<Pair<String?, String?>>(null to null) }
-    // Raised only once the researcher has left the field, so a half-typed code is not narrated back
-    // as an error on the third keystroke (Aadhaar field parity).
-    var pincodeProblemShown by remember { mutableStateOf(false) }
-    // The freshest location, for the geocode callback below: `value` is captured at the composition
-    // that created the lambda, and a lookup started by the very first GPS fix would otherwise come
-    // back and read the null that was there before the fix landed.
-    val latest = rememberUpdatedState(value)
-    // The in-flight reverse-geocode, so a newer point can cancel an older one's answer.
-    val lookup = remember { mutableStateOf<Job?>(null) }
-
-    // Read from the location row itself while one exists — no local mirror, so an edit form whose
-    // record arrives after mount shows what it stored rather than an empty box.
-    val stateName = if (value != null) value.state.orEmpty() else pendingState
-    val pincode = if (value != null) value.pincode.orEmpty() else pendingPincode
-    val pincodeProblem = pincodeValidationError(pincode)
-    val showPincodeProblem = pincodeProblem != null && (pincodeProblemShown || pincode.length == PINCODE_LENGTH)
-
-    LaunchedEffect(Unit) {
-        // Offline, or the endpoint is unhappy: the stored value is still offered below and still
-        // saves. A hard-coded stand-in list is exactly what this fetch exists to avoid.
-        runCatching { repository.addressReference() }
-            .onSuccess { states = it.statesAndUnionTerritories }
-    }
-
-    /** Fold the two postal answers onto whatever coordinate the shared editor just produced. */
-    fun emit(next: LocationRequest?) {
-        if (next == null) {
-            // The coordinate was cleared, and the row the two answers live on goes with it. Park them
-            // so clearing a mis-tapped pin does not also silently discard a typed pincode.
-            pendingState = stateName
-            pendingPincode = pincode
-            onChange(null)
-            return
-        }
-        onChange(next.copy(state = stateName.ifBlank { null }, pincode = pincode.ifBlank { null }))
-    }
-
-    fun setStateName(next: String) {
-        val current = value
-        if (current == null) pendingState = next else onChange(current.copy(state = next.ifBlank { null }))
-    }
-
-    fun setPincode(next: String) {
-        pincodeProblemShown = false
-        val current = value
-        if (current == null) pendingPincode = next else onChange(current.copy(pincode = next.ifBlank { null }))
-    }
-
-    /**
-     * Suggest the state and pincode for the freshly picked point [placed]. Both suggestions are
-     * resolved against the API's own rules first — the region against the served list, the postal code
-     * against the pincode format — so a geocoder answer the server would reject is dropped rather than
-     * offered. A failure is silent and leaves both fields exactly as they were, ready for manual entry.
-     */
-    fun suggestAddressFor(placed: LocationRequest) {
-        // The previous point's answer is no longer the answer, so cancel it: a slow reply must not
-        // land on top of a newer pin.
-        lookup.value?.cancel()
-        lookup.value = scope.launch {
-            // Typing a coordinate by hand re-emits on every keystroke, and each emit is a different
-            // point. Waiting out the typing keeps this to one lookup per place rather than one per
-            // digit — the same reason the Aadhaar duplicate check above waits.
-            delay(400)
-            val (region, postal) = reverseGeocodeAddress(context, placed.latitude, placed.longitude)
-            val suggestedState = region?.let { matchIndianState(it, states) }.orEmpty()
-            val suggestedPincode = usablePincode(postal)
-            if (suggestedState.isBlank() && suggestedPincode.isBlank()) return@launch
-            // The researcher may have moved the pin again, or cleared it, while the lookup ran; the
-            // newer coordinate is the one that must survive, so an answer for an old point is dropped.
-            val current = latest.value ?: return@launch
-            if (!sameCoordinate(placed, current)) return@launch
-            val stateIsHuman = !current.state.isNullOrBlank() && current.state != suggested.value.first
-            val pincodeIsHuman = !current.pincode.isNullOrBlank() && current.pincode != suggested.value.second
-            val nextState = if (stateIsHuman || suggestedState.isBlank()) current.state else suggestedState
-            val nextPincode = if (pincodeIsHuman || suggestedPincode.isBlank()) current.pincode else suggestedPincode
-            if (nextState == current.state && nextPincode == current.pincode) return@launch
-            suggested.value = nextState to nextPincode
-            pincodeProblemShown = false
-            onChange(current.copy(state = nextState, pincode = nextPincode))
-        }
-    }
-
-    LocationEditor(
+    LocationFieldsSection(
+        repository = repository,
         value = value,
-        onUseGps = onUseGps,
-        onChange = { next ->
-            val hadCoordinate = value != null
-            emit(next)
-            // Only a NEW point is worth a lookup; retyping a decimal place on an existing one is not.
-            if (next != null && (!hadCoordinate || !sameCoordinate(next, value))) suggestAddressFor(next)
-        },
+        onChange = onChange,
+        required = required,
+        isEdit = isEdit,
+        showRequirementError = showRequirementError,
         onMessage = onMessage
     )
-    DropdownField(
-        label = "State / union territory",
-        options = stateOptionsFor(stateName, states),
-        selectedValue = stateName,
-        placeholder = if (states.isEmpty()) "Loading the state list…" else "Select state"
-    ) { setStateName(it) }
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        OutlinedTextField(
-            value = pincode,
-            // Filtered rather than validated-after-the-fact, so a pasted "380 001" becomes six digits
-            // instead of an error message about spaces.
-            onValueChange = { input -> setPincode(input.filter { it in '0'..'9' }.take(PINCODE_LENGTH)) },
-            label = { Text("Pincode") },
-            placeholder = { Text("700001") },
-            // Narrated the moment the code is complete-but-wrong (a leading zero is the whole of
-            // that case), and otherwise only once the researcher has left the box — five digits on
-            // the way to six is not yet a mistake.
-            isError = showPincodeProblem,
-            supportingText = {
-                val shown = pincodeProblem?.takeIf { showPincodeProblem }
-                Text(
-                    shown ?: "Six digits. A GPS fix or a map pin suggests one — correct it if the map is wrong.",
-                    color = if (shown != null) MaterialTheme.colorScheme.error else Muted,
-                    fontSize = 12.sp
-                )
-            },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier
-                .fillMaxWidth()
-                .onFocusChanged { focus -> if (!focus.isFocused && pincode.isNotEmpty()) pincodeProblemShown = true }
-        )
-    }
-    if ((stateName.isNotBlank() || pincode.isNotBlank()) && value == null) {
-        // The API keeps state and pincode ON the location row, which cannot exist without a
-        // coordinate — so say that here rather than letting the two answers vanish at save time.
-        Text(
-            "Add a GPS fix or a map pin: the state and pincode are stored with the coordinates, and " +
-                "without them they are not saved.",
-            color = Coral,
-            fontSize = 12.sp
-        )
-    }
 }
 
 /** Two coordinates the researcher would call the same place (the editor re-emits on every keystroke). */
-private fun sameCoordinate(next: LocationRequest, previous: LocationRequest?): Boolean =
+internal fun sameCoordinate(next: LocationRequest, previous: LocationRequest?): Boolean =
     previous != null &&
         kotlin.math.abs(next.latitude - previous.latitude) < 1e-6 &&
         kotlin.math.abs(next.longitude - previous.longitude) < 1e-6
-
-/**
- * The dropdown's options: the served list, with the record's own value kept at the front until that
- * list arrives. Without it an edit form would show "Select state" over a state the record really
- * holds, which reads as "not answered" and invites the researcher to answer it again.
- */
-private fun stateOptionsFor(selected: String, states: List<String>): List<Pair<String, String>> =
-    (if (selected.isNotBlank() && selected !in states) listOf(selected) + states else states)
-        .map { it to it }
 
 private suspend fun uploadAttachments(
     repository: FieldRepository,
@@ -2970,6 +3013,12 @@ private fun GridMeasurementSection(
     }
 }
 
+/**
+ * Every one-of-many field in the record forms. Now a thin adapter over [SearchableSelectField],
+ * which keeps this anchored menu for short lists and opens the searchable sheet once the list is
+ * long enough to scroll — so the artisan, tool, craft and state pickers all gained a search box
+ * without any of the thirty-odd call sites below changing.
+ */
 @Composable
 private fun DropdownField(
     label: String,
@@ -2980,44 +3029,15 @@ private fun DropdownField(
     enabled: Boolean = true,
     onSelect: (String) -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    val selectedLabel = options.firstOrNull { it.first == selectedValue }?.second
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, color = Muted, fontSize = 12.sp)
-        Box(modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(onClick = { expanded = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    selectedLabel ?: placeholder,
-                    color = if (selectedLabel != null) Body else Muted,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(if (expanded) "▴" else "▾", color = Muted)
-            }
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
-                modifier = Modifier.background(SurfaceCard)
-            ) {
-                if (includeNone) {
-                    DropdownMenuItem(
-                        text = { Text(placeholder, color = Muted) },
-                        trailingIcon = { if (selectedValue.isBlank()) Text("✓", color = Coral) },
-                        onClick = { onSelect(""); expanded = false }
-                    )
-                }
-                options.forEach { (value, text) ->
-                    val isSelected = value == selectedValue
-                    DropdownMenuItem(
-                        text = { Text(text, color = if (isSelected) Coral else Body, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        trailingIcon = { if (isSelected) Text("✓", color = Coral) },
-                        onClick = { onSelect(value); expanded = false }
-                    )
-                }
-            }
-        }
-    }
+    SearchableSelectField(
+        label = label,
+        options = remember(options) { options.asSelectOptions() },
+        selectedValue = selectedValue,
+        placeholder = placeholder,
+        includeNone = includeNone,
+        enabled = enabled,
+        onSelect = onSelect
+    )
 }
 
 @Composable
@@ -3389,41 +3409,6 @@ private fun workshopOptionLabel(workshop: WorkshopDetailDto): String {
 }
 
 /**
- * The 0-9 in [text] and nothing else — the phone column's one definition of a digit.
- *
- * Emphatically NOT `Char.isDigit()`, which the phone field used to filter with: it is true of the
- * Devanagari "१" and the fullwidth "２" an Indic or CJK IME will happily produce, so a number typed on
- * a phone with such a keyboard passed straight through into storage. The web's PhoneField parses the
- * same column with `/\D/g`, which is ASCII-only, and therefore read that artisan as having no phone
- * number at all — the record looked complete on the device that captured it and blank in the browser.
- * The Aadhaar and pincode fields have always taken this line (see [aadhaarValidationError]); the phone
- * field is the one that did not.
- */
-private fun asciiDigits(text: String): String = text.filter { it in '0'..'9' }
-
-/**
- * Split a stored phone into its ISD dial code and national digits. Handles the "+CC number" format this
- * field writes, a compact "+CCnumber", and legacy bare numbers (assumed Indian, +91). Longest known
- * dial code wins so multi-digit codes aren't misread as a shorter one.
- */
-private fun parsePhoneNumber(stored: String): Pair<String, String> {
-    val compact = stored.trim().replace("\\s".toRegex(), "")
-    if (compact.isEmpty()) return "+91" to ""
-    if (compact.startsWith("+")) {
-        val code = Countries.dialCodes.firstOrNull { compact.startsWith(it) }
-        if (code != null) return code to asciiDigits(compact.removePrefix(code))
-        return "+91" to asciiDigits(compact)
-    }
-    return "+91" to asciiDigits(compact)
-}
-
-/** Combine a dial code and national digits into the stored "+CC number" form (blank when no number). */
-private fun composePhoneNumber(dialCode: String, national: String): String {
-    val digits = asciiDigits(national)
-    return if (digits.isEmpty()) "" else "$dialCode $digits"
-}
-
-/**
  * The shape an email address has to have, character for character the web form's `EMAIL_RE`
  * (`/^[^\s@]+@[^\s@]+\.[^\s@]+$/` in components/forms/ArtisanForm.tsx): something, an @, something,
  * a dot, something — no spaces anywhere.
@@ -3433,146 +3418,6 @@ private fun composePhoneNumber(dialCode: String, national: String): String {
  * in the browser. "a@b" fails here exactly as it fails there.
  */
 private val EMAIL_RE = Regex("""[^\s@]+@[^\s@]+\.[^\s@]+""")
-
-/**
- * Inline validation for a stored phone: null when empty or valid. +91 must be exactly 10 digits; other
- * codes accept 4–14 digits (loose enough for the range of national number lengths worldwide).
- */
-private fun phoneValidationError(stored: String?): String? {
-    val (code, national) = parsePhoneNumber(stored ?: "")
-    val digits = asciiDigits(national)
-    return when {
-        digits.isEmpty() -> null
-        code == "+91" -> if (digits.length == 10) null else "Enter a 10-digit number for +91."
-        else -> if (digits.length in 4..14) null else "Enter a valid phone number (4–14 digits)."
-    }
-}
-
-/**
- * Artisan phone entry with an ISD-prefix selector. The compact prefix button opens a searchable list of
- * every country (name + dial code); the default is +91. Changing away from +91 asks to confirm the
- * artisan is a foreign resident (cancel reverts). The combined value is emitted as a single
- * "+CC number" string in the existing phone field, and parsed back on edit.
- */
-@Composable
-private fun ArtisanPhoneField(value: String, error: String?, onValueChange: (String) -> Unit) {
-    val initial = remember { parsePhoneNumber(value) }
-    var dialCode by remember { mutableStateOf(initial.first) }
-    var national by remember { mutableStateOf(initial.second) }
-    var showPicker by remember { mutableStateOf(false) }
-    // A dial code chosen away from +91 that is awaiting the foreign-resident confirmation.
-    var pendingForeign by remember { mutableStateOf<String?>(null) }
-
-    fun applyDialCode(code: String) {
-        if (code == dialCode) return
-        // Leaving +91 marks the artisan as a foreign resident — confirm before applying.
-        if (dialCode == "+91" && code != "+91") {
-            pendingForeign = code
-        } else {
-            dialCode = code
-            onValueChange(composePhoneNumber(code, national))
-        }
-    }
-
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Phone", color = Muted, fontSize = 12.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-            OutlinedButton(
-                onClick = { showPicker = true },
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 16.dp)
-            ) {
-                Text(dialCode, color = Body, maxLines = 1)
-                Text(" ▾", color = Muted)
-            }
-            OutlinedTextField(
-                value = national,
-                onValueChange = { input ->
-                    val digits = asciiDigits(input)
-                    national = digits
-                    onValueChange(composePhoneNumber(dialCode, digits))
-                },
-                label = { Text("Number") },
-                isError = error != null,
-                supportingText = error?.let { msg -> { Text(msg) } },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                modifier = Modifier.weight(1f)
-            )
-        }
-    }
-
-    if (showPicker) {
-        CountryDialCodePicker(
-            onDismiss = { showPicker = false },
-            onPick = { c -> showPicker = false; applyDialCode(c.dialCode) }
-        )
-    }
-    pendingForeign?.let { code ->
-        AlertDialog(
-            onDismissRequest = { pendingForeign = null },
-            title = { Text("Foreign resident?") },
-            text = { Text("This marks the artisan as a foreign resident. Continue?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    dialCode = code
-                    onValueChange(composePhoneNumber(code, national))
-                    pendingForeign = null
-                }) { Text("Continue") }
-            },
-            dismissButton = { TextButton(onClick = { pendingForeign = null }) { Text("Cancel") } }
-        )
-    }
-}
-
-/** Searchable dialog listing every country (name + dial code) for the phone ISD-prefix selector. */
-@Composable
-private fun CountryDialCodePicker(onDismiss: () -> Unit, onPick: (Country) -> Unit) {
-    var query by remember { mutableStateOf("") }
-    val filtered = remember(query) {
-        val q = query.trim().lowercase()
-        if (q.isEmpty()) Countries.all
-        else Countries.all.filter { it.name.lowercase().contains(q) || it.dialCode.contains(q) }
-    }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-        title = { Text("Select country code") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    label = { Text("Search country or code") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 360.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    if (filtered.isEmpty()) {
-                        Text("No matches", color = Muted, fontSize = 13.sp)
-                    }
-                    filtered.forEach { c ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onPick(c) }
-                                .padding(vertical = 10.dp, horizontal = 4.dp)
-                        ) {
-                            Text(c.name, color = Body, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                            Text(c.dialCode, color = Muted, fontSize = 14.sp)
-                        }
-                    }
-                }
-            }
-        }
-    )
-}
 
 // ---------------------------------------------------------------------------
 // Artisan identity: Aadhaar number and Artisan Pehchan (PM Vishwakarma) card.
@@ -3788,7 +3633,16 @@ private fun ArtisanMultiSelectField(
     }
 }
 
-/** Generic checkbox multi-select over (id, label) options, mirroring ArtisanMultiSelectField. */
+/**
+ * Generic many-of-many over (id, label) options. Now a thin adapter over
+ * [SearchableMultiSelectField], which trades the wall of checkboxes this used to paint into the
+ * form for a summary trigger, the chosen rows as chips, and a searchable sheet with Select all.
+ *
+ * The sheet hands back a whole set; the callers here own a `Set<String>` in snapshot state and
+ * change it one id at a time, so the difference is replayed as toggles. Safe to do in a loop:
+ * a snapshot write is visible to the next read on the same thread, so each `onToggle` sees the
+ * effect of the one before it rather than all of them racing against one stale set.
+ */
 @Composable
 private fun CheckboxMultiSelectField(
     label: String,
@@ -3797,32 +3651,17 @@ private fun CheckboxMultiSelectField(
     emptyMessage: String = "No options available.",
     onToggle: (String) -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("$label (${selectedIds.size} selected)", color = Muted, fontSize = 12.sp)
-        if (options.isEmpty()) {
-            Text(emptyMessage, color = Muted, fontSize = 12.sp)
-        } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(SurfaceCard, RoundedCornerShape(12.dp))
-                    .padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                options.forEach { (id, text) ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onToggle(id) }
-                    ) {
-                        Checkbox(checked = selectedIds.contains(id), onCheckedChange = { onToggle(id) })
-                        Text(text, color = Body, fontSize = 13.sp)
-                    }
-                }
-            }
+    SearchableMultiSelectField(
+        label = label,
+        options = remember(options) { options.asSelectOptions() },
+        selected = selectedIds,
+        placeholder = "Select",
+        emptyMessage = emptyMessage,
+        onSelectedChange = { next ->
+            (next - selectedIds).forEach(onToggle)
+            (selectedIds - next).forEach(onToggle)
         }
-    }
+    )
 }
 
 @Composable
@@ -4820,6 +4659,8 @@ private fun CraftForm(
 private fun ArtisanForm(
     repository: FieldRepository,
     crafts: List<CraftDto>,
+    /** Whether [crafts] arrived, could not be reached, or is still coming — see [rememberFormCarry]. */
+    lookupState: CarryScopeState = CarryScopeState.PENDING,
     editing: ArtisanDetailDto? = null,
     prefill: Prefill? = null,
     adminView: Boolean = false,
@@ -4850,6 +4691,33 @@ private fun ArtisanForm(
     var craftId by remember(editing) { mutableStateOf(editing?.craftId ?: prefill?.craftId ?: "") }
     var newCraftName by remember(editing) { mutableStateOf("") }
     val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
+    /**
+     * The craft and the workshop carry into a new artisan; the ARTISAN in the bag never does.
+     *
+     * This form's whole job is to create a person who is not yet in the bag, so offering the last
+     * one would be worse than useless — it is the "wrong artisan" hazard with the record itself as
+     * the casualty. Their place does not carry either: it belongs to that artisan, not to the
+     * sitting, and two artisans documented back to back are routinely from different villages. What
+     * genuinely transfers is the craft everyone at this workshop practises, and the workshop.
+     */
+    val carry = rememberFormCarry(
+        repository = repository,
+        enabled = !isEdit,
+        applies = CarryPrefillDefaults.ARTISAN_FORM,
+        scopes = listOf(carryScope(CarryNode.CRAFT, lookupState, crafts) { it.id }),
+        handoff = prefill
+    ) { carried ->
+        carried.craftId?.let { craftId = it }
+        // Only while the picker still holds whatever it defaulted to itself: a workshop the
+        // researcher chose outranks one we remembered, and moving the baseline along with the value
+        // is what stops a prefill reading as an unsaved edit on the way out.
+        carried.workshopId?.let { if (!workshop.isDirty()) workshop.applyDefault(it) }
+    }
+    /** "Change": drop the carried craft so the researcher picks from scratch. */
+    fun clearCarriedContext() {
+        carry.change()
+        craftId = ""
+    }
     val canSetStatus = remember { canSetRecordStatus(repository.cachedUser()?.role) }
     var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }
     var saving by remember { mutableStateOf(false) }
@@ -4927,7 +4795,7 @@ private fun ArtisanForm(
                 RequiredCheck(dontsText.isBlank(), { dontsError = it }, dontsFocus)
             ))) { onError("Please fill the required field highlighted above."); return }
         // Phone (optional) must be a valid number for its ISD code when present.
-        phoneValidationError(phone)?.let { msg -> phoneError = msg; onError("Fix the phone number highlighted above."); return }
+        artisanPhoneValidationError(phone)?.let { msg -> phoneError = msg; onError("Fix the phone number highlighted above."); return }
         phoneError = null
         // Email (optional) must look like an address when present — the same shape the web form
         // enforces (EMAIL_RE in components/forms/ArtisanForm.tsx). Accepting "a@b" here while the web
@@ -4963,6 +4831,9 @@ private fun ArtisanForm(
             onError("Fix the Artisan Pehchan Card details highlighted above."); return
         }
         pehchanError = null
+        // Last, because it is the one check whose answer is further down the form than the focus
+        // helpers reach. See newRecordLocationError for why an edit is never asked.
+        newRecordLocationError(isEdit, media.location)?.let { onError(it); return }
         scope.launch {
             if (!workshop.confirmSubmission()) return@launch
             saving = true
@@ -5043,7 +4914,10 @@ private fun ArtisanForm(
     fun formSignature(): String = listOf(
         name, localName, gender, phone, email, place, address, notes, aadhaar,
         pehchanAvailable.toString(), pehchanNumber, joinNumbered(dosItems), joinNumbered(dontsItems),
-        craftId, newCraftName, status
+        // The offer resolves a beat after the first composition, so until it does the handoff it was
+        // built from stands in — otherwise the baseline and the prefill would disagree for one frame
+        // and an untouched form would come out of it reading as edited.
+        craftId.exceptCarried(carry.offer?.context?.craftId ?: prefill?.craftId), newCraftName, status
     ).joinToString(" ")
     val initialSig = remember(editing) { formSignature() }
     val dirty = !saving && (
@@ -5056,6 +4930,8 @@ private fun ArtisanForm(
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
+        // Above the workshop picker, so what was filled in is read before any of the fields it filled.
+        CarryPrefillBanner(state = carry, onChange = { clearCarriedContext() })
         WorkshopField(state = workshop, saving = saving)
         RequiredInput("Name", name, nameError, nameFocus, titleCased = true) { name = it }
         TextInput("Local name", localName) { localName = it }
@@ -5064,7 +4940,14 @@ private fun ArtisanForm(
             options = crafts.map { it.id to it.name },
             selectedValue = craftId,
             placeholder = "Select existing craft",
-            onSelect = { craftId = it }
+            onSelect = { picked ->
+                craftId = picked
+                // An explicit pick replaces the remembered craft and retires the banner: from here on
+                // what is on screen is the researcher's own choice, not a suggestion.
+                crafts.firstOrNull { it.id == picked }?.let {
+                    carry.remember(CarryContext(craftId = it.id, craftName = it.name), explicit = true)
+                }
+            }
         )
         OutlinedTextField(
             value = newCraftName,
@@ -5228,6 +5111,7 @@ private fun WorkshopForm(
                 RequiredCheck(title.isBlank(), { titleError = it }, titleFocus),
                 RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
             ))) { onError("Please fill the required field highlighted above."); return }
+        newRecordLocationError(isEdit, media.location)?.let { onError(it); return }
         scope.launch {
             saving = true
             val start = (startDate ?: LocalDate.now()).toIsoInstant()
@@ -5341,6 +5225,8 @@ private fun ProductForm(
     repository: FieldRepository,
     crafts: List<CraftDto>,
     artisans: List<ArtisanDto>,
+    /** Whether the two lists above arrived, could not be reached, or are still coming. */
+    lookupState: CarryScopeState = CarryScopeState.PENDING,
     editing: ProductDetailDto? = null,
     prefill: Prefill? = null,
     adminView: Boolean = false,
@@ -5374,6 +5260,43 @@ private fun ProductForm(
     val canSetStatus = remember { canSetRecordStatus(repository.cachedUser()?.role) }
     var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }
     val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
+    /**
+     * Offer the sitting this researcher was last working in, however they got here — the in-memory
+     * [Prefill] only survives a tap made straight off the save screen, and the route they actually
+     * take is out via the dashboard and back an hour later.
+     *
+     * The PRODUCT in the bag is this form's own subject and is never applied here; a tool or a
+     * process in it belongs to other forms and is left alone rather than dropped, so they still
+     * have it when the researcher gets there.
+     */
+    val carry = rememberFormCarry(
+        repository = repository,
+        enabled = !isEdit,
+        applies = CarryPrefillDefaults.PRODUCT_FORM,
+        // Both dropdowns are built from exactly these two lists, so "absent from the list" answers
+        // both "you can no longer reach it" and "this form could not have shown it" at once.
+        scopes = listOf(
+            carryScope(CarryNode.ARTISAN, lookupState, artisans) { it.id },
+            carryScope(CarryNode.CRAFT, lookupState, crafts) { it.id }
+        ),
+        handoff = prefill
+    ) { carried ->
+        carried.craftId?.let { craftId = it }
+        carried.craftName?.let { craftName = it }
+        carried.artisanId?.let { artisanId = it }
+        carried.artisanName?.let { artisanName = it }
+        carried.place?.let { place = it }
+        carried.workshopId?.let { if (!workshop.isDirty()) workshop.applyDefault(it) }
+    }
+    /** "Change": drop every carried value in one action so the researcher picks from scratch. */
+    fun clearCarriedContext() {
+        carry.change()
+        craftId = ""
+        craftName = ""
+        artisanId = ""
+        artisanName = ""
+        place = ""
+    }
     var saving by remember { mutableStateOf(false) }
     var productNameError by remember { mutableStateOf<String?>(null) }
     var craftNameError by remember { mutableStateOf<String?>(null) }
@@ -5396,6 +5319,7 @@ private fun ProductForm(
                 RequiredCheck(artisanName.isBlank(), { artisanNameError = it }, artisanNameFocus),
                 RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
             ))) { onError("Please fill the required field highlighted above."); return }
+        newRecordLocationError(isEdit, media.location)?.let { onError(it); return }
         scope.launch {
             if (!workshop.confirmSubmission()) return@launch
             saving = true
@@ -5425,11 +5349,28 @@ private fun ProductForm(
                 recordedAt = if (isEdit) null else Instant.now().toString(),
                 location = locationForBody(isEdit, media.location, editing?.location)
             )
+            // Bank the sitting the moment the record is accepted, so the next form opened from the
+            // dashboard already knows where the researcher is.
+            val sitting = CarryContext(
+                artisanId = artisanId.ifBlank { null },
+                artisanName = artisanName.trim(),
+                place = place.trim(),
+                craftId = craftId.ifBlank { null },
+                craftName = craftName.trim(),
+                workshopId = workshop.value(),
+                workshopName = workshop.workshops.firstOrNull { it.id == workshop.value() }?.title
+            )
             val queuedOffline = runCatching {
                 trySaveOffline(repository, context, isEdit, "product", offlineFormJson.encodeToString(body),
                     productName.trim(), media, productName.trim(), "Field media for ${productName.trim()}")
             }.getOrElse { false }
             if (queuedOffline) {
+                // Offline is the normal case, but a queued product has no id yet, so no process form
+                // could link to it. Whatever product was in the bag is dropped rather than left to
+                // stand in for the one just recorded — an old product offered under a new one's name
+                // is a wrong link.
+                carry.prune(CarryNode.PRODUCT)
+                carry.remember(sitting)
                 media.reset()
                 onError("Saved on this device. It'll upload automatically when you're back online.")
                 onDone()
@@ -5443,7 +5384,11 @@ private fun ProductForm(
                     repository.createProduct(body).id
                 }
                 uploadAttachments(repository, context, media, "product", productId, productName, "Field media for ${productName.trim()}")
-            }.onSuccess {
+                productId
+            }.onSuccess { productId ->
+                // The product itself now joins the bag: a process is documented against a product, so
+                // the process form should be offering this one rather than making them find it again.
+                carry.remember(sitting.copy(productId = productId, productName = productName.trim()))
                 media.reset()
                 onDone()
             }.onFailure { onError(it.message ?: "Unable to save product") }
@@ -5451,9 +5396,15 @@ private fun ProductForm(
         }
     }
     val productSig: () -> String = {
-        listOf(productName, localName, craftName, artisanName, place, productType, marketDemand, timeTaken, size,
+        // The offer resolves a beat after the first composition, so until it does the handoff it was
+        // built from stands in — otherwise the baseline and the prefill would disagree for one frame
+        // and an untouched form would come out of it reading as edited.
+        val carried = carry.offer?.context ?: prefill?.toCarryContext()
+        listOf(productName, localName, craftName.exceptCarried(carried?.craftName),
+            artisanName.exceptCarried(carried?.artisanName), place.exceptCarried(carried?.place),
+            productType, marketDemand, timeTaken, size,
             length, breadth, height, costOfMaking, sellingPrice, rawMaterials, mainTools, functionUse, remarks,
-            status, craftId, artisanId).joinToString("")
+            status, craftId.exceptCarried(carried?.craftId), artisanId.exceptCarried(carried?.artisanId)).joinToString("")
     }
     val initialSig = remember(editing) { productSig() }
     val dirty = !saving && (
@@ -5465,6 +5416,8 @@ private fun ProductForm(
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
+        // Above the workshop picker, so what was filled in is read before any of the fields it filled.
+        CarryPrefillBanner(state = carry, onChange = { clearCarriedContext() })
         WorkshopField(state = workshop, saving = saving)
         RequiredInput("Product name", productName, productNameError, productNameFocus, titleCased = true) { productName = it }
         TextInput("Local name", localName) { localName = it }
@@ -5500,6 +5453,18 @@ private fun ProductForm(
             artisans.firstOrNull { it.id == id }?.let {
                 artisanName = it.name
                 place = it.place
+                // An explicit pick replaces the remembered context and retires the banner: from here
+                // on the artisan on screen is the researcher's own choice, not a suggestion.
+                carry.remember(
+                    CarryContext(
+                        artisanId = it.id,
+                        artisanName = it.name,
+                        place = it.place,
+                        craftId = craftId.ifBlank { null },
+                        craftName = craftName.blankToNull()
+                    ),
+                    explicit = true
+                )
             }
         }
         if (craftId.isNotBlank() && artisanOptionsForCraft.isEmpty()) {
@@ -5547,6 +5512,8 @@ private fun ToolForm(
     repository: FieldRepository,
     crafts: List<CraftDto>,
     artisans: List<ArtisanDto>,
+    /** Whether the two lists above arrived, could not be reached, or are still coming. */
+    lookupState: CarryScopeState = CarryScopeState.PENDING,
     editing: ToolDetailDto? = null,
     prefill: Prefill? = null,
     adminView: Boolean = false,
@@ -5582,6 +5549,41 @@ private fun ToolForm(
     var suggestions by remember(editing) { mutableStateOf(editing?.suggestionsForToolImprovement ?: "") }
     var remarks by remember(editing) { mutableStateOf(editing?.remarks ?: "") }
     val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
+    /**
+     * Offer the sitting this researcher was last working in, however they got here.
+     *
+     * The TOOL in the bag is this form's own subject and is never applied here; a product or a
+     * process in it belongs to other forms and is left alone rather than dropped, so they still have
+     * it when the researcher gets there.
+     */
+    val carry = rememberFormCarry(
+        repository = repository,
+        enabled = !isEdit,
+        applies = CarryPrefillDefaults.TOOL_FORM,
+        // Both dropdowns are built from exactly these two lists, so "absent from the list" answers
+        // both "you can no longer reach it" and "this form could not have shown it" at once.
+        scopes = listOf(
+            carryScope(CarryNode.ARTISAN, lookupState, artisans) { it.id },
+            carryScope(CarryNode.CRAFT, lookupState, crafts) { it.id }
+        ),
+        handoff = prefill
+    ) { carried ->
+        carried.craftId?.let { craftId = it }
+        carried.craftName?.let { craftName = it }
+        carried.artisanId?.let { artisanId = it }
+        carried.artisanName?.let { artisanName = it }
+        carried.place?.let { place = it }
+        carried.workshopId?.let { if (!workshop.isDirty()) workshop.applyDefault(it) }
+    }
+    /** "Change": drop every carried value in one action so the researcher picks from scratch. */
+    fun clearCarriedContext() {
+        carry.change()
+        craftId = ""
+        craftName = ""
+        artisanId = ""
+        artisanName = ""
+        place = ""
+    }
     val canSetStatus = remember { canSetRecordStatus(repository.cachedUser()?.role) }
     var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }
     var saving by remember { mutableStateOf(false) }
@@ -5606,6 +5608,7 @@ private fun ToolForm(
                 RequiredCheck(artisanName.isBlank(), { artisanNameError = it }, artisanNameFocus),
                 RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
             ))) { onError("Please fill the required field highlighted above."); return }
+        newRecordLocationError(isEdit, media.location)?.let { onError(it); return }
         scope.launch {
             if (!workshop.confirmSubmission()) return@launch
             saving = true
@@ -5638,6 +5641,17 @@ private fun ToolForm(
                 recordedAt = if (isEdit) null else Instant.now().toString(),
                 location = locationForBody(isEdit, media.location, editing?.location)
             )
+            // Bank the sitting the moment the record is accepted, so the next form opened from the
+            // dashboard already knows where the researcher is.
+            val sitting = CarryContext(
+                artisanId = artisanId.ifBlank { null },
+                artisanName = artisanName.trim(),
+                place = place.trim(),
+                craftId = craftId.ifBlank { null },
+                craftName = craftName.trim(),
+                workshopId = workshop.value(),
+                workshopName = workshop.workshops.firstOrNull { it.id == workshop.value() }?.title
+            )
             if (!isEdit && !repository.isOnline(context)) {
                 val ok = runCatching {
                     val items = media.uris.mapIndexed { i, uri ->
@@ -5648,6 +5662,12 @@ private fun ToolForm(
                     repository.queueOfflineEntry(context, "tool", offlineFormJson.encodeToString(body), toolkitName.trim(), items)
                 }.isSuccess
                 if (ok) {
+                    // Offline is the normal case, but a queued tool has no id yet, so nothing can be
+                    // assigned to it. Whatever tool was in the bag is dropped rather than left to
+                    // stand in for the one just recorded — an old tool offered under a new one's
+                    // name is a wrong link.
+                    carry.prune(CarryNode.TOOL)
+                    carry.remember(sitting)
                     media.reset(); stages.reset()
                     onError("Saved on this device. It'll upload automatically when you're back online.")
                     onDone(); saving = false; return@launch
@@ -5675,7 +5695,11 @@ private fun ToolForm(
                         stageStep = index + 1
                     )
                 }
-            }.onSuccess {
+                toolId
+            }.onSuccess { toolId ->
+                // The tool itself now joins the bag, so assigning it to another artisan opens with
+                // the tool already picked instead of hunting it out of a dropdown of seventy.
+                carry.remember(sitting.copy(toolId = toolId, toolName = toolkitName.trim()))
                 media.reset()
                 stages.reset()
                 onDone()
@@ -5684,9 +5708,16 @@ private fun ToolForm(
         }
     }
     val toolSig: () -> String = {
-        listOf(toolkitName, localName, englishName, craftName, artisanName, place, processUsedIn, material,
+        // The offer resolves a beat after the first composition, so until it does the handoff it was
+        // built from stands in — otherwise the baseline and the prefill would disagree for one frame
+        // and an untouched form would come out of it reading as edited.
+        val carried = carry.offer?.context ?: prefill?.toCarryContext()
+        listOf(toolkitName, localName, englishName, craftName.exceptCarried(carried?.craftName),
+            artisanName.exceptCarried(carried?.artisanName), place.exceptCarried(carried?.place),
+            processUsedIn, material,
             yearsInUse, height, width, length, breadth, thickness, weight, radius, maker, traditionType,
-            replacementCost, suggestions, remarks, status, craftId, artisanId).joinToString("")
+            replacementCost, suggestions, remarks, status,
+            craftId.exceptCarried(carried?.craftId), artisanId.exceptCarried(carried?.artisanId)).joinToString("")
     }
     val initialSig = remember(editing) { toolSig() }
     val dirty = !saving && (
@@ -5699,6 +5730,8 @@ private fun ToolForm(
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
+        // Above the workshop picker, so what was filled in is read before any of the fields it filled.
+        CarryPrefillBanner(state = carry, onChange = { clearCarriedContext() })
         WorkshopField(state = workshop, saving = saving)
         RequiredInput("Toolkit name", toolkitName, toolkitNameError, toolkitNameFocus, titleCased = true) { toolkitName = it }
         TextInput("Local name", localName) { localName = it }
@@ -5734,6 +5767,18 @@ private fun ToolForm(
             artisans.firstOrNull { it.id == id }?.let {
                 artisanName = it.name
                 place = it.place
+                // An explicit pick replaces the remembered context and retires the banner: from here
+                // on the artisan on screen is the researcher's own choice, not a suggestion.
+                carry.remember(
+                    CarryContext(
+                        artisanId = it.id,
+                        artisanName = it.name,
+                        place = it.place,
+                        craftId = craftId.ifBlank { null },
+                        craftName = craftName.blankToNull()
+                    ),
+                    explicit = true
+                )
             }
         }
         if (craftId.isNotBlank() && artisanOptionsForCraft.isEmpty()) {
@@ -5928,6 +5973,9 @@ private fun ProcessForm(
 
     var products by remember { mutableStateOf<List<ProductDetailDto>>(emptyList()) }
     var artisans by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
+    // "I can no longer see this artisan" and "there is no signal" are different answers, and the
+    // carry prefill treats them differently — see [rememberFormCarry].
+    var artisanListState by remember { mutableStateOf(CarryScopeState.PENDING) }
     var name by remember(editing) { mutableStateOf(editing?.name ?: "") }
     var artisanId by remember(editing) { mutableStateOf(editing?.product?.artisanId ?: "") }
     var productId by remember(editing) { mutableStateOf(editing?.productId ?: "") }
@@ -5955,7 +6003,40 @@ private fun ProcessForm(
 
     LaunchedEffect(Unit) {
         runCatching { repository.products() }.onSuccess { products = it }
-        runCatching { repository.artisans() }.onSuccess { artisans = it }
+        val gotArtisans = runCatching { repository.artisans() }.onSuccess { artisans = it }.isSuccess
+        artisanListState = if (gotArtisans) CarryScopeState.LOADED else CarryScopeState.UNAVAILABLE
+    }
+
+    /**
+     * The carried product, held until this artisan's product list arrives.
+     *
+     * A process is documented against a product, so "I just recorded a product, now let me record
+     * how it is made" is the most common journey into this form. The product cannot be applied on
+     * the spot the way the artisan can: the dropdown it belongs in is fetched per artisan, and that
+     * fetch only starts once the prefill has supplied the artisan. So it waits here for one round
+     * trip, and the effect below either seats it or drops it.
+     */
+    val carriedProduct = remember { mutableStateOf<String?>(null) }
+
+    // Offer the sitting this researcher was last working in: the artisan, the workshop, and the
+    // product they documented last, which is what this record is about.
+    val carry = rememberFormCarry(
+        repository = repository,
+        enabled = !isEdit,
+        applies = CarryPrefillDefaults.PROCESS_FORM,
+        // No craft or tool field here, so neither is filled in nor claimed; both stay in the bag.
+        scopes = listOf(carryScope(CarryNode.ARTISAN, artisanListState, artisans) { it.id })
+    ) { carried ->
+        carried.artisanId?.let { artisanId = it }
+        carried.productId?.let { carriedProduct.value = it }
+        carried.workshopId?.let { if (!workshop.isDirty()) workshop.applyDefault(it) }
+    }
+    /** "Change": drop the carried artisan and product in one action. */
+    fun clearCarriedContext() {
+        carry.change()
+        carriedProduct.value = null
+        artisanId = ""
+        productId = ""
     }
 
     // Products belong to an artisan, so the product list is scoped to the chosen artisan. We re-key
@@ -5991,6 +6072,14 @@ private fun ProcessForm(
         productsLoading = false
         result.onSuccess { fetched ->
             artisanProducts = fetched
+            // This list is both the dropdown's options and the only proof the carried product is
+            // still this artisan's and still reachable, so the deferred half of the prefill resolves
+            // here. Deleted, or not this artisan's after all: either way it is dropped from the bag
+            // and from the banner rather than offered as a link nobody can follow.
+            carriedProduct.value?.let { carried ->
+                carriedProduct.value = null
+                if (fetched.any { it.id == carried }) productId = carried else carry.prune(CarryNode.PRODUCT)
+            }
             // Keep a valid selection: clear product if it is no longer offered for this artisan.
             if (productId.isNotBlank() && fetched.none { it.id == productId }) productId = ""
         }.onFailure {
@@ -6043,6 +6132,22 @@ private fun ProcessForm(
                 workshopId = workshop.value(),
                 recordedAt = if (isEdit) null else Instant.now().toString()
             )
+            // Bank the sitting the moment the record is accepted — queued counts, offline being the
+            // normal case — so the next form opened from the dashboard knows where the researcher is.
+            val savedArtisan = artisans.firstOrNull { it.id == artisanId }
+            val sitting = CarryContext(
+                artisanId = artisanId.ifBlank { null },
+                artisanName = savedArtisan?.name,
+                place = savedArtisan?.place,
+                craftId = savedArtisan?.craftId,
+                craftName = savedArtisan?.craft?.name,
+                // The product this process documents stays in the bag: a second process for the same
+                // product is the next thing a researcher does, and it should not need finding again.
+                productId = productId.ifBlank { null },
+                productName = artisanProducts.firstOrNull { it.id == productId }?.productName,
+                workshopId = workshop.value(),
+                workshopName = workshop.workshops.firstOrNull { it.id == workshop.value() }?.title
+            )
             // Offline: queue the process with its pre-process media (linked to the process) and each
             // step's media (linked to that step on sync, by index), preserving the step nomenclature.
             if (!isEdit && !repository.isOnline(context)) {
@@ -6066,6 +6171,7 @@ private fun ProcessForm(
                     repository.queueOfflineEntry(context, "process", offlineFormJson.encodeToString(body), name.trim(), items)
                 }.isSuccess
                 if (ok) {
+                    carry.remember(sitting)
                     preMedia.reset(); steps.forEach { it.media.reset() }
                     onError("Saved on this device. It'll upload automatically when you're back online.")
                     onDone()
@@ -6110,6 +6216,7 @@ private fun ProcessForm(
                     }
                 }
             }.onSuccess {
+                carry.remember(sitting)
                 preMedia.reset()
                 steps.forEach { it.media.reset() }
                 onDone()
@@ -6118,7 +6225,12 @@ private fun ProcessForm(
         }
     }
     val procSig: () -> String = {
-        listOf(name, artisanId, productId, notes, status, preProcessAvailable.toString(),
+        // A carried artisan or product is on the same footing as the workshop picker's automatic
+        // default: the researcher did not choose it, so an untouched form must not ask them to save
+        // it. Picking one themselves retires the offer, and the value starts counting from there.
+        val carried = carry.offer?.context
+        listOf(name, artisanId.exceptCarried(carried?.artisanId), productId.exceptCarried(carried?.productId),
+            notes, status, preProcessAvailable.toString(),
             steps.joinToString("|") { "${it.serverId}~${it.name}~${it.stepType}~${it.notes}~${it.media.uris.size}" }).joinToString("")
     }
     val initialSig = remember(editing) { procSig() }
@@ -6137,6 +6249,8 @@ private fun ProcessForm(
             color = Muted,
             fontSize = 12.sp
         )
+        // Above the workshop picker, so what was filled in is read before any of the fields it filled.
+        CarryPrefillBanner(state = carry, onChange = { clearCarriedContext() })
         WorkshopField(state = workshop, saving = saving)
         RequiredInput("Name of the process", name, nameError, nameFocus, titleCased = true) { name = it }
         DropdownField(
@@ -6146,7 +6260,19 @@ private fun ProcessForm(
             placeholder = "Select the artisan",
             includeNone = false
         ) { picked ->
-            if (picked != artisanId) { artisanId = picked; productId = "" }
+            if (picked != artisanId) {
+                artisanId = picked
+                productId = ""
+                carriedProduct.value = null
+                // An explicit pick replaces the remembered context and retires the banner: from here
+                // on the artisan on screen is the researcher's own choice, not a suggestion.
+                artisans.firstOrNull { it.id == picked }?.let {
+                    carry.remember(
+                        CarryContext(artisanId = it.id, artisanName = it.name, place = it.place),
+                        explicit = true
+                    )
+                }
+            }
         }
         if (artisanError != null) Text(artisanError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
         DropdownField(
@@ -6161,7 +6287,27 @@ private fun ProcessForm(
             },
             includeNone = false,
             enabled = artisanId.isNotBlank() && !productsLoading && artisanProducts.isNotEmpty()
-        ) { productId = it }
+        ) { picked ->
+            productId = picked
+            artisanProducts.firstOrNull { it.id == picked }?.let { product ->
+                // Two calls, in this order, and the order is the point: pruning first drops the
+                // product the banner was offering — the researcher has just overruled it, so it must
+                // stop claiming it — and remembering then banks the one they chose. The artisan
+                // above is still our suggestion, so the banner stays up saying so.
+                carry.prune(CarryNode.PRODUCT)
+                val artisan = artisans.firstOrNull { it.id == artisanId }
+                carry.remember(
+                    CarryContext(
+                        artisanId = artisanId.ifBlank { null },
+                        artisanName = artisan?.name,
+                        place = artisan?.place,
+                        craftId = artisan?.craftId,
+                        productId = product.id,
+                        productName = product.productName
+                    )
+                )
+            }
+        }
         when {
             productsLoading -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
@@ -9443,6 +9589,8 @@ private fun QuestionnaireForm(
     repository: FieldRepository,
     sections: List<QuestionnaireSectionDto>,
     artisans: List<ArtisanDto>,
+    /** Whether [artisans] arrived, could not be reached, or is still coming. */
+    lookupState: CarryScopeState = CarryScopeState.PENDING,
     canManageQuestionnaire: Boolean,
     prefill: Prefill? = null,
     editing: QuestionnaireInterviewDetailDto? = null,
@@ -9472,6 +9620,29 @@ private fun QuestionnaireForm(
     var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }
     var capturedLocation by remember(editing) { mutableStateOf(editing?.location?.toRequest()) }
     val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
+    /**
+     * Open on the artisan this researcher was last documenting.
+     *
+     * An interview is the record most often taken straight after a product or a tool — the artisan
+     * is sitting right there — so the artisan is the one thing worth carrying in. Nothing narrower
+     * transfers: an interview covers a person, not their products, and this form has no field for
+     * one.
+     */
+    val carry = rememberFormCarry(
+        repository = repository,
+        enabled = !isEdit,
+        applies = CarryPrefillDefaults.QUESTIONNAIRE_FORM,
+        scopes = listOf(carryScope(CarryNode.ARTISAN, lookupState, artisans) { it.id }),
+        handoff = prefill
+    ) { carried ->
+        carried.artisanId?.let { selectedArtisans = setOf(it) }
+        carried.workshopId?.let { if (!workshop.isDirty()) workshop.applyDefault(it) }
+    }
+    /** "Change": drop the carried artisan so the researcher picks from scratch. */
+    fun clearCarriedContext() {
+        carry.change()
+        selectedArtisans = emptySet()
+    }
     // Status policy, identical to every other record form and to the web questionnaire page: a
     // professor+ picks any status (APPROVED by default on create), everyone below sees the locked
     // "Pending" chip. Without this control the interview was the ONE record type an interviewing
@@ -9576,7 +9747,11 @@ private fun QuestionnaireForm(
         }
         return false
     }
-    var recordMode by remember { mutableStateOf("INDIVIDUAL") }
+    // One take for the whole section is how these interviews are actually conducted: the researcher
+    // sits down with the artisan and talks through the section, rather than starting and stopping a
+    // recorder between every question. Per-question capture stays a click away for the times it is
+    // wanted, but it is not the shape of the work and so it is not the default.
+    var recordMode by remember { mutableStateOf("SECTION") }
     var expandedSections by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showBuilder by remember { mutableStateOf(false) }
 
@@ -9658,6 +9833,8 @@ private fun QuestionnaireForm(
         if (isEdit) {
             Text("Add or update answers below. Existing answers from other interviewers are preserved unless you change them.", color = Muted, fontSize = 12.sp)
         }
+        // Above the workshop picker, so what was filled in is read before any of the fields it filled.
+        CarryPrefillBanner(state = carry, onChange = { clearCarriedContext() })
         WorkshopField(state = workshop, saving = saveState == SaveState.SAVING)
         RequiredInput("Interview title", title, titleError, titleFocus, titleCased = true) { title = it }
         // Web parity (app/(protected)/questionnaire/page.tsx): title → place → language → status →
@@ -9691,7 +9868,26 @@ private fun QuestionnaireForm(
             artisans = artisans,
             selectedIds = selectedArtisans
         ) { id ->
-            selectedArtisans = if (selectedArtisans.contains(id)) selectedArtisans - id else selectedArtisans + id
+            val adding = !selectedArtisans.contains(id)
+            selectedArtisans = if (adding) selectedArtisans + id else selectedArtisans - id
+            // Naming an artisan is an explicit pick, so it replaces the remembered context and
+            // retires the banner: from here on the selection is the researcher's own, not a
+            // suggestion. Only on the way IN — unticking says who the interview is not about, which
+            // is no statement about where the researcher is sitting.
+            if (adding) {
+                artisans.firstOrNull { it.id == id }?.let {
+                    carry.remember(
+                        CarryContext(
+                            artisanId = it.id,
+                            artisanName = it.name,
+                            place = it.place,
+                            craftId = it.craftId,
+                            craftName = it.craft?.name
+                        ),
+                        explicit = true
+                    )
+                }
+            }
         }
         DropdownField(
             label = "Recording mode",
@@ -9868,6 +10064,10 @@ private fun QuestionnaireForm(
             if (!validateRequired(listOf(
                     RequiredCheck(title.isBlank(), { titleError = it }, titleFocus)
                 ))) { onError("Please fill the required field highlighted above."); return }
+                // Asked of a new interview even when it will FOLD into an existing one for the same
+                // artisan set: POST /questionnaire/interviews validates the whole body before it
+                // decides which of the two it is doing, so the stated address is required either way.
+                newRecordLocationError(isEdit, capturedLocation)?.let { onError(it); return }
                 scope.launch {
                     // Late-submission gate first, so the save button does not sit in "Saving…" while
                     // the confirmation is on screen.
@@ -10076,6 +10276,22 @@ private fun QuestionnaireForm(
                     // (so a second save can't re-upload them).
                     qMedia.reset()
                     questionAudio = emptyMap()
+                    // Bank the sitting: the interview itself does not join the bag — nothing else
+                    // links to one — but the artisan it was taken with is exactly where the
+                    // researcher still is.
+                    artisans.firstOrNull { it.id in selectedArtisans }?.let { interviewed ->
+                        carry.remember(
+                            CarryContext(
+                                artisanId = interviewed.id,
+                                artisanName = interviewed.name,
+                                place = interviewed.place,
+                                craftId = interviewed.craftId,
+                                craftName = interviewed.craft?.name,
+                                workshopId = workshop.value(),
+                                workshopName = workshop.workshops.firstOrNull { it.id == workshop.value() }?.title
+                            )
+                        )
+                    }
                     if (!isEdit) {
                         title = ""
                         selectedArtisans = emptySet()
@@ -10095,7 +10311,12 @@ private fun QuestionnaireForm(
                 }
         }
         val qSig: () -> String = {
-            listOf(title, place, language, notes, status, selectedArtisans.sorted().joinToString(","),
+            // The offer resolves a beat after the first composition, so until it does the handoff it
+            // was built from stands in — otherwise the baseline and the prefill would disagree for
+            // one frame and an untouched form would come out of it reading as edited.
+            val carriedArtisan = carry.offer?.context?.artisanId ?: prefill?.artisanId
+            listOf(title, place, language, notes, status,
+                selectedArtisans.filterNot { it == carriedArtisan }.sorted().joinToString(","),
                 answers.entries.joinToString("|") { "${it.key}=${it.value.value}" }).joinToString("")
         }
         val initialSig = remember(editing) { qSig() }
@@ -10367,8 +10588,9 @@ private fun UserManagementForm(
     RecordCard(title = "Users and access") {
         Text(
             "Professors and above can move a user along the six-tier ladder (never above their own " +
-                "tier); admins can additionally grant or revoke questionnaire-builder, craft/workshop " +
-                "creation, record review & approval, view-provenance and dataset-download access. Tap a " +
+                "tier); admins can additionally grant or revoke questionnaire-builder, record " +
+                "review & approval, view-provenance and dataset-download access. Craft and workshop " +
+                "creation are not grantable — they come with Professor, so promote instead. Tap a " +
                 "user to expand and manage them.",
             color = Muted,
             fontSize = 12.sp
@@ -10388,13 +10610,15 @@ private fun UserManagementForm(
             // (the server 403s any other field) — so the capability toggles need admin and above.
             val canEditGrants = actorIsAdmin && canManageTarget && !targetIsProfessorPlus
             val expanded = expandedUsers.contains(appUser.id)
-            // Count of granted privileges, for the collapsed summary line.
+            // Count of granted privileges, for the collapsed summary line. One entry per toggle
+            // rendered below, and in the same order — the list used to name crafts and workshops
+            // (which are no longer grantable) while omitting the dataset toggle that is, so the
+            // summary counted five things that were not the five on screen.
             val grantedCount = listOf(
                 targetIsProfessorPlus || appUser.canManageQuestionnaire,
-                targetIsProfessorPlus || appUser.canManageCrafts,
-                targetIsProfessorPlus || appUser.canManageWorkshops,
                 roleRank(appUser.role) >= RANK_FIELD_CONTRIBUTOR || appUser.canReview,
-                roleRank(appUser.role) >= RANK_ADMIN || appUser.canViewProvenance
+                roleRank(appUser.role) >= RANK_ADMIN || appUser.canViewProvenance,
+                targetIsProfessorPlus || appUser.canDownloadDataset
             ).count { it }
             ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard)) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -10411,7 +10635,7 @@ private fun UserManagementForm(
                             Text("${appUser.email} · ${roleLabel(appUser.role)}", color = Muted, fontSize = 12.sp)
                             Text(
                                 if (isMaster) "All privileges (master admin)"
-                                else "$grantedCount of 5 privileges granted",
+                                else "$grantedCount of 4 privileges granted",
                                 color = Muted,
                                 fontSize = 11.sp
                             )
@@ -10457,28 +10681,18 @@ private fun UserManagementForm(
                                 }
                             }
                         )
-                        GrantToggleRow(
-                            label = "Craft creation",
-                            granted = targetIsProfessorPlus || appUser.canManageCrafts,
-                            enabled = canEditGrants,
-                            onToggle = { grant ->
-                                scope.launch {
-                                    runCatching { repository.updateUserCraftAccess(appUser.id, grant); refreshUsers() }
-                                        .onFailure { onError(it.message ?: "Unable to update craft access") }
-                                }
-                            }
-                        )
-                        GrantToggleRow(
-                            label = "Workshop creation",
-                            granted = targetIsProfessorPlus || appUser.canManageWorkshops,
-                            enabled = canEditGrants,
-                            onToggle = { grant ->
-                                scope.launch {
-                                    runCatching { repository.updateUserWorkshopAccess(appUser.id, grant); refreshUsers() }
-                                        .onFailure { onError(it.message ?: "Unable to update workshop access") }
-                                }
-                            }
-                        )
+                        /*
+                         * "Craft creation" and "Workshop creation" WERE HERE, and are gone.
+                         *
+                         * They set `canManageCrafts` / `canManageWorkshops`, two columns the server
+                         * deliberately stopped reading (`can_manage_crafts` in deps.py): both powers
+                         * are Professor-by-rank alone now, because a grant that lifted someone below
+                         * the taxonomy over it was invisible in the role column and nobody auditing
+                         * the user table could see who held it. The switches still flipped, still
+                         * saved, and granted nothing — a control that looks like it confers access
+                         * and does not is worse than no control at all. Promote the person instead.
+                         * Web parity: frontend/app/(protected)/users/page.tsx dropped the same two.
+                         */
                         GrantToggleRow(
                             label = "Record review & approval",
                             granted = roleRank(appUser.role) >= RANK_FIELD_CONTRIBUTOR || appUser.canReview,
@@ -10521,12 +10735,6 @@ private fun UserManagementForm(
     }
 }
 
-private val sharingTierOptions = listOf(
-    "DOWNLOAD" to "Download (minimum)",
-    "COMMENT" to "Comment (medium)",
-    "EDIT" to "Edit (maximum)"
-)
-
 /**
  * Cross-researcher data sharing. A researcher can request access to another's data at a tier
  * (Download < Comment < Edit, with definitions shown), and manage requests/grants on their own data:
@@ -10545,10 +10753,6 @@ private fun SharingForm(
     var directory by remember { mutableStateOf<List<UserDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
-
-    var reqOwnerId by remember { mutableStateOf("") }
-    var reqTier by remember { mutableStateOf("DOWNLOAD") }
-    var reqNote by remember { mutableStateOf("") }
 
     fun reload() {
         scope.launch {
@@ -10591,32 +10795,26 @@ private fun SharingForm(
         }
     }
 
+    // Both cards ask for several people at once and report each person separately — see
+    // ui/SharingBatch.kt, which owns the batch and the partial-failure panel.
     RecordCard(title = "Request access") {
-        Text("Ask another researcher for access to their data. They decide and can narrow it to a subset.", color = Muted, fontSize = 12.sp)
-        DropdownField(
-            label = "Researcher",
-            options = directory.map { it.id to "${it.name} · ${it.email}" },
-            selectedValue = reqOwnerId,
-            placeholder = "Select researcher",
-            onSelect = { reqOwnerId = it }
+        RequestAccessFields(
+            repository = repository,
+            directory = directory,
+            outgoing = grants.outgoing,
+            onChanged = { reload() }
         )
-        DropdownField(
-            label = "Tier",
-            options = sharingTierOptions,
-            selectedValue = reqTier,
-            includeNone = false,
-            onSelect = { reqTier = it }
-        )
-        TextInput("Note (optional)", reqNote) { reqNote = it }
-        Button(
-            enabled = !busy && reqOwnerId.isNotBlank(),
-            onClick = {
-                run({ repository.requestDataAccess(reqOwnerId, reqTier, reqNote); reqNote = "" }, "Request sent")
-            }
-        ) { Text("Send request") }
     }
 
-    GrantDirectlyCard(repository = repository, directory = directory, onGranted = { reload() }, onError = onError)
+    RecordCard(title = "Grant access to your data") {
+        GrantAccessFields(
+            repository = repository,
+            directory = directory,
+            incoming = grants.incoming,
+            onChanged = { reload() },
+            onError = onError
+        )
+    }
 
     RecordCard(title = "Access to your data") {
         val incoming = grants.incoming
@@ -11428,93 +11626,6 @@ private fun tierLabel(tier: String): String = when (tier) {
     else -> tier
 }
 
-/**
- * Owner-side: grant a colleague access to ALL of your data, or a chosen SUBSET of your own records.
- * Mirrors the web "Grant access to your data" panel.
- */
-@Composable
-private fun GrantDirectlyCard(
-    repository: FieldRepository,
-    directory: List<UserDto>,
-    onGranted: () -> Unit,
-    onError: (String) -> Unit
-) {
-    val scope = rememberCoroutineScope()
-    val myId = repository.cachedUser()?.id
-    var granteeId by remember { mutableStateOf("") }
-    var tier by remember { mutableStateOf("DOWNLOAD") }
-    var allData by remember { mutableStateOf(true) }
-    // recordType, recordId, label
-    var myRecords by remember { mutableStateOf<List<Triple<String, String, String>>?>(null) }
-    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var busy by remember { mutableStateOf(false) }
-
-    fun loadMine() {
-        if (myRecords != null) return
-        scope.launch {
-            runCatching {
-                val recs = mutableListOf<Triple<String, String, String>>()
-                repository.artisans().filter { it.createdById == myId }.forEach { recs += Triple("artisan", it.id, "Artisan · ${it.name}") }
-                repository.products().filter { it.createdById == myId }.forEach { recs += Triple("product", it.id, "Product · ${it.productName}") }
-                repository.tools().filter { it.createdById == myId }.forEach { recs += Triple("tool", it.id, "Tool · ${it.toolkitName}") }
-                repository.workshops().filter { it.createdById == myId }.forEach { recs += Triple("workshop", it.id, "Workshop · ${it.title}") }
-                repository.interviews().filter { it.createdById == myId }.forEach { recs += Triple("questionnaire", it.id, "Interview · ${it.title}") }
-                recs
-            }.onSuccess { myRecords = it }.onFailure { onError(it.message ?: "Unable to load your records") }
-        }
-    }
-
-    RecordCard(title = "Grant access to your data") {
-        Text("Share all of your data, or pick specific records, with a colleague.", color = Muted, fontSize = 12.sp)
-        DropdownField(
-            label = "Colleague",
-            options = directory.map { it.id to "${it.name} · ${it.email}" },
-            selectedValue = granteeId,
-            placeholder = "Select colleague",
-            onSelect = { granteeId = it }
-        )
-        DropdownField(label = "Tier", options = sharingTierOptions, selectedValue = tier, includeNone = false, onSelect = { tier = it })
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            RadioButton(selected = allData, onClick = { allData = true })
-            Text("All my data", color = Body, fontSize = 13.sp)
-            Spacer(Modifier.width(12.dp))
-            RadioButton(selected = !allData, onClick = { allData = false; loadMine() })
-            Text("Selected records", color = Body, fontSize = 13.sp)
-        }
-        if (!allData) {
-            val recs = myRecords
-            if (recs == null) {
-                Text("Loading your records…", color = Muted, fontSize = 12.sp)
-            } else if (recs.isEmpty()) {
-                Text("You have no records to share.", color = Muted, fontSize = 12.sp)
-            } else {
-                recs.forEach { (rType, rId, label) ->
-                    val key = "$rType::$rId"
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        Checkbox(checked = selected.contains(key), onCheckedChange = { c -> selected = if (c) selected + key else selected - key })
-                        Text(label, color = Body, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-            }
-        }
-        Button(
-            enabled = !busy && granteeId.isNotBlank() && (allData || selected.isNotEmpty()),
-            onClick = {
-                scope.launch {
-                    busy = true
-                    val scopeItems = if (allData) emptyList() else selected.map {
-                        val (t, i) = it.split("::"); DataAccessScopeItemDto(recordType = t, recordId = i)
-                    }
-                    runCatching { repository.grantDataAccess(granteeId, tier, allData, scopeItems) }
-                        .onSuccess { granteeId = ""; selected = emptySet(); allData = true; onGranted() }
-                        .onFailure { onError(it.message ?: "Unable to grant access") }
-                    busy = false
-                }
-            }
-        ) { Text("Grant access") }
-    }
-}
-
 @Composable
 private fun GrantToggleRow(label: String, granted: Boolean, enabled: Boolean, onToggle: (Boolean) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -12021,6 +12132,20 @@ private fun createAudioRecorder(context: Context, file: File): MediaRecorder {
     }
 }
 
+/**
+ * The device's last known position, with NO name attached to it.
+ *
+ * WHAT WAS HERE AND WHY IT IS GONE. This function used to stamp every coordinate it produced with
+ * `placeName = "Android precise location"`, and that string is on all fifteen live records that
+ * carry a location. It is wrong three times over. It is not a place name — no human ever called
+ * anywhere that. It is not precise — the same fifteen rows carry accuracy radii up to 2.5 km, which
+ * is a mobile-network estimate rather than a reading. And by occupying the field it made the record
+ * look as though the place had been identified when nothing had identified it, which is how a desk
+ * in Kharagpur came to be filed as seven workshops across Rajasthan, Gujarat and Uttarakhand.
+ *
+ * A place name is now either a real name or absent, and absent is the honest answer here: this
+ * reads a cached fix out of the platform and knows nothing whatever about where that is.
+ */
 private fun readLastKnownLocation(context: Context): LocationRequest? {
     val hasFine = ContextCompat.checkSelfPermission(
         context,
@@ -12042,8 +12167,7 @@ private fun readLastKnownLocation(context: Context): LocationRequest? {
             latitude = it.latitude,
             longitude = it.longitude,
             altitude = it.altitude.takeIf { _ -> it.hasAltitude() },
-            accuracy = it.accuracy.toDouble().takeIf { _ -> it.hasAccuracy() },
-            placeName = "Android precise location"
+            accuracy = it.accuracy.toDouble().takeIf { _ -> it.hasAccuracy() }
         )
     }
 }

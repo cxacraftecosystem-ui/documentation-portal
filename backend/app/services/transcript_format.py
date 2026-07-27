@@ -11,8 +11,15 @@ whole interview reads as one unbroken blob.
 ``transcript_cell`` re-expresses that Markdown in the only formatting Excel understands inside a
 cell: a ``CellRichText`` of plain and bold runs. The speaker label becomes a real bold run and its
 asterisks disappear, every turn is forced onto its own line even when the model ran several onto
-one, and a horizontal rule becomes the blank line it was standing in for. Nothing is reworded —
-this only changes how the same characters are marked up.
+one, and a horizontal rule becomes the blank line it was standing in for. The model also reaches
+for the rest of its Markdown vocabulary unprompted, so a ``## Section`` heading becomes a bold
+line after a gap, a ``- item`` becomes a real bullet and a ``code span`` loses its backticks —
+each of which otherwise showed up in the cell as punctuation the reader has to look past.
+
+Underscore emphasis (``_like this_``) is deliberately NOT recognised: transcripts carry file
+names, object keys and identifiers full of underscores, and reading those as italics would eat
+characters that are part of the data. Nothing here is reworded — this only changes how the same
+characters are marked up.
 
 Rich text needs openpyxl >= 3.1 (pyproject pins >= 3.1.2). The caller renders these cells with
 ``wrap_text`` on, without which the embedded newlines are written but never shown.
@@ -26,6 +33,15 @@ from openpyxl.cell.text import InlineFont
 
 # A rule line stands in for a topic break; Markdown accepts all three fence characters.
 _RULE_RE = re.compile(r"^\s*(?:-{3,}|\*{3,}|_{3,})\s*$")
+# "## Dyeing" — a section the model opened. Excel has no heading style inside a cell, so the
+# heading becomes a bold line with a gap above it, which is what a heading is for anyway.
+_HEADING_RE = re.compile(r"^\s*#{1,6}\s+(\S.*?)\s*#*\s*$")
+# "- warp set at dawn" / "* warp set at dawn". Turned into a real bullet before the emphasis pass
+# runs, so a "*" opening a list item is never mistaken for the start of an italic span.
+_BULLET_RE = re.compile(r"^\s*[-*+]\s+(?=\S)")
+# ``indigo vat`` — code spans mean nothing in a transcript; keep the words, drop the backticks.
+_CODE_RE = re.compile(r"`([^`\n]+)`")
+_BULLET = "•  "
 # Models drift between "**Interviewer:**" and "**Interviewer**:"; fold the stray colon inside the
 # emphasis so there is a single speaker shape left to recognise.
 _LOOSE_LABEL_RE = re.compile(r"\*\*\s*([^*\n]{1,60}?)\s*\*\*\s*:")
@@ -40,13 +56,24 @@ _ITALIC = InlineFont(i=True)
 
 
 def _display_lines(markdown: str) -> list[str]:
-    """The transcript as the lines a reader should see: one speaker turn each, rules blanked."""
+    """The transcript as the lines a reader should see: one speaker turn each, rules blanked.
+
+    A heading is rewritten as bold and given a blank line above rather than being carried as its
+    own kind of line: the emphasis pass below already knows how to make a bold run, and a bold
+    line standing after a gap is the whole of what a heading does inside a spreadsheet cell.
+    """
     lines: list[str] = []
     for raw in markdown.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
         if _RULE_RE.match(raw):
             lines.append("")
             continue
-        line = _LOOSE_LABEL_RE.sub(r"**\1:**", raw.strip())
+        heading = _HEADING_RE.match(raw)
+        if heading:
+            text = _CODE_RE.sub(r"\1", heading.group(1))
+            lines.extend(("", text if "**" in text else f"**{text}**"))
+            continue
+        line = _CODE_RE.sub(r"\1", _BULLET_RE.sub(_BULLET, raw.strip()))
+        line = _LOOSE_LABEL_RE.sub(r"**\1:**", line)
         # A later label on the same line means the model ran two turns together; cut before it.
         cuts = [m.start() for m in _SPEAKER_RE.finditer(line) if m.start() > 0]
         bounds = [0, *cuts, len(line)]

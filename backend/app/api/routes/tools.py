@@ -14,6 +14,7 @@ from app.services.workshop_access import (
 )
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
+    Relation,
     public_encode,
     add_date_range,
     apply_status_policy_create,
@@ -21,7 +22,10 @@ from app.services.records import (
     attach_location,
     clean_data,
     contains,
+    count_and_page,
     decimal_to_string,
+    hydrate_relations,
+    include_of,
     merge_field_provenance,
     require_record,
     resubmit_status,
@@ -30,15 +34,19 @@ from app.services.records import (
 
 router = APIRouter(prefix="/tools", tags=["tools"])
 
-INCLUDE = {
-    "artisan": True,
-    "craft": True,
-    "workshop": True,
-    "location": True,
-    "media": True,
-    "createdBy": True,
-    "artisanLinks": {"include": {"artisan": True}},
-}
+# What a tool carries on the wire. Reads load these in one parallel wave (see services/records.py
+# for why — this list is the longest in the app, and it is why /tools was the slowest endpoint);
+# writes still pass the derived ``INCLUDE`` to Prisma, so the two can never describe different tools.
+RELATIONS = (
+    Relation("artisan", "artisan", "artisanId"),
+    Relation("craft", "craft", "craftId"),
+    Relation("workshop", "workshop", "workshopId"),
+    Relation("location", "location", "locationId"),
+    Relation("media", "mediafile", "toolId", many=True),
+    Relation("createdBy", "user", "createdById"),
+    Relation("artisanLinks", "toolartisan", "toolId", many=True, include={"artisan": True}),
+)
+INCLUDE = include_of(RELATIONS)
 
 
 async def _assigned_artisans(tool_id: str) -> list[dict[str, Any]]:
@@ -100,13 +108,13 @@ async def list_tools(
     if statusFilter:
         where["status"] = statusFilter
     add_date_range(where, "createdAt", dateFrom, dateTo)
-    total = await db.tooldocumentation.count(where=where)
-    items = await db.tooldocumentation.find_many(
+    total, items = await count_and_page(
+        db.tooldocumentation,
         where=where,
-        include=INCLUDE,
         skip=skip,
         take=page_size,
         order={"createdAt": "desc"},
+        relations=RELATIONS,
     )
     return page_payload(public_encode(items), total, page, page_size)
 
@@ -131,8 +139,8 @@ async def create_tool(
 
 @router.get("/{tool_id}")
 async def get_tool(tool_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    tool = await db.tooldocumentation.find_unique(where={"id": tool_id}, include=INCLUDE)
-    tool = await require_record(db.tooldocumentation, tool_id) if not tool else tool
+    tool = await require_record(db.tooldocumentation, tool_id)
+    await hydrate_relations([tool], RELATIONS)
     return public_encode(tool)
 
 
@@ -191,21 +199,28 @@ async def assign_tool_artisans(
     may_assign_any = await _may_manage_tool_links(tool, tool_id, current_user)
     existing = await db.toolartisan.find_many(where={"toolId": tool_id})
     have = {link.artisanId for link in existing}
-    to_add: list[str] = []
-    for artisan_id in payload.artisanIds:
-        if artisan_id and artisan_id not in have:
-            artisan = await require_record(db.artisan, artisan_id)
-            if not may_assign_any and getattr(artisan, "createdById", None) != current_user.id:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Only the tool's owner, an EDIT-grant collaborator, or an admin can "
-                    "assign this tool to artisans created by someone else; you may only assign "
-                    "it to your own artisans.",
-                )
-            to_add.append(artisan_id)
-            have.add(artisan_id)
-    for artisan_id in to_add:
-        await db.toolartisan.create(data={"toolId": tool_id, "artisanId": artisan_id})
+    # Every artisan being added is fetched in ONE query and every link written in ONE insert. Asking
+    # per artisan cost two cross-region round trips each, so assigning a tool to a workshop's worth
+    # of makers took longer than recording the tool did.
+    wanted = [aid for aid in dict.fromkeys(payload.artisanIds) if aid and aid not in have]
+    if not wanted:
+        return await _assigned_artisans(tool_id)
+    artisans = await db.artisan.find_many(where={"id": {"in": wanted}})
+    by_id = {a.id: a for a in artisans}
+    for artisan_id in wanted:
+        artisan = by_id.get(artisan_id)
+        if artisan is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
+        if not may_assign_any and getattr(artisan, "createdById", None) != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the tool's owner, an EDIT-grant collaborator, or an admin can "
+                "assign this tool to artisans created by someone else; you may only assign "
+                "it to your own artisans.",
+            )
+    await db.toolartisan.create_many(
+        data=[{"toolId": tool_id, "artisanId": aid} for aid in wanted]
+    )
     return await _assigned_artisans(tool_id)
 
 
@@ -227,9 +242,9 @@ async def unassign_tool_artisan(
                 detail="Only the tool's owner, the artisan's creator, an EDIT-grant collaborator, "
                 "or an admin can unassign artisans from this tool.",
             )
-    link = await db.toolartisan.find_unique(where={"toolId_artisanId": {"toolId": tool_id, "artisanId": artisan_id}})
-    if link:
-        await db.toolartisan.delete(where={"id": link.id})
+    # One statement, and still a no-op when the link is already gone — reading the row back first
+    # only bought us its id, at the price of another cross-region round trip.
+    await db.toolartisan.delete_many(where={"toolId": tool_id, "artisanId": artisan_id})
 
 
 async def _may_manage_tool_links(tool: Any, tool_id: str, current_user: Any) -> bool:

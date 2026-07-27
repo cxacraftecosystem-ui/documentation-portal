@@ -161,6 +161,34 @@ def presign_put_url(object_key: str, mime_type: str) -> str:
     )
 
 
+def presign_get_url(object_key: str, *, filename: str, mime_type: str, expires_in: int = 900) -> str:
+    """Presigned GET URL that also dictates how the browser receives the object.
+
+    ``public_url_for_key`` cannot do this job. S3 honours the ``response-content-*`` overrides only
+    on a **signed** request — an anonymous GET carrying them is rejected outright — so a download
+    that has to arrive as an attachment, under a chosen filename and content type, must be signed
+    even when the object itself is world-readable. That matters when the stored object's own
+    metadata is wrong or its key spells a name nobody should see: the overrides win, whatever the
+    object says.
+
+    The signature also expires, which is the point for anything a page hands out as a link: a URL
+    that stops working cannot be bookmarked, mailed on, or cached by an intermediary and quietly
+    replayed months later.
+    """
+    settings = get_settings()
+    return _client().generate_presigned_url(
+        ClientMethod="get_object",
+        Params={
+            "Bucket": settings.aws_s3_bucket,
+            "Key": object_key,
+            "ResponseContentType": mime_type,
+            "ResponseContentDisposition": f'attachment; filename="{safe_filename(filename)}"',
+        },
+        ExpiresIn=expires_in,
+        HttpMethod="GET",
+    )
+
+
 def create_multipart_upload(object_key: str, mime_type: str) -> str:
     """Begin an S3 multipart upload (for large files). Returns the UploadId the client uploads parts
     against; S3 stitches the parts into one object on complete, so the stored file stays whole.

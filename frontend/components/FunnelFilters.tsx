@@ -50,6 +50,14 @@ export function FunnelFilters({
   const initialised = useRef(false);
 
   // Load workshops + crafts once and default the workshop filter to the workshop that happened last.
+  //
+  // This default is deliberate — a researcher standing in a workshop wants that workshop's records —
+  // but it has one failure mode worth naming, because it already bit once. `workshopId` is a recent
+  // column and a row that predates it is NULL, which matches no workshop. Every list carrying this
+  // funnel then renders EMPTY over a full corpus, and an empty list is indistinguishable from having
+  // no data: a researcher opening "Update" to fix a tool concludes their work is gone. The records
+  // were backfilled onto their workshop to fix that, so if it recurs the question to ask is whether
+  // something new is being created without a workshop rather than whether this default is wrong.
   useEffect(() => {
     if (initialised.current) return;
     initialised.current = true;

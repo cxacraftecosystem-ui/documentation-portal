@@ -74,9 +74,7 @@ call only runs the queries that level needs (each bounded by ``TAKE``).
 
 import asyncio
 import io
-import os
 import re
-import unicodedata
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
@@ -107,6 +105,18 @@ from app.services.record_fields import (
     provenance_row,
     sheet_columns,
     sheet_row,
+)
+from app.services.media_naming import (
+    RESERVED_NAMES as _RESERVED_NAMES,
+    clip as _clip,
+    display_filename,
+    display_stem,
+    folder_order,
+    interview_record,
+    safe_chars as _safe_chars,
+    unique_display_filename,
+    unique_display_stem,
+    unique_name,
 )
 from app.services.s3 import get_object_bytes
 from app.services.transcript_format import transcript_cell
@@ -139,21 +149,9 @@ NO_CRAFT = "_none"
 # see _seg.
 _ASCII_ONLY = re.compile(r"[^A-Za-z0-9 _.\-]+")
 
-# Characters a path segment may never contain: the two path separators plus the punctuation Windows
-# reserves. Control characters go too, by Unicode category below.
-_UNSAFE_CHARS = frozenset('<>:"/\\|?*')
-# Cc is the control characters; Cf the invisible format characters, which include the bidi overrides
-# that can make a filename render back-to-front; Cs lone surrogates, which no encoder will take.
-_UNSAFE_CATEGORIES = frozenset({"Cc", "Cf", "Cs"})
-# ...except the zero-width joiner and non-joiner, which are Cf but LOAD-BEARING in Devanagari and
-# other Indic scripts, where they select conjunct and half forms. Dropping them misspells names.
-_KEEP_FORMAT = frozenset({"‌", "‍"})
-# Windows refuses these device names in any case, with or without an extension.
-_RESERVED_NAMES = frozenset(
-    {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
-)
 # Name caps. File systems limit a name to ~255 BYTES, not characters, and a Devanagari character
-# costs three of them, so both limits are applied.
+# costs three of them, so both limits are applied. The character rules themselves now live in
+# services/media_naming.py, which needs the identical answer for the file names it builds.
 _MAX_SEG_CHARS = 80
 _MAX_SEG_BYTES = 200
 
@@ -284,23 +282,12 @@ def _seg(value: str | None, fallback: str) -> str:
     width joiner and non joiner are deliberately exempted from the format-character sweep: they are
     invisible, but in Devanagari and other Indic scripts they select conjunct and half forms, so
     dropping them misspells the very names this change exists to preserve.
-    """
-    raw = (value or "").strip()
-    kept = [
-        ch
-        for ch in raw
-        if ch not in _UNSAFE_CHARS
-        and (unicodedata.category(ch) not in _UNSAFE_CATEGORIES or ch in _KEEP_FORMAT)
-    ]
-    cleaned = "".join(kept).strip(" .")
 
-    # Two limits, because a filesystem counts BYTES while a slice counts characters, and one
-    # Devanagari character is three bytes. Truncate on characters first, then walk the byte budget
-    # down — never mid-character, which would leave an undecodable name.
-    cleaned = cleaned[:_MAX_SEG_CHARS]
-    while len(cleaned.encode("utf-8")) > _MAX_SEG_BYTES:
-        cleaned = cleaned[:-1]
-    cleaned = cleaned.strip(" .")
+    That character rule and the two-limit trim now live in services/media_naming.py, which applies
+    the identical reasoning to the file names it derives; this stays the folder-segment entry point.
+    """
+    cleaned = _safe_chars((value or "").strip()).strip(" .")
+    cleaned = _clip(cleaned, _MAX_SEG_CHARS, _MAX_SEG_BYTES).strip(" .")
 
     if not cleaned:
         return fallback
@@ -421,11 +408,13 @@ async def _visible_only(delegate: Any, records: list[Any], scope_where: dict[str
 
 
 def _uniq(name: str, used: set[str]) -> str:
-    """Keep display names unique within one folder: "Name", "Name (2)", "Name (3)", ...
+    """Keep FOLDER names unique within one level: "Name", "Name (2)", "Name (3)", ...
 
-    Dedupes case-insensitively (zip extraction on Windows is case-insensitive) and keeps a file
-    extension at the end ("photo.jpg" -> "photo (2).jpg"). Also used on full manifest paths, so
-    the extension split only looks at the last path segment.
+    Dedupes case-insensitively (zip extraction on Windows is case-insensitive) and keeps a trailing
+    extension at the end, for the craft or artisan whose name happens to contain a dot. Files no
+    longer come through here: they are numbered by ``media_naming.unique_name``, in the same "-2"
+    the capture screens would have written, which reads as part of the name rather than as an
+    apology for one.
     """
     key = name.lower()
     if key not in used:
@@ -445,6 +434,19 @@ def _uniq(name: str, used: set[str]) -> str:
         n += 1
 
 
+# Extensions of more than one part, which a split on the last dot would cut in half.
+_COMPOUND_EXTENSIONS = (".transcript.md",)
+
+
+def _split_leaf(name: str) -> tuple[str, str]:
+    """A file name as (stem, extension), so a duplicate can be numbered between the two."""
+    for compound in _COMPOUND_EXTENSIONS:
+        if name.lower().endswith(compound):
+            return name[: -len(compound)], name[-len(compound) :]
+    stem, dot, ext = name.rpartition(".")
+    return (stem, f".{ext}") if dot and stem else (name, "")
+
+
 def _folder(name: str, path: str, record_type: str = "category") -> dict[str, Any]:
     return {"name": name, "path": path, "kind": "folder", "recordType": record_type}
 
@@ -455,16 +457,52 @@ def _text(parent: str, name: str, content: str | None) -> dict[str, Any] | None:
     return {"name": name, "path": _join(parent, name), "kind": "file", "content": content}
 
 
-def _media_entries(parent: str, media: list[Any]) -> list[dict[str, Any]]:
+def _media_entries(
+    parent: str,
+    media: list[Any],
+    *,
+    record_type: str | None = None,
+    record_name: str | None = None,
+    step_number: int | None = None,
+    step_name: str | None = None,
+) -> list[dict[str, Any]]:
+    """The files in one folder, each shown under a name derived from the record it belongs to.
+
+    The uploaded name is a code the capture screen minted — ``D_SEC_GIRIRAJ_001046_010720261824.wav``
+    — and it survives a download into a folder that explains nothing. ``display_filename`` rebuilds
+    it as ``Artisan-Giriraj-Prasad-Chhipa-Interview-Section-D-010720261824.wav`` from the row and its
+    relations; nothing is renamed in storage, so every URL and every objectKey is untouched. The
+    uploaded name rides along in ``originalFilename`` because a researcher reconciling an export
+    against files already on their laptop still has to match the two up.
+
+    A caller that already holds the parent record names it here, which is both cheaper than loading
+    the relations back off the row and more precise — the step number and step name in particular
+    exist nowhere on the media row.
+
+    The names are decided in ``folder_order`` — createdAt, then id — and not in whatever order the
+    rows arrived in. That fixes both halves of the answer for good: which of four takes recorded in
+    one minute keeps the unnumbered name, and which photo of a batch is "Photo-1" when the uploaded
+    name carries no index of its own.
+    """
     used: set[str] = set()
     entries: list[dict[str, Any]] = []
-    for m in media:
-        name = _uniq(_seg(m.originalFilename, m.id), used)
+    for position, m in enumerate(folder_order(media), start=1):
+        name = unique_display_filename(
+            m,
+            used,
+            record_type=record_type,
+            record_name=record_name,
+            step_number=step_number,
+            step_name=step_name,
+            position=position,
+            fallback=m.id,
+        )
         entries.append(
             {
                 "name": name,
                 "path": _join(parent, name),
                 "kind": "file",
+                "originalFilename": m.originalFilename,
                 "mediaType": str(_ev(m.mediaType)),
                 "mediaId": m.id,
                 "url": m.url,
@@ -478,13 +516,36 @@ def _media_entries(parent: str, media: list[Any]) -> list[dict[str, Any]]:
     return entries
 
 
-async def _media(where: dict[str, Any], scope: Scope) -> list[Any]:
+# The relations a display name is read from when the caller has no parent record to hand: the flat
+# listers (by media type, by uploader, a user's media) show files from all over the repository at
+# once. Nested for interviews because a questionnaire clip is named after the ARTISAN it is with,
+# and that is two hops from the media row.
+_NAMING_INCLUDE: dict[str, Any] = {
+    "artisan": True,
+    "craft": True,
+    "workshop": True,
+    "product": True,
+    "tool": True,
+    "questionnaireInterview": {"include": {"artisans": {"include": {"artisan": True}}}},
+}
+
+
+async def _media(where: dict[str, Any], scope: Scope, *, named: bool = False) -> list[Any]:
+    """Media rows for one folder. ``named`` loads the relations a display name needs.
+
+    Off by default, and deliberately: the record-level folders pass the record they already hold
+    straight to :func:`_media_entries`, so making every level pay for six relation loads — on a
+    query the manifest walk repeats for every folder in the subtree — would buy nothing.
+    """
+    kwargs: dict[str, Any] = {}
+    if named:
+        kwargs["include"] = _NAMING_INCLUDE
     return await db.mediafile.find_many(
-        where=_and(where, scope.media), take=TAKE, order={"createdAt": "asc"}
+        where=_and(where, scope.media), take=TAKE, order={"createdAt": "asc"}, **kwargs
     )
 
 
-async def _workshop_misc_media(wid: str, scope: Scope) -> list[Any]:
+async def _workshop_misc_media(wid: str, scope: Scope, *, named: bool = False) -> list[Any]:
     """Media that belongs to the WORKSHOP itself: nothing finer-grained claims it."""
     return await _media(
         {
@@ -497,6 +558,7 @@ async def _workshop_misc_media(wid: str, scope: Scope) -> list[Any]:
             ]
         },
         scope,
+        named=named,
     )
 
 
@@ -511,6 +573,17 @@ async def _artisan_own_media(aid: str, scope: Scope) -> list[Any]:
         },
         scope,
     )
+
+
+async def _artisan_display_name(aid: str) -> str | None:
+    """The artisan's name for the file names in a legacy 'misc' listing, which loads no record.
+
+    Half of an artisan's own media carries the string tag rather than the FK, so the ``artisan``
+    relation is not there to read the name off; one lookup keeps those files named after the person
+    instead of falling back to whatever the capture screen encoded in the upload.
+    """
+    artisan = await db.artisan.find_unique(where={"id": aid})
+    return (getattr(artisan, "name", None) or "").strip() or None
 
 
 def _record_media_where(fk_field: str, rec_id: str, tags: list[str]) -> dict[str, Any]:
@@ -912,7 +985,14 @@ async def _list_workshops_level(segs: list[str], parent: str, scope: Scope) -> L
         # Every level of this tree shows the same three things together: the folders below it, its
         # own fields as a table, and the files that belong to it. A folder whose files are one more
         # click away reads as a folder with no files. (`_misc` still resolves, for saved links.)
-        entries.extend(_media_entries(parent, await _workshop_misc_media(wid, scope)))
+        entries.extend(
+            _media_entries(
+                parent,
+                await _workshop_misc_media(wid, scope),
+                record_type="Workshop",
+                record_name=ws.title,
+            )
+        )
         return entries, info
 
     if segs[2] == "crafts":
@@ -944,7 +1024,10 @@ async def _list_workshops_level(segs: list[str], parent: str, scope: Scope) -> L
             if cid != NO_CRAFT:
                 entries.extend(
                     _media_entries(
-                        parent, await _media(_record_media_where("craftId", cid, ["craft"]), scope)
+                        parent,
+                        await _media(_record_media_where("craftId", cid, ["craft"]), scope),
+                        record_type="Craft",
+                        record_name=getattr(craft, "name", None),
                     )
                 )
             return entries, info
@@ -969,7 +1052,7 @@ async def _list_workshops_level(segs: list[str], parent: str, scope: Scope) -> L
     if len(segs) == 3 and segs[2] == "_misc":
         # No longer listed as a folder (the same files now render in the workshop folder itself),
         # but still resolvable so a link saved or bookmarked before that change does not 404.
-        return _media_entries(parent, await _workshop_misc_media(wid, scope)), None
+        return _media_entries(parent, await _workshop_misc_media(wid, scope, named=True)), None
 
     if len(segs) == 3 and segs[2] == "artisans":
         # Legacy intermediate 'artisans' path (pre-craft-level tree): lists every linked artisan
@@ -1018,7 +1101,14 @@ async def _list_artisan_level(segs: list[str], parent: str, scope: Scope) -> Lev
             entries.append(details)
         # The artisan own photographs and clips sit here with the sub-folders and the table, the
         # same shape as every other level. ("misc" still resolves for links saved before this.)
-        entries.extend(_media_entries(parent, await _artisan_own_media(aid, scope)))
+        entries.extend(
+            _media_entries(
+                parent,
+                await _artisan_own_media(aid, scope),
+                record_type="Artisan",
+                record_name=artisan.name,
+            )
+        )
         return entries, info
 
     sub = segs[4]
@@ -1061,7 +1151,11 @@ async def _list_artisan_level(segs: list[str], parent: str, scope: Scope) -> Lev
             if details:
                 entries.append(details)
             media = await _media(_record_media_where("toolId", tool.id, ["tool"]), scope)
-            entries.extend(_media_entries(parent, media))
+            entries.extend(
+                _media_entries(
+                    parent, media, record_type="Tool", record_name=tool.toolkitName
+                )
+            )
             return entries, info
 
     if sub == "questionnaire":
@@ -1106,12 +1200,25 @@ async def _list_artisan_level(segs: list[str], parent: str, scope: Scope) -> Lev
                 ),
                 scope,
             )
-            entries.extend(_media_entries(parent, media))
+            # Named after the artisan(s) the interview is WITH, not after the folder it is being
+            # listed in: a group sitting shows up under each of its artisans, and a file that
+            # changed its name depending on which door you came through would be unmatchable.
+            interview_type, interview_name = interview_record(interview)
+            entries.extend(
+                _media_entries(
+                    parent, media, record_type=interview_type, record_name=interview_name
+                )
+            )
             return entries, info
 
     if sub == "misc" and len(segs) == 5:
         # Same as the workshop "_misc": kept resolvable for older links, no longer a folder.
-        return _media_entries(parent, await _artisan_own_media(aid, scope)), None
+        return _media_entries(
+            parent,
+            await _artisan_own_media(aid, scope),
+            record_type="Artisan",
+            record_name=await _artisan_display_name(aid),
+        ), None
 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown data path")
 
@@ -1151,7 +1258,11 @@ async def _list_products_level(
         if details:
             entries.append(details)
         media = await _media(_record_media_where("productId", pid, ["product"]), scope)
-        entries.extend(_media_entries(parent, media))
+        entries.extend(
+            _media_entries(
+                parent, media, record_type="Product", record_name=product.productName
+            )
+        )
         if await db.process.count(where=_and({"productId": pid}, scope.records)) > 0:
             entries.append(_folder("Processes", f"{parent}/processes"))
         return entries, info
@@ -1178,7 +1289,9 @@ async def _list_products_level(
         media = await _media(
             {"AND": [{"linkedRecordType": "process"}, {"linkedRecordId": process.id}]}, scope
         )
-        entries.extend(_media_entries(parent, media))
+        entries.extend(
+            _media_entries(parent, media, record_type="Process", record_name=process.name)
+        )
         used = set()
         for step in sorted(process.steps or [], key=lambda s: s.sortOrder):
             entries.append(
@@ -1194,7 +1307,15 @@ async def _list_products_level(
         if scope.records:
             await _require(db.process, segs[7], "Process", scope_where=scope.records)
             step_scope = {"processId": segs[7]}
-        step = await _require(db.processstep, segs[8], "Process step", scope_where=step_scope)
+        # The parent process rides along because a step's files are named "Process-<process>-Step-N
+        # -<step>-..."; the step row carries the number and the name but not the process it is in.
+        step = await _require(
+            db.processstep,
+            segs[8],
+            "Process step",
+            include={"process": True},
+            scope_where=step_scope,
+        )
         entries = []
         notes = _text(parent, "notes.txt", step.notes)
         if notes:
@@ -1202,7 +1323,16 @@ async def _list_products_level(
         media = await _media(
             {"AND": [{"linkedRecordType": "processstep"}, {"linkedRecordId": step.id}]}, scope
         )
-        entries.extend(_media_entries(parent, media))
+        entries.extend(
+            _media_entries(
+                parent,
+                media,
+                record_type="Process",
+                record_name=getattr(getattr(step, "process", None), "name", None),
+                step_number=step.sortOrder,
+                step_name=step.name,
+            )
+        )
         return entries, None
 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown data path")
@@ -1233,7 +1363,9 @@ async def _list_users_level(segs: list[str], parent: str, scope: Scope) -> Level
         ], None
 
     if len(segs) == 3 and segs[2] in _USER_TYPE_WHERE:
-        media = await _media({"AND": [{"uploadedById": uid}, _USER_TYPE_WHERE[segs[2]]]}, scope)
+        media = await _media(
+            {"AND": [{"uploadedById": uid}, _USER_TYPE_WHERE[segs[2]]]}, scope, named=True
+        )
         return _media_entries(parent, media), None
 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown data path")
@@ -1241,20 +1373,25 @@ async def _list_users_level(segs: list[str], parent: str, scope: Scope) -> Level
 
 def _transcript_entries(parent: str, media: list[Any]) -> list[dict[str, Any]]:
     """Transcripts rendered as their own text files, so the Transcripts folder actually
-    contains transcripts rather than the audio they came from."""
+    contains transcripts rather than the audio they came from.
+
+    Named off the same stem as the clip, so a transcript and the recording it came from still sort
+    next to each other once both have been extracted from a zip."""
     used: set[str] = set()
     entries: list[dict[str, Any]] = []
-    for m in media:
+    for position, m in enumerate(folder_order(media), start=1):
         text = (m.transcriptText or "").strip()
         if not text:
             continue
-        stem = _seg(os.path.splitext(m.originalFilename or "")[0], m.id)
-        name = _uniq(f"{stem}.transcript.md", used)
+        name = unique_display_stem(
+            m, used, extension=".transcript.md", position=position, fallback=m.id
+        )
         entries.append(
             {
                 "name": name,
                 "path": _join(parent, name),
                 "kind": "file",
+                "originalFilename": m.originalFilename,
                 "content": m.transcriptText,
                 "mediaId": m.id,
             }
@@ -1274,10 +1411,10 @@ async def _list_media_types_level(segs: list[str], parent: str, scope: Scope) ->
             for slug in ("images", "videos", "audios", "transcripts", "documents", "other")
         ], None
     if len(segs) == 2 and segs[1] == "transcripts":
-        media = await _media({"NOT": {"transcriptText": None}}, scope)
+        media = await _media({"NOT": {"transcriptText": None}}, scope, named=True)
         return _transcript_entries(parent, media), None
     if len(segs) == 2 and segs[1] in _MEDIA_TYPE_WHERE:
-        media = await _media(_MEDIA_TYPE_WHERE[segs[1]], scope)
+        media = await _media(_MEDIA_TYPE_WHERE[segs[1]], scope, named=True)
         return _media_entries(parent, media), None
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown data path")
 
@@ -1427,10 +1564,14 @@ async def _list_uploader_level(segs: list[str], parent: str, scope: Scope) -> Le
         if len(segs) == 5:
             owned = [{"uploadedById": uid}, {"workshopId": wid}]
             if segs[4] == "transcripts":
-                media = await _media({"AND": [*owned, {"NOT": {"transcriptText": None}}]}, scope)
+                media = await _media(
+                    {"AND": [*owned, {"NOT": {"transcriptText": None}}]}, scope, named=True
+                )
                 return _transcript_entries(parent, media), None
             if segs[4] in _MEDIA_TYPE_WHERE:
-                media = await _media({"AND": [*owned, _MEDIA_TYPE_WHERE[segs[4]]]}, scope)
+                media = await _media(
+                    {"AND": [*owned, _MEDIA_TYPE_WHERE[segs[4]]]}, scope, named=True
+                )
                 return _media_entries(parent, media), None
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown data path")
 
@@ -1656,11 +1797,19 @@ async def _walk(
         return  # a record vanished mid-walk; skip that branch rather than failing the manifest
     if len(entries) >= TAKE:
         state["truncated"] = True
-    used_paths: set[str] = set()
+    # One folder's leaf names, and only this folder's: the ZIP writes these entries side by side, so
+    # two of them may not agree, while the identical name a sibling folder holds is no clash at all.
+    used_names: set[str] = set()
 
-    def emit(entry: dict[str, Any]) -> None:
+    def emit(entry: dict[str, Any], stem: str, extension: str) -> None:
+        """Add one file to the manifest under a leaf nothing else in this folder answers to.
+
+        The stem and the extension arrive apart because the number belongs between them, and the
+        extension is not always the last dot: a transcript is a ``.transcript.md``, and splitting it
+        off blindly would number the file ``…transcript-2.md``.
+        """
         if len(files) < MAX_MANIFEST_FILES:
-            entry["path"] = _uniq(entry["path"], used_paths)
+            entry["path"] = _join(rel, unique_name(stem, extension, used_names))
             files.append(entry)
         else:
             state["truncated"] = True
@@ -1683,7 +1832,10 @@ async def _walk(
             continue
         if "content" in e:
             if include is None or "text" in include:
-                emit({"path": _join(rel, e["name"]), "content": e["content"]})
+                entry = {"content": e["content"]}
+                if e.get("originalFilename"):
+                    entry["originalFilename"] = e["originalFilename"]
+                emit(entry, *_split_leaf(e["name"]))
             continue
         # The three top-level views (workshops/users/media-types) overlap; each media object is
         # zipped once, at its first occurrence.
@@ -1693,37 +1845,46 @@ async def _walk(
         media_type = e.get("mediaType") or "OTHER"
         token = _TYPE_TOKEN.get(media_type, "other")
         name = e["name"]
-        stem = name.rsplit(".", 1)[0] if "." in name else name
+        stem, extension = _split_leaf(name)
+        # The zip entry is named for what the file IS; the name it was uploaded under travels with
+        # it so a researcher can still line an extracted file up against their own copy.
+        original = e.get("originalFilename")
         if include is None or token in include:
             if media_type == "AUDIO":
                 # Client fetches the AAC/mp4 conversion via /data/media/{id}/download?format=mp4,
                 # falling back to the original object URL when conversion fails.
                 emit(
                     {
-                        "path": _join(rel, f"{stem}.mp4"),
                         "url": e.get("url"),
                         "originalPath": _join(rel, name),
+                        "originalFilename": original,
                         "mediaId": e["mediaId"],
                         "mediaType": media_type,
                         "convertToMp4": True,
-                    }
+                    },
+                    stem,
+                    ".mp4",
                 )
             else:
                 emit(
                     {
-                        "path": _join(rel, name),
                         "url": e.get("url"),
+                        "originalFilename": original,
                         "mediaId": e["mediaId"],
                         "mediaType": media_type,
-                    }
+                    },
+                    stem,
+                    extension,
                 )
         if e.get("transcriptAvailable") and (include is None or "transcripts" in include):
             emit(
                 {
-                    "path": _join(rel, f"{stem}.transcript.md"),
                     "content": e.get("_transcriptText") or "",
+                    "originalFilename": original,
                     "mediaId": e["mediaId"],
-                }
+                },
+                stem,
+                ".transcript.md",
             )
     if child_walks:
         await asyncio.gather(*child_walks)
@@ -2770,10 +2931,20 @@ async def download_media(
     caller's own (and granted) uploads. An out-of-scope id reads as 404, never 403.
     """
     scope = await _scope_for(current_user)
+    # Relations loaded so the Content-Disposition carries the same derived name the tree showed;
+    # a file that arrives on disk under a different name than the one that was clicked is a bug.
+    #
+    # The name is the unnumbered one. The "-2" a duplicate picks up says "another file in the folder
+    # you are extracting already answers to this", and a single download has no such folder — it
+    # lands in Downloads, where the browser does its own numbering against whatever is already
+    # there. Inventing a suffix here would mean guessing which of three taxonomies the click came
+    # from, and each of them shows this file beside a different set of siblings.
     media = (
-        await db.mediafile.find_first(where={"AND": [{"id": media_id}, scope.media]})
+        await db.mediafile.find_first(
+            where={"AND": [{"id": media_id}, scope.media]}, include=_NAMING_INCLUDE
+        )
         if scope.media
-        else await db.mediafile.find_unique(where={"id": media_id})
+        else await db.mediafile.find_unique(where={"id": media_id}, include=_NAMING_INCLUDE)
     )
     if media is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media not found")
@@ -2811,7 +2982,7 @@ async def download_media(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=f"Audio conversion to mp4 failed (is ffmpeg installed?): {exc}",
             ) from exc
-        stem = _seg(os.path.splitext(media.originalFilename or "")[0], media.id)
+        stem = display_stem(media, fallback=media.id)
         return StreamingResponse(
             out,
             media_type="video/mp4",
@@ -2828,7 +2999,7 @@ async def download_media(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Could not fetch the media bytes from object storage.",
         ) from exc
-    name = _seg(media.originalFilename, media.id)
+    name = display_filename(media, fallback=media.id)
     return Response(
         content=raw,
         media_type=media.mimeType or "application/octet-stream",

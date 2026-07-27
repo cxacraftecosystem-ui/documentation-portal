@@ -125,7 +125,7 @@ export default function AdminHubPage() {
     {
       // Replaces the old "Workshop assignments" tile, which pointed at /workshops and only told an
       // admin to go and open a record. Everything it hinted at — the request queue, each roster and
-      // its access levels — is done properly on /settings/workshop-access, the tile below. Two doors
+      // its access levels — is done properly on /workshop-access/manage, the tile below. Two doors
       // onto one job, one of which was a signpost rather than a page, is worse than one door.
       label: "Task assignment",
       description: "Hand documentation work to the people below you, then hold it to account.",
@@ -135,7 +135,9 @@ export default function AdminHubPage() {
     {
       label: "Workshop access",
       description: "The request queue across every workshop, plus each roster and its access levels.",
-      href: "/settings/workshop-access",
+      // Straight to the console: this hub is admin-only, so the fork at /workshop-access would ask
+      // an admin a question it already knows the answer to.
+      href: "/workshop-access/manage",
       icon: ShieldCheck
     },
     {
@@ -146,10 +148,12 @@ export default function AdminHubPage() {
     },
     {
       label: "API keys",
-      description: "Rotate, test and reveal the provider keys — live immediately, no restart.",
+      // Admin-visible because the transcription provider ranking lives behind this tile; the key
+      // list itself is still master-admin-only once the page opens.
+      description: "Rank the transcription providers, and rotate or test the keys they run on.",
       href: "/settings/api-keys",
       icon: KeyRound,
-      visible: isMasterAdmin(user)
+      visible: isAdmin(user)
     },
     {
       label: "App settings",

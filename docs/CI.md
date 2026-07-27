@@ -24,7 +24,7 @@ flowchart LR
 | # | Workflow | File | Trigger | What it does |
 |---|---|---|---|---|
 | 1 | Deploy backend to EC2 | `.github/workflows/deploy-backend.yml` | `push` to `main` | rsync → write `.env` → `prisma migrate deploy` → restart `fieldrepo` + `fieldrepo-queue` → poll `/health` |
-| 2 | Deploy frontend to Vercel | `.github/workflows/deploy-frontend.yml` | `workflow_run` on **1** completing | `vercel pull` → `vercel build --prod` → `vercel deploy --prebuilt --prod` → smoke-check the alias |
+| 2 | Deploy frontend to Vercel | `.github/workflows/deploy-frontend.yml` | `workflow_run` on **1** completing | `vercel pull` → **assert the pulled env carries what the app needs** → `vercel build --prod` → **assert those values actually reached the bundle** → `vercel deploy --prebuilt --prod` → smoke-check the alias → **assert the bundle the CDN serves is the one that was verified** |
 | 3 | Android build | `.github/workflows/android-build.yml` | `workflow_run` on **2** completing, plus `pull_request` | JDK 17 → `compileDebugKotlin` → `testDebugUnitTest` → `lintDebug` (advisory) → `assembleDebug` → upload APK |
 
 There is also `.github/workflows/keep-supabase-active.yml` — an unrelated nightly cron that pings
@@ -72,6 +72,24 @@ Anything the diff cannot be computed for — manual dispatch, the first push of 
 that orphaned the previous head — is treated as "everything changed". The pipeline over-deploys
 rather than silently skipping a real change.
 
+### The three assertions stage 2 makes about the environment
+
+Added after a green pipeline shipped a live site nobody could log in to. Each is a separate step,
+and each fails the run loudly:
+
+1. **After `vercel pull`** — every variable the app cannot run without is present in the pulled
+   environment. A variable typed **Sensitive** in the dashboard is withheld from `vercel pull` by
+   design; because the build happens on a GitHub runner rather than on Vercel, Next.js then inlines
+   `undefined` and *both the build and the deploy still succeed*.
+2. **After `vercel build`** — those values are actually present in the compiled output. The pull
+   succeeding does not prove the build consumed them.
+3. **After deploy** — the bundle the CDN is serving is the one that was verified. The step fetches
+   `/login`, walks its JavaScript chunks, and confirms the API host appears in them.
+
+Assertion 3 is the one that catches a class the other two cannot: a correct build published behind a
+stale alias. Together they turn "the site is live but nobody can log in" from a support ticket days
+later into a red run in five minutes.
+
 ---
 
 ## 2. Required repository secrets
@@ -110,9 +128,14 @@ dashboard and rely on `ignoreCommand` to keep Git builds off `main`.
 `VERCEL_TOKEN` and, when it is absent, writes the table above into the run summary and reports
 `should_deploy=false`. The run stays green, stage 3 still fires, and the backend deploy's tick keeps
 meaning "the backend deployed". This is deliberate: a red X that everyone knows to ignore is worse
-than no X at all. As of the last check the repository has `BACKEND_ENV`, `DATABASE_URL`, `EC2_HOST`
-and `EC2_SSH_KEY` only — so the first push to `main` after this lands will deploy the backend, skip
-the web publish with instructions, and build the APK.
+than no X at all.
+
+> **UNVERIFIED:** which secrets the repository currently holds cannot be read from a checkout. An
+> earlier version of this document asserted the set was `BACKEND_ENV`, `DATABASE_URL`, `EC2_HOST` and
+> `EC2_SSH_KEY` only; the Vercel project has since been unlinked and deployed successfully through
+> the CLI, which is only possible with `VERCEL_TOKEN` present, so that list is stale. Read the real
+> one at **Settings → Secrets and variables → Actions**, or `gh secret list`. Do not restate it here
+> — the value of this paragraph is the *mechanism*, and the inventory belongs in the console.
 
 The Android workflow needs **no secrets at all**. It produces a debug-signed APK, and debug signing
 uses the auto-generated debug keystore. The release key is deliberately not in CI.
@@ -131,24 +154,16 @@ same value in two places. Change one there and re-run this workflow (or push) to
 
 1. **Add the three `VERCEL_*` secrets** above. The other secrets already exist.
 
-2. **Turn off Vercel's own Git auto-deploy for `main`.** This is not optional and it is the easiest
-   thing to miss. Vercel's GitHub integration currently deploys production on every push to `main`
-   (DEPLOYMENT_VERCEL.md §3). Left on, it races ahead of the backend and re-creates precisely the
-   bug this pipeline exists to prevent — the CI deploy would just be a slower second deploy of the
-   same commit. Pick one:
+2. **Ensure Vercel is not also publishing.** ~~This is not optional and it is the easiest thing to
+   miss.~~ **Already done, and done more thoroughly than this step described:** the Vercel project
+   has been **unlinked from the GitHub repository** outright (`DELETE /v9/projects/{id}/link`), so
+   there is no Git integration left to race the pipeline. See the "deliberately NOT linked"
+   paragraph in §2 for why cancelling builds was not enough.
 
-   - **Vercel → Project → Settings → Git → Ignored Build Step**, set to `exit 0` — cancels every
-     dashboard-triggered build, keeps the Git connection (and therefore commit/PR annotations).
-   - or add to `frontend/vercel.json`:
-
-     ```json
-     "git": { "deploymentEnabled": { "main": false } }
-     ```
-
-     (Not applied in this change: `frontend/vercel.json` is owned by the frontend workstream.)
-
-   Preview deployments for pull requests can stay on — a preview is not the live site and has
-   nothing to be ordered against.
+   The belt-and-braces layers behind that are still in place and should stay: `ignoreCommand:
+   "exit 0"` in `frontend/vercel.json`, and `gitProviderOptions.createDeployments` disabled at the
+   project level. If the link is ever restored for PR previews, those two are what keep Git builds
+   off `main`.
 
 3. **Merge these workflow files to `main`.** `workflow_run` only fires for workflow files that exist
    **on the default branch** — on a feature branch, stages 2 and 3 will not trigger no matter what
@@ -173,6 +188,17 @@ same value in two places. Change one there and re-run this workflow (or push) to
 
 ## 5. Known limits, and things that are deliberately not gates
 
+- **The backend test suite is not a gate, and it should be.** `backend/tests/` holds a substantial
+  pure-Python suite (count in [REPO_FACTS.md](REPO_FACTS.md); **294 cases passing in 8.7 s**, measured
+  2026-07-27) with **no** database fixture, no test client and no secrets — `conftest.py` does
+  nothing but extend `sys.path`. Nothing in any workflow runs it, so a commit that breaks it deploys.
+  This is the cheapest real improvement available to this pipeline: a job running
+  `cd backend && python -m pytest -q`, which stage 1 `needs:`. It costs nine seconds and needs no
+  services.
+- **The Playwright suite is not a gate either.** `frontend/e2e/` holds real specs and
+  `frontend/scripts/pw-smoke.mjs` a login-and-visit smoke run. Neither is wired into a workflow. They
+  need a running app, so they are a genuinely larger job than the backend one — but "not wired up" is
+  the current state, not "not worth wiring up".
 - **Android Lint is advisory.** `./gradlew :app:lintDebug` on the current tree reports
   *1 error, 44 warnings* and aborts. The error is pre-existing and unrelated to any code change:
   `AndroidManifest.xml:6 PermissionImpliesUnsupportedChromeOsHardware` — `CAMERA` is requested with
@@ -180,15 +206,16 @@ same value in two places. Change one there and re-run this workflow (or push) to
   Making lint a hard gate today would fail every run and train everyone to ignore red. The HTML/XML
   report is uploaded on every run. Fix the manifest (or commit a `lint-baseline.xml`), then delete
   `continue-on-error` from the lint step and it becomes a real gate.
-- **There are no Android tests.** `android/app/src` contains only `main/` — no `src/test/`, no
-  `src/androidTest/`. `:app:testDebugUnitTest` is wired in anyway and currently reports `NO-SOURCE`;
+- **There are no Android tests.** `android/app/src` contains only `main/` — no unit or instrumented
+  source set. `:app:testDebugUnitTest` is wired in anyway and currently reports `NO-SOURCE`;
   the step prints a warning so a green tick is never mistaken for "the tests passed". The first unit
   test anyone adds is enforced the moment it lands, with no CI change. Instrumented tests are not
   run at all — they need an emulator; add a separate job with an emulator action if that changes.
-- **No web typecheck/lint gate.** `vercel build` runs `next build`, which fails on TypeScript and
-  ESLint errors, so a broken frontend cannot reach production — but the failure surfaces as a build
-  failure after the backend has already deployed. If you want it caught earlier, add `npm ci &&
-  npm run typecheck && npm run lint` as a separate job that stage 2 `needs:`.
+- **No web typecheck/lint gate of its own.** `vercel build` runs `next build`, which fails on
+  TypeScript and ESLint errors, so a broken frontend cannot reach production — but the failure
+  surfaces as a build failure *after the backend has already deployed*. `frontend/package.json` has
+  both `typecheck` and `lint` scripts ready; add `npm ci && npm run typecheck && npm run lint` as a
+  separate job that stage 2 `needs:` to catch it before the backend moves.
 - **Don't chain a fourth stage.** GitHub caps how deep `workflow_run` chains can go (documented at
   three levels); this pipeline already uses two hops. A fourth stage should be a job with `needs:`
   inside an existing workflow, not another `workflow_run` link.
@@ -239,8 +266,14 @@ this is belt and braces.
 **`npm ci can only install packages when … in sync`.** `frontend/package-lock.json` is stale. Run
 `npm install` in `frontend/` and commit the lockfile (DEPLOYMENT_VERCEL.md §7.5).
 
-**Two production deployments per push.** Vercel's Git integration is still enabled for `main` —
-see §3.2.
+**Two production deployments per push.** Vercel's Git integration has been re-linked. It was removed
+outright (§2); if two deployments appear again, that is what happened. Unlink it, or at minimum
+restore the Ignored Build Step — see §3.2.
+
+**The deploy is green and the live site cannot log anyone in.** This should now be impossible: the
+three assertions in §1 fail the run instead. If it happens anyway, the assertions have a hole and
+that hole is the bug — do not just fix the variable. Start at
+[DEPLOYMENT_VERCEL.md §2.2](DEPLOYMENT_VERCEL.md).
 
 **Android build fails on the SDK.** The workflow installs `platforms;android-35` and
 `build-tools;35.0.0` explicitly because runner images drift. If `compileSdk` in
@@ -251,3 +284,33 @@ tracks `sourceCompatibility`/`jvmTarget` in the same file.
 and dumps `journalctl -u fieldrepo -n 80` on failure. Read that output first; the usual causes are a
 bad `BACKEND_ENV` value and Supabase pooler connection exhaustion — both covered in
 [QA_AUDIT.md](QA_AUDIT.md).
+
+Note the path: **`/health`, not `/api/health`.** The health routes are declared on the app rather
+than on the API router, so they sit outside the `/api` prefix and `/api/health` 404s. Any monitor
+pointed at the `/api` form is measuring a 404, not the service.
+
+---
+
+## How this document is kept true
+
+Everything here describes four YAML files, so almost all of it is mechanically checkable — and the
+parts that are not are exactly the parts that were wrong before.
+
+| Claim class | Kept true by |
+|---|---|
+| The three workflows, their triggers and their step order | `.github/workflows/*.yml`. `grep -n "^name:\|^on:\|    - name:" .github/workflows/deploy-frontend.yml` renders the shape of a workflow in one command. |
+| The secrets **table** (names and purposes) | `grep -ho 'secrets\.[A-Z_]*' .github/workflows/*.yml \| sort -u` lists every secret the workflows read. Anything in that output missing from §2 is undocumented. |
+| Which secrets **exist** | **Not checkable from a checkout, and deliberately not stated.** `gh secret list`, or the Actions settings page. A previous version asserted an inventory here and it went stale within days. |
+| The §5 non-gates | The absence of a job. A row leaves that list when a workflow gains the step — so re-read §5 against the workflow files, not against memory. |
+| The measured pytest figure in §5 | Dated. Re-run `cd backend && python -m pytest -q` and re-date it, or delete it. |
+| Vercel project settings (Root Directory, Git link, `createDeployments`) | **UNVERIFIED from here** — dashboard state. §3 and §6 say what they must be; the workflow's own "Assert the project is still rooted at frontend/" step is the only thing that actually checks one of them, and it checks it at deploy time. |
+
+**Review triggers:** any change under `.github/workflows/`, `frontend/vercel.json`, or
+`infra/terraform/user_data.sh` (which defines the services stage 1 restarts).
+
+**The failure mode to watch for in this document specifically:** it accumulates entries about
+console state — a Vercel toggle, a secret, an Ignored Build Step — that nobody can verify from the
+repository and everybody assumes is still true. Each such claim is marked **UNVERIFIED**. When one
+turns out to be wrong, do not just correct the value: ask whether the claim belongs here at all, or
+whether the pipeline should be asserting it at runtime the way §1's three environment assertions now
+do.

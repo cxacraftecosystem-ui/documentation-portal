@@ -13,9 +13,13 @@ from app.services.access import guard_record_edit
 from app.schemas.records import CraftCreate, CraftUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
+    Relation,
     apply_status_policy_update,
     clean_data,
     contains,
+    count_and_page,
+    hydrate_relations,
+    include_of,
     merge_field_provenance,
     require_record,
     resubmit_status,
@@ -30,7 +34,10 @@ from app.services.workshop_access import (
 
 router = APIRouter(prefix="/crafts", tags=["crafts"])
 
-INCLUDE = {"workshop": True}
+# One relation, so the wave saves nothing here — but the count no longer waits for the page, which
+# on this deployment is a whole cross-region round trip off the craft dropdown every form opens with.
+RELATIONS = (Relation("workshop", "workshop", "workshopId"),)
+INCLUDE = include_of(RELATIONS)
 
 
 @router.get("")
@@ -61,7 +68,6 @@ async def list_crafts(
             {"workshopId": workshopId},
             {"workshops": {"some": {"workshopId": workshopId}}},
         ]}]
-    total = await db.craft.count(where=where)
     # ORDERING IS DELIBERATE — alphabetical by name, NOT newest-first. Do not flip it to
     # ``createdAt desc`` for consistency with the other record lists: every consumer of this endpoint
     # is a PICKER (the craft dropdown in the artisan/product/tool/workshop forms, the media entry
@@ -70,8 +76,8 @@ async def list_crafts(
     # re-sort client-side (``sortRecent`` on the web /data and activity pages,
     # ``sortedByDescending { createdAt }`` on Android), so they are unaffected either way.
     # ``name`` is @unique (and indexed), so the order is total: pagination cannot repeat or skip.
-    items = await db.craft.find_many(
-        where=where, include=INCLUDE, skip=skip, take=page_size, order={"name": "asc"}
+    total, items = await count_and_page(
+        db.craft, where=where, skip=skip, take=page_size, order={"name": "asc"}, relations=RELATIONS
     )
     return page_payload(public_encode(items), total, page, page_size)
 
@@ -97,8 +103,8 @@ async def create_craft(payload: CraftCreate, current_user: Any = Depends(require
 
 @router.get("/{craft_id}")
 async def get_craft(craft_id: str, _: Any = Depends(get_current_user)) -> dict[str, Any]:
-    craft = await db.craft.find_unique(where={"id": craft_id}, include=INCLUDE)
-    craft = await require_record(db.craft, craft_id) if not craft else craft
+    craft = await require_record(db.craft, craft_id)
+    await hydrate_relations([craft], RELATIONS)
     return public_encode(craft)
 
 
@@ -106,7 +112,11 @@ async def get_craft(craft_id: str, _: Any = Depends(get_current_user)) -> dict[s
 async def update_craft(
     craft_id: str,
     payload: CraftUpdate,
-    current_user: Any = Depends(get_current_user),
+    # A craft is the shared taxonomy every other record points at, so editing one is not a
+    # contribution to somebody's entry — it renames a category under everyone. Professor and above,
+    # the same floor as creating one; ``guard_record_edit`` below still audits and still decides
+    # whether THIS professor may overwrite a field another professor populated.
+    current_user: Any = Depends(require_craft_manager),
 ) -> dict[str, Any]:
     craft = await require_record(db.craft, craft_id)
     data = clean_data(payload.model_dump(exclude_unset=True))

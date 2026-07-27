@@ -362,11 +362,18 @@ def create_app() -> FastAPI:
     # Refuse to serve with a guessable token-signing secret. Done before anything else so the
     # failure is the first thing in the log rather than a subtle weakness nobody notices.
     verify_jwt_configuration()
+    # Passing None for the three doc URLs is what actually unregisters the routes; leaving them at
+    # their defaults and trying to block the paths in nginx would only move the problem, because the
+    # origin is reachable directly as well as through CloudFront.
+    expose_docs = settings.backend_expose_docs
     app = FastAPI(
         title="Field Documentation Repository API",
         version="0.1.0",
         description="API-first backend for artisan, craft, workshop, product, tool, media and review records.",
         lifespan=lifespan,
+        docs_url="/docs" if expose_docs else None,
+        redoc_url="/redoc" if expose_docs else None,
+        openapi_url="/openapi.json" if expose_docs else None,
     )
     cors_origins = settings.cors_origins
     allow_credentials = settings.cors_allow_credentials

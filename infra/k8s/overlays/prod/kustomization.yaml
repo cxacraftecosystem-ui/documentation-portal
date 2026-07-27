@@ -1,0 +1,220 @@
+# ---------------------------------------------------------------------------------------------
+# PROD. The only overlay whose numbers were derived rather than chosen.
+#
+# THE CEILING, restated here because this is the file where getting it wrong costs something:
+#
+#     (maxReplicas + 1 rollout surge + 1 queue) x DATABASE_CONNECTION_LIMIT  <=  100
+#     (6           + 1               + 1      ) x 10                        =   80
+#
+# 100 is half of Supabase's 200-client hard ceiling, and the other half is spoken for — dev (15),
+# staging (20), a transient migration Job (~5), the EC2 box if it is still serving, and a psql
+# session. Full arithmetic in docs/KUBERNETES.md.
+#
+# maxReplicas and DATABASE_CONNECTION_LIMIT are ONE SETTING WITH TWO NAMES. Raising replicas to 12
+# without first cutting the limit to 5 does not double capacity; it reproduces an outage this
+# project has already had, where the pooler returned "max client connections reached", Prisma could
+# not connect, every login 500'd, and the API crash-looped — while the autoscaler, doing exactly
+# what it was told, kept adding pods.
+# ---------------------------------------------------------------------------------------------
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: fieldrepo-prod
+
+resources:
+  - namespace.yaml
+  - secretstore.yaml
+  - ../../base
+
+images:
+  # A MOVING TAG IS THE WRONG THING HERE. `newTag` is shown because it is readable, but production
+  # should pin `digest: sha256:...` instead: a tag can be re-pushed, and then a pod that restarts at
+  # 3am comes back as a different build than its neighbours with nothing in the cluster recording
+  # that it happened. Kustomize supports it directly:
+  #
+  #   - name: fieldrepo-api
+  #     newName: REPLACE_REGISTRY/fieldrepo-api
+  #     digest: sha256:REPLACE
+  #
+  # If you switch to digests, the Job-name replacement at the bottom of this file must change too —
+  # it splits the reference on ":" to recover the tag, and a digest has no tag to recover.
+  - name: fieldrepo-api
+    newName: REPLACE_REGISTRY/fieldrepo-api
+    newTag: REPLACE_RELEASE
+  - name: fieldrepo-migrate
+    newName: REPLACE_REGISTRY/fieldrepo-migrate
+    newTag: REPLACE_RELEASE
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: fieldrepo-config
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: fieldrepo-config
+      data:
+        FIELDREPO_ENV: "prod"
+
+        # The number from the incident. Production ran 40 per process across two uvicorn workers,
+        # exhausted the pooler, and was cut to 10; that is what this is. It is restated in the
+        # overlay rather than merely inherited so that anyone editing the file where maxReplicas
+        # lives sees the other half of the product on the same screen.
+        DATABASE_CONNECTION_LIMIT: "10"
+
+        BACKEND_EXPOSE_DOCS: "false"
+        # Browser -> TLS -> CloudFront -> plain HTTP -> ingress. The app cannot see that the viewer
+        # used TLS, so without this it never emits HSTS at all. Same reason the EC2 unit sets it.
+        SECURITY_FORCE_HSTS: "true"
+        SECURITY_HSTS_ENABLED: "true"
+
+        AWS_REGION: "ap-south-1"
+        AWS_S3_BUCKET: "REPLACE_prod_bucket"
+        BACKEND_CORS_ORIGINS: "https://REPLACE_DOMAIN"
+        NEXT_PUBLIC_APP_URL: "https://REPLACE_DOMAIN"
+        MASTER_ADMIN_EMAIL: "REPLACE_admin@example.org"
+
+  - target:
+      kind: Deployment
+      name: fieldrepo-api
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: fieldrepo-api
+      spec:
+        # Two before the HPA takes over, matching minReplicas below. Starting at one would mean the
+        # first deploy of the day has a window with no redundancy at all, and the PDB cannot protect
+        # a single pod without making the node undrainable.
+        replicas: 2
+        template:
+          spec:
+            topologySpreadConstraints:
+              # Promoted from ScheduleAnyway. Zones are the failure domain worth being strict about:
+              # a single-AZ outage is the scenario where "the scheduler tried its best" and "the
+              # service stayed up" are different outcomes. Merged by topologyKey, so the hostname
+              # constraint in the base is untouched and stays ScheduleAnyway — being unschedulable
+              # because two pods want the same node is not worth an outage.
+              #
+              # This requires the cluster to actually span zones. On a single-zone node group every
+              # pod after the first is Pending, forever, with a clear message. If that is the
+              # cluster you have, change this back rather than removing the constraint.
+              - topologyKey: topology.kubernetes.io/zone
+                maxSkew: 1
+                whenUnsatisfiable: DoNotSchedule
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: fieldrepo
+                    app.kubernetes.io/component: api
+                matchLabelKeys:
+                  - pod-template-hash
+            containers:
+              - name: api
+                resources:
+                  requests:
+                    cpu: 200m
+                    memory: 384Mi
+                  limits:
+                    cpu: "1"
+                    memory: 768Mi
+
+  - target:
+      kind: Deployment
+      name: fieldrepo-queue
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: fieldrepo-queue
+      spec:
+        template:
+          spec:
+            containers:
+              - name: queue
+                resources:
+                  requests:
+                    cpu: 300m
+                    memory: 512Mi
+                  limits:
+                    cpu: "1500m"
+                    memory: 1536Mi
+
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: fieldrepo-api
+    patch: |-
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: fieldrepo-api
+      spec:
+        minReplicas: 2
+        # SIX. Derived from the connection budget at the top of this file, not from a capacity
+        # estimate. Read that arithmetic before changing this line, and change the other half of the
+        # product in the same commit.
+        maxReplicas: 6
+
+  - target:
+      kind: Ingress
+      name: fieldrepo-api
+    patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: fieldrepo-api
+        annotations:
+          cert-manager.io/cluster-issuer: letsencrypt-prod
+      spec:
+        # TLS here terminates the hop from CloudFront to the ingress, not the hop the browser makes
+        # — that one ends at CloudFront. It is worth having anyway: today's EC2 origin takes plain
+        # HTTP from CloudFront across the public internet (recorded as risk P1 in docs/SECURITY.md),
+        # and a cert on the ingress is what lets the distribution's origin protocol policy be set to
+        # https-only and close that gap. See docs/CDN.md.
+        tls:
+          - hosts:
+              - REPLACE_DOMAIN
+            secretName: fieldrepo-prod-tls
+        rules:
+          - host: REPLACE_DOMAIN
+            http:
+              paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: fieldrepo-api
+                      port:
+                        name: http
+
+replacements:
+  # Both blocks are identical in every overlay by design — the values they carry are not. See
+  # overlays/dev/kustomization.yaml for what each one does and why.
+  - source:
+      kind: ConfigMap
+      name: fieldrepo-config
+      fieldPath: data.FIELDREPO_ENV
+    targets:
+      - select:
+          kind: ExternalSecret
+          name: fieldrepo-secrets
+        fieldPaths:
+          - spec.data.*.remoteRef.key
+        options:
+          delimiter: /
+          index: 1
+
+  - source:
+      kind: Job
+      fieldPath: spec.template.spec.containers.[name=migrate].image
+      options:
+        delimiter: ":"
+        index: 1
+    targets:
+      - select:
+          kind: Job
+        fieldPaths:
+          - metadata.name
+        options:
+          delimiter: "-"
+          index: 2

@@ -4,13 +4,45 @@ from typing import Any
 
 from pydantic import Field, field_validator, model_validator
 
-from app.schemas.common import APIModel, LocationInput
+from app.schemas.common import (
+    APIModel,
+    LocationInput,
+    forbid_clearing_location,
+    require_location,
+)
 from app.services.artisan_identity import (
     is_masked_aadhaar,
     require_aadhaar,
     validate_aadhaar,
     validate_pehchan,
 )
+
+# The two regulated identity numbers on Artisan, and the only two columns a caller can be shown a
+# MASK of. Both are masked identically on the way out (``records.mask_identity_number``), so both
+# have to be un-masked identically on the way back in — see ``drop_masked_identity_numbers``.
+IDENTITY_NUMBER_FIELDS = ("aadhaarNumber", "pehchanCardNumber")
+
+
+def drop_masked_identity_numbers(data: dict[str, Any]) -> dict[str, Any]:
+    """Remove any identity number that came back as the MASK the caller was shown.
+
+    ``XXXX XXXX 9012`` posted back unchanged means "I was not shown the real value and did not
+    change it" — never "set the column to that literal string". Dropping the key is what makes it
+    safe to mask an EDIT surface at all.
+
+    This is the write-side half of the masking, and it has to cover both numbers or masking one of
+    them destroys it: ``normalize_pehchan("XXXX XXXX 1234")`` is ``"XXXXXXXX1234"``, twelve
+    alphanumerics inside the 4-32 window with no checksum to fail, so the mask of a Pehchan card
+    validated cleanly and REPLACED the real number — 200 OK, revision recorded, regulated identifier
+    gone. (An Aadhaar mask fails validation instead, which is why only that one was noticed.)
+
+    Mutates and returns *data*. Called by every route that writes an artisan from a client payload:
+    PATCH /artisans/{id} and the review queue's edit action.
+    """
+    for field in IDENTITY_NUMBER_FIELDS:
+        if is_masked_aadhaar(data.get(field)):
+            data.pop(field, None)
+    return data
 
 
 class ArtisanCreate(APIModel):
@@ -51,6 +83,11 @@ class ArtisanCreate(APIModel):
     recordedTimezone: str = "Asia/Kolkata"
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
+
+    # Mandatory on create. See services/common.require_location for what that does and does not
+    # mean — and note it is the ONLY half of the pair the clients cannot omit, because create is
+    # the one moment the researcher is standing at the place.
+    _location_required = model_validator(mode="after")(require_location)
 
     _clean_aadhaar = field_validator("aadhaarNumber")(lambda cls, v: require_aadhaar(v))
     _clean_pehchan = field_validator("pehchanCardNumber")(lambda cls, v: validate_pehchan(v))
@@ -110,6 +147,10 @@ class ArtisanUpdate(APIModel):
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
 
+    # Omit it to keep the stored one (which is how a record that predates the rule stays
+    # editable); send one to replace it; you may not send null. See forbid_clearing_location.
+    _location_kept = model_validator(mode="after")(forbid_clearing_location)
+
     # Deliberately still optional and still clearable, even though creating an artisan now demands an
     # Aadhaar. Two edits would otherwise become impossible: correcting the phone number of an artisan
     # recorded before the field existed (their number is NULL and the researcher cannot invent one),
@@ -117,12 +158,19 @@ class ArtisanUpdate(APIModel):
     # person who really holds it can never be created past the unique index.
     #
     # A masked number is passed through untouched rather than validated: it means "I was not shown
-    # the real value and did not change it", and the route drops the key before the write. Validating
-    # it would 422 a caller who edited some unrelated field.
+    # the real value and did not change it", and the route drops the key before the write
+    # (``drop_masked_identity_numbers``). Validating it would 422 a caller who edited some unrelated
+    # field.
+    #
+    # BOTH numbers take the same route. The Pehchan card used to be validated here like a real
+    # entry, and its mask PASSES that validation — so the mask was stored over the card number
+    # whenever an editor who could not read it saved the form.
     _clean_aadhaar = field_validator("aadhaarNumber")(
         lambda cls, v: v if is_masked_aadhaar(v) else validate_aadhaar(v)
     )
-    _clean_pehchan = field_validator("pehchanCardNumber")(lambda cls, v: validate_pehchan(v))
+    _clean_pehchan = field_validator("pehchanCardNumber")(
+        lambda cls, v: v if is_masked_aadhaar(v) else validate_pehchan(v)
+    )
 
     @model_validator(mode="after")
     def reconcile_pehchan(self) -> "ArtisanUpdate":
@@ -178,6 +226,11 @@ class WorkshopCreate(APIModel):
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
 
+    # Mandatory on create. See services/common.require_location for what that does and does not
+    # mean — and note it is the ONLY half of the pair the clients cannot omit, because create is
+    # the one moment the researcher is standing at the place.
+    _location_required = model_validator(mode="after")(require_location)
+
 
 class WorkshopUpdate(APIModel):
     title: str | None = Field(default=None, min_length=1, max_length=220)
@@ -194,6 +247,10 @@ class WorkshopUpdate(APIModel):
     recordedTimezone: str | None = None
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
+
+    # Omit it to keep the stored one (which is how a record that predates the rule stays
+    # editable); send one to replace it; you may not send null. See forbid_clearing_location.
+    _location_kept = model_validator(mode="after")(forbid_clearing_location)
 
 
 class ProductCreate(APIModel):
@@ -227,6 +284,11 @@ class ProductCreate(APIModel):
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
 
+    # Mandatory on create. See services/common.require_location for what that does and does not
+    # mean — and note it is the ONLY half of the pair the clients cannot omit, because create is
+    # the one moment the researcher is standing at the place.
+    _location_required = model_validator(mode="after")(require_location)
+
 
 class ProductUpdate(APIModel):
     craftName: str | None = Field(default=None, min_length=1, max_length=180)
@@ -258,6 +320,10 @@ class ProductUpdate(APIModel):
     recordedTimezone: str | None = None
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
+
+    # Omit it to keep the stored one (which is how a record that predates the rule stays
+    # editable); send one to replace it; you may not send null. See forbid_clearing_location.
+    _location_kept = model_validator(mode="after")(forbid_clearing_location)
 
 
 class ProcessStepInput(APIModel):
@@ -330,6 +396,11 @@ class ToolCreate(APIModel):
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
 
+    # Mandatory on create. See services/common.require_location for what that does and does not
+    # mean — and note it is the ONLY half of the pair the clients cannot omit, because create is
+    # the one moment the researcher is standing at the place.
+    _location_required = model_validator(mode="after")(require_location)
+
 
 class ToolUpdate(APIModel):
     craftName: str | None = Field(default=None, min_length=1, max_length=180)
@@ -364,6 +435,10 @@ class ToolUpdate(APIModel):
     recordedTimezone: str | None = None
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
+
+    # Omit it to keep the stored one (which is how a record that predates the rule stays
+    # editable); send one to replace it; you may not send null. See forbid_clearing_location.
+    _location_kept = model_validator(mode="after")(forbid_clearing_location)
 
 
 class ToolArtisanAssign(APIModel):

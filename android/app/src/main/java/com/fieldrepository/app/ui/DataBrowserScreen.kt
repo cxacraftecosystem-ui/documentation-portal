@@ -3,9 +3,11 @@ package com.fieldrepository.app.ui
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -76,6 +78,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -85,7 +88,9 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -1128,7 +1133,17 @@ private fun Breadcrumbs(crumbs: List<DataCrumbDto>, onOpen: (String) -> Unit) {
     }
 }
 
-/** The record folder's own fields (artisan bio, workshop dates, …) as served in `info`. */
+/**
+ * The record folder's own fields (artisan bio, workshop dates, …) as served in `info`, as the same
+ * two-column table the web draws.
+ *
+ * A researcher opening an artisan's folder is almost always checking ONE value — the pincode, the
+ * phone number, what the artisan said not to do — and a label column they can run a thumb down
+ * answers that far faster than the same fields stacked as prose.
+ *
+ * Only fields the record actually carries become rows; the registry behind `info` already drops the
+ * empty ones, and padding the table back out would say nothing except that the table is padded.
+ */
 @Composable
 private fun RecordInfoCard(info: DataFolderInfoDto) {
     val fields = info.fields.filter { it.value.isNotBlank() }
@@ -1139,18 +1154,108 @@ private fun RecordInfoCard(info: DataFolderInfoDto) {
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface
         )
-        HorizontalDivider(color = MaterialTheme.field.hairline)
-        fields.forEach { field ->
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            "${fields.size} recorded field${if (fields.size == 1) "" else "s"}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        // A share of the card rather than a fixed width: 96.dp is comfortable on a phone and absurd
+        // on a tablet, and anything wider than a third squeezes the value into one word per line on
+        // the narrowest screens this app is used on.
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val labelWidth = (maxWidth * 0.34f).coerceIn(88.dp, 132.dp)
+            // Phone numbers and pincodes are read here to be typed somewhere else, so let them be
+            // copied out rather than transcribed by hand.
+            SelectionContainer {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(MaterialTheme.shapes.small)
+                        .border(1.dp, MaterialTheme.field.hairline, MaterialTheme.shapes.small)
+                ) {
+                    InfoTableHeader(labelWidth)
+                    fields.forEachIndexed { index, field ->
+                        if (index > 0) HorizontalDivider(color = MaterialTheme.field.hairline)
+                        InfoTableRow(label = field.label, value = field.value, labelWidth = labelWidth)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** The table's own header, tinted like the web's `thead`, so the two columns read as columns. */
+@Composable
+private fun InfoTableHeader(labelWidth: Dp) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.field.surface50)
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            "FIELD",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(labelWidth)
+        )
+        Text(
+            "VALUE",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+    }
+    HorizontalDivider(color = MaterialTheme.field.hairline)
+}
+
+/**
+ * How much of a long value the table shows before it offers to unfold: enough for a note or a set
+ * of do's, short of an interview summary (one of them in production runs to 7,000 characters) that
+ * would otherwise bury the rest of the record under a single row.
+ */
+private const val INFO_VALUE_COLLAPSED_LINES = 8
+
+/**
+ * One label/value row. Multi-line values keep their line breaks — a set of do's is a list, not a
+ * sentence — and the long ones fold instead of scrolling inside the row, because a nested scroller
+ * on a phone steals the flick meant for the page behind it.
+ */
+@Composable
+private fun InfoTableRow(label: String, value: String, labelWidth: Dp) {
+    var expanded by remember(label, value) { mutableStateOf(false) }
+    var foldable by remember(label, value) { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.width(labelWidth)
+        )
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                value,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.field.body,
+                lineHeight = 20.sp,
+                maxLines = if (expanded) Int.MAX_VALUE else INFO_VALUE_COLLAPSED_LINES,
+                overflow = TextOverflow.Ellipsis,
+                // Whether it fits is a question about the laid-out text, not its length: the same
+                // string wraps differently on a small phone, in landscape, and at a large font scale.
+                onTextLayout = { layout -> if (!expanded && layout.hasVisualOverflow) foldable = true }
+            )
+            if (foldable) {
                 Text(
-                    field.label.uppercase(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    field.value,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.field.body
+                    if (expanded) "Show less" else "Show more",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clickable { expanded = !expanded }
+                        .padding(vertical = 2.dp)
                 )
             }
         }

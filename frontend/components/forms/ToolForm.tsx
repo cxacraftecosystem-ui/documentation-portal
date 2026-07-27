@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/components/AuthProvider";
 import { Field, Select, TextArea, TextInput } from "@/components/FormControls";
+import { CarryContextBanner, carryScope, useCarryContext, type CarryScopeState } from "@/components/forms/CarryContextBanner";
 import { LocationFields, type LocationInitialValues } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { TitleCasedInput } from "@/components/forms/TitleCasedInput";
@@ -13,6 +14,7 @@ import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { GridMeasurement, type GridFiles, type GridGroup } from "@/components/media/GridMeasurement";
 import { UploadProgress } from "@/components/media/UploadProgress";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
+import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { apiFetch, listResource } from "@/lib/api";
 import { locationFromForm, numericValue, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue, useUnsavedChanges } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
@@ -97,8 +99,15 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
   const [breadth, setBreadth] = useState(initial?.breadthInches != null ? String(initial.breadthInches) : "");
   const [height, setHeight] = useState(initial?.height != null ? String(initial.height) : "");
   const [gridFiles, setGridFiles] = useState<GridFiles>({});
+  // "Can I see this artisan?" and "is there any signal?" are different answers, and the carry-
+  // forward prefill treats them differently — see useCarryContext. Artisans and crafts arrive from
+  // the same request, so one state covers the scopes built from both.
+  const [referenceState, setReferenceState] = useState<CarryScopeState>("pending");
   const { dirty, markDirty, resetDirty } = useUnsavedChanges();
   const [backPromptOpen, setBackPromptOpen] = useState(false);
+  // Hands the prompt to the round back control in the page header, which is now the only back
+  // control on the page.
+  useLeaveGuard(dirty, () => setBackPromptOpen(true));
   // The API includes the record's stored location (not yet in the TS type); pass it so the edit
   // form pre-fills coordinates instead of auto-capturing the editor's current position.
   const initialLocation = initial
@@ -119,9 +128,42 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
       .then(([artisanResult, craftResult]) => {
         setArtisans(artisanResult.items);
         setCrafts(craftResult.items);
+        setReferenceState("loaded");
       })
-      .catch(() => undefined);
+      .catch(() => setReferenceState("unavailable"));
   }, []);
+
+  // Offer the sitting this researcher was last working in, however they got here — the query string
+  // only survives a click straight through from the save screen (lib/carryContext). The TOOL in the
+  // bag is this form's own subject and is never applied here; a product or process in it belongs to
+  // other forms and is left alone rather than dropped, so they still have it.
+  const carry = useCarryContext({
+    enabled: !isEdit,
+    // Both dropdowns are built from exactly these two lists, so "absent from the list" is both
+    // "you can no longer reach it" and "this form could not show it" — one check answers both.
+    scopes: [carryScope("artisan", referenceState, artisans), carryScope("craft", referenceState, crafts)],
+    // This form has no product, tool or process field, so it neither fills those in nor lets the
+    // banner claim it did — they stay in the bag for the forms that do.
+    applies: ["craft", "artisan", "workshop"],
+    onApply: (context) => {
+      if (context.craftId) setCraftId(context.craftId);
+      if (context.craftName) setCraftName(context.craftName);
+      if (context.artisanId) setArtisanId(context.artisanId);
+      if (context.artisanName) setArtisanName(context.artisanName);
+      if (context.place) setPlace(context.place);
+      if (context.workshopId && !workshop.touched) workshop.setWorkshopId(context.workshopId);
+    }
+  });
+
+  /** "Change": drop every carried value so the researcher picks from scratch. */
+  function clearCarriedContext() {
+    carry.change();
+    setCraftId("");
+    setCraftName("");
+    setArtisanId("");
+    setArtisanName("");
+    setPlace("");
+  }
 
   // Task 6: filter the artisan dropdown to the chosen craft (keeping any pre-existing selection).
   const artisansForCraft = craftId
@@ -220,7 +262,23 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
           }
         ]
       });
+      // Bank the sitting the moment the record is accepted, so the next form opened from the
+      // dashboard already knows where the researcher is.
+      const sitting = {
+        artisanId,
+        artisanName: payload.artisanName,
+        place: payload.place,
+        craftId,
+        craftName: payload.craftName,
+        workshopId: workshop.workshopId,
+        workshopName: workshop.workshops.find((w) => w.id === workshop.workshopId)?.title ?? null
+      };
       if (outcome.queued) {
+        // Offline is the normal case, but a queued tool has no id yet, so nothing can be assigned to
+        // it. Whatever tool was in the bag is dropped rather than left to stand in for the one just
+        // recorded — an old tool offered under a new one's name is a wrong link.
+        carry.prune("tool");
+        carry.remember(sitting);
         // OutboxBanner at the top of the page names the entry and says where it lives.
         resetDirty();
         if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
@@ -228,6 +286,9 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
         return;
       }
       const saved = outcome.saved;
+      // The tool itself now joins the bag, so "assign this tool to more artisans" opens with the
+      // tool already picked instead of hunting it out of a dropdown of seventy.
+      carry.remember({ ...sitting, toolId: saved.id, toolName: saved.toolkitName });
       // Store each captured grid photo as media linked to the tool (the measured value is already in
       // the field). Best-effort per file so one failure doesn't lose the record.
       for (const [group, file] of Object.entries(gridFiles) as [GridGroup, File][]) {
@@ -304,12 +365,8 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
   return (
     <>
       <form ref={formRef} onSubmit={submit} onInput={markDirty} onKeyDown={handleFormEnter} className="panel grid gap-4 p-4">
-        <div>
-          <button type="button" className="field-button-secondary" onClick={handleBack}>
-            Back
-          </button>
-        </div>
         {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+        <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {/* Android parity (ToolForm): the workshop opens the form, because it is the context
               every other answer belongs to — not merely the first dropdown. */}
@@ -363,6 +420,12 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
                 if (artisan) {
                   setArtisanName(artisan.name);
                   setPlace(artisan.place);
+                  // An explicit pick replaces the remembered context and retires the banner: from
+                  // here on the artisan on screen is the researcher's own choice, not a suggestion.
+                  carry.remember(
+                    { artisanId: artisan.id, artisanName: artisan.name, place: artisan.place, craftId, craftName },
+                    { explicit: true }
+                  );
                 }
                 markDirty();
               }}
@@ -479,7 +542,7 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
           title="Tool media"
           description="Attach or capture tool images, videos, audio notes, and documents. Image EXIF is retained and summarized in remarks."
         />
-        <LocationFields initial={initialLocation} />
+        <LocationFields initial={initialLocation} onDirty={markDirty} />
         {uploadProgress ? <UploadProgress progress={uploadProgress} /> : null}
         <div className="flex justify-end gap-2">
           <button type="button" className="field-button-secondary" onClick={handleBack}>

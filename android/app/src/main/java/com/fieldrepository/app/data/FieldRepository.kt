@@ -1108,15 +1108,15 @@ class FieldRepository(
     ): MediaFileDto {
         val resolvedProcessing = processingRequests
             ?: if (mediaType == "AUDIO") listOf("TRANSCRIPTION") else emptyList()
-        val filename = if (!overrideBaseName.isNullOrBlank()) {
-            applyOverrideName(overrideBaseName, originalName.substringAfterLast('.', "").takeIf { it.isNotBlank() })
-        } else mediaFilename(
+        val filename = mediaFilename(
             recordType = linkedRecordType,
-            recordName = titleHint ?: caption,
+            recordName = titleHint,
             mediaType = mediaType,
             index = batchIndex,
             stageStep = stageStep,
             customSegment = customSegment,
+            caption = caption,
+            overrideBaseName = overrideBaseName,
             originalName = originalName
         )
         // Stream the file straight from the content Uri to object storage — never load it fully into
@@ -1446,15 +1446,15 @@ class FieldRepository(
         processingRequests: List<String>? = null,
         overrideBaseName: String? = null
     ): MediaFileDto {
-        val filename = if (!overrideBaseName.isNullOrBlank()) {
-            applyOverrideName(overrideBaseName, staged.extension)
-        } else mediaFilename(
+        val filename = mediaFilename(
             recordType = linkedRecordType,
-            recordName = recordName ?: caption,
+            recordName = recordName,
             mediaType = staged.mediaType,
             index = batchIndex,
             stageStep = stageStep,
             customSegment = customSegment,
+            caption = caption,
+            overrideBaseName = overrideBaseName,
             originalName = "media" + (staged.extension?.let { ".$it" } ?: "")
         )
         val resolvedProcessing = processingRequests
@@ -1911,16 +1911,15 @@ class FieldRepository(
     ) {
         val file = File(pm.localPath)
         if (!file.exists()) return
-        val extension = pm.originalFilename.substringAfterLast('.', "").takeIf { it.isNotBlank() }
-        val filename = if (!pm.overrideBaseName.isNullOrBlank()) {
-            applyOverrideName(pm.overrideBaseName, extension)
-        } else mediaFilename(
+        val filename = mediaFilename(
             recordType = linkedRecordType,
-            recordName = pm.recordName ?: pm.caption,
+            recordName = pm.recordName,
             mediaType = pm.mediaType,
             index = pm.batchIndex,
             stageStep = pm.stageStep,
             customSegment = pm.customSegment,
+            caption = pm.caption,
+            overrideBaseName = pm.overrideBaseName,
             originalName = pm.originalFilename
         )
         val source = UploadSource(size = file.length(), open = { FileInputStream(file) }, cleanup = {})
@@ -2170,64 +2169,490 @@ class FieldRepository(
         else -> "DOCUMENT"
     }
 
-    /**
-     * Standard field-archive filename:
-     * `RECORDTYPE_RecordName_[SEGMENT]_TYPECODE_index_DDMMYYYYHHMMSS.ext`
-     * e.g. `ARTISAN_RaviKumar_IMG_1_17062026093015.jpg`,
-     *      `TOOL_Chisel_STAGE_STEP_2_VID_1_17062026093015.mp4`,
-     *      `PROCESS_Weaving_STEP_1A_VID_1_17062026093015.mp4` (process step, sequential).
-     *
-     * [customSegment] (when present) replaces the stage segment — used by process steps to encode
-     * the step number + per-file label (e.g. `STEP_1A`, `STEP_2_G1`, `PRE`).
-     */
-    private fun mediaFilename(
-        recordType: String?,
-        recordName: String?,
-        mediaType: String,
-        index: Int,
-        stageStep: Int?,
-        customSegment: String? = null,
-        originalName: String
-    ): String {
-        val extension = originalName.substringAfterLast('.', "").takeIf { it.isNotBlank() }
-        val typeCode = when (mediaType) {
-            "IMAGE" -> "IMG"
-            "AUDIO" -> "AUD"
-            "VIDEO" -> "VID"
-            "PDF" -> "DOC"
-            else -> "DOC"
-        }
-        val timestamp = java.text.SimpleDateFormat("ddMMyyyyHHmmss", java.util.Locale.US).format(java.util.Date())
-        val prefix = safeToken(recordType ?: "MEDIA").uppercase().ifBlank { "MEDIA" }
-        val namePart = safeToken(recordName.blankToNull() ?: originalName.substringBeforeLast('.'))
-        val segmentPart = customSegment?.trim()?.replace(Regex("[^A-Za-z0-9_]"), "")?.uppercase()?.takeIf { it.isNotBlank() }
-            ?: stageStep?.let { "STAGE_STEP_$it" }
-        val base = listOfNotNull(prefix, namePart, segmentPart, typeCode, index.toString(), timestamp)
-            .joinToString("_")
-        return if (extension == null) base else "$base.$extension"
-    }
-
-    /** Filename-safe token: strip whitespace and punctuation, preserve case, never empty. */
-    private fun safeToken(value: String): String =
-        value.trim()
-            .replace(Regex("\\s+"), "")
-            .replace(Regex("[^A-Za-z0-9]"), "")
-            .take(60)
-            .ifBlank { "Record" }
-
-    /**
-     * Sanitise a caller-supplied base filename (already structured with `_`-separated tokens, e.g. the
-     * questionnaire nomenclature `SECTION_QUESTION_NAME_DURATION_TIMESTAMP`) and append the extension.
-     * Underscores are preserved as the field separator; any other unsafe character becomes `_`.
-     */
-    private fun applyOverrideName(base: String, extension: String?): String {
-        val cleaned = base.trim()
-            .replace(Regex("[^A-Za-z0-9_]+"), "_")
-            .trim('_')
-            .take(150)
-            .ifBlank { "RECORDING" }
-        return if (extension.isNullOrBlank()) cleaned else "$cleaned.$extension"
-    }
 }
 
 private fun String?.blankToNull(): String? = this?.trim()?.takeIf { it.isNotEmpty() }
+
+// ---------------------------------------------------------------------------
+// The name a captured file is uploaded under.
+//
+//     {RecordType}-{RecordName}-{Descriptor}-{ddMMyyyyHHmm}.{ext}
+//
+// It used to be `K_1_RASHPALSINGHJAMMUKASHMIRBAMBOOSECTIONKL_000137_010720261728.m4a`: every word
+// run together, every part a code, and the whole thing legible only to the screen that wrote it. A
+// researcher works from a zip extracted onto a laptop, where the folder that carried the meaning is
+// gone, so the name has to answer on its own what kind of record this hangs off, which one, what
+// the file is, and when it was taken.
+//
+// This is the capture-time half of backend/app/services/media_naming.py, which re-derives the same
+// name from the row whenever the repository is browsed, exported or downloaded. The two have to
+// agree: where they disagree a researcher sees one file under two names with nothing to tell them
+// it is one file. Every rule below — the character deny list, the two length limits, the descriptor
+// vocabulary, which part gets truncated — is that module's, in Kotlin.
+// ---------------------------------------------------------------------------
+
+/**
+ * The two path separators plus the punctuation Windows reserves: the only characters a filesystem or
+ * a zip genuinely cannot carry.
+ *
+ * The rule is a DENY list rather than an allow list, and that inversion is the point of this whole
+ * change. The old `[^A-Za-z0-9]` allow list emptied every Devanagari name it touched, so a row of
+ * artisans collapsed onto one indistinguishable filename — and in a repository whose subject is
+ * Indian craft, the names are the data.
+ */
+private val NAME_UNSAFE_CHARS: Set<Int> = "<>:\"/\\|?*".map { it.code }.toSet()
+
+/**
+ * Cc control characters; Cf invisible format characters, which include the bidi overrides that
+ * render a filename back to front; Cs lone surrogates, which no encoder will take.
+ */
+private val NAME_UNSAFE_CATEGORIES = setOf(
+    Character.CONTROL.toInt(),
+    Character.FORMAT.toInt(),
+    Character.SURROGATE.toInt()
+)
+
+/**
+ * …except these two, which are Cf but load-bearing: in Devanagari and the other Indic scripts they
+ * select conjunct and half forms, so dropping them misspells the very names this scheme exists to
+ * keep.
+ */
+private const val ZERO_WIDTH_NON_JOINER = '\u200C'.code
+private const val ZERO_WIDTH_JOINER = '\u200D'.code
+
+/**
+ * Combining marks are not letters or digits to the JDK, but they are half of the syllable they sit
+ * on, so a word splitter that treats "not alphanumeric" as a boundary shatters every Indic syllable.
+ */
+private val NAME_MARK_CATEGORIES = setOf(
+    Character.NON_SPACING_MARK.toInt(),
+    Character.COMBINING_SPACING_MARK.toInt(),
+    Character.ENCLOSING_MARK.toInt()
+)
+
+/** Numerals the JDK does not count as digits (Nl/No) but Python's `isalnum` does — kept so the two
+ *  halves of the scheme break words at the same places. */
+private val NAME_NUMBER_CATEGORIES = setOf(
+    Character.LETTER_NUMBER.toInt(),
+    Character.OTHER_NUMBER.toInt()
+)
+
+/** Windows refuses these device names in any case, with or without an extension. */
+private val NAME_RESERVED: Set<String> = buildSet {
+    addAll(listOf("CON", "PRN", "AUX", "NUL"))
+    (1..9).forEach { add("COM$it"); add("LPT$it") }
+}
+
+/**
+ * The whole leaf, in characters AND in bytes. A filesystem caps a name at ~255 BYTES while a slice
+ * counts characters, and one Devanagari character costs three of them, so a name that passes the
+ * character check can still be rejected on write. 200 bytes matches the backend's budget and leaves
+ * room under the ceiling for the `-2` a duplicate name picks up on the way out of an export.
+ */
+private const val MAX_NAME_CHARS = 150
+private const val MAX_NAME_BYTES = 200
+
+/** Enough of a record name to identify it; the rest of the budget belongs to the descriptor. */
+private const val MAX_RECORD_NAME_CHARS = 60
+
+/** A step name is free text a researcher typed and runs to a sentence more often than not. */
+private const val MAX_STEP_NAME_CHARS = 32
+
+/** What each kind of file is called in a name. Plain words — never the old IMG/VID/AUD codes. */
+private val NAME_KIND_WORD = mapOf(
+    "IMAGE" to "Photo",
+    "VIDEO" to "Video",
+    "AUDIO" to "Audio-Note",
+    "PDF" to "Document",
+    "DOCUMENT" to "Document"
+)
+
+/**
+ * `linkedRecordType` -> the word that opens the name.
+ *
+ * A questionnaire clip is deliberately absent. The record such a clip is really about is the artisan
+ * being interviewed, and at capture time this layer holds only the interview's TITLE — free text
+ * from a field labelled "Interview title", which is routinely "Rashpal Singh Jammu Kashmir Bamboo
+ * Section KL" rather than anyone's name. Opening that with "Artisan-" would state something false,
+ * so the head word is left out and the descriptor's own "Interview-…" says what kind of record it
+ * is. The backend, which can see the interview's artisans, fills the head in when it re-derives.
+ */
+private val NAME_RECORD_TYPE_WORD = mapOf(
+    "artisan" to "Artisan",
+    "product" to "Product",
+    "tool" to "Tool",
+    "process" to "Process",
+    "processstep" to "Process",
+    "workshop" to "Workshop",
+    "craft" to "Craft"
+)
+
+/** "Question audio: K1 What types of waste …" — section letter then question number. */
+private val CAPTION_QUESTION = Regex("""^question\s+audio:\s*([A-Za-z]{1,3})\s*(\d+)\b""", RegexOption.IGNORE_CASE)
+
+/** "Section audio: D RAW MATERIALS …" — a recording covering a whole section, answering no one question. */
+private val CAPTION_SECTION = Regex("""^section\s+audio:\s*([A-Za-z]{1,3})\b""", RegexOption.IGNORE_CASE)
+
+/** "Process step Dyeing" — the only place the step's NAME reaches this layer. */
+private val CAPTION_STEP = Regex("""^process\s+step\s+(.+)$""", RegexOption.IGNORE_CASE)
+
+private val CAPTION_PRE_PROCESS = Regex("""^pre-process\s+media\b""", RegexOption.IGNORE_CASE)
+
+/** Every capture screen ends its caption with the record's name; this is the fallback for a call
+ *  site that passed no title of its own. */
+private val CAPTION_RECORD_NAME = Regex(
+    """^(?:field media|pre-process media|process stage step \d+|measurement grid image)\s+for\s+(.+)$""",
+    RegexOption.IGNORE_CASE
+)
+
+/** The process-step segment the form mints: `STEP_1A` (sequential) or `STEP_2_G1` (group). */
+private val SEGMENT_STEP = Regex("""^STEP[_-](\d+)""", RegexOption.IGNORE_CASE)
+
+/** `DabuHandBlockPrinting` -> `Dabu Hand Block Printing`: the one place this scheme has to invent
+ *  word boundaries, and only for a name no caller supplied. */
+private val CAMEL_BOUNDARY = Regex("""(?<=[a-z0-9])(?=[A-Z])""")
+
+private val REPEATED_HYPHEN = Regex("-{2,}")
+private val NON_LETTERS = Regex("[^a-z]")
+
+/**
+ * The pieces of one questionnaire clip's base name, as the interview screen minted it:
+ * `{SECTION}_{QUESTION}_{NAME}_{DURATIONHHMMSS}_{STAMPDDMMYYYYHHMM}` with an optional trailing clip
+ * number. Only the stamp and the clip number cannot be recovered from anywhere else, which is why
+ * that base name is still parsed rather than ignored.
+ */
+private data class QuestionnaireClip(
+    val section: String?,
+    val answer: Int?,
+    val name: String,
+    val stamp: String,
+    val clip: Int?
+)
+
+/**
+ * `{RecordType}-{RecordName}-{Descriptor}-{ddMMyyyyHHmm}.{ext}` for one file about to be uploaded.
+ *
+ *     Artisan-Giriraj-Prasad-Chhipa-Photo-2-010720261824.jpg
+ *     Product-Bagru-Block-Print-Video-1-200620261153.mp4
+ *     Tool-Ringal-Splitting-Knife-Grid-Measurement-Height-200620261200.jpg
+ *     Process-Dabu-Printing-Step-2-Dyeing-Video-1-210620261430.mp4
+ *
+ * [overrideBaseName] is the interview screen's own clip name; it is read for the section, the
+ * question and the moment of capture, then re-spelled in the same words as everything else instead
+ * of being passed through as `K_1_…`.
+ */
+private fun mediaFilename(
+    recordType: String?,
+    recordName: String?,
+    mediaType: String,
+    index: Int,
+    stageStep: Int? = null,
+    customSegment: String? = null,
+    caption: String? = null,
+    overrideBaseName: String? = null,
+    originalName: String
+): String {
+    val extension = nameSafeChars(originalName.substringAfterLast('.', ""))
+        .takeIf { it.isNotBlank() }
+        ?.let { ".$it" }
+        .orEmpty()
+
+    val base = overrideBaseName.blankToNull()
+    val clip = base?.let(::parseQuestionnaireClip)
+    // A caller-supplied base that is not the interview shape is that caller's business, not this
+    // function's to re-interpret; it is only made safe and hyphenated.
+    if (base != null && clip == null) return literalBaseName(base, extension)
+
+    val descriptor = if (clip != null) {
+        interviewClipDescriptor(clip, caption, mediaType, index)
+    } else {
+        mediaDescriptor(recordType, mediaType, index, stageStep, customSegment, caption, originalName)
+    }
+
+    val supplied = recordName.blankToNull()
+        ?: captionRecordName(caption)
+        ?: clip?.name
+        ?: splitCamel(originalName.substringBeforeLast('.'))
+    val stem = assembleName(
+        recordType = hyphenate(NAME_RECORD_TYPE_WORD[recordType?.trim()?.lowercase()]),
+        recordName = hyphenate(trimRedundantTail(supplied, descriptor)),
+        descriptor = descriptor,
+        stamp = clip?.stamp ?: captureStamp(),
+        extension = extension
+    )
+    return stem.ifBlank { nameSafeChars(originalName).trim(' ', '.').ifBlank { "file" } }
+}
+
+/**
+ * ddMMyyyyHHmm, in the device's own zone. Twelve digits, never fourteen.
+ *
+ * The moment the phone captured the file, which is what the researcher saw on screen — not the
+ * moment the row reached the server, which lands a beat later and shifts a name by a minute. The
+ * backend reads this stamp straight back off the uploaded name and cuts the seconds off the older
+ * uploads that carry them, so every file in the repository is stamped to the same precision. Where
+ * that puts two files of one minute on one name, the export numbers the later one `-2`; a second
+ * this app never recorded is never invented to keep them apart.
+ */
+private fun captureStamp(): String =
+    java.text.SimpleDateFormat("ddMMyyyyHHmm", java.util.Locale.US).format(java.util.Date())
+
+/** Drop only the characters a filesystem or a zip genuinely cannot carry, in any script. */
+private fun nameSafeChars(value: String?): String {
+    val text = value ?: return ""
+    val out = StringBuilder(text.length)
+    var i = 0
+    while (i < text.length) {
+        val code = text.codePointAt(i)
+        i += Character.charCount(code)
+        val category = Character.getType(code)
+        val keep = code !in NAME_UNSAFE_CHARS &&
+            (category !in NAME_UNSAFE_CATEGORIES || code == ZERO_WIDTH_JOINER || code == ZERO_WIDTH_NON_JOINER)
+        if (keep) out.appendCodePoint(code)
+    }
+    return out.toString()
+}
+
+/**
+ * Words joined by hyphens, with every script intact.
+ *
+ * Anything that is not a letter, a digit or a combining mark is a boundary, so "Cane, Bamboo and
+ * Block Printing" reads "Cane-Bamboo-and-Block-Printing" and "गिरीराज प्रसाद छीपा" keeps its
+ * characters and simply gains hyphens between its words.
+ */
+private fun hyphenate(value: String?): String {
+    val text = nameSafeChars(value)
+    val out = StringBuilder(text.length)
+    var i = 0
+    while (i < text.length) {
+        val code = text.codePointAt(i)
+        i += Character.charCount(code)
+        val category = Character.getType(code)
+        val isWordChar = Character.isLetterOrDigit(code) ||
+            category in NAME_NUMBER_CATEGORIES ||
+            category in NAME_MARK_CATEGORIES ||
+            code == ZERO_WIDTH_JOINER ||
+            code == ZERO_WIDTH_NON_JOINER
+        if (isWordChar) out.appendCodePoint(code) else out.append('-')
+    }
+    return out.toString().replace(REPEATED_HYPHEN, "-").trim('-')
+}
+
+/** Trim to both limits at once, never mid-character and never mid-surrogate-pair. */
+private fun clipName(value: String, maxChars: Int, maxBytes: Int): String {
+    var out = if (value.codePointCount(0, value.length) > maxChars) {
+        value.substring(0, value.offsetByCodePoints(0, maxChars))
+    } else {
+        value
+    }
+    while (out.isNotEmpty() && out.toByteArray(Charsets.UTF_8).size > maxBytes) {
+        out = out.substring(0, out.offsetByCodePoints(out.length, -1))
+    }
+    return out
+}
+
+/**
+ * [clipName], but cutting back to a whole word when it has to cut at all.
+ *
+ * The text is already hyphenated, so a blind slice leaves "Cane-Bamboo-an" — a fragment that reads
+ * as a word the record does not contain. Dropping the partial word says less and says nothing
+ * false. A single very long word has no boundary to retreat to, and there the blind cut stands.
+ */
+private fun clipWords(value: String, maxChars: Int, maxBytes: Int): String {
+    val clipped = clipName(value, maxChars, maxBytes)
+    if (clipped == value) return value
+    val head = clipped.substringBeforeLast('-', "")
+    return (if (head.isNotEmpty()) head else clipped).trim('-')
+}
+
+private fun splitCamel(value: String?): String = CAMEL_BOUNDARY.replace(value.orEmpty(), " ")
+
+/** Only lowercase letters, so `GRID_HEIGHT`, `grid-height-9.jpg` and "Height grid" all compare alike. */
+private fun nameLetters(value: String?): String = value.orEmpty().lowercase().replace(NON_LETTERS, "")
+
+/**
+ * Join the pieces, spending the byte budget on the record name and nothing else.
+ *
+ * The descriptor and the timestamp are what tell one artisan's forty clips apart, so they are never
+ * trimmed. The record name absorbs the whole shortfall, and if the tail alone has eaten the budget
+ * the head goes entirely — leaving a name that says less about which record this belongs to but
+ * still says exactly which file it is.
+ */
+private fun assembleName(
+    recordType: String,
+    recordName: String,
+    descriptor: String,
+    stamp: String,
+    extension: String
+): String {
+    val tail = listOf(descriptor, stamp).filter { it.isNotEmpty() }.joinToString("-")
+    val budget = MAX_NAME_BYTES - "-$tail$extension".toByteArray(Charsets.UTF_8).size
+    val head = if (budget <= 0) {
+        ""
+    } else {
+        // Re-clip the pair: a long type word plus a short name can still overrun.
+        clipWords(
+            listOf(recordType, clipWords(recordName, MAX_RECORD_NAME_CHARS, budget))
+                .filter { it.isNotEmpty() }
+                .joinToString("-"),
+            MAX_NAME_CHARS,
+            budget
+        )
+    }
+
+    var stem = listOf(head, tail).filter { it.isNotEmpty() }.joinToString("-")
+        .replace(REPEATED_HYPHEN, "-")
+        .trim('-', ' ', '.')
+    if (stem.isEmpty()) return ""
+    if (stem.substringBefore('.').uppercase() in NAME_RESERVED) stem = "${stem}_"
+    val room = MAX_NAME_BYTES - extension.toByteArray(Charsets.UTF_8).size
+    return clipName(stem, MAX_NAME_CHARS, room).trim('-', ' ', '.') + extension
+}
+
+/** What this file IS, in words: the half of the name that disambiguates one photo from the next. */
+private fun mediaDescriptor(
+    recordType: String?,
+    mediaType: String,
+    index: Int,
+    stageStep: Int?,
+    customSegment: String?,
+    caption: String?,
+    originalName: String
+): String {
+    val kind = "${nameKindWord(mediaType)}-$index"
+    val tag = recordType?.trim()?.lowercase().orEmpty()
+
+    if (tag == "questionnaire" || tag == "questionnaireinterview") {
+        val (section, answer) = interviewSectionAnswer(caption) ?: return "Interview-$kind"
+        return "Interview-Section-$section" + (answer?.let { "-Answer-$it" }).orEmpty()
+    }
+
+    gridDescriptor(customSegment, caption, originalName)?.let { return it }
+
+    // `stageStep` is the tool form's numbered process stage; `customSegment` is the process form's
+    // `STEP_1A` / `STEP_2_G1`, whose trailing letter distinguishes files within a step and is what
+    // the file index already says.
+    val step = stageStep ?: SEGMENT_STEP.find(customSegment.orEmpty())?.groupValues?.get(1)?.toIntOrNull()
+    if (step != null || tag == "processstep") {
+        val stepName = clipWords(
+            hyphenate(CAPTION_STEP.find(caption.orEmpty().trim())?.groupValues?.get(1)),
+            MAX_STEP_NAME_CHARS,
+            MAX_STEP_NAME_CHARS * 3
+        )
+        return listOf(step?.let { "Step-$it" } ?: "Step", stepName, kind)
+            .filter { it.isNotEmpty() }
+            .joinToString("-")
+    }
+
+    val isPreProcess = customSegment?.trim().equals("PRE", ignoreCase = true) ||
+        CAPTION_PRE_PROCESS.containsMatchIn(caption.orEmpty().trim())
+    if (isPreProcess) return "Pre-Process-$kind"
+
+    return kind
+}
+
+/**
+ * `Grid-Measurement-Height` and friends, when this image is a measurement grid.
+ *
+ * The axis is only stated when something actually says which one it is: the segment the older grid
+ * flow tagged, or the name the capture screen gave the file on disk, or the caption. A grid photo
+ * that names no axis gets the bare `Grid-Measurement` rather than a guess that would be wrong half
+ * the time.
+ */
+private fun gridDescriptor(customSegment: String?, caption: String?, originalName: String): String? {
+    val segment = nameLetters(customSegment)
+    val file = originalName.substringBeforeLast('.').lowercase()
+    val head = nameLetters(caption)
+    if (segment.contains("gridlengthbreadth") ||
+        file.startsWith("grid-lengthbreadth") ||
+        head.startsWith("lengthbreadthgrid")
+    ) {
+        return "Grid-Measurement-Length-Breadth"
+    }
+    if (segment.contains("gridheight") || file.startsWith("grid-height") || head.startsWith("heightgrid")) {
+        return "Grid-Measurement-Height"
+    }
+    if (segment.contains("measurementgrid") ||
+        file.startsWith("measure-grid") ||
+        head.startsWith("measurementgrid")
+    ) {
+        return "Grid-Measurement"
+    }
+    return null
+}
+
+/** `Interview-Section-K-Answer-1`, or as much of it as the caption can prove. */
+private fun interviewSectionAnswer(caption: String?): Pair<String, Int?>? {
+    val text = caption.orEmpty().trim()
+    CAPTION_QUESTION.find(text)?.let { return it.groupValues[1].uppercase() to it.groupValues[2].toIntOrNull() }
+    CAPTION_SECTION.find(text)?.let { return it.groupValues[1].uppercase() to null }
+    return null
+}
+
+/**
+ * The descriptor for one interview clip.
+ *
+ * A recording that covers a whole section is not an answer to any one question, so it stops at
+ * `Interview-Section-D` instead of claiming an answer number it does not have. `-Clip-2` is
+ * appended only when the same target really was recorded more than once in the same save; without
+ * it two takes of one answer, a few seconds apart, would land on the same name.
+ */
+private fun interviewClipDescriptor(
+    clip: QuestionnaireClip,
+    caption: String?,
+    mediaType: String,
+    index: Int
+): String {
+    val (section, answer) = interviewSectionAnswer(caption) ?: (clip.section to clip.answer)
+    if (section == null) return "Interview-${nameKindWord(mediaType)}-$index"
+    return buildString {
+        append("Interview-Section-").append(section)
+        if (answer != null) append("-Answer-").append(answer)
+        if (clip.clip != null) append("-Clip-").append(clip.clip)
+    }
+}
+
+private fun nameKindWord(mediaType: String): String = NAME_KIND_WORD[mediaType.uppercase()] ?: "File"
+
+private fun parseQuestionnaireClip(base: String): QuestionnaireClip? {
+    val tokens = base.trim().split('_')
+    if (tokens.size < 5) return null
+    if (tokens[3].length != 6 || !tokens[3].all(Char::isDigit)) return null
+    val stamp = tokens[4].takeIf { it.length == 12 && it.all(Char::isDigit) } ?: return null
+    // Both slots fall back to the literal "SEC" when the screen had no code to put there, and
+    // "Section-SEC" would be exactly the sort of code this scheme exists to stop emitting.
+    val section = tokens[0].takeIf { it.isNotBlank() && !it.equals("SEC", ignoreCase = true) }
+    return QuestionnaireClip(
+        section = section,
+        answer = tokens[1].toIntOrNull(),
+        name = tokens[2],
+        stamp = stamp,
+        clip = tokens.getOrNull(5)?.toIntOrNull()?.takeIf { it > 1 }
+    )
+}
+
+/** The record's name out of a capture screen's caption, for a call site that passed no title. */
+private fun captionRecordName(caption: String?): String? =
+    CAPTION_RECORD_NAME.find(caption.orEmpty().trim())?.groupValues?.get(1)?.blankToNull()
+
+/**
+ * Drop a tail the descriptor is about to repeat.
+ *
+ * The measurement screen hands down "Ringal splitting knife measurement grid" as the record name,
+ * which followed by `Grid-Measurement-Height` says "grid" twice and "measurement" twice. The record
+ * is the knife; the descriptor is what the photo is of.
+ */
+private fun trimRedundantTail(recordName: String, descriptor: String): String {
+    if (!descriptor.startsWith("Grid-Measurement")) return recordName
+    val trimmed = recordName.trim()
+    if (!nameLetters(trimmed).endsWith("measurementgrid")) return trimmed
+    val cut = trimmed.lowercase().lastIndexOf("measurement")
+    // A record genuinely called nothing but "measurement grid" keeps its name; there is nothing else
+    // left to call it.
+    return if (cut > 0) trimmed.substring(0, cut).trim() else trimmed
+}
+
+/** A caller-supplied base name this scheme cannot read: made safe, hyphenated, left alone otherwise. */
+private fun literalBaseName(base: String, extension: String): String {
+    val room = MAX_NAME_BYTES - extension.toByteArray(Charsets.UTF_8).size
+    return clipWords(hyphenate(base), MAX_NAME_CHARS, room).ifBlank { "Recording" } + extension
+}

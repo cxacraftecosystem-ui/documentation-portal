@@ -1,0 +1,179 @@
+# ---------------------------------------------------------------------------------------------
+# STAGING. Production's shape at a fraction of production's cost.
+#
+# The value of a staging environment is that the things which differ from production are things you
+# chose, so the list is kept deliberately short: fewer replicas, a lower ceiling, smaller requests,
+# its own hostname and its own secrets. Everything about how the pods BEHAVE — one uvicorn worker,
+# docs closed, HSTS on, the queue singleton, the probes, the drain — is identical to prod, because a
+# staging environment that behaves differently only tells you about itself.
+#
+# The one thing that cannot be rehearsed here is load, and therefore the connection ceiling. See
+# docs/KUBERNETES.md: staging's budget is small on purpose because it is subtracted from
+# production's, not because staging is unimportant.
+# ---------------------------------------------------------------------------------------------
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: fieldrepo-staging
+
+resources:
+  - namespace.yaml
+  - secretstore.yaml
+  - ../../base
+
+images:
+  - name: fieldrepo-api
+    newName: REPLACE_REGISTRY/fieldrepo-api
+    newTag: staging
+  - name: fieldrepo-migrate
+    newName: REPLACE_REGISTRY/fieldrepo-migrate
+    newTag: staging
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: fieldrepo-config
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: fieldrepo-config
+      data:
+        FIELDREPO_ENV: "staging"
+
+        # Half of production's, same reasoning as dev: whatever staging holds open, production
+        # cannot scale into. Staging peaks at (2 + 1 + 1) x 5 = 20 client connections.
+        DATABASE_CONNECTION_LIMIT: "5"
+
+        # Left at the base value of false, restated here because it is the difference from dev that
+        # matters most: staging holds copies of real records often enough that it should be treated
+        # as production for anything that reads data out.
+        BACKEND_EXPOSE_DOCS: "false"
+
+        # Served over TLS, and the origin hop from the edge is plain HTTP, so the app cannot infer
+        # the scheme from the request and would never emit HSTS without this.
+        SECURITY_FORCE_HSTS: "true"
+
+        AWS_REGION: "ap-south-1"
+        AWS_S3_BUCKET: "REPLACE_staging_bucket"
+        BACKEND_CORS_ORIGINS: "https://staging.REPLACE_DOMAIN"
+        NEXT_PUBLIC_APP_URL: "https://staging.REPLACE_DOMAIN"
+        MASTER_ADMIN_EMAIL: "REPLACE_admin@example.org"
+
+  - target:
+      kind: Deployment
+      name: fieldrepo-api
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: fieldrepo-api
+      spec:
+        replicas: 1
+        template:
+          spec:
+            containers:
+              - name: api
+                resources:
+                  requests:
+                    cpu: 150m
+                    memory: 320Mi
+                  limits:
+                    cpu: "1"
+                    memory: 640Mi
+
+  - target:
+      kind: Deployment
+      name: fieldrepo-queue
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: fieldrepo-queue
+      spec:
+        template:
+          spec:
+            containers:
+              - name: queue
+                resources:
+                  requests:
+                    cpu: 200m
+                    memory: 384Mi
+                  limits:
+                    cpu: "1"
+                    memory: 1Gi
+
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: fieldrepo-api
+    patch: |-
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: fieldrepo-api
+      spec:
+        minReplicas: 1
+        # Two, so that a scale event is actually exercised before production meets one — a scaling
+        # policy that has never run once is an untested code path.
+        #
+        #   (2 max + 1 surge + 1 queue) x 5 = 20 client connections, worst case.
+        maxReplicas: 2
+
+  - target:
+      kind: Ingress
+      name: fieldrepo-api
+    patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: fieldrepo-api
+        annotations:
+          cert-manager.io/cluster-issuer: letsencrypt-staging
+      spec:
+        tls:
+          - hosts:
+              - staging.REPLACE_DOMAIN
+            secretName: fieldrepo-staging-tls
+        rules:
+          - host: staging.REPLACE_DOMAIN
+            http:
+              paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: fieldrepo-api
+                      port:
+                        name: http
+
+replacements:
+  # Both blocks are identical in every overlay by design — the values they carry are not. See
+  # overlays/dev/kustomization.yaml for what each one does and why.
+  - source:
+      kind: ConfigMap
+      name: fieldrepo-config
+      fieldPath: data.FIELDREPO_ENV
+    targets:
+      - select:
+          kind: ExternalSecret
+          name: fieldrepo-secrets
+        fieldPaths:
+          - spec.data.*.remoteRef.key
+        options:
+          delimiter: /
+          index: 1
+
+  - source:
+      kind: Job
+      fieldPath: spec.template.spec.containers.[name=migrate].image
+      options:
+        delimiter: ":"
+        index: 1
+    targets:
+      - select:
+          kind: Job
+        fieldPaths:
+          - metadata.name
+        options:
+          delimiter: "-"
+          index: 2

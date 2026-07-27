@@ -13,6 +13,17 @@ and of every trick either client plays.
 - Web: `frontend/lib/media.ts`, `frontend/lib/uploads.tsx`, `frontend/components/forms/MediaCaptureField.tsx`
 - API: `backend/app/api/routes/media.py`, `backend/app/services/s3.py`
 
+**Scope.** This document ends where the bytes land. What happens to an audio file *after* it is
+stored — the three-provider transcription chain, its failover semantics and the queue's cooldown
+behaviour — is [ARCHITECTURE.md §6](ARCHITECTURE.md).
+
+> **Citations are by symbol name, not by line number.** They used to be by line — `MainActivity.kt:2126`,
+> `FieldRepository.kt:1094` — and every one of them had silently drifted by 60 to 170 lines within a
+> few weeks, while still looking precise. `grep -n "fun preuploadObject"` is one keystroke longer and
+> cannot rot. `docs/tools/check-docs.mjs` reports any document that still pins line numbers.
+> Note that `MainActivity.kt` contains a NUL byte, so plain `grep` finds nothing in it — use
+> `grep -a`.
+
 ---
 
 ## 1. The server contract
@@ -31,12 +42,44 @@ Four properties of that contract the clients lean on hard:
 
 | Property | Where | Why it matters |
 | --- | --- | --- |
-| **`/complete` is idempotent on `objectKey`** | `media.py:198-264` | The key embeds the uploader id + a per-upload uuid, so a row already present for a key *is* this upload. A retried finish returns the existing row instead of a 500 `UniqueViolationError` — this is what makes retrying `/complete` safe rather than duplicating records. |
-| **Every object lives under `media/<user_id>/`** | `s3.py:make_object_key`, `media.py:96-99` | Ownership is a prefix check, so `/media/object` can delete *your* staged uploads and nothing else. |
-| **`originalFilename` is independent of `objectKey`** | `media.py:224-227` | The displayed name is applied at `/complete`. A file can therefore be uploaded under a provisional key long before its final, nomenclature-correct name is known. This is the whole basis of eager uploading. |
-| **`/media/object` refuses attached objects (409)** | `media.py:504-519` | An orphan sweeper can never delete an object that a record now points at. |
+| **`/complete` is idempotent on `objectKey`** | `media.py` → `complete_media_upload`; `MediaFile.objectKey` is `@unique` | The key embeds the uploader id + a per-upload uuid, so a row already present for a key *is* this upload. A retried finish returns the existing row instead of a 500 `UniqueViolationError` — this is what makes retrying `/complete` safe rather than duplicating records. |
+| **Every object lives under `media/<user_id>/`** | `s3.py` → `make_object_key` | Ownership is a prefix check, so `/media/object` can delete *your* staged uploads and nothing else. |
+| **`originalFilename` is independent of `objectKey`** | `media.py` → `complete_media_upload` | The displayed name is applied at `/complete`. A file can therefore be uploaded under a provisional key long before its final, nomenclature-correct name is known. This is the whole basis of eager uploading. |
+| **`/media/object` refuses attached objects (409)** | `media.py` → `delete_staged_object` | An orphan sweeper can never delete an object that a record now points at. |
 
-`MediaCompleteRequest` also accepts a free-form `checksum` (`backend/app/schemas/media.py:107`).
+`MediaCompleteRequest` also accepts a free-form `checksum` (`backend/app/schemas/media.py`).
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as Client
+  participant API as FastAPI
+  participant S3 as S3
+  participant DB as PostgreSQL
+
+  Note over C: file attached — <b>typing has not finished</b>
+  C->>API: POST /media/presign
+  API->>API: make_object_key → media/{user id}/{uuid}/{name}
+  API-->>C: uploadUrl (15 min) + objectKey
+  C->>C: write objectKey to the staged journal BEFORE the first byte
+  C->>S3: streamed PUT (or multipart above 64 MiB)
+  S3-->>C: 200
+
+  Note over C: …minutes later, Save is pressed
+  C->>API: POST /media/complete { objectKey, originalFilename, checksum }
+  API->>DB: upsert on objectKey — <b>idempotent</b>
+  API->>DB: MediaProcessingJob, when requested
+  API-->>C: MediaFile row
+  C->>C: drop the journal entry
+```
+
+**Presign lifetimes:** whole-object PUT **15 minutes**, multipart part **1 hour**
+(`ExpiresIn` in `s3.py`). Both clients re-presign a part that 403s mid-transfer, and the web
+re-presigns per attempt for whole objects.
+
+`s3.py` also has `presign_get_url` — currently used only for APK release downloads
+(`app_release.py`), not for media reads. It is the building block the P0 fix in
+[SECURITY.md](SECURITY.md) needs, and it already exists.
 
 ---
 
@@ -47,38 +90,36 @@ Four properties of that contract the clients lean on hard:
 The single biggest win. The bytes start moving the moment a file is attached, not when the form is
 saved, so the transfer overlaps the minutes spent typing.
 
-| Piece | Location |
+| Piece | Symbol |
 | --- | --- |
-| `preuploadObject` — presign + PUT under a provisional key, no record needed | `data/FieldRepository.kt:1094` |
-| `startEagerUpload` — one uri, progress + failure bookkeeping, runs on a process-lifetime scope | `MainActivity.kt:2126` |
-| `MediaCaptureState.stagedDeferred / staged / stagedProgress / stagedFailed` | `MainActivity.kt:2087-2113` |
-| Fired for every newly attached uri | `MainActivity.kt:3509` (and `MediaStagingEffect`, `MainActivity.kt:3751`) |
-| `completeStaged` — applies the final filename and links the object at save | `FieldRepository.kt:1270` |
-| Save prefers the staged object, awaiting one still in flight | `MainActivity.kt:2238-2240` |
-| `AppScope.io` — a process-lifetime scope so a transfer survives recomposition | `data/AppScope.kt:11` |
+| presign + PUT under a provisional key, no record needed | `data/FieldRepository.kt` → `preuploadObject` |
+| one uri, progress + failure bookkeeping, on a process-lifetime scope | `MainActivity.kt` → `startEagerUpload` |
+| the per-file staging state | `MainActivity.kt` → `MediaCaptureState.stagedDeferred / staged / stagedProgress / stagedFailed` |
+| fired for every newly attached uri | `MainActivity.kt` → `MediaStagingEffect` |
+| applies the final filename and links the object at save | `FieldRepository.kt` → `completeStaged` |
+| a process-lifetime scope, so a transfer survives recomposition | `data/AppScope.kt` → `AppScope.io` |
 
 ### 2.2 Cleanup of staged-but-unsaved objects
 
 | Situation | Handling |
 | --- | --- |
-| One attachment removed (`✕`) | await the in-flight transfer, then `deleteStaged` — `MainActivity.kt:3711-3719` |
-| "Clear attachments" | same, for the whole batch — `MainActivity.kt:3727-3737` |
-| Capture screen dismissed without saving | `DisposableEffect { onDispose { … deleteStaged … } }` — `MainActivity.kt:3517`, `:3761` |
-| A grid-measurement photo re-captured or discarded | `MainActivity.kt:2332-2339`, `:2378-2386` |
-| `deleteStaged` itself | `FieldRepository.kt:1316` -> `DELETE /media/object` |
+| One attachment removed (`✕`) | await the in-flight transfer, then `deleteStaged` |
+| "Clear attachments" | the same, for the whole batch |
+| Capture screen dismissed without saving | `DisposableEffect { onDispose { … deleteStaged … } }` |
+| A grid-measurement photo re-captured or discarded | same path, per photo |
+| `deleteStaged` itself | `FieldRepository.kt` → `deleteStaged` → `DELETE /media/object` |
 
 ### 2.3 Multipart above a size threshold
 
-`MULTIPART_THRESHOLD = 64 MiB` (`FieldRepository.kt:46`). At or under it, one streamed PUT; above it,
+`MULTIPART_THRESHOLD = 64 MiB` (`FieldRepository.kt`). At or under it, one streamed PUT; above it,
 `create` -> `presign-parts` -> per-part PUT -> `complete`, and S3 stitches the parts into a single
-object so the stored file is still whole (`uploadBytesToS3`, `FieldRepository.kt:1140`;
-`uploadMultipart`, `:1169`).
+object so the stored file is still whole (`uploadBytesToS3`, `uploadMultipart`).
 
-- Per-part retry with backoff, 3 attempts: `putPart`, `FieldRepository.kt:1326`.
+- Per-part retry with backoff, 3 attempts: `putPart`.
 - `Content-Type` is deliberately unset on a part — the part presign does not sign it.
 - **Abort on any failure** so half-written parts never linger.
 - **Per-part re-presigning on expiry.** Every part is signed once, up front, for an hour
-  (`s3.py:191`); on a field connection the last parts of a 400 MB video can still be queued when
+  (`s3.py`); on a field connection the last parts of a 400 MB video can still be queued when
   their signature runs out, and S3 rejects it with 403. That part alone is re-signed and re-sent
   (`putPart`'s `repesign`), which does not spend one of its three retry attempts — an expired URL is
   not a failed transfer. Allowed once per part, so a genuine `AccessDenied` still fails fast.
@@ -86,25 +127,27 @@ object so the stored file is still whole (`uploadBytesToS3`, `FieldRepository.kt
 
 ### 2.4 Safe-request retry with backoff
 
-An OkHttp interceptor retries **only** requests that are safe to repeat (`ApiClient.kt:27-36`):
-GETs, plus `/media/presign`, `/media/multipart/create`, `/media/multipart/presign-parts`,
+An OkHttp interceptor in `data/ApiClient.kt` retries **only** requests that are safe to repeat: GETs,
+plus `/media/presign`, `/media/multipart/create`, `/media/multipart/presign-parts`,
 `/media/multipart/abort`. Record-creating calls are deliberately excluded so a 504 can never create a
-duplicate. Retriable codes: 502/503/504 (`ApiClient.kt:17`), up to 4 attempts, backoff
-`min(4 s, 600 ms × attempt)` (`ApiClient.kt:39`). Generous transport timeouts and
-`retryOnConnectionFailure(true)` for mobile data (`ApiClient.kt:60-63`).
+duplicate. Retriable codes: 502/503/504, up to 4 attempts, backoff `min(4 s, 600 ms × attempt)`.
+Generous transport timeouts and `retryOnConnectionFailure(true)` for mobile data.
 
 ### 2.5 Offline outbox
 
 With no validated internet, a create is written to disk instead of the network and replayed later
 (`data/Offline.kt`).
 
-- `ConnectivityObserver.isOnline` — validated internet, not just an attached interface (`Offline.kt:71`).
-- `OfflineOutbox.stageMedia` — copies the captured content Uri into app storage so it survives (`Offline.kt:114`).
-- `queueOfflineEntry` — serialised create request + its media specs (`FieldRepository.kt:1349`).
-- `syncOutbox` — create the record, upload its media, *then* drop the local copy; stops at the first
-  failure so the rest stay queued (`FieldRepository.kt:1389`).
-- Process records fan their media out to the right freshly-created step (`syncProcessEntry`, `:1437`).
-- A legacy entry that would 422 forever is repaired rather than allowed to block the queue (`:1416`).
+- `ConnectivityObserver.isOnline` — validated internet, not merely an attached interface.
+- `OfflineOutbox.stageMedia` — copies the captured content Uri into app storage so it survives.
+- `queueOfflineEntry` — the serialised create request plus its media specs.
+- `syncOutbox` — create the record, upload its media, *then* drop the local copy; **stops at the
+  first failure** so the rest stay queued.
+- `syncProcessEntry` — process records fan their media out to the right freshly-created step.
+- A legacy entry that would 422 forever is repaired rather than allowed to block the queue.
+
+Android's stop-at-first-failure is the one place the two clients deliberately differ; §3.1 explains
+why the web does the opposite.
 
 ### 2.6 Idempotent completion
 
@@ -119,19 +162,19 @@ camera, battery flat in a workshop — and the bytes sit in the bucket with noth
 and nothing in memory that remembers they exist. Eager upload makes that window as long as the
 researcher spends typing.
 
-So every presigned key is written to disk **before the first byte moves**
-(`FieldRepository.kt:1211` for a single PUT, `:1242` for a multipart), and forgotten the moment it
-settles — `/complete` claimed it, `deleteStaged` removed it, or an aborted multipart discarded its
-parts. `data/StagedJournal.kt` is `filesDir/staged-objects.json`, written through the same
+So every presigned key is written to disk **before the first byte moves** — in `uploadBytesToS3` for
+a single PUT and in `uploadMultipart` for a multipart — and forgotten the moment it settles:
+`/complete` claimed it, `deleteStaged` removed it, or an aborted multipart discarded its parts.
+`data/StagedJournal.kt` is `filesDir/staged-objects.json`, written through the same
 file + `Mutex` + kotlinx mechanism as the offline outbox, because both have to survive the same kill.
 
 Each entry carries the id of the process that wrote it, and the sweep deletes only entries owned by
-a **previous** one (`StagedJournal.sweep`, `:91`; `sweepStagedObjects`, `FieldRepository.kt:1440`).
+a **previous** one (`StagedJournal.sweep`, called from `sweepStagedObjects`).
 That is the whole ownership rule — a phone has one process, and a process that is gone cannot still
 be waiting to save, so nothing can be deleted out from under an open form. The web needs a 60 s
 heartbeat and a 5-minute staleness cut-off only because one browser has many tabs.
 
-It runs **once per process**, kicked off the first time `syncOutbox` is called (`:1529`) — the app's
+It runs **once per process**, kicked off the first time `syncOutbox` is called — the app's
 existing "signed in, or the network just came back" hook, and the only start-up path carrying a
 `Context` — detached on `AppScope.io` so a sweep never delays the queued records. A key is dropped
 when the server settles it: 204 (gone), 409 (a record claimed it after all — `/media/object` refuses
@@ -142,7 +185,7 @@ rather than abandoning the bytes.
 ### 2.8 Content checksum
 
 SHA-256 of what actually went up, sent as `checksum: "sha256:<hex>"` on `/complete`
-(`ContentDigest`, `FieldRepository.kt:1804`). Nothing verifies it server-side yet; it is stored so a
+(`ContentDigest` in `FieldRepository.kt`). Nothing verifies it server-side yet; it is stored so a
 later integrity sweep *can*, and so identical bytes are recognisable.
 
 Unlike the browser, Android hashes **incrementally from the bytes on their way to the socket** —
@@ -187,8 +230,8 @@ save record ──► uploadMediaBatch(files)                 │
   double-count.
 
 **Matching a staged object back to its file.** The store is keyed by `File` object identity. Three
-call sites rename a file just before saving (`app/(protected)/media/page.tsx:246`,
-`components/forms/ProcessForm.tsx:116`, `components/forms/ToolForm.tsx:211`) — `new File([file], …)`
+call sites rename a file just before saving (the Miscellaneous Media page, `ProcessForm`,
+`ToolForm`) — `new File([file], …)`
 keeps the bytes but destroys identity. The fallback is a content signature
 (`size:lastModified:type`), honoured **only when it is unambiguous**: if two staged files share a
 signature, neither is matched and both simply upload again. Attaching the wrong photo to a record is
@@ -290,6 +333,15 @@ the caption is the only thing that says which dimension it measures.
 exist until the server makes them, so those batches carry a `stepIndex` and the replay resolves the
 real id from the create response's `steps[]`.
 
+**A replay is RESUMABLE, and this is load-bearing.** "Create the record, then upload its media" is two
+steps, and only the first is expensive to repeat — repeating it makes a second record. So each step
+is written back to the entry the moment it lands (`created`, `createdId`, `uploadedBatches`), and a
+pass that dies half way through picks up at the media instead of starting the record again.
+
+> Without that write-back the outbox **duplicated every record whose media upload was interrupted,
+> once per sync pass, for as long as the signal stayed bad** — the worst possible timing, since a bad
+> signal is the only reason the entry is in the outbox at all.
+
 **How a failure is triaged** — the one place this deliberately differs from Android, whose outbox
 stops at the first failure:
 
@@ -297,11 +349,37 @@ stops at the first failure:
 | --- | --- | --- |
 | No connection, 5xx, 408, 429 | transient | Stop the pass, keep everything queued, retry on the next `online` event. |
 | 4xx (validation, permission) | permanent | Mark **that** entry with the server's reason, leave it for the user to read and discard, carry on to the next. |
-| 409 on replay | already saved | Drop the entry. The create landed on an earlier pass whose response was lost; re-queueing would duplicate the record forever. |
+| **409** | **a genuine conflict** | Surface it to the researcher to resolve. **Nothing is deleted.** |
 
 Stopping at the first failure is right for a connection that dropped again and wrong for a request
 the server will never accept: one 422 at the head of the queue would block every entry behind it
 indefinitely with nothing on screen to say why.
+
+**Nothing is ever deleted because the server said 409** — and this row used to say the opposite. It
+read a 409 as "the create already landed and we lost the response", and dropped the entry *and its
+files* as sent. **No endpoint in this API means that by 409:** from `/artisans` it is a clashing
+Aadhaar number, from `/crafts` a craft of that name, from `/questionnaire/interviews` an interview
+that already exists for that exact artisan set. So the one answer that means "someone else's record
+collides with yours" was destroying the record, destroying the photographs, and reporting success.
+The lost-response case it was aiming at is covered properly by `created` above, which knows rather
+than guesses.
+
+```mermaid
+stateDiagram-v2
+  direction LR
+  [*] --> queued: save with no connection
+  queued --> creating: online event / Sync now
+  creating --> created: 201 — <b>written back at once</b>
+  creating --> queued: transient (offline, 5xx, 408, 429)
+  creating --> permanent: 4xx validation or permission
+  creating --> conflict: <b>409</b>
+  created --> uploading
+  uploading --> uploading: each batch marked done as it lands
+  uploading --> created: transient — resume at the media,<br/><b>never re-create</b>
+  uploading --> [*]: entry and local files dropped
+  permanent --> [*]: shown with the server's reason; user discards
+  conflict --> [*]: shown as a conflict; <b>nothing deleted</b>
+```
 
 **Where it shows.** `components/OutboxBanner.tsx`, mounted once in the protected layout above the
 page. An outbox nobody can see is worse than no outbox — the researcher believes the record is filed
@@ -368,16 +446,17 @@ may or may not have landed, and a duplicate artisan is worse than an error messa
 ## 6. Operational notes
 
 - **S3 bucket CORS must expose ETag** or multipart from the browser can never complete:
-  `"ExposeHeaders": ["ETag"]` (already documented in `backend/DEPLOY_AWS.md:143` and
-  `docs/DEPLOYMENT_VERCEL.md:178`; the Terraform variable is `cors_allowed_origins`). Local MinIO
-  exposes it by default. The client degrades to single PUTs if it is missing, so the symptom is
-  "large uploads are slower and less resilient", not "large uploads fail".
+  `"ExposeHeaders": ["ETag"]` (documented in `backend/DEPLOY_AWS.md` §4 and
+  [DEPLOYMENT_VERCEL.md](DEPLOYMENT_VERCEL.md) §4.2; the Terraform variable is
+  `cors_allowed_origins`). Local MinIO exposes it by default. The client degrades to single PUTs if it
+  is missing, so the symptom is "large uploads are slower and less resilient", not "large uploads
+  fail".
 - **Local MinIO and SSE.** `AWS_S3_SSE_ALGORITHM` defaults to `AES256`
-  (`backend/app/core/config.py:139`), and MinIO without a KMS backend rejects
+  (`backend/app/core/config.py`), and MinIO without a KMS backend rejects
   `CreateMultipartUpload` with `NotImplemented: Server side encryption specified but KMS is not
   configured`. For local development set `AWS_S3_SSE_ALGORITHM=` (empty) in `backend/.env`, as
   `.env.example` already advises. Real S3 is unaffected.
-- **Presign lifetimes**: whole-object PUT 15 min (`s3.py:159`), multipart part 1 hour (`s3.py:191`).
+- **Presign lifetimes**: whole-object PUT 15 min, multipart part 1 hour (`ExpiresIn` in `s3.py`).
   The web client re-presigns per attempt for whole objects and per part on a 403; Android re-presigns
   per part on a 403 (§2.3).
 - **The staged-object journal** is `localStorage["field_repo_staged_objects"]` on the web, a
@@ -401,3 +480,32 @@ With the local stack up (`docker compose up -d`, API on `:8000`, web on `:3000`,
 4. Attach a file and navigate away without saving, or close the tab: same 404.
 5. On **Miscellaneous Media** (which renames files before saving), repeat step 2 — `/complete` must
    still carry the staged `objectKey` while `originalFilename` is the nomenclature name.
+
+Two more that matter more than the five above, because they are the paths that have actually lost
+data (see [QA_AUDIT.md](QA_AUDIT.md) §3):
+
+6. **Interrupted replay must not duplicate.** Go offline (devtools → Offline), save a craft with two
+   photographs, go online, and **kill the tab while the media is uploading**. Reopen: the outbox
+   entry must resume at the media and produce **exactly one** craft, not two.
+7. **A 409 must not delete anything.** Queue an artisan offline with an Aadhaar number that already
+   exists in the database, then go online. The entry must remain in the outbox, marked as a conflict,
+   **with its photographs still attached**.
+
+---
+
+## How this document is kept true
+
+| Claim class | Kept true by |
+|---|---|
+| Symbol references | Symbol names, not line numbers — see the note at the top. `docs/tools/check-docs.mjs` resolves every file path and reports any document still pinning line numbers. A symbol that has been renamed is caught by `grep -n "fun <name>"` returning nothing. |
+| The server contract (§1) | `backend/app/api/routes/media.py` and `backend/app/schemas/media.py`. The idempotency property rests on `MediaFile.objectKey` being `@unique` in `backend/prisma/schema.prisma` — if that constraint ever goes, §1's first row is false and retrying `/complete` starts duplicating rows. |
+| Thresholds and lifetimes | `MULTIPART_THRESHOLD` in `FieldRepository.kt` and `frontend/lib/media.ts`; `ExpiresIn` in `backend/app/services/s3.py`. All four are single constants. |
+| The tactic matrix (§4) | The only way to keep it true is to add a row when a tactic is added. It is a checklist for parity between two clients that drift independently — a tactic in one and not the other is exactly what it exists to show. |
+| §7's procedures | Manual. Steps 6 and 7 correspond to real regressions and are the two to run before any release that touches `frontend/lib/offline.ts` or `Offline.kt`. |
+
+**Review triggers:** `frontend/lib/media.ts`, `frontend/lib/uploads.tsx`, `frontend/lib/offline.ts`,
+`backend/app/api/routes/media.py`, `backend/app/services/s3.py`, and the Android `data/` package.
+
+**Known unverified:** the S3 bucket's CORS `ExposeHeaders` and its default-encryption setting are
+console state this repository cannot read. §6 says what they must be, not what they are — the ETag
+probe in §3.5 exists precisely because the client cannot assume either.

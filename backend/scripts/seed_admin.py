@@ -3,6 +3,7 @@ import os
 
 from app.core.config import get_settings
 from app.core.db import connect_db, db, disconnect_db
+from app.core.deps import invalidate_cached_user
 from app.core.security import hash_password
 
 
@@ -19,9 +20,14 @@ async def upsert_admin(email: str, name: str, password: str, role: str) -> None:
                 "canManageQuestionnaire": True if is_master_admin else existing.canManageQuestionnaire,
             },
         )
+        # This script normally runs as its own process, where the invalidation is a no-op and the
+        # running API only picks the change up when its TTL expires (seconds). It is here anyway
+        # because `upsert_admin` is importable, and the day something calls it in-process a role
+        # rewrite that the identity cache never heard about is precisely the bug worth not having.
+        invalidate_cached_user(existing.id)
         print(f"Updated {role.lower()} user: {email}")
     else:
-        await db.user.create(
+        created = await db.user.create(
             data={
                 "email": email,
                 "name": name,
@@ -31,6 +37,7 @@ async def upsert_admin(email: str, name: str, password: str, role: str) -> None:
                 "canManageQuestionnaire": is_master_admin,
             }
         )
+        invalidate_cached_user(created.id)
         print(f"Created {role.lower()} user: {email}")
 
 

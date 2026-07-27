@@ -5,6 +5,7 @@ first, and an optional off-peak window during which the heavy transcription + re
 (so it doesn't compete with daytime field uploads).
 """
 
+from collections.abc import Collection
 from datetime import datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -65,6 +66,22 @@ async def load_stt_provider_order() -> list[str]:
     return stt_provider_order(await load_app_settings())
 
 
+async def save_stt_provider_order(order: list[str], updated_by_id: str | None = None) -> list[str]:
+    """Persist a ranking and return it as the next transcription job will read it.
+
+    Creates the singleton first, because a deployment whose settings row has never been written
+    would otherwise fail its very first reorder. The returned value is round-tripped through
+    :func:`stt_provider_order` rather than echoing the request, so the caller sees the stored truth.
+    """
+    await get_or_create_app_settings(updated_by_id)
+    # Scalar-list columns take an explicit {"set": [...]} on update, unlike create.
+    row = await db.appsetting.update(
+        where={"id": SINGLETON_ID},
+        data={"sttProviderOrder": {"set": order}, "updatedById": updated_by_id},
+    )
+    return stt_provider_order(row)
+
+
 def invalid_stt_provider_order(value: list[str]) -> str | None:
     """None when *value* is a usable ranking, otherwise why it is not, phrased for the admin."""
     known = list(DEFAULT_STT_PROVIDER_ORDER)
@@ -78,6 +95,90 @@ def invalid_stt_provider_order(value: list[str]) -> str | None:
     if missing:
         return f"is missing {missing}; it must rank every provider, not just the preferred ones"
     return None
+
+
+# --- Freezing an engine that has not been proven to work ---------------------------------------
+#
+# A ranking is a promise about what will happen to the next recording, and a promise it cannot keep
+# is worse than no ranking at all: put ElevenLabs first with a dead key and every job pays for a
+# rejected call before falling through to Deepgram, while this screen goes on saying ElevenLabs is
+# handling the work. So an engine only earns a rankable position by PASSING a live test against the
+# provider — a key that is merely present has not been proven to be a key that works, and the whole
+# point of the exercise is to stop the panel from claiming otherwise.
+#
+# Four states, and only the last one thaws:
+STT_KEY_ABSENT = "NO_KEY"  # nothing to call with; the chain skips this engine entirely
+STT_KEY_UNTESTED = "UNTESTED"  # a key is present but nobody has asked the provider about it
+STT_KEY_FAILING = "FAILING"  # we asked, and the provider refused it
+STT_KEY_PASSING = "PASSING"  # we asked, and the provider accepted it
+
+
+def freeze_unrankable(order: list[str], rankable: Collection[str]) -> list[str]:
+    """*order* with every unproven provider sunk below every proven one.
+
+    A STABLE PARTITION rather than a sort, deliberately. The admin's relative preference inside each
+    half survives untouched, so an engine that later passes its test comes back rankable from the
+    position it was already holding among its peers instead of from wherever an arbitrary sort left
+    it. When nothing is rankable (a fresh deployment where no key has been tested yet) both halves
+    collapse into one and this is the identity function — the freeze must not turn "we know nothing"
+    into a reshuffle nobody asked for.
+    """
+    proven = [provider for provider in order if provider in rankable]
+    frozen = [provider for provider in order if provider not in rankable]
+    return proven + frozen
+
+
+def order_violations(order: list[str], rankable: Collection[str]) -> int:
+    """How many (frozen above proven) pairs *order* contains — zero means the freeze holds.
+
+    Counted rather than asserted because the stored order can already be in violation without anyone
+    having done anything wrong: a key expires overnight and yesterday's perfectly legal ranking is
+    illegal by morning. A move is then judged by whether it makes this number worse, which lets an
+    admin repair such an order by hand instead of being locked out of every control on the row.
+    """
+    seen_frozen = 0
+    total = 0
+    for provider in order:
+        if provider in rankable:
+            total += seen_frozen
+        else:
+            seen_frozen += 1
+    return total
+
+
+# Same-process fallback for verdicts on keys that live in the deployed environment.
+#
+# THIS USED TO BE THE WHOLE STORY, and it was the bug. ``ManagedSecret`` is where a test result
+# belongs, but a row only exists once someone has SAVED a key through the Settings hub; a key
+# supplied by the environment has no row, and inventing one would copy the deployed value into the
+# database as an override, which is emphatically not what pressing "Test" should do. So the verdict
+# was held here, in memory, and lost on every restart — on production, where every key comes from
+# the environment, that meant each deploy reset the ranking to "nothing verified" and re-froze every
+# engine.
+#
+# The durable answer is ``SecretTestResult`` (see services/managed_secrets.py): the verdict, and
+# nothing from which the key could be reconstructed. This dictionary stays as the narrow fallback
+# for the case where that write could not be made — a transient database error during the one
+# request that ran the probe — so a test whose verdict was just observed does not read as untested
+# on the panel returned by that same request. It is consulted only when no durable verdict exists.
+_recalled_verdicts: dict[str, dict[str, Any]] = {}
+
+
+def remember_key_verdict(key_name: str, *, passing: bool, checked_at: datetime, error: str | None) -> None:
+    _recalled_verdicts[key_name] = {
+        "status": STT_KEY_PASSING if passing else STT_KEY_FAILING,
+        "checkedAt": checked_at,
+        "error": None if passing else error,
+    }
+
+
+def recalled_key_verdict(key_name: str) -> dict[str, Any] | None:
+    return _recalled_verdicts.get(key_name)
+
+
+def forget_key_verdicts() -> None:
+    """Drop every remembered verdict. Exists for tests, and for a caller that knows the keys moved."""
+    _recalled_verdicts.clear()
 
 
 def parse_hhmm(value: str | None, fallback: time) -> time:

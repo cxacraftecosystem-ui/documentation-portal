@@ -1,13 +1,22 @@
+import csv
 import re
 from datetime import UTC, datetime
+from io import StringIO
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 from prisma.errors import UniqueViolationError
 
+# csv_response is SHARED with the export router rather than restated: both hand a researcher a .csv
+# over the same Content-Disposition and charset, and a download that saves differently depending on
+# which endpoint produced it is exactly the drift that helper exists to prevent. (export.py imports
+# from data_browser.py for the same reason; nothing in that chain imports this module back.)
+from app.api.routes.export import csv_response
 from app.core.db import db
 from app.core.deps import (
     assert_can_contribute_relation,
+    assert_can_create_records,
     assert_can_delete,
     get_current_user,
     get_value,
@@ -28,14 +37,23 @@ from app.schemas.questionnaire import (
     QuestionnaireSectionReorder,
     QuestionnaireSectionUpdate,
 )
+from app.services.concurrency import gather_reads
 from app.services.pagination import normalize_pagination, page_payload
+from app.services.questionnaire_consolidation import (
+    CSV_COLUMNS,
+    consolidate_for_artisan,
+    consolidated_rows,
+)
 from app.services.records import (
+    Relation,
     add_date_range,
     apply_status_policy_create,
     apply_status_policy_update,
     attach_location,
     clean_data,
     contains,
+    count_and_page,
+    hydrate_relations,
     jsonify_metadata,
     merge_field_provenance,
     public_encode,
@@ -88,14 +106,31 @@ def section_codes_from_title(title: str | None, valid_codes: set[str]) -> set[st
     return found
 
 
-INTERVIEW_INCLUDE = {
-    "createdBy": True,
-    "location": True,
-    "workshop": True,
-    "artisans": {"include": {"artisan": {"include": {"craft": True}}}},
-    "responses": {"include": {"question": True, "answeredBy": True}},
-    "media": True,
-}
+# What an interview carries on the wire — the widest payload in the app: six relations, two of them
+# nested. Read as a Prisma ``include`` that was TWELVE sequential statements for a page of four
+# interviews, and on this deployment every one of them is a cross-region round trip. They load in
+# one parallel wave instead (see services/records.py), on the write paths too: those hydrate the row
+# they just saved, so this is the single description of an interview's relations.
+RELATIONS = (
+    Relation("createdBy", "user", "createdById"),
+    Relation("location", "location", "locationId"),
+    Relation("workshop", "workshop", "workshopId"),
+    Relation(
+        "artisans",
+        "questionnaireinterviewartisan",
+        "interviewId",
+        many=True,
+        include={"artisan": {"include": {"craft": True}}},
+    ),
+    Relation(
+        "responses",
+        "questionnaireresponse",
+        "interviewId",
+        many=True,
+        include={"question": True, "answeredBy": True},
+    ),
+    Relation("media", "mediafile", "questionnaireInterviewId", many=True),
+)
 
 
 _DUPLICATE_SET_DETAIL = (
@@ -197,9 +232,13 @@ async def replace_interview_artisans(interview_id: str, artisan_ids: list[str]) 
         return
 
     # The set is genuinely changing. Validate every artisan up front so a bad id can't leave a
-    # half-rewritten link set, then keep the unique set key in lock-step with the links.
-    for artisan_id in unique_ids:
-        await require_record(db.artisan, artisan_id)
+    # half-rewritten link set, then keep the unique set key in lock-step with the links. ONE query
+    # answers "do all of these exist" — asking per artisan cost a cross-region round trip each, and
+    # a group interview names a dozen.
+    if unique_ids:
+        found = await db.artisan.find_many(where={"id": {"in": unique_ids}})
+        if len(found) != len(unique_ids):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
     try:
         await db.questionnaireinterview.update(
             where={"id": interview_id}, data={"artisanSetKey": set_key}
@@ -207,26 +246,58 @@ async def replace_interview_artisans(interview_id: str, artisan_ids: list[str]) 
     except UniqueViolationError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_DUPLICATE_SET_DETAIL) from exc
     await db.questionnaireinterviewartisan.delete_many(where={"interviewId": interview_id})
-    for artisan_id in unique_ids:
-        await db.questionnaireinterviewartisan.create(
-            data={"interviewId": interview_id, "artisanId": artisan_id}
+    if unique_ids:
+        await db.questionnaireinterviewartisan.create_many(
+            data=[{"interviewId": interview_id, "artisanId": aid} for aid in unique_ids]
         )
 
 
 async def upsert_responses(interview_id: str, responses: list[Any], current_user: Any) -> None:
+    """Save a batch of answers: validate once, read once, insert once, and update only what changed.
+
+    This was THREE cross-region round trips PER ANSWER — a question existence check, a read of the
+    stored answer, and the upsert. A questionnaire section carries dozens of questions and the app
+    submits the whole section, so a single save cost a hundred sequential round trips and minutes of
+    wall time. All of the validation and all of the reading now happen in one statement each, every
+    genuinely new answer goes in with one insert, and the only per-row writes left are the answers
+    whose text or notes ACTUALLY differ from what is stored.
+
+    Skipping the unchanged rows is not merely an optimisation: it also stops a save that touched one
+    answer from re-stamping ``answeredById`` on every other answer in the section, which would have
+    taken authorship of work the saver never edited. The permission rule directly below is unchanged
+    — only the original contributor or an admin may alter an answer that already has text.
+    """
+    if not responses:
+        return
+    question_ids = sorted({r.questionId for r in responses if r.questionId})
+    existing_rows, questions = await gather_reads(
+        db.questionnaireresponse.find_many(
+            where={"interviewId": interview_id, "questionId": {"in": question_ids}}
+        ),
+        db.questionnairequestion.find_many(where={"id": {"in": question_ids}}),
+    )
+    known = {q.id for q in questions}
+    if len(known) != len(question_ids):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
+    by_question = {row.questionId: row for row in existing_rows}
+
+    to_create: list[dict[str, Any]] = []
+    to_update: list[tuple[str, dict[str, Any]]] = []
     for response in responses:
-        await require_record(db.questionnairequestion, response.questionId)
-        existing = await db.questionnaireresponse.find_unique(
-            where={
-                "interviewId_questionId": {
+        existing = by_question.get(response.questionId)
+        if existing is None:
+            to_create.append(
+                {
                     "interviewId": interview_id,
                     "questionId": response.questionId,
+                    "answerText": response.answerText,
+                    "notes": response.notes,
+                    "answeredById": current_user.id,
                 }
-            }
-        )
+            )
+            continue
         if (
-            existing
-            and existing.answerText
+            existing.answerText
             and existing.answeredById != current_user.id
             and not is_admin(current_user)
         ):
@@ -234,28 +305,24 @@ async def upsert_responses(interview_id: str, responses: list[Any], current_user
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only the original answer contributor or an admin can change this response",
             )
-        await db.questionnaireresponse.upsert(
-            where={
-                "interviewId_questionId": {
-                    "interviewId": interview_id,
-                    "questionId": response.questionId,
-                }
-            },
-            data={
-                "create": {
-                    "interviewId": interview_id,
-                    "questionId": response.questionId,
+        if existing.answerText == response.answerText and existing.notes == response.notes:
+            continue
+        to_update.append(
+            (
+                existing.id,
+                {
                     "answerText": response.answerText,
                     "notes": response.notes,
                     "answeredById": current_user.id,
                 },
-                "update": {
-                    "answerText": response.answerText,
-                    "notes": response.notes,
-                    "answeredById": current_user.id,
-                },
-            },
+            )
         )
+
+    # Validation for the WHOLE batch has already run, so nothing below can leave a half-written set.
+    if to_create:
+        await db.questionnaireresponse.create_many(data=to_create)
+    for row_id, data in to_update:
+        await db.questionnaireresponse.update(where={"id": row_id}, data=data)
 
 
 @router.get("/questions")
@@ -447,13 +514,13 @@ async def list_interviews(
     if statusFilter:
         where["status"] = statusFilter
     add_date_range(where, "interviewDate", dateFrom, dateTo)
-    total = await db.questionnaireinterview.count(where=where)
-    items = await db.questionnaireinterview.find_many(
+    total, items = await count_and_page(
+        db.questionnaireinterview,
         where=where,
-        include=INTERVIEW_INCLUDE,
         skip=skip,
         take=page_size,
         order={"createdAt": "desc"},
+        relations=RELATIONS,
     )
     return page_payload(public_encode(items), total, page, page_size)
 
@@ -493,14 +560,15 @@ async def merge_into_interview(
         stamp_workshop_submission(fill, check=check)
         pin_pending_if_late(fill, current_user, check=check, record=existing)
         jsonify_metadata(fill)
+    # ``existing`` is passed in bare — only its scalar columns are read above — and ``update`` hands
+    # back the saved row, so the canonical interview is never read a third time just to answer with it.
+    canonical = existing
     if fill:
-        await db.questionnaireinterview.update(where={"id": existing.id}, data=fill)
+        canonical = await db.questionnaireinterview.update(where={"id": existing.id}, data=fill)
     if payload.responses:
         await upsert_responses(existing.id, payload.responses, current_user)
-    hydrated = await db.questionnaireinterview.find_unique(
-        where={"id": existing.id}, include=INTERVIEW_INCLUDE
-    )
-    return public_encode(hydrated)
+    await hydrate_relations([canonical], RELATIONS)
+    return public_encode(canonical)
 
 
 @router.post("/interviews", status_code=status.HTTP_201_CREATED)
@@ -515,12 +583,19 @@ async def create_interview(
     # of creating a duplicate. This holds for EVERY client (web + old/new app) regardless of UI.
     set_key = artisan_set_key(payload.artisanIds)
     if set_key:
-        existing = await db.questionnaireinterview.find_unique(
-            where={"artisanSetKey": set_key}, include=INTERVIEW_INCLUDE
-        )
+        # Bare row: the merge only reads scalar columns off it, and hydrates the relations once at
+        # the end — so the common "fold into the existing entry" path stops paying for six relation
+        # statements it was about to discard.
+        existing = await db.questionnaireinterview.find_unique(where={"artisanSetKey": set_key})
         if existing is not None:
             return await merge_into_interview(existing, payload, current_user, check)
 
+    # Everything above this line REACHES an interview that already exists; everything below OPENS a
+    # new one, and only that is a create. The gate sits here rather than on the signature because a
+    # field contributor or volunteer answering the questionnaire for an already-interviewed artisan
+    # set posts to this same endpoint and folds into the canonical row — refusing them at the door
+    # would take away the contribution path these two tiers exist for.
+    assert_can_create_records(current_user)
     data = clean_data(payload.model_dump(exclude={"artisanIds", "responses"}))
     # No longer a user-facing field: fall back to when the interview was actually recorded.
     default_interview_date(data)
@@ -537,9 +612,7 @@ async def create_interview(
         created = await db.questionnaireinterview.create(data=data)
     except UniqueViolationError:
         # Race: a concurrent request won the create for this set. Fold into the canonical row.
-        existing = await db.questionnaireinterview.find_unique(
-            where={"artisanSetKey": set_key}, include=INTERVIEW_INCLUDE
-        )
+        existing = await db.questionnaireinterview.find_unique(where={"artisanSetKey": set_key})
         if existing is not None:
             return await merge_into_interview(existing, payload, current_user, check)
         raise
@@ -547,8 +620,10 @@ async def create_interview(
         await replace_interview_artisans(created.id, payload.artisanIds)
     if payload.responses:
         await upsert_responses(created.id, payload.responses, current_user)
-    hydrated = await db.questionnaireinterview.find_unique(where={"id": created.id}, include=INTERVIEW_INCLUDE)
-    return public_encode(hydrated)
+    # The row we just inserted IS the response; only its links and answers were written afterwards,
+    # and those load in one wave here instead of a re-read followed by six more statements.
+    await hydrate_relations([created], RELATIONS)
+    return public_encode(created)
 
 
 @router.get("/interviews/by-artisans")
@@ -565,34 +640,46 @@ async def interview_for_artisan_set(
     set_key = artisan_set_key(artisanIds)
     if not set_key:
         return None
-    interview = await db.questionnaireinterview.find_unique(
-        where={"artisanSetKey": set_key}, include=INTERVIEW_INCLUDE
-    )
-    return public_encode(interview) if interview else None
+    interview = await db.questionnaireinterview.find_unique(where={"artisanSetKey": set_key})
+    if not interview:
+        return None
+    await hydrate_relations([interview], RELATIONS)
+    return public_encode(interview)
 
 
 COMPLETION_STATUSES = {"COMPLETED", "NEEDS_REVIEW", "NEEDS_REDO"}
 
 
-async def _derived_completed_sections() -> dict[str, set[str]]:
+async def _derived_completed_sections(artisan_id: str | None = None) -> dict[str, set[str]]:
     """artisanId -> set of sectionIds with recorded content in ANY interview containing the artisan.
 
     "Containing" covers the artisan interviewed alone, in a group, or as part of a larger superset —
     a section recorded for any interview the artisan belongs to counts as completed for that artisan.
     A section counts as recorded in an interview when it has a non-empty response, or media tagged
     (in ``extraMetadata``) with that section's question or code.
+
+    The three reads do not depend on one another, so they are issued together rather than in series.
+    ``artisan_id`` narrows the interview scan to the interviews that artisan belongs to: the
+    per-artisan View Data view asks about ONE artisan, and reading every interview in the repository
+    (with every answer and every media row attached) to answer that is the difference between a page
+    that stays fast at a hundred artisans and one that does not.
     """
-    questions = await db.questionnairequestion.find_many()
+    interview_where: dict[str, Any] = (
+        {"artisans": {"some": {"artisanId": artisan_id}}} if artisan_id else {}
+    )
+    questions, sections, interviews = await gather_reads(
+        db.questionnairequestion.find_many(),
+        db.questionnairesection.find_many(),
+        db.questionnaireinterview.find_many(
+            where=interview_where,
+            include={"artisans": True, "responses": True, "media": True},
+        ),
+    )
     section_by_question = {q.id: q.sectionId for q in questions if q.sectionId}
-    sections = await db.questionnairesection.find_many()
     section_id_by_code = {s.code: s.id for s in sections}
     # Normalised code -> sectionId, matching how the app builds clip filenames (uppercase, strip
     # non-alphanumerics) so the SECTION_QUESTION_... nomenclature resolves back to its section.
     section_id_by_norm_code = {_norm_code(s.code): s.id for s in sections if _norm_code(s.code)}
-
-    interviews = await db.questionnaireinterview.find_many(
-        include={"artisans": True, "responses": True, "media": True}
-    )
     valid_codes = {_norm_code(s.code) for s in sections if _norm_code(s.code)}
     completed: dict[str, set[str]] = {}
     for interview in interviews:
@@ -636,21 +723,24 @@ async def completion_matrix(
     """Completion matrix: artisans (rows) x active sections (columns). Each populated cell carries the
     data-derived completion flag and any admin override (COMPLETED/NEEDS_REVIEW/NEEDS_REDO). Pass
     ``artisanId`` to scope it to a single artisan (the per-artisan View Data view)."""
-    sections = await db.questionnairesection.find_many(
-        where={"isActive": True}, order={"sortOrder": "asc"}
+    # Four independent questions — which sections are active, which artisans are in scope, what the
+    # data says is recorded, and what an admin has overridden — asked in one wave instead of one
+    # after the other. The matrix was ten sequential cross-region round trips, and it is the first
+    # thing the View Data screen loads.
+    status_where = {"artisanId": artisanId} if artisanId else {}
+    sections, artisan_rows, derived, overrides = await gather_reads(
+        db.questionnairesection.find_many(where={"isActive": True}, order={"sortOrder": "asc"}),
+        db.artisan.find_many(
+            where={"id": artisanId} if artisanId else {}, order={"name": "asc"}
+        ),
+        _derived_completed_sections(artisanId),
+        db.questionnairesectionstatus.find_many(where=status_where, include={"setBy": True}),
     )
-    if artisanId:
-        artisan = await require_record(db.artisan, artisanId)
-        artisans = [artisan]
-    else:
-        artisans = await db.artisan.find_many(order={"name": "asc"})
+    if artisanId and not artisan_rows:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
+    artisans = list(artisan_rows)
     artisan_ids = {a.id for a in artisans}
 
-    derived = await _derived_completed_sections()
-    status_where = {"artisanId": artisanId} if artisanId else {}
-    overrides = await db.questionnairesectionstatus.find_many(
-        where=status_where, include={"setBy": True}
-    )
     override_by_cell = {
         (o.artisanId, o.sectionId): o for o in overrides if o.artisanId in artisan_ids
     }
@@ -721,8 +811,8 @@ async def set_completion_cell(
 
 @router.get("/interviews/{interview_id}")
 async def get_interview(interview_id: str, _: Any = Depends(get_current_user)) -> dict[str, Any]:
-    interview = await db.questionnaireinterview.find_unique(where={"id": interview_id}, include=INTERVIEW_INCLUDE)
-    interview = await require_record(db.questionnaireinterview, interview_id) if not interview else interview
+    interview = await require_record(db.questionnaireinterview, interview_id)
+    await hydrate_relations([interview], RELATIONS)
     return public_encode(interview)
 
 
@@ -758,8 +848,73 @@ async def update_interview(
         await replace_interview_artisans(interview_id, payload.artisanIds)
     if payload.responses is not None:
         await upsert_responses(interview_id, payload.responses, current_user)
-    updated = await db.questionnaireinterview.find_unique(where={"id": interview_id}, include=INTERVIEW_INCLUDE)
+    # Re-read the row itself (the PATCH may have changed its columns), but graft the six relations on
+    # in one parallel wave rather than letting the include walk them one after another.
+    updated = await db.questionnaireinterview.find_unique(where={"id": interview_id})
+    await hydrate_relations([updated], RELATIONS)
     return public_encode(updated)
+
+
+# --- One artisan's questionnaire, gathered across every interview they sat in --------------------
+#
+# Lives on the questionnaire router rather than under /artisans because what it returns is
+# questionnaire content — sections, questions, answers, the interviews they came from — merely keyed
+# by an artisan. The artisan router's surfaces are about identity (name, craft, Aadhaar), which is
+# the one thing this view must never carry.
+#
+# Declared after /interviews/{interview_id} because the paths cannot collide: these begin with the
+# literal /artisans.
+
+
+async def _consolidated_or_404(artisan_id: str, current_user: Any) -> dict[str, Any]:
+    payload = await consolidate_for_artisan(artisan_id, current_user)
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
+    return payload
+
+
+@router.get("/artisans/{artisan_id}/consolidated")
+async def consolidated_questionnaire(
+    artisan_id: str, current_user: Any = Depends(get_current_user)
+) -> dict[str, Any]:
+    """This artisan's answers from every interview they belong to, as one ordered document.
+
+    Ordered by questionnaire section then question — not by interview — so it reads as a single
+    account. Every answer carries the interview it came from, that interview's date and the number of
+    artisans in the sitting; a question answered differently in two interviews keeps BOTH answers,
+    newest first, with ``conflict`` set. See services/questionnaire_consolidation for why nothing here
+    picks a winner and why a group sitting's answers are not attributed to one person.
+
+    The stored one-interview-per-artisan-SET rule is untouched: this reads, it never merges.
+    """
+    return await _consolidated_or_404(artisan_id, current_user)
+
+
+@router.get("/artisans/{artisan_id}/consolidated.csv")
+async def consolidated_questionnaire_csv(
+    artisan_id: str, current_user: Any = Depends(get_current_user)
+) -> Response:
+    """The same document as a CSV — the artifact a researcher cites.
+
+    Deliberately NOT behind the dataset-download permission that /export/*.csv requires. Those are
+    whole-table dumps, which is what that gate is for; this returns exactly the rows the JSON endpoint
+    above already returned to this same caller, through the same ``visibility_where`` predicate, so it
+    conveys no access the caller did not already have. Gating it would only mean the researchers who
+    can read the document cannot cite it.
+
+    One row per ANSWER, not per question, because that is what keeps a conflict legible in a
+    spreadsheet: the two competing answers are two rows sharing a question, each with its own
+    interview and date, rather than one cell with both crammed in.
+    """
+    payload = await _consolidated_or_404(artisan_id, current_user)
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(CSV_COLUMNS)
+    for row in consolidated_rows(payload):
+        writer.writerow(row)
+    name = payload.get("artisan", {}).get("name") or artisan_id
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", name).strip("-") or artisan_id
+    return csv_response(f"questionnaire-{slug}.csv", output.getvalue())
 
 
 @router.delete("/interviews/{interview_id}", status_code=status.HTTP_204_NO_CONTENT)

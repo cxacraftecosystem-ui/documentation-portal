@@ -107,6 +107,26 @@ class Settings(BaseSettings):
     # Never set this in a deployed environment — a guessable secret means anyone can mint tokens
     # for any account, including the master admin.
     allow_weak_jwt_secret: bool = Field(default=False, alias="ALLOW_WEAK_JWT_SECRET")
+
+    # --- Authenticated-identity cache (see app.core.deps) ---------------------------------------
+    # ON by default, unlike everything in app/scale: the query it removes runs on EVERY
+    # authenticated request against a cross-region database, so a flag that has to be switched on
+    # would leave the cost in place exactly where it is being paid.
+    #
+    # The kill switch is the point of the flag. Authorisation decisions read the cached row, so if
+    # it is ever suspected of serving a stale role during an incident, AUTH_USER_CACHE_ENABLED=false
+    # restores the previous behaviour (one query per request) with a restart and no deploy.
+    auth_user_cache_enabled: bool = Field(default=True, alias="AUTH_USER_CACHE_ENABLED")
+    # SECONDS, and deliberately single-digit. The win is collapsing the burst of parallel requests
+    # one page load makes, not holding an identity; correctness comes from explicit invalidation on
+    # write, and this is only the backstop for writes this process cannot see (psql, the seed
+    # script, another worker). Every second added here is a second a demoted or deleted account
+    # keeps working after such a write. See app.core.deps for the full argument.
+    auth_user_cache_ttl_seconds: float = Field(default=5.0, alias="AUTH_USER_CACHE_TTL_SECONDS")
+    # Hard entry ceiling on a 1 GiB box. A cached row is the User model's scalar columns and no
+    # relations — order 1 KB — so 512 concurrent identities is well under a megabyte, and the worst
+    # case is a number chosen here rather than one decided by how many people log in.
+    auth_user_cache_max_entries: int = Field(default=512, alias="AUTH_USER_CACHE_MAX_ENTRIES")
     # Fernet key encrypting the runtime-editable provider keys in ManagedSecret (see
     # app.services.managed_secrets). OPTIONAL: when unset, a key is derived deterministically from
     # JWT_SECRET so the feature needs no new configuration. Set it explicitly BEFORE you ever rotate
@@ -124,6 +144,17 @@ class Settings(BaseSettings):
     # shape (browser --HTTPS--> CloudFront --HTTP--> nginx --HTTP--> uvicorn), where nginx overwrites
     # X-Forwarded-Proto with its own scheme, so the app cannot tell that the *viewer* used TLS.
     security_force_hsts: bool = Field(default=False, alias="SECURITY_FORCE_HSTS")
+    # Serve /docs, /redoc and /openapi.json. FastAPI serves all three to anyone by default, and on
+    # this deployment they were reachable unauthenticated — the schema names every route, every
+    # query parameter and every field of every model, including the ones behind admin-only roles.
+    # That is a map of the API handed to whoever asks, and it is worth nothing to the researchers
+    # this app is actually for, since none of them read an OpenAPI schema.
+    #
+    # Default False rather than True because the production .env cannot be edited from here (it
+    # lives in a GitHub secret this repo cannot read), so a default-on flag would leave the docs
+    # exposed exactly where it matters. Closed by default means the next deploy shuts them; local
+    # development opts back in with BACKEND_EXPOSE_DOCS=true, which .env.example ships commented in.
+    backend_expose_docs: bool = Field(default=False, alias="BACKEND_EXPOSE_DOCS")
 
     aws_access_key_id: str = Field(alias="AWS_ACCESS_KEY_ID")
     aws_secret_access_key: str = Field(alias="AWS_SECRET_ACCESS_KEY")
@@ -176,6 +207,70 @@ class Settings(BaseSettings):
     media_queue_batch_size: int = Field(default=3, alias="MEDIA_QUEUE_BATCH_SIZE")
     media_queue_job_max_attempts: int = Field(default=3, alias="MEDIA_QUEUE_JOB_MAX_ATTEMPTS")
 
+    # --- Optional scaling layer (app/scale) -----------------------------------------------------
+    # EVERY field below is off/unset by default, and a fresh clone that sets none of them runs the
+    # code paths it runs today. The package they configure is not imported by anything on the
+    # request path until a route opts in, so "off" costs one boolean read in a helper nobody calls.
+    # backend/app/scale/README.md documents each one: what it buys, what it costs, how to verify it.
+
+    # Master switch for the response cache. With it off, no backend object is constructed and no
+    # optional package is imported.
+    scale_cache_enabled: bool = Field(default=False, alias="SCALE_CACHE_ENABLED")
+    # "memory" (default) or "redis". Only consulted once the cache is on; an unrecognised value
+    # degrades to memory with one log line rather than refusing to boot, because a typo here must
+    # not be able to take the API down.
+    scale_cache_backend: str = Field(default="memory", alias="SCALE_CACHE_BACKEND")
+    # Default entry lifetime. Deliberately SHORT: correctness comes from explicit invalidation on
+    # write, and the TTL is only the backstop for changes this process cannot see (the separate
+    # queue worker writing transcripts, a psql session, a second uvicorn worker's memory cache).
+    # Raising it widens exactly that blind spot. Per-namespace overrides live in scale/keys.py.
+    scale_cache_ttl_seconds: float = Field(default=30.0, alias="SCALE_CACHE_TTL_SECONDS")
+    scale_cache_max_entries: int = Field(default=512, alias="SCALE_CACHE_MAX_ENTRIES")
+    # Byte ceiling for the in-process cache. 32 MiB on a 1 GiB box that already runs uvicorn and a
+    # Prisma query engine: large enough to hold every list page a working session touches, small
+    # enough that the worst case is a number chosen here rather than one decided by traffic.
+    scale_cache_max_bytes: int = Field(default=33_554_432, alias="SCALE_CACHE_MAX_BYTES")
+    # A single response larger than this is never stored. One multi-megabyte export would otherwise
+    # evict hundreds of small pages that are each far likelier to be read again.
+    scale_cache_max_entry_bytes: int = Field(default=1_048_576, alias="SCALE_CACHE_MAX_ENTRY_BYTES")
+    # How long a request waits on another request that is already loading the same key before
+    # running the query itself. A ceiling on the wait, not on the query: see scale/singleflight.py.
+    scale_cache_singleflight_timeout_seconds: float = Field(
+        default=10.0, alias="SCALE_CACHE_SINGLEFLIGHT_TIMEOUT_SECONDS"
+    )
+    # Redis connection string, read ONLY when SCALE_CACHE_BACKEND=redis. May embed a password, so
+    # it is a secret; flags.snapshot() reduces it to a boolean before anything logs it.
+    scale_redis_url: str | None = Field(default=None, alias="SCALE_REDIS_URL")
+    # Socket connect AND socket read deadline for every Redis call. Low on purpose: a cache that
+    # stalls a request is worse than no cache, so an unreachable Redis costs half a second once and
+    # then trips the breaker in scale/redis_backend.py.
+    scale_redis_timeout_seconds: float = Field(default=0.5, alias="SCALE_REDIS_TIMEOUT_SECONDS")
+
+    # Keyset (cursor) pagination. Off means every cursor argument is ignored and routes page with
+    # the skip/take they use today.
+    scale_keyset_pagination_enabled: bool = Field(
+        default=False, alias="SCALE_KEYSET_PAGINATION_ENABLED"
+    )
+
+    # Approximate row totals for list pages. Off means every total is an exact COUNT, as today.
+    scale_approx_count_enabled: bool = Field(default=False, alias="SCALE_APPROX_COUNT_ENABLED")
+    # Below this many rows the count stays exact. Default 5000 against a largest table of ~925
+    # rows, so enabling the flag changes no number on today's data — it only arms the behaviour for
+    # when a table grows past the point where COUNT(*) is worth paying for on every page load.
+    scale_approx_count_threshold: int = Field(default=5_000, alias="SCALE_APPROX_COUNT_THRESHOLD")
+
+    # Request rate limiting. Off means the middleware is never added to the stack at all.
+    scale_rate_limit_enabled: bool = Field(default=False, alias="SCALE_RATE_LIMIT_ENABLED")
+    scale_rate_limit_requests: int = Field(default=120, alias="SCALE_RATE_LIMIT_REQUESTS")
+    scale_rate_limit_window_seconds: float = Field(
+        default=60.0, alias="SCALE_RATE_LIMIT_WINDOW_SECONDS"
+    )
+
+    # Read-only database URL. Unset (the default) means every query uses the one connection this
+    # app has always used. Setting it starts a SECOND Prisma query-engine process — real memory on
+    # a 1 GiB box — so it is worth doing only when a genuine replica exists to point it at.
+    database_read_replica_url: str | None = Field(default=None, alias="DATABASE_READ_REPLICA_URL")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -210,6 +305,13 @@ class Settings(BaseSettings):
         future consumer all get the TLS-enforcing URL without having to remember to ask for it.
         """
         self.database_url = _with_explicit_sslmode(self.database_url, self.database_require_ssl)
+        # The read replica carries the same rows and the same credentials, so it gets the same
+        # treatment. Hardening it here rather than at its one call site means it can never be the
+        # link that quietly downgrades to plaintext because someone added a second consumer.
+        if self.database_read_replica_url:
+            self.database_read_replica_url = _with_explicit_sslmode(
+                self.database_read_replica_url, self.database_require_ssl
+            )
         return self
 
     @property

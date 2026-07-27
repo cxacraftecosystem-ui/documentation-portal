@@ -1,0 +1,191 @@
+# ---------------------------------------------------------------------------------------------
+# DEV. The environment where breaking things is the job.
+#
+# What makes dev dev, in one list: docs are exposed, there is exactly one replica and the autoscaler
+# is pinned so it stays that way, resource requests are small enough to share a node with everything
+# else, and the per-pod database connection limit is HALVED. That last one is not a dev-is-smaller
+# reflex — see the note on DATABASE_CONNECTION_LIMIT below.
+# ---------------------------------------------------------------------------------------------
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: fieldrepo-dev
+
+resources:
+  - namespace.yaml
+  - secretstore.yaml
+  - ../../base
+
+images:
+  - name: fieldrepo-api
+    newName: REPLACE_REGISTRY/fieldrepo-api
+    newTag: dev
+  - name: fieldrepo-migrate
+    newName: REPLACE_REGISTRY/fieldrepo-migrate
+    newTag: dev
+
+patches:
+  # --- Configuration -----------------------------------------------------------------------------
+  - target:
+      kind: ConfigMap
+      name: fieldrepo-config
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: fieldrepo-config
+      data:
+        # Selects the fieldrepo/dev/* prefix in Secrets Manager, via the replacement below.
+        FIELDREPO_ENV: "dev"
+
+        # HALF the production per-pod limit, because dev's share of the ceiling is not proportional
+        # to dev's importance. Every environment that points at the same Supabase project spends
+        # from the SAME 200-client budget, so a dev cluster left running overnight is subtracted
+        # from what production can scale into. Five is more than one developer will ever saturate.
+        # If dev gets its own Supabase project this can go back to 10 — and docs/KUBERNETES.md's
+        # arithmetic gets easier, not harder.
+        DATABASE_CONNECTION_LIMIT: "5"
+
+        # The only environment where /docs is reachable. The application default is false and
+        # staging and prod leave it there; an interactive schema browser on a deployment holding
+        # real fieldwork is a browsable map of every endpoint for anyone who finds the URL.
+        BACKEND_EXPOSE_DOCS: "true"
+
+        # Plain HTTP inside the cluster, so no HSTS: pinning localhost or a .internal hostname in a
+        # developer's browser for two years is a genuinely annoying thing to have to undo.
+        SECURITY_FORCE_HSTS: "false"
+
+        AWS_REGION: "ap-south-1"
+        AWS_S3_BUCKET: "REPLACE_dev_bucket"
+        BACKEND_CORS_ORIGINS: "http://localhost:3000,https://dev.REPLACE_DOMAIN"
+        NEXT_PUBLIC_APP_URL: "https://dev.REPLACE_DOMAIN"
+        MASTER_ADMIN_EMAIL: "REPLACE_admin@example.org"
+
+  # --- API sizing --------------------------------------------------------------------------------
+  - target:
+      kind: Deployment
+      name: fieldrepo-api
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: fieldrepo-api
+      spec:
+        replicas: 1
+        template:
+          spec:
+            containers:
+              - name: api
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 256Mi
+                  limits:
+                    cpu: 500m
+                    memory: 512Mi
+
+  # --- Queue sizing ------------------------------------------------------------------------------
+  # Still exactly one pod — that is a correctness constraint, not an environment setting, and no
+  # overlay may relax it. Only the sizing changes.
+  - target:
+      kind: Deployment
+      name: fieldrepo-queue
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: fieldrepo-queue
+      spec:
+        template:
+          spec:
+            containers:
+              - name: queue
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 256Mi
+                  limits:
+                    cpu: "1"
+                    memory: 1Gi
+
+  # --- Autoscaling: none -------------------------------------------------------------------------
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: fieldrepo-api
+    patch: |-
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: fieldrepo-api
+      spec:
+        minReplicas: 1
+        # Pinned equal to minReplicas, which is the honest way to say "dev does not autoscale". The
+        # alternative — deleting the HPA here — would mean the object that guards the connection
+        # budget exists in two environments out of three, and the one where somebody experiments
+        # with load is the one without it.
+        #
+        #   (1 max + 1 surge + 1 queue) x 5 = 15 client connections, worst case.
+        maxReplicas: 1
+
+  # --- Ingress -----------------------------------------------------------------------------------
+  - target:
+      kind: Ingress
+      name: fieldrepo-api
+    patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: fieldrepo-api
+      spec:
+        rules:
+          - host: dev.REPLACE_DOMAIN
+            http:
+              paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: fieldrepo-api
+                      port:
+                        name: http
+
+replacements:
+  # One string — FIELDREPO_ENV above — becomes the environment segment of every remote secret path
+  # in base/externalsecret.yaml. Without this each overlay would carry its own copy of all eleven
+  # entries, and the day a twelfth key is added, two of the three copies get it.
+  - source:
+      kind: ConfigMap
+      name: fieldrepo-config
+      fieldPath: data.FIELDREPO_ENV
+    targets:
+      - select:
+          kind: ExternalSecret
+          name: fieldrepo-secrets
+        fieldPaths:
+          - spec.data.*.remoteRef.key
+        options:
+          # "fieldrepo/ENVIRONMENT/DATABASE_URL" split on "/" -> segment 1 is the placeholder.
+          delimiter: /
+          index: 1
+
+  # The migration Job's name inherits the image tag it will run, so every release produces a
+  # distinctly named Job. Two consequences, both wanted: `kubectl apply -k` twice in a row is a
+  # no-op instead of an error about the immutable Job template, and two releases can never end up
+  # sharing one Job object where the second silently does nothing because the first is Complete.
+  - source:
+      kind: Job
+      fieldPath: spec.template.spec.containers.[name=migrate].image
+      options:
+        # "registry/fieldrepo-migrate:dev" -> "dev". Tags only; a @sha256 digest has no ":" segment
+        # here and would produce a nonsense name.
+        delimiter: ":"
+        index: 1
+    targets:
+      - select:
+          kind: Job
+        fieldPaths:
+          - metadata.name
+        options:
+          # "fieldrepo-migrate-REPLACEME" split on "-" -> segment 2 is the placeholder.
+          delimiter: "-"
+          index: 2

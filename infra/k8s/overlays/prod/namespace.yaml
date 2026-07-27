@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fieldrepo-prod
+  labels:
+    app.kubernetes.io/part-of: field-repository
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    # Warn and audit as well as enforce. Enforce alone rejects the pod and says so in one event on
+    # an object that may already have been rolled back; warn puts the reason in front of whoever ran
+    # `kubectl apply`, and audit records it. On the namespace holding real fieldwork, finding out
+    # why something was rejected should not require log archaeology.
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted

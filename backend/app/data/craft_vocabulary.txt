@@ -1,0 +1,77 @@
+# Craft vocabulary sent to the speech-to-text providers as boosted terms (see
+# app/services/ai.py, craft_keyterms). These are the words a general model mishears in a field
+# interview: technique names, dye and material names, local tool names, and the villages the
+# crafts are named after. Everything here was taken from the crafts, products and tools already
+# recorded in this repository, except the short "spoken" section, which is the everyday Hindi
+# vocabulary of a workshop conversation.
+#
+# Format: one term per line, blank lines and "#" comments ignored, case as you would like it read
+# back. A term must be at most 50 characters and at most 5 words — ElevenLabs rejects longer ones.
+# Add a term by adding a line; no code change is needed.
+#
+# ORDER MATTERS. Deepgram caps keyterm prompting at 500 tokens and its own guidance is 20-50
+# terms, past which the boost dilutes, so only the first terms are sent to it. Put the words a
+# general model has no chance of guessing at the top and the ones it might already know at the
+# bottom, and the truncation costs the least.
+
+# Crafts and techniques
+dabu
+bagru
+sanganeri
+ajrakh
+kalamkari
+ringal
+block printing
+resist printing
+
+# Dyes, mordants and materials
+indigo
+neel
+kalli mitti
+fitkari
+harda
+manjistha
+alizarin
+kesula flower
+dhawadi flower
+babul gum
+guvar gum
+anar chilka
+chuna
+chanderi
+
+# Bamboo, cane and ringal work
+bans
+fanti
+patti
+dalia
+ringal danti
+khukri
+darati
+fenu
+
+# Tools, by the name the artisan uses
+hatori
+chaku
+churi
+batayal
+jamboori
+fannar
+nikaan
+sathri
+chaurasi
+tavitha
+parkar
+dao
+
+# Spoken craft vocabulary
+karigar
+karkhana
+bunkar
+hunar
+
+# Places the crafts are named after
+Balotra
+Chittorgarh
+Bhuj
+Bageshwar

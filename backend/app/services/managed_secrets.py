@@ -57,6 +57,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
+import hmac
 import logging
 import time
 from collections.abc import Callable
@@ -79,6 +81,11 @@ logger = logging.getLogger(__name__)
 # Domain-separation string for the derived Fernet key. NEVER change it: every stored ciphertext is
 # bound to it, so a new info string is indistinguishable from a JWT_SECRET rotation.
 _HKDF_INFO = b"field-repository/managed-secrets/v1"
+
+# A SEPARATE info string for the verdict-fingerprint pepper, so the value that authenticates
+# "is this still the same key?" is not the value that decrypts stored secrets. Same rule: never
+# change it, or every stored fingerprint stops matching and every environment key re-freezes.
+_FINGERPRINT_HKDF_INFO = b"field-repository/secret-verdict-fingerprint/v1"
 
 # How long a resolved override stays trusted in memory. Short enough that a rotation done on another
 # process (the queue worker, a second uvicorn box) is picked up within half a minute; long enough that
@@ -156,6 +163,35 @@ def decrypt(token: str) -> str | None:
         return _fernet().decrypt(token.encode("utf-8")).decode("utf-8")
     except (InvalidToken, ValueError, TypeError):
         return None
+
+
+@lru_cache(maxsize=1)
+def _fingerprint_pepper() -> bytes:
+    """The server-side key that makes a stored fingerprint useless to anyone holding only the data.
+
+    Derived from the same source as the Fernet key (SECRETS_ENCRYPTION_KEY, else JWT_SECRET) through
+    a DIFFERENT HKDF info string, so the two never coincide. Rotating that source changes the pepper
+    and every stored fingerprint stops matching — which re-freezes every environment-backed engine
+    until it is tested again. That is the correct direction to fail, and it is the same rotation
+    caveat the module docstring already documents for the ciphertext.
+    """
+    settings = get_settings()
+    source = (settings.secrets_encryption_key or "").strip() or settings.jwt_secret
+    return HKDF(
+        algorithm=hashes.SHA256(), length=32, salt=None, info=_FINGERPRINT_HKDF_INFO
+    ).derive(source.encode("utf-8"))
+
+
+def fingerprint(value: str) -> str:
+    """A stable, non-invertible identifier for a key value — NOT a way to recover or check one.
+
+    Answers exactly one question: "is the key in the environment right now the same one that passed
+    the test we have on file?" A plain digest would answer it too, and would also let anyone with a
+    database dump confirm a guessed key — feasible for a structured value like a Google client ID.
+    Keying the digest with a pepper that lives outside the database removes that: without it, a
+    candidate's fingerprint cannot even be computed.
+    """
+    return hmac.new(_fingerprint_pepper(), value.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 # --- The registry of manageable keys -----------------------------------------------------------------
@@ -465,6 +501,75 @@ def gemini_key_pool() -> list[str]:
     return ordered
 
 
+# --- Verdicts for environment-supplied keys -----------------------------------------------------------
+#
+# A test verdict for a key entered through the UI is written onto its ManagedSecret row and survives
+# anything. A key supplied by the ENVIRONMENT has no such row, and giving it one would copy the
+# deployed value into the database as an override — changing which value the transcription chain
+# sends, in order to persist a boolean. So the boolean gets a table of its own: SecretTestResult
+# holds the verdict and NOTHING that could reconstruct the key (see `fingerprint` above, and the
+# migration that creates the table).
+#
+# Everything below fails soft. A verdict is a convenience, and losing one costs a click on the Test
+# button; it must never be the reason a settings page 500s or a transcription does not run.
+
+
+def _verdict_of(row: Any) -> dict[str, Any]:
+    return {"status": row.status, "checkedAt": row.checkedAt, "error": row.error}
+
+
+def _still_describes_current_key(row: Any) -> bool:
+    """True when the stored verdict is about the value the environment holds RIGHT NOW.
+
+    This is how a rotation invalidates a verdict, matching what ``set_secret`` does for a
+    database-backed key: a new key is unproven, whatever the old one managed to pass.
+    """
+    current = env_value(row.key)
+    if not current:
+        return False
+    return hmac.compare_digest(row.fingerprint, fingerprint(current))
+
+
+async def environment_verdicts() -> dict[str, dict[str, Any]]:
+    """Every stored environment verdict that still describes the current key, by key name."""
+    try:
+        rows = await db.secrettestresult.find_many()
+    except Exception as exc:  # noqa: BLE001 - a missing verdict must not break the settings page
+        logger.warning("Could not load environment key verdicts (%s)", exc)
+        return {}
+    return {row.key: _verdict_of(row) for row in rows if _still_describes_current_key(row)}
+
+
+async def environment_verdict(key: str) -> dict[str, Any] | None:
+    try:
+        row = await db.secrettestresult.find_unique(where={"key": key})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not load the environment key verdict for %s (%s)", key, exc)
+        return None
+    if row is None or not _still_describes_current_key(row):
+        return None
+    return _verdict_of(row)
+
+
+async def record_environment_verdict(
+    key: str, value: str, *, ok: bool, checked_at: datetime, error: str | None
+) -> None:
+    """Persist the outcome of testing the ENVIRONMENT's value for *key*. Never stores the value."""
+    payload = {
+        "status": _STATUS_OK if ok else _STATUS_FAILED,
+        "checkedAt": checked_at,
+        "error": None if ok else error,
+        "fingerprint": fingerprint(value),
+    }
+    try:
+        await db.secrettestresult.upsert(
+            where={"key": key},
+            data={"create": {"key": key, **payload}, "update": payload},
+        )
+    except Exception as exc:  # noqa: BLE001 - the verdict is still returned to the caller
+        logger.warning("Could not persist the environment key verdict for %s (%s)", key, exc)
+
+
 # --- Description (what the API returns) ---------------------------------------------------------------
 
 
@@ -476,8 +581,13 @@ def _hint(value: str | None) -> str | None:
     return value[-4:] if len(value) > 8 else "…"
 
 
-def _describe(spec: ManagedKey, row: Any | None) -> dict[str, Any]:
-    """The safe, value-free projection of one managed key. NEVER add the plaintext to this dict."""
+def _describe(spec: ManagedKey, row: Any | None, verdict: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The safe, value-free projection of one managed key. NEVER add the plaintext to this dict.
+
+    ``verdict`` is the durable SecretTestResult for an ENVIRONMENT-supplied key, and is consulted
+    only when there is no ManagedSecret row: a stored override carries its own verdict columns and
+    the two must not be mixed, since they describe different values.
+    """
     environment = env_value(spec.key)
     stored = row is not None
     if stored:
@@ -487,6 +597,16 @@ def _describe(spec: ManagedKey, row: Any | None) -> dict[str, Any]:
     else:
         source = SOURCE_UNSET
     updated_by = getattr(row, "updatedBy", None) if stored else None
+    if stored:
+        last_status, last_checked_at, last_error = row.lastStatus, row.lastCheckedAt, row.lastError
+    elif verdict is not None:
+        last_status, last_checked_at, last_error = (
+            verdict["status"],
+            verdict["checkedAt"],
+            verdict["error"],
+        )
+    else:
+        last_status, last_checked_at, last_error = _STATUS_UNKNOWN, None, None
     return {
         "key": spec.key,
         "label": spec.label,
@@ -494,9 +614,9 @@ def _describe(spec: ManagedKey, row: Any | None) -> dict[str, Any]:
         "configured": stored or bool(environment),
         "source": source,
         "hint": (row.hint if stored else _hint(environment)),
-        "lastStatus": (row.lastStatus if stored else _STATUS_UNKNOWN),
-        "lastCheckedAt": (row.lastCheckedAt if stored else None),
-        "lastError": (row.lastError if stored else None),
+        "lastStatus": last_status,
+        "lastCheckedAt": last_checked_at,
+        "lastError": last_error,
         "updatedBy": (getattr(updated_by, "name", None) or getattr(updated_by, "email", None)),
         "updatedAt": (row.updatedAt if stored else None),
     }
@@ -521,12 +641,14 @@ async def list_managed_secrets() -> list[dict[str, Any]]:
     """
     await refresh_if_stale()
     rows = await _rows_by_key()
-    return [_describe(spec, rows.get(key)) for key, spec in MANAGED_KEYS.items()]
+    verdicts = await environment_verdicts()
+    return [_describe(spec, rows.get(key), verdicts.get(key)) for key, spec in MANAGED_KEYS.items()]
 
 
 async def describe_secret(key: str) -> dict[str, Any]:
     row = await db.managedsecret.find_unique(where={"key": key}, include={"updatedBy": True})
-    return _describe(MANAGED_KEYS[key], row)
+    verdict = None if row is not None else await environment_verdict(key)
+    return _describe(MANAGED_KEYS[key], row, verdict)
 
 
 # --- Writes -----------------------------------------------------------------------------------------
@@ -574,11 +696,14 @@ async def delete_secret(key: str) -> dict[str, Any]:
 
 
 async def test_secret(key: str) -> dict[str, Any]:
-    """Run this key's probe now and persist the verdict on the row (when there is one).
+    """Run this key's probe now and persist the verdict, wherever this key's verdict belongs.
 
-    An environment-sourced key has no row to write to, so its verdict is returned but not stored —
-    the alternative, creating a row, would copy the environment value into the database as an
-    override, which is emphatically not what "test" should do.
+    A database-backed key keeps its verdict on its own ManagedSecret row, exactly as before. An
+    environment-backed key has no such row and must never be given one — that would copy the
+    deployed value into the database as an override — so its verdict goes to SecretTestResult, which
+    stores the outcome and no trace of the value. Either way the verdict now outlives the process,
+    which is what the provider freeze depends on: without it, every deploy told the admins that
+    nothing had been verified and every engine re-froze.
     """
     spec = MANAGED_KEYS[key]
     value = await get_secret(key)
@@ -602,6 +727,8 @@ async def test_secret(key: str) -> dict[str, Any]:
                     "lastError": described["lastError"],
                 },
             )
+    elif value:
+        await record_environment_verdict(key, value, ok=ok, checked_at=checked_at, error=error)
     logger.info("Managed secret %s probed: %s", key, described["lastStatus"])
     return described
 

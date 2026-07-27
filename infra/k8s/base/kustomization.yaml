@@ -1,0 +1,41 @@
+# ---------------------------------------------------------------------------------------------
+# The base is NOT deployable on its own, and that is deliberate rather than an omission.
+#
+# `kubectl kustomize infra/k8s/base` renders fine and is useful for reading the manifests as one
+# document, but it emits an untagged image reference, a ConfigMap full of REPLACE_IN_OVERLAY, a Job
+# still named ...-REPLACEME and no namespace. Applying it would either fail loudly or deploy :latest
+# against nothing. Deploy an overlay:
+#
+#     kubectl kustomize infra/k8s/overlays/dev
+#     kubectl apply -k infra/k8s/overlays/dev
+#
+# The base holds only what is TRUE IN EVERY ENVIRONMENT. Anything an overlay could reasonably want
+# different — replica counts, hostnames, bucket names, the connection limit, whether docs are
+# exposed — lives in the overlay, so that the diff between two environments is a file you can read
+# rather than three near-identical trees to compare by eye.
+# ---------------------------------------------------------------------------------------------
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - configmap.yaml
+  - externalsecret.yaml
+  - service.yaml
+  - deployment-api.yaml
+  - deployment-queue.yaml
+  - job-migrate.yaml
+  - hpa.yaml
+  - pdb.yaml
+  - ingress.yaml
+
+# includeSelectors is left at its default of false, and it matters. Turning it on would fold this
+# label into every Deployment's spec.selector — which is IMMUTABLE after creation, so the next apply
+# against a live cluster fails with "field is immutable" and the only way out is deleting the
+# Deployment. A label meant for `kubectl get -l` should never touch a selector.
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: field-repository
+
+# No `images:` entry here on purpose: an untagged reference is obvious at a glance, whereas a
+# placeholder tag inherited by an overlay that forgot to override it is not. Each overlay pins both
+# images.

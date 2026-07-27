@@ -8,7 +8,7 @@ from google.oauth2 import id_token as google_id_token
 
 from app.core.config import get_settings
 from app.core.db import db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, invalidate_cached_user
 from app.core.security import create_access_token, verify_password
 from app.schemas.auth import LoginRequest, TokenResponse
 
@@ -78,11 +78,17 @@ async def login_with_google(token: str) -> Any:
         if role == "MASTER_ADMIN":
             data["role"] = "MASTER_ADMIN"
             data["canManageQuestionnaire"] = True
-        return await db.user.update(
+        updated = await db.user.update(
             where={"email": email},
             data=data,
         )
-    return await db.user.create(
+        # Sign-in is a WRITE to the identity the rest of the app authorises against: it can rename
+        # the account and, for the master-admin email, hand it MASTER_ADMIN and
+        # canManageQuestionnaire. Drop the cached row so the token minted below is never validated
+        # against the pre-login one. (Keyed by id, which is why the update's return value is used.)
+        invalidate_cached_user(updated.id)
+        return updated
+    created = await db.user.create(
         data={
             "email": email,
             "name": name,
@@ -92,6 +98,8 @@ async def login_with_google(token: str) -> Any:
             "canManageQuestionnaire": role == "MASTER_ADMIN",
         }
     )
+    invalidate_cached_user(created.id)
+    return created
 
 
 @router.post("/login", response_model=TokenResponse)

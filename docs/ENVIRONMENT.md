@@ -76,6 +76,29 @@ variable is absent; a blank default means the app **refuses to start** without i
 | `ALLOW_WEAK_JWT_SECRET` | No | `false` | No | **Local development only.** Lets the API boot with a short/placeholder `JWT_SECRET` instead of refusing to start (`app/core/security.py::verify_jwt_configuration`). Never set it in a deployed environment — a guessable secret lets anyone mint a master-admin token. |
 | `SECRETS_ENCRYPTION_KEY` | No | unset → derived from `JWT_SECRET` | **Yes** | Fernet key encrypting the runtime-editable provider keys stored in `ManagedSecret` (`app/services/managed_secrets.py`). Left unset it is derived deterministically from `JWT_SECRET`, which is why the feature needs no setup — but it also means **rotating `JWT_SECRET` makes every stored secret undecryptable** and each one has to be re-entered in the Settings hub. Set it explicitly *before* you ever rotate. Accepts a Fernet key or any high-entropy passphrase. |
 
+### Authenticated-identity cache
+
+`get_current_user` reads the user row on **every** authenticated request, and that read is one
+cross-region round trip (200–400 ms) before any of the request's real work starts. This cache removes
+it for a few seconds at a time. Unlike everything under `SCALE_*`, it is **on by default**, because
+the cost it removes is being paid right now and a flag that had to be switched on would leave it
+there.
+
+Read [SECURITY.md §4.1](SECURITY.md) before changing any of these — the row being cached is the one
+authorisation decisions read, so the TTL is a revocation window.
+
+| Variable | Required | Default | Secret | Notes |
+|---|---|---|---|---|
+| `AUTH_USER_CACHE_ENABLED` | No | `true` | No | `false` restores one query per request. **This is the kill switch**: if the cache is ever suspected of serving a stale role during an incident, this reverts the behaviour with a restart and no deploy. |
+| `AUTH_USER_CACHE_TTL_SECONDS` | No | `5.0` | No | Seconds, and deliberately single-digit. Writes *this process* makes invalidate explicitly and have no window at all; the TTL is only the backstop for writes it cannot see — a `psql` session, the seed script, another worker. Every second added here is a second a demoted or deleted account keeps working after such a write. |
+| `AUTH_USER_CACHE_MAX_ENTRIES` | No | `512` | No | LRU ceiling. A cached row is the `User` model's scalar columns, order 1 KB, so 512 identities is well under a megabyte on a 1 GiB box. |
+
+### API schema exposure
+
+| Variable | Required | Default | Secret | Notes |
+|---|---|---|---|---|
+| `BACKEND_EXPOSE_DOCS` | No | **`false`** | No | Serve `/docs`, `/redoc` and `/openapi.json`. FastAPI serves all three to anyone by default; the schema names every route, parameter and model field including admin-only ones. Closed by default because the production `.env` lives in a GitHub secret this repository cannot edit, so a default-on flag would leave them exposed exactly where it matters. Set `true` for local development. See [SECURITY.md §1.4](SECURITY.md). |
+
 ### Security response headers
 
 Emitted by `app.main.SecurityHeadersMiddleware`. Defaults are correct for local development.
@@ -123,7 +146,7 @@ uploads still succeed — transcripts and grid measurements simply stay empty.
 | Variable | Required | Default | Secret | Notes |
 |---|---|---|---|---|
 | `ELEVENLABS_API_KEY` | No | unset | **Yes** | Priority 1: ElevenLabs Scribe. Auto language detection, ~1 GB files, no chunking. |
-| `ELEVENLABS_STT_MODEL` | No | `scribe_v1` | No | |
+| `ELEVENLABS_STT_MODEL` | No | `scribe_v1` in config, but the **effective** model is `scribe_v2` | No | Read the note below before setting it. |
 | `DEEPGRAM_API_KEY` | No | unset | **Yes** | Priority 2: Deepgram Nova-3. Handles code-switched Hindi + English. |
 | `DEEPGRAM_STT_MODEL` | No | `nova-3` | No | |
 | `OPENAI_API_KEY` | No | unset | **Yes** | Primary role is transcript **refinement/translation**; only transcribes when neither dedicated STT key is set (priority 3, Whisper). |
@@ -134,6 +157,21 @@ uploads still succeed — transcripts and grid measurements simply stay empty.
 | `GEMINI_MEASUREMENT_MODEL` | No | `gemini-2.5-flash-lite` | No | Pin an id that still exists — `gemini-1.5-flash` now 404s. |
 | `NEXT_PUBLIC_MAPTILER_API_KEY` | No | unset | No | Read by the backend only so one `.env` can feed both apps; the browser gets it from the frontend build. |
 
+> **`ELEVENLABS_STT_MODEL` is the one variable in this file whose config default is not what runs.**
+> `config.py` defaults it to `scribe_v1`, which was the only model that existed when the integration
+> was written. `_elevenlabs_model` in `app/services/ai.py` treats that specific value as "unset" and
+> uses **`scribe_v2`**; setting anything else uses your value verbatim. So the effective default is
+> `scribe_v2`, and writing `ELEVENLABS_STT_MODEL=scribe_v1` into a `.env` does **not** pin the old
+> model — it is indistinguishable from leaving it blank. (`scribe_v1` is still used as the
+> conservative retry when a `scribe_v2` request is rejected.) A deployment that genuinely needs the
+> legacy model must change the code, not the variable.
+
+Provider ordering is a **runtime** setting, not an environment variable: a master admin ranks the
+three providers in the Settings hub, stored on `AppSetting`. The default order is generated into
+[REPO_FACTS.md](REPO_FACTS.md). A provider whose key is unset is skipped wherever it is ranked, and
+keys resolve through the managed-secret layer, so adding one in the UI extends the chain immediately
+with no restart. Full semantics: [ARCHITECTURE.md §6](ARCHITECTURE.md).
+
 ### Media processing queue
 
 | Variable | Required | Default | Secret | Notes |
@@ -142,6 +180,28 @@ uploads still succeed — transcripts and grid measurements simply stay empty.
 | `MEDIA_QUEUE_INTERVAL_SECONDS` | No | `5.0` | No | Poll interval between queue sweeps. |
 | `MEDIA_QUEUE_BATCH_SIZE` | No | `3` | No | Jobs claimed per sweep. |
 | `MEDIA_QUEUE_JOB_MAX_ATTEMPTS` | No | `3` | No | Retries before a job is marked failed. Provider throttling (HTTP 429/503) requeues **without** burning an attempt. |
+
+### Optional scaling layer — `SCALE_*` and the read replica
+
+**Every one of these is off or unset by default**, and a fresh clone that sets none of them runs
+exactly the code paths it runs today. The package they configure is not imported on the request path
+until a route opts in.
+
+They are **not tabulated here**, deliberately: `backend/app/scale/README.md` documents each one — what
+it buys, what it costs, how to verify it — and [SCALABILITY.md](SCALABILITY.md) explains when any of
+them is the right answer. Duplicating them would create a second place to be wrong.
+
+The names, so this file remains a complete index of what `config.py` reads:
+
+- Response cache: `SCALE_CACHE_ENABLED`, `SCALE_CACHE_BACKEND`, `SCALE_CACHE_TTL_SECONDS`,
+  `SCALE_CACHE_MAX_ENTRIES`, `SCALE_CACHE_MAX_BYTES`, `SCALE_CACHE_MAX_ENTRY_BYTES`,
+  `SCALE_CACHE_SINGLEFLIGHT_TIMEOUT_SECONDS`
+- Redis backend: `SCALE_REDIS_URL`, `SCALE_REDIS_TIMEOUT_SECONDS`
+- Rate limiting: `SCALE_RATE_LIMIT_ENABLED`, `SCALE_RATE_LIMIT_REQUESTS`,
+  `SCALE_RATE_LIMIT_WINDOW_SECONDS`
+- Pagination and counts: `SCALE_KEYSET_PAGINATION_ENABLED`, `SCALE_APPROX_COUNT_ENABLED`,
+  `SCALE_APPROX_COUNT_THRESHOLD`
+- `DATABASE_READ_REPLICA_URL` — unset by default; a replica connection string for read-only queries.
 
 ### Not read by `config.py`
 
@@ -158,12 +218,20 @@ uploads still succeed — transcripts and grid measurements simply stay empty.
 
 ## Frontend — Next.js (`frontend/.env.local`, or the Vercel dashboard)
 
-**Three** variables are read by application code, and **all of them are public** (see rule 1 above).
-Sources: `frontend/lib/api.ts:3`, `frontend/app/login/page.tsx:112`,
-`frontend/components/forms/LocationFields.tsx:10`. A fourth, `NEXT_PUBLIC_APP_URL`, is documented
-here because the **backend** reads it — no frontend code does (verified by grepping `process.env.`
-across `frontend/`, which returns those three plus `NODE_ENV` in `next.config.ts` and the three
-`PW_*` variables in the Playwright script).
+**Three** variables are read by application code, and **all of them are public** (see rule 1 above):
+`NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID` and `NEXT_PUBLIC_MAPTILER_API_KEY`. A fourth,
+`NEXT_PUBLIC_APP_URL`, is documented here because the **backend** reads it — no frontend code does.
+
+Re-verify the list rather than trusting it, since a new page can add one at any time:
+
+```bash
+grep -rhoP "process\.env\.[A-Z_0-9]+" frontend/app frontend/components frontend/lib \
+  frontend/next.config.ts | sort -u
+```
+
+As of 2026-07-27 that returns exactly those three plus `NODE_ENV` (in `next.config.ts`). The
+Playwright scripts additionally read three `PW_*` variables from the shell, but they are never
+bundled.
 
 | Variable | Required | Default in code | Local value | Production value | Secret | Notes |
 |---|---|---|---|---|---|---|
@@ -253,4 +321,39 @@ from your shell — use an IAM admin user's key pair, never root keys. `terrafor
 | `EMAXCONNSESSION` / `EMAXCONN` in the logs | `DATABASE_CONNECTION_LIMIT` raised, or more than one uvicorn worker; keep 1 web worker + the separate queue service |
 | Works on Wi-Fi, fails on mobile data | An IPv4-only host slipped in — use the CloudFront and `s3.dualstack.…` hostnames |
 | Google button missing, or GSI returns **403** | `NEXT_PUBLIC_GOOGLE_CLIENT_ID` blank, or the origin is not an Authorized JavaScript origin. A **401 `invalid_client`** is a different fault — see the first row |
-| Transcripts stay empty | No STT key set (`ELEVENLABS_API_KEY` / `DEEPGRAM_API_KEY` / `OPENAI_API_KEY`), or the queue worker isn't running |
+| Transcripts stay empty | No STT key set (`ELEVENLABS_API_KEY` / `DEEPGRAM_API_KEY` / `OPENAI_API_KEY`), or the queue worker isn't running. Check the Settings hub's provider panel first: it shows which keys are actually resolvable, through the same lookup the chain uses |
+| Transcripts are slow but do arrive | Working as designed. Transcription waits for the box to be idle and backs off behind a growing cooldown after a provider 429s — a throttled clip is requeued **without** spending an attempt |
+| A provider key was added in the Settings hub and nothing changed | It should take effect immediately with no restart. If it did not, the value is in `.env` rather than `ManagedSecret`, and `.env` is only the fallback — but `.env` needs a restart because `get_settings()` is `@lru_cache`d (rule 2) |
+| `/docs` 404s after a deploy | Correct. `BACKEND_EXPOSE_DOCS` defaults to `false`; set it `true` locally |
+| A demoted user still has their old privileges | For at most `AUTH_USER_CACHE_TTL_SECONDS` (5 s), and only if the demotion happened in a *different* process — `psql`, the seed script. A demotion through the API invalidates immediately. `AUTH_USER_CACHE_ENABLED=false` removes the window entirely |
+
+---
+
+## How this document is kept true
+
+There is exactly one source for the backend list: **`backend/app/core/config.py`**. Everything else in
+this file is prose about those names. So the maintenance procedure is a set difference, and it takes
+one command:
+
+```bash
+# Every variable config.py reads. Diff this against the tables above — anything in the output
+# that is not in this document is undocumented, and anything documented that is not in the
+# output has been deleted from the code.
+grep -oP 'alias="\K[A-Z_0-9]+' backend/app/core/config.py | sort
+```
+
+| Claim class | Kept true by |
+|---|---|
+| The backend variable list is complete | The command above. Run it after any change to `config.py`. |
+| The frontend variable list is complete | The `grep` in the Frontend section, which is dated. |
+| Defaults | The `Field(default=…)` in `config.py`. **One default is a lie by design** and is called out in a blockquote: `ELEVENLABS_STT_MODEL`. If another such case appears, it needs the same treatment — a table cell cannot express "the config default is not what runs". |
+| `SCALE_*` and the AI-feature keys | Owned elsewhere: `backend/app/scale/README.md` and [AI_FEATURES.md](AI_FEATURES.md). This file lists the names only, so it stays a complete index without becoming a second source of truth. |
+| GitHub Actions secrets | `.github/workflows/*.yml`. `grep -ho 'secrets\.[A-Z_]*' .github/workflows/*.yml \| sort -u` is the equivalent set difference. |
+| Vercel variables | The Vercel dashboard — **UNVERIFIED from this repository**. `vercel env ls production` is the check, and rule 3 (Encrypted, never Sensitive) is the thing it exists to catch. |
+
+**Review triggers:** `backend/app/core/config.py`, `backend/.env.example`, any new `process.env.`
+reference under `frontend/`, or a new workflow secret.
+
+**Known unverified:** every value stated as a *production* value — the bucket name, the region, the
+CloudFront hostname, the Vercel org and project ids — is recorded from a deployment, not read from
+code. They are correct as of 2026-07-27 to the extent the deployment has not changed under them.

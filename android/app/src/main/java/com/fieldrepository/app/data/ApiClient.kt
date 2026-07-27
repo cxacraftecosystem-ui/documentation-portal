@@ -38,7 +38,17 @@ object ApiClient {
     /** Linear-ish backoff with a hard cap, so a struggling origin gets breathing room without long stalls. */
     private fun backoffMillis(attempt: Int): Long = minOf(4_000L, 600L * attempt)
 
-    fun create(tokenStore: TokenStore): FieldRepositoryApi {
+    fun create(tokenStore: TokenStore): FieldRepositoryApi =
+        retrofit(tokenStore).create(FieldRepositoryApi::class.java)
+
+    /**
+     * The configured Retrofit — the gateway retry, the auth header, the timeouts and the lenient JSON
+     * above — so a feature can declare its OWN typed service without standing up a second HTTP stack
+     * beside this one. A second stack is not a style question here: it would silently opt that
+     * feature out of the 504 retry that exists because CloudFront times out this origin, and out of
+     * the Decimal-as-string leniency that keeps one measured record from failing a whole list.
+     */
+    fun retrofit(tokenStore: TokenStore): Retrofit {
         val json = Json {
             ignoreUnknownKeys = true
             explicitNulls = false
@@ -108,6 +118,5 @@ object ApiClient {
             .client(client)
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
-            .create(FieldRepositoryApi::class.java)
     }
 }

@@ -78,10 +78,20 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /*
- * The managed provider keys (`/secrets`, MASTER ADMIN ONLY) — the Android mirror of the web
- * `frontend/components/settings/ApiKeysPanel.tsx`. Same wording, same rules, phone layout.
+ * Two things about the transcription providers, gated at two different heights — the Android mirror
+ * of the web's `/settings/api-keys` page, which stacks exactly these halves in exactly this order.
  *
- * Two rules shape this screen, and both are the reason it is worth having at all:
+ * THE RANKING ([ProviderOrderPanel], first) is `require_admin`. Deciding whether a Hindi interview
+ * goes to ElevenLabs or to Deepgram first is an editorial judgement about transcription accuracy and
+ * it belongs to the admins who run the workshops. Nothing about a key's VALUE is exposed by it —
+ * only whether each engine has one and what the provider said the last time we asked.
+ *
+ * THE KEYS (`/secrets`, below) stay MASTER ADMIN ONLY, because handing out live provider credentials
+ * (reveal returns plaintext) is a different class of power. The gate is discovered rather than
+ * asserted: the API answers 403 for an ordinary admin and [ApiKeysRestrictedCard] takes the list's
+ * place, while the ranking above it stays fully live. That is what lets one screen serve both roles.
+ *
+ * Two rules shape the key half, and both are the reason it is worth having at all:
  *
  * 1. A VALUE IS NEVER ON SCREEN UNTIL IT IS ASKED FOR. `GET /secrets` deliberately carries only a
  *    four-character hint, so the list renders with no credential in the process at all. Plaintext
@@ -96,7 +106,9 @@ import java.util.Locale
  *
  * The caller gates this screen on master admin, but the API is the real authority: if it answers
  * 403 the screen renders [ApiKeysRestrictedCard] instead of an error, because "you are not allowed"
- * is a state, not a failure.
+ * is a state, not a failure. That authority is also what makes the screen safe to open up to plain
+ * admins for the ranking's sake — an account that may not read keys still cannot, whatever route
+ * brought it here.
  */
 
 /** How long a revealed value stays on screen before it hides itself again. */
@@ -410,16 +422,31 @@ fun ApiKeysScreen(
                 Spacer(Modifier.width(4.dp))
             }
             Text(
-                "Managed API keys",
+                "Providers & API keys",
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onSurface
             )
         }
 
+        // The ranking first: it is the control most admins come here for, and the only one they can
+        // all use. The key list below it is the master admin's. Its own failures are its own — they
+        // must not be mistaken for the key list being broken, so they never reach this screen's
+        // shared error line.
+        ProviderOrderPanel(onMessage = onMessage)
+
         if (state.restricted) {
             ApiKeysRestrictedCard()
             return@Column
         }
+
+        // Named now that the ranking sits above it — two sections on one screen, and only one of
+        // them is about credentials.
+        Text(
+            "Managed API keys",
+            display = true,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
 
         ApiKeysLiveBanner()
 
@@ -530,9 +557,11 @@ private fun ApiKeysRestrictedCard() {
                 )
             }
             Text(
-                "The managed API keys are limited to the master admin account. Ordinary admins " +
-                    "manage people and records; handing out live provider credentials stays with " +
-                    "the single master admin.",
+                "The key VALUES are limited to the master admin account. Ordinary admins manage " +
+                    "people and records; handing out live provider credentials stays with the " +
+                    "single master admin. The provider ranking above is yours — you can reorder the " +
+                    "engines and ask each provider whether its key works, which is a verdict rather " +
+                    "than a credential.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

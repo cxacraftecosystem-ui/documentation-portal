@@ -8,6 +8,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { CarryForwardCards } from "@/components/CarryForwardCards";
 import { Field, MultiNoteField, Select, TextArea, TextInput } from "@/components/FormControls";
 import { AadhaarField, aadhaarValidationError, isMaskedIdentityNumber } from "@/components/forms/AadhaarField";
+import { CarryContextBanner, carryScope, useCarryContext, type CarryScopeState } from "@/components/forms/CarryContextBanner";
 import { DosDontsField } from "@/components/forms/DosDontsField";
 import { DuplicateArtisanDialog } from "@/components/forms/DuplicateArtisanDialog";
 import { LocationFields, type LocationInitialValues } from "@/components/forms/LocationFields";
@@ -18,6 +19,7 @@ import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/Worksho
 import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { UploadProgress } from "@/components/media/UploadProgress";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
+import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { ApiError, apiFetch, buildQuery, listResource } from "@/lib/api";
 import { locationFromForm, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue, useUnsavedChanges } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
@@ -296,6 +298,11 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
   const identityLabelId = `${useId()}-identity`;
   const formRef = useRef<HTMLFormElement>(null);
   const [crafts, setCrafts] = useState<Craft[]>([]);
+  // Controlled so the carried craft can land in it after the list arrives; a defaultValue is fixed
+  // at first render and the crafts request has not answered by then.
+  const [craftId, setCraftId] = useState(initial?.craftId ?? "");
+  // "Can I see this craft?" and "is there any signal?" are different answers — see useCarryContext.
+  const [craftListState, setCraftListState] = useState<CarryScopeState>("pending");
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   // A rejected duplicate is not a generic error: it names an existing artisan the researcher should
@@ -315,6 +322,9 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
   const [formKey, setFormKey] = useState(0);
   const { dirty, markDirty, resetDirty } = useUnsavedChanges();
   const [backPromptOpen, setBackPromptOpen] = useState(false);
+  // Hands the prompt to the round back control in the page header, which is now the only back
+  // control on the page.
+  useLeaveGuard(dirty, () => setBackPromptOpen(true));
   // The API includes the record's stored location (not yet in the Artisan TS type); pass it so the
   // edit form pre-fills coordinates instead of auto-capturing the editor's current position.
   const initialLocation = initial
@@ -343,9 +353,39 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
 
   useEffect(() => {
     listResource<Craft>("/crafts", { pageSize: 100 })
-      .then((result) => setCrafts(result.items))
-      .catch(() => setCrafts([]));
+      .then((result) => {
+        setCrafts(result.items);
+        setCraftListState("loaded");
+      })
+      .catch(() => {
+        setCrafts([]);
+        setCraftListState("unavailable");
+      });
   }, []);
+
+  /**
+   * The craft and the workshop carry into a new artisan; the ARTISAN in the bag never does.
+   *
+   * This form's whole job is to create a person who is not yet in the bag, so prefilling the last
+   * one would be worse than useless — it is the "wrong artisan" hazard with the record itself as the
+   * casualty. Their place does not carry either: it belongs to that artisan, not to the sitting, and
+   * two artisans documented back to back are routinely from different villages. What genuinely
+   * transfers is the craft everyone at this workshop practises, and the workshop.
+   */
+  const carry = useCarryContext({
+    enabled: !initial,
+    scopes: [carryScope("craft", craftListState, crafts)],
+    applies: ["craft", "workshop"],
+    onApply: (context) => {
+      if (context.craftId) setCraftId(context.craftId);
+      if (context.workshopId && !workshop.touched) workshop.setWorkshopId(context.workshopId);
+    }
+  });
+  /** "Change": drop the carried craft so the researcher picks from scratch. */
+  function clearCarriedContext() {
+    carry.change();
+    setCraftId("");
+  }
 
   function handleBack() {
     if (dirty) setBackPromptOpen(true);
@@ -355,8 +395,10 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
   /**
    * Throw the in-progress entry away and start from a clean form.
    *
-   * The workshop selection is deliberately left alone: the researcher is still standing in the same
-   * workshop, and re-picking it after every discarded duplicate would be busywork.
+   * The workshop and the craft are deliberately left alone: the researcher is still standing in the
+   * same workshop documenting the same craft, and re-picking both after every discarded duplicate
+   * would be busywork. Clearing the craft would also make the carry-forward banner above lie about
+   * a field it no longer fills.
    */
   function discardEntry() {
     setDuplicatePromptOpen(false);
@@ -554,7 +596,9 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
             artisanName: savedRecord.name,
             place: savedRecord.place,
             craftId: savedRecord.craftId,
-            craftName: savedRecord.craft?.name
+            craftName: savedRecord.craft?.name,
+            workshopId: savedRecord.workshopId,
+            workshopName: workshop.workshops.find((w) => w.id === savedRecord.workshopId)?.title ?? null
           }}
         />
       </div>
@@ -571,12 +615,8 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         onKeyDown={handleFormEnter}
         className="panel grid gap-4 p-4"
       >
-        <div>
-          <button type="button" className="field-button-secondary" onClick={handleBack}>
-            Back
-          </button>
-        </div>
         {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+        <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
         {conflict ? (
           <div role="alert" className="rounded-md border border-amber-500 bg-amber-100 px-3 py-2 text-sm text-amber-800">
             <p className="font-medium">{conflict.message}</p>
@@ -602,7 +642,18 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
             <TextInput name="localName" defaultValue={initial?.localName ?? ""} />
           </Field>
           <Field label="Craft" required>
-            <Select name="craftId" defaultValue={initial?.craftId ?? ""} onChange={markDirty}>
+            <Select
+              name="craftId"
+              value={craftId}
+              onChange={(event) => {
+                setCraftId(event.target.value);
+                // An explicit pick replaces the remembered craft and retires the banner: from here
+                // on what is on screen is the researcher's own choice, not a suggestion.
+                const craft = crafts.find((candidate) => candidate.id === event.target.value);
+                if (craft) carry.remember({ craftId: craft.id, craftName: craft.name }, { explicit: true });
+                markDirty();
+              }}
+            >
               <option value="">Select existing craft</option>
               {crafts.map((craft) => (
                 <option value={craft.id} key={craft.id}>
@@ -699,7 +750,18 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           title="Artisan media"
           description="Attach or capture artisan images, audio introductions, videos, and documents. Image EXIF is retained and summarized in notes."
         />
-        <LocationFields initial={initialLocation} onDirty={markDirty} />
+        {/*
+          `statedPlace` is the free-text box the researchers used while there was no district column
+          — "Bagru, Jaipur, Rajasthan", "Rudraprayag, Dehradun" — and it is passed READ ONLY, so the
+          card can tell a researcher that this record's Kharagpur coordinates disagree with the
+          Rajasthan place they typed. Nothing is parsed out of it and written back.
+        */}
+        <LocationFields
+          initial={initialLocation}
+          onDirty={markDirty}
+          subjectLabel="the artisan"
+          statedPlace={initial?.place}
+        />
         {uploadProgress ? <UploadProgress progress={uploadProgress} /> : null}
         <div className="flex justify-end gap-2">
           <button type="button" className="field-button-secondary" onClick={handleBack}>

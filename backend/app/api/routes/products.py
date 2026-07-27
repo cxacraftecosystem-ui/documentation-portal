@@ -14,6 +14,7 @@ from app.services.workshop_access import (
 )
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
+    Relation,
     public_encode,
     add_date_range,
     apply_status_policy_create,
@@ -21,7 +22,10 @@ from app.services.records import (
     attach_location,
     clean_data,
     contains,
+    count_and_page,
     decimal_to_string,
+    hydrate_relations,
+    include_of,
     merge_field_provenance,
     require_record,
     resubmit_status,
@@ -30,7 +34,18 @@ from app.services.records import (
 
 router = APIRouter(prefix="/products", tags=["products"])
 
-INCLUDE = {"artisan": True, "craft": True, "workshop": True, "location": True, "media": True, "createdBy": True}
+# What a product carries on the wire. Reads load these in one parallel wave (see
+# services/records.py for why); writes still pass the derived ``INCLUDE`` to Prisma, so the two can
+# never describe different products.
+RELATIONS = (
+    Relation("artisan", "artisan", "artisanId"),
+    Relation("craft", "craft", "craftId"),
+    Relation("workshop", "workshop", "workshopId"),
+    Relation("location", "location", "locationId"),
+    Relation("media", "mediafile", "productId", many=True),
+    Relation("createdBy", "user", "createdById"),
+)
+INCLUDE = include_of(RELATIONS)
 
 
 @router.get("")
@@ -100,13 +115,13 @@ async def list_products(
     if and_filters:
         where["AND"] = and_filters
     add_date_range(where, "createdAt", dateFrom, dateTo)
-    total = await db.productdocumentation.count(where=where)
-    items = await db.productdocumentation.find_many(
+    total, items = await count_and_page(
+        db.productdocumentation,
         where=where,
-        include=INCLUDE,
         skip=skip,
         take=page_size,
         order={"createdAt": "desc"},
+        relations=RELATIONS,
     )
     return page_payload(public_encode(items), total, page, page_size)
 
@@ -132,8 +147,8 @@ async def create_product(
 
 @router.get("/{product_id}")
 async def get_product(product_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    product = await db.productdocumentation.find_unique(where={"id": product_id}, include=INCLUDE)
-    product = await require_record(db.productdocumentation, product_id) if not product else product
+    product = await require_record(db.productdocumentation, product_id)
+    await hydrate_relations([product], RELATIONS)
     return public_encode(product)
 
 

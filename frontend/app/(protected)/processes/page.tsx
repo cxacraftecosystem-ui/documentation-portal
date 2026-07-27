@@ -15,9 +15,11 @@ import { RowActions, rowAction } from "@/components/RowActions";
 import { SearchInput } from "@/components/SearchInput";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useAdminView } from "@/components/AdminViewProvider";
+import { useAuth } from "@/components/AuthProvider";
 import { ProcessForm, type ProcessRecord } from "@/components/forms/ProcessForm";
 import { apiFetch, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
+import { canCreateRecords } from "@/lib/permissions";
 import type { PageResult } from "@/lib/types";
 
 function ProcessesPageInner() {
@@ -25,7 +27,16 @@ function ProcessesPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { adminMode } = useAdminView();
-  const isNew = searchParams.get("new") === "1";
+  const { user } = useAuth();
+  /**
+   * Documenting a process needs `require_record_creator`, the same as an artisan, product or tool.
+   * Those three sit behind ROUTE_GUARDS on /artisans/new and friends; this form is a QUERY parameter
+   * on a list route, and ROUTE_GUARDS matches the pathname alone, so the central table could never
+   * see it — a crowdsource volunteer filled the whole form in and met the 403 at Save. The gate is
+   * therefore here, in the only place that can read `?new=1`.
+   */
+  const creator = canCreateRecords(user);
+  const isNew = searchParams.get("new") === "1" && creator;
 
   const [data, setData] = useState<PageResult<ProcessRecord> | null>(null);
   const [query, setQuery] = useState("");
@@ -38,6 +49,12 @@ function ProcessesPageInner() {
   // Editing loads the full hydrated record (steps + media) into the form.
   const [editing, setEditing] = useState<ProcessRecord | null>(null);
   const [editLoadingId, setEditLoadingId] = useState<string | null>(null);
+
+  // Drop the parameter as well as the form, so a refresh or a shared link does not keep asking for a
+  // page this account cannot have. The list underneath is open to everyone, which is where they land.
+  useEffect(() => {
+    if (!creator && searchParams.get("new") === "1") router.replace("/processes");
+  }, [creator, router, searchParams]);
   const [collabId, setCollabId] = useState<string | null>(null);
 
   // Cascading funnel filters: Workshop -> Craft -> Artisan, the shared component every list uses.
@@ -189,10 +206,12 @@ function ProcessesPageInner() {
         description="Step-by-step documentation of how a product is made, with each step in order."
         icon={<GitBranch className="h-5 w-5" aria-hidden />}
         actions={
-          <button className="field-button" onClick={() => router.push("/processes?new=1")} type="button">
-            <Plus className="h-4 w-4" aria-hidden />
-            New process
-          </button>
+          creator ? (
+            <button className="field-button" onClick={() => router.push("/processes?new=1")} type="button">
+              <Plus className="h-4 w-4" aria-hidden />
+              New process
+            </button>
+          ) : undefined
         }
       />
       {banners}

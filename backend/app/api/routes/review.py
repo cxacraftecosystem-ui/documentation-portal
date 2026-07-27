@@ -8,6 +8,7 @@ from pydantic import Field, ValidationError
 from app.core.db import db
 from app.core.deps import (
     ROLE_RANK,
+    can_edit_others_record,
     can_review_record,
     enum_or_raw,
     get_value,
@@ -19,7 +20,14 @@ from app.core.deps import (
 )
 from app.schemas.common import APIModel, ReviewAction
 from app.schemas.questionnaire import QuestionnaireInterviewUpdate
-from app.schemas.records import ArtisanUpdate, ProcessUpdate, ProductUpdate, ToolUpdate, WorkshopUpdate
+from app.schemas.records import (
+    ArtisanUpdate,
+    ProcessUpdate,
+    ProductUpdate,
+    ToolUpdate,
+    WorkshopUpdate,
+    drop_masked_identity_numbers,
+)
 from app.services.access import record_revision
 from app.services.records import clean_data, decimal_to_string, jsonify_metadata, merge_field_provenance
 from app.services.records import review_update
@@ -310,13 +318,24 @@ async def edit_reviewed_record(
 
     Sending a record back for revision costs a round trip through its creator for what is often a
     misspelt village or a craft name in the wrong column — work the reviewer can simply do. This is
-    that shortcut, under exactly the same authority as the other review actions:
+    that shortcut, and it is the one review action that WRITES the record, so it is gated on the
+    editing authority rather than the reviewing one:
 
-    * the peer-review ladder (``can_review_record``): only a record created by someone strictly below
-      the reviewer, master admin excepted;
+    * ``can_edit_others_record``: the peer-review ladder narrowed to Professor and above. Reviewing
+      reaches further down the ladder than editing deliberately — a field contributor reviews a
+      volunteer's submission and a researcher reviews a field contributor's, and neither of them
+      gets to rewrite it. Everyone below the floor still has approve / reject / revise;
     * the admin-only gate for a record flagged ``needsAdminApproval`` (submitted after its workshop
       ended) — the whole edit is admin-only there, not just the optional approval, because acting on a
       late submission at all is the decision reserved for admins.
+
+    That predicate is also what makes the record's own PATCH route and this one agree about who may
+    overwrite a populated field. There, an editor who is neither the author nor an admin is put
+    through ``assert_can_contribute_fields``, which locks every field that already has a value —
+    UNLESS ``may_edit_lower_ranked_record`` says they outrank its author, which is
+    ``can_edit_others_record``. So the callers this route now admits are exactly the callers the
+    PATCH route waves past that lock; no second field-level check is needed here, and before the
+    gate was narrowed there was no honest way to say that.
 
     The change is attributable twice over: a ``RecordRevision`` captures the exact old -> new values
     (the same edit history ``services/access.py`` writes for a granted cross-researcher edit) and a
@@ -359,10 +378,14 @@ async def edit_reviewed_record(
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
     creator = get_value(record, creator_relation)
-    if not can_review_record(reviewer, get_value(creator, "role") if creator else None):
+    if not can_edit_others_record(reviewer, get_value(creator, "role") if creator else None):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only review records created by users below your own tier",
+            detail=(
+                "Editing someone else's record needs Professor access or above, and only for a "
+                "record created below your own tier. Approve, reject, or send it back for revision "
+                "with your comments instead."
+            ),
         )
     if record_needs_admin_approval(record) and not is_admin(reviewer):
         raise HTTPException(
@@ -374,8 +397,10 @@ async def edit_reviewed_record(
         )
 
     # Same shape as every PATCH route: clean (which also title-cases the name-like fields) and
-    # stringify decimals before anything compares the payload against the stored row.
-    data = decimal_to_string(clean_data(parsed.model_dump(exclude_unset=True)))
+    # stringify decimals before anything compares the payload against the stored row. An identity
+    # number that came back as its own mask is dropped here for the same reason PATCH /artisans
+    # drops it — a reviewer's form is fed by the same masked responses.
+    data = drop_masked_identity_numbers(decimal_to_string(clean_data(parsed.model_dump(exclude_unset=True))))
     if not data:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

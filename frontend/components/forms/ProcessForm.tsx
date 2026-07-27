@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Lock, Plus } from "lucide-react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { Field, Select, TextInput } from "@/components/FormControls";
 import { FieldProvenance } from "@/components/FieldProvenance";
+import { CarryContextBanner, carryScope, useCarryContext, type CarryScopeState } from "@/components/forms/CarryContextBanner";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { TitleCasedInput } from "@/components/forms/TitleCasedInput";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
@@ -14,7 +15,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import { apiFetch, listResource } from "@/lib/api";
 import { handleFormEnter } from "@/lib/formNav";
-import { inferMediaType, uploadMediaFile } from "@/lib/media";
+import { describePreProcess, describeProcessStep, renameMediaFile, uploadMediaFile } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
 import { hasRank } from "@/lib/permissions";
 import type { Artisan, ExtraMetadata, MediaFile, ProductDocumentation, RecordStatus, User, Workshop } from "@/lib/types";
@@ -73,49 +74,8 @@ function stepTypeLabel(stepType: string): string {
   return stepType === "SEQUENTIAL" ? "Sequential" : "Group of activities";
 }
 
-/** Per-file nomenclature segment for a step's media: 1A/1B… for sequential, 1-G1/1-G2… for groups. */
-function processStepSegment(stepNumber: number, stepType: string, fileIndex: number): string {
-  return stepType === "SEQUENTIAL"
-    ? `STEP_${stepNumber}${String.fromCharCode(65 + (fileIndex % 26))}`
-    : `STEP_${stepNumber}_G${fileIndex + 1}`;
-}
-
 function makeKey(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-}
-
-// --- Android FieldRepository.mediaFilename parity: RECORDTYPE_Name_SEGMENT_TYPE_index_timestamp ---
-
-function safeToken(value: string): string {
-  const cleaned = value
-    .trim()
-    .replace(/\s+/g, "")
-    .replace(/[^A-Za-z0-9]/g, "")
-    .slice(0, 60);
-  return cleaned || "Record";
-}
-
-function timestampToken(): string {
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(now.getDate())}${pad(now.getMonth() + 1)}${now.getFullYear()}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-}
-
-function typeCodeFor(file: File): string {
-  const mediaType = inferMediaType(file);
-  if (mediaType === "IMAGE") return "IMG";
-  if (mediaType === "AUDIO") return "AUD";
-  if (mediaType === "VIDEO") return "VID";
-  return "DOC";
-}
-
-/** Rename a file to the field nomenclature so stored objects match the Android app's naming. */
-function nomenclatureFile(recordType: string, recordName: string, segment: string, file: File, index: number): File {
-  const dot = file.name.lastIndexOf(".");
-  const extension = dot > 0 ? file.name.slice(dot + 1) : "";
-  const base = [recordType.toUpperCase(), safeToken(recordName), segment, typeCodeFor(file), String(index), timestampToken()].join("_");
-  const name = extension ? `${base}.${extension}` : base;
-  return new File([file], name, { type: file.type, lastModified: file.lastModified });
 }
 
 // ---------------------------------------------------------------------------
@@ -298,6 +258,9 @@ export function ProcessForm({
   const [existingPreMedia, setExistingPreMedia] = useState<MediaFile[]>(initial?.media ?? []);
 
   const [artisans, setArtisans] = useState<Artisan[]>([]);
+  // "Can I see this artisan?" and "is there any signal?" are different answers, and the carry-
+  // forward prefill treats them differently — see useCarryContext.
+  const [artisanListState, setArtisanListState] = useState<CarryScopeState>("pending");
   const [artisanProducts, setArtisanProducts] = useState<ProductDocumentation[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
   const [productLoadError, setProductLoadError] = useState<string | null>(null);
@@ -317,9 +280,45 @@ export function ProcessForm({
 
   useEffect(() => {
     listResource<Artisan>("/artisans", { pageSize: 100 })
-      .then((result) => setArtisans(result.items))
-      .catch(() => undefined);
+      .then((result) => {
+        setArtisans(result.items);
+        setArtisanListState("loaded");
+      })
+      .catch(() => setArtisanListState("unavailable"));
   }, []);
+
+  /**
+   * The carried product, held until the artisan's product list arrives.
+   *
+   * A process is documented against a product, so "I just recorded a product, now let me record how
+   * it is made" is the most common journey into this form — and the one the old artisan-only context
+   * left half-finished. The product cannot be applied on the spot the way the artisan can: the
+   * dropdown it belongs in is fetched per artisan, and that fetch only starts once the prefill has
+   * supplied the artisan. So it waits here for one round trip.
+   */
+  const carriedProductRef = useRef<string | null>(null);
+
+  // Offer the sitting this researcher was last working in: the artisan, the workshop, and the
+  // product they documented last, which is what this record is about.
+  const carry = useCarryContext({
+    enabled: !isEdit,
+    scopes: [carryScope("artisan", artisanListState, artisans)],
+    // No craft or tool field here, so neither is filled in nor claimed; both stay in the bag.
+    applies: ["artisan", "product", "workshop"],
+    onApply: (context) => {
+      if (context.artisanId) setArtisanId(context.artisanId);
+      if (context.productId) carriedProductRef.current = context.productId;
+      if (context.workshopId && !workshop.touched) workshop.setWorkshopId(context.workshopId);
+    }
+  });
+  const pruneCarried = carry.prune;
+  /** "Change": drop the carried artisan and product in one action. */
+  function clearCarriedContext() {
+    carry.change();
+    carriedProductRef.current = null;
+    setArtisanId("");
+    setProductId("");
+  }
 
   // Products belong to an artisan, so the product list is scoped to the chosen artisan. The server
   // OR-matches FK-linked products plus products carrying the artisan's typed name (no FK), so the
@@ -340,6 +339,19 @@ export function ProcessForm({
         if (cancelled) return;
         setArtisanProducts(result.items);
         setProductsLoading(false);
+        // This list is both the dropdown's options and the only proof the carried product is still
+        // this artisan's and still reachable, so the deferred half of the prefill resolves here.
+        const carried = carriedProductRef.current;
+        if (carried) {
+          carriedProductRef.current = null;
+          if (result.items.some((product) => product.id === carried)) {
+            setProductId(carried);
+            return;
+          }
+          // Deleted, or it turned out not to belong to this artisan. Either way it is dropped from
+          // the bag and from the banner rather than offered as a link nobody can follow.
+          pruneCarried("product");
+        }
         // Keep a valid selection: clear product if it is no longer offered for this artisan.
         setProductId((current) => (current && result.items.every((product) => product.id !== current) ? "" : current));
       })
@@ -354,15 +366,20 @@ export function ProcessForm({
     return () => {
       cancelled = true;
     };
-  }, [artisanId, artisans]);
+  }, [artisanId, artisans, pruneCarried]);
 
   // Unsaved-changes guard: signature of every user-editable field + pending file counts. The
   // workshop only counts once the USER has picked one — the create form's automatic most-recent
   // default lands asynchronously and must not make an untouched form look dirty.
+  // A carried artisan is on the same footing as the automatic workshop default: the researcher did
+  // not type it, so it must not make an untouched form prompt "discard your changes?". Picking one
+  // themselves retires the offer (carry.applied goes null) and the value starts counting.
+  const carriedArtisanId = carry.applied?.context.artisanId ?? null;
+  const carriedProductId = carry.applied?.context.productId ?? null;
   const signature = JSON.stringify({
     name,
-    artisanId,
-    productId,
+    artisanId: artisanId && artisanId === carriedArtisanId ? "" : artisanId,
+    productId: productId && productId === carriedProductId ? "" : productId,
     workshopId: workshop.touched ? workshop.workshopId : "",
     status,
     preProcessAvailable,
@@ -487,23 +504,56 @@ export function ProcessForm({
         endpoint: isEdit ? `/processes/${initial!.id}` : "/processes",
         method: isEdit ? "PATCH" : "POST",
         body: payload,
+        // Queued offline, the process name the researcher typed is the best this can know; the
+        // online path below re-derives the names from what the server actually stored.
         media: [
           {
             files: preProcessAvailable
-              ? preFiles.map((file, index) => nomenclatureFile("process", trimmedName, "PRE", file, index + 1))
+              ? preFiles.map((file, index) =>
+                  renameMediaFile(file, {
+                    recordType: "Process",
+                    recordName: trimmedName,
+                    descriptor: describePreProcess(file, existingPreMedia.length + index + 1)
+                  })
+                )
               : [],
             linkedRecordType: "process",
             caption: `Pre-process media for ${trimmedName}`
           },
           ...steps.map((step, index) => ({
             files: step.files.map((file, fileIndex) =>
-              nomenclatureFile("processstep", trimmedName, processStepSegment(index + 1, step.stepType, fileIndex), file, fileIndex + 1)
+              renameMediaFile(file, {
+                recordType: "Process",
+                recordName: trimmedName,
+                descriptor: describeProcessStep({
+                  stepNumber: index + 1,
+                  stepName: step.name.trim(),
+                  subject: file,
+                  index: step.existingMedia.length + fileIndex + 1
+                })
+              })
             ),
             linkedRecordType: "processstep",
             caption: `Process step ${step.name}`,
             stepIndex: index
           }))
         ]
+      });
+      // Bank the sitting the moment the record is accepted (queued counts — offline is the normal
+      // case), so the next form opened from the dashboard already knows where the researcher is.
+      const savedArtisan = artisans.find((a) => a.id === artisanId);
+      const savedProduct = artisanProducts.find((product) => product.id === productId);
+      carry.remember({
+        artisanId,
+        artisanName: savedArtisan?.name ?? null,
+        place: savedArtisan?.place ?? null,
+        craftId: savedArtisan?.craftId ?? null,
+        // The product this process documents stays in the bag: a second process for the same
+        // product is the next thing a researcher does, and it should not need finding again.
+        productId,
+        productName: savedProduct?.productName ?? null,
+        workshopId: workshop.workshopId,
+        workshopName: workshop.workshops.find((w) => w.id === workshop.workshopId)?.title ?? null
       });
       if (outcome.queued) {
         // OutboxBanner at the top of the page names the entry and says where it lives.
@@ -514,9 +564,10 @@ export function ProcessForm({
       }
       const saved = outcome.saved;
 
-      // Upload media after the record exists: pre-process clips link to the process itself,
-      // each step's files link to that step (linkedRecordType "processstep" + the step id),
-      // with the Android nomenclature (PRE / STEP_1A / STEP_1_G1 …) preserved per file.
+      // Upload media after the record exists: pre-process clips link to the process itself, each
+      // step's files link to that step (linkedRecordType "processstep" + the step id). Names come
+      // from the SAVED process and step names — the API title-cases both, and the browser's name for
+      // a file has to read the same as the one the data browser derives from the row.
       const failures: string[] = [];
       const totalUploads = (preProcessAvailable ? preFiles.length : 0) + steps.reduce((sum, step) => sum + step.files.length, 0);
       let uploadCount = 0;
@@ -530,7 +581,11 @@ export function ProcessForm({
           note();
           try {
             await uploadMediaFile({
-              file: nomenclatureFile("process", trimmedName, "PRE", preFiles[index], index + 1),
+              file: renameMediaFile(preFiles[index], {
+                recordType: "Process",
+                recordName: saved.name || trimmedName,
+                descriptor: describePreProcess(preFiles[index], existingPreMedia.length + index + 1)
+              }),
               linkedRecordType: "process",
               linkedRecordId: saved.id,
               caption: `Pre-process media for ${trimmedName}`
@@ -547,10 +602,20 @@ export function ProcessForm({
         if (!local) continue;
         for (let fileIndex = 0; fileIndex < local.files.length; fileIndex += 1) {
           note();
-          const segment = processStepSegment(index + 1, serverStep.stepType, fileIndex);
           try {
             await uploadMediaFile({
-              file: nomenclatureFile("processstep", trimmedName, segment, local.files[fileIndex], fileIndex + 1),
+              file: renameMediaFile(local.files[fileIndex], {
+                recordType: "Process",
+                recordName: saved.name || trimmedName,
+                descriptor: describeProcessStep({
+                  stepNumber: serverStep.sortOrder ?? index + 1,
+                  stepName: serverStep.name,
+                  subject: local.files[fileIndex],
+                  // Continues past what is already on the step, so a second save cannot re-issue a
+                  // name the first one already wrote in the same minute.
+                  index: local.existingMedia.length + fileIndex + 1
+                })
+              }),
               linkedRecordType: "processstep",
               linkedRecordId: serverStep.id,
               caption: `Process step ${serverStep.name}`
@@ -605,6 +670,7 @@ export function ProcessForm({
       </div>
       {initial ? <FieldProvenance extraMetadata={initial.extraMetadata} /> : null}
       {error ? <div className="rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-error-600">{error}</div> : null}
+      <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
 
       {/* Android parity (ProcessForm): the workshop opens the form, because it is the context
           every other answer belongs to — not merely the first dropdown. */}
@@ -632,6 +698,12 @@ export function ProcessForm({
               if (picked !== artisanId) {
                 setArtisanId(picked);
                 setProductId("");
+                const artisan = artisans.find((a) => a.id === picked);
+                // An explicit pick replaces the remembered context and retires the banner: from
+                // here on the artisan on screen is the researcher's own choice, not a suggestion.
+                if (artisan) {
+                  carry.remember({ artisanId: artisan.id, artisanName: artisan.name, place: artisan.place }, { explicit: true });
+                }
               }
             }}
           >
@@ -650,7 +722,26 @@ export function ProcessForm({
         <Field label="Product" required>
           <Select
             value={productId}
-            onChange={(event) => setProductId(event.target.value)}
+            onChange={(event) => {
+              const picked = event.target.value;
+              setProductId(picked);
+              const product = artisanProducts.find((candidate) => candidate.id === picked);
+              if (!product) return;
+              // Two calls, in this order, and the order is the point: pruning first drops the
+              // product the banner was offering — the researcher has just overruled it, so the
+              // banner must stop claiming it — and remembering then banks the one they chose. The
+              // artisan above is still our suggestion, so the banner stays up saying so.
+              pruneCarried("product");
+              const artisan = artisans.find((candidate) => candidate.id === artisanId);
+              carry.remember({
+                artisanId,
+                artisanName: artisan?.name ?? null,
+                place: artisan?.place ?? null,
+                craftId: artisan?.craftId ?? null,
+                productId: product.id,
+                productName: product.productName
+              });
+            }}
             disabled={!artisanId || productsLoading || artisanProducts.length === 0}
           >
             <option value="">{productPlaceholder}</option>

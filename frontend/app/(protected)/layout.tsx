@@ -3,6 +3,7 @@ import { AppUpdateWatcher } from "@/components/dialogs/AppUpdateDialog";
 import { ConfirmProvider } from "@/components/dialogs/ConfirmDialog";
 import { OfflineWatcher } from "@/components/dialogs/OfflineDialog";
 import { OutboxBanner } from "@/components/OutboxBanner";
+import { UnsavedChangesProvider } from "@/components/UnsavedChangesGuard";
 
 /**
  * Every protected page renders inside AppShell, which owns the two things that must apply to all of
@@ -27,14 +28,21 @@ import { OutboxBanner } from "@/components/OutboxBanner";
  *
  * All four live here rather than in the root layout because they are for signed-in work: the login
  * and landing pages have nothing to confirm, nothing to save offline, and no lazy chunks to fail on.
+ *
+ * `UnsavedChangesProvider` wraps them because it has to sit above BOTH halves of a form page: the
+ * `PageHeader` with its round back control, and the form itself, which are siblings. It is what lets
+ * the one back control raise the form's "Unsaved changes" prompt, and so what lets the forms drop
+ * the second, rounded "Back" pill they used to carry for that purpose alone.
  */
 export default function ProtectedLayout({ children }: { children: React.ReactNode }) {
   return (
     <ConfirmProvider>
-      <AppShell>
-        <OutboxBanner />
-        {children}
-      </AppShell>
+      <UnsavedChangesProvider>
+        <AppShell>
+          <OutboxBanner />
+          {children}
+        </AppShell>
+      </UnsavedChangesProvider>
       <AppUpdateWatcher />
       <OfflineWatcher />
     </ConfirmProvider>

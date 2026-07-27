@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fieldrepo-queue
+  labels:
+    app.kubernetes.io/name: fieldrepo
+    app.kubernetes.io/component: queue
+  annotations:
+    # Load-bearing, not decoration. See the replicas/strategy comments below before changing either.
+    fieldrepo.io/singleton: "This workload must never run more than one pod."
+spec:
+  # EXACTLY ONE. Not a starting point, not an HPA target, not something to raise under load.
+  #
+  # Nothing in the queue claims a job atomically across processes. On EC2 the single-worker property
+  # comes from an fcntl lock on a file in the host temp directory (app/main.py
+  # _acquire_queue_worker_lock), which elects one worker among processes SHARING A FILESYSTEM. Pods do
+  # not share /tmp, so that lock is granted in every pod and elects nobody. Two pods here means two
+  # workers pulling the same rows: duplicate transcriptions, duplicate spend at the STT providers, and
+  # two ffmpeg processes racing over the same media.
+  #
+  # The safe way to raise throughput is a database-level claim (SELECT ... FOR UPDATE SKIP LOCKED, or
+  # a lease column) in the queue service. Until that exists, this stays at 1.
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    # Recreate, NOT RollingUpdate. A rolling update deliberately overlaps old and new pods, which is
+    # precisely the two-workers state above — just briefly, and briefly is enough to double-process a
+    # job. Recreate accepts a gap in queue processing instead, which is harmless: work waits in the
+    # database and is picked up on the next poll.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fieldrepo
+      app.kubernetes.io/component: queue
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fieldrepo
+        app.kubernetes.io/component: queue
+    spec:
+      automountServiceAccountToken: false
+      # Longer than the API's: this process can be mid-transcription when the node drains, and the
+      # loop only checks for shutdown between jobs. Cutting it short means a half-processed item and
+      # a wasted provider call.
+      terminationGracePeriodSeconds: 300
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: queue
+          image: fieldrepo-api
+          imagePullPolicy: IfNotPresent
+          # The dedicated worker entrypoint (backend/app/worker.py), the same one the fieldrepo-queue
+          # systemd unit runs. Its whole reason for existing is that heavy AI/ffmpeg work must not
+          # share a process with request serving.
+          #
+          # `args`, not `command`, for the reason spelled out in deployment-api.yaml: `command` would
+          # replace the image's ENTRYPOINT and with it the wrong-database guard.
+          args: ["python", "-m", "app.worker"]
+          envFrom:
+            - configMapRef:
+                name: fieldrepo-config
+            - secretRef:
+                name: fieldrepo-secrets
+          env:
+            # This is the ONE place it is true. The ConfigMap sets it false for the api pods; here the
+            # container-level value overrides that back on, so the flag's meaning stays "this process
+            # runs the queue" rather than becoming environment trivia.
+            - name: MEDIA_QUEUE_WORKER_ENABLED
+              value: "true"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: TMPDIR
+              value: /tmp
+            - name: HOME
+              value: /tmp
+            - name: XDG_CACHE_HOME
+              value: /tmp/.cache
+          # No HTTP probes: this process serves no HTTP, so there is nothing to GET. A liveness probe
+          # would need a heartbeat the worker does not currently write, and inventing an exec probe
+          # that always succeeds is worse than none — it reports health it has not checked. The queue
+          # loop already swallows per-iteration errors and keeps running (app/worker.py), so the
+          # failure mode to watch is "queue depth rising", which belongs in alerting, not a probe.
+          resources:
+            requests:
+              cpu: 300m
+              memory: 512Mi
+            limits:
+              cpu: "1500m"
+              # Higher than the API's because this is where the memory actually goes: the pipeline
+              # reads whole media files into memory before chunking. 925 media objects exist today
+              # and individual clips are the largest single allocation in the system.
+              memory: 1536Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            # Far larger than the API's: ffmpeg writes audio chunks here, and the ingress already
+            # allows 200 MiB bodies. Still bounded, so a stuck job cannot fill the node.
+            sizeLimit: 4Gi

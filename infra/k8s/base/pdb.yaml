@@ -1,0 +1,43 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: fieldrepo-api
+  labels:
+    app.kubernetes.io/name: fieldrepo
+    app.kubernetes.io/component: api
+spec:
+  # maxUnavailable, NOT minAvailable, and the distinction is the whole point of this file.
+  #
+  # `minAvailable: 1` is the reflex, and on a Deployment that can legitimately sit at one replica it
+  # is a deadlock: the budget says one pod must survive, there is only one pod, so the eviction API
+  # refuses forever and `kubectl drain` on that node blocks until somebody notices and deletes the
+  # PDB. The dev overlay runs exactly one replica, and the HPA's minReplicas is 1 in the base — so
+  # this is not a corner case, it is the normal state.
+  #
+  # `maxUnavailable: 1` expresses the thing actually wanted: voluntary disruption may take one pod at
+  # a time. At two or more replicas it guarantees the rest keep serving; at one replica it allows the
+  # drain to proceed with a brief gap, which is the correct trade when the alternative is a node that
+  # can never be drained. Involuntary disruption (node dies, OOM kill) ignores PDBs entirely — the
+  # defence against that is the topology spread in deployment-api.yaml, not this file.
+  maxUnavailable: 1
+  # A PDB normally blocks eviction of pods that are Running but not Ready, which means a rollout that
+  # is crash-looping — precisely when a node needs draining most — cannot be drained at all. This says
+  # an unhealthy pod is never worth protecting. Requires Kubernetes >= 1.27 (beta, on by default; GA
+  # in 1.31); on anything older the field is silently dropped and the behaviour reverts to the block.
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fieldrepo
+      app.kubernetes.io/component: api
+---
+# THE QUEUE DEPLOYMENT GETS NO PodDisruptionBudget, ON PURPOSE.
+#
+# It is a hard singleton (deployment-queue.yaml explains why a second pod double-processes jobs and
+# double-pays the STT providers), so the only budget that could protect it is `minAvailable: 1` — and
+# on a one-replica workload that is the deadlock described above, permanently. A queue worker is also
+# the workload with the least claim on it: nothing waits on a synchronous response, work sits in the
+# database, and a gap of a few seconds while the pod moves nodes is invisible to every client.
+#
+# What DOES protect an in-flight transcription from a node drain is the 300s terminationGracePeriod
+# on that Deployment, which is a property of the pod rather than a promise extracted from the
+# eviction API.

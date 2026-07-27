@@ -120,18 +120,23 @@ async def record_revision(record: Any, user: Any, data: dict[str, Any], record_t
 
 async def guard_record_edit(record: Any, user: Any, data: dict[str, Any], record_type: str) -> bool:
     """Authorize a field-changing edit and audit it. Returns True if the user is privileged (admin,
-    owner, or EDIT-tier grantee) and may change any populated field/relation; False for an ordinary
-    contributor (who may only fill empty fields — enforced here, raising 403 on a locked field). Always
-    records a revision of the fields that change. Pass the cleaned `data` before provenance is merged.
+    owner, a professor+ outranking the record's author, or an EDIT-tier grantee) and may change any
+    populated field/relation; False for an ordinary contributor (who may only fill empty fields —
+    enforced here, raising 403 on a locked field). Always records a revision of the fields that
+    change. Pass the cleaned `data` before provenance is merged.
     """
-    from app.core.deps import assert_can_contribute_fields, get_value, is_admin
+    from app.core.deps import assert_can_contribute_fields, get_value, is_admin, may_edit_lower_ranked_record
 
     owner_id = get_value(record, "createdById")
     uid = get_value(user, "id")
     privileged = is_admin(user) or (owner_id is not None and uid == owner_id)
     if not privileged:
-        tier = await effective_tier_for_record(user, owner_id, record_type, get_value(record, "id"))
-        if tier == "EDIT":
+        # "A professor may edit the data of anyone ranked below them" — checked before the grant
+        # lookup because it costs nothing for the ranks it does not apply to, so nobody below
+        # Professor pays an extra query for a clause that can only ever answer no for them.
+        if await may_edit_lower_ranked_record(user, owner_id):
+            privileged = True
+        elif await effective_tier_for_record(user, owner_id, record_type, get_value(record, "id")) == "EDIT":
             privileged = True
         else:
             assert_can_contribute_fields(record, user, data)

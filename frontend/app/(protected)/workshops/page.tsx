@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { MapPinned } from "lucide-react";
 
 import { CollabDialog } from "@/components/CollabDialog";
@@ -9,7 +10,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { FieldProvenance } from "@/components/FieldProvenance";
 import { Field, MultiNoteField, Select, TextArea, TextInput } from "@/components/FormControls";
 import { DateRangeField } from "@/components/forms/DateRangeField";
-import { LocationFields } from "@/components/forms/LocationFields";
+import { LocationFields, type LocationInitialValues } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { UploadProgress } from "@/components/media/UploadProgress";
@@ -22,6 +23,7 @@ import { SearchInput } from "@/components/SearchInput";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MultiSelectDropdown } from "@/components/ui/Dropdown";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
+import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
@@ -93,6 +95,7 @@ function WorkshopsPageBody() {
   const [uploadProgress, setUploadProgress] = useState<BatchProgress | null>(null);
   // Unsaved-changes guard: dirty is set by any form input / media change; confirmAction holds the
   // navigation the user asked for while the dialog decides its fate.
+  const router = useRouter();
   const [dirty, setDirty] = useState(false);
   const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
   const [saving, setSaving] = useState(false);
@@ -200,6 +203,10 @@ function WorkshopsPageBody() {
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [dirty]);
+
+  // Soft navigation via the round back control in the page header — the page's only back control —
+  // parks through the same mechanism, so Discard performs the navigation that was asked for.
+  useLeaveGuard(dirty, () => guard(() => router.back()));
 
   /** Run `action` now, or park it behind the unsaved-changes dialog when the form is dirty. */
   function guard(action: () => void) {
@@ -414,7 +421,16 @@ function WorkshopsPageBody() {
         <UploadProgress progress={uploadProgress} sectionId={MEDIA_SECTION} label={MEDIA_SECTION_LABEL} />
         {/* Editing an existing workshop: everything already attached to it, with per-file delete. */}
         {editing ? <ExistingMedia linkedRecordType="workshop" linkedRecordId={editing.id} title="Previously uploaded workshop media" /> : null}
-        <LocationFields />
+        {/*
+          One form serves create AND edit here (the `key` above remounts it), so the stored location
+          has to be handed over on the edit pass. Without it the card reads `initial === undefined`,
+          treats an edit as a new record, and auto-captures — writing wherever the researcher happens
+          to be sitting over the coordinates of a workshop that was documented somewhere else.
+        */}
+        <LocationFields
+          initial={editing ? ((editing as Workshop & { location?: LocationInitialValues | null }).location ?? null) : undefined}
+          onDirty={() => setDirty(true)}
+        />
         <div className="flex gap-2">
           <button className="field-button" disabled={saving}>
             {saving ? "Saving..." : editing ? "Update workshop" : "Create workshop"}

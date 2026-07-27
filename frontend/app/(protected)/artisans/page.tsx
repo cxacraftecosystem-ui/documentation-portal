@@ -9,6 +9,8 @@ import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { EMPTY_FUNNEL, FunnelFilters, type FunnelValue, type FunnelWorkshop } from "@/components/FunnelFilters";
 import { PageHeader } from "@/components/PageHeader";
+import { useAuth } from "@/components/AuthProvider";
+import { canCreateRecords } from "@/lib/permissions";
 import { Pagination } from "@/components/Pagination";
 import { ResizableTh } from "@/components/ResizableTh";
 import { RowActions, rowAction } from "@/components/RowActions";
@@ -23,6 +25,7 @@ export default function ArtisansPage() {
   const { adminMode } = useAdminView();
   const confirm = useConfirm();
   const [data, setData] = useState<PageResult<Artisan> | null>(null);
+  const { user } = useAuth();
   const [query, setQuery] = useState("");
   const [applied, setApplied] = useState("");
   const [page, setPage] = useState(1);
@@ -129,11 +132,16 @@ export default function ArtisansPage() {
         title="Artisans"
         description="Create, search and maintain artisan profiles with craft, place and contact metadata."
         icon={<Users className="h-5 w-5" aria-hidden />}
+        // Gated, not merely locked: an ungated "New …" invited every tier to press a button that
+        // lands on the route guard's refusal. Below researcher the honest UI is no button, matching
+        // `require_record_creator` on the server.
         actions={
-          <Link className="field-button" href="/artisans/new">
-            <Plus className="h-4 w-4" aria-hidden />
-            New artisan
-          </Link>
+          canCreateRecords(user) ? (
+            <Link className="field-button" href="/artisans/new">
+              <Plus className="h-4 w-4" aria-hidden />
+              New artisan
+            </Link>
+          ) : null
         }
       />
       <div className="mb-3">

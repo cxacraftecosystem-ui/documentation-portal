@@ -1,6 +1,5 @@
 package com.fieldrepository.app.ui
 
-import android.app.DatePickerDialog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -10,7 +9,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -55,7 +53,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.clip
@@ -1122,22 +1119,28 @@ internal fun SearchFilterBar(
                 )
 
                 if (value.range == SearchRange.CUSTOM) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    // Stacked, not side by side: each end is now a typed dd/mm/yyyy box with a
+                    // calendar button in its trailing slot, and half a phone width cannot hold both
+                    // at a large system font. The web's own date grid splits only above 640px, so a
+                    // single column is what a handset gets there too.
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         // Each end bounds the other in the picker itself, so an inverted range —
                         // which matches nothing and looks like a broken filter — cannot be entered.
-                        SearchDateField(
+                        FieldDateField(
                             label = "From",
                             value = value.from,
-                            onChange = { onChange(value.copy(from = it)) },
+                            onValueChange = { onChange(value.copy(from = it)) },
                             maximum = value.to,
-                            modifier = Modifier.weight(1f)
+                            placeholder = "Any date",
+                            clearable = true
                         )
-                        SearchDateField(
+                        FieldDateField(
                             label = "To",
                             value = value.to,
-                            onChange = { onChange(value.copy(to = it)) },
+                            onValueChange = { onChange(value.copy(to = it)) },
                             minimum = value.from,
-                            modifier = Modifier.weight(1f)
+                            placeholder = "Any date",
+                            clearable = true
                         )
                     }
                 }
@@ -1236,7 +1239,7 @@ private fun SearchChip(text: String, tone: ChipTone, onClick: () -> Unit, icon: 
 // ---------------------------------------------------------------------------------------------
 
 @Composable
-private fun SearchCard(
+internal fun SearchCard(
     title: String,
     icon: ImageVector? = null,
     trailing: (@Composable () -> Unit)? = null,
@@ -1398,65 +1401,17 @@ private fun SearchDropdownField(
     }
 }
 
-/** The platform date picker, so a date is entered the way every other Android app enters one. */
-@Composable
-private fun SearchDateField(
-    label: String,
-    value: LocalDate?,
-    onChange: (LocalDate?) -> Unit,
-    modifier: Modifier = Modifier,
-    minimum: LocalDate? = null,
-    maximum: LocalDate? = null
-) {
-    val context = LocalContext.current
-    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        OutlinedButton(
-            onClick = {
-                val initial = value ?: maximum ?: minimum ?: LocalDate.now()
-                DatePickerDialog(
-                    context,
-                    { _, year, month, day -> onChange(LocalDate.of(year, month + 1, day)) },
-                    initial.year,
-                    initial.monthValue - 1,
-                    initial.dayOfMonth
-                ).apply {
-                    // Bounds go on the widget, not on a validation message: a day the range cannot
-                    // hold should never be tappable in the first place.
-                    minimum?.let { datePicker.minDate = epochMillis(it) }
-                    maximum?.let { datePicker.maxDate = epochMillis(it) }
-                }.show()
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(
-                value?.format(searchDayFormatter) ?: "Any date",
-                color = if (value != null) MaterialTheme.field.body else MaterialTheme.field.placeholder,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        if (value != null) {
-            TextButton(onClick = { onChange(null) }, contentPadding = PaddingValues(horizontal = 4.dp)) {
-                Text("Clear", style = MaterialTheme.typography.labelSmall)
-            }
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------------------------
 // Dates
+//
+// The From/To filters used to be a local copy of MainActivity's DatePickerField, opening the
+// PLATFORM android.app.DatePickerDialog. That dialog is styled from res/values/styles.xml, which
+// the system picks by ITS OWN night setting and not by the app's appearance preference, so the
+// calendar arrived in the opposite theme to the screen behind it whenever the two disagreed. Both
+// ends are now ui/DateTimeFields.FieldDateField — one Compose control, one colour scheme, and the
+// dd/mm/yyyy the web types in the same boxes.
 // ---------------------------------------------------------------------------------------------
 
-private val searchDayFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.getDefault())
-
-/**
- * A day as the epoch millis `DatePicker.minDate`/`maxDate` want. Noon, not midnight: the widget
- * compares against the device's own zone, and a midnight bound east of Greenwich excludes the very
- * day it was meant to allow.
- */
-private fun epochMillis(date: LocalDate): Long =
-    date.atTime(12, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
 private val searchDateTimeFormatter: DateTimeFormatter =
     DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a", Locale.getDefault())
 

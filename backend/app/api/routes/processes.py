@@ -4,17 +4,20 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, status
 
 from app.core.db import db
-from app.core.deps import require_record_creator, assert_can_delete, get_current_user
+from app.core.deps import require_record_creator, assert_can_delete, enum_or_raw, get_current_user
 from app.services.access import guard_record_edit
 from app.schemas.records import ProcessCreate, ProcessStepInput, ProcessUpdate
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
+    Relation,
     public_encode,
     add_date_range,
     apply_status_policy_create,
     apply_status_policy_update,
     clean_data,
     contains,
+    count_and_page,
+    hydrate_relations,
     merge_field_provenance,
     require_record,
     resubmit_status,
@@ -28,7 +31,15 @@ from app.services.workshop_access import (
 
 router = APIRouter(prefix="/processes", tags=["processes"])
 
-INCLUDE = {"product": True, "createdBy": True, "steps": True, "workshop": True}
+# What a process carries on the wire, loaded in one parallel wave (see services/records.py for why).
+# The write paths hydrate the row they saved rather than passing an ``include`` — steps are written
+# after the process row exists, so there is nothing for a create-time include to load anyway.
+RELATIONS = (
+    Relation("product", "productdocumentation", "productId"),
+    Relation("createdBy", "user", "createdById"),
+    Relation("steps", "processstep", "processId", many=True),
+    Relation("workshop", "workshop", "workshopId"),
+)
 
 
 def _encode_light(process: Any) -> dict[str, Any]:
@@ -62,33 +73,55 @@ async def _hydrate(process: Any) -> dict[str, Any]:
 
 
 async def _sync_steps(process_id: str, steps: list[ProcessStepInput]) -> None:
-    """Upsert the supplied steps, preserving existing step IDs so their linked media survives edits."""
+    """Upsert the supplied steps, preserving existing step IDs so their linked media survives edits.
+
+    Batched rather than one statement per step. A process form re-sends its whole step list on every
+    save, so an eight-step process cost eight sequential writes plus a delete each for anything
+    removed — every one of them a cross-region round trip on this deployment. Now the new steps go in
+    with a single insert, the removed ones leave with a single delete, and the only per-step writes
+    left are the steps whose content actually changed, which on a typical save is one or none.
+
+    New steps need no ids read back: a freshly inserted step can never be in the previously-existing
+    set, so what survives the edit is decided entirely by the ids the caller sent.
+    """
     existing = await db.processstep.find_many(where={"processId": process_id})
-    existing_ids = {step.id for step in existing}
+    by_id = {step.id: step for step in existing}
     keep: set[str] = set()
+    to_create: list[dict[str, Any]] = []
+    to_update: list[tuple[str, dict[str, Any]]] = []
     for index, step in enumerate(steps):
         order = step.sortOrder if step.sortOrder else index + 1
         notes = (step.notes or "").strip() or None
-        if step.id and step.id in existing_ids:
-            await db.processstep.update(
-                where={"id": step.id},
-                data={"name": step.name, "stepType": step.stepType, "sortOrder": order, "notes": notes},
-            )
+        current = by_id.get(step.id) if step.id else None
+        if current is not None:
             keep.add(step.id)
-        else:
-            created = await db.processstep.create(
-                data={
-                    "processId": process_id,
-                    "name": step.name,
-                    "stepType": step.stepType,
-                    "sortOrder": order,
-                    "notes": notes,
-                }
+            unchanged = (
+                current.name == step.name
+                and str(enum_or_raw(current.stepType)) == str(step.stepType)
+                and current.sortOrder == order
+                and current.notes == notes
             )
-            keep.add(created.id)
-    for step in existing:
-        if step.id not in keep:
-            await db.processstep.delete(where={"id": step.id})
+            if not unchanged:
+                to_update.append(
+                    (step.id, {"name": step.name, "stepType": step.stepType, "sortOrder": order, "notes": notes})
+                )
+            continue
+        to_create.append(
+            {
+                "processId": process_id,
+                "name": step.name,
+                "stepType": step.stepType,
+                "sortOrder": order,
+                "notes": notes,
+            }
+        )
+    if to_create:
+        await db.processstep.create_many(data=to_create)
+    for step_id, data in to_update:
+        await db.processstep.update(where={"id": step_id}, data=data)
+    removed = [step.id for step in existing if step.id not in keep]
+    if removed:
+        await db.processstep.delete_many(where={"id": {"in": removed}})
 
 
 @router.get("")
@@ -138,13 +171,13 @@ async def list_processes(
     if and_filters:
         where["AND"] = and_filters
     add_date_range(where, "createdAt", dateFrom, dateTo)
-    total = await db.process.count(where=where)
-    items = await db.process.find_many(
+    total, items = await count_and_page(
+        db.process,
         where=where,
-        include=INCLUDE,
         skip=skip,
         take=page_size,
         order={"createdAt": "desc"},
+        relations=RELATIONS,
     )
     return page_payload([_encode_light(item) for item in items], total, page, page_size)
 
@@ -166,15 +199,16 @@ async def create_process(
     pin_pending_if_late(data, current_user, check=check)
     created = await db.process.create(data=data)
     await _sync_steps(created.id, payload.steps)
-    hydrated = await db.process.find_unique(where={"id": created.id}, include=INCLUDE)
-    return await _hydrate(hydrated)
+    # The steps were written after the row, so they are loaded here rather than on the create — and
+    # hydrating the row we already hold saves reading it back a second time from another region.
+    await hydrate_relations([created], RELATIONS)
+    return await _hydrate(created)
 
 
 @router.get("/{process_id}")
 async def get_process(process_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    process = await db.process.find_unique(where={"id": process_id}, include=INCLUDE)
-    if not process:
-        await require_record(db.process, process_id)
+    process = await require_record(db.process, process_id)
+    await hydrate_relations([process], RELATIONS)
     return await _hydrate(process)
 
 
@@ -205,7 +239,8 @@ async def update_process(
         await db.process.update(where={"id": process_id}, data=data)
     if payload.steps is not None:
         await _sync_steps(process_id, payload.steps)
-    hydrated = await db.process.find_unique(where={"id": process_id}, include=INCLUDE)
+    hydrated = await db.process.find_unique(where={"id": process_id})
+    await hydrate_relations([hydrated], RELATIONS)
     return await _hydrate(hydrated)
 
 

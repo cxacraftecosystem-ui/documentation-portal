@@ -14,6 +14,7 @@
 import { useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 
+import { DateField } from "@/components/forms/DateTimeField";
 import { Dropdown } from "@/components/ui/Dropdown";
 
 /** The five buckets `GET /search` returns, in the order the results are rendered. */
@@ -321,27 +322,31 @@ export function SearchFilterBar({
           </div>
 
           {value.range === "custom" ? (
+            // Only reachable once "Custom range" has been chosen, so the presets — which are what
+            // nearly every search actually wants — never have to walk past a calendar to be used.
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="grid gap-1">
-                <span className="field-label">From</span>
-                <input
-                  type="date"
-                  className="field-input"
+              <div className="grid gap-1">
+                <label className="field-label" htmlFor="search-range-from">
+                  From
+                </label>
+                <DateField
+                  id="search-range-from"
                   value={value.from}
                   max={value.to || undefined}
-                  onChange={(event) => onChange({ ...value, from: event.target.value })}
+                  onChange={(from) => onChange({ ...value, from })}
                 />
-              </label>
-              <label className="grid gap-1">
-                <span className="field-label">To</span>
-                <input
-                  type="date"
-                  className="field-input"
+              </div>
+              <div className="grid gap-1">
+                <label className="field-label" htmlFor="search-range-to">
+                  To
+                </label>
+                <DateField
+                  id="search-range-to"
                   value={value.to}
                   min={value.from || undefined}
-                  onChange={(event) => onChange({ ...value, to: event.target.value })}
+                  onChange={(to) => onChange({ ...value, to })}
                 />
-              </label>
+              </div>
             </div>
           ) : null}
 

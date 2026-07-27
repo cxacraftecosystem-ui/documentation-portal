@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Landmark } from "lucide-react";
 
 import { CollabPanel } from "@/components/CollabPanel";
@@ -19,6 +20,7 @@ import { ResizableTh } from "@/components/ResizableTh";
 import { RowActions, rowAction } from "@/components/RowActions";
 import { SearchInput } from "@/components/SearchInput";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
+import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
@@ -61,6 +63,7 @@ function CraftsPageBody() {
   const [uploadProgress, setUploadProgress] = useState<BatchProgress | null>(null);
   // Unsaved-changes guard: dirty is set by any form input / media change; confirmAction holds the
   // navigation the user asked for while the dialog decides its fate.
+  const router = useRouter();
   const [dirty, setDirty] = useState(false);
   const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
   const [saving, setSaving] = useState(false);
@@ -112,6 +115,10 @@ function CraftsPageBody() {
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [dirty]);
+
+  // Soft navigation via the round back control in the page header — the page's only back control —
+  // parks through the same mechanism, so Discard performs the navigation that was asked for.
+  useLeaveGuard(dirty, () => guard(() => router.back()));
 
   /** Run `action` now, or park it behind the unsaved-changes dialog when the form is dirty. */
   function guard(action: () => void) {

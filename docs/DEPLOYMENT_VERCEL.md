@@ -237,23 +237,34 @@ does. Two caveats if you later split them:
 > secrets and troubleshooting: **[docs/CI.md](CI.md)**.
 >
 > This also means Vercel's own auto-deploy for `main` must stay switched off, or it races ahead of
-> the backend and re-creates exactly the bug the pipeline prevents. Preview deployments for pull
-> requests are unaffected — leave them on.
+> the backend and re-creates exactly the bug the pipeline prevents.
+
+> **Updated 2026-07-27 — the existing project is no longer linked to GitHub at all.** Cancelling
+> Git-triggered builds was not enough: a cancelled build is still a deployment record and still an
+> email, for work nobody wanted, and twelve of them failed outright with `No Next.js version
+> detected` before the Root Directory was set. So the link was removed
+> (`DELETE /v9/projects/{id}/link`). GitHub Actions authenticates with `VERCEL_TOKEN` instead, and
+> `vercel deploy --prebuilt` does not need the project to know about GitHub. **The cost is that pull
+> requests no longer get automatic preview deployments** — which contradicts the "leave previews on"
+> advice above and is the deliberate trade. Re-link in the dashboard if previews are wanted back, and
+> rely on the layers in step 2 to keep Git builds off `main`.
 
 1. Click **Deploy** for the first build (1–3 minutes) so the project exists and the domain is
    assigned.
-2. Confirm dashboard-triggered production builds are off. This is already done for the existing
-   project and is committed rather than clicked: `frontend/vercel.json` carries
-   `"ignoreCommand": "exit 0"`, which cancels every build Vercel's Git integration starts while
-   keeping the Git connection (and so the commit and PR annotations). The Ignored Build Step is a
-   Git-integration feature only, so it can never block `vercel build` / `vercel deploy --prebuilt`
-   from CI. If you are standing up a *new* project, set the same thing under
-   **Settings → Git → Ignored Build Step** until the file lands.
+2. Confirm dashboard-triggered production builds are off. For the existing project this is settled
+   three ways over: the Git link is **removed**, `frontend/vercel.json` carries
+   `"ignoreCommand": "exit 0"`, and `gitProviderOptions.createDeployments` is disabled at the project
+   level. The Ignored Build Step is a Git-integration feature only, so it can never block
+   `vercel build` / `vercel deploy --prebuilt` from CI. If you are standing up a *new* project, set
+   the Ignored Build Step under **Settings → Git → Ignored Build Step** until the file lands.
 3. Add the `VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` repository secrets — see
    [docs/CI.md §2](CI.md#2-required-repository-secrets) for exactly where each value comes from.
 4. Before trusting the first CI deploy, run `vercel env ls production` and check the type column
-   reads `Encrypted` for every `NEXT_PUBLIC_*` (§2.2). Nothing downstream will tell you if it does
-   not: a build missing those values does not fail, it deploys green and unusable.
+   reads `Encrypted` for every `NEXT_PUBLIC_*` (§2.2). ~~Nothing downstream will tell you if it does
+   not~~ — **the pipeline now does.** Stage 2 asserts three times over that the values were pulled,
+   that they reached the compiled bundle, and that the bundle the CDN serves is the one that was
+   verified ([CI.md §1](CI.md)). Run the check anyway: a red run at deploy time is better than a
+   broken site, and a correct dashboard is better than a red run.
 
 From then on, a push to `main` deploys the backend first and this project second, automatically.
 
@@ -472,3 +483,34 @@ time (needs the API reachable from Vercel's servers, not just from the browser).
 and a `Permissions-Policy` that deliberately **keeps** `geolocation`, `microphone`, `camera` and
 `clipboard-write` enabled for our own origin — field capture (GPS tagging, audio recording, camera
 file inputs) stops working if those get denied.
+
+> Note the deliberate asymmetry with the API: the backend's `Permissions-Policy` denies all of those
+> (`camera=()`, `microphone=()`, `geolocation=()`), because a JSON API has no use for them. The web
+> origin is where capture actually happens, so it must not copy that policy.
+> See [SECURITY.md §1.2](SECURITY.md).
+
+---
+
+## How this document is kept true
+
+This document is mostly a **console runbook**, which makes it the hardest kind to keep honest: most
+of what it describes lives in the Vercel dashboard and cannot be read from a checkout. So the rule
+here is stricter than elsewhere — anything not checkable is marked, and anything that *can* be moved
+out of the console and into an assertion should be.
+
+| Claim class | Kept true by |
+|---|---|
+| The `NEXT_PUBLIC_*` variables and what each does | `frontend/lib/api.ts`, and the complete table in [ENVIRONMENT.md](ENVIRONMENT.md). One source; this document explains the *traps*, not the list. |
+| §2.2 the Sensitive-vs-Encrypted trap | Now **enforced**, not just documented: stage 2 of the pipeline fails when a required value is missing from the pull, from the build, or from the served bundle ([CI.md §1](CI.md)). That is the model to follow — a trap that a runbook can only warn about is a trap that will be hit. |
+| §3 the deploy flow | `.github/workflows/deploy-frontend.yml`. |
+| §4.1 CORS, §4.2 bucket CORS, §4.3 Google origins | `BACKEND_CORS_ORIGINS` is in the `BACKEND_ENV` secret; the other two are AWS and Google console state. All three **UNVERIFIED from here**. §7.3 is the symptom-side check for the first. |
+| §8 what makes this Vercel-compatible | `frontend/next.config.ts`, plus the absence of route handlers and server actions. `grep -rl "use server\|export async function GET" frontend/app` returning nothing is the check, and it is the property the whole section rests on. |
+| Project settings: Root Directory, Git link, env types | Dashboard state. **UNVERIFIED.** One of the three — Root Directory — is asserted by the workflow at deploy time; the other two are not, and both have caused an incident. |
+
+**Review triggers:** `frontend/next.config.ts`, `frontend/vercel.json`,
+`.github/workflows/deploy-frontend.yml`, or any new server-side code under `frontend/app`.
+
+**Struck-through text is kept on purpose.** Where a statement was true and has stopped being true —
+"leave previews on", "nothing downstream will tell you" — the correction sits next to it rather than
+replacing it, because a reader who remembers the old advice needs to see that it changed, not
+silently find different words.

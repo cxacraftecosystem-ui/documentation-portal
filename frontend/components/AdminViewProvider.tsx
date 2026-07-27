@@ -169,10 +169,13 @@ export const ADMIN_CHROME_ROUTES: AdminChromeRoute[] = [
     blurb: "Rotating, testing and revealing the provider keys the repository runs on."
   },
   {
-    path: "/settings/workshop-access",
+    path: "/workshop-access/manage",
     label: "Workshop access administration",
     blurb: "The cross-workshop request queue, plus each workshop's roster and access levels.",
-    alternative: { href: "/settings", label: "Request workshop access" }
+    // /workshop-access itself is NOT chrome: it belongs to every account, and an admin with the
+    // toggle off is sent to the request page there exactly as an ordinary user is. Only the console
+    // is chrome, so this is the one path listed.
+    alternative: { href: "/workshop-access/request", label: "Request workshop access" }
   },
   {
     path: "/settings/tasks",

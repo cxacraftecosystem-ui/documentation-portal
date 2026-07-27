@@ -8,39 +8,55 @@
  * where reviewing, browsing and administration happen. A researcher given only one of them does the
  * wrong half of their work in the wrong place, and nothing in either app used to mention the other.
  *
- * The download is whatever a master admin last published through the in-app updater
- * (`GET /app/release/latest`), so this is always the same build the OTA check hands out — there is
- * no second, staler copy to fall out of date. When nothing has been published yet the card says so
- * plainly instead of offering a dead button.
+ * THE LINK NAMES NO BUILD. It used to: the card fetched the current release and put that release's
+ * storage URL into the `href`, which meant the button handed out whichever build was newest at the
+ * moment the page happened to load. A tab left open across a release, a link copied to someone else,
+ * anything that cached the markup — all of them kept serving the old APK, and nothing on screen said
+ * so. Now the `href` is the fixed address `/api/app/download`, which resolves the newest release
+ * server-side on every single click, from the same row the phone's update check reads. The version
+ * and date below are a *label* on that link, not the thing that decides what it fetches.
  */
 
 import { useEffect, useState } from "react";
-import { Download, Smartphone } from "lucide-react";
+import { AlertTriangle, Download, Smartphone } from "lucide-react";
 
-import { apiFetch } from "@/lib/api";
+import { API_BASE, apiFetch } from "@/lib/api";
+import { formatDate } from "@/lib/format";
 
 type Release = {
   versionName?: string;
   versionCode?: number;
-  url?: string | null;
   notes?: string | null;
   publishedAt?: string;
 };
 
+/**
+ * Three outcomes worth telling apart, because two of them still deserve a working button: we know
+ * the current version, nothing has ever been published (nothing to offer), or the check itself
+ * failed (the download endpoint may well be fine — only our label for it is missing).
+ */
+type Status = "loading" | "published" | "none" | "unchecked";
+
+/** Fixed, versionless, resolved server-side per request. See the file comment. */
+const DOWNLOAD_URL = `${API_BASE}/api/app/download`;
+
 export function GetTheAppPanel() {
   const [release, setRelease] = useState<Release | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<Status>("loading");
 
   useEffect(() => {
     apiFetch<Release>("/app/release/latest")
-      .then(setRelease)
-      // A missing release is not an error worth showing: the card degrades to its "not published
-      // yet" state, which is the same thing the researcher needs to know either way.
-      .catch(() => setRelease(null))
-      .finally(() => setLoading(false));
+      .then((latest) => {
+        // The endpoint answers `{}` when no release exists — a real answer, not a failure.
+        if (latest?.versionCode) {
+          setRelease(latest);
+          setStatus("published");
+        } else {
+          setStatus("none");
+        }
+      })
+      .catch(() => setStatus("unchecked"));
   }, []);
-
-  const url = release?.url ?? null;
 
   return (
     <section className="panel grid gap-3 p-4">
@@ -58,24 +74,51 @@ export function GetTheAppPanel() {
         </div>
       </div>
 
-      {loading ? (
-        <p className="text-xs text-ink-500">Checking for the current build…</p>
-      ) : url ? (
-        <div className="flex flex-wrap items-center gap-3">
-          <a className="field-button" href={url} download>
-            <Download className="h-4 w-4" aria-hidden />
-            Download the APK
-            {release?.versionName ? ` · v${release.versionName}` : ""}
-          </a>
-          <span className="text-xs text-ink-500">
-            Android will ask you to allow installing from this browser the first time.
-          </span>
-        </div>
-      ) : (
+      {status === "loading" ? (
+        <p className="text-xs text-ink-500">Checking which build is current…</p>
+      ) : status === "none" ? (
         <p className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-xs text-ink-500">
-          No build has been published yet. A master admin publishes one from the Android app&rsquo;s menu
-          (&ldquo;Push update to all&rdquo;), and it appears here automatically.
+          No build has been published yet. A master admin publishes one — from &ldquo;Publish an Android update&rdquo;
+          on this page, or from the phone&rsquo;s own &ldquo;Push update to all&rdquo; — and it appears here
+          automatically.
         </p>
+      ) : (
+        <div className="grid gap-2">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* No `download` attribute: it is ignored on a cross-origin link, and the API already
+                sends the filename — field-repository-v<version>.apk — in Content-Disposition. */}
+            <a className="field-button" href={DOWNLOAD_URL}>
+              <Download className="h-4 w-4" aria-hidden />
+              Download the APK
+              {release?.versionName ? ` · v${release.versionName}` : ""}
+            </a>
+            <span className="text-xs text-ink-500">
+              Android will ask you to allow installing from this browser the first time.
+            </span>
+          </div>
+
+          {status === "published" ? (
+            <p className="text-xs text-ink-500">
+              Version {release?.versionName} (build {release?.versionCode}), published{" "}
+              {formatDate(release?.publishedAt)}. The link always fetches the newest published build — the same one
+              phones are prompted to install.
+            </p>
+          ) : (
+            <p className="flex items-start gap-1.5 text-xs text-ink-500">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />
+              <span>
+                Could not reach the repository to check which version is current. The download itself resolves the
+                newest build when you click it, so it is still worth trying.
+              </span>
+            </p>
+          )}
+
+          {status === "published" && release?.notes ? (
+            <p className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-xs leading-5 text-ink-700">
+              {release.notes}
+            </p>
+          ) : null}
+        </div>
       )}
     </section>
   );

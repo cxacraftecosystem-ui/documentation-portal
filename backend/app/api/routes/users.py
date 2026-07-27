@@ -8,6 +8,7 @@ from app.core.config import get_settings
 from app.core.deps import (
     ROLE_RANK,
     get_current_user,
+    invalidate_cached_user,
     is_admin,
     is_master_admin,
     require_admin,
@@ -138,6 +139,9 @@ async def create_user(payload: UserCreate, current_user: Any = Depends(require_a
             "canDownloadDataset": is_master or payload.canDownloadDataset,
         }
     )
+    # A brand-new cuid cannot already be cached, but every write to a User row invalidates without
+    # exception — a rule with a documented exception is a rule the next person has to re-derive.
+    invalidate_cached_user(user.id)
     return serialize_user(user)
 
 
@@ -196,6 +200,9 @@ async def update_user(
         data["canViewProvenance"] = True
         data["canDownloadDataset"] = True
     updated = await db.user.update(where={"id": user_id}, data=data)
+    # This is the promotion/demotion route: the cached identity now describes authority the user no
+    # longer has (or has not been given yet), so it must not outlive the write by even one request.
+    invalidate_cached_user(user_id)
     return serialize_user(updated)
 
 
@@ -210,3 +217,5 @@ async def delete_user(user_id: str, current_user: Any = Depends(require_admin)) 
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="You cannot delete your own account")
     assert_can_manage_target(current_user, user)
     await db.user.delete(where={"id": user_id})
+    # A deleted account must stop authenticating immediately, not when a TTL happens to expire.
+    invalidate_cached_user(user_id)

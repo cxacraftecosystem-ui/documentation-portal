@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { TimeField } from "@/components/forms/DateTimeField";
 import { Toggle } from "@/components/settings/Toggle";
 import { apiFetch } from "@/lib/api";
 
@@ -25,6 +26,32 @@ const TRANSCRIPTION_MODES: Array<{ value: string; label: string; helper: string 
   { value: "REFINED", label: "Refined conversation", helper: "Cleaned into a readable interviewer/interviewee dialogue." },
   { value: "REFINED_TRANSLATED", label: "Refined + translated to English", helper: "Refined, then translated to English (default)." }
 ];
+
+function minutesOfDay(value: string) {
+  const [hours, minutes] = value.split(":");
+  return Number(hours) * 60 + Number(minutes);
+}
+
+/**
+ * How long the window is, said back in words. A window is easy to set backwards, and "10 minutes"
+ * under the two fields catches that before the queue silently does almost nothing overnight.
+ * Crossing midnight is a legitimate answer and the arithmetic wraps to match the backend, which
+ * treats start > end as a window running through to the next morning.
+ */
+function windowSummary(start: string, end: string) {
+  if (!/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end)) return null;
+  // The backend reads an empty window as no restriction at all rather than as zero minutes.
+  if (start === end) return "Start and end are the same, so work runs at any time.";
+  const span = (minutesOfDay(end) - minutesOfDay(start) + 1440) % 1440;
+  const hours = Math.floor(span / 60);
+  const minutes = span % 60;
+  const length = [hours ? `${hours} hour${hours === 1 ? "" : "s"}` : null, minutes ? `${minutes} minutes` : null]
+    .filter(Boolean)
+    .join(" ");
+  return minutesOfDay(end) < minutesOfDay(start)
+    ? `${length} overnight, ${start} to ${end} the next morning.`
+    : `${length}, ${start} to ${end}.`;
+}
 
 export function AppSettingsPanel() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -117,29 +144,25 @@ export function AppSettingsPanel() {
               />
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              <div>
-                <label className="field-label" htmlFor="batch-start">
+              <div className="grid gap-1.5">
+                <label className="field-label" htmlFor="batch-window-start">
                   Window start
                 </label>
-                <input
-                  className="field-input mt-1.5"
+                <TimeField
+                  id="batch-window-start"
                   disabled={!settings.batchWindowEnabled}
-                  id="batch-start"
-                  onChange={(event) => setSettings({ ...settings, batchWindowStart: event.target.value })}
-                  type="time"
+                  onChange={(batchWindowStart) => setSettings({ ...settings, batchWindowStart })}
                   value={settings.batchWindowStart}
                 />
               </div>
-              <div>
-                <label className="field-label" htmlFor="batch-end">
+              <div className="grid gap-1.5">
+                <label className="field-label" htmlFor="batch-window-end">
                   Window end
                 </label>
-                <input
-                  className="field-input mt-1.5"
+                <TimeField
+                  id="batch-window-end"
                   disabled={!settings.batchWindowEnabled}
-                  id="batch-end"
-                  onChange={(event) => setSettings({ ...settings, batchWindowEnd: event.target.value })}
-                  type="time"
+                  onChange={(batchWindowEnd) => setSettings({ ...settings, batchWindowEnd })}
                   value={settings.batchWindowEnd}
                 />
               </div>
@@ -158,6 +181,11 @@ export function AppSettingsPanel() {
                 />
               </div>
             </div>
+            {settings.batchWindowEnabled ? (
+              <p className="mt-2 text-xs leading-5 text-ink-500">
+                {windowSummary(settings.batchWindowStart, settings.batchWindowEnd)}
+              </p>
+            ) : null}
           </section>
 
           <div>

@@ -12,6 +12,7 @@ import {
   GitBranch,
   Hammer,
   Images,
+  Layers,
   ListTodo,
   LockOpen,
   MapPinned,
@@ -118,9 +119,10 @@ function DashboardView() {
       .catch((err) => setError(err instanceof Error ? err.message : "Unable to load dashboard"));
   }, []);
 
-  // The four core record types share one entitlement (require_record_creator): Field Contributor and
-  // above. A Crowdsource Volunteer contributes interviews, media and comments instead, so offering
-  // them a "New artisan" button would only produce a 403 — the tile is not shown.
+  // The four core record types share one entitlement (require_record_creator): Researcher and
+  // above. A field contributor or volunteer answers existing interviews and adds media instead, so
+  // offering them a "New artisan" button would only produce a 403 — the tile is not shown. The
+  // Questionnaire and Media tiles below stay for everyone; those are how the lower tiers contribute.
   const creator = canCreateRecords(user);
   /**
    * Admin-tier chrome, matching DynamicIslandNav's `adminSurface`: capability holders below admin
@@ -141,11 +143,25 @@ function DashboardView() {
     { label: "Miscellaneous Media", icon: Images, newHref: "/media", newLabel: "Upload" },
     // Reading is never gated: without dataset access the tile leads to Browse records instead.
     { label: "View Data", icon: Eye, newHref: canDownloadDataset(user) ? "/data" : "/search", newLabel: "Open" },
+    // The two web-only reading surfaces, which had no entry point anywhere and were reachable only
+    // by typing the URL. They sit here, after View Data, because all three answer "show me what is
+    // already in the repository" — and a feature a researcher cannot find is a feature that was not
+    // built. Both are open to any signed-in user; the map filters its pins per viewer on the server.
+    { label: "Map", icon: MapPinned, newHref: "/map", newLabel: "Open" },
+    {
+      label: "Consolidated questionnaire",
+      icon: Layers,
+      newHref: "/questionnaire/consolidated",
+      newLabel: "Open"
+    },
     // Tasks and Workshop access are dashboard tiles on Android and were menu-only here, which is
     // the difference between a new researcher finding "how do I get into this workshop" and not.
     { label: "Tasks", icon: ListTodo, newHref: "/tasks", newLabel: "Open" },
     { label: "Sharing", icon: Share2, newHref: "/sharing" },
-    { label: "Workshop access", icon: LockOpen, newHref: "/settings/workshop-access", newLabel: "Open" },
+    // Ungated, and now honestly so: the destination forks on the role, opening the admin console
+    // only for an admin in admin view and the account's own request page for everyone else. It used
+    // to point straight at the console, so this tile — shown to all — was a padlock for most of them.
+    { label: "Workshop access", icon: LockOpen, newHref: "/workshop-access", newLabel: "Open" },
     { label: "Users", icon: UserCog, newHref: "/users", visible: adminSurface(canManageUsers(user)), newLabel: "Manage" },
     { label: "Settings", icon: Settings, newHref: "/admin", visible: adminSurface(isAdmin(user)), newLabel: "Open" },
     { label: "Craft", icon: Brush, newHref: "/crafts?new=1", updateHref: "/crafts", visible: canManageCrafts(user) },
@@ -219,8 +235,12 @@ function DashboardView() {
       {!creator ? (
         <p className="mt-4 rounded-md border border-line-200 bg-surface-50 px-4 py-3 text-sm leading-6 text-ink-500">
           You are signed in as <span className="font-medium text-ink-700">{roleLabel(user?.role)}</span>. That covers
-          interviews, media uploads and comments. Creating artisans, products, processes and tools needs Field
-          Contributor access — ask an admin to raise your tier.{" "}
+          answering existing interviews, uploading media and commenting — find an entry through{" "}
+          <Link href="/search" className="font-medium text-purple-700 underline-offset-2 hover:underline">
+            Browse records
+          </Link>{" "}
+          and add to it. Opening a new artisan, product, process or tool needs Researcher access — ask an admin to
+          raise your tier.{" "}
           <Link href="/guide" className="font-medium text-purple-700 underline-offset-2 hover:underline">
             Open the walkthrough
           </Link>

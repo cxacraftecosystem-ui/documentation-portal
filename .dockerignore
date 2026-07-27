@@ -1,0 +1,67 @@
+# ---------------------------------------------------------------------------------------------
+# Build-context exclusions for BOTH images.
+#
+# Both Dockerfiles are built with the REPOSITORY ROOT as their context (see docker-compose.yml and
+# docs/DOCKER.md), because the backend image needs `docker/backend/entrypoint.sh` as well as
+# `backend/`. Docker only ever reads the `.dockerignore` that sits at the root of the context, so
+# this one file governs both builds — there is deliberately no backend/.dockerignore or
+# frontend/.dockerignore, since neither would ever be consulted and a dead ignore file is worse
+# than none.
+#
+# The first block is the one that matters for safety, not size.
+# ---------------------------------------------------------------------------------------------
+
+# --- Secrets. NEVER let these into a build context ------------------------------------------
+# backend/.env holds the LIVE PRODUCTION Supabase URL, the real JWT secret and the AWS media keys.
+# A COPY that swept it into a layer would bake production credentials into every image, where
+# `docker history` shows them and any registry push publishes them. The pattern is deliberately
+# broad: it matches .env at any depth while leaving every *.example template copyable.
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+**/*.pem
+**/*.key
+infra/terraform/*.tfstate*
+infra/terraform/.terraform/
+
+# --- Version control and CI -------------------------------------------------------------------
+.git
+.gitignore
+.github
+
+# --- Dependency and build output (reinstalled/rebuilt inside the image) -------------------------
+**/node_modules
+**/.next
+**/out
+**/dist
+**/.venv
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+**/.pytest_cache
+**/.ruff_cache
+**/*.tsbuildinfo
+
+# --- Not part of either image -------------------------------------------------------------------
+# The Android client, the Terraform state for the real EC2 box, and the prose. Excluding docs/ is
+# not cosmetic: it keeps an edit to a markdown file from invalidating the whole build cache.
+android/
+infra/
+docs/
+scripts/
+*.md
+*.docx
+
+# --- Local noise ---------------------------------------------------------------------------------
+**/*.log
+**/test-results
+frontend/pw-screens
+frontend/e2e
+frontend/.vercel
+.codegraph/
+.agents/
+.claude/
+skills-lock.json
+**/.DS_Store
+**/Thumbs.db

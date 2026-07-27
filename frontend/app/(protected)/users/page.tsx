@@ -74,8 +74,6 @@ export default function UsersPage() {
   const [adminSelection, setAdminSelection] = useState<Set<string>>(new Set());
   const [grantAdmin, setGrantAdmin] = useState(true);
   const [grantQuestionnaire, setGrantQuestionnaire] = useState(false);
-  const [grantCrafts, setGrantCrafts] = useState(false);
-  const [grantWorkshops, setGrantWorkshops] = useState(false);
   const [grantDataset, setGrantDataset] = useState(false);
   const [applying, setApplying] = useState(false);
   const [adminMessage, setAdminMessage] = useState<string | null>(null);
@@ -100,11 +98,9 @@ export default function UsersPage() {
       const body: Record<string, unknown> = {};
       if (grantAdmin) body.role = "ADMIN";
       if (grantQuestionnaire) body.canManageQuestionnaire = true;
-      if (grantCrafts) body.canManageCrafts = true;
-      if (grantWorkshops) body.canManageWorkshops = true;
       if (grantDataset) body.canDownloadDataset = true;
       if (Object.keys(body).length === 0) {
-        setAdminMessage("Pick at least one of: admin access, questionnaire, crafts, workshops or dataset download to grant.");
+        setAdminMessage("Pick at least one of: admin access, questionnaire or dataset download to grant.");
         setApplying(false);
         return;
       }
@@ -180,8 +176,6 @@ export default function UsersPage() {
           password: requiredText(form, "password"),
           role: requiredText(form, "role"),
           canManageQuestionnaire: form.get("canManageQuestionnaire") === "on",
-          canManageCrafts: form.get("canManageCrafts") === "on",
-          canManageWorkshops: form.get("canManageWorkshops") === "on",
           canDownloadDataset: form.get("canDownloadDataset") === "on"
         })
       });
@@ -204,7 +198,7 @@ export default function UsersPage() {
 
   async function updateGrant(
     user: User,
-    field: "canManageQuestionnaire" | "canManageCrafts" | "canManageWorkshops" | "canDownloadDataset",
+    field: "canManageQuestionnaire" | "canDownloadDataset",
     value: boolean
   ) {
     try {
@@ -271,14 +265,11 @@ export default function UsersPage() {
             <input name="canManageQuestionnaire" type="checkbox" />
             Manage questionnaire
           </label>
-          <label className="flex items-center gap-2 rounded-md border border-line-200 bg-field-100 px-3 py-2 text-sm text-ink-muted">
-            <input name="canManageCrafts" type="checkbox" />
-            Create crafts
-          </label>
-          <label className="flex items-center gap-2 rounded-md border border-line-200 bg-field-100 px-3 py-2 text-sm text-ink-muted">
-            <input name="canManageWorkshops" type="checkbox" />
-            Create workshops
-          </label>
+          {/* Crafts and workshops are NOT here, deliberately. They are rank-only now
+              (require_craft_manager / require_workshop_manager = Professor and above), so a
+              checkbox for them would set a column nothing reads — a control that looks like it
+              grants access and does not is worse than no control at all. Promote the person
+              instead. */}
           <label className="flex items-center gap-2 rounded-md border border-line-200 bg-field-100 px-3 py-2 text-sm text-ink-muted">
             <input name="canDownloadDataset" type="checkbox" />
             Download dataset
@@ -296,6 +287,13 @@ export default function UsersPage() {
         beneath them (up to Professor) but cannot create or delete accounts or grant capabilities —
         those remain admin actions. Professors and above hold every capability implicitly; the
         checkboxes lift a single capability for a lower tier.
+      </p>
+      <p className="mb-4 text-xs text-ink-muted">
+        Two things are decided by RANK alone and have no checkbox: adding or editing crafts and
+        workshops (Professor and above; deleting either is admin-only), and creating artisans,
+        products, tools, processes and interviews (Researcher and above). Field contributors and
+        volunteers keep answering existing interviews, uploading media and commenting. To give
+        someone one of these, promote them.
       </p>
       <div className="mb-4">
         <SearchInput
@@ -324,8 +322,6 @@ export default function UsersPage() {
                   <ResizableTh>Email</ResizableTh>
                   <ResizableTh>Role</ResizableTh>
                   <ResizableTh>Questionnaire</ResizableTh>
-                  <ResizableTh>Crafts</ResizableTh>
-                  <ResizableTh>Workshops</ResizableTh>
                   <ResizableTh>Dataset</ResizableTh>
                   <ResizableTh>Provider</ResizableTh>
                   <ResizableTh className="text-right">Actions</ResizableTh>
@@ -357,18 +353,9 @@ export default function UsersPage() {
                       label={`Allow ${user.email} to manage questionnaire`}
                       onChange={(value) => updateGrant(user, "canManageQuestionnaire", value)}
                     />
-                    <GrantCell
-                      included={hasRank(user, "PROFESSOR") || !!user.canManageCrafts}
-                      editable={admin && canManageUser(currentUser, user) && !hasRank(user, "PROFESSOR")}
-                      label={`Allow ${user.email} to create crafts`}
-                      onChange={(value) => updateGrant(user, "canManageCrafts", value)}
-                    />
-                    <GrantCell
-                      included={hasRank(user, "PROFESSOR") || !!user.canManageWorkshops}
-                      editable={admin && canManageUser(currentUser, user) && !hasRank(user, "PROFESSOR")}
-                      label={`Allow ${user.email} to create workshops`}
-                      onChange={(value) => updateGrant(user, "canManageWorkshops", value)}
-                    />
+                    {/* No Crafts or Workshops columns: both are rank-only now, so the cell could
+                        only ever have restated the role beside it or offered a toggle that changed
+                        nothing. Read the Role column for those two. */}
                     <GrantCell
                       included={hasRank(user, "PROFESSOR") || !!user.canDownloadDataset}
                       editable={admin && canManageUser(currentUser, user) && !hasRank(user, "PROFESSOR")}
@@ -435,14 +422,6 @@ export default function UsersPage() {
               <label className="flex items-center gap-2 text-sm text-ink">
                 <input type="checkbox" checked={grantQuestionnaire} onChange={(event) => setGrantQuestionnaire(event.target.checked)} />
                 Manage questionnaire
-              </label>
-              <label className="flex items-center gap-2 text-sm text-ink">
-                <input type="checkbox" checked={grantCrafts} onChange={(event) => setGrantCrafts(event.target.checked)} />
-                Create crafts
-              </label>
-              <label className="flex items-center gap-2 text-sm text-ink">
-                <input type="checkbox" checked={grantWorkshops} onChange={(event) => setGrantWorkshops(event.target.checked)} />
-                Create workshops
               </label>
               <label className="flex items-center gap-2 text-sm text-ink">
                 <input type="checkbox" checked={grantDataset} onChange={(event) => setGrantDataset(event.target.checked)} />

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fieldrepo-dev
+  labels:
+    app.kubernetes.io/part-of: field-repository
+    # Enforce the restricted Pod Security Standard at admission. Every workload here already
+    # satisfies it — non-root, no privilege escalation, all capabilities dropped, seccomp
+    # RuntimeDefault — so this costs nothing today and turns a future regression into a rejected
+    # pod instead of a quietly over-privileged one. It belongs on dev most of all: if it is going
+    # to break something, it should break here rather than in prod.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest

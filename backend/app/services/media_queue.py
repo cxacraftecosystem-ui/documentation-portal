@@ -9,7 +9,12 @@ from prisma import Json
 
 from app.core.config import Settings, get_settings
 from app.core.db import db
-from app.services.ai import analyze_measurement_image_bytes, refine_transcript_text, transcribe_audio_bytes
+from app.services.ai import (
+    analyze_measurement_image_bytes,
+    redact_secrets,
+    refine_transcript_text,
+    transcribe_audio_bytes,
+)
 from app.services.app_settings import (
     load_app_settings,
     transcription_mode,
@@ -536,7 +541,10 @@ async def _handle_job_failure(job_id: str, exc: Exception) -> None:
     if not job:
         return
     now = datetime.now(UTC)
-    error = str(exc)[:2000]
+    # This column is served with the job, and the exception reaching it is ANY exception the job
+    # raised — including one built by a library out of a URL that carried a credential. services/ai
+    # keeps its own results clean; this is the guard for everything else that can fail in here.
+    error = redact_secrets(str(exc))[:2000]
     exhausted = job.attempts >= job.maxAttempts
     retry_delay = timedelta(minutes=min(60, 2 ** max(job.attempts - 1, 0)))
     await db.mediaprocessingjob.update(

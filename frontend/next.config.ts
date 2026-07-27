@@ -100,6 +100,20 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns
   },
+  /**
+   * Workshop access moved out of /settings and into its own tree: `/workshop-access` is the fork,
+   * `/workshop-access/request` the page every account owns, `/workshop-access/manage` the admin
+   * console. The old URL WAS the console, so every bookmark and typed guess at it belonged to an
+   * admin or dead-ended someone below one — sending it to the fork gives an ordinary user their own
+   * page and an admin the choice.
+   *
+   * The fork, not the console, because a config redirect runs before anything knows who is asking;
+   * the role decision stays in the app, where the session is. Temporary (307) rather than 308 for
+   * the same reason a browser should not cache a product decision for good.
+   */
+  async redirects() {
+    return [{ source: "/settings/workshop-access", destination: "/workshop-access", permanent: false }];
+  },
   async headers() {
     return [
       {

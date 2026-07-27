@@ -14,7 +14,11 @@ export function Field({
   required?: boolean;
 }) {
   return (
-    <label className="grid gap-1">
+    // `min-w-0`: a grid item will not shrink below its content's intrinsic width unless told to, so
+    // without this any wide child — a dropdown holding a long workshop name, a long placeholder, an
+    // unbroken URL — widens the column and spills over the field beside it. Applied here rather
+    // than per control so the whole form inherits it.
+    <label className="grid min-w-0 gap-1">
       <span className="field-label">
         {label}
         {required ? " *" : ""}
@@ -95,18 +99,44 @@ export function MultiNoteField({
   );
 }
 
+/**
+ * The readable text of an option's children, whatever shape they arrive in.
+ *
+ * WHY THIS IS NOT `typeof children === "string"`, which is what it replaced. A label written the
+ * way every list in this app writes one — `{artisan.name} · {artisan.place}` — compiles to an
+ * ARRAY of children, not a string, so that test failed and the label fell through to
+ * `String(props.value)`: the record's CUID. Three live dropdowns offered `cmg...` where a name
+ * belonged, two of them REQUIRED artisan pickers, and on /questionnaire the artisan picked is what
+ * decides `artisanSetKey` — which interview a submission folds into. "Pick the right artisan" was
+ * being asked of somebody reading twenty-five random characters, and picking the wrong one merges
+ * an interview into the wrong set.
+ *
+ * Recursion, rather than one more special case for arrays, is the point: an option whose label is
+ * wrapped in a <span> or a fragment reads correctly too, instead of being the next shape that
+ * silently degrades to an id. Anything with no text of its own — null, a boolean, an <img> —
+ * contributes nothing and lets the caller fall back.
+ */
+function optionText(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === "boolean") return "";
+  if (typeof node === "string") return node;
+  if (typeof node === "number" || typeof node === "bigint") return String(node);
+  if (Array.isArray(node)) return (node as ReactNode[]).map(optionText).join("");
+  if (isValidElement(node)) return optionText((node.props as { children?: ReactNode }).children);
+  return "";
+}
+
 /** Flatten the <option> children of a <Select> into themed-dropdown options. */
 function optionsFromChildren(children: ReactNode): DropdownOption[] {
   const options: DropdownOption[] = [];
   Children.forEach(children, (child) => {
     if (!isValidElement(child) || child.type !== "option") return;
     const props = child.props as { value?: string | number; children?: ReactNode; disabled?: boolean };
-    const label =
-      typeof props.children === "string" || typeof props.children === "number"
-        ? String(props.children)
-        : props.value !== undefined
-          ? String(props.value)
-          : "";
+    // A label split over two source lines keeps the newline and the indent between them; a browser
+    // <select> collapses that and so must this, or the dropdown shows the author's formatting.
+    const text = optionText(props.children).replace(/\s+/g, " ").trim();
+    // The value is still the fallback, for an <option> that genuinely carries no text — but it is
+    // now the last resort rather than the usual outcome.
+    const label = text || (props.value !== undefined ? String(props.value) : "");
     const value = props.value !== undefined ? String(props.value) : label;
     options.push({ value, label, disabled: props.disabled });
   });

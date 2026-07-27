@@ -46,6 +46,29 @@ export type AddressReference = {
   states: string[];
   unionTerritories: string[];
   statesAndUnionTerritories: string[];
+  /**
+   * The 795 districts, keyed by the state they belong to — the same shape and the same call as the
+   * state list, because a district dropdown that fetches its own options after a state is chosen
+   * stalls visibly on a field connection and can briefly disagree with what the server validates
+   * against. `byState` covers every name in `statesAndUnionTerritories`, so a chosen state always
+   * has options.
+   *
+   * OPTIONAL IN THE TYPE, not in the contract. The frontend and the API deploy separately, so there
+   * is a window in which this build is talking to a backend that predates the district list — and
+   * the district dropdown is a REQUIRED field, so the difference between "no options" and a crash
+   * is the difference between a form somebody can still submit and a white screen. Marked here so
+   * the compiler makes every reader deal with it rather than trusting the version on the other end.
+   */
+  districts?: {
+    source: string;
+    sourceUrl: string;
+    /** The date the list was compiled, so an export can record which vintage it was coded against. */
+    asOf: string;
+    listVersion: number;
+    count: number;
+    byState: Record<string, string[]>;
+    normalisation: { trailingWordsStripped: string[]; description: string };
+  };
   pincode: { length: number; pattern: string; description: string };
 };
 
@@ -85,17 +108,35 @@ export type ArtisanQuestionnaire = {
   interviews?: ArtisanInterview[];
 };
 
+/**
+ * Two answers to two different questions, in one payload. See `components/forms/LocationFields`.
+ *
+ * PROVENANCE — `latitude`, `longitude`, `altitude`, `accuracy`, `capturedAt`, `placeName`,
+ * `address`. Where the DEVICE was. Filled automatically, never presented as the subject's address.
+ *
+ * STATED — `state`, `district`, `village`, `pincode`, `subjectLatitude`, `subjectLongitude`. Where
+ * the SUBJECT is, said by the researcher. The geocoder may offer these; only a person writes one.
+ */
 export type LocationPayload = {
   latitude?: number | "";
   longitude?: number | "";
   altitude?: number | "";
   accuracy?: number | "";
+  /** ISO 8601. When the device produced the fix above — provenance is not provenance without it. */
+  capturedAt?: string;
   address?: string;
   placeName?: string;
   /** Canonical name from `AddressReference`; the API rejects anything off that list. */
   state?: string | null;
+  /** Canonical district of `state`, from `AddressReference.districts.byState`. */
+  district?: string | null;
+  /** The village or hamlet. Free text — no closed list of Indian villages exists. */
+  village?: string | null;
   /** Bare 6 digits, no separators — the API normalises "380 001" but stores "380001". */
   pincode?: string | null;
+  /** The researcher's optional pin on the SUBJECT'S place. Both or neither; never the device fix. */
+  subjectLatitude?: number;
+  subjectLongitude?: number;
 };
 
 export type Craft = {

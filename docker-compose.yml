@@ -1,3 +1,31 @@
+# ---------------------------------------------------------------------------------------------
+# Field Repository — local development stack.
+#
+#   docker compose up                  postgres + MinIO only. UNCHANGED from before profiles
+#                                      existed: same services, same ports, same volumes, same
+#                                      container names. Run the API and the web app from your
+#                                      shell against them, exactly as you always have.
+#   docker compose --profile api up    ... plus the containerised API on :8000
+#   docker compose --profile web up    ... plus the API and the containerised web app on :3000
+#   docker compose --profile cache up  ... plus Redis. Nothing uses it until you say so — see below.
+#   docker compose --profile full up   everything at once.
+#
+# THE DEFAULT IS THE CONTRACT. The four services a bare `up` starts are deliberately profile-less,
+# because a developer who types the command they have typed for months must not discover that it
+# now also builds two images and runs a Redis. Everything added since is behind a profile, and
+# `docker compose config --services` with no flags is the test of that promise.
+#
+# Configuration comes from `${VAR:-default}` interpolation, and every default below is a working
+# local one — the stack runs correctly with NO .env file at all. Copy `.env.docker.example` to
+# `.env` only when you want to override something (an AI provider key, a port that collides).
+#
+# NEVER point this stack at backend/.env. That file holds the LIVE Supabase URL, the real JWT
+# secret and the production AWS keys. The API container refuses to start against a remote database
+# for exactly this reason (docker/backend/entrypoint.sh); .env.docker.example says the rest.
+#
+# Full prose: docs/DOCKER.md
+# ---------------------------------------------------------------------------------------------
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -45,6 +73,172 @@ services:
       mc mb --ignore-existing local/field-repository;
       mc anonymous set download local/field-repository;
       "
+
+  # -------------------------------------------------------------------------------------------
+  # Redis — profile `cache` / `full`. INERT UNLESS YOU TURN IT ON.
+  #
+  # Starting this container changes nothing about how the API behaves. The cache layer under
+  # app/scale is off by default and only reaches for Redis when SCALE_CACHE_ENABLED=true AND
+  # SCALE_CACHE_BACKEND=redis; with neither set, the API never opens a socket to it and never
+  # imports the client library. That is why nothing below declares a dependency on this service:
+  # a `depends_on: redis` would make the API's startup contingent on an optional component, which
+  # is precisely the coupling the flag design exists to prevent.
+  #
+  # From another container:  redis://redis:6379/0
+  # From your host shell:    redis://localhost:56379/0
+  # -------------------------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: field-repository-redis
+    profiles: ["cache", "full"]
+    # --save "" disables RDB snapshots. A cache has nothing worth surviving a restart, and the
+    # fork-to-snapshot briefly doubles the resident set — the one behaviour a 1 GiB production box
+    # cannot absorb, so it is not rehearsed here either. The eviction policy makes the memory
+    # ceiling a bound rather than a cliff: at 128 MB Redis discards cold keys instead of returning
+    # OOM errors to a caller that is only ever using it as a cache.
+    command: >
+      redis-server
+      --save ""
+      --appendonly no
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+    ports:
+      - "56379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    # No volume, deliberately. Persisting a cache invites treating it as a store of record.
+
+  # -------------------------------------------------------------------------------------------
+  # The API — profile `api`, `web` or `full`.
+  #
+  # It is a member of `web` as well as its own profile because the web container is useless
+  # without it, and Compose treats a `depends_on` on a service no active profile enabled as a hard
+  # configuration error rather than an implicit opt-in. Sharing the profile is what makes
+  # `--profile web` mean "the web app, and the thing it talks to".
+  # -------------------------------------------------------------------------------------------
+  api:
+    build:
+      # The repository root, not backend/ — the image needs docker/backend/entrypoint.sh too, and
+      # the single root .dockerignore is what keeps that context small and keeps .env out of it.
+      context: .
+      dockerfile: backend/Dockerfile
+    image: field-repository-backend:local
+    container_name: field-repository-api
+    profiles: ["api", "web", "full"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      # Not merely "started": the API's first media write would 404 against a bucket that does not
+      # exist yet, and MinIO being healthy says nothing about whether the bucket was created.
+      create-bucket:
+        condition: service_completed_successfully
+    environment:
+      # `postgres` is the compose service name, and the entrypoint's guard recognises it as local.
+      # Port 5432 is the container port; 55432 is only how the host reaches it.
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/field_repository}
+      JWT_SECRET: ${JWT_SECRET:-local-docker-jwt-signing-key-6f2ab41d9c7e5083bd14a27fe6c390b8}
+      JWT_EXPIRES_MINUTES: ${JWT_EXPIRES_MINUTES:-10080}
+      # MinIO speaks the S3 API but not KMS, and it rejects the SSE header outright. Empty is the
+      # documented local value (see backend/app/core/config.py).
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-field-repository}
+      AWS_S3_SSE_ALGORITHM: ""
+      # The endpoint the API signs and uploads against is inside the network; the public base URL
+      # is what a BROWSER later fetches the object from, and a browser cannot resolve `minio`.
+      AWS_S3_ENDPOINT: ${AWS_S3_ENDPOINT:-http://minio:9000}
+      AWS_S3_PUBLIC_BASE_URL: ${AWS_S3_PUBLIC_BASE_URL:-http://localhost:9000/field-repository}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:${WEB_HOST_PORT:-3000}}
+      NEXT_PUBLIC_APP_URL: http://localhost:${WEB_HOST_PORT:-3000}
+      MASTER_ADMIN_EMAIL: ${MASTER_ADMIN_EMAIL:-admin@example.com}
+      MASTER_ADMIN_NAME: ${MASTER_ADMIN_NAME:-Local Admin}
+      # On over plain http:// so /docs is browsable while you work. HSTS is not: it would teach
+      # your browser to refuse http://localhost for two years, across every project on this machine.
+      BACKEND_EXPOSE_DOCS: ${BACKEND_EXPOSE_DOCS:-true}
+      SECURITY_HSTS_ENABLED: ${SECURITY_HSTS_ENABLED:-false}
+      # Default OFF here, unlike the application default. The queue drains real transcription and
+      # media jobs, and the failure this guards against is a container left running overnight
+      # against a database someone later repointed. Turn it on when you are testing the queue.
+      MEDIA_QUEUE_WORKER_ENABLED: ${MEDIA_QUEUE_WORKER_ENABLED:-false}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_ANDROID_CLIENT_ID: ${GOOGLE_ANDROID_CLIENT_ID:-}
+    ports:
+      - "${API_HOST_PORT:-8000}:8000"
+    # No healthcheck here on purpose: the image carries one (backend/Dockerfile) and Compose reads
+    # the container's health from Docker either way. Restating it would be a second copy to keep in
+    # step with the /health-vs-/api/health reasoning the Dockerfile spells out.
+    #
+    # No restart policy either. The entrypoint's job is to REFUSE to start against a remote
+    # database, and a restart loop would scroll that refusal off the screen every few seconds.
+    # A container that stays dead is one you read the logs of.
+
+  # -------------------------------------------------------------------------------------------
+  # Schema migrations — profile `migrate`, and never started by `up`.
+  #
+  #     docker compose --profile migrate run --rm migrate
+  #
+  # Built from the Dockerfile's `prisma` STAGE, not from the finished image, because
+  # `prisma migrate` is a Node program and the runtime image has no Node on purpose. That stage
+  # has the CLI, the schema and the same entrypoint guard. Compose builds it only when this
+  # profile is named, so the fat intermediate image never materialises for anybody else.
+  #
+  # Deliberately not wired into `api`'s depends_on. A container that migrates on the way up is a
+  # container that will one day migrate something you did not mean to migrate.
+  # -------------------------------------------------------------------------------------------
+  migrate:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: prisma
+    image: field-repository-migrate:local
+    profiles: ["migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Overrides the placeholder baked into the stage for `prisma generate`. The entrypoint checks
+      # it before the CLI runs, so pointing this at Supabase refuses rather than migrates.
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/field_repository}
+    command: ["python", "-m", "prisma", "migrate", "deploy", "--schema=./prisma/schema.prisma"]
+
+  # -------------------------------------------------------------------------------------------
+  # The web app — profile `web` or `full`.
+  # -------------------------------------------------------------------------------------------
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        # BUILD args, not environment: Next.js inlines every NEXT_PUBLIC_* into the JavaScript
+        # bundle at build time, so changing one of these needs `--build` and not a restart. They
+        # are addressed to localhost rather than to a service name because the code that reads
+        # them executes in the BROWSER, which is outside this network. Interpolating the same
+        # port variables the `ports:` lines use keeps the two from drifting apart.
+        NEXT_PUBLIC_API_URL: http://localhost:${API_HOST_PORT:-8000}
+        NEXT_PUBLIC_APP_URL: http://localhost:${WEB_HOST_PORT:-3000}
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
+        NEXT_PUBLIC_MAPTILER_API_KEY: ${NEXT_PUBLIC_MAPTILER_API_KEY:-}
+    image: field-repository-frontend:local
+    container_name: field-repository-web
+    profiles: ["web", "full"]
+    depends_on:
+      # Healthy rather than started. Server components render on first request, and an API that is
+      # still spawning its Prisma engine turns the first page load into an error page the developer
+      # then has to reload past.
+      api:
+        condition: service_healthy
+    ports:
+      - "${WEB_HOST_PORT:-3000}:3000"
 
 volumes:
   postgres_data:

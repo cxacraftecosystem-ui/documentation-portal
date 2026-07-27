@@ -5,12 +5,24 @@ Full-stack, API-first repository for field teams documenting artisans, crafts, w
 > **Live:** the backend runs on AWS (EC2 at `15.207.145.174`) and is served over HTTPS through
 > CloudFront at **https://d2b34i3e92al6i.cloudfront.net/api/** (Terraform in `infra/terraform/`,
 > auto-deployed by `.github/workflows/deploy-backend.yml`). CloudFront is dual-stack, so the API is
-> reachable on IPv6-only mobile networks where the IPv4-only origin is not. To hand the app to researchers see
-> [docs/RESEARCHER_GUIDE.md](docs/RESEARCHER_GUIDE.md); the backend deployment runbook is
-> [backend/DEPLOY_AWS.md](backend/DEPLOY_AWS.md), the web one is
-> [docs/DEPLOYMENT_VERCEL.md](docs/DEPLOYMENT_VERCEL.md); every environment variable is tabulated in
-> [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md); known failure modes are in
-> [docs/QA_AUDIT.md](docs/QA_AUDIT.md).
+> reachable on IPv6-only mobile networks where the IPv4-only origin is not.
+
+**📚 [docs/](docs/README.md) is the documentation index** — start there. It routes you by what you
+are doing, and every document states how it is kept true.
+
+The ones you most likely want:
+
+| | |
+|---|---|
+| Handing the app to a researcher | [docs/RESEARCHER_GUIDE.md](docs/RESEARCHER_GUIDE.md) |
+| What each screen asks for | [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md) |
+| How the system fits together | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| What is stored | [docs/DATA_MODEL.md](docs/DATA_MODEL.md) |
+| Who may do what | [docs/PERMISSIONS.md](docs/PERMISSIONS.md) |
+| Every environment variable | [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) |
+| Deploy runbooks | [backend/DEPLOY_AWS.md](backend/DEPLOY_AWS.md) · [docs/DEPLOYMENT_VERCEL.md](docs/DEPLOYMENT_VERCEL.md) · [docs/CI.md](docs/CI.md) |
+| Known failure modes | [docs/QA_AUDIT.md](docs/QA_AUDIT.md) |
+| Counts: models, endpoints, tests, code volume | [docs/REPO_FACTS.md](docs/REPO_FACTS.md) — **generated; no count is written by hand anywhere** |
 
 The app is split into:
 
@@ -29,16 +41,18 @@ Detailed Mermaid diagrams are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ```mermaid
 flowchart LR
-  web[Next.js Web] --> api[FastAPI REST API]
+  web[Next.js web] --> api[FastAPI REST API]
   android[Android Kotlin] --> api
   api --> db[(PostgreSQL)]
-  api --> s3[(S3 / MinIO)]
   api --> queue[(MediaProcessingJob queue)]
-  queue --> ai[Whisper / Gemini]
-  split[Long audio/video split into PART_n] --> s3
+  worker[Queue worker<br/>separate process] --> queue
+  worker --> stt{{"ElevenLabs → Deepgram → Whisper<br/>with failover"}}
+  worker --> gem{{Gemini · grid measurement}}
+  split[Long A/V split into PART_n] --> s3[(S3 / MinIO)]
   web -->|streamed signed PUT| s3
   android --> split
   android -->|streamed signed PUT| s3
+  worker --> s3
 ```
 
 ## Local Setup
@@ -77,7 +91,10 @@ Backend checks:
 Invoke-RestMethod http://127.0.0.1:8000/health
 ```
 
-Open API docs at `http://127.0.0.1:8000/docs`.
+Open the interactive API docs at `http://127.0.0.1:8000/docs` — but note they are **off by default**.
+`BACKEND_EXPOSE_DOCS` gates `/docs`, `/redoc` and `/openapi.json`, and it defaults to `false` so a
+deployment does not publish its own schema. Set `BACKEND_EXPOSE_DOCS=true` in `backend/.env` for local
+development; `.env.example` ships the line commented in.
 
 ### 3. Configure And Run Frontend
 
@@ -117,12 +134,12 @@ npm run dev -- -H 127.0.0.1 -p 3000
 - API docs: `http://localhost:8000/docs`
 - MinIO console: `http://localhost:9001`
 
-Default local admin credentials come from `backend/.env`:
+The local admin account is seeded by `backend/scripts/seed_admin.py` from `backend/.env`:
 
-- Email: `admin@example.com`
-- Password: `ChangeMe123!`
-
-Change them before using real data.
+- `ADMIN_EMAIL` — defaults to `admin@example.com`
+- `ADMIN_PASSWORD` — **no default.** The script raises
+  `ADMIN_PASSWORD must be set in .env before seeding local admin accounts` rather than seeding a
+  guessable one. Choose a password and put it in your private `.env`.
 
 ## Android App
 
@@ -157,7 +174,7 @@ The Android client supports email/password login, Google login, dashboard summar
 - Process documentation records how a product is made: ordered steps (sequential or grouped), per-step media, and an optional "record additional information" notes box per step.
 - "Document using grid" reads **length and breadth from a single top-down photo** and height from a separate side-on photo (Gemini `gemini-2.5-flash-lite`), auto-filling the measurement fields; the grid photos are also stored as media.
 - Long audio/video is **split into `PART_1`, `PART_2`, …** by re-muxing at sync frames before upload, so each part stays under the transcription/upload limits; uploads stream from the content URI so large videos never exhaust the device heap.
-- Previously-uploaded media shows on edit forms with uploader/date provenance and a **Save to device** action; audio uploaded from any form sends a `TRANSCRIPTION` request, queuing Whisper transcription on the backend.
+- Previously-uploaded media shows on edit forms with uploader/date provenance and a **Save to device** action; audio uploaded from any form sends a `TRANSCRIPTION` request, queuing transcription through the provider chain on the backend.
 
 ## Google OAuth Setup
 
@@ -196,16 +213,30 @@ for a lower tier.
 
 | Tier | Rank | Powers |
 | --- | --- | --- |
-| `MASTER_ADMIN` | 60 | Reserved for `MASTER_ADMIN_EMAIL` (ankits1802@gmail.com). Everything, including settings, OTA releases, and managing admins. |
-| `ADMIN` | 50 | Manage users below their tier and promote up to ADMIN; review; delete records; full data access. |
-| `PROFESSOR` | 40 | Everything a researcher can do, plus implicit questionnaire/craft/workshop management, review rights, and dataset download. No user management, no deletes. |
-| `RESEARCHER` | 30 | Create and edit their own records, contribute to others' (fill-empty), run questionnaire interviews. |
-| `FIELD_CONTRIBUTOR` | 20 | Capture-focused: create artisans/products/tools/processes and upload media; edit only their own records. |
-| `CROWDSOURCE_VOLUNTEER` | 10 | Lowest tier and the default for new self-registered Google accounts (`DEFAULT_SIGNUP_ROLE`). Can upload media, answer questionnaires, and comment — cannot create core records. |
+| `MASTER_ADMIN` | 60 | Reserved for `MASTER_ADMIN_EMAIL`. Everything, plus the three nobody else has: provider key values, repository settings, OTA releases. The only account that may act on a peer. |
+| `ADMIN` | 50 | Create/delete accounts; **delete records**; grant workshop access; assign tasks; approve **late** submissions. |
+| `PROFESSOR` | 40 | Everything a researcher can do, plus craft/workshop/questionnaire management, dataset download, viewing and promoting users, and editing records created by anyone below them. No account creation, no deletes. |
+| `RESEARCHER` | 30 | **Create** and edit their own records, contribute to others' (fill-empty), run questionnaire interviews. |
+| `FIELD_CONTRIBUTOR` | 20 | Populate existing records — media, answers, comments — and review volunteers. **Cannot create records.** |
+| `CROWDSOURCE_VOLUNTEER` | 10 | Lowest tier and the default for new self-registered Google accounts (`DEFAULT_SIGNUP_ROLE`). Upload media, answer questionnaires, comment. |
 
-Promotion rules: you can assign roles **at or below your own tier**, and manage (edit/delete)
-only users **below** your tier — so one admin can never rewrite another admin's account; only the
-master admin manages peers. The backend enforces all of this; the web UI mirrors it.
+Two rules people get wrong:
+
+- **A Field Contributor cannot create records.** `can_create_records` requires Researcher. The two
+  tiers below *populate* records rather than open them — that is the reason they exist.
+- **You may only act on someone ranked strictly below you.** You can assign roles at or below your
+  own tier, but you can only manage (or review, or edit the records of) users **below** it. One admin
+  can never rewrite another admin's account or approve their work; only the master admin manages
+  peers.
+
+Live grantable capability booleans are `canManageQuestionnaire`, `canReview`, `canViewProvenance` and
+`canDownloadDataset`. `canManageCrafts` and `canManageWorkshops` still exist as columns but are
+**deliberately no longer read** — craft and workshop management is Professor by rank alone, because a
+grant that lifts a researcher over the taxonomy is invisible in the role column.
+
+The backend enforces all of this and the web UI mirrors it; the mirrors are checked against each
+other by `node docs/tools/check-docs.mjs`. **Full matrix and the review state machine:
+[docs/PERMISSIONS.md](docs/PERMISSIONS.md).**
 
 ## Field Capture, AI And Media
 
@@ -226,17 +257,30 @@ Media capture is embedded in the craft, artisan, workshop, product, tool and que
 Speech-to-text walks a provider chain in priority order, using whichever keys are configured and
 failing over automatically on provider errors:
 
-1. **ElevenLabs Scribe** (`ELEVENLABS_API_KEY`, model `scribe_v1`) — auto language detection,
-   accepts files up to ~1 GB, no chunking needed.
+1. **ElevenLabs Scribe** (`ELEVENLABS_API_KEY`, model **`scribe_v2`**) — auto language detection,
+   accepts files up to ~1 GB, no chunking needed. Note the model: `ELEVENLABS_STT_MODEL` *defaults*
+   to `scribe_v1` in config, and the code treats that value as "unset" and uses `scribe_v2`. Setting
+   `scribe_v1` explicitly does not pin the old model.
 2. **Deepgram Nova-3** (`DEEPGRAM_API_KEY`, model `nova-3`, `language=multi`) — code-switched
-   Hindi + English handled natively.
+   Hindi + English handled natively, up to 2 GB.
 3. **OpenAI Whisper** (`OPENAI_API_KEY`, `whisper-1`) — fallback only; files over 24 MB are split
-   into 10-minute chunks and stitched.
+   into chunks and stitched.
+
+The order is a **master-admin setting**, not a constant: it is ranked in the Settings hub and stored
+on `AppSetting`. Ranking expresses a preference, not a requirement — a provider whose key is unset is
+skipped wherever it sits, and keys resolve through the managed-secret layer, so adding one in the UI
+extends the chain immediately with no restart.
+
+Failure handling distinguishes three cases: `401/403` is a hard failure that names the key an admin
+must fix; `429/503` returns `RATE_LIMITED` and requeues the job **without spending an attempt**,
+behind a growing cooldown; `5xx` is a hard failure under the normal retry budget. An *empty* result
+is kept as a fallback but the next provider still gets a chance. Full semantics with a diagram:
+[docs/ARCHITECTURE.md §6](docs/ARCHITECTURE.md).
 
 The OpenAI key's primary role is **refinement and translation**: raw transcripts are rewritten into
 clean interviewer/interviewee dialogue and translated to English per the master-admin
-`transcriptionMode` setting (`RAW` / `REFINED` / `REFINED_TRANSLATED`). Provider throttling
-(HTTP 429/503) still requeues jobs without burning attempts, exactly as before.
+`transcriptionMode` setting (`RAW` / `REFINED` / `REFINED_TRANSLATED`). It only *transcribes* when
+reached as the third link in the chain.
 
 The product and tool forms support a "Document using grid" capture alongside manual `lengthInches`, `breadthInches` and height. Tick **Length & breadth** to read both from one top-down photo, and/or **Height** to read it from a side-on photo; each photo is analysed synchronously by Gemini (`GEMINI_MEASUREMENT_MODEL`, default `gemini-2.5-flash-lite`) and the returned inches auto-fill the matching fields (still editable). The grid photos are also stored as media on the record. If `GEMINI_API_KEY` is missing, the fields stay manual.
 
@@ -246,12 +290,21 @@ The Tools page also has an **Assign a tool to multiple artisans** section: pick 
 
 ### Durable Media Queue
 
-`POST /api/media/complete` can include `processingRequests`, currently `TRANSCRIPTION` for audio and `MEASUREMENT` for grid-sheet images. The backend stores a `MediaProcessingJob` row before any AI request is attempted. The FastAPI lifespan starts a background worker that:
+`POST /api/media/complete` can include `processingRequests`, currently `TRANSCRIPTION` for audio and `MEASUREMENT` for grid-sheet images. The backend stores a `MediaProcessingJob` row before any AI request is attempted.
+
+**In production the worker is a separate process**, not the web process: a `fieldrepo-queue` systemd
+unit running `python -m app.worker`, with `MEDIA_QUEUE_WORKER_ENABLED=false` on the web service.
+Running ffmpeg and transcription inside a uvicorn worker is what caused the orphaned-Prisma-engine
+500s. Locally, leave the flag `true` and the FastAPI lifespan starts it in-process. Either way the
+worker:
 
 - recovers stale `PROCESSING` jobs after worker interruption;
 - downloads the already-saved object from S3-compatible storage;
-- calls Whisper or Gemini only after metadata is durable;
-- retries transient failures with backoff;
+- calls the transcription chain (or Gemini, for measurement) only after the metadata is durable;
+- retries transient failures with backoff, and requeues a **throttled** job (HTTP 429/503) without
+  spending an attempt, behind a growing cooldown;
+- runs transcription on idle time — outside the off-peak window it still works whenever the box's
+  one-minute load average is low enough — so spare capacity on a burstable instance is used;
 - records unavailable API-key states without deleting uploaded media.
 
 ## Questionnaire
@@ -396,7 +449,7 @@ The Android app uses the same REST endpoints and JWT bearer auth:
 - The returned access token is stored locally and sent as `Authorization: Bearer <token>` on protected API calls.
 - Create forms submit directly to `/api/crafts`, `/api/artisans`, `/api/workshops`, `/api/products`, `/api/tools`, and `/api/questionnaire/interviews`.
 - Native media capture uses the same presign-upload-complete sequence so files do not pass through the backend server.
-- Audio uploaded from Android sends `processingRequests=["TRANSCRIPTION"]`, which queues Whisper transcription on the backend.
+- Audio uploaded from Android sends `processingRequests=["TRANSCRIPTION"]`, which queues a job for the provider chain on the backend.
 - Keep GPS capture in a separate location object and submit it with artisan/product/tool/workshop/media payloads.
 
 ## Cost Notes
@@ -407,3 +460,29 @@ The Android app uses the same REST endpoints and JWT bearer auth:
 - Pagination is implemented for list/search endpoints.
 - Cloudflare R2, Backblaze B2, MinIO or AWS S3 can be used behind the same S3-compatible utility.
 - Add object storage lifecycle rules for old/raw media and future thumbnail/transcription worker outputs.
+
+---
+
+## How this document is kept true
+
+This file is an **orientation document**: what the project is, how to run it locally, and where to go
+next. Anything that needs depth belongs in [docs/](docs/README.md), and the maintenance rule follows
+from that — **when this file and a document in `docs/` disagree, `docs/` wins**, and this file is the
+one to fix.
+
+| Claim class | Kept true by |
+|---|---|
+| Every link and repository path | `node docs/tools/check-docs.mjs` resolves them, including the ones in this file. |
+| Counts of any kind | Not stated here. [docs/REPO_FACTS.md](docs/REPO_FACTS.md) is generated. |
+| The role table | A summary of [docs/PERMISSIONS.md](docs/PERMISSIONS.md), which is the authority and is itself parity-checked against `frontend/lib/permissions.ts`. |
+| The provider chain | A summary of [docs/ARCHITECTURE.md §6](docs/ARCHITECTURE.md); the default order is generated. |
+| Environment variables | A summary of [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md), which has a one-command completeness check. |
+| Local setup commands | Run them on a clean clone. Nothing else verifies a `README` quick-start, and a broken one is the first thing a new contributor meets. |
+| The endpoint list under "Core API Endpoints" | **Illustrative, not exhaustive** — it is a sample of the surface, and the real inventory is the OpenAPI schema. Treat a route missing from it as normal; treat a route *listed* and absent as a bug. |
+
+**Review triggers:** a new top-level directory, a change to the local-setup commands, or a change to
+any of the summaries above in their authoritative document.
+
+**Known unverified:** the production hostnames, the EC2 IP and the S3 bucket name are recorded from a
+deployment, not read from code. They are correct as of 2026-07-27 to the extent the deployment has
+not changed under them.

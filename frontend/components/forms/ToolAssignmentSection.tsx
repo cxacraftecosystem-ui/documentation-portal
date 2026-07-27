@@ -4,6 +4,7 @@ import { Link2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Field } from "@/components/FormControls";
+import { CarryContextBanner, carryScope, useCarryContext, type CarryScopeState } from "@/components/forms/CarryContextBanner";
 import { Dropdown, MultiSelectDropdown } from "@/components/ui/Dropdown";
 import { apiFetch, listResource } from "@/lib/api";
 import type { Artisan, Craft, ToolDocumentation } from "@/lib/types";
@@ -24,6 +25,10 @@ export function ToolAssignmentSection() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // "Can I see this artisan?" and "is there any signal?" are different answers, and the carry-
+  // forward prefill treats them differently — see useCarryContext. All three lists land together,
+  // so one state covers every scope built from them.
+  const [referenceState, setReferenceState] = useState<CarryScopeState>("pending");
 
   useEffect(() => {
     (async () => {
@@ -35,8 +40,42 @@ export function ToolAssignmentSection() {
       setTools(toolPage.items);
       setCrafts(craftPage.items);
       setArtisans(artisanPage.items);
-    })().catch((err) => setError(err instanceof Error ? err.message : "Failed to load options"));
+      setReferenceState("loaded");
+    })().catch((err) => {
+      setReferenceState("unavailable");
+      setError(err instanceof Error ? err.message : "Failed to load options");
+    });
   }, []);
+
+  // Open with the sitting already loaded: the craft and artisan last documented, and the tool
+  // itself. Documenting a tool and then assigning it to the other artisans in the same courtyard is
+  // one continuous act, so the tool the researcher just wrote up is the one this panel opens on —
+  // it is no longer "this panel's own subject" but a record the bag genuinely holds.
+  const carry = useCarryContext({
+    // Each of the three dropdowns is built from exactly one of these lists, so "absent from the
+    // list" answers both "can this researcher still reach it" and "could this panel show it".
+    scopes: [
+      carryScope("artisan", referenceState, artisans),
+      carryScope("craft", referenceState, crafts),
+      carryScope("tool", referenceState, tools)
+    ],
+    // The panel assigns a tool to artisans of a craft; it has no workshop, product or process
+    // field, so those are neither filled in nor claimed.
+    applies: ["craft", "artisan", "tool"],
+    onApply: (context) => {
+      if (context.craftId) setCraftIds([context.craftId]);
+      if (context.artisanId) setArtisanIds([context.artisanId]);
+      if (context.toolId) setToolId(context.toolId);
+    }
+  });
+  const pruneCarried = carry.prune;
+  /** "Change": drop every carried value so the researcher picks from scratch. */
+  function clearCarriedContext() {
+    carry.change();
+    setToolId("");
+    setCraftIds([]);
+    setArtisanIds([]);
+  }
 
   const artisansForCrafts = useMemo(
     () => artisans.filter((artisan) => artisan.craftId && craftIds.includes(artisan.craftId)),
@@ -103,12 +142,30 @@ export function ToolAssignmentSection() {
 
       {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       {message ? <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{message}</div> : null}
+      <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
 
       <div className="grid gap-3 md:grid-cols-3">
         <Field label="Tool">
           <Dropdown
             value={toolId}
-            onChange={setToolId}
+            onChange={(next) => {
+              setToolId(next);
+              const tool = tools.find((candidate) => candidate.id === next);
+              if (!tool) return;
+              // Pruning first stops the banner claiming the tool it offered — the researcher has
+              // just overruled it — and remembering then banks the one they chose, with the artisan
+              // and craft that tool was documented under so nothing above it goes stale.
+              pruneCarried("tool");
+              carry.remember({
+                artisanId: tool.artisanId,
+                artisanName: tool.artisanName,
+                place: tool.place,
+                craftId: tool.craftId,
+                craftName: tool.craftName,
+                toolId: tool.id,
+                toolName: tool.toolkitName
+              });
+            }}
             placeholder="Select a tool"
             options={tools.map((tool) => ({ value: tool.id, label: `${tool.toolkitName} — ${tool.craftName} · ${tool.artisanName}` }))}
           />
@@ -124,7 +181,17 @@ export function ToolAssignmentSection() {
         <Field label="Artisans of selected crafts">
           <MultiSelectDropdown
             values={artisanIds}
-            onChange={setArtisanIds}
+            onChange={(next) => {
+              setArtisanIds(next);
+              // An explicit pick retires the banner and re-points the remembered context at the
+              // single artisan they settled on (a multi-select of many is nobody's "context").
+              const artisan = next.length === 1 ? artisans.find((a) => a.id === next[0]) : undefined;
+              if (artisan) {
+                carry.remember({ artisanId: artisan.id, artisanName: artisan.name, place: artisan.place, craftId: artisan.craftId }, { explicit: true });
+              } else {
+                carry.retire();
+              }
+            }}
             placeholder={craftIds.length ? "Select artisans" : "Select crafts first"}
             emptyLabel={craftIds.length ? "No artisans for these crafts" : "Select crafts first"}
             disabled={craftIds.length === 0}

@@ -7,8 +7,10 @@ import { ArrowDown, ArrowUp, ChevronDown, ClipboardList, GripVertical, Lock, Mic
 import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { Field, MultiNoteField, Select, TextArea, TextInput } from "@/components/FormControls";
+import { CarryContextBanner, carryScope, useCarryContext, type CarryScopeState } from "@/components/forms/CarryContextBanner";
 import { LocationFields } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
+import { QuestionnaireCaptureControls, useCapturePrefs } from "@/components/forms/QuestionnaireCaptureControls";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
 import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
 import { UploadProgress } from "@/components/media/UploadProgress";
@@ -27,7 +29,13 @@ import { apiFetch, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { locationFromForm, recordedAtFromForm, recordedTimezoneFromForm, textValue } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
-import { audioExtensionForMimeType, pickAudioRecorderMimeType, uploadMediaBatch, type BatchProgress } from "@/lib/media";
+import {
+  audioExtensionForMimeType,
+  pickAudioRecorderMimeType,
+  SPEECH_AUDIO_CONSTRAINTS,
+  uploadMediaBatch,
+  type BatchProgress
+} from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
 import { canManageQuestionnaire, hasRank, isAdmin } from "@/lib/permissions";
 import { UploadsProvider, useEagerStaging, useUploads } from "@/lib/uploads";
@@ -36,7 +44,17 @@ import type { Artisan, PageResult, QuestionnaireInterview, QuestionnaireQuestion
 /** Section ids the two questionnaire upload paths publish under, for the page-level tray. */
 const INTERVIEW_SECTION = "interview-audio";
 const INTERVIEW_SECTION_LABEL = "Interview audio";
-const questionSectionId = (questionId: string) => `question-audio-${questionId}`;
+
+/**
+ * Recorded clips are keyed by what they answer: a question id, or `section:<id>` for one take that
+ * covers a whole section. Same keying as the Android form, so both clients think about a section
+ * recording the same way and the same caption reaches the server from either.
+ */
+const SECTION_CLIP_PREFIX = "section:";
+const sectionClipKey = (sectionId: string) => `${SECTION_CLIP_PREFIX}${sectionId}`;
+const isSectionClipKey = (key: string) => key.startsWith(SECTION_CLIP_PREFIX);
+/** Tray section id for a clip key — ":" is stripped so the id stays a plain slug. */
+const clipTraySectionId = (key: string) => `question-audio-${key.replace(SECTION_CLIP_PREFIX, "section-")}`;
 
 export default function QuestionnairePage() {
   return (
@@ -59,13 +77,18 @@ function QuestionnairePageBody() {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [questionAudioFiles, setQuestionAudioFiles] = useState<Record<string, File[]>>({});
   const [selectedArtisanId, setSelectedArtisanId] = useState(searchParams.get("artisanId") ?? "");
+  // "Can I see this artisan?" and "is there any signal?" are different answers, and the carry-
+  // forward prefill treats them differently — see useCarryContext.
+  const [artisanListState, setArtisanListState] = useState<CarryScopeState>("pending");
   const [additionalArtisanIds, setAdditionalArtisanIds] = useState<string[]>([]);
   const [existingEntry, setExistingEntry] = useState<QuestionnaireInterview | null>(null);
-  const [answerMode, setAnswerMode] = useState<"audio" | "text">("audio");
+  // Whole-section vs per-question capture, and whether the written-answer boxes are on screen.
+  // Remembered across sections and across visits — see useCapturePrefs.
+  const { prefs: capture, update: updateCapture } = useCapturePrefs();
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [activePreview, setActivePreview] = useState<PreviewMedia | null>(null);
   const [questionAudioPreviews, setQuestionAudioPreviews] = useState<Record<string, PreviewMedia[]>>({});
-  const [recordingQuestionId, setRecordingQuestionId] = useState<string | null>(null);
+  const [recordingKey, setRecordingKey] = useState<string | null>(null);
   // The live stream is state (not just a ref) because <RecordingStrip>'s waveform re-renders on it.
   const [questionStream, setQuestionStream] = useState<MediaStream | null>(null);
   const [questionElapsedMs, setQuestionElapsedMs] = useState(0);
@@ -98,6 +121,8 @@ function QuestionnairePageBody() {
   const workshop = useWorkshopSelection();
 
   const questions = useMemo(() => sections.flatMap((section) => section.questions), [sections]);
+  const questionsById = useMemo(() => new Map(questions.map((question) => [question.id, question])), [questions]);
+  const sectionsById = useMemo(() => new Map(sections.map((section) => [section.id, section])), [sections]);
 
   const orderedGroups = useMemo(() => {
     return sections.map((section) => [section.code, { section, title: section.title, items: section.questions }] as const);
@@ -193,10 +218,33 @@ function QuestionnairePageBody() {
       ]);
       setSections(sectionList);
       setArtisans(artisanResult.items);
+      setArtisanListState("loaded");
       setError(null);
     } catch (err) {
+      setArtisanListState("unavailable");
       setError(err instanceof Error ? err.message : "Unable to load questionnaire");
     }
+  }
+
+  /**
+   * Open on the artisan this researcher was last documenting.
+   *
+   * An interview is the record most often taken straight after a product or a tool — the artisan is
+   * sitting right there — so the primary artisan is the one thing worth carrying in. Nothing narrower
+   * transfers: an interview covers a person, not their products, and this form has no field for one.
+   */
+  const carry = useCarryContext({
+    scopes: [carryScope("artisan", artisanListState, artisans)],
+    applies: ["artisan", "workshop"],
+    onApply: (context) => {
+      if (context.artisanId) setSelectedArtisanId(context.artisanId);
+      if (context.workshopId && !workshop.touched) workshop.setWorkshopId(context.workshopId);
+    }
+  });
+  /** "Change": drop the carried artisan so the researcher picks from scratch. */
+  function clearCarriedContext() {
+    carry.change();
+    setSelectedArtisanId("");
   }
 
   async function loadInterviews() {
@@ -252,9 +300,9 @@ function QuestionnairePageBody() {
     [stagedQuestionAudio, questionAudioStaging.entries]
   );
 
-  /** "3 clips · 2 uploaded" — the chip under a question's recorder, so "ready" is a fact not a hope. */
-  function questionAudioLabel(questionId: string): string {
-    const files = questionAudioFiles[questionId] ?? [];
+  /** "3 clips · 2 uploaded" — the chip under a recorder, so "ready" is a fact not a hope. */
+  function clipCountLabel(key: string): string {
+    const files = questionAudioFiles[key] ?? [];
     const entries = files.map((file) => stagedByFile.get(file) ?? null);
     const ready = entries.filter((entry) => entry?.status === "ready").length;
     const failed = entries.filter((entry) => entry?.status === "error").length;
@@ -298,10 +346,15 @@ function QuestionnairePageBody() {
     setPage(1);
   }
 
-  async function startQuestionRecording(question: QuestionnaireQuestion) {
+  /**
+   * Record against one clip key — a question id, or a section's key for a single whole-section take.
+   * `filenameBase` is the human part of the object name; the extension follows the codec the browser
+   * actually gave us.
+   */
+  async function startRecording(key: string, filenameBase: string) {
     try {
-      if (recordingQuestionId) recorderRef.current?.stop();
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (recordingKey) recorderRef.current?.stop();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: SPEECH_AUDIO_CONSTRAINTS });
       streamRef.current = stream;
       chunksRef.current = [];
       // Ask the browser what it can actually record: Safari/iOS produces audio/mp4, so a hardcoded
@@ -316,11 +369,10 @@ function QuestionnairePageBody() {
         const mimeType = recorder.mimeType || preferredType || "audio/webm";
         const extension = audioExtensionForMimeType(mimeType);
         const blob = new Blob(chunksRef.current, { type: mimeType });
-        const filename = `${safeFileName(question.sectionCode)}-${question.sortOrder}-${safeFileName(question.prompt)}.${extension}`;
-        const file = new File([blob], filename, { type: mimeType });
+        const file = new File([blob], `${filenameBase}.${extension}`, { type: mimeType });
         setQuestionAudioFiles((current) => ({
           ...current,
-          [question.id]: [...(current[question.id] ?? []), file]
+          [key]: [...(current[key] ?? []), file]
         }));
         stream.getTracks().forEach((track) => track.stop());
         // Tapping "Record this question" on ANOTHER question stops this recorder while the next one
@@ -331,7 +383,7 @@ function QuestionnairePageBody() {
         stopElapsedTimer();
         setQuestionStream(null);
         setQuestionElapsedMs(0);
-        setRecordingQuestionId(null);
+        setRecordingKey(null);
       };
       // The clock starts when the recorder really starts; only it needs a timer, because the bars
       // run on <Waveform>'s own requestAnimationFrame loop.
@@ -342,14 +394,44 @@ function QuestionnairePageBody() {
       };
       recorder.start();
       setQuestionStream(stream);
-      setRecordingQuestionId(question.id);
+      setRecordingKey(key);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to start question recording");
+      setError(err instanceof Error ? err.message : "Unable to start recording");
     }
   }
 
-  function stopQuestionRecording() {
+  function stopRecording() {
     recorderRef.current?.stop();
+  }
+
+  /**
+   * How one clip key is described on the way out: the caption, the metadata that files it, and the
+   * tray label. `null` for a key whose question or section is no longer in the form.
+   *
+   * A whole-section take carries the section, not a question — "Section audio: D RAW MATERIALS…",
+   * which is exactly what Android writes and what the backend already parses
+   * (`_CAPTION_SECTION` in services/media_naming.py, and `sectionCode` in the completion matrix).
+   * Attribution to artisans is not carried here and must not be: the clip links to the interview,
+   * and the interview links to every artisan in the set, so a group sitting's one section recording
+   * counts for all of them — which is what a group sitting means.
+   */
+  function clipBatch(key: string): { caption: string; extraMetadata: Record<string, unknown>; trayLabel: string } | null {
+    if (isSectionClipKey(key)) {
+      const section = sectionsById.get(key.slice(SECTION_CLIP_PREFIX.length));
+      if (!section) return null;
+      return {
+        caption: `Section audio: ${section.code} ${section.title}`.trim(),
+        extraMetadata: { sectionId: section.id, sectionCode: section.code, sectionTitle: section.title },
+        trayLabel: `Section ${section.code} audio`
+      };
+    }
+    const question = questionsById.get(key);
+    if (!question) return null;
+    return {
+      caption: `Question audio: ${question.sectionCode}${question.sortOrder} - ${question.prompt}`,
+      extraMetadata: { questionId: question.id, questionPrompt: question.prompt, sectionCode: question.sectionCode },
+      trayLabel: `Q${question.sectionCode}${question.sortOrder} audio`
+    };
   }
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -386,9 +468,8 @@ function QuestionnairePageBody() {
           location
       };
       // Offline this queues the whole interview — answers, the interview audio and every
-      // per-question clip — to the outbox. An interview is the one record that cannot be
-      // reconstructed later: the artisan has gone home.
-      const questionsForQueue = new Map(questions.map((question) => [question.id, question]));
+      // per-question or whole-section clip — to the outbox. An interview is the one record that
+      // cannot be reconstructed later: the artisan has gone home.
       const outcome = await saveOrQueue<QuestionnaireInterview>({
         label: `Interview · ${interviewTitle}`,
         endpoint: "/questionnaire/interviews",
@@ -404,21 +485,21 @@ function QuestionnairePageBody() {
             recordedTimezone,
             transcribeAudio: true
           },
-          // One batch per question so the caption and the questionId metadata that place a clip
-          // under its answer survive the round trip through IndexedDB.
-          ...Object.entries(questionAudioFiles).flatMap(([questionId, files]) => {
-            const question = questionsForQueue.get(questionId);
-            if (!question || !files.length) return [];
+          // One batch per clip key so the caption and the metadata that place a clip under its
+          // answer — or under its whole section — survive the round trip through IndexedDB.
+          ...Object.entries(questionAudioFiles).flatMap(([key, files]) => {
+            const batch = clipBatch(key);
+            if (!batch || !files.length) return [];
             return [
               {
                 files,
                 linkedRecordType: "questionnaire",
-                caption: `Question audio: ${question.sectionCode}${question.sortOrder} - ${question.prompt}`,
+                caption: batch.caption,
                 location,
                 recordedAt,
                 recordedTimezone,
                 transcribeAudio: true,
-                extraMetadata: { questionId, questionPrompt: question.prompt, sectionCode: question.sectionCode }
+                extraMetadata: batch.extraMetadata
               }
             ];
           })
@@ -452,27 +533,40 @@ function QuestionnairePageBody() {
         // Uploaded clips surface twice: as chips under this section and in the page-level tray.
         addCompleted(INTERVIEW_SECTION, INTERVIEW_SECTION_LABEL, uploaded);
       }
-      const questionsById = new Map(questions.map((question) => [question.id, question]));
-      for (const [questionId, files] of Object.entries(questionAudioFiles)) {
-        const question = questionsById.get(questionId);
-        if (!question || files.length === 0) continue;
+      for (const [key, files] of Object.entries(questionAudioFiles)) {
+        const batch = clipBatch(key);
+        if (!batch || files.length === 0) continue;
         const { uploaded } = await uploadMediaBatch({
           files,
           linkedRecordType: "questionnaire",
           linkedRecordId: saved.id,
-          caption: `Question audio: ${question.sectionCode}${question.sortOrder} - ${question.prompt}`,
+          caption: batch.caption,
           location,
           recordedAt,
           recordedTimezone,
           transcribeAudio: true,
-          extraMetadata: { questionId, questionPrompt: question.prompt, sectionCode: question.sectionCode },
-          onProgress: (progress) => setQuestionProgress((current) => ({ ...current, [questionId]: progress }))
+          extraMetadata: batch.extraMetadata,
+          onProgress: (progress) => setQuestionProgress((current) => ({ ...current, [key]: progress }))
         });
-        addCompleted(questionSectionId(questionId), `Q${question.sectionCode}${question.sortOrder} audio`, uploaded);
+        addCompleted(clipTraySectionId(key), batch.trayLabel, uploaded);
       }
       // Cleared only once every question has been pushed, so the tray's page-level total counts the
       // whole run rather than shrinking back to whichever question is uploading right now.
       setQuestionProgress({});
+      // Bank the sitting: the interview does not become part of the carried context (nothing else
+      // links to one) but the artisan it was taken with is exactly where the researcher still is.
+      const interviewed = artisans.find((artisan) => artisan.id === selectedArtisanId);
+      if (interviewed) {
+        carry.remember({
+          artisanId: interviewed.id,
+          artisanName: interviewed.name,
+          place: interviewed.place,
+          craftId: interviewed.craftId,
+          craftName: interviewed.craft?.name ?? null,
+          workshopId: workshop.workshopId,
+          workshopName: workshop.workshops.find((w) => w.id === workshop.workshopId)?.title ?? null
+        });
+      }
       formElement.reset();
       setAnswers({});
       setMediaFiles([]);
@@ -528,6 +622,7 @@ function QuestionnairePageBody() {
       <CompletionMatrixPanel canOverride={adminMode && isAdmin(user)} />
 
       <form onSubmit={submit} onKeyDown={handleFormEnter} className="panel mb-5 grid gap-4 p-4">
+        <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
           <Field label="Interview title" required>
             <TextInput name="title" required />
@@ -561,7 +656,28 @@ function QuestionnairePageBody() {
             )}
           </Field>
           <Field label="Primary artisan">
-            <Select name="primaryArtisanId" value={selectedArtisanId} onChange={(event) => setSelectedArtisanId(event.target.value)}>
+            <Select
+              name="primaryArtisanId"
+              value={selectedArtisanId}
+              onChange={(event) => {
+                setSelectedArtisanId(event.target.value);
+                // An explicit pick replaces the remembered context and retires the banner: from here
+                // on the artisan on screen is the researcher's own choice, not a suggestion.
+                const artisan = artisans.find((candidate) => candidate.id === event.target.value);
+                if (artisan) {
+                  carry.remember(
+                    {
+                      artisanId: artisan.id,
+                      artisanName: artisan.name,
+                      place: artisan.place,
+                      craftId: artisan.craftId,
+                      craftName: artisan.craft?.name ?? null
+                    },
+                    { explicit: true }
+                  );
+                }
+              }}
+            >
               <option value="">Select artisan</option>
               {artisans.map((artisan) => (
                 <option key={artisan.id} value={artisan.id}>
@@ -625,24 +741,19 @@ function QuestionnairePageBody() {
             </div>
           </section>
         ) : null}
-        <div className="flex flex-wrap gap-2 rounded-lg border border-line-200 bg-field-100 p-3">
-          <button type="button" className={answerMode === "audio" ? "field-button" : "field-button-secondary"} onClick={() => setAnswerMode("audio")}>
-            Record audio answers
-          </button>
-          <button type="button" className={answerMode === "text" ? "field-button" : "field-button-secondary"} onClick={() => setAnswerMode("text")}>
-            Type answers manually
-          </button>
-        </div>
-        {answerMode === "audio" ? (
-          <MediaCaptureField
-            files={mediaFiles}
-            onFilesChange={setMediaFiles}
-            title="Interview audio"
-            description="Record or upload interview audio. The backend will transcribe it when a transcription provider API key (ElevenLabs, Deepgram, or OpenAI) is configured; otherwise the audio is still saved."
-            allowDocuments={false}
-            allowedTypes={["AUDIO"]}
-          />
-        ) : null}
+        {/* Replaces the old "Record audio answers / Type answers manually" pair: that switch governed
+            the same text boxes as the toggle below, under a different name than Android uses for it. */}
+        <QuestionnaireCaptureControls prefs={capture} onChange={updateCapture} />
+        {/* Always offered, as on Android: audio for the interview as a whole, distinct from the
+            per-section and per-question takes and never hidden by the answer-box toggle. */}
+        <MediaCaptureField
+          files={mediaFiles}
+          onFilesChange={setMediaFiles}
+          title="Interview audio"
+          description="Record or upload interview audio. The backend will transcribe it when a transcription provider API key (ElevenLabs, Deepgram, or OpenAI) is configured; otherwise the audio is still saved."
+          allowDocuments={false}
+          allowedTypes={["AUDIO"]}
+        />
         <UploadProgress progress={interviewProgress} sectionId={INTERVIEW_SECTION} label={INTERVIEW_SECTION_LABEL} />
         <LocationFields />
         <div className="grid gap-3">
@@ -652,70 +763,108 @@ function QuestionnairePageBody() {
                 {code}. {group.title}
               </summary>
               <div className="mt-3 grid gap-3">
+                {/* One take for the whole section. Rendered whenever such a take EXISTS, not only in
+                    section mode, so switching to individual mode part-way never hides audio that is
+                    still going to be saved. */}
+                {capture.recordingMode === "SECTION" || questionAudioFiles[sectionClipKey(group.section.id)]?.length ? (
+                  <div className="rounded-md border border-line-200 bg-card p-3">
+                    <ClipRecorder
+                      hint={
+                        capture.recordingMode === "SECTION"
+                          ? "Record this entire section in one take."
+                          : "A whole-section take from earlier. It still uploads and saves with this interview."
+                      }
+                      showRecordButton={capture.recordingMode === "SECTION"}
+                      recording={recordingKey === sectionClipKey(group.section.id)}
+                      recordLabel="Record section"
+                      stopLabel="Stop section recording"
+                      onStart={() =>
+                        startRecording(
+                          sectionClipKey(group.section.id),
+                          `${safeFileName(group.section.code)}-sec-${safeFileName(group.section.title)}`
+                        )
+                      }
+                      onStop={stopRecording}
+                      files={questionAudioFiles[sectionClipKey(group.section.id)] ?? []}
+                      previews={questionAudioPreviews[sectionClipKey(group.section.id)] ?? []}
+                      countLabel={clipCountLabel(sectionClipKey(group.section.id))}
+                      onClear={() => setQuestionAudioFiles((current) => ({ ...current, [sectionClipKey(group.section.id)]: [] }))}
+                      onRemove={(index) =>
+                        setQuestionAudioFiles((current) => ({
+                          ...current,
+                          [sectionClipKey(group.section.id)]: (current[sectionClipKey(group.section.id)] ?? []).filter((_, i) => i !== index)
+                        }))
+                      }
+                      onOpenPreview={setActivePreview}
+                      stream={questionStream}
+                      elapsedMs={questionElapsedMs}
+                    />
+                    <UploadProgress
+                      progress={questionProgress[sectionClipKey(group.section.id)] ?? null}
+                      sectionId={clipTraySectionId(sectionClipKey(group.section.id))}
+                      label={`Section ${group.section.code} audio`}
+                      className="mt-2"
+                    />
+                  </div>
+                ) : null}
                 {group.items.map((question) => (
-                  <Field key={question.id} label={`${question.sortOrder}. ${question.prompt}`}>
-                    <div className="mb-2 flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        className="field-button-secondary"
-                        onClick={() => (recordingQuestionId === question.id ? stopQuestionRecording() : startQuestionRecording(question))}
-                      >
-                        {recordingQuestionId === question.id ? <Square className="h-4 w-4" aria-hidden /> : <Mic className="h-4 w-4" aria-hidden />}
-                        {recordingQuestionId === question.id ? "Stop question recording" : "Record this question"}
-                      </button>
-                      {questionAudioFiles[question.id]?.length ? (
-                        <>
-                          <span className="text-xs text-ink-muted">{questionAudioLabel(question.id)}</span>
-                          <button
-                            type="button"
-                            className="text-xs font-semibold text-red-700"
-                            onClick={() => setQuestionAudioFiles((current) => ({ ...current, [question.id]: [] }))}
-                          >
-                            Clear clips
-                          </button>
-                        </>
-                      ) : null}
-                    </div>
-                    {recordingQuestionId === question.id ? (
-                      <div className="mb-3">
-                        <RecordingStrip stream={questionStream} elapsedMs={questionElapsedMs} />
-                      </div>
+                  // Not <Field>: that wraps its children in a <label>, and a <label> names its first
+                  // labelable descendant — which here is the record button, not the answer box. The
+                  // button ended up announced as the whole prompt and the textarea as nothing at
+                  // all. A plain heading plus aria-labelledby names both correctly.
+                  <div key={question.id} className="grid gap-1">
+                    <span className="field-label" id={`question-label-${question.id}`}>
+                      {question.sortOrder}. {question.prompt}
+                    </span>
+                    {/* Same rule as the section recorder above: the button belongs to individual
+                        mode, but clips already recorded stay visible and stay saved in either. */}
+                    {capture.recordingMode === "INDIVIDUAL" || questionAudioFiles[question.id]?.length ? (
+                      <ClipRecorder
+                        hint={
+                          capture.recordingMode === "INDIVIDUAL"
+                            ? undefined
+                            : "Recorded against this question earlier. It still uploads and saves with this interview."
+                        }
+                        showRecordButton={capture.recordingMode === "INDIVIDUAL"}
+                        recording={recordingKey === question.id}
+                        recordLabel="Record this question"
+                        stopLabel="Stop question recording"
+                        onStart={() =>
+                          startRecording(
+                            question.id,
+                            `${safeFileName(question.sectionCode)}-${question.sortOrder}-${safeFileName(question.prompt)}`
+                          )
+                        }
+                        onStop={stopRecording}
+                        files={questionAudioFiles[question.id] ?? []}
+                        previews={questionAudioPreviews[question.id] ?? []}
+                        countLabel={clipCountLabel(question.id)}
+                        onClear={() => setQuestionAudioFiles((current) => ({ ...current, [question.id]: [] }))}
+                        onRemove={(index) =>
+                          setQuestionAudioFiles((current) => ({
+                            ...current,
+                            [question.id]: (current[question.id] ?? []).filter((_, i) => i !== index)
+                          }))
+                        }
+                        onOpenPreview={setActivePreview}
+                        stream={questionStream}
+                        elapsedMs={questionElapsedMs}
+                      />
                     ) : null}
-                    {questionAudioPreviews[question.id]?.length ? (
-                      <div className="mb-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                        {questionAudioPreviews[question.id].map((item, itemIndex) => (
-                          <MediaPreviewTile
-                            key={item.key}
-                            item={item}
-                            onOpen={() => setActivePreview(item)}
-                            action={
-                              <button
-                                type="button"
-                                className="text-xs font-semibold text-red-700"
-                                onClick={() =>
-                                  setQuestionAudioFiles((current) => ({
-                                    ...current,
-                                    [question.id]: (current[question.id] ?? []).filter((_, index) => index !== itemIndex)
-                                  }))
-                                }
-                              >
-                                Remove
-                              </button>
-                            }
-                          />
-                        ))}
-                      </div>
-                    ) : null}
-                    {answerMode === "text" ? (
-                      <TextArea value={answers[question.id] ?? ""} onChange={(event) => setAnswers((current) => ({ ...current, [question.id]: event.target.value }))} />
-                    ) : null}
+                    {capture.hideAnswers ? null : (
+                      <TextArea
+                        aria-labelledby={`question-label-${question.id}`}
+                        value={answers[question.id] ?? ""}
+                        onChange={(event) => setAnswers((current) => ({ ...current, [question.id]: event.target.value }))}
+                      />
+                    )}
                     <UploadProgress
                       progress={questionProgress[question.id] ?? null}
-                      sectionId={questionSectionId(question.id)}
+                      sectionId={clipTraySectionId(question.id)}
                       label={`Q${question.sectionCode}${question.sortOrder} audio`}
                       className="mt-2"
                     />
-                  </Field>
+                  </div>
                 ))}
               </div>
             </details>
@@ -827,6 +976,88 @@ function safeFileName(value: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 80) || "question-audio";
+}
+
+/**
+ * The recorder for one clip key — a whole section, or a single question. One component for both so
+ * the two modes cannot drift into two slightly different recorders, and so a clip list is rendered
+ * identically whether or not its recorder's button is currently on offer.
+ */
+function ClipRecorder({
+  hint,
+  showRecordButton,
+  recording,
+  recordLabel,
+  stopLabel,
+  onStart,
+  onStop,
+  files,
+  previews,
+  countLabel,
+  onClear,
+  onRemove,
+  onOpenPreview,
+  stream,
+  elapsedMs
+}: {
+  hint?: string;
+  showRecordButton: boolean;
+  recording: boolean;
+  recordLabel: string;
+  stopLabel: string;
+  onStart: () => void;
+  onStop: () => void;
+  files: File[];
+  previews: PreviewMedia[];
+  countLabel: string;
+  onClear: () => void;
+  onRemove: (index: number) => void;
+  onOpenPreview: (item: PreviewMedia) => void;
+  stream: MediaStream | null;
+  elapsedMs: number;
+}) {
+  return (
+    <>
+      {hint ? <p className="mb-2 text-xs text-ink-muted">{hint}</p> : null}
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        {showRecordButton ? (
+          <button type="button" className="field-button-secondary" onClick={() => (recording ? onStop() : onStart())}>
+            {recording ? <Square className="h-4 w-4" aria-hidden /> : <Mic className="h-4 w-4" aria-hidden />}
+            {recording ? stopLabel : recordLabel}
+          </button>
+        ) : null}
+        {files.length ? (
+          <>
+            <span className="text-xs text-ink-muted">{countLabel}</span>
+            <button type="button" className="text-xs font-semibold text-red-700" onClick={onClear}>
+              Clear clips
+            </button>
+          </>
+        ) : null}
+      </div>
+      {recording ? (
+        <div className="mb-3">
+          <RecordingStrip stream={stream} elapsedMs={elapsedMs} />
+        </div>
+      ) : null}
+      {previews.length ? (
+        <div className="mb-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {previews.map((item, index) => (
+            <MediaPreviewTile
+              key={item.key}
+              item={item}
+              onOpen={() => onOpenPreview(item)}
+              action={
+                <button type="button" className="text-xs font-semibold text-red-700" onClick={() => onRemove(index)}>
+                  Remove
+                </button>
+              }
+            />
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
 }
 
 /**

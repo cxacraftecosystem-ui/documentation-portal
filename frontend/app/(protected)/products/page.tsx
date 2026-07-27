@@ -8,7 +8,7 @@ import { CollabDialog } from "@/components/CollabDialog";
 import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { DownloadCsvButton } from "@/components/DownloadCsvButton";
 import { useAuth } from "@/components/AuthProvider";
-import { canDownloadDataset } from "@/lib/permissions";
+import { canCreateRecords, canDownloadDataset } from "@/lib/permissions";
 import { EmptyState } from "@/components/EmptyState";
 import { EMPTY_FUNNEL, FunnelFilters, type FunnelValue, type FunnelWorkshop } from "@/components/FunnelFilters";
 import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
@@ -109,10 +109,15 @@ export default function ProductsPage() {
         actions={
           <>
             {canDownloadDataset(user) ? <DownloadCsvButton path="/export/products.csv" filename="products.csv" /> : null}
-            <Link className="field-button" href="/products/new">
-              <Plus className="h-4 w-4" aria-hidden />
-              New product
-            </Link>
+            {/* Gated, not merely locked: an ungated "New …" invited every tier to press a
+                button that lands on the route guard's refusal. Below researcher the honest UI is
+                no button, matching `require_record_creator` on the server. */}
+            {canCreateRecords(user) ? (
+              <Link className="field-button" href="/products/new">
+                <Plus className="h-4 w-4" aria-hidden />
+                New product
+              </Link>
+            ) : null}
           </>
         }
       />

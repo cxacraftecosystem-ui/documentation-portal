@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fieldrepo-config
+  labels:
+    app.kubernetes.io/name: fieldrepo
+data:
+  # Non-secret configuration only. Anything that would be damaging to read out of `kubectl get
+  # configmap -o yaml` belongs in externalsecret.yaml instead — a ConfigMap is plaintext to anyone
+  # with read access to the namespace.
+  #
+  # Names and defaults here track backend/app/core/config.py. Where a value differs from that file's
+  # default, the reason is written down; where it matches, it is repeated anyway so the deployed
+  # configuration is readable without cross-referencing Python.
+
+  # --- Database ---------------------------------------------------------------------------------
+  # THE NUMBER THAT MATTERS. Client connections this pod's Prisma engine may open to the Supabase
+  # pooler. Multiply by (replicas + rollout surge + the queue pod) to get the real footprint, and
+  # keep that product under the pooler's ceiling — the arithmetic is worked through in
+  # docs/KUBERNETES.md and the HPA maximum is derived from it.
+  #
+  # 10 is not a round number picked for looks: it is what production was cut TO after 40 x 2 workers
+  # exhausted the pooler's 200-client ceiling and crash-looped the API. Raising it here without
+  # lowering the HPA maximum re-opens that outage.
+  DATABASE_CONNECTION_LIMIT: "10"
+  # Runtime traffic goes through the TRANSACTION-mode pooler (:6543, pgbouncer=true), which releases a
+  # server connection per statement. Session mode (:5432) pins one of only ~15 server connections for
+  # the life of the client, which is how EMAXCONNSESSION happened. Migrations are the exception and
+  # deliberately do NOT use this — see job-migrate.yaml.
+  DATABASE_USE_TRANSACTION_POOLER: "true"
+  DATABASE_REQUIRE_SSL: "true"
+
+  # --- Queue ------------------------------------------------------------------------------------
+  # Namespace-wide default of OFF, because the api Deployment is the workload that must never run it
+  # and it is the one with many replicas. The queue Deployment turns it back on for its single pod.
+  # Note the application default is TRUE, so omitting this key is not equivalent to setting it false.
+  MEDIA_QUEUE_WORKER_ENABLED: "false"
+
+  # --- HTTP / security --------------------------------------------------------------------------
+  # Closed by default, matching the application default. Only the dev overlay opens it.
+  BACKEND_EXPOSE_DOCS: "false"
+  SECURITY_HSTS_ENABLED: "true"
+  # The viewer's TLS terminates at CloudFront and the origin hop is plain HTTP, so the app cannot
+  # infer from the request that the browser used HTTPS. Overlays that are actually served over TLS
+  # set this true; the base leaves it false so a plain-HTTP dev cluster does not poison a developer's
+  # browser with an HSTS pin for localhost.
+  SECURITY_FORCE_HSTS: "false"
+
+  # The image's entrypoint (docker/backend/entrypoint.sh) refuses to boot when DATABASE_URL names a
+  # host that is not loopback/private, so that nobody can hand a throwaway container the production
+  # connection string by accident. Every Kubernetes environment here talks to Supabase, which is
+  # remote by definition, so the guard would stop all three overlays dead.
+  #
+  # It is answered rather than removed. Deleting the container's `command` would have silenced the
+  # guard by skipping the entrypoint entirely; typing its escape hatch keeps the rest of the script,
+  # and the rest is worth having — it logs one line at startup naming the database host the pod
+  # actually attached to, which is the fastest way to catch an overlay pointed at the wrong project.
+  ALLOW_REMOTE_DATABASE: "yes-i-mean-it"
+
+  # --- Placeholders the overlays must replace ----------------------------------------------------
+  # Present so that a missing override fails visibly at boot rather than silently serving the wrong
+  # origin. Settings requires AWS_S3_BUCKET and MASTER_ADMIN_EMAIL to exist at all.
+  #
+  # FIELDREPO_ENV is not read by the application (Settings is extra="ignore"). It exists so that one
+  # declared string per overlay can be substituted into every secret path in externalsecret.yaml by
+  # the `replacements` block there — eleven remote keys stay in one file instead of being copied into
+  # three.
+  FIELDREPO_ENV: "REPLACE_IN_OVERLAY"
+  AWS_REGION: "ap-south-1"
+  AWS_S3_BUCKET: "REPLACE_IN_OVERLAY"
+  BACKEND_CORS_ORIGINS: "REPLACE_IN_OVERLAY"
+  NEXT_PUBLIC_APP_URL: "REPLACE_IN_OVERLAY"
+  MASTER_ADMIN_EMAIL: "REPLACE_IN_OVERLAY"

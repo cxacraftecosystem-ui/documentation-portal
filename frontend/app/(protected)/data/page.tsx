@@ -1004,20 +1004,67 @@ function TaxonomySwitcher({
   );
 }
 
+/**
+ * The open folder's record, as a two-column table.
+ *
+ * A researcher opening an artisan's folder is almost always checking ONE value — the pincode, the
+ * phone number, what the artisan said not to do — and a label column they can run their eye down
+ * answers that far faster than the same fields reflowed as a paragraph of prose.
+ *
+ * Only fields the record actually carries become rows. The registry behind `info` already drops
+ * empty values, and padding the table back out with "Notes —" would say nothing except that the
+ * table is padded.
+ */
 function RecordInfoCard({ info }: { info: FolderInfo }) {
   const fields = (info.fields ?? []).filter((field) => field.value != null && String(field.value).trim() !== "");
   if (fields.length === 0) return null;
   return (
-    <section className="panel p-5">
-      <h2 className="font-display text-lg font-bold text-ink-900">{info.title}</h2>
-      <dl className="mt-4 grid gap-x-8 gap-y-3 md:grid-cols-2">
-        {fields.map((field, index) => (
-          <div key={`${field.label}-${index}`} className="min-w-0">
-            <dt className="text-xs font-semibold uppercase tracking-wide text-ink-500">{field.label}</dt>
-            <dd className="mt-0.5 whitespace-pre-line break-words text-sm leading-6 text-ink-700">{field.value}</dd>
-          </div>
-        ))}
-      </dl>
+    <section className="panel overflow-hidden">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-5 py-4">
+        <h2 className="font-display text-lg font-bold text-ink-900">{info.title}</h2>
+        <span className="text-xs text-ink-500">
+          {fields.length} recorded field{fields.length === 1 ? "" : "s"}
+        </span>
+      </div>
+      {/* Two columns of wrapping text can never be wider than their container, so this table gets
+          no horizontal scroller — the page stays put and the values wrap in place. */}
+      <table className="w-full table-fixed border-collapse border-t border-line-200 text-left text-sm">
+        <colgroup>
+          {/* A share of the width on a phone and a fixed column from `sm` up: a fixed label column
+              on a narrow screen leaves the value one word per line, and a proportional one on a
+              wide screen wastes half the card on the word "Phone". */}
+          <col className="w-[38%] sm:w-56" />
+          <col />
+        </colgroup>
+        <thead className="bg-surface-50 text-xs uppercase tracking-wide text-ink-500">
+          <tr>
+            <th scope="col" className="border-r border-line-200 px-5 py-2 font-bold text-ink-900">
+              Field
+            </th>
+            <th scope="col" className="px-5 py-2 font-bold text-ink-900">
+              Value
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-line-200">
+          {fields.map((field, index) => (
+            <tr key={`${field.label}-${index}`} className="align-top">
+              <th
+                scope="row"
+                className="break-words border-r border-line-200 bg-surface-50 px-5 py-2.5 text-left font-semibold text-ink-900"
+              >
+                {field.label}
+              </th>
+              <td className="px-5 py-2.5 text-ink-700">
+                {/* `pre-line` keeps the paragraph breaks in a 7,000-character interview note instead
+                    of running it into one line; `break-words` keeps a bare URL inside the column.
+                    The cap only bites on values that long — everything shorter shows in full. */}
+                <div className="max-h-72 overflow-y-auto whitespace-pre-line break-words leading-6">{field.value}</div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </section>
   );
 }

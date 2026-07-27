@@ -1581,35 +1581,22 @@ private fun PersonChip(user: TaskUserDto, onRemove: () -> Unit) {
     }
 }
 
+/**
+ * The task due date. Was an OutlinedButton opening the PLATFORM `android.app.DatePickerDialog`,
+ * which is themed from res/values/styles.xml by the SYSTEM's night setting rather than by the app's
+ * appearance preference — so a researcher running the app in Dark on a light phone got a white
+ * calendar over a dark form. [FieldDateField] is the same Compose colour scheme as the screen and
+ * lets the date be typed, which for a due date usually beats paging a calendar to next Friday.
+ */
 @Composable
 private fun DueDateField(value: LocalDate?, onChange: (LocalDate?) -> Unit) {
-    val context = LocalContext.current
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        OutlinedButton(
-            onClick = {
-                val initial = value ?: LocalDate.now()
-                DatePickerDialog(
-                    context,
-                    { _, year, month, day -> onChange(LocalDate.of(year, month + 1, day)) },
-                    initial.year,
-                    initial.monthValue - 1,
-                    initial.dayOfMonth
-                ).show()
-            },
-            modifier = Modifier.weight(1f)
-        ) {
-            Icon(Icons.Filled.Event, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(value?.let { formatDate(it.toDueInstant()) } ?: "Pick a date")
-        }
-        if (value != null) {
-            TextButton(onClick = { onChange(null) }) { Text("Clear") }
-        }
-    }
+    FieldDateField(
+        label = "Due date",
+        value = value,
+        onValueChange = onChange,
+        placeholder = "No due date",
+        clearable = true
+    )
 }
 
 @Composable

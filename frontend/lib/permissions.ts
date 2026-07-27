@@ -79,12 +79,19 @@ export function canManageQuestionnaire(user: User | null | undefined) {
   return hasRank(user, "PROFESSOR") || !!user?.canManageQuestionnaire;
 }
 
+/**
+ * Add or edit a craft — `can_manage_crafts` / `require_craft_manager`. Professor and above, RANK
+ * ALONE: the `canManageCrafts` column is no longer read on either side, because a per-user grant
+ * that lifted a researcher over the taxonomy was invisible in the role column. Deleting a craft is
+ * stricter still (admin), so a delete control needs `isAdmin`, not this.
+ */
 export function canManageCrafts(user: User | null | undefined) {
-  return hasRank(user, "PROFESSOR") || !!user?.canManageCrafts;
+  return hasRank(user, "PROFESSOR");
 }
 
+/** Add or edit a workshop — `require_workshop_manager`. Professor+; deleting one is admin-only. */
 export function canManageWorkshops(user: User | null | undefined) {
-  return hasRank(user, "PROFESSOR") || !!user?.canManageWorkshops;
+  return hasRank(user, "PROFESSOR");
 }
 
 /** Anyone with somebody ranked below them may peer-review (plus grantees of canReview). */
@@ -96,9 +103,14 @@ export function canDownloadDataset(user: User | null | undefined) {
   return hasRank(user, "PROFESSOR") || !!user?.canDownloadDataset;
 }
 
-/** Creating core records (artisans, products, tools, processes) needs Field Contributor+. */
+/**
+ * Opening a NEW artisan, product, tool, process or interview — `require_record_creator`. Researcher
+ * and above. The two tiers below populate records instead of opening them, and none of what they do
+ * is gated by this: uploading media, answering an existing interview and commenting all stay open,
+ * so hiding a "New …" control from them never hides a contribution path.
+ */
 export function canCreateRecords(user: User | null | undefined) {
-  return hasRank(user, "FIELD_CONTRIBUTOR");
+  return hasRank(user, "RESEARCHER");
 }
 
 export function canEditOwnOrAdmin(user: User | null | undefined, ownerId?: string | null) {
@@ -155,10 +167,11 @@ export type RouteGuard = {
 const RECORD_CREATOR_GUARD = {
   can: canCreateRecords,
   gate: "require_record_creator",
-  title: "Field Contributor access required",
+  title: "Researcher access required",
   message:
-    "Creating artisans, products, processes and tools needs Field Contributor access or above. " +
-    "Crowdsource volunteers can take interviews, upload media, and comment on existing records."
+    "Creating artisans, products, processes and tools needs Researcher access or above. " +
+    "Field contributors and crowdsource volunteers answer existing interviews, upload media, and " +
+    "comment on existing records — browse the repository to find an entry to add to."
 } as const;
 
 export const ROUTE_GUARDS: RouteGuard[] = [
@@ -178,14 +191,17 @@ export const ROUTE_GUARDS: RouteGuard[] = [
     message: "The settings hub is available to admins and the master admin only."
   },
   {
-    // Managed API keys are master-admin-only on the server (every /secrets route uses
-    // require_master_admin), so an ordinary admin must not reach the page either.
+    // The page now holds two things with two different owners, so the ROUTE is admin and the halves
+    // gate themselves. Key VALUES stay master-admin (every /secrets route is require_master_admin,
+    // and the page renders ApiKeysPanel only for them); RANKING the transcription providers is
+    // require_admin on the server, and this guard used to slam the door on the admins entitled to
+    // it — the ranking was unreachable for the exact people who asked for it.
     path: "/settings/api-keys",
-    can: isMasterAdmin,
-    gate: "require_master_admin",
-    title: "Master admin access required",
+    can: isAdmin,
+    gate: "require_admin",
+    title: "Admin access required",
     message:
-      "Managed API keys are visible to the master admin alone — no other admin can read, reveal, or replace a key."
+      "Provider keys and the transcription provider order are managed by admins and the master admin. Reading or replacing a key value is the master admin's alone."
   },
   {
     // Batch task assignment (POST /tasks/batch, /tasks/batches, /tasks/progress) is admin-only;
@@ -196,14 +212,6 @@ export const ROUTE_GUARDS: RouteGuard[] = [
     title: "Admin access required",
     message:
       "Assigning documentation tasks and tracking their progress is available to admins and the master admin. Your own assigned tasks are on the Tasks page."
-  },
-  {
-    path: "/settings/workshop-access",
-    can: isAdmin,
-    gate: "require_admin",
-    title: "Admin access required",
-    message:
-      "Granting, changing and revoking workshop access is available to admins and the master admin. Request access to a workshop from the Workshops page instead."
   },
   {
     path: "/review",
@@ -243,4 +251,58 @@ export function routeGuardFor(pathname: string): RouteGuard | null {
 export function canAccessRoute(user: User | null | undefined, pathname: string): boolean {
   const guard = routeGuardFor(pathname);
   return !guard || guard.can(user);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Route redirects — the other half of gating, for pages that HAVE an ordinary-user twin.
+ *
+ * A ROUTE_GUARDS entry answers "no" with a lock panel, which is the honest answer when the page has
+ * no counterpart: there is no ordinary-user version of /users or of the managed API keys, so naming
+ * the tier and offering the dashboard is all that can truthfully be said.
+ *
+ * It is the WRONG answer when the same job also exists for the person asking. Workshop access is the
+ * case in point: the admin console and the request page are two views of one WorkshopAssignment row,
+ * so a researcher who opens "Workshop access" wants the half that belongs to them, and stopping them
+ * at a padlock hides a page they are fully entitled to. These rules therefore send them to it —
+ * `to` must always be a route the user can genuinely use, so this can never dead-end.
+ *
+ * Not listed, deliberately, because nothing executes the rule for them yet (declaring a redirect
+ * that no one performs would read as enforcement that is not there):
+ *  - /data → /search. The guard copy already says "browse records instead" but gives no way there.
+ *  - /settings/tasks → /tasks. Same shape: the assignment board's twin is your own task list.
+ * Both become one-liners here the moment AppShell consults this table — see routeRedirectFor.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export type RouteRedirect = {
+  /** The path this rule covers, together with everything nested beneath it. */
+  path: string;
+  /** Who sees the page as built. Everyone else is sent to `to` — this never widens `can`. */
+  can: (user: User | null | undefined) => boolean;
+  /** The ordinary-user route that does the same job for the person being turned away. */
+  to: string;
+};
+
+export const ROUTE_REDIRECTS: RouteRedirect[] = [
+  {
+    path: "/workshop-access/manage",
+    can: isAdmin,
+    to: "/workshop-access/request"
+  }
+];
+
+/**
+ * Where `pathname` should send this user instead, or null when they may stay.
+ *
+ * Enforced today by the /workshop-access pages themselves. AppShell is the right place for it —
+ * above every page, the way ROUTE_GUARDS is — and adopting it there is a `router.replace` on the
+ * result of this call, checked BEFORE the ROUTE_GUARDS lock so a route with a twin redirects rather
+ * than locks. Until then the table stays limited to routes that enforce it locally.
+ */
+export function routeRedirectFor(user: User | null | undefined, pathname: string): string | null {
+  let best: RouteRedirect | null = null;
+  for (const rule of ROUTE_REDIRECTS) {
+    if (!routeMatches(rule.path, pathname)) continue;
+    if (!best || rule.path.length > best.path.length) best = rule;
+  }
+  return best && !best.can(user) ? best.to : null;
 }

@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: fieldrepo-api
+  labels:
+    app.kubernetes.io/name: fieldrepo
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  # Left at the default (false) on purpose: an unready pod is one that stopped answering /health, and
+  # sending it traffic anyway would defeat the preStop drain.
+  publishNotReadyAddresses: false
+  selector:
+    app.kubernetes.io/name: fieldrepo
+    app.kubernetes.io/component: api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+---
+# The queue Deployment gets no Service. It listens on nothing, and creating one would advertise a
+# workload that cannot answer, which is the sort of thing that later gets probed "just to check".

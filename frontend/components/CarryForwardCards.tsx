@@ -1,31 +1,34 @@
 "use client";
 
 import Link from "next/link";
-import { Boxes, ClipboardList, Hammer } from "lucide-react";
+import { useEffect, useMemo } from "react";
+import { Boxes, ClipboardList, Hammer, Workflow } from "lucide-react";
 
-export type CarryForwardContext = {
-  artisanId?: string;
-  artisanName?: string;
-  place?: string;
-  craftId?: string | null;
-  craftName?: string | null;
-};
+import { useAuth } from "@/components/AuthProvider";
+import { carryContextToParams, rememberCarryContext, type CarryContext } from "@/lib/carryContext";
 
-function buildHref(path: string, context: CarryForwardContext) {
-  const params = new URLSearchParams();
-  if (context.artisanId) params.set("artisanId", context.artisanId);
-  if (context.artisanName) params.set("artisanName", context.artisanName);
-  if (context.place) params.set("place", context.place);
-  if (context.craftId) params.set("craftId", context.craftId);
-  if (context.craftName) params.set("craftName", context.craftName);
+/**
+ * Everything the just-saved record knows about the sitting. It is the same bag lib/carryContext
+ * stores, so a card's link and the remembered context can never drift apart.
+ */
+export type CarryForwardContext = Partial<CarryContext>;
+
+function buildHref(path: string, context: CarryForwardContext, extra?: Record<string, string>) {
+  const params = carryContextToParams(context);
+  for (const [key, value] of Object.entries(extra ?? {})) params.set(key, value);
   const query = params.toString();
   return query ? `${path}?${query}` : path;
 }
 
 /**
- * Cards that carry the current record's context (artisan, place, craft) into the next entry, so a
- * researcher can flow from one record straight into a linked tool/product/questionnaire without
- * re-typing shared fields.
+ * Cards that carry the current record's context — artisan, craft, place, workshop, and the product
+ * itself once there is one — into the next entry, so a researcher can flow from one record straight
+ * into a linked tool/product/process/questionnaire without re-typing shared fields.
+ *
+ * The links pass the context in the query string, which only survives a click made from THIS
+ * screen. Mounting also banks it in lib/carryContext, so a researcher who instead goes out via the
+ * dashboard — or comes back to a product form an hour later — is still offered the same context,
+ * which is the path they actually take.
  */
 export function CarryForwardCards({
   context,
@@ -34,9 +37,23 @@ export function CarryForwardCards({
   context: CarryForwardContext;
   heading?: string;
 }) {
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+  // The caller rebuilds the object every render, so the effect keys off the values themselves.
+  const signature = useMemo(() => carryContextToParams(context).toString(), [context]);
+
+  useEffect(() => {
+    rememberCarryContext(userId, Object.fromEntries(new URLSearchParams(signature)));
+  }, [userId, signature]);
+
   const cards = [
     { href: buildHref("/products/new", context), title: "Add a product", body: "Record an object, product or sample.", icon: Boxes },
     { href: buildHref("/tools/new", context), title: "Add a tool", body: "Document a tool used by this artisan.", icon: Hammer },
+    // A process documents a product being made, so the card is only honest once there is a product
+    // to point it at — offering it earlier lands the researcher on a form they cannot complete.
+    ...(context.productId
+      ? [{ href: buildHref("/processes", context, { new: "1" }), title: "Document the process", body: `Capture how ${context.productName ?? "this product"} is made, step by step.`, icon: Workflow }]
+      : []),
     { href: buildHref("/questionnaire", context), title: "Start questionnaire", body: "Open the interview with details prefilled.", icon: ClipboardList }
   ];
   return (

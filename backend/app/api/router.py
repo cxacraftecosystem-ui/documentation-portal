@@ -10,10 +10,12 @@ from app.api.routes import (
     data_browser,
     export,
     feedback,
+    map_points,
     media,
     preferences,
     processes,
     products,
+    public,
     questionnaire,
     reference,
     review,
@@ -41,6 +43,7 @@ api_router.include_router(media.router)
 api_router.include_router(questionnaire.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(search.router)
+api_router.include_router(map_points.router)
 api_router.include_router(review.router)
 api_router.include_router(export.router)
 api_router.include_router(data_browser.router)
@@ -52,3 +55,6 @@ api_router.include_router(secrets.router)
 api_router.include_router(data_access.router)
 api_router.include_router(tasks.router)
 api_router.include_router(reference.router)
+# Last, and on its own line with this note, because it is the only unauthenticated router here:
+# everything above is scoped to the caller, this one is scoped to nobody. See app/api/routes/public.py.
+api_router.include_router(public.router)

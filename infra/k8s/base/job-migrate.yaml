@@ -1,0 +1,140 @@
+# ---------------------------------------------------------------------------------------------
+# Schema migration. A Job, deliberately, and NOT an initContainer.
+#
+# An initContainer is the obvious-looking answer and it is the wrong one. initContainers run once
+# per POD, so a three-replica Deployment runs `prisma migrate deploy` three times at once, and a
+# rolling update runs it again on every surge pod while the previous version is still serving. The
+# question is not whether Prisma survives that — it mostly does, by blocking on a lock — but that
+# the design would depend on a lock to save it from a race it created on purpose. A Job runs once
+# per release because a Job is one pod, which is the property actually wanted.
+#
+# THREE INDEPENDENT LAYERS KEEP THIS SINGLE-WRITER, because one is not enough:
+#
+#   1. Job semantics. completions: 1, parallelism: 1. One pod at a time by construction.
+#   2. Prisma's own advisory lock. `migrate deploy` takes a Postgres advisory lock before touching
+#      _prisma_migrations, so a second migrator waits rather than interleaving. This is the layer
+#      that covers the hole layer 1 does not: when a node goes unreachable the Job controller may
+#      create a replacement pod while the original is still, from the database's point of view,
+#      alive and mid-statement. Note the dependency this creates — an advisory lock is scoped to a
+#      SESSION, and pgbouncer in transaction mode hands a different server session to every
+#      statement, so through the :6543 pooler the lock would be taken and dropped between
+#      statements and protect nothing. That is why this Job uses DATABASE_URL untouched (see below).
+#   3. One Job object per release. metadata.name carries the image tag, substituted by the
+#      `replacements` block in each overlay, so re-applying an overlay twice cannot re-run a
+#      migration that already ran, and two different releases cannot share one Job object.
+#
+# THE IMAGE IS NOT THE RUNTIME IMAGE. `python -m prisma migrate deploy` is a thin wrapper that
+# execs the Prisma CLI, which is a Node program (prisma/cli/prisma.py -> node.run). backend/
+# Dockerfile deliberately keeps Node out of the runtime stage, so in that image the call falls
+# through to prisma-client-py's nodeenv fallback, which tries to download a Node distribution into
+# a cache directory — on a pod with a read-only root filesystem and no egress to the npm registry
+# that fails, slowly and confusingly. The Dockerfile's intermediate `prisma` stage already has
+# everything needed (Node, the CLI cache, the venv, and backend/prisma), so build that stage:
+#
+#     docker build -f backend/Dockerfile --target prisma -t <registry>/fieldrepo-migrate:<tag> .
+#
+# ORDERING. Nothing here makes the API wait for this Job; Kubernetes has no ordering primitive
+# between a Job and a Deployment. The runbook in docs/KUBERNETES.md applies this Job, waits on it,
+# and only then rolls the Deployments. Additive migrations make that ordering forgiving; a
+# destructive one does not, and the runbook says so.
+# ---------------------------------------------------------------------------------------------
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # The trailing segment is rewritten to the migrate image's tag by each overlay's `replacements`
+  # block. If it ever reaches a cluster still reading REPLACEME, the overlay is missing that block.
+  name: fieldrepo-migrate-REPLACEME
+  labels:
+    app.kubernetes.io/name: fieldrepo
+    app.kubernetes.io/component: migrate
+spec:
+  completions: 1
+  parallelism: 1
+  # Two retries, not the default six. A migration fails for one of two reasons: the pooler had no
+  # session free (transient, worth a retry — this is exactly the EMAXCONNSESSION that made the EC2
+  # deploy script retry five times), or the SQL is wrong (permanent, and five more attempts against
+  # a half-applied schema is the last thing anyone wants). Two splits the difference and fails fast
+  # enough that a human sees it inside a deploy window.
+  backoffLimit: 2
+  # A migration that has not finished in ten minutes is not slow, it is blocked — almost always
+  # waiting on the advisory lock held by something nobody knew was running. Failing releases the
+  # deploy to a human instead of hanging the pipeline.
+  activeDeadlineSeconds: 600
+  # Keep the object and its logs for an hour after completion, then let the cluster reap it. Without
+  # this, completed Jobs accumulate one per release forever.
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fieldrepo
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      # Short: there is nothing graceful to do. Prisma either holds the advisory lock inside a
+      # transaction, in which case Postgres rolls it back on disconnect, or it does not.
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          # Overlays pin the tag; see the build command in the header. Distinct from the api image.
+          image: fieldrepo-migrate
+          imagePullPolicy: IfNotPresent
+          # --schema by absolute path rather than relying on the stage's WORKDIR. The migrations
+          # directory is resolved relative to the schema, so this one flag locates both.
+          command:
+            - python
+            - -m
+            - prisma
+            - migrate
+            - deploy
+            - --schema=/build/prisma/schema.prisma
+          env:
+            # Only the connection string, and only from the secret store. This container gets no
+            # envFrom of the app ConfigMap on purpose: the CLI reads DATABASE_URL raw out of
+            # schema.prisma's env("DATABASE_URL"), and every other key in that ConfigMap is a
+            # runtime concern that would only invite someone to "helpfully" add
+            # DATABASE_USE_TRANSACTION_POOLER here — which reads as harmless and would quietly move
+            # migrations onto :6543, breaking the advisory lock in layer 2 above.
+            #
+            # The value in the secret store is the SESSION-pooler / direct URL, which is what
+            # migrations need and what the runtime client rewrites away from (app/core/db.py).
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: fieldrepo-secrets
+                  key: DATABASE_URL
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: TMPDIR
+              value: /tmp
+            - name: HOME
+              value: /tmp
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              # The schema engine is a Rust binary and the Node CLI that drives it is the larger of
+              # the two. 512Mi is comfortable for both; this pod is transient, so being generous
+              # costs nothing beyond the minutes it exists.
+              memory: 512Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 128Mi

@@ -40,6 +40,7 @@ from app.schemas.records import WorkshopCreate, WorkshopUpdate
 from app.services.access import guard_record_edit, record_revision
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
+    Relation,
     public_encode,
     add_date_range,
     apply_status_policy_create,
@@ -47,6 +48,8 @@ from app.services.records import (
     attach_location,
     clean_data,
     contains,
+    count_and_page,
+    hydrate_relations,
     merge_field_provenance,
     require_record,
     resubmit_status,
@@ -67,12 +70,15 @@ from app.services.workshop_access import (
 
 router = APIRouter(prefix="/workshops", tags=["workshops"])
 
-INCLUDE = {
-    "location": True,
-    "createdBy": True,
-    "artisans": {"include": {"artisan": True}},
-    "crafts": {"include": {"craft": True}},
-}
+# What a workshop carries on the wire, loaded in one parallel wave (see services/records.py for why
+# that is worth the indirection). Writes hydrate the row they just saved rather than passing an
+# ``include`` to Prisma, so this is the single description of a workshop's relations.
+RELATIONS = (
+    Relation("location", "location", "locationId"),
+    Relation("createdBy", "user", "createdById"),
+    Relation("artisans", "workshopartisan", "workshopId", many=True, include={"artisan": True}),
+    Relation("crafts", "workshopcraft", "workshopId", many=True, include={"craft": True}),
+)
 
 # Every party to an assignment row, so a UI can render "granted by X / requested by Y / decided by Z"
 # without a second round of lookups.
@@ -131,15 +137,29 @@ async def _hydrate_assignment(row_id: str) -> dict[str, Any]:
 
 
 async def replace_workshop_artisans(workshop_id: str, artisan_ids: list[str]) -> None:
+    """Rewrite the roster in two statements rather than one per artisan.
+
+    A workshop with forty artisans cost forty-one sequential inserts, and on this deployment every
+    one of them is a cross-region round trip — the save took longer than the form took to fill in.
+    Duplicates are dropped here because the link table is unique on (workshopId, artisanId) and a
+    bulk insert cannot skip a clash the way forty separate ones each could.
+    """
     await db.workshopartisan.delete_many(where={"workshopId": workshop_id})
-    for artisan_id in artisan_ids:
-        await db.workshopartisan.create(data={"workshopId": workshop_id, "artisanId": artisan_id})
+    unique_ids = list(dict.fromkeys(aid for aid in artisan_ids if aid))
+    if unique_ids:
+        await db.workshopartisan.create_many(
+            data=[{"workshopId": workshop_id, "artisanId": aid} for aid in unique_ids]
+        )
 
 
 async def replace_workshop_crafts(workshop_id: str, craft_ids: list[str]) -> None:
+    """The craft roster, rewritten in two statements rather than one per craft — see above."""
     await db.workshopcraft.delete_many(where={"workshopId": workshop_id})
-    for craft_id in craft_ids:
-        await db.workshopcraft.create(data={"workshopId": workshop_id, "craftId": craft_id})
+    unique_ids = list(dict.fromkeys(cid for cid in craft_ids if cid))
+    if unique_ids:
+        await db.workshopcraft.create_many(
+            data=[{"workshopId": workshop_id, "craftId": cid} for cid in unique_ids]
+        )
 
 
 def normalize_workshop_dates(data: dict[str, Any]) -> dict[str, Any]:
@@ -177,7 +197,6 @@ async def list_workshops(
         where["status"] = statusFilter
     # dateFrom/dateTo filter on startDate — the workshop's own timeline, matching the ordering below.
     add_date_range(where, "startDate", dateFrom, dateTo)
-    total = await db.workshop.count(where=where)
     # ORDERING IS DELIBERATE — by the date the workshop HAPPENED, most recent first, NOT by
     # createdAt. Do not flip it to ``createdAt desc`` for consistency with the other record lists.
     # This is the same ``startDate ?: date ?: createdAt`` occurrence key both clients re-sort by
@@ -192,12 +211,13 @@ async def list_workshops(
     # backfilled from it (migration 20260616093000) and kept in lock-step by
     # ``normalize_workshop_dates`` on every create/update — so ``startDate`` decides every row and
     # the remaining keys only break ties, which also makes the order total for pagination.
-    items = await db.workshop.find_many(
+    total, items = await count_and_page(
+        db.workshop,
         where=where,
-        include=INCLUDE,
         skip=skip,
         take=page_size,
         order=[{"startDate": "desc"}, {"date": "desc"}, {"createdAt": "desc"}],
+        relations=RELATIONS,
     )
     return page_payload(public_encode(items), total, page, page_size)
 
@@ -220,8 +240,11 @@ async def create_workshop(
         await replace_workshop_artisans(created.id, artisan_ids)
     if craft_ids:
         await replace_workshop_crafts(created.id, craft_ids)
-    hydrated = await db.workshop.find_unique(where={"id": created.id}, include=INCLUDE)
-    return public_encode(hydrated)
+    # The row we just wrote IS the response; only its links changed after the insert, and those are
+    # loaded here. Reading the whole workshop back to learn what we already know cost another
+    # cross-region round trip, plus one more per relation behind it.
+    await hydrate_relations([created], RELATIONS)
+    return public_encode(created)
 
 
 # --------------------------------------------------------------------------- access requests
@@ -343,15 +366,37 @@ async def request_workshop_access(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Workshop(s) not found: {', '.join(missing)}"
         )
+    # The whole multi-select is decided from ONE read of the caller's existing rows, then written as
+    # at most one insert and one update. Asking for a season of twenty workshops previously cost two
+    # cross-region round trips per workshop before the final read — the multi-select was slower than
+    # filing them one at a time would have been.
+    existing_rows = await db.workshopassignment.find_many(
+        where={"workshopId": {"in": wanted}, "userId": uid}
+    )
+    by_workshop = {row.workshopId: row for row in existing_rows}
+
     outcomes: list[dict[str, str]] = []
-    row_ids: list[str] = []
+    to_create: list[str] = []
+    to_rerequest: list[str] = []
     for workshop_id in wanted:
-        existing = await db.workshopassignment.find_unique(
-            where={"workshopId_userId": {"workshopId": workshop_id, "userId": uid}}
-        )
+        existing = by_workshop.get(workshop_id)
         if existing is None:
-            created = await db.workshopassignment.create(
-                data={
+            to_create.append(workshop_id)
+            outcomes.append({"workshopId": workshop_id, "outcome": "CREATED"})
+            continue
+        state = enum_str(existing.status)
+        if state in {"GRANTED", "PENDING"}:
+            outcomes.append(
+                {"workshopId": workshop_id, "outcome": "ALREADY_GRANTED" if state == "GRANTED" else "ALREADY_PENDING"}
+            )
+            continue
+        to_rerequest.append(existing.id)
+        outcomes.append({"workshopId": workshop_id, "outcome": "RE_REQUESTED"})
+
+    if to_create:
+        await db.workshopassignment.create_many(
+            data=[
+                {
                     "workshopId": workshop_id,
                     "userId": uid,
                     "accessLevel": level,
@@ -359,19 +404,12 @@ async def request_workshop_access(
                     "requestedById": uid,
                     "requestNote": payload.note,
                 }
-            )
-            outcomes.append({"workshopId": workshop_id, "outcome": "CREATED"})
-            row_ids.append(created.id)
-            continue
-        state = enum_str(existing.status)
-        if state in {"GRANTED", "PENDING"}:
-            outcomes.append(
-                {"workshopId": workshop_id, "outcome": "ALREADY_GRANTED" if state == "GRANTED" else "ALREADY_PENDING"}
-            )
-            row_ids.append(existing.id)
-            continue
-        await db.workshopassignment.update(
-            where={"id": existing.id},
+                for workshop_id in to_create
+            ]
+        )
+    if to_rerequest:
+        await db.workshopassignment.update_many(
+            where={"id": {"in": to_rerequest}},
             data={
                 "accessLevel": level,
                 "status": "PENDING",
@@ -383,9 +421,11 @@ async def request_workshop_access(
                 "decisionNote": None,
             },
         )
-        outcomes.append({"workshopId": workshop_id, "outcome": "RE_REQUESTED"})
-        row_ids.append(existing.id)
-    rows = await db.workshopassignment.find_many(where={"id": {"in": row_ids}}, include=REQUEST_INCLUDE)
+    # Re-read by (workshop, user) rather than by id: a bulk insert hands back no ids, and this is the
+    # same set of rows the loop would have collected.
+    rows = await db.workshopassignment.find_many(
+        where={"workshopId": {"in": wanted}, "userId": uid}, include=REQUEST_INCLUDE
+    )
     return {"outcomes": outcomes, "requests": public_encode(rows)}
 
 
@@ -464,8 +504,8 @@ async def decide_workshop_access_request(
 
 @router.get("/{workshop_id}")
 async def get_workshop(workshop_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    workshop = await db.workshop.find_unique(where={"id": workshop_id}, include=INCLUDE)
-    workshop = await require_record(db.workshop, workshop_id) if not workshop else workshop
+    workshop = await require_record(db.workshop, workshop_id)
+    await hydrate_relations([workshop], RELATIONS)
     return public_encode(workshop)
 
 
@@ -473,7 +513,12 @@ async def get_workshop(workshop_id: str, current_user: Any = Depends(get_current
 async def update_workshop(
     workshop_id: str,
     payload: WorkshopUpdate,
-    current_user: Any = Depends(get_current_user),
+    # Professor and above, the same floor as creating one. A workshop is the container the whole
+    # submission window and assignment ladder hang off — moving its dates changes who is late — so
+    # it is not a record anyone may contribute a field to. The workshop-access check below is a
+    # SECOND, orthogonal gate (scoping, not rank): a professor still needs CONTRIBUTE on a curated
+    # workshop, exactly as before.
+    current_user: Any = Depends(require_workshop_manager),
 ) -> dict[str, Any]:
     workshop = await require_record(db.workshop, workshop_id)
     data = clean_data(payload.model_dump(exclude_unset=True))
@@ -502,7 +547,7 @@ async def update_workshop(
     await apply_status_policy_update(current_user, workshop, data)
     merge_field_provenance(data, current_user, previous=workshop)
     resubmit_status(workshop, current_user, data)
-    await db.workshop.update(where={"id": workshop_id}, data=data)
+    updated = await db.workshop.update(where={"id": workshop_id}, data=data)
     if artisan_ids is not None:
         link_count = await db.workshopartisan.count(where={"workshopId": workshop_id})
         if not privileged:
@@ -513,7 +558,9 @@ async def update_workshop(
         if not privileged:
             assert_can_contribute_relation(workshop, current_user, craft_link_count > 0, "craftIds")
         await replace_workshop_crafts(workshop_id, craft_ids)
-    updated = await db.workshop.find_unique(where={"id": workshop_id}, include=INCLUDE)
+    # ``update`` already handed back the saved row, so the relations are grafted onto it instead of
+    # reading the whole workshop a second time from another region.
+    await hydrate_relations([updated], RELATIONS)
     return public_encode(updated)
 
 
@@ -579,11 +626,28 @@ async def set_workshop_assignments(
     by_user = {r.userId: r for r in existing}
     now = datetime.now(UTC)
     admin_id = get_value(current_user, "id")
-    for uid, row in by_user.items():
-        if uid in wanted or enum_str(row.status) == "REVOKED":
+
+    # The roster is rewritten in a fixed handful of statements, not one per researcher. Every row
+    # being revoked takes the same values, and so does every row being created; the rows being
+    # re-granted differ only in the level they end up at, so they are grouped by that level. A
+    # thirty-person roster used to cost thirty-one sequential cross-region round trips to save.
+    revoke_ids = [
+        row.id
+        for uid, row in by_user.items()
+        if uid not in wanted and enum_str(row.status) != "REVOKED"
+    ]
+    create_rows = [uid for uid in wanted if uid not in by_user]
+    grant_ids_by_level: dict[str, list[str]] = {}
+    for uid in wanted:
+        row = by_user.get(uid)
+        if row is None:
             continue
-        await db.workshopassignment.update(
-            where={"id": row.id},
+        level = requested_level or enum_str(row.accessLevel) or DEFAULT_GRANT_LEVEL
+        grant_ids_by_level.setdefault(level, []).append(row.id)
+
+    if revoke_ids:
+        await db.workshopassignment.update_many(
+            where={"id": {"in": revoke_ids}},
             data={
                 "status": "REVOKED",
                 "decidedById": admin_id,
@@ -591,24 +655,25 @@ async def set_workshop_assignments(
                 "decisionNote": "Removed from the workshop roster.",
             },
         )
-    for uid in wanted:
-        row = by_user.get(uid)
-        if row is None:
-            await db.workshopassignment.create(
-                data={
+    if create_rows:
+        await db.workshopassignment.create_many(
+            data=[
+                {
                     "workshopId": workshop_id,
                     "userId": uid,
                     "assignedById": admin_id,
                     "accessLevel": requested_level or DEFAULT_GRANT_LEVEL,
                     "status": "GRANTED",
                 }
-            )
-            continue
-        await db.workshopassignment.update(
-            where={"id": row.id},
+                for uid in create_rows
+            ]
+        )
+    for level, ids in grant_ids_by_level.items():
+        await db.workshopassignment.update_many(
+            where={"id": {"in": ids}},
             data={
                 "assignedById": admin_id,
-                "accessLevel": requested_level or enum_str(row.accessLevel) or DEFAULT_GRANT_LEVEL,
+                "accessLevel": level,
                 "status": "GRANTED",
                 "decidedById": admin_id,
                 "decidedAt": now,

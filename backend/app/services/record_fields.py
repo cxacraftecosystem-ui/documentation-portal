@@ -9,8 +9,8 @@ ALL FOUR now derive from the ``RecordSpec`` entries below: the data browser's ``
 info panels and generated ``details.txt``, every sheet in the ``/data/report`` workbook, the
 ``details.txt`` files inside the ``/export/dataset`` zip, and the ``/export/products.csv`` /
 ``/export/tools.csv`` downloads. A column added here reaches every one of them, and — just as
-importantly — the masking applied here (an artisan's Aadhaar number) can no longer be missed
-by a surface that built its own field list.
+importantly — the masking applied here (an artisan's Aadhaar and Pehchan card numbers) can no
+longer be missed by a surface that built its own field list.
 
 Three presentations are built from one spec:
 
@@ -228,8 +228,24 @@ ARTISAN = RecordSpec(
         _f("Local name", lambda a: a.localName),
         _f("Workshop", lambda a: _workshop_titles(a)),
         _f("Craft", lambda a: _rel(a, "craft", "name")),
-        _f("Village/Place", lambda a: a.place),
-        _f("District", lambda a: meta_val(meta_of(a), "district")),
+        # The village named in the artisan's stated address, falling back to the free-text `place`
+        # box the researchers used instead while there was no column. That box holds compound
+        # answers — "Bagru, Jaipur, Rajasthan", "Jaipur, Sanganeri, Rajasthan" — precisely because
+        # it was carrying the village, the district and the state at once; it keeps printing
+        # verbatim rather than being split, since "Rudraprayag, Dehradun" names two districts of
+        # Uttarakhand and no parser can say which one the researcher meant.
+        _f("Village/Place", lambda a: _rel(a, "location", "village") or a.place),
+        # Pointed at the real column by 20260727120000_location_stated_address. This label has been
+        # shipped and user-visible since this registry was written — the data browser's info card
+        # and record table, every details.txt in /export/dataset, the artisan sheet of the
+        # /data/report workbook — and it has been BLANK on every one of the sixteen artisans,
+        # because it read an extraMetadata key whose only writer was deleted from the artisan form
+        # and never replaced. The metadata fallback stays for the same reason State's does: it costs
+        # nothing and it is the only thing that would print for a record that predates the column.
+        _f(
+            "District",
+            lambda a: _rel(a, "location", "district") or meta_val(meta_of(a), "district"),
+        ),
         # State and pincode became real columns on the shared Location model, but the artisans
         # recorded before that kept their state as free text in extraMetadata. Reading the column
         # first and falling back to the metadata is what lets both generations print in one sheet;
@@ -246,16 +262,24 @@ ARTISAN = RecordSpec(
         ),
         _f("Phone", lambda a: a.phone),
         _f("Email", lambda a: a.email),
-        # Aadhaar is regulated personal data and this spec feeds every SHARED surface — the data
-        # browser, the .xlsx workbook, generated details.txt. Only the last four digits go out, which
-        # is enough to confirm the right person and useless as an identifier. The full number stays
-        # readable through the artisan's own record for the people entitled to it.
+        # Aadhaar and the Pehchan (PM Vishwakarma) card are regulated personal data and this spec
+        # feeds every SHARED surface — the data browser, the .xlsx workbook, generated details.txt,
+        # the details.txt inside a grantable /export/dataset zip. Only the last four characters go
+        # out, which is enough to confirm the right person and useless as an identifier. The full
+        # numbers stay readable through the artisan's own record for the people entitled to them.
+        #
+        # BOTH numbers, through the same function. The card number used to print verbatim here while
+        # the Aadhaar beside it was masked, so a full PM Vishwakarma ID reached every grantee,
+        # dataset downloader and reviewer — a rule that held on the API responses
+        # (``records.mask_identity_number``, which is this same ``mask_aadhaar``) and nowhere else.
+        # A registry that disagrees with the API about which numbers are secret is the whole reason
+        # this module exists.
         _f("Aadhaar number", lambda a: mask_aadhaar(a.aadhaarNumber)),
         _f(
             "Artisan Pehchan Card",
             lambda a: "Yes" if a.pehchanCardAvailable else "No",
         ),
-        _f("Pehchan card number", lambda a: a.pehchanCardNumber),
+        _f("Pehchan card number", lambda a: mask_aadhaar(a.pehchanCardNumber)),
         _f("Age", lambda a: meta_val(meta_of(a), "age")),
         _f("Gender", lambda a: a.gender),
         _f(

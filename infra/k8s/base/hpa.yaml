@@ -1,0 +1,104 @@
+# ---------------------------------------------------------------------------------------------
+# THE AUTOSCALER IS A DATABASE-CONNECTION ALLOCATOR THAT HAPPENS TO WATCH CPU.
+#
+# maxReplicas is not a capacity decision here. It is the last thing standing between load and a
+# repeat of the outage this project has already had twice: the Supabase pooler enforces a ceiling of
+# 200 CLIENT connections, shared by every process that talks to it, and when that ceiling was hit the
+# result was not slow requests — it was `FATAL: (EMAXCONN) max client connections reached`, Prisma
+# failing to connect, and the API crash-looping while every login returned 500.
+#
+# An HPA that responds to that load by adding replicas makes it worse on exactly the schedule that
+# guarantees it cannot recover: more pods, more pools, more connections, fewer available, more
+# failures, more load. Scaling into connection exhaustion is worse than not scaling at all, because
+# the un-scaled version stays up and merely gets slow.
+#
+# The budget, in full:
+#
+#   ceiling                     200   client connections (Supabase transaction pooler, :6543)
+#   planning limit              100   deliberately half the ceiling — see below for what eats the rest
+#
+#   per pod                      10   DATABASE_CONNECTION_LIMIT (configmap.yaml)
+#   api at max                6 x 10  = 60
+#   rollout surge             1 x 10  = 10   maxSurge is pinned to the absolute 1 for this reason
+#   queue pod                 1 x 10  = 10
+#   migration job (transient)      5  = 5    session pooler, not this one, but counted for safety
+#                                    -----
+#   worst-case simultaneous          85
+#
+# 85 of a planning limit of 100, and 42% of the hard ceiling. The half that is left over is not
+# slack, it is the things that are not in this file: the EC2 box still serving production during any
+# cutover (~20), a psql session or a Supabase Studio tab, the keepalive script, and the several
+# minutes a failed rollout can spend with surge pods that never became ready.
+#
+# TO CHANGE maxReplicas, CHANGE THE PRODUCT, NOT THE NUMBER:
+#   (maxReplicas + 1 surge + 1 queue) x DATABASE_CONNECTION_LIMIT  <=  100
+# so 6 replicas needs a limit of 10; going to 12 replicas requires cutting the limit to 5 first.
+# Real query concurrency is gated by the pooler's ~15 SERVER connections regardless, so a smaller
+# per-pod pool costs far less than the arithmetic suggests — this is a cheap trade, and it is the
+# same one that resolved the incident (40 -> 10).
+#
+# One more consumer, easy to miss: dev and staging pointed at the same Supabase project spend from
+# the SAME 200. Rather than assume they will not, the overlays are sized so that it is survivable if
+# they do — both halve DATABASE_CONNECTION_LIMIT to 5, which puts all three environments plus a
+# still-running EC2 box at 140 of 200. docs/KUBERNETES.md shows that sum line by line; it is the
+# arithmetic to redo before adding a fourth environment, not after.
+# ---------------------------------------------------------------------------------------------
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fieldrepo-api
+  labels:
+    app.kubernetes.io/name: fieldrepo
+    app.kubernetes.io/component: api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fieldrepo-api
+  minReplicas: 1
+  # Conservative base value; every overlay states its own and shows the arithmetic. Nothing scales
+  # the queue Deployment — it is a singleton by correctness, not by capacity.
+  maxReplicas: 2
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          # Against a 200m request, so a pod averaging 140m of CPU triggers growth. Low enough to add
+          # capacity before the event loop starts queueing, high enough that the measured baseline
+          # (dashboard/stats at 10.5s is I/O-bound waiting on Postgres, not CPU-bound) does not flap
+          # the replica count.
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          # Memory rarely drives scaling for a request-serving process, but it is the resource this
+          # application has historically run out of, so it is worth watching. Set above the CPU
+          # trigger so CPU stays the normal reason to scale.
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      # A full minute of sustained load before growing. Without it, one slow search query (measured
+      # at 8.9s) spikes CPU and buys a pod that is no longer needed by the time it is ready.
+      stabilizationWindowSeconds: 60
+      policies:
+        # ONE pod per minute. Not a percentage, and not the default 4-pods-per-15s: each new pod is
+        # another +10 on the connection budget above, and the default policy would spend the entire
+        # remaining headroom in under a minute. Slow growth also gives the pooler time to show
+        # whether the extra pods are helping at all — if the bottleneck is the database, they are not.
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      # Five minutes of quiet before shrinking, which is the HPA default and right here: field work
+      # arrives in bursts, and releasing a pod that is wanted again in two minutes just pays the cold
+      # start (Prisma engine + cross-region connect) twice.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120

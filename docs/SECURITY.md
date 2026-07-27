@@ -89,7 +89,28 @@ bare `Internal Server Error` 500 goes out unstamped. That response carries no da
 
 `/docs`, `/docs/oauth2-redirect` and `/redoc` are real HTML pages that load Swagger-UI / ReDoc from
 jsdelivr, so they receive a narrower-but-workable CSP instead of the API one. Everything else gets
-the strict policy.
+the strict policy. Whether those pages are served *at all* is now a setting — see §1.4.
+
+### 1.4 The interactive docs and the OpenAPI schema
+
+FastAPI serves `/docs`, `/redoc` and `/openapi.json` to anyone by default, and **on this deployment
+they are currently reachable unauthenticated.** Verified 2026-07-27:
+
+```
+/docs          200
+/redoc         200
+/openapi.json  200   ~190 KB
+```
+
+The schema names every route, every query parameter and every field of every model, including the
+ones behind admin-only roles. That is a map of the API handed to whoever asks, and it is worth
+nothing to the researchers this app is for, none of whom read an OpenAPI schema.
+
+`BACKEND_EXPOSE_DOCS` now controls all three, and it defaults to **`False`**. The default is closed
+rather than open because the production `.env` lives in a GitHub secret this repository cannot read,
+so a default-on flag would leave the docs exposed exactly where it matters. **The fix is in the tree
+and not yet deployed**; the next backend deploy closes them. Local development opts back in with
+`BACKEND_EXPOSE_DOCS=true`, which `.env.example` ships commented in.
 
 **HSTS in production.** The viewer's TLS terminates at CloudFront, and nginx overwrites
 `X-Forwarded-Proto` with its own (plaintext) scheme, so the app usually cannot tell that the viewer
@@ -279,33 +300,122 @@ admin elevates it.
 
 ## 4. Authorisation: the six-tier ladder
 
-Defined in `backend/app/core/deps.py`. Higher ranks inherit everything below them; grantable
-capability flags lift one specific power for a lower tier without promoting the account.
+Defined in `backend/app/core/deps.py`. Higher ranks inherit everything below them.
 
-| Rank | Role | Can |
+**The full capability matrix, the review state machine and the three layered access systems are
+[PERMISSIONS.md](PERMISSIONS.md).** This section states only the security-relevant properties, so
+that the matrix has exactly one home and cannot disagree with itself.
+
+| Rank | Role | Security-relevant powers |
 |---|---|---|
-| 60 | `MASTER_ADMIN` | Everything, including reviewing anyone's work, user management, OTA app releases |
-| 50 | `ADMIN` | Delete records, manage users, review, edit anyone's records |
-| 40 | `PROFESSOR` | Manage questionnaire/crafts/workshops, download the dataset |
-| 30 | `RESEARCHER` | Create and edit own records; review contributors and volunteers |
-| 20 | `FIELD_CONTRIBUTOR` | Create records; review volunteers |
+| 60 | `MASTER_ADMIN` | Everything, **plus the three nobody else has**: read/set provider key values, repository settings, publish OTA releases. The only account that may act on a peer. |
+| 50 | `ADMIN` | Delete records, create/delete accounts, grant workshop access, approve **late** submissions |
+| 40 | `PROFESSOR` | Manage crafts/workshops/questionnaire, download the dataset, view and promote users |
+| 30 | `RESEARCHER` | **Create** records; edit own; review contributors and volunteers |
+| 20 | `FIELD_CONTRIBUTOR` | Populate existing records; review volunteers. **Cannot create records.** |
 | 10 | `CROWDSOURCE_VOLUNTEER` | Media, questionnaire answers and comments on existing records only |
 
-Grantable flags: `canReview`, `canDownloadDataset`, `canManageQuestionnaire`, `canManageCrafts`,
-`canManageWorkshops`.
+Three corrections to what this table said previously, each of which mattered:
+
+- **A Field Contributor cannot create records.** `can_create_records` requires rank ≥ `RESEARCHER`.
+- **An admin cannot edit another admin's record.** `can_edit_others_record` composes
+  `has_rank(PROFESSOR)` **and** `can_review_record`, and the latter requires *strictly* below. Rank 50
+  is not strictly below rank 50. "Edit anyone's records" was wrong; "edit records created by anyone
+  ranked below them" is right.
+- **`canManageCrafts` and `canManageWorkshops` are no longer read.** They are still columns on
+  `User`, and `users.py` still writes them, but no decision consults them: craft and workshop
+  management is Professor **by rank alone**. The reason is a security one and is worth stating here
+  rather than only in the docstring — a grant that lifts a researcher over the *taxonomy* is
+  invisible in the role column, so nobody auditing the user table can see who holds it. Listing them
+  as live grantable flags overstated the attack surface in one direction and understated the audit
+  problem in the other.
+
+Live grantable flags, therefore: **`canReview`, `canDownloadDataset`, `canManageQuestionnaire`,
+`canViewProvenance`**.
 
 Record-level rules layered on top of the ladder:
 
 - `assert_can_contribute_fields` — a non-owner, non-admin may fill *empty* fields but may never
-  change or clear a populated one.
+  change or clear a populated one. (An earlier version skipped incoming empty values, which let
+  anyone **blank out** a populated field. Both directions are guarded now.)
 - `can_review_record` — you may only review work created by someone **strictly below** you; the
   master admin reviews everyone.
-- `_assert_owns_object` (media multipart) — object keys are namespaced `media/<user-id>/…` and a
-  user may only manage their own uploads.
+- Object keys are namespaced `media/<user-id>/…` and a user may only manage their own staged uploads;
+  `DELETE /media/object` additionally 409s on an object a record already points at.
 - Cross-researcher access is tiered (download / comment / edit) with request+grant flows and an
-  edit-revision audit trail.
+  append-only `RecordRevision` audit trail recording `{field: {old, new}}` per edit.
+- A record submitted outside its workshop's dates is stamped by the **server** (a
+  `workshopSubmission` key arriving from the client is replaced, never trusted), pinned to `PENDING`,
+  and approvable only by an admin. The stamp survives an edit and survives a re-link to an in-window
+  workshop — both are laundering paths that were closed deliberately.
 
 Authorisation is **entirely application-side** (see §2.2 on RLS).
+
+### 4.1 The token is not the authority
+
+`create_access_token` puts `email` and `role` into the JWT, and **neither is trusted for
+authorisation**. `get_current_user` re-reads the user row and every rank check reads *that*. This is
+the revocation mechanism: tokens live seven days and cannot be revoked, so a role claim minted before
+a demotion would otherwise stay valid for a week.
+
+The identity cache (`AUTH_USER_CACHE_*`) shortens that revocation window; it does not remove it.
+Five seconds by default, sized to collapse the burst of parallel requests one page load makes.
+Explicit invalidation runs on every write that changes a user's authority — `users.py` create/update/
+delete, the Google sign-in upsert in `auth.py`, and `scripts/seed_admin.py` — so in-process a
+demotion takes effect on the very next request. A **miss is never cached**, so a deleted account 401s
+every time rather than for a TTL. An epoch counter is bumped by every invalidation and compared
+before the result is stored, so a query already in flight when a role was revoked cannot write the
+pre-revocation row back.
+
+`AUTH_USER_CACHE_ENABLED=false` restores one-query-per-request with a restart and no deploy. That
+kill switch is the point of the flag: if the cache is ever suspected of serving a stale role during an
+incident, it can be removed without shipping code.
+
+---
+
+## 4A. Personal data
+
+The archive is about people, and two columns are direct government identifiers.
+
+### 4A.1 Aadhaar
+
+`Artisan.aadhaarNumber` is stored as the bare twelve digits and is `@unique` — it is the
+**deduplication key**, which is what stops the same person being entered twice under two spellings
+across two workshops. Handling, in `backend/app/services/artisan_identity.py`:
+
+| Function | Does |
+|---|---|
+| `normalize_aadhaar` | strips the spacing people type (`"1234 5678 9012"`) to the 12 stored digits |
+| `verhoeff_ok` | validates the UIDAI check digit — catches every single-digit error and every adjacent transposition, the two ways a 12-digit number is misread |
+| `mask_aadhaar` | renders `XXXX XXXX 9012` for **every shared surface**: the Data Browser, the `.xlsx` report, CSV exports |
+| `is_masked_aadhaar` | recognises a mask posted back unchanged from an edit form, so saving without touching the field is a no-op rather than a validation error |
+
+Anything shorter than a full number is masked **entirely** rather than partially revealed, so a
+malformed legacy value cannot leak more than a well-formed one.
+
+**Masking is applied at the encoder, not at the call sites.** It used to be per-call-site, and a
+surface that forgot to call it leaked the full number — which is exactly what happened. Masking at
+the boundary means a new export surface is masked by default and has to opt *out* to leak.
+
+Callers that legitimately need the full value read the raw column. Nothing writes it to a log.
+
+`pehchanCardNumber` (the PM Vishwakarma artisan ID) is an ordinary government reference number,
+normalised to uppercase alphanumerics, `@unique`, required exactly when the artisan says they hold
+one. It is not masked.
+
+### 4A.2 Everything else about a person
+
+Names, phone numbers, email addresses, stated addresses, GPS coordinates, interview recordings and
+their transcripts are **plaintext columns**, and the recordings themselves are **world-readable
+objects** (§5, P0). The Aadhaar masking is a real control; it is not a general PII control, and it
+should not be read as one.
+
+**Location is two things, and conflating them is a privacy question as well as a data-quality one.**
+The provenance group (`latitude`, `longitude`, `accuracy`, …) records **where the device was** — in
+practice, where the researcher was sitting. The stated-address group (`state`, `district`, `village`,
+`pincode`) records where the *subject* is. Publishing the first as though it were the second
+misrepresents the subject's location; publishing it at all discloses the researcher's. See
+[DATA_MODEL.md §2.4](DATA_MODEL.md).
 
 ---
 
@@ -323,9 +433,13 @@ photograph of a person.
 **Action (S3 + CloudFront console):** remove the `PublicReadMedia` statement and serve media through
 either (a) presigned GET URLs minted by the API after the same RBAC checks that guard the record, or
 (b) a CloudFront distribution in front of the bucket using Origin Access Control plus signed URLs.
-Option (a) is a backend change (`s3.py` gains a `presign_get_url`, `public_url_for_key` callers
-switch); option (b) is console-only but needs the key pair managed. Until then, treat every media
-URL as public.
+Option (b) is console-only but needs the key pair managed. Until then, treat every media URL as
+public.
+
+**Option (a) is now closer than this document used to say.** `s3.py` already has
+`presign_get_url(object_key, *, filename, mime_type, expires_in=900)` — it was added for APK release
+downloads and is used by `app_release.py`. The remaining work is switching `public_url_for_key`'s
+callers on the media paths and deciding the URL lifetime the clients need, not writing the primitive.
 
 ### P1 — CloudFront → EC2 origin hop is plaintext HTTP
 
@@ -402,6 +516,11 @@ detectable; enable **MFA** on the AWS root and Supabase accounts.
 | `SECURITY_HSTS_MAX_AGE` | `63072000` | HSTS max-age in seconds (2 years). |
 | `SECURITY_FORCE_HSTS` | `false` | Emit HSTS even when the origin hop looks like plain HTTP (set `true` behind CloudFront). |
 | `AWS_S3_SSE_ALGORITHM` | `AES256` | SSE algorithm for API-initiated (multipart) uploads. Set empty for local MinIO without KMS. |
+| `BACKEND_EXPOSE_DOCS` | `false` | Serve `/docs`, `/redoc` and `/openapi.json`. Closed by default; see §1.4. |
+| `AUTH_USER_CACHE_ENABLED` | `true` | The authenticated-identity cache. `false` restores one database read per request — the break-glass switch if a stale role is ever suspected. See §4.1. |
+| `AUTH_USER_CACHE_TTL_SECONDS` | `5.0` | How long a demoted or deleted account can keep working after a write **this process cannot see** (psql, the seed script, another worker). In-process writes invalidate explicitly and have no window. |
+| `AUTH_USER_CACHE_MAX_ENTRIES` | `512` | LRU ceiling, so worst-case memory is a number chosen here rather than one decided by how many people log in. |
+| `SECRETS_ENCRYPTION_KEY` | derived from `JWT_SECRET` | Fernet key for `ManagedSecret`. **Set it explicitly before you ever rotate `JWT_SECRET`** — otherwise rotation makes every stored provider key undecryptable and each must be re-entered. |
 
 ---
 
@@ -410,3 +529,48 @@ detectable; enable **MFA** on the AWS root and Supabase accounts.
 Suspected exposure of `JWT_SECRET`, `DATABASE_URL` or the AWS keys: rotate first, investigate second.
 Rotating `JWT_SECRET` and redeploying invalidates every session immediately and costs users nothing
 but a re-login.
+
+**One caveat before rotating `JWT_SECRET`.** If `SECRETS_ENCRYPTION_KEY` was never set explicitly, it
+is *derived from* `JWT_SECRET` — so rotating the JWT secret also makes every provider key in
+`ManagedSecret` undecryptable, and each has to be re-entered in the Settings hub. In a real incident
+that is an acceptable cost; knowing it in advance is the difference between a planned re-entry and a
+transcription outage nobody can explain.
+
+---
+
+## How this document is kept true
+
+Security documentation decays in a specific way: a risk gets fixed and the entry stays, or a control
+is removed and the entry stays. Both teach the reader to trust the wrong thing. Two defences.
+
+**Every entry carries a state, and the states are distinct:**
+
+| State | Means |
+|---|---|
+| **open** | nothing mitigates it today |
+| **fixed in tree, not deployed** | the code is right and production is not — §1.4 is here now |
+| **mitigated** | a control exists; the row says where, so it can be checked rather than believed |
+| **accepted** | a deliberate trade, with the cost written down |
+
+**Every claim names its check:**
+
+| Section | Kept true by |
+|---|---|
+| §1 transport | `infra/terraform/user_data.sh` (nginx), the CloudFront console (**UNVERIFIED from here**), `network_security_config.xml`. |
+| §1.1 database TLS | `Settings._harden_database_url` in `backend/app/core/config.py`. |
+| §1.2 response headers | `SecurityHeadersMiddleware` in `backend/app/main.py`. Check live: `curl -sI https://d2b34i3e92al6i.cloudfront.net/health`. |
+| §1.4 docs exposure | `curl -s -o /dev/null -w "%{http_code}" https://d2b34i3e92al6i.cloudfront.net/openapi.json`. **This entry closes when that returns 404**, not when the code changes. |
+| §3 tokens | `backend/app/core/security.py`; the startup guard is `verify_jwt_configuration`. |
+| §4 the ladder | [PERMISSIONS.md](PERMISSIONS.md), which is itself checked — `docs/tools/check-docs.mjs` fails if the backend and web role ladders diverge. |
+| §4.1 identity cache | `backend/app/core/deps.py`, and `backend/tests/test_user_identity_cache.py`. |
+| §4A Aadhaar | `backend/app/services/artisan_identity.py`. The encoder-level masking is the property to re-check after any new export surface: add one, then confirm the number arrives masked. |
+| §5 risk register | Each entry names a console screen. None can be confirmed from this repository. |
+| §6 variables | `backend/app/core/config.py` is the only source; [ENVIRONMENT.md](ENVIRONMENT.md) is the full table. |
+
+**Review triggers:** `backend/app/core/config.py`, `backend/app/core/security.py`,
+`backend/app/core/deps.py`, `backend/app/main.py`, `backend/app/services/artisan_identity.py`,
+`android/app/src/main/res/xml/network_security_config.xml`, or any new export/download route.
+
+**Audit cadence:** re-walk §5 quarterly and after any infrastructure change. Every P-numbered risk is
+a console action, so the register is only as current as the last time somebody opened the console —
+which is why each is marked **UNVERIFIED from here** rather than presented as observed state.

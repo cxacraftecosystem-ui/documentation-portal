@@ -8,7 +8,6 @@ import { adminChromeVisible, useAdminView } from "@/components/AdminViewProvider
 import { useAuth } from "@/components/AuthProvider";
 import { AppSettingsPanel } from "@/components/settings/AppSettingsPanel";
 import { GetTheAppPanel } from "@/components/settings/GetTheAppPanel";
-import { ProviderOrderPanel } from "@/components/settings/ProviderOrderPanel";
 import { PublishAppUpdatePanel } from "@/components/settings/PublishAppUpdatePanel";
 import { AccessibilityCard, AppearanceCard } from "@/components/settings/PersonalSettingsCards";
 import { WorkshopAccessRequestPanel } from "@/components/settings/WorkshopAccessRequestPanel";
@@ -57,16 +56,22 @@ const ADMIN_LINKS: AdminLink[] = [
   {
     label: "Workshop access",
     description: "Approve access requests and manage who may work in each workshop, at what level.",
-    href: "/settings/workshop-access",
+    // Points at the console directly rather than at /settings/workshop-access, which is now only a
+    // redirect kept alive for bookmarks. A hub card that bounces through a redirect is a hub card
+    // that will one day bounce through a broken one.
+    href: "/workshop-access/manage",
     icon: UsersRound,
     visible: isAdmin
   },
   {
+    // Admins go here for the transcription provider ranking; only the master admin sees the keys
+    // themselves once inside. Hiding the card from admins is what left the ranking unreachable for
+    // everyone who asked for it, so the card is admin-visible and its description is role-aware.
     label: "API keys",
-    description: "Rotate, test and reveal the provider keys the repository runs on.",
+    description: "Rank the transcription providers, and — for the master admin — rotate, test and reveal keys.",
     href: "/settings/api-keys",
     icon: KeyRound,
-    visible: isMasterAdmin
+    visible: isAdmin
   }
 ];
 
@@ -139,9 +144,10 @@ export default function SettingsPage() {
         ) : null}
 
         {/* Transcription and the off-peak window stay here, where they have always been — now gated
-            rather than replaced by a lock panel for everyone below the master admin. */}
+            rather than replaced by a lock panel for everyone below the master admin. The provider
+            RANKING is deliberately not here: it lives on the API keys page, next to the providers it
+            ranks, where admins can reach it too. */}
         {master ? <AppSettingsPanel /> : null}
-        {master ? <ProviderOrderPanel /> : null}
         {master ? <PublishAppUpdatePanel /> : null}
       </div>
     </>

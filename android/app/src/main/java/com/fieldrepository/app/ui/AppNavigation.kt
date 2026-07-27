@@ -50,10 +50,13 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -87,11 +90,16 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.isSpecified
 
 import com.fieldrepository.app.data.UserDto
 
@@ -168,16 +176,28 @@ object FieldPermissions {
     /** `is_master_admin`. */
     fun isMasterAdmin(user: UserDto): Boolean = user.role == "MASTER_ADMIN"
 
-    /** `require_record_creator` — artisans, products, processes, tools. */
-    fun canCreateRecords(user: UserDto): Boolean = rank(user.role) >= RANK_FIELD_CONTRIBUTOR
+    /**
+     * `require_record_creator` — OPENING an artisan, product, process, tool or interview. Researcher
+     * and above, matching `can_create_records` and the web's `canCreateRecords`.
+     *
+     * The two tiers below POPULATE records instead of opening them, and none of what they do is
+     * gated by this: uploading media, answering an existing interview and commenting all stay open.
+     * So hiding a "Record …" entry from them never hides a contribution path.
+     */
+    fun canCreateRecords(user: UserDto): Boolean = rank(user.role) >= RANK_RESEARCHER
 
-    /** `require_craft_manager` — Professor and above, or an explicit grant. */
-    fun canManageCrafts(user: UserDto): Boolean =
-        rank(user.role) >= RANK_PROFESSOR || user.canManageCrafts
+    /**
+     * `require_craft_manager` — Professor and above, RANK ALONE.
+     *
+     * The `canManageCrafts` column is deliberately not consulted. The server stopped reading it
+     * (`can_manage_crafts`, deps.py) because a per-user grant that lifted a researcher over the
+     * taxonomy was invisible in the role column; ORing it in here would put "Add craft" in the menu
+     * of somebody the API refuses, which is the one thing this table exists not to do.
+     */
+    fun canManageCrafts(user: UserDto): Boolean = rank(user.role) >= RANK_PROFESSOR
 
-    /** `require_workshop_manager` — Professor and above, or an explicit grant. */
-    fun canManageWorkshops(user: UserDto): Boolean =
-        rank(user.role) >= RANK_PROFESSOR || user.canManageWorkshops
+    /** `require_workshop_manager` — Professor and above, rank alone; see [canManageCrafts]. */
+    fun canManageWorkshops(user: UserDto): Boolean = rank(user.role) >= RANK_PROFESSOR
 
     /** `require_professor` on GET/PATCH /users. */
     fun canManageUsers(user: UserDto): Boolean = rank(user.role) >= RANK_PROFESSOR
@@ -304,7 +324,8 @@ val FIELD_NAV_ITEMS: List<NavEntry> = listOf(
     NavEntry(NavDestination.SHARE_DATA_ACCESS, "Share data access", Icons.Filled.Share, NavGroup.BROWSE, everyone, "get_current_user"),
     // Linking a tool to an artisan needs a tool or an artisan of your own — both need record creation.
     // The endpoint only requires a login and then checks ownership per artisan, so this is the closest
-    // STATIC mirror of a dynamic rule: nobody below Field Contributor owns either side.
+    // STATIC mirror of a dynamic rule: nobody below Researcher can own either side. Same predicate as
+    // the web's own "Assign tools to artisans" entry, which is why it moved with `canCreateRecords`.
     NavEntry(NavDestination.ASSIGN_TOOLS, "Assign tools to artisans", Icons.Filled.Handyman, NavGroup.BROWSE, FieldPermissions::canCreateRecords, "get_current_user + owner/EDIT-grant/admin per artisan"),
     // NOT adminSurface, matching the web: reviewing is a Field Contributor capability an admin merely
     // also holds, so "browse as an ordinary user" must not take the link away while the screen stays open.
@@ -358,10 +379,13 @@ fun visibleNavItems(user: UserDto?, adminMode: Boolean): List<NavEntry> =
  *    wordmark, Dashboard and part of Walkthrough — all four groups, the admin toggle and the
  *    hamburger sat off-screen behind a gesture nobody discovers, which reads to the person holding
  *    the phone as a navigation bar that was never built. A chip the user cannot see is a chip that
- *    does not exist. So the bar now sheds width in [IslandDensity] steps until it fits: first the
- *    wordmark, then the chip labels. The scroller survives only as an overflow net for the devices
- *    and font scales that defeat even the smallest step, and the hamburger is pinned OUTSIDE it so
- *    the route to the full drawer can never be the thing that scrolls away.
+ *    does not exist. So the bar now sheds width in [IslandDensity] steps until it fits, and the
+ *    order is what makes a landscape phone read like the web: first the wordmark, then the SIZE of
+ *    the labels, and only then the labels themselves — the groups' first, the roots' last. Every
+ *    step is priced by measuring the real strings (see [rememberIslandWidths]), never by guessing at
+ *    them. The scroller survives only as an overflow net for the devices and font scales that defeat
+ *    even the smallest step, and the hamburger is pinned OUTSIDE it so the route to the full drawer
+ *    can never be the thing that scrolls away.
  *  - the drawer stays. It is still the full list in one thumb-reachable place, and the hamburger at
  *    the right of the pill is how you get to it — same as the web's sheet.
  *  - on a phone it gets out of the way. The web bar floats over a viewport that scrolls beneath it;
@@ -414,6 +438,14 @@ private enum class IslandDensity {
     /** The wordmark goes and the mark stays — decoration for width, and the logo is still home. */
     MARK,
 
+    /**
+     * Every chip still carries its word, but tightened — smaller type, less padding either side.
+     * The step that stands between a landscape phone and a bar of anonymous glyphs: a label set two
+     * points down is still a label, and a screen that can nearly afford the words should be made to
+     * buy them before it is allowed to drop any.
+     */
+    MARK_COMPACT,
+
     /** Group chips shrink to their glyph, which is what buys all four a place beside the roots. */
     ICON_GROUPS,
 
@@ -422,59 +454,185 @@ private enum class IslandDensity {
 }
 
 /*
- * Where the steps sit, and why there.
+ * The bar's fixed costs, named once.
  *
- * These are added up from the real content, worst case — both roots, all four groups, the admin chip
- * and the hamburger, which is what an admin actually sees. A labelled chip is 20dp of padding plus
- * its text at labelLarge (14sp Inter, ~7.5dp a character), a group chip adds a 15dp caret, a glyph
- * chip is 14dp of padding around an 18dp icon, and the hamburger is a fixed 36dp:
- *
- *   FULL         wordmark 111 + mark 36 + roots 193 + groups 343 + admin chip 146 + menu 36 ≈ 897dp
- *   MARK         the same bar with the wordmark gone                                       ≈ 786dp
- *   ICON_GROUPS  mark 36 + labelled roots 193 + four glyph chips 128 + eye 32 + menu 36     ≈ 457dp
- *   ICON_ONLY    mark 30 + six glyph chips 192 + eye 32 + menu 36 + padding                 = 318dp
- *
- * Each threshold sits a little above its figure because every tier except the last is priced in
- * TEXT, and text width is an estimate rather than a measurement. ICON_ONLY is glyphs and fixed
- * padding only, so its 318dp is exact — it fits a 360dp phone (328dp once the app's 16dp gutters are
- * paid) with room to spare, and it is the terminal step because there is nothing left to shed.
+ * Every one of these is spent TWICE: by the layout further down that draws the bar, and by
+ * [rememberIslandWidths], which adds them up to decide which tier the layout is allowed to draw.
+ * Two hand-kept copies of "a labelled chip pays 10dp either side" is precisely how a bar comes to
+ * promise a tier it cannot fit, so both readings come from these.
  */
-private val ISLAND_FULL_WIDTH = 960.dp
-private val ISLAND_MARK_WIDTH = 860.dp
-private val ISLAND_ICON_GROUPS_WIDTH = 500.dp
+private val ISLAND_CHIP_PADDING = 10.dp
+private val ISLAND_CHIP_PADDING_COMPACT = 6.dp
+private val ISLAND_CHIP_PADDING_GLYPH = 7.dp
+/** Between a chip's glyph and its word. */
+private val ISLAND_CHIP_GAP = 4.dp
+/** Between one chip and the next. */
+private val ISLAND_CHIP_SPACING = 2.dp
+private val ISLAND_CHIP_ICON = 15.dp
+private val ISLAND_CHIP_ICON_COMPACT = 13.dp
+/** A glyph standing in for a word is read at arm's length, so it is drawn larger. */
+private val ISLAND_CHIP_ICON_GLYPH = 18.dp
 
-/**
- * Where a phone stops and a tablet starts — the web's `md` breakpoint, so one number governs both
- * clients. It buys two things the density ladder above cannot express on its own: a tablet never
- * collapses on scroll (it has the height to spare, and the web bar does not collapse either), and a
- * tablet never falls all the way to glyphs (see [islandDensityFor]).
- */
-private val ISLAND_TABLET_WIDTH = 768.dp
+private val ISLAND_MARK_SIZE = 24.dp
+private val ISLAND_BRAND_START = 4.dp
+private val ISLAND_BRAND_END = 8.dp
+private val ISLAND_BRAND_START_TIGHT = 2.dp
+private val ISLAND_BRAND_END_TIGHT = 4.dp
+/** Between the mark and the wordmark it carries at FULL density. */
+private val ISLAND_WORDMARK_GAP = 7.dp
+
+private val ISLAND_BAR_PADDING = 8.dp
+private val ISLAND_BAR_PADDING_TIGHT = 6.dp
+private val ISLAND_BAR_SPACING = 2.dp
 
 /** Material's minimum tap target. Also the height of the phone bar's icon row, for the same reason. */
 private val ISLAND_TOUCH_TARGET = 48.dp
+/** The hamburger on a tablet, where a pointer or a wider bar makes the extra 12dp cost more than it buys. */
+private val ISLAND_MENU_TABLET = 36.dp
+
+/** The admin chip's two captions, hoisted because the width ladder has to measure one of them. */
+private const val ISLAND_ADMIN_ON = "Admin view: ON"
+private const val ISLAND_ADMIN_OFF = "Admin view: OFF"
 
 /**
- * The densest tier [available] can pay for.
+ * Where a phone stops and a tablet starts — 600dp of the SHORTEST screen edge, which is the same
+ * number and the same reading as Android's own `sw600dp` resource qualifier.
  *
- * Scaled by the user's font scale because everything the first three tiers spend width on is text: at
- * 200% text size a labelled chip is twice as wide while the glyphs, the logo and the hamburger are
- * not, so a raw dp threshold would promise a bar that fits and hand back a clipped one. Scaling the
- * whole figure over-corrects — it charges font scale for the icons too — and that is the direction to
- * be wrong in, because one step too dense costs a word and one step too loose costs a whole chip.
+ * It used to be read off the bar's current width against the web's 768dp `md` breakpoint, and that
+ * made a phone held sideways a tablet. This handset's window is 384dp portrait and 777dp landscape,
+ * so rotating it crossed the line: the bar stopped collapsing on scroll in the one orientation with
+ * the least vertical room to spare — 359dp of it — and a landscape reader kept a permanent header
+ * they never asked for. The shortest edge does not change when the device turns, so this cannot.
  */
-private fun islandDensityFor(available: Dp, fontScale: Float): IslandDensity = when {
-    available >= ISLAND_FULL_WIDTH * fontScale -> IslandDensity.FULL
-    available >= ISLAND_MARK_WIDTH * fontScale -> IslandDensity.MARK
-    available >= ISLAND_ICON_GROUPS_WIDTH * fontScale -> IslandDensity.ICON_GROUPS
-    // The floor a tablet cannot fall through. Every tier above is priced in text and therefore
-    // multiplied by the font scale, which at 200% prices a 900dp tablet out of ICON_GROUPS and hands
-    // the largest screen in the range the smallest possible bar — glyphs — for the sake of type the
-    // screen has ample room for. A tablet keeps its labelled roots and lets the overflow scroller
-    // take whatever genuinely will not fit, which is the trade the wide screen wants.
-    available >= ISLAND_TABLET_WIDTH -> IslandDensity.ICON_GROUPS
+private const val ISLAND_TABLET_SMALLEST_WIDTH = 600
+
+@Composable
+private fun isTabletDevice(): Boolean =
+    LocalConfiguration.current.smallestScreenWidthDp >= ISLAND_TABLET_SMALLEST_WIDTH
+
+/**
+ * What each tier of the bar actually measures, for the content THIS user is being shown at THIS
+ * font scale — the numbers the density ladder is chosen from.
+ *
+ * This replaces a block of arithmetic that priced text at "~7.5dp a character" and then padded every
+ * threshold upwards to cover the guess, and the guess was wrong in both directions at once. On this
+ * handset in landscape the bar gets 745.6dp. A master admin's labelled bar — two roots, four groups,
+ * the admin chip — measures 814.6dp at labelLarge, not the 786dp the arithmetic claimed, so the words
+ * genuinely do not fit at full size; but the same bar at labelMedium and 6dp of chip padding measures
+ * 675.4dp, which fits with room to spare. The old ladder could express neither fact: it read 745.6
+ * against a guessed 860dp threshold and dropped straight to glyph groups.
+ *
+ * A [androidx.compose.ui.text.TextMeasurer] knows the answer exactly — in the face, the weight and
+ * the system font scale actually in force — so each threshold IS the requirement and there is nothing
+ * left over to guess with. It also retires the old `* fontScale` multiplier, which existed only
+ * because a dp guess could not see the font scale; a measurement can.
+ */
+private class IslandWidths(
+    val full: Dp,
+    val mark: Dp,
+    val markCompact: Dp,
+    val iconGroups: Dp,
+    /** The wordmark on its own, which the collapsed header sizes itself against. */
+    val wordmark: Dp
+)
+
+@Composable
+private fun rememberIslandWidths(
+    rootLabels: List<String>,
+    groupLabels: List<String>,
+    /** Null when this user has no admin chip; otherwise the WIDER of its two captions. */
+    adminLabel: String?,
+    menuWidth: Dp
+): IslandWidths {
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val labelStyle = MaterialTheme.typography.labelLarge
+    val compactStyle = MaterialTheme.typography.labelMedium
+    val wordmarkStyle = MaterialTheme.typography.titleSmall
+    return remember(
+        rootLabels, groupLabels, adminLabel, menuWidth,
+        density, measurer, labelStyle, compactStyle, wordmarkStyle
+    ) {
+        fun textWidth(text: String, style: TextStyle): Dp =
+            with(density) { measurer.measure(text, style).size.width.toDp() }
+
+        fun total(widths: List<Dp>): Dp =
+            widths.fold(0.dp) { sum, w -> sum + w } +
+                ISLAND_CHIP_SPACING * (widths.size - 1).coerceAtLeast(0)
+
+        // Everything outside the destination chips: the bar's own padding, the two gaps around the
+        // strip, the brand block at its normal size and the hamburger.
+        val fixed = ISLAND_BAR_PADDING * 2 + ISLAND_BAR_SPACING * 2 +
+            ISLAND_BRAND_START + ISLAND_MARK_SIZE + ISLAND_BRAND_END + menuWidth
+
+        // A labelled bar, at whichever type size and padding the tier is paying. Group chips add a
+        // caret, the admin chip a leading eye; the roots are word and padding alone.
+        fun labelled(style: TextStyle, pad: Dp, icon: Dp): Dp = fixed + total(
+            rootLabels.map { pad * 2 + textWidth(it, style) } +
+                groupLabels.map { pad * 2 + textWidth(it, style) + ISLAND_CHIP_GAP + icon } +
+                listOfNotNull(adminLabel?.let { pad * 2 + icon + ISLAND_CHIP_GAP + textWidth(it, style) })
+        )
+
+        val glyphChip = ISLAND_CHIP_PADDING_GLYPH * 2 + ISLAND_CHIP_ICON_GLYPH
+        val mark = labelled(labelStyle, ISLAND_CHIP_PADDING, ISLAND_CHIP_ICON)
+        val wordmark = textWidth("Field Repository", wordmarkStyle)
+        IslandWidths(
+            full = mark + ISLAND_WORDMARK_GAP + wordmark,
+            mark = mark,
+            markCompact = labelled(compactStyle, ISLAND_CHIP_PADDING_COMPACT, ISLAND_CHIP_ICON_COMPACT),
+            // Roots keep their words, everything else is one glyph — the step that buys all four
+            // groups a place beside them.
+            iconGroups = fixed + total(
+                rootLabels.map { ISLAND_CHIP_PADDING * 2 + textWidth(it, labelStyle) } +
+                    groupLabels.map { glyphChip } +
+                    listOfNotNull(adminLabel?.let { glyphChip })
+            ),
+            wordmark = wordmark
+        )
+    }
+}
+
+/**
+ * The densest tier [available] can pay for, each threshold being that tier's own measured width.
+ */
+private fun islandDensityFor(available: Dp, widths: IslandWidths, tablet: Boolean): IslandDensity = when {
+    available >= widths.full -> IslandDensity.FULL
+    available >= widths.mark -> IslandDensity.MARK
+    available >= widths.markCompact -> IslandDensity.MARK_COMPACT
+    available >= widths.iconGroups -> IslandDensity.ICON_GROUPS
+    // The floor a tablet cannot fall through: the largest screen in the range must not be handed the
+    // smallest possible bar because a 200% font scale priced its labels out. It keeps its labelled
+    // roots and lets the overflow scroller take whatever genuinely will not fit.
+    tablet -> IslandDensity.ICON_GROUPS
     else -> IslandDensity.ICON_ONLY
 }
+
+/*
+ * The collapsed header's brand, and why it is drawn bigger than the expanded one.
+ *
+ * Collapsing takes the destinations out of the bar and leaves the mark, the wordmark and the
+ * hamburger holding a strip built for eleven controls. Left at their expanded size those three read
+ * as debris in an empty pill rather than as a header, so the brand grows into the space the chips
+ * gave up — the mark by half again, the wordmark by as much of the room between the gutters as it
+ * can use — and shrinks back on the same tween when the page returns to the top, so the whole thing
+ * is one motion rather than a header that jumps.
+ *
+ * The cap is deliberate and it is the landscape case: portrait offers the wordmark 208dp between the
+ * gutters and landscape offers it 602dp, and a word scaled to fill the second would be a banner
+ * rather than a header. [ISLAND_WORDMARK_MAX_SCALE] tops it out at roughly titleLarge — 183.8dp of
+ * ink, measured — so both orientations settle on the same size and turning the phone changes the
+ * bar's width and nothing else about it.
+ */
+private val ISLAND_MARK_COLLAPSED = 34.dp
+/** Kept proportional to the mark, so growing the tile does not square its corners off. */
+private const val ISLAND_MARK_CORNER_RATIO = 7f / 24f
+private const val ISLAND_WORDMARK_MAX_SCALE = 1.7f
+/** How much of the room between the gutters the wordmark may fill; the rest is air either side. */
+private const val ISLAND_WORDMARK_FILL = 0.95f
+/** The collapsed wordmark's own tap padding — part of its width, so the fit has to know about it. */
+private val ISLAND_WORDMARK_TAP_PADDING = 8.dp
+/** Air between the centred wordmark and whichever of the mark or the hamburger is wider. */
+private val ISLAND_WORDMARK_CLEARANCE = 8.dp
 
 /*
  * Collapsing as the page scrolls, and why there are two thresholds rather than one.
@@ -573,10 +731,20 @@ fun FieldIslandNav(
     // Hoisted out of the branch below so that shedding a density tier — or collapsing and expanding
     // — does not silently reset how far the overflow strip was scrolled.
     val overflow = rememberScrollState()
-    val fontScale = LocalDensity.current.fontScale
     // "Stops animations and transitions" is a promise the user made the app; a bar that slides and
     // fades anyway would be the one place it is broken.
     val stillness = LocalAppPreferences.current.reducedMotion
+
+    val tablet = isTabletDevice()
+    val menuWidth = if (tablet) ISLAND_MENU_TABLET else ISLAND_TOUCH_TARGET
+    val widths = rememberIslandWidths(
+        rootLabels = roots.map { it.label },
+        groupLabels = shown.map { it.label },
+        // Always the OFF caption, which is the wider of the two: measuring whichever is showing
+        // would let the bar shed or regain a whole tier on the toggle it was measuring.
+        adminLabel = if (adminMode != null) ISLAND_ADMIN_OFF else null,
+        menuWidth = menuWidth
+    )
 
     // Read as a State, NOT with `by`: unwrapping it here would make the scroll position a dependency
     // of this function, and the whole point is that only the subcomposition below depends on it.
@@ -591,29 +759,96 @@ fun FieldIslandNav(
         border = BorderStroke(1.dp, MaterialTheme.field.hairline)
     ) {
         BoxWithConstraints {
-            val density = islandDensityFor(maxWidth, fontScale)
-            val tablet = maxWidth >= ISLAND_TABLET_WIDTH
+            val density = islandDensityFor(maxWidth, widths, tablet)
             // A tablet behaves like the web and never collapses: it has the vertical room, and the
             // bar it would collapse FROM is the labelled one the web shows all the way down a page.
             val collapsed = !tablet && scrolledPast.value
             val tightest = density == IslandDensity.ICON_ONLY
             // Labels survive on the groups only while there is room for the whole bar to wear them;
             // the roots keep theirs one step longer, being the two places a newcomer starts.
-            val groupsLabelled = density == IslandDensity.FULL || density == IslandDensity.MARK
+            val groupsLabelled = density == IslandDensity.FULL ||
+                density == IslandDensity.MARK ||
+                density == IslandDensity.MARK_COMPACT
+            // The tier that buys its words by making them smaller rather than by dropping them.
+            val compactChips = density == IslandDensity.MARK_COMPACT
             val rootsLabelled = !tightest
             // Even slots are only meaningful where every child is the same 18dp glyph. One tier up
             // the chips are different widths — a labelled "Dashboard" beside a bare folder — and
             // equal slots would space the GAPS evenly while leaving the glyphs visibly adrift.
             val evenlySpaced = tightest
-            // The collapsed header has no chips to name the app, so the wordmark comes back to do it.
-            val wordmark = density == IslandDensity.FULL || collapsed
+            // Every tier above is CHOSEN by `islandDensityFor` because its measured width fits the
+            // bar, so whenever one of them is in play there is slack and the chips cannot overflow.
+            // Only the tablet floor and the phone fallback are handed a tier that may not fit, and
+            // they are the two that still need the scroller.
+            val densityFits = when (density) {
+                IslandDensity.FULL -> maxWidth >= widths.full
+                IslandDensity.MARK -> maxWidth >= widths.mark
+                IslandDensity.MARK_COMPACT -> maxWidth >= widths.markCompact
+                IslandDensity.ICON_GROUPS -> maxWidth >= widths.iconGroups
+                IslandDensity.ICON_ONLY -> false
+            }
+            // Labelled chips that fit share the slack out between them instead of packing against the
+            // brand and heaping it all in front of the hamburger — which is what landscape looked
+            // like, the words crowded into the left two thirds of a bar with a hole after them.
+            //
+            // Equal GAPS, not the equal SLOTS the glyph tier uses: slots give equal centre-to-centre
+            // spacing, which reads as even only while every chip is the same width. Here "Dashboard"
+            // is nearly three times "Admin", so equal slots would leave visibly unequal air between
+            // the words, which is the very thing being complained about.
+            val distributeLabels = densityFits && !evenlySpaced
+            // The collapsed header has no chips to name the app, so the wordmark comes back to do it —
+            // but as a CENTRED title rather than as a word beside the mark, which is where it sat while
+            // the destinations were still there to fill the rest of the bar. The two renderings cannot
+            // be one: a child of the brand block is anchored to the bar's left end by construction.
+            val inlineWordmark = density == IslandDensity.FULL && !collapsed
 
             // A dropdown anchored to a chip that is on its way out would be left pointing at nothing.
             LaunchedEffect(collapsed) { if (collapsed) openGroup = null }
 
-            // One definition of the destination chips, invoked under two different parents below —
-            // evenly weighted slots on a phone, the overflow scroller everywhere else. Written once
-            // so the two layouts cannot drift into offering different chips.
+            // Collapsing hands the bar back to the brand, so the squeeze the narrowest tier puts on
+            // the brand block and the bar's own padding is lifted at the same moment the mark grows.
+            // Both readings below come from these three values, so the gutters cannot fall out of
+            // step with the layout they are measuring.
+            val barPadding = if (tightest && !collapsed) ISLAND_BAR_PADDING_TIGHT else ISLAND_BAR_PADDING
+            val brandStart = if (tightest && !collapsed) ISLAND_BRAND_START_TIGHT else ISLAND_BRAND_START
+            val brandEnd = if (tightest && !collapsed) ISLAND_BRAND_END_TIGHT else ISLAND_BRAND_END
+            // On the collapse tween rather than in a jump, so the mark and the wordmark arriving
+            // over it read as one movement. `snap` honours the reduced-motion promise.
+            val markSize by animateDpAsState(
+                targetValue = if (collapsed) ISLAND_MARK_COLLAPSED else ISLAND_MARK_SIZE,
+                animationSpec = if (stillness) snap() else tween(180),
+                label = "islandMark"
+            )
+            // Priced against the mark's FINAL size, never the animating one: a gutter that grew with
+            // the tween would walk the centred wordmark sideways for 180ms on every collapse. Equal
+            // either side by construction, which is the whole of why the title lands on the bar's
+            // centre and not on the centre of what is left over between the mark and the hamburger.
+            val collapsedGutter = maxOf(
+                barPadding + brandStart + ISLAND_MARK_COLLAPSED + brandEnd,
+                barPadding + menuWidth
+            ) + ISLAND_WORDMARK_CLEARANCE
+            val wordmarkRoom = maxWidth - collapsedGutter * 2 - ISLAND_WORDMARK_TAP_PADDING * 2
+            // Grow into the room, never past it, and never smaller than the expanded wordmark: at a
+            // 200% system font scale there is no room to grow into, and the honest answer there is
+            // the ordinary size plus the ellipsis the Text already carries.
+            val wordmarkScale = if (widths.wordmark > 0.dp) {
+                (wordmarkRoom.value * ISLAND_WORDMARK_FILL / widths.wordmark.value)
+                    .coerceIn(1f, ISLAND_WORDMARK_MAX_SCALE)
+            } else {
+                1f
+            }
+            val collapsedWordmarkStyle = MaterialTheme.typography.titleSmall.let { base ->
+                base.copy(
+                    fontSize = base.fontSize * wordmarkScale,
+                    // Scaled with it, or a 24sp word is laid out in a 20sp line and loses its tail.
+                    lineHeight = if (base.lineHeight.isSpecified) base.lineHeight * wordmarkScale else base.lineHeight
+                )
+            }
+
+            // One definition of the destination chips, invoked under three different parents below —
+            // evenly weighted slots on a phone, an evenly spread row wherever the labels fit, and the
+            // overflow scroller for the two tiers that may not. Written once so the layouts cannot
+            // drift into offering different chips.
             val destinations: @Composable RowScope.() -> Unit = {
                 // `weight` needs a RowScope, so the slot can only be built in here, where there is one.
                 val slot = if (evenlySpaced) Modifier.weight(1f).heightIn(min = ISLAND_TOUCH_TARGET) else Modifier
@@ -624,6 +859,7 @@ fun FieldIslandNav(
                         selected = currentLabel == entry.label,
                         leading = if (rootsLabelled) null else entry.icon,
                         showLabel = rootsLabelled,
+                        compact = compactChips,
                         onClick = entry.onClick
                     )
                 }
@@ -646,6 +882,7 @@ fun FieldIslandNav(
                             // underneath is untouched at every density.
                             trailing = if (groupsLabelled) Icons.Filled.ExpandMore else null,
                             showLabel = groupsLabelled,
+                            compact = compactChips,
                             onClick = { openGroup = group.label }
                         )
                         DropdownMenu(
@@ -677,39 +914,43 @@ fun FieldIslandNav(
                     // the moment the icons left the layout.
                     .then(if (stillness) Modifier else Modifier.animateContentSize())
                     .padding(
-                        horizontal = if (tightest) 6.dp else 8.dp,
+                        horizontal = barPadding,
                         vertical = if (collapsed) 4.dp else 6.dp
                     ),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                horizontalArrangement = Arrangement.spacedBy(ISLAND_BAR_SPACING)
             ) {
                 // Brand — tapping it goes home, the same as the web's wordmark. The wordmark is the
                 // first thing the bar gives up to width: 111dp spent restating what the screen
-                // already is, against a mark that stays exactly as clickable without it. It is also
-                // the first thing it takes back when the destinations go, for the opposite reason —
-                // a header of one anonymous 24dp mark says nothing at all.
+                // already is, against a mark that stays exactly as clickable without it. It comes
+                // back when the destinations go, for the opposite reason — a header of one anonymous
+                // 24dp mark says nothing at all — but centred, below, rather than here, and with the
+                // mark grown to match it.
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(20.dp))
                         .clickable(onClick = onBrandClick)
                         // Unlabelled the mark is a bare image, so it has to say what it is out loud.
                         .then(
-                            if (wordmark) Modifier
+                            if (inlineWordmark) Modifier
                             else Modifier.semantics {
                                 contentDescription = "Field Repository, go to the dashboard"
                             }
                         )
                         .padding(
-                            start = if (tightest) 2.dp else 4.dp,
-                            end = if (tightest) 4.dp else 8.dp,
+                            start = brandStart,
+                            end = brandEnd,
                             top = 4.dp,
                             bottom = 4.dp
                         ),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    FieldRepoLogo(modifier = Modifier.size(24.dp), cornerRadius = 7.dp)
+                    FieldRepoLogo(
+                        modifier = Modifier.size(markSize),
+                        cornerRadius = markSize * ISLAND_MARK_CORNER_RATIO
+                    )
                     AnimatedVisibility(
-                        visible = wordmark,
+                        visible = inlineWordmark,
                         // Grown from the logo outwards rather than faded in place, so the two read as
                         // one widening brand block instead of a word materialising beside a mark.
                         enter = if (stillness) EnterTransition.None else {
@@ -720,7 +961,7 @@ fun FieldIslandNav(
                         }
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Spacer(Modifier.width(7.dp))
+                            Spacer(Modifier.width(ISLAND_WORDMARK_GAP))
                             Text(
                                 "Field Repository",
                                 style = MaterialTheme.typography.titleSmall,
@@ -740,18 +981,28 @@ fun FieldIslandNav(
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            // Nothing between the slots: an even layout puts ALL of the slack inside
-                            // them, and a gap on top of that would be slack the icons never see.
-                            horizontalArrangement = Arrangement.spacedBy(if (evenlySpaced) 0.dp else 2.dp)
+                            horizontalArrangement = when {
+                                // Nothing between the slots: an even layout puts ALL of the slack
+                                // inside them, and a gap on top would be slack the icons never see.
+                                evenlySpaced -> Arrangement.spacedBy(0.dp)
+                                // SpaceEvenly rather than SpaceBetween so the run of chips keeps its
+                                // air at both ends too. SpaceBetween would pin the first word to the
+                                // logo and the last to the hamburger, which trades one lopsided bar
+                                // for another.
+                                distributeLabels -> Arrangement.SpaceEvenly
+                                else -> Arrangement.spacedBy(ISLAND_CHIP_SPACING)
+                            }
                         ) {
-                            if (evenlySpaced) {
-                                // Equal weights, glyph centred in each: identical slot widths give
-                                // identical centre-to-centre spacing, which is the thing the eye
-                                // actually reads as "evenly spaced". This replaced a row that packed
-                                // the icons against the logo and left every pixel of slack in one
-                                // heap on the right. No scroller here, and none wanted — weighted
-                                // slots divide whatever width there is, so nothing can fall off the
-                                // end of a phone in the first place.
+                            if (evenlySpaced || distributeLabels) {
+                                // Laid out directly under this Row so its arrangement reaches every
+                                // chip — the admin toggle below included, since a toggle left sitting
+                                // apart from an evenly spread row is the same complaint one chip
+                                // later. Both spreads replaced a layout that packed the chips against
+                                // the logo and heaped every spare pixel on the right.
+                                //
+                                // No scroller in either case, and none wanted: the glyph tier divides
+                                // whatever width there is, and `distributeLabels` is only ever true
+                                // for a tier already measured to fit, so nothing can fall off the end.
                                 destinations()
                             } else {
                                 // The destinations are the only part allowed to overflow, and only
@@ -764,15 +1015,15 @@ fun FieldIslandNav(
                                         .weight(1f)
                                         .horizontalScroll(overflow),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(ISLAND_CHIP_SPACING),
                                     content = destinations
                                 )
                             }
 
                             if (adminMode != null) {
-                                // "Admin view: OFF" is 146dp of chip, the widest thing here after the
-                                // wordmark, and the eye already carries the state — open or shut.
-                                // Below MARK the words go and the sentence moves into the
+                                // "Admin view: OFF" is the widest chip in the bar after the wordmark,
+                                // and the eye already carries the state — open or shut. Below
+                                // MARK_COMPACT the words go and the sentence moves into the
                                 // contentDescription, so the toggle still announces which way it is
                                 // set. Collapsed it goes entirely: an indicator nobody can act on is
                                 // just a glyph, and the drawer still states the setting in words.
@@ -782,10 +1033,11 @@ fun FieldIslandNav(
                                     } else {
                                         Modifier
                                     },
-                                    label = if (adminMode) "Admin view: ON" else "Admin view: OFF",
+                                    label = if (adminMode) ISLAND_ADMIN_ON else ISLAND_ADMIN_OFF,
                                     selected = adminMode,
                                     leading = if (adminMode) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
                                     showLabel = groupsLabelled,
+                                    compact = compactChips,
                                     onClick = onToggleAdminView
                                 )
                             }
@@ -799,7 +1051,7 @@ fun FieldIslandNav(
                 // pointer or the wider bar makes the extra 12dp cost more than it buys.
                 IconButton(
                     onClick = onOpenDrawer,
-                    modifier = Modifier.size(if (tablet) 36.dp else ISLAND_TOUCH_TARGET)
+                    modifier = Modifier.size(menuWidth)
                 ) {
                     Icon(
                         Icons.Filled.Menu,
@@ -807,6 +1059,45 @@ fun FieldIslandNav(
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
+            }
+
+            // The collapsed header's title, centred against the BAR and not against the space left
+            // over between the mark and the hamburger. Those two are ~46dp and 48dp, so every layout
+            // that shares out the middle — a weighted slot, SpaceBetween, a Row that simply follows
+            // the mark — puts the word a few pixels off centre, which is precisely close enough to
+            // read as a mistake. Overlaid on the row instead: this Box IS the bar, so its centre is
+            // the bar's centre whatever flanks it, and [collapsedGutter] is EQUAL either side and
+            // sized off the wider of the two flanks, so an outsized font scale ellipsises the title
+            // rather than running it underneath the controls.
+            AnimatedVisibility(
+                visible = collapsed,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = collapsedGutter),
+                // Held back until the destinations have finished leaving, so the title is never drawn
+                // across the chips it is standing in for; scaled up into place over the same window
+                // the mark is growing in, so the two are one movement and not two.
+                enter = if (stillness) {
+                    EnterTransition.None
+                } else {
+                    fadeIn(tween(160, delayMillis = 120)) +
+                        scaleIn(tween(200, delayMillis = 120), initialScale = 0.88f)
+                },
+                exit = if (stillness) ExitTransition.None else fadeOut(tween(90))
+            ) {
+                Text(
+                    "Field Repository",
+                    // Still the Dashboard link the wordmark is at FULL density. The mark leads to the
+                    // same place, but the word is the larger target and the one under the thumb.
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable(onClick = onBrandClick)
+                        .padding(horizontal = ISLAND_WORDMARK_TAP_PADDING, vertical = 4.dp),
+                    style = collapsedWordmarkStyle,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
@@ -852,6 +1143,10 @@ private fun IslandCollapsingStrip(
  * [modifier] is how the even phone layout hands the chip a slot to fill. Given a width the chip does
  * not need, it centres its contents in it and lets the pill — background, ripple and tap target
  * alike — grow to the slot, which is the point: the slack belongs to the finger, not to the gap.
+ *
+ * [compact] is the bar buying its words back on a screen that could nearly afford them: two points
+ * smaller and 4dp tighter either side, which is what [IslandDensity.MARK_COMPACT] spends to keep
+ * every chip named instead of turning four of them into glyphs.
  */
 @Composable
 private fun IslandChip(
@@ -861,21 +1156,32 @@ private fun IslandChip(
     modifier: Modifier = Modifier,
     leading: ImageVector? = null,
     trailing: ImageVector? = null,
-    showLabel: Boolean = true
+    showLabel: Boolean = true,
+    compact: Boolean = false
 ) {
     // A chip with neither a word nor a glyph would be an invisible tap target, so a caller that asks
     // for icon-only without supplying one gets the label back rather than a blank pill.
     val labelled = showLabel || leading == null
+    val padding = when {
+        !labelled -> ISLAND_CHIP_PADDING_GLYPH
+        compact -> ISLAND_CHIP_PADDING_COMPACT
+        else -> ISLAND_CHIP_PADDING
+    }
+    val glyph = when {
+        !labelled -> ISLAND_CHIP_ICON_GLYPH
+        compact -> ISLAND_CHIP_ICON_COMPACT
+        else -> ISLAND_CHIP_ICON
+    }
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(20.dp))
             .background(if (selected) MaterialTheme.field.surface100 else Color.Transparent)
             .clickable(onClick = onClick)
-            .padding(horizontal = if (labelled) 10.dp else 7.dp, vertical = 7.dp),
+            .padding(horizontal = padding, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         // Centred rather than packed, which changes nothing for a chip measured by its contents and
         // everything for one given a slot to fill.
-        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)
+        horizontalArrangement = Arrangement.spacedBy(ISLAND_CHIP_GAP, Alignment.CenterHorizontally)
     ) {
         val tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.field.body
         if (leading != null) {
@@ -886,18 +1192,22 @@ private fun IslandChip(
                 tint = tint,
                 // A glyph standing in for a word is read at arm's length, so it is drawn larger than
                 // the same glyph tucked in front of one.
-                modifier = Modifier.size(if (labelled) 15.dp else 18.dp)
+                modifier = Modifier.size(glyph)
             )
         }
         if (labelled) {
             Text(
                 label,
-                style = MaterialTheme.typography.labelLarge,
+                style = if (compact) {
+                    MaterialTheme.typography.labelMedium
+                } else {
+                    MaterialTheme.typography.labelLarge
+                },
                 color = tint,
                 maxLines = 1
             )
             if (trailing != null) {
-                Icon(trailing, contentDescription = null, tint = tint, modifier = Modifier.size(15.dp))
+                Icon(trailing, contentDescription = null, tint = tint, modifier = Modifier.size(glyph))
             }
         }
     }

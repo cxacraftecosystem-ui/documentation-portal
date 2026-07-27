@@ -25,6 +25,7 @@ from app.schemas.media import (
     TranscriptUpdateRequest,
 )
 from app.services.ai import analyze_measurement_image, refine_transcript_text, transcribe_audio
+from app.services.media_naming import display_filename, interview_record
 from app.services.media_queue import (
     enqueue_media_processing_jobs,
     process_next_media_jobs,
@@ -74,6 +75,46 @@ INCLUDE = {
     "tool": True,
     "processingJobs": True,
 }
+
+
+async def _interview_labels(rows: list[Any]) -> dict[str, tuple[str, str]]:
+    """(RecordType, RecordName) per interview id, for the questionnaire clips in one response.
+
+    A questionnaire recording is named after the artisan it is WITH, and that name is two hops from
+    the media row — through the interview, through its artisan links. Resolved in one batched query
+    for the whole page instead of widening ``INCLUDE``: nesting the interview and its artisans into
+    every media row would triple the size of a hundred-row list response, on a screen that only ever
+    wanted the name.
+    """
+    ids = sorted({r.questionnaireInterviewId for r in rows if r.questionnaireInterviewId})
+    if not ids:
+        return {}
+    interviews = await db.questionnaireinterview.find_many(
+        where={"id": {"in": ids}}, include={"artisans": {"include": {"artisan": True}}}
+    )
+    return {i.id: interview_record(i) for i in interviews}
+
+
+async def _public(rows: Any, viewer: Any = None) -> Any:
+    """``public_encode`` plus the derived display name for every media row it carries.
+
+    ``originalFilename`` stays exactly as uploaded — it is the only handle a researcher has for
+    matching a file against their own copy — and ``displayFilename`` is added beside it: the same
+    ``{RecordType}-{RecordName}-{Descriptor}-{stamp}`` name the data browser and the export use, so
+    a clip reads the same in the app list as it does in a downloaded zip. Nothing in storage moves.
+    """
+    many = isinstance(rows, list)
+    items = list(rows) if many else [rows]
+    labels = await _interview_labels([r for r in items if r is not None])
+    encoded = public_encode(rows, viewer)
+    for row, out in zip(items, encoded if many else [encoded]):
+        if row is None or not isinstance(out, dict):
+            continue
+        kind, name = labels.get(row.questionnaireInterviewId or "", ("", ""))
+        out["displayFilename"] = display_filename(
+            row, record_type=kind or None, record_name=name or None, fallback=row.id
+        )
+    return encoded
 
 
 @router.post("/presign", response_model=PresignResponse)
@@ -192,7 +233,7 @@ async def _finish_pending_media(existing: Any, processing_requests: list[str] | 
     if processing_requests and not (existing.processingJobs or []):
         await enqueue_media_processing_jobs(existing, processing_requests, user_id, settings)
         existing = await db.mediafile.find_unique(where={"id": existing.id}, include=INCLUDE)
-    return public_encode(existing)
+    return await _public(existing)
 
 
 @router.post("/complete", status_code=status.HTTP_201_CREATED)
@@ -261,7 +302,7 @@ async def complete_media_upload(
         raise
     await enqueue_media_processing_jobs(created, processing_requests, current_user.id, settings)
     created = await db.mediafile.find_unique(where={"id": created.id}, include=INCLUDE)
-    return public_encode(created)
+    return await _public(created)
 
 
 @router.get("")
@@ -302,7 +343,7 @@ async def list_media(
         take=page_size,
         order={"createdAt": "desc"},
     )
-    return page_payload(public_encode(items), total, page, page_size)
+    return page_payload(await _public(items), total, page, page_size)
 
 
 # linkedRecordType -> the typed foreign-key column that should point at the parent record. When a
@@ -351,7 +392,7 @@ async def list_orphan_media(_: Any = Depends(require_admin)) -> list[dict[str, A
         include=INCLUDE,
         order={"createdAt": "desc"},
     )
-    return public_encode(rows)
+    return await _public(rows)
 
 
 @router.post("/{media_id}/relink")
@@ -377,7 +418,7 @@ async def relink_media(
     }
     data.update(media_relation_data(rec_type, payload.linkedRecordId))
     updated = await db.mediafile.update(where={"id": media.id}, data=data, include=INCLUDE)
-    return public_encode(updated)
+    return await _public(updated)
 
 
 @router.post("/{media_id}/refine-transcript")
@@ -423,7 +464,7 @@ async def transcribe_media_now_route(
         )
     await transcribe_media_now(media, get_settings())
     updated = await db.mediafile.find_unique(where={"id": media_id}, include=INCLUDE)
-    return public_encode(updated)
+    return await _public(updated)
 
 
 @router.post("/{media_id}/transcript")
@@ -447,7 +488,7 @@ async def set_media_transcript(
         data={"transcriptText": payload.text, "transcriptStatus": "COMPLETED", "transcriptError": None},
         include=INCLUDE,
     )
-    return public_encode(updated)
+    return await _public(updated)
 
 
 @router.get("/jobs")
@@ -523,7 +564,7 @@ async def delete_staged_object(objectKey: str, current_user: Any = Depends(get_c
 async def get_media(media_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     media = await db.mediafile.find_unique(where={"id": media_id}, include=INCLUDE)
     media = await require_record(db.mediafile, media_id) if not media else media
-    return public_encode(media)
+    return await _public(media)
 
 
 @router.delete("/{media_id}", status_code=status.HTTP_204_NO_CONTENT)

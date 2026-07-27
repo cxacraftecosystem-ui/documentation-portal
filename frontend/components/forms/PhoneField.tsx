@@ -55,8 +55,8 @@ export function PhoneField({
   const dialCode = country.dialCode;
   const combined = digits ? `${dialCode} ${digits}` : "";
 
-  // Android parity (MainActivity.kt phoneValidationError): same rule, same two sentences, so a
-  // researcher who corrects a number on the phone reads the same instruction on the laptop.
+  // Android parity (ui/PhoneField.kt artisanPhoneValidationError): same rule, same two sentences,
+  // so a researcher who corrects a number on the phone reads the same instruction on the laptop.
   const error = !digits
     ? null
     : dialCode === DEFAULT_DIAL_CODE && digits.length !== 10

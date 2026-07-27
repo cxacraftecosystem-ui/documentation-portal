@@ -32,6 +32,34 @@ Learn that order and you can work without the guide.
 2. **Everything you submit is reviewed.** Below the Professor tier the status chip on every form is
    locked: whatever you create is submitted as **Pending**. That is normal, not an error. A reviewer
    ranked above you then Approves it, Rejects it, or Sends it for revision with comments.
+3. **Creating records needs Researcher access.** If you signed in with Google you started at the
+   lowest tier and there will be no *New …* buttons — you can add media, answer open interviews and
+   comment, but not open a new record. Ask an admin to promote you.
+
+---
+
+## Location: the one thing every form asks twice
+
+Every capture screen ends with a location control, and it collects **two different things** that look
+like one. Getting this wrong has already corrupted the dataset once.
+
+| | What it is | Who fills it |
+| --- | --- | --- |
+| **Device fix** | Where *you* are standing while typing. GPS coordinates plus an accuracy radius. | Captured automatically |
+| **Stated address** | Where the *artisan or workshop* is: state, district, village, pincode. | **You**, deliberately |
+
+On the live database, every artisan carrying a location sits within a few hundred metres of one point
+in Kharagpur, West Bengal, while the places their researchers typed are Bagru, Balotra, Kutch,
+Rudraprayag, Ballupur, Sanganer and Kappaladoddi. Those coordinates were never wrong — they are real
+fixes **of the desk each record was typed at**, which is entirely reasonable behaviour that the form
+had no way to express. So the researchers hand-encoded the real village into the free-text *Place*
+box, because there was nowhere else to put it.
+
+**Fill in the stated address.** The device fix fills itself. If the two disagree wildly the form says
+so — that is information, not an error.
+
+> This control is being reworked as this guide is written, so the wording on screen may differ. The
+> distinction itself is settled.
 
 ---
 
@@ -84,9 +112,9 @@ contents by craft. Adding it once keeps spellings consistent across everyone's r
 Record the person: who they are, where they work, how to reach them, and what they have learnt.
 
 **What the screen asks for:** Name *(required)*, Local name, Workshop, **Craft** *(required)*, Or new
-craft name, Place *(required)*, Gender, Phone, Email, Address, Notes, **Do's (positive prompt)**
-*(required)*, **Don'ts (negative prompt)** *(required)*, Artisan media, Location (GPS fix or map
-pin).
+craft name, Place *(required)*, **Aadhaar number**, **Artisan Pehchan Card available** and its number,
+Gender, Phone, Email, Address, Notes, **Do's (positive prompt)** *(required)*, **Don'ts (negative
+prompt)** *(required)*, Artisan media, Location (device fix **and** stated address).
 
 **Why it exists.** The artisan is the anchor of the dataset — products, processes, tools and
 questionnaire interviews all link back to an artisan record. The Do's and Don'ts are the artisan's
@@ -97,8 +125,17 @@ own hard-won craft knowledge: the part of the archive that cannot be reconstruct
 - Do's and Don'ts are **required**. Press <kbd>Enter</kbd> for each new point — one lesson per line.
 - You must either select an existing craft **or** type a new craft name. The form will not save with
   neither.
+- **The Aadhaar number is the deduplication key.** It is checked as you type and again on save; if
+  the artisan is already in the archive you are shown the existing record. That is the field working —
+  add to that record rather than making a second one. The number is validated (a mistyped digit is
+  caught), and everywhere the data is *shared* it appears masked as `XXXX XXXX 9012`.
+- **If you are shown a mask, leave it alone.** Saving a form with the mask still in the box is
+  recognised as "unchanged"; you do not have to retype the number.
+- **Pehchan card**: answer Yes/No first. Answering Yes makes the card number required; answering No
+  clears it. It is not possible to store a card number for an artisan who says they hold no card.
 - Photo EXIF is retained and summarised into the notes automatically. Do not transcribe camera
   details by hand.
+- **Location asks two different things** — see the box below.
 
 ---
 
@@ -304,6 +341,37 @@ artisan is still in front of you.
 | **My Activity** (`/activity`) | Everything you have recorded so far. |
 | **Search** (`/search`) | Find a record across the repository. |
 | **Sharing** (`/sharing`) | Give a colleague access to your records. |
+| **Workshop access** (`/workshop-access`) | Request access to a workshop, or (admins) decide requests. |
+| **Tasks** (`/tasks`) | What you have been asked to document. |
+| **Map** (`/map`) | The repository plotted geographically. |
 | **Give app feedback** (`/feedback`) | Tell us what slowed you down. |
 
-For installing the app and getting an account, see **`docs/RESEARCHER_GUIDE.md`**.
+For installing the app, getting an account, working offline and getting the data back out, see
+**[RESEARCHER_GUIDE.md](RESEARCHER_GUIDE.md)**. For the exact permission rules behind "a reviewer
+ranked above you", see **[PERMISSIONS.md](PERMISSIONS.md)**.
+
+---
+
+## How this document is kept true
+
+This document describes **screens and their fields**, which no test asserts and no script can derive.
+It is maintained by walking it.
+
+| Section | Checked against |
+|---|---|
+| The field list on each step | The form component: `frontend/components/forms/ArtisanForm.tsx`, `ProductForm.tsx`, `ToolForm.tsx`, `ProcessForm.tsx`, and the questionnaire page. `grep -oP 'label="[^"]+"'` over a form gives its labels in one command; diff that against the step's field list. |
+| Which fields are **required** | The same components' validation, and the Pydantic schemas in `backend/app/schemas/records.py`. A field marked *(required)* here that is optional there is the error to look for — it makes the guide stricter than the product, which reads as a bug to the researcher. |
+| The route in each **Screen:** heading | The `(protected)` route tree. `docs/tools/check-docs.mjs` does not check these (they are app routes, not files), so they are the most likely thing here to be stale after a page moves. |
+| The ten-step order | `frontend/app/(protected)/guide/page.tsx` — the in-app Walkthrough. **These two must not diverge**, because a researcher may read either. |
+| Statuses in step 9 | `RecordStatus` in `backend/prisma/schema.prisma`; the authority on who may set which is [PERMISSIONS.md](PERMISSIONS.md). |
+
+**The real maintenance procedure:** this document and the in-app `/guide` are two renderings of one
+thing. When a form changes, update both in the same commit — the in-app version is the one
+researchers actually read, and this one is the version that gets printed and carried into the field.
+
+**Review triggers:** any file under `frontend/components/forms/`, the guide page, or a new step in the
+documentation workflow.
+
+**Known unverified:** the Android screens are asserted to carry the same names and the same fields as
+the web ones. That parity is real as a design rule and is **not** mechanically checked; if a field
+exists on one client and not the other, nothing in this repository will notice.

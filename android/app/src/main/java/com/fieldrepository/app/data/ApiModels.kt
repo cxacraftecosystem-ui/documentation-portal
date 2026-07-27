@@ -30,6 +30,14 @@ data class UserDto(
     val name: String,
     val role: String,
     val canManageQuestionnaire: Boolean = false,
+    /**
+     * RETIRED GRANTS. The server still serves both columns and `PATCH /users` still accepts them,
+     * so they stay here to decode — but `can_manage_crafts` / `can_manage_workshops` stopped reading
+     * them (deps.py): both powers are Professor-by-rank alone now, because a grant that lifted
+     * someone below the taxonomy over it was invisible in the role column. Nothing in this app may
+     * consult them for a permission decision; the predicates in AppNavigation.kt and MainActivity.kt
+     * are rank-only, and the toggles that set them are gone from the user admin card.
+     */
     val canManageCrafts: Boolean = false,
     val canManageWorkshops: Boolean = false,
     val canReview: Boolean = false,
@@ -65,6 +73,16 @@ data class ArtisanDto(
     val status: String,
     val craftId: String? = null,
     val craft: CraftDto? = null,
+    /**
+     * The captured coordinate. `GET /artisans` has always sent this — the field was simply not
+     * declared here, so it was discarded at parse time and the artisan list was the one record type
+     * with no position. The map screen needs it; [ArtisanDetailDto] already carried it.
+     *
+     * Deliberately the only thing added: this DTO carries no `aadhaarNumber` or `pehchanCardNumber`
+     * and must not start to. Any screen that plots artisans reads THIS type precisely so that the
+     * identity fields are not in scope to leak.
+     */
+    val location: LocationDto? = null,
     val createdById: String? = null,
     val createdAt: String? = null
 )
@@ -521,13 +539,51 @@ data class LocationRequest(
     val accuracy: Double? = null,
     val address: String? = null,
     @SerialName("placeName") val placeName: String? = null,
-    // The postal half of the address, columns on Location itself (see the backend's LocationInput).
-    // [state] must be a canonical name from GET /reference/address — the server validates against the
-    // very list it serves, so a form that renders the served list cannot send a value it refuses.
-    // [pincode] is the bare six digits, no spaces. Both null unless the researcher supplied them: the
-    // API forbids unknown keys but is happy with these absent, and `explicitNulls = false` drops them.
+    /*
+     * THE STATED ADDRESS — where the SUBJECT is, as a statement by the researcher. Six real columns
+     * on Location (see the backend's LocationInput and migration
+     * 20260727120000_location_stated_address), all six null unless the researcher supplied them: the
+     * API forbids unknown keys but is happy with these absent, and `explicitNulls = false` drops
+     * them from the body.
+     *
+     * [state] and [district] must be canonical names from GET /reference/address — the server
+     * validates against the very lists it serves, and resolves the district WITHIN its state because
+     * several district names belong to two states at once. [pincode] is the bare six digits, no
+     * spaces. [village] is free text, because no closed list of Indian villages exists.
+     */
     val state: String? = null,
-    val pincode: String? = null
+    val district: String? = null,
+    val village: String? = null,
+    val pincode: String? = null,
+    /**
+     * The optional pin the researcher dropped on the SUBJECT'S place.
+     *
+     * Deliberately not [latitude]/[longitude], which mean the DEVICE. Send the pair or neither — the
+     * server refuses half a pin (`_pin_is_a_pair`), because a latitude on its own is 111 km of
+     * meridian stored in the one column that exists to be precise.
+     */
+    val subjectLatitude: Double? = null,
+    val subjectLongitude: Double? = null,
+    /**
+     * When the device took this reading, ISO 8601 with an offset — the "at" in "captured at".
+     *
+     * A column that has existed on Location since the beginning and that nothing has ever written,
+     * which is why every stored coordinate is undated. A reading with no time on it cannot be told
+     * apart from a reading taken a month later at a desk in another state, and that is exactly the
+     * question the fifteen pilot records leave a reader unable to answer.
+     */
+    val capturedAt: String? = null,
+    /**
+     * The stated address AGAIN, in the shape this app used before the four columns above existed.
+     *
+     * Both shapes are sent on every save and neither may be dropped — see the long note at the top
+     * of ui/LocationFields.kt for why, and the server's `lift_stated_address` for the half that
+     * normalises them into one. Kept as a raw [JsonObject] rather than a `Map<String, String>` for
+     * two reasons: a value this client does not understand round-trips through an edit instead of
+     * being dropped on the floor, and a nested blob written by some future writer cannot fail the
+     * decode of a whole artisan list.
+     */
+    val extraMetadata: JsonObject? = null
 )
 
 /**
@@ -543,7 +599,33 @@ data class AddressReferenceDto(
     val states: List<String> = emptyList(),
     val unionTerritories: List<String> = emptyList(),
     /** The flat list a single-group dropdown binds to, in the server's own order. */
-    val statesAndUnionTerritories: List<String> = emptyList()
+    val statesAndUnionTerritories: List<String> = emptyList(),
+    /**
+     * The districts of each state, absent on a server older than reference version 2.
+     *
+     * Nullable on purpose rather than defaulted to an empty table: the district dropdown has to be
+     * able to tell "this deployment does not serve districts yet" from "this state genuinely has
+     * none", and only the first of those is worth explaining to the researcher.
+     */
+    val districts: AddressDistrictsDto? = null
+)
+
+/**
+ * The district list, shipped inside the address reference so a state dropdown and its district
+ * dropdown can never hold two different vintages of the same table.
+ *
+ * [asOf] and [listVersion] travel with the names so an exported dataset can record which vintage it
+ * was coded against — districts are created, renamed and merged several times a year.
+ */
+@Serializable
+data class AddressDistrictsDto(
+    val source: String? = null,
+    val sourceUrl: String? = null,
+    val asOf: String? = null,
+    val listVersion: Int = 0,
+    val count: Int = 0,
+    /** State name to its districts, in the register's own order. */
+    val byState: Map<String, List<String>> = emptyMap()
 )
 
 @Serializable
@@ -654,9 +736,26 @@ data class LocationDto(
     val accuracy: Double? = null,
     val address: String? = null,
     @SerialName("placeName") val placeName: String? = null,
-    /** Canonical state/union-territory name and bare 6-digit pincode; see [LocationRequest]. */
+    /**
+     * The stated address, column by column; see [LocationRequest] for every rule that governs them.
+     *
+     * ALL FOUR OF district/village/subjectLatitude/subjectLongitude WERE MISSING HERE, and their
+     * absence was silent data loss rather than a gap in a read model. `LocationDto.toRequest()`
+     * builds the body an edit re-sends, `attach_location` writes a BRAND NEW Location row from that
+     * body, and `forbid_clearing_location` deliberately does not demand a stated address on update —
+     * so a colleague opening a web-entered record on the phone to fix a phone number PATCHed the
+     * district, the village and the pin away, successfully, with nothing on screen to say so.
+     */
     val state: String? = null,
-    val pincode: String? = null
+    val district: String? = null,
+    val village: String? = null,
+    val pincode: String? = null,
+    val subjectLatitude: Double? = null,
+    val subjectLongitude: Double? = null,
+    /** When the device took this reading; see [LocationRequest.capturedAt]. */
+    val capturedAt: String? = null,
+    /** The pre-column shape of the stated address; see [LocationRequest.extraMetadata]. */
+    val extraMetadata: JsonObject? = null
 )
 
 @Serializable

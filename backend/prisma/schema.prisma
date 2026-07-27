@@ -173,7 +173,6 @@ model User {
   tasksCreated    AssignedTask[]   @relation("TaskCreator")
 
   @@index([role])
-  @@index([canManageQuestionnaire])
 }
 
 /// A documentation task assigned by an admin/master admin to a user, so field work is
@@ -317,28 +316,81 @@ model Craft {
   media     MediaFile[]
   workshops WorkshopCraft[]
 
-  @@index([name])
-  @@index([place])
+  // `name` needs no index of its own: @unique already builds one, and that is what the alphabetical
+  // craft picker orders by.
   @@index([workshopId])
-  @@index([recordedAt])
 }
 
+/// TWO ANSWERS TO TWO DIFFERENT QUESTIONS, and reading one as the other is what this model was
+/// changed to stop.
+///
+/// Every one of the fifteen artisans on the live database that carries a location sits between
+/// 22.313 and 22.315 N, 87.309 and 87.313 E — Kharagpur, West Bengal — while the places their
+/// researchers typed are Bagru, Balotra, Kutch, Rudraprayag, Ballupur, Sanganer and Kappaladoddi,
+/// none of them within 1,500 km of that point. The coordinates are not wrong and are not a
+/// hardcoded constant: they jitter naturally and carry genuine accuracy values from 26 m to
+/// 2,506 m. They are real GPS fixes of the DESK THE RECORD WAS TYPED AT, which is ordinary,
+/// reasonable behaviour that the schema had no way to express — so the fix got read as the
+/// artisan's address, and the researchers hand-encoded the real village and district into a
+/// free-text `place` box because there was nowhere else to put them.
+///
+/// So the columns below are two groups, and the group a column belongs to decides who may write it:
+///
+///   PROVENANCE — latitude, longitude, altitude, accuracy, capturedAt, placeName, address.
+///     Where the DEVICE was. Written automatically. Never presented as the subject's address, and
+///     never copied into the group below.
+///
+///   STATED ADDRESS — state, district, village, pincode, subjectLatitude, subjectLongitude.
+///     Where the SUBJECT is, as a statement by the researcher. A geocoder may offer a value here;
+///     only a person may write one.
+///
+/// NOTHING IS BACKFILLED and no existing value moves. The fifteen rows keep exactly the
+/// coordinates they have, which are exactly what the provenance group means; their stated address
+/// stays empty until a researcher fills it in, and the mismatch between the two is FLAGGED in the
+/// form rather than guessed at here.
 model Location {
   id            String   @id @default(cuid())
+  /// PROVENANCE. Where the device was — kept NOT NULL because that is what the fifteen live rows
+  /// already are, and because every record still has to carry a coordinate somebody stood at,
+  /// pointed at, or typed (see require_location in app/schemas/common.py).
   latitude      Float
   longitude     Float
   altitude      Float?
+  /// PROVENANCE. Radius of the fix in metres. Load-bearing rather than decorative: a browser with
+  /// no satellite lock reports kilometres while returning coordinates that look every bit as
+  /// precise, and one live row has a 2,506 m radius. Past PINCODE_ACCURACY_LIMIT_METRES the clients
+  /// decline to derive an address from the point at all.
   accuracy      Float?
   address       String?
   placeName     String?
-  /// Postal state or union territory, stored as the canonical name from the closed list in
+  /// STATED. Postal state or union territory, stored as the canonical name from the closed list in
   /// services/address.py — which api/routes/reference.py also SERVES, so a form's dropdown and the
   /// validator can never hold different lists. Free text here would split one state across four
   /// spellings in every group-by and export, the way craft names did before title-casing.
   state         String?
-  /// Indian PIN code as the bare 6 digits ("380001"). Validated as exactly six ASCII digits with a
-  /// leading 1–9: the first digit is the postal zone and there is no zone 0.
+  /// STATED. Canonical district within `state`, from the same served list. A REAL COLUMN rather
+  /// than an extraMetadata key: "District" has been a shipped, user-visible column since the
+  /// record-field registry was written (the data browser card, the browser table, every
+  /// details.txt in /export/dataset, the artisan sheet of /data/report), it read a metadata key
+  /// nothing has written since the artisan form stopped writing extraMetadata, and it has therefore
+  /// been blank on every record. Districts are only meaningful per state — several names are shared
+  /// by two states — so the pair is validated together, never apart.
+  district      String?
+  /// STATED. The village or hamlet, free text, because no closed list of Indian villages exists
+  /// that a field researcher could pick from. It sits BELOW district on purpose: district is the
+  /// finest administrative unit that can be checked, and village is the finest that can be named.
+  village       String?
+  /// STATED. Indian PIN code as the bare 6 digits ("380001"). Validated as exactly six ASCII digits
+  /// with a leading 1–9: the first digit is the postal zone and there is no zone 0.
   pincode       String?
+  /// STATED. The optional precise pin a researcher drops on the SUBJECT'S place — deliberately not
+  /// `latitude`/`longitude`, which mean the device. One pair cannot mean both: the moment a pin and
+  /// a fix share a column, an export of "artisan coordinates" is a mixture of the two with no way
+  /// to tell which row is which, which is the bug this model was changed to end. NULL on every row
+  /// that has only ever been auto-captured, and NULL is the honest answer there.
+  subjectLatitude  Float?
+  subjectLongitude Float?
+  /// PROVENANCE. When the device produced the fix above.
   capturedAt    DateTime?
   extraMetadata Json?
   createdAt     DateTime @default(now())
@@ -351,10 +403,24 @@ model Location {
   media     MediaFile[]
   questionnaireInterviews QuestionnaireInterview[]
 
-  @@index([latitude, longitude])
-  @@index([placeName])
+  // Nothing reads this table by any column. `attach_location` writes a row, and every reader
+  // afterwards arrives by primary key through the `location` relation — so an index here is paid for
+  // on every record create and never collected on. (latitude, longitude) and placeName went for that
+  // reason, and because neither could have served its own query anyway: a bounding box or a radius
+  // wants GiST, not a btree on two independent floats, and a place name typed into a search box
+  // reaches Postgres as ILIKE '%…%'.
+  //
   /// "Every record in Gujarat" is the query this column exists to make possible; without the index
-  /// it is a sequential scan of every location ever captured.
+  /// it is a sequential scan of every location ever captured. Kept although no route issues it yet:
+  /// it is an equality against a closed list of canonical names, which is the one shape here a btree
+  /// genuinely answers, so this index is waiting for its query rather than hoping for one.
+  ///
+  /// `district` gets NO index of its own, and no composite with `state` either. A district is only
+  /// ever asked for inside a state, so this index already narrows the scan to one state's rows and
+  /// the district is a cheap filter on top; a second index would be written on every record create
+  /// to save a predicate no route issues yet. The moment "every record in Kutch" becomes a query
+  /// somebody runs, make it @@index([state, district]) and delete this one — the composite answers
+  /// the state-only query by prefix, so the pair would be two writes for one query shape.
   @@index([state])
 }
 
@@ -422,13 +488,19 @@ model Artisan {
   questionnaireInterviews QuestionnaireInterviewArtisan[]
   sectionStatuses QuestionnaireSectionStatus[]
 
+  // `name` earns its index by being the sort key of the artisan pickers, not by the search box:
+  // every text search in this app is a case-insensitive `contains`, which Postgres runs as ILIKE
+  // '%…%' and no btree can answer. That is why `place` and the denormalised name columns on
+  // Product/Tool carry no index — see the migration notes in 20260726200000_index_coverage.
   @@index([name])
-  @@index([place])
   @@index([craftId])
   @@index([createdById])
-  @@index([workshopId])
   @@index([status])
-  @@index([recordedAt])
+  // Equality first, then the sort column: every record list is `ORDER BY createdAt DESC LIMIT n`,
+  // so a workshop-filtered page reads n rows straight off the index instead of sorting the whole
+  // workshop. The bare [createdAt] serves the same list unfiltered, which is what an admin sees.
+  @@index([workshopId, createdAt])
+  @@index([createdAt])
 }
 
 model Workshop {
@@ -469,13 +541,16 @@ model Workshop {
   processes               Process[]                @relation("ProcessWorkshop")
   questionnaireInterviews QuestionnaireInterview[] @relation("InterviewWorkshop")
 
+  // `startDate` is both the list's primary sort key and the column its date-range filter reads;
+  // `date` is what the task-assignment picker orders by. `endDate` is only ever read off a row that
+  // has already been fetched, so it is not indexed.
   @@index([date])
   @@index([startDate])
-  @@index([endDate])
-  @@index([place])
   @@index([createdById])
   @@index([status])
-  @@index([recordedAt])
+  // Not the list order (that is startDate) — this is for the review queue and the dashboard's
+  // "recent submissions", which order workshops by createdAt like every other record type.
+  @@index([createdAt])
 }
 
 model WorkshopArtisan {
@@ -550,16 +625,12 @@ model ProductDocumentation {
   mediaProcessingJobs MediaProcessingJob[]
   processes Process[]
 
-  @@index([productName])
-  @@index([craftName])
-  @@index([place])
-  @@index([artisanName])
   @@index([artisanId])
   @@index([craftId])
-  @@index([workshopId])
   @@index([createdById])
   @@index([status])
-  @@index([recordedAt])
+  @@index([workshopId, createdAt])
+  @@index([createdAt])
 }
 
 model ToolDocumentation {
@@ -612,16 +683,12 @@ model ToolDocumentation {
   mediaProcessingJobs MediaProcessingJob[]
   artisanLinks ToolArtisan[]
 
-  @@index([toolkitName])
-  @@index([craftName])
-  @@index([place])
-  @@index([artisanName])
   @@index([artisanId])
   @@index([craftId])
-  @@index([workshopId])
   @@index([createdById])
   @@index([status])
-  @@index([recordedAt])
+  @@index([workshopId, createdAt])
+  @@index([createdAt])
 }
 
 // Many-to-many between a tool and the artisans who use it. Lets one documented tool be assigned to
@@ -635,8 +702,9 @@ model ToolArtisan {
   tool    ToolDocumentation @relation(fields: [toolId], references: [id], onDelete: Cascade)
   artisan Artisan           @relation(fields: [artisanId], references: [id], onDelete: Cascade)
 
+  // No [toolId] of its own — it is the leading column of the unique below, which serves the
+  // tool-to-artisans lookup already.
   @@unique([toolId, artisanId])
-  @@index([toolId])
   @@index([artisanId])
 }
 
@@ -687,12 +755,22 @@ model MediaFile {
 
   @@index([mediaType])
   @@index([uploadedById])
-  @@index([craftId])
   @@index([linkedRecordType, linkedRecordId])
-  @@index([questionnaireInterviewId])
   @@index([createdAt])
   @@index([status])
-  @@index([recordedAt])
+  // The parent foreign keys. These are not for `where` clauses a route writes by hand — they are for
+  // the reverse walk `include: {media: true}` generates, which Prisma issues as a separate
+  // `WHERE "<fk>" IN (…the page's 20 parents…)`. craftId and questionnaireInterviewId were indexed;
+  // artisanId, productId and toolId were not, so the products and tools lists each sequentially
+  // scanned the whole of the largest table in the database once per page.
+  @@index([craftId])
+  @@index([questionnaireInterviewId])
+  @@index([artisanId])
+  @@index([productId])
+  @@index([toolId])
+  // Composite rather than bare workshopId: a workshop's media is the one parent set big enough that
+  // the data browser's `ORDER BY createdAt` over it is worth serving from the index too.
+  @@index([workshopId, createdAt])
 }
 
 model MediaProcessingJob {
@@ -741,7 +819,6 @@ model QuestionnaireSection {
   sectionStatuses QuestionnaireSectionStatus[]
 
   @@unique([sortOrder])
-  @@index([code])
   @@index([isActive, sortOrder])
 }
 
@@ -763,7 +840,6 @@ model QuestionnaireSectionStatus {
   setBy   User                 @relation("SectionStatusSetBy", fields: [setById], references: [id], onDelete: Restrict)
 
   @@unique([artisanId, sectionId])
-  @@index([artisanId])
   @@index([sectionId])
 }
 
@@ -827,10 +903,10 @@ model QuestionnaireInterview {
   media     MediaFile[]                      @relation("QuestionnaireMedia")
 
   @@index([createdById])
-  @@index([workshopId])
   @@index([status])
   @@index([interviewDate])
-  @@index([recordedAt])
+  @@index([workshopId, createdAt])
+  @@index([createdAt])
 }
 
 model QuestionnaireInterviewArtisan {
@@ -892,9 +968,9 @@ model Process {
 
   @@index([productId])
   @@index([createdById])
-  @@index([workshopId])
   @@index([status])
-  @@index([recordedAt])
+  @@index([workshopId, createdAt])
+  @@index([createdAt])
 }
 
 model ProcessStep {
@@ -984,9 +1060,10 @@ model WorkshopAssignment {
   requestedBy User?    @relation("WorkshopAssignmentRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
   decidedBy   User?    @relation("WorkshopAssignmentDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
 
+  // The unique below is the workshop-roster lookup `resolve_workshop_access` makes on every
+  // workshop-scoped write; a separate [workshopId] would only duplicate its leading column.
   @@unique([workshopId, userId])
   @@index([userId])
-  @@index([workshopId])
   @@index([status])
 }
 
@@ -1019,8 +1096,37 @@ model ManagedSecret {
   updatedBy   User?    @relation("ManagedSecretUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
 
-  @@index([key])
+/// The verdict of the last "Test" of a provider key that lives in the deployed ENVIRONMENT.
+///
+/// WHY A SECOND TABLE. ManagedSecret is where a verdict belongs, but a row there only exists once
+/// somebody SAVES a key through the Settings hub, and its whole purpose is to be an override — the
+/// resolver prefers it over the environment. So recording an environment key's verdict by creating
+/// one would copy the deployed secret into the database and change which value the transcription
+/// chain uses, to persist a boolean. This table holds the boolean and nothing else, and it
+/// overrides nothing. On production, where every key comes from the environment, it is the
+/// difference between the provider ranking remembering what has been proven and resetting to
+/// "nothing verified" on every deploy.
+///
+/// THE VALUE IS NOT HERE, IN ANY FORM. Not the key, not a prefix, not a digest of it. `fingerprint`
+/// is HMAC-SHA256 of the value under a server-side pepper derived from SECRETS_ENCRYPTION_KEY (or
+/// JWT_SECRET), so it cannot be computed, reversed or brute-forced from a database dump alone — the
+/// pepper is not in the database. It exists for exactly one purpose: a rotated key must not inherit
+/// the old key's pass. On a mismatch the verdict is ignored and the engine reads as untested, which
+/// is also what happens if the pepper itself changes, i.e. the failure direction is "prove it
+/// again" rather than "trust something unproven".
+model SecretTestResult {
+  /// The environment-variable name, e.g. "ELEVENLABS_API_KEY". One verdict per key.
+  key         String   @id
+  /// OK or FAILED. There is no UNKNOWN: a row exists only because a test was actually run.
+  status      String
+  checkedAt   DateTime
+  /// The probe's short, redacted explanation of a failure. Never a provider response body.
+  error       String?
+  fingerprint String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 /// Tiered data-access sharing between researchers. OWNER = the author whose uploaded records are being
@@ -1049,9 +1155,10 @@ model DataAccessGrant {
   decidedBy   User? @relation("DataAccessDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
   scopeItems  DataAccessScopeItem[]
 
+  // [granteeId] stands alone because it is NOT the leading column of the unique, and it is the hot
+  // one: `visibility_where` reads this table by grantee on every list request from below professor.
   @@unique([ownerId, granteeId])
   @@index([granteeId])
-  @@index([ownerId])
   @@index([status])
 }
 
@@ -1066,7 +1173,6 @@ model DataAccessScopeItem {
   grant DataAccessGrant @relation(fields: [grantId], references: [id], onDelete: Cascade)
 
   @@unique([grantId, recordType, recordId])
-  @@index([grantId])
 }
 
 /// A comment on any record (generic over recordType/recordId), left by the record owner, an admin, or a

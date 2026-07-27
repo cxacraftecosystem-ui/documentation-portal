@@ -5,7 +5,13 @@ import { Camera, FolderOpen, Mic, Square, Video } from "lucide-react";
 
 import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
 import { RecordingStrip } from "@/components/media/Waveform";
-import { audioExtensionForMimeType, inferMediaType, pickAudioRecorderMimeType, type StageEntry } from "@/lib/media";
+import {
+  audioExtensionForMimeType,
+  inferMediaType,
+  pickAudioRecorderMimeType,
+  SPEECH_AUDIO_CONSTRAINTS,
+  type StageEntry
+} from "@/lib/media";
 import { useEagerStaging } from "@/lib/uploads";
 import type { MediaType } from "@/lib/types";
 
@@ -116,7 +122,7 @@ export function MediaCaptureField({
   }
 
   async function startAudioRecording() {
-    const liveStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const liveStream = await navigator.mediaDevices.getUserMedia({ audio: SPEECH_AUDIO_CONSTRAINTS });
     streamRef.current = liveStream;
     chunksRef.current = [];
     // Ask the browser what it can actually record: Safari/iOS produces audio/mp4, so a hardcoded

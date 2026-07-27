@@ -1,6 +1,7 @@
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, NamedTuple
 
 from fastapi import HTTPException, status
 from fastapi.encoders import jsonable_encoder
@@ -8,6 +9,7 @@ from prisma import Json
 
 from app.core.db import db
 from app.services.artisan_identity import mask_aadhaar
+from app.services.concurrency import gather_reads
 from app.services.text_format import title_case_fields
 
 # Keys that must never leave the API, no matter how deeply nested inside an embedded relation
@@ -155,9 +157,16 @@ CLEARABLE_KEYS = frozenset(
 #   state        Location.state (written through ``attach_location``). Harmless and idempotent: all
 #                36 canonical names in services/address.py are already fixed points of this rule, and
 #                the value has been resolved to one of them by LocationInput before it gets here
-#   village/district
-#                no columns today (artisans keep these in extraMetadata) -- listed so they normalise
-#                from day one if they are ever promoted to real columns
+#   district     Location.district (written through ``attach_location``). Promoted from an
+#                extraMetadata key to a real column by 20260727120000_location_stated_address, and
+#                this entry is what that promotion was waiting for -- ``attach_location`` funnels
+#                the location dict through ``clean_data`` too, so the column normalised from its
+#                first write with no new plumbing. Idempotent for the same reason ``state`` is:
+#                every canonical district name is already a fixed point of title_case, which
+#                tests/test_address_districts.py asserts for all 795 of them
+#   village      Location.village (written through ``attach_location``). Free text with no list
+#                behind it, so this IS the only normalisation it gets -- "bagru" and "BAGRU" would
+#                otherwise be two villages in every group-by
 #
 # DELIBERATELY ABSENT, because casing them would damage meaning rather than tidy it: notes,
 # description, remarks, address, dos, donts, transcriptText/transcriptSummary, caption, prompt, email,
@@ -210,11 +219,56 @@ def decimal_to_string(data: dict[str, Any]) -> dict[str, Any]:
     return converted
 
 
+# Where the Android client puts the stated address, and the columns those keys became.
+#
+# The phone shipped this inside `location.extraMetadata` because at the time there were no columns
+# to put it in — its own comment says so. Migration 20260727120000_location_stated_address then
+# promoted all four to real columns and `require_location` began demanding `district`, which no
+# Android build sends: not the one about to ship, and — the part that matters — not the one already
+# installed on every phone in the field. Deploying the strict rule alone would 422 every create from
+# every device until an APK reached it, and a device that is offline in a workshop cannot be reached.
+#
+# So the server accepts both shapes and normalises on the way in. This is not a temporary shim to be
+# removed once the fleet updates: records created by today's phones will carry the metadata form for
+# as long as they exist, and an edit of one of those rows re-sends what it was given.
+_STATED_ADDRESS_FROM_META: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("district", ("district",)),
+    ("village", ("village",)),
+    ("subjectLatitude", ("subjectLatitude", "artisanLatitude")),
+    ("subjectLongitude", ("subjectLongitude", "artisanLongitude")),
+)
+
+
+def lift_stated_address(location_data: dict[str, Any]) -> dict[str, Any]:
+    """Copy a stated address out of ``extraMetadata`` into the columns that now hold it.
+
+    A value already present as a column always wins — a client that sends both means the column.
+    The metadata keys are left in place rather than popped: they are what older builds read back,
+    and removing them would blank the field on a phone that has not updated yet.
+    """
+    meta = location_data.get("extraMetadata")
+    if not isinstance(meta, dict):
+        return location_data
+    for column, keys in _STATED_ADDRESS_FROM_META:
+        if location_data.get(column) not in (None, ""):
+            continue
+        for key in keys:
+            value = meta.get(key)
+            if value not in (None, ""):
+                location_data[column] = value
+                break
+    return location_data
+
+
 async def attach_location(data: dict[str, Any]) -> dict[str, Any]:
     location = data.pop("location", None)
     if location:
         location_data = location.model_dump() if hasattr(location, "model_dump") else dict(location)
-        created = await db.location.create(data=clean_data(location_data))
+        location_data = lift_stated_address(location_data)
+        # `extraMetadata` is a Prisma Json column and prisma-client-py rejects a raw dict, so any
+        # request carrying one was a 500 rather than a save — which is every Android create, since
+        # that is where the phone keeps the stated address.
+        created = await db.location.create(data=jsonify_metadata(clean_data(location_data)))
         data["locationId"] = created.id
     return data
 
@@ -248,18 +302,39 @@ async def visibility_where(user: Any, owner_field: str = "createdById") -> dict[
     Professor and above (and admins) see every record — an empty filter. Below professor a user sees
     only records they own, plus records owned by anyone who has GRANTED them a data-access grant (any
     tier, subset grants included — coarse, but always grant-gated). ``owner_field`` names the record's
-    owner column (``createdById`` for records, ``uploadedById`` for media). Async because it reads the
-    grant table; every caller must ``await`` it, and it must be AND-composed with any other ``OR`` a
-    list route builds (nest it under ``where["AND"]``) so a search ``OR`` never overwrites it.
+    owner column (``createdById`` for records, ``uploadedById`` for media). It must be AND-composed
+    with any other ``OR`` a list route builds (nest it under ``where["AND"]``) so a search ``OR``
+    never overwrites it.
+
+    THE GRANT TEST IS PART OF THE PAGE QUERY, not a query of its own. Reading the grant table first
+    and folding the owner ids into an ``IN`` list cost a full round trip BEFORE the page could even
+    be asked for — on every list request, from every user below professor, which is most of them. It
+    also got worse with success: the ``IN`` list is every owner who has ever granted the caller
+    anything, shipped as query parameters on every request. Expressed as a relation filter, Postgres
+    answers the same question inside the query it was already running, against the ``granteeId``
+    index that exists for exactly this.
+
+    Still ``async``: every caller awaits it, and the rank check below could not be usefully inlined
+    at seventeen call sites.
     """
     from app.core.deps import get_value, has_rank
 
     if has_rank(user, "PROFESSOR"):
         return {}
     uid = get_value(user, "id")
-    grants = await db.dataaccessgrant.find_many(where={"granteeId": uid, "status": "GRANTED"})
-    granted_owner_ids = [g.ownerId for g in grants]
-    return {"OR": [{owner_field: uid}, {owner_field: {"in": granted_owner_ids}}]}
+    # ``createdById`` -> ``createdBy``, ``uploadedById`` -> ``uploadedBy``: the owner COLUMN and the
+    # owner RELATION are named that way on every model this filter is applied to.
+    owner_relation = owner_field[:-2] if owner_field.endswith("Id") else owner_field
+    return {
+        "OR": [
+            {owner_field: uid},
+            {
+                owner_relation: {
+                    "is": {"dataAccessAsOwner": {"some": {"granteeId": uid, "status": "GRANTED"}}}
+                }
+            },
+        ]
+    }
 
 
 def apply_status_policy_create(user: Any, data: dict[str, Any]) -> dict[str, Any]:
@@ -322,6 +397,136 @@ async def require_record(delegate: Any, record_id: str) -> Any:
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
     return record
+
+
+# --- Loading a page's relations without paying for them one at a time ----------------------------
+#
+# THE PROBLEM THIS SOLVES, measured rather than guessed. Prisma's query engine already batches a
+# relation by ROW — ``include={"craft": True}`` on twenty artisans issues one
+# ``SELECT … FROM "Craft" WHERE id IN ($1,…)``, not twenty selects — so there is no classic N+1 here.
+# What it does NOT do is issue those relation queries CONCURRENTLY: each ``include`` costs its own
+# round trip, one after the next, and the page waits for all of them in series.
+#
+# That is free on a database next door and ruinous on this deployment, where PostgreSQL lives in a
+# different AWS region from the web box: ``/health/ready`` measures a single ``SELECT 1`` at 683ms.
+# Counted through a proxy in front of a local database, ``GET /tools?pageSize=20`` issued SEVEN
+# sequential round trips (count, the page, then Craft, Location, MediaFile, User, ToolArtisan) — and
+# in production it answered in 4.8 seconds for twenty rows out of seventy-four. The number of ROWS
+# never entered into it; the number of RELATIONS did.
+#
+# So relations are loaded here instead: one batched query per relation, all issued together, and the
+# results grafted back onto the rows. A page then costs a fixed THREE waits — the page and its count
+# together, then every relation at once — no matter how many relations are declared or how many rows
+# come back. The same shape holds at a hundred times the data, and it needs no cache, no broker and
+# no second process to do it, so the 1 GiB box gets the same win as a large one.
+#
+# The rows come back as ordinary Prisma model instances with their relation attributes populated,
+# exactly as ``include`` would have left them, so ``public_encode`` and every caller downstream are
+# untouched — including the per-artisan Aadhaar decision, which still sees one node per artisan.
+
+
+class Relation(NamedTuple):
+    """One relation to load alongside a page of rows.
+
+    ``field`` is the attribute set on each row (and therefore the key in the JSON response).
+    ``model`` names the Prisma delegate on ``db`` — ``"craft"``, ``"mediafile"``, ``"user"``.
+
+    ``key`` means different things by direction, because the foreign key lives on a different side:
+
+    * to-one (``many=False``): the column ON THE PARENT holding the child's id (``"craftId"``);
+    * to-many (``many=True``): the column ON THE CHILD holding the parent's id (``"toolId"``).
+
+    ``include`` is passed straight through for a nested level (a tool's ``artisanLinks`` reaching its
+    ``artisan``). Nesting still costs one round trip per level, but those levels run INSIDE the
+    parallel wave rather than after everything else in it.
+    """
+
+    field: str
+    model: str
+    key: str
+    many: bool = False
+    include: dict[str, Any] | None = None
+
+
+def include_of(relations: Sequence[Relation]) -> dict[str, Any]:
+    """The equivalent Prisma ``include`` argument for the same relations.
+
+    Write paths still hand ``include=`` to ``create``/``update``, where one extra round trip is
+    noise next to the write itself and a single statement is the safer thing. Deriving that argument
+    from the same tuple the read paths use is what stops the two descriptions of "what a tool looks
+    like on the wire" from drifting apart — a relation added for the list would otherwise quietly go
+    missing from the response to the PATCH that created it.
+    """
+    return {
+        rel.field: ({"include": rel.include} if rel.include else True) for rel in relations
+    }
+
+
+async def hydrate_relations(rows: Sequence[Any], relations: Sequence[Relation]) -> None:
+    """Populate ``relations`` on ``rows`` in one parallel wave of batched queries. Mutates the rows.
+
+    Every row ends up with every declared attribute set — ``None`` for an unmatched to-one, ``[]``
+    for an empty to-many — which is what ``include`` produces, so an absent relation stays
+    distinguishable from a relation that is genuinely empty.
+    """
+    if not rows or not relations:
+        return
+
+    planned: list[tuple[Relation, Any]] = []
+    for rel in relations:
+        if rel.many:
+            ids = {row.id for row in rows}
+        else:
+            ids = {getattr(row, rel.key, None) for row in rows} - {None}
+        if not ids:
+            # Nothing to look up. Prisma skips the query in this case too; setting the attributes
+            # here keeps the row shape identical to the include it replaces.
+            for row in rows:
+                setattr(row, rel.field, [] if rel.many else None)
+            continue
+        args: dict[str, Any] = {"where": {(rel.key if rel.many else "id"): {"in": sorted(ids)}}}
+        if rel.include:
+            args["include"] = rel.include
+        planned.append((rel, getattr(db, rel.model).find_many(**args)))
+
+    if not planned:
+        return
+    fetched = await gather_reads(*(coro for _, coro in planned))
+
+    for (rel, _), children in zip(planned, fetched):
+        if rel.many:
+            grouped: dict[Any, list[Any]] = {}
+            for child in children:
+                grouped.setdefault(getattr(child, rel.key, None), []).append(child)
+            for row in rows:
+                setattr(row, rel.field, grouped.get(row.id, []))
+        else:
+            by_id = {child.id: child for child in children}
+            for row in rows:
+                setattr(row, rel.field, by_id.get(getattr(row, rel.key, None)))
+
+
+async def count_and_page(
+    delegate: Any,
+    *,
+    where: dict[str, Any],
+    skip: int,
+    take: int,
+    order: Any,
+    relations: Sequence[Relation] = (),
+) -> tuple[int, list[Any]]:
+    """The ``(total, items)`` a paged list route needs, in two waits instead of two-plus-N.
+
+    The count and the page do not depend on each other, so they go together; the relations depend
+    only on which rows came back, so they go together after. Callers unpack the pair exactly as they
+    would have read it in sequence.
+    """
+    total, items = await gather_reads(
+        delegate.count(where=where),
+        delegate.find_many(where=where, skip=skip, take=take, order=order),
+    )
+    await hydrate_relations(items, relations)
+    return total, items
 
 
 # Fields that are infrastructural / system-managed and should not be attributed to a contributor.

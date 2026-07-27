@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useMotionValueEvent, useScroll } from "framer-motion";
 import {
   Activity,
@@ -17,7 +17,10 @@ import {
   Gauge,
   GitBranch,
   Image as ImageIcon,
+  KeyRound,
+  Layers,
   LogOut,
+  MapPinned,
   Menu as MenuIcon,
   MessageSquare,
   Search,
@@ -105,7 +108,25 @@ export const NAV_ITEMS: NavItem[] = [
   // Everyone can be a task assignee; the "assign" half of the page is gated inside it.
   { href: "/tasks", label: "Tasks", icon: ClipboardCheck, group: "Browse", can: everyone, gate: "get_current_user" },
   { href: "/search", label: "Browse records", icon: Search, group: "Browse", can: everyone, gate: "get_current_user" },
+  // The third way of reading the whole corpus, and it sits next to the other two on purpose:
+  // /search reads it as a list, /data as a folder tree, /map as a place. Ungated to match /search,
+  // because GET /map/points takes any signed-in caller and has already filtered every pin through
+  // `visibility_where` — so a volunteer and a professor open the same page and see different
+  // numbers on it. Built and reachable only by typing the URL until this line existed.
+  { href: "/map", label: "Map", icon: MapPinned, group: "Browse", can: everyone, gate: "get_current_user" },
   { href: "/data", label: "View Data", icon: FolderTree, group: "Browse", can: canDownloadDataset, gate: "require_dataset_downloader" },
+  // Browse rather than Record: an interview is STORED once per exact set of artisans, so one
+  // artisan's answers are scattered over several entries and this is the only surface that reads
+  // them back as one document. "Take interview" above writes; this one only reads, and
+  // GET /questionnaire/artisans/{id}/consolidated asks for nothing but a login.
+  {
+    href: "/questionnaire/consolidated",
+    label: "Consolidated questionnaire",
+    icon: Layers,
+    group: "Browse",
+    can: everyone,
+    gate: "get_current_user"
+  },
   { href: "/sharing", label: "Share data access", icon: Share2, group: "Browse", can: everyone, gate: "get_current_user" },
   // Linking a tool to an artisan needs a tool or an artisan of your own — both need record creation.
   // The endpoint itself only requires a login and then checks ownership per artisan, so this is the
@@ -129,6 +150,11 @@ export const NAV_ITEMS: NavItem[] = [
   // every other user with NO route to their own accessibility switches, so it is `everyone` — the
   // master admin's global column is also linked from the /admin hub tile "App settings".
   { href: "/settings", label: "Settings", icon: SettingsIcon, group: "Account", can: everyone, gate: "get_current_user (PUT /preferences/me)" },
+  // Android's Workshop access entry, which the menu had no equivalent for: the destination is the
+  // fork, and for anyone below admin it opens their own request page directly. Ungated because
+  // asking is not an admin act (POST /workshops/access-requests takes any signed-in caller) — the
+  // console behind the admin half of the fork carries `require_admin` on its own route instead.
+  { href: "/workshop-access", label: "Workshop access", icon: KeyRound, group: "Account", can: everyone, gate: "get_current_user (POST /workshops/access-requests)" },
   { href: "/feedback", label: "Give app feedback", icon: MessageSquare, group: "Account", can: everyone, gate: "get_current_user (PUT /feedback/me)" }
 ];
 
@@ -171,20 +197,80 @@ export function DynamicIslandNav() {
     setActive(null);
   }, [pathname]);
 
-  // Keyboard path: opening the sheet moves focus into it, Escape closes it and hands focus back to
-  // the button that opened it — the desktop dropdowns are pointer-only, so this sheet is the
-  // keyboard route to every destination.
+  // Dismissal always hands focus back to the hamburger, whichever way the sheet was shut. Losing it
+  // to <body> would strand a keyboard user at the top of the document, several tab stops from where
+  // they were.
+  const closeSheet = useCallback(() => {
+    setSheetOpen(false);
+    menuButtonRef.current?.focus();
+  }, []);
+
+  /**
+   * The open sheet freezes the page behind it.
+   *
+   * Two regressions this deliberately avoids. The scroll POSITION survives — a reader who opened the
+   * menu halfway down a long record comes back to the same paragraph, not to the top. And nothing
+   * moves sideways: locking the document takes the desktop scrollbar with it, so its width is
+   * measured first and handed back as padding by the rules keyed on `--nav-scroll-gutter`.
+   */
   useEffect(() => {
     if (!sheetOpen) return;
-    sheetRef.current?.querySelector<HTMLElement>("a, button")?.focus();
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== "Escape") return;
-      setSheetOpen(false);
-      menuButtonRef.current?.focus();
-    }
+    const root = document.documentElement;
+    const gutter = window.innerWidth - root.clientWidth;
+    const restoreTo = window.scrollY;
+    root.style.setProperty("--nav-scroll-gutter", `${gutter}px`);
+    root.classList.add("nav-scroll-locked");
+    return () => {
+      root.classList.remove("nav-scroll-locked");
+      root.style.removeProperty("--nav-scroll-gutter");
+      // Every engine we target keeps the offset across an `overflow: hidden` spell, but one that
+      // clamped it to zero would dump the reader back at the top; the guarantee is nearly free.
+      if (window.scrollY !== restoreTo) window.scrollTo(0, restoreTo);
+    };
+  }, [sheetOpen]);
+
+  // Keyboard path: opening the sheet moves focus into it, Tab cycles WITHIN it, and Escape closes it
+  // and hands focus back to the button that opened it — the desktop dropdowns are pointer-only, so
+  // this sheet is the keyboard route to every destination.
+  useEffect(() => {
+    if (!sheetOpen) return;
+    const panel = sheetRef.current;
+    if (!panel) return;
+
+    const focusable = () =>
+      Array.from(
+        panel.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])')
+      );
+
+    focusable()[0]?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeSheet();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const stops = focusable();
+      if (stops.length === 0) return;
+      // The sheet is aria-modal: tabbing out of it would walk a screen reader through a page it has
+      // just been told is inert, so both ends of the list wrap round instead.
+      const first = stops[0];
+      const last = stops[stops.length - 1];
+      const focused = document.activeElement as HTMLElement | null;
+      const outside = !focused || !panel.contains(focused);
+      if (event.shiftKey && (outside || focused === first)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (outside || focused === last)) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [sheetOpen]);
+  }, [closeSheet, sheetOpen]);
 
   // One filtered list feeds both renderers, so a hidden entry cannot reappear in the other menu.
   const visibleItems = useMemo(
@@ -204,14 +290,27 @@ export function DynamicIslandNav() {
     router.replace("/login");
   }
 
-  const isActivePath = (href: string) => {
-    const base = href.split("?")[0];
-    return pathname === base || pathname.startsWith(`${base}/`);
-  };
+  /**
+   * The one entry that is "current", resolved most-specific-first.
+   *
+   * A prefix test on its own marks two entries at once as soon as a destination NESTS under another
+   * — /questionnaire/consolidated is inside /questionnaire — and `aria-current="page"` on two links
+   * tells a screen reader the reader is in two places. Longest matching base wins, the same way
+   * ROUTE_GUARDS resolves an overlap. Two entries sharing one base (/tools and /tools?assign=1) both
+   * still light up, which is right: they are the same page.
+   */
+  let activeBase: string | null = null;
+  for (const item of visibleItems) {
+    const base = item.href.split("?")[0];
+    if (pathname !== base && !pathname.startsWith(`${base}/`)) continue;
+    if (!activeBase || base.length > activeBase.length) activeBase = base;
+  }
+
+  const isActivePath = (href: string) => href.split("?")[0] === activeBase;
 
   return (
     <>
-      <div className="pointer-events-none fixed inset-x-0 top-3 z-50 flex justify-center px-3">
+      <div className="nav-island-frame pointer-events-none fixed inset-x-0 top-3 z-50 flex justify-center">
         <motion.header
           layout
           transition={spring}
@@ -319,9 +418,17 @@ export function DynamicIslandNav() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.18 }}
-            className="fixed inset-0 z-40 bg-ink-900/20 backdrop-blur-sm"
-            onClick={() => setSheetOpen(false)}
+            className="nav-sheet-overlay fixed inset-0 z-40"
           >
+            {/* The scrim is its own element rather than the sheet's parent: `touch-action: none` is
+                what stops a drag on the dimmed page from panning it on iOS, and from an ancestor
+                that same declaration would also cancel the scroll gesture inside the sheet. */}
+            <div
+              aria-hidden
+              onClick={closeSheet}
+              style={{ touchAction: "none" }}
+              className="absolute inset-0 bg-ink-900/20 backdrop-blur-sm"
+            />
             <motion.div
               ref={sheetRef}
               role="dialog"
@@ -331,8 +438,7 @@ export function DynamicIslandNav() {
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: -16, opacity: 0 }}
               transition={spring}
-              onClick={(event) => event.stopPropagation()}
-              className="mx-auto mt-20 w-[min(680px,92vw)] rounded-xl border border-line-200 bg-card p-6 shadow-lg"
+              className="nav-sheet relative mx-auto w-[min(680px,92vw)] rounded-xl border border-line-200 bg-card shadow-lg"
             >
               <div className="grid gap-1 sm:grid-cols-2">
                 {visibleItems.map((item) => (

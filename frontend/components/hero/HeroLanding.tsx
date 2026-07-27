@@ -24,10 +24,31 @@ import { useAuth } from "@/components/AuthProvider";
 import AccessLadder from "@/components/hero/AccessLadder";
 import HeroFAQ from "@/components/hero/HeroFAQ";
 import HowItWorks from "@/components/hero/HowItWorks";
-import StatsBand from "@/components/hero/StatsBand";
+import type { CorpusCensus } from "@/components/hero/corpusCensus";
+import PrintingBed from "@/components/hero/PrintingBed";
 import TeamSection from "@/components/hero/TeamSection";
 import WalkthroughCallout from "@/components/hero/WalkthroughCallout";
+import { butiTileUrl } from "@/components/hero/buti";
 import { heroEntrance, useHeroReducedMotion } from "@/components/hero/useHeroMotion";
+
+/**
+ * The cloth, in three states, is the page's one structural idea.
+ *
+ *   1. THE HERO is the bare ground — the buti at 96px and 3.2% white, a weave you register without
+ *      naming. It replaces the 24px dot grain that used to sit here (that recipe moved onto the
+ *      printing bed, so nothing was lost).
+ *   2. THE PRINTING BED is the printing itself — 72 individually misregistered impressions that
+ *      build as you scroll, with one gold head. That is the signature and the only place with
+ *      bespoke geometry or motion.
+ *   3. THE CLOSING BAND is the finished length — the same tile, fully present, STATIC, and with no
+ *      gold at all. The moment it moves or takes gold, the bed stops being the one signature
+ *      moment and becomes a repeated effect.
+ *
+ * Both static states are the CSS tile, which carries four differently-rotated impressions per
+ * 96px repeat so it does not read as machine-perfect wallpaper. Only the bed stamps individual
+ * impressions; that is what earns it the attention.
+ */
+const BUTI_TILE = butiTileUrl();
 
 const TRUST_ITEMS = [
   { icon: ShieldCheck, label: "Six-tier access control" },
@@ -48,6 +69,16 @@ const RECORD_TYPES = [
   { icon: ClipboardList, title: "Questionnaire", copy: "Structured interviews, recorded and auto-transcribed." },
   { icon: Images, title: "Miscellaneous Media", copy: "Audio, video and photographs that belong to no one record." },
   { icon: UsersRound, title: "Workshop", copy: "Field expeditions: assignments, date windows, approvals." }
+];
+
+/**
+ * What a finished transcript is attached to. Not decoration: "nothing arrives as a loose file" is
+ * the repository's central claim, and every recording really does land linked to these three.
+ */
+const TRANSCRIPT_LINKS = [
+  { icon: UserIcon, label: "Artisan" },
+  { icon: Brush, label: "Craft" },
+  { icon: UsersRound, label: "Workshop" }
 ];
 
 /**
@@ -85,7 +116,7 @@ const SURFACES = [
  * to re-select the DOM after React has rendered it can leave an element stranded at its start
  * state (this hero's call-to-action row did exactly that), whereas these props ARE the state.
  */
-export default function HeroLanding() {
+export default function HeroLanding({ census }: { census?: CorpusCensus }) {
   const rootRef = useRef<HTMLElement>(null);
   const { user, loading } = useAuth();
   const reduce = useHeroReducedMotion();
@@ -130,7 +161,13 @@ export default function HeroLanding() {
             className="absolute bottom-[-12rem] left-1/3 h-[36rem] w-[36rem] rounded-full opacity-40"
             style={{ background: "radial-gradient(circle, oklch(0.7 0.145 80 / 0.28), transparent 60%)" }}
           />
-          <div className="absolute inset-0 opacity-[0.04] [background-image:radial-gradient(rgba(255,255,255,0.9)_0.5px,transparent_0.5px)] [background-size:24px_24px]" />
+          {/* State 1 of 3: bare ground. One property change on the grain layer that was already
+              here — no new element, no new motion. If it ever reads as visible wallpaper behind
+              the headline it is too strong; the ceiling is about 5%. */}
+          <div
+            className="absolute inset-0 opacity-[0.032]"
+            style={{ backgroundImage: BUTI_TILE, backgroundSize: "96px 96px" }}
+          />
         </motion.div>
 
         {/* Top bar: logo + sign in */}
@@ -213,39 +250,78 @@ export default function HeroLanding() {
               </ul>
             </div>
 
-            {/* Live transcript preview card */}
+            {/*
+              THE TRANSCRIPT CARD — anatomy real, wording labelled.
+
+              This card used to print an invented interview turn ("Two days in running water. My
+              grandfather taught me...") attributed to an Interviewee and captioned as genuinely
+              recorded, transcribed and linked to an artisan, craft and workshop. On a repository
+              whose entire product is citable provenance, fabricating a primary source on the
+              marketing page is the most expensive thing it could possibly do.
+
+              What replaced it invents nothing. Every structural element here is what the pipeline
+              actually produces: the speaker labels are literally the ones the refinement pass emits
+              (`**Interviewer:**`, `**Interviewee:**`, and `**Interviewee 1/2:**` when it can tell
+              several apart — services/ai.py), the horizontal rule is the Markdown `---` it inserts
+              between distinct topics, and the linked records are real. The wording of the turns
+              describes itself and is badged "Illustrative", so no sentence on this page can be
+              mistaken for something an artisan said. No record id is invented either.
+
+              The language line is worth being precise about: the system deliberately does NOT tag a
+              source language. Scribe auto-detects and Deepgram runs `language=multi`, because these
+              interviews code-switch mid-sentence and several are in regional languages with no code
+              to name. Printing a tidy "hi-IN → en" chip here would have been a fabricated technical
+              claim in place of a fabricated quote.
+            */}
             <div className="relative">
               <motion.div
                 {...heroEntrance(reduce, 0.5, 0.9, { y: 36, rotate: 1.2 })}
                 className="glass-dark rounded-xl p-5 shadow-lg"
               >
-                <div className="mb-4 flex items-center justify-between">
+                <div className="mb-4 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2 text-sm font-semibold text-white/85">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gold-500/15 text-gold-300">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gold-500/15 text-gold-300">
                       <Mic className="h-4 w-4" aria-hidden />
                     </span>
-                    Interview — bamboo weaving
+                    Questionnaire — transcript
                   </div>
-                  <span className="rounded-full bg-success-100/20 px-2.5 py-1 text-xs font-semibold text-emerald-300">
-                    Transcribed
+                  <span className="shrink-0 rounded-full border border-white/25 px-2.5 py-1 text-xs font-semibold text-white/70">
+                    Illustrative
                   </span>
                 </div>
                 <div className="space-y-3 rounded-md bg-white/[0.06] p-4 text-sm leading-relaxed text-white/80">
                   <p>
-                    <strong className="text-gold-200">Interviewer:</strong> How long does the
-                    soaking take before the cane can be split?
+                    <strong className="text-gold-200">Interviewer:</strong> Each question from the
+                    questionnaire, in the order it was asked.
                   </p>
                   <p>
-                    <strong className="text-white">Interviewee:</strong> Two days in running
-                    water. My grandfather taught me — if you rush it, the strips crack at the
-                    node.
+                    <strong className="text-white">Interviewee:</strong>{" "}
+                    The artisan&rsquo;s answer, transcribed and then translated into English.
                   </p>
+                  {/* The Markdown `---` the refinement pass writes between distinct topics. */}
                   <div className="h-px bg-white/10" />
-                  <p className="text-xs text-white/50">
-                    Recorded in Hindi · transcribed & translated automatically · linked to the
-                    artisan, the craft, and the workshop
+                  <p>
+                    <strong className="text-white">Interviewee 2:</strong> Where several artisans sit
+                    in on one interview, each one gets their own label.
                   </p>
                 </div>
+                <ul className="mt-4 flex flex-wrap gap-2">
+                  {TRANSCRIPT_LINKS.map(({ icon: Icon, label }) => (
+                    <li
+                      key={label}
+                      className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-xs font-medium text-white/75"
+                    >
+                      <Icon className="h-3.5 w-3.5 text-white/50" aria-hidden />
+                      {label}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-4 text-xs leading-relaxed text-white/50">
+                  The anatomy of a finished transcript — the wording is illustrative, not an
+                  interview from the repository. The spoken language is detected rather than assumed:
+                  these recordings code-switch between Hindi and English, and some are in Marwari or
+                  Garhwali.
+                </p>
               </motion.div>
             </div>
           </div>
@@ -254,7 +330,10 @@ export default function HeroLanding() {
         <motion.div
           {...heroEntrance(reduce, 1.4, 0.6)}
           aria-hidden
-          className="pointer-events-none absolute bottom-6 left-1/2 -translate-x-1/2 text-white/40"
+          // Hidden below sm: at 390 the hero column runs the full height of the screen and this
+          // chevron sat on top of the transcript card's caption. A phone does not need to be told
+          // the page scrolls, so the fix is to remove it rather than to pad around it.
+          className="pointer-events-none absolute bottom-6 left-1/2 hidden -translate-x-1/2 text-white/40 sm:block"
         >
           {/* animate-bounce is CSS, so globals.css already stops it under reduced motion. */}
           <ChevronDown className="h-6 w-6 animate-bounce" />
@@ -305,8 +384,8 @@ export default function HeroLanding() {
       {/* ── Walkthrough ──────────────────────────────────────────────────── */}
       <WalkthroughCallout />
 
-      {/* ── Stats band ───────────────────────────────────────────────────── */}
-      <StatsBand />
+      {/* ── The pilot collection, on cloth ───────────────────────────────── */}
+      <PrintingBed census={census} />
 
       {/* ── The six-tier access ladder ───────────────────────────────────── */}
       <AccessLadder />
@@ -318,15 +397,30 @@ export default function HeroLanding() {
       <HeroFAQ />
 
       {/* ── Final CTA ────────────────────────────────────────────────────── */}
-      <section className="grad-brand px-6 py-20 text-center">
-        <h2 className="font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
+      <section className="relative isolate overflow-hidden grad-brand px-6 py-20 text-center">
+        {/* State 3 of 3: the finished length. Fully printed, completely static, and no gold —
+            this band never animates, so the bed stays the page's single signature moment. The
+            radial mask fades the cloth away from the centre, which both keeps every pixel of
+            contrast behind the heading and the buttons untouched and lets the print run out
+            toward the selvedges. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-[0.05]"
+          style={{
+            backgroundImage: BUTI_TILE,
+            backgroundSize: "104px 104px",
+            maskImage: "radial-gradient(72% 66% at 50% 50%, transparent 30%, black 88%)",
+            WebkitMaskImage: "radial-gradient(72% 66% at 50% 50%, transparent 30%, black 88%)"
+          }}
+        />
+        <h2 className="relative font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
           Ready to document living craft?
         </h2>
-        <p className="mx-auto mt-3 max-w-xl text-white/75">
+        <p className="relative mx-auto mt-3 max-w-xl text-white/75">
           Sign in with your researcher account, or with Google — new accounts start as
           Crowdsource Volunteers and are elevated by an admin.
         </p>
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
+        <div className="relative mt-8 flex flex-wrap items-center justify-center gap-4">
           <Link
             href={enterHref}
             className="inline-flex h-12 items-center rounded-md bg-white px-8 font-display text-lg font-bold tracking-tight text-purple-800 shadow-lg transition hover:-translate-y-0.5 active:translate-y-0"

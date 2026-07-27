@@ -1,0 +1,42 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fieldrepo-api
+  labels:
+    app.kubernetes.io/name: fieldrepo
+    app.kubernetes.io/component: api
+  annotations:
+    # Mirrors client_max_body_size 200M from the nginx site in infra/terraform/user_data.sh. If the
+    # two ever disagree, uploads fail at whichever number is smaller, with a 413 that names neither.
+    nginx.ingress.kubernetes.io/proxy-body-size: "200m"
+    # Mirrors proxy_read_timeout 300s from the same file. Note this is NOT the timeout that has
+    # actually bitten this project: CloudFront gives up on the origin after 30s by default, long
+    # before either nginx layer does, and that is where the upload 504s came from. See docs/CDN.md.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+    # The application sets its own CORS headers (CORSMiddleware in app/main.py) and refuses wildcard
+    # origins with credentials. If the controller adds a second set, browsers see two
+    # Access-Control-Allow-Origin values and reject the response — a failure that looks like the API
+    # is down and reproduces only in a browser.
+    nginx.ingress.kubernetes.io/enable-cors: "false"
+    # The app already emits HSTS, CSP and the rest (SecurityHeadersMiddleware), including on
+    # preflights. Letting the controller add its own only creates duplicates to reconcile later.
+    nginx.ingress.kubernetes.io/configuration-snippet: ""
+spec:
+  ingressClassName: nginx
+  rules:
+    # Overlays supply the host. No host here so the base stays applyable on a cluster with no DNS.
+    - http:
+        paths:
+          # One rule for the whole app rather than a rule per prefix. The origin is a single FastAPI
+          # process: /api/* is the router, /health and /health/ready sit directly on the app, and
+          # /docs is present only when BACKEND_EXPOSE_DOCS is on. Splitting them buys nothing and
+          # guarantees that the next route added is the one nobody remembers to add here.
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: fieldrepo-api
+                port:
+                  name: http

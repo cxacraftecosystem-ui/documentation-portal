@@ -1,9 +1,14 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
-from app.schemas.common import APIModel, LocationInput
+from app.schemas.common import (
+    APIModel,
+    LocationInput,
+    forbid_clearing_location,
+    require_location,
+)
 
 
 class QuestionnaireSectionCreate(APIModel):
@@ -66,6 +71,9 @@ class QuestionnaireInterviewCreate(APIModel):
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
 
+    # Mandatory on create, like every other record type that carries a location.
+    _location_required = model_validator(mode="after")(require_location)
+
 
 class CompletionCellUpdate(APIModel):
     """Admin-set status for one (artisan, section) cell on the completion matrix. ``status=None``
@@ -90,3 +98,6 @@ class QuestionnaireInterviewUpdate(APIModel):
     responses: list[QuestionnaireResponseInput] | None = None
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
+
+    # Omit to keep, send to replace, never null. See forbid_clearing_location.
+    _location_kept = model_validator(mode="after")(forbid_clearing_location)

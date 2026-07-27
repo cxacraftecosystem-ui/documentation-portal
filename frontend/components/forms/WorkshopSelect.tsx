@@ -290,7 +290,7 @@ export function WorkshopSelect({
   return (
     // Search keystrokes stop here instead of bubbling to the form's `onInput` dirty tracker (see the
     // note above). Nothing inside this subtree is a form control the parent needs input events from.
-    <div className="grid content-start gap-1" onInput={(event) => event.stopPropagation()}>
+    <div className="grid min-w-0 content-start gap-1" onInput={(event) => event.stopPropagation()}>
       <Field label={label}>
         <ComboBox
           options={options}

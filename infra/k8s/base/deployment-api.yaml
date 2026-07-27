@@ -1,0 +1,234 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fieldrepo-api
+  labels:
+    app.kubernetes.io/name: fieldrepo
+    app.kubernetes.io/component: api
+spec:
+  # Overlays set the real number. The HPA takes ownership of this field once it is running, so
+  # treat the value here as the count used before the first HPA reconcile, not as a setting.
+  replicas: 1
+  revisionHistoryLimit: 3
+  # A pod that cannot pass its startup probe within ~2.5 minutes (see startupProbe below) should
+  # fail the rollout rather than leave `kubectl rollout status` hanging until a human gives up.
+  progressDeadlineSeconds: 600
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # ABSOLUTE 1, never a percentage. Surge is not a scheduling preference here — it is database
+      # connections. Each extra pod opens up to DATABASE_CONNECTION_LIMIT client connections to the
+      # Supabase pooler *before* an old pod releases its own, so a percentage surge would make peak
+      # connection use scale with replica count exactly when the cluster is busiest. One extra pod is
+      # one predictable +N on the budget in docs/KUBERNETES.md.
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fieldrepo
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fieldrepo
+        app.kubernetes.io/component: api
+    spec:
+      # The API never calls the Kubernetes API, so mounting a token would only widen what a container
+      # breakout reaches.
+      automountServiceAccountToken: false
+      # Long enough to finish a slow multipart-upload completion or an XLSX export. nginx in front of
+      # the current EC2 box allows a 300s read timeout, which is the real upper bound on how long a
+      # request here can legitimately run; 120s covers everything observed while still bounding how
+      # long a node drain waits. Raise it, and raise the preStop sleep with it, if long exports move
+      # in-process.
+      terminationGracePeriodSeconds: 120
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        # Spread across nodes first: the failure this guards against is a single node draining or
+        # dying with every replica on it.
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: fieldrepo
+              app.kubernetes.io/component: api
+          # Without this, the constraint counts pods from the OUTGOING ReplicaSet too, so a rollout
+          # measures skew against replicas that are about to disappear and can wedge itself.
+          # Requires Kubernetes >= 1.27 (beta, on by default); drop the two lines on anything older.
+          matchLabelKeys:
+            - pod-template-hash
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          # ScheduleAnyway in the base so a single-node dev cluster still schedules. The prod overlay
+          # promotes this one to DoNotSchedule.
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: fieldrepo
+              app.kubernetes.io/component: api
+          matchLabelKeys:
+            - pod-template-hash
+      containers:
+        - name: api
+          # Overlays pin the tag. Never :latest — a restarted pod must come back as the same build.
+          image: fieldrepo-api
+          imagePullPolicy: IfNotPresent
+          # ONE uvicorn worker per pod, deliberately, for two independent reasons.
+          #
+          # 1. Connections. Workers are processes and each one opens its own Prisma pool, so
+          #    --workers 2 would silently double this pod's share of the Supabase client-connection
+          #    ceiling and make the budget in docs/KUBERNETES.md wrong by a factor of two. In
+          #    Kubernetes, replicas are the unit of concurrency; workers are not.
+          # 2. It is what fixed a production outage. With >1 worker uvicorn runs a supervisor that
+          #    health-pings each worker and SIGKILLs one that fails to answer in time. On a
+          #    CPU-throttled box, heavy work starved that thread, the supervisor SIGKILLed the worker,
+          #    and SIGKILL skipped the shutdown hook — orphaning its Prisma query engine, one per
+          #    cycle, until the orphans exhausted the pooler. See infra/terraform/user_data.sh.
+          #
+          # `args` and deliberately NO `command`. In Kubernetes `command` replaces the image's
+          # ENTRYPOINT, and this image's entrypoint is docker/backend/entrypoint.sh — the guard that
+          # refuses to boot against an unintended database and prints which host it did attach to.
+          # Setting `command` here would have thrown both away silently, which is the worst kind of
+          # bypass: nothing fails, the protection is simply gone. Setting only `args` replaces CMD and
+          # leaves the guard on the path; ALLOW_REMOTE_DATABASE in the ConfigMap answers it out loud.
+          # `uvicorn` resolves from /opt/venv/bin, which the image puts on PATH.
+          args:
+            - uvicorn
+            - app.main:app
+            # 0.0.0.0, unlike the EC2 unit's 127.0.0.1: there the loopback bind is the thing that
+            # stops anyone reaching uvicorn without passing through nginx. Here the equivalent
+            # boundary is the pod network plus the Service, and a loopback bind would simply make the
+            # container unreachable and fail every probe.
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+            - --workers
+            - "1"
+            # Trust the ingress controller's X-Forwarded-* so client IPs in logs are real.
+            - --proxy-headers
+            - --forwarded-allow-ips
+            - "*"
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: fieldrepo-config
+            - secretRef:
+                # Materialised by the ExternalSecret in externalsecret.yaml. This repo never contains
+                # the values.
+                name: fieldrepo-secrets
+          env:
+            # Belt and braces over the ConfigMap: media_queue_worker_enabled defaults to TRUE in
+            # app/core/config.py, so a ConfigMap that merely omits the key would put a transcription
+            # worker in EVERY api replica. The in-process election that prevents that on EC2 is an
+            # fcntl lock on a file in the host's temp directory — and every pod has its own /tmp, so
+            # in Kubernetes it grants the lock to all of them and elects nobody. The queue therefore
+            # runs in its own single-replica Deployment (deployment-queue.yaml) and is switched off
+            # here at the container level, where no ConfigMap edit can turn it back on.
+            - name: MEDIA_QUEUE_WORKER_ENABLED
+              value: "false"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            # The root filesystem is read-only, so everything that writes must be pointed at the
+            # emptyDir below: Python's tempfile, ffmpeg/pydub scratch files, and any cache a library
+            # would otherwise put under $HOME.
+            - name: TMPDIR
+              value: /tmp
+            - name: HOME
+              value: /tmp
+            - name: XDG_CACHE_HOME
+              value: /tmp/.cache
+          # ---------------------------------------------------------------------------------------
+          # Probes. The endpoint paths are /health and /health/ready — NOT /api/health. The /api
+          # prefix belongs to api_router; both health routes are registered directly on the app in
+          # app/main.py. Verified against production: /health -> 200 {"status":"ok"},
+          # /api/health -> 404.
+          #
+          # All three probes hit /health, which deliberately never touches the database, and that is
+          # the important decision here rather than an oversight. /health/ready exists and is the
+          # right thing for alerting to watch, but it is the WRONG thing to gate traffic on in this
+          # topology: every replica talks to the same Supabase pooler, so a pooler blip fails
+          # readiness on all of them at the same instant, the Service loses every endpoint, and the
+          # ingress starts refusing requests the pods could still have served. The app is written to
+          # survive exactly that window — it keeps serving while a background watchdog reconnects —
+          # and CloudFront is pointed at /health for the same reason. Wiring readiness to
+          # /health/ready would re-create, inside the cluster, the outage the origin check was
+          # shaped to avoid. docs/KUBERNETES.md spells this out and shows the opt-in patch.
+          # ---------------------------------------------------------------------------------------
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            # 30 x 5s = 150s of grace for a cold start. First boot is slower than steady state: the
+            # Prisma query engine spawns and dials a pooler in another AWS region. Liveness only
+            # begins after this passes, so a slow boot can no longer be mistaken for a hang and
+            # killed — which is what a short liveness probe with no startup probe does.
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            # Above the readiness endpoint's own 3s ceiling so a slow answer is still an answer.
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+          lifecycle:
+            preStop:
+              # Removing a pod from the Service's endpoints and telling the kubelet to stop it happen
+              # in parallel, not in order. Without this pause uvicorn starts refusing connections
+              # while the ingress is still routing to it, which shows up as a handful of failed
+              # uploads on every deploy. Sleeping first lets endpoint removal propagate, and only
+              # then does SIGTERM arrive and uvicorn drain what is in flight.
+              #
+              # The native sleep action (Kubernetes >= 1.30) rather than `exec: sleep 15` on purpose:
+              # the container image is distroless-shaped and may ship no shell or coreutils, and an
+              # exec hook that cannot find /bin/sleep fails silently. On an older cluster, swap in:
+              #   exec: { command: ["/bin/sleep", "15"] }
+              sleep:
+                seconds: 15
+          resources:
+            requests:
+              cpu: 200m
+              memory: 384Mi
+            limits:
+              # A CPU limit costs some tail latency to CFS throttling, but the alternative on a shared
+              # node is one pod's export job starving its neighbours' event loops. 1 core is roughly
+              # what the whole t3.micro has today.
+              cpu: "1"
+              # Sized from the current box: the entire 1 GiB t3.micro runs the API *and* the queue.
+              # With the queue moved out (deployment-queue.yaml), the API alone fits well under this.
+              memory: 768Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            # Bounded so a request that writes a runaway temp file evicts this pod instead of filling
+            # the node's disk and taking every other pod on it down.
+            sizeLimit: 512Mi

@@ -137,14 +137,22 @@ summary:focus-visible {
   outline-offset: 3px;
 }
 
-/* Respect users who prefer reduced motion. */
+/* Respect users who prefer reduced motion.
+ *
+ * `transition-delay` has to be zeroed alongside the duration, and it was not. A zero-duration
+ * transition that still honours its delay is not "no motion" — it is a staggered pop. The printing
+ * bed cascades its impressions with a per-column `transition-delay`, so without this line a reduced-
+ * motion reader would watch a ~150ms ripple travel across the cloth. Any staggered effect anywhere
+ * in the app had the same hole; this closes it once for all of them. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
     scroll-behavior: auto !important;
   }
 }
@@ -156,8 +164,10 @@ summary:focus-visible {
 :root[data-reduced-motion="true"] *::before,
 :root[data-reduced-motion="true"] *::after {
   animation-duration: 0.01ms !important;
+  animation-delay: 0s !important;
   animation-iteration-count: 1 !important;
   transition-duration: 0.01ms !important;
+  transition-delay: 0s !important;
   scroll-behavior: auto !important;
 }
 
@@ -188,6 +198,25 @@ summary:focus-visible {
     scrollbar-width: thin;
     scrollbar-color: rgb(var(--line-200)) rgb(var(--bg-0));
   }
+}
+
+/*
+ * Background scroll lock, worn by <html> while the navigation sheet is open.
+ *
+ * It is the root element and not <body> because iOS Safari quietly ignores `overflow: hidden` on the
+ * body and keeps panning the page under the open menu — the exact complaint this answers. The gutter
+ * variable is measured and set by the sheet in the instant before this class lands: freezing the
+ * document takes the scrollbar away with it, and without paying that width back as padding every
+ * centred thing on the page jumps sideways as the menu opens.
+ */
+html.nav-scroll-locked,
+html.nav-scroll-locked body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+html.nav-scroll-locked body {
+  padding-right: var(--nav-scroll-gutter, 0px);
 }
 
 /* Clean number inputs — no native spinner arrows; values change by typing. */
@@ -306,6 +335,51 @@ input[type="number"] {
     @apply text-[0.8125rem] font-semibold uppercase tracking-[0.14em] text-purple-700;
   }
 
+  /*
+   * The navigation sheet. On a phone the list runs well past the bottom of the screen, so the PANEL
+   * has to be the scroller: a bounded height, its own overflow, and `overscroll-behavior: contain`
+   * so that reaching the last item does not hand the gesture on to the page underneath.
+   *
+   * The height is measured in dvh, not vh: while the address bar is showing — which is precisely
+   * when a thumb is reaching for this menu — 100vh is the taller, wrong number and the closing
+   * items of the list sit below the fold with no way to reach them.
+   */
+  .nav-sheet {
+    --nav-sheet-top: 5rem;
+    margin-top: var(--nav-sheet-top);
+    max-height: calc(100vh - var(--nav-sheet-top) - 1rem);
+    max-height: calc(100dvh - var(--nav-sheet-top) - 1rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding: 1.5rem;
+    /* The home indicator sits over the foot of the sheet; the last item has to clear it. */
+    padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* A phone in landscape leaves barely 350px of height — give the list back the chrome it can spare. */
+  @media (max-height: 560px) {
+    .nav-sheet {
+      --nav-sheet-top: 4.25rem;
+      padding: 1rem;
+      padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+    }
+  }
+
+  /*
+   * Both of these are position:fixed, so their containing block is the viewport rather than <body>
+   * and the padding the lock puts on the body cannot reach them. They pay the vanished scrollbar
+   * back themselves, otherwise the island and the sheet drift right as the menu opens.
+   */
+  .nav-sheet-overlay {
+    padding-right: var(--nav-scroll-gutter, 0px);
+  }
+
+  .nav-island-frame {
+    padding-left: 0.75rem;
+    padding-right: calc(0.75rem + var(--nav-scroll-gutter, 0px));
+  }
+
   /* Themed file-upload trigger (label/button wrapping a hidden <input type="file">). */
   .file-trigger {
     @apply inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-purple-300 bg-card px-4 py-2 text-sm font-medium text-purple-700 transition hover:border-purple-400 hover:bg-purple-50;
@@ -354,5 +428,48 @@ input[type="number"] {
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   The printing bed — components/hero/PrintingBed.tsx
+   India rendered as block-printed cloth: a field of buti impressions clipped to
+   the national outline, printing in as the section crosses the reading line.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* One impression. Its position and misregistration live in a `transform` ATTRIBUTE on the parent
+   <g> and never change; only opacity and the stamp-scale animate here, so a scroll frame touches
+   nothing but the compositor.
+
+   `transform-box: fill-box` is not optional. A CSS transform on an SVG element resolves its origin
+   against the nearest viewBox by default, so `scale()` on an impression sitting at (60, 90) would
+   fling it toward the corner instead of pressing it onto its own centre. Pinning the box to the
+   element makes the stamp mean the same thing in every engine. */
+.fr-buti {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  transition:
+    opacity 200ms ease-out,
+    transform 200ms ease-out;
+}
+
+/* The site marks resolve once, at the end of the print — one fade, not ninety-seven. */
+.fr-mark {
+  transition: opacity 420ms ease-out;
+}
+
+/* Place names are sized in viewBox units, so their rendered size follows the map's width. Below
+   640px the map is narrow enough that this lands under 9px — decoration pretending to be a label —
+   so it is withheld rather than shrunk. Every name is in the <figcaption> at every width, and the
+   SVG is aria-hidden, so this hides nothing from anyone. */
+.fr-map-label {
+  display: none;
+  font-size: 2.7px;
+  letter-spacing: 0.02em;
+}
+
+@media (min-width: 640px) {
+  .fr-map-label {
+    display: block;
   }
 }

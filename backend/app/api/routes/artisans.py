@@ -9,17 +9,22 @@ from app.core.deps import (
     can_manage_crafts,
     get_current_user,
 )
-from app.schemas.records import ArtisanCreate, ArtisanUpdate
+from app.schemas.records import ArtisanCreate, ArtisanUpdate, drop_masked_identity_numbers
 from app.services.access import guard_record_edit
-from app.services.artisan_identity import is_masked_aadhaar, mask_aadhaar, normalize_aadhaar
+from app.services.artisan_identity import mask_aadhaar, normalize_aadhaar
+from app.services.concurrency import gather_reads
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
+    Relation,
     public_encode,
     apply_status_policy_create,
     apply_status_policy_update,
     attach_location,
     clean_data,
     contains,
+    count_and_page,
+    hydrate_relations,
+    include_of,
     merge_field_provenance,
     require_record,
     resubmit_status,
@@ -34,7 +39,16 @@ from app.services.workshop_access import (
 
 router = APIRouter(prefix="/artisans", tags=["artisans"])
 
-INCLUDE = {"craft": True, "location": True, "createdBy": True, "workshop": True}
+# What an artisan carries on the wire. Reads load these in one parallel wave (see
+# services/records.py for why that is worth the indirection); writes still pass the derived
+# ``INCLUDE`` to Prisma, so the two can never describe different artisans.
+RELATIONS = (
+    Relation("craft", "craft", "craftId"),
+    Relation("location", "location", "locationId"),
+    Relation("createdBy", "user", "createdById"),
+    Relation("workshop", "workshop", "workshopId"),
+)
+INCLUDE = include_of(RELATIONS)
 
 # Unique columns that identify a real-world person, and the human phrasing for each. A collision on
 # one of these is the deduplication working as designed, so it has to read as "you already have this
@@ -56,15 +70,21 @@ def _violated_identity_field(error: Exception) -> str | None:
     return None
 
 
-async def _identity_conflict(field: str, value: str, exclude_id: str | None = None) -> HTTPException:
+async def _identity_conflict(
+    field: str, value: str, exclude_id: str | None = None, existing: Any = None
+) -> HTTPException:
     """A 409 naming the artisan that already holds this number, so the researcher can go to them.
 
     The existing artisan's name and place are safe to return — the caller already possesses the
     identity number, and without them the message is a dead end ("duplicate" with nowhere to go).
     The number itself is echoed back MASKED.
+
+    Pass ``existing`` when the caller has already loaded the clashing artisan: the pre-flight guard
+    below has it in hand, and re-reading it would cost another cross-region round trip to learn
+    something we already know.
     """
-    where: dict[str, Any] = {field: value}
-    existing = await db.artisan.find_first(where=where, include={"craft": True})
+    if existing is None:
+        existing = await db.artisan.find_first(where={field: value}, include={"craft": True})
     detail: dict[str, Any] = {
         "code": "artisan_identity_conflict",
         "field": field,
@@ -117,32 +137,29 @@ def _mask_artisan_identity(payload: Any, user: Any, artisan: Any) -> Any:
     return payload
 
 
-def _drop_unchanged_masked_aadhaar(data: dict[str, Any], artisan: Any) -> dict[str, Any]:
-    """Ignore a resubmitted MASK so an entitled-to-edit-but-not-to-read caller can still save.
-
-    A form that received ``XXXX XXXX 9012`` and posts it back unchanged is saying "leave this
-    alone", not "set the Aadhaar to that literal string" — and validation would reject it anyway.
-    Dropping the key is what makes masking safe to apply to the edit surface.
-    """
-    if is_masked_aadhaar(data.get("aadhaarNumber")):
-        data.pop("aadhaarNumber", None)
-    return data
-
-
 async def _guard_identity_conflicts(data: dict[str, Any], exclude_id: str | None = None) -> None:
     """Reject a duplicate Aadhaar/Pehchan number BEFORE writing, with a message worth reading.
 
     The unique indexes are the real guarantee — this is the pre-check that turns a would-be 500 into
     an actionable 409. The write is still wrapped in its own handler, because two researchers can
     submit the same artisan in the same instant and only the index can settle that race.
+
+    Both numbers are checked in ONE query, and that query already loads what the 409 needs to say.
+    Checking them one at a time cost three sequential cross-region round trips on the way to every
+    saved artisan — two probes and a third to look up the artisan being reported — for a question a
+    single ``OR`` answers.
     """
-    for field in _IDENTITY_CONSTRAINTS:
-        value = data.get(field)
-        if not value:
-            continue
-        clash = await db.artisan.find_first(where={field: value})
-        if clash is not None and clash.id != exclude_id:
-            raise await _identity_conflict(field, value, exclude_id)
+    checks = {field: data[field] for field in _IDENTITY_CONSTRAINTS if data.get(field)}
+    if not checks:
+        return
+    clashes = await db.artisan.find_many(
+        where={"OR": [{field: value} for field, value in checks.items()]},
+        include={"craft": True},
+    )
+    for field, value in checks.items():
+        for clash in clashes:
+            if getattr(clash, field, None) == value and clash.id != exclude_id:
+                raise await _identity_conflict(field, value, exclude_id, existing=clash)
 
 
 async def resolve_craft_id(data: dict[str, Any], current_user: Any) -> dict[str, Any]:
@@ -153,13 +170,15 @@ async def resolve_craft_id(data: dict[str, Any], current_user: Any) -> dict[str,
     if existing:
         data["craftId"] = existing.id
         return data
-    # Creating a brand-new craft is a granted privilege. Non-managers must pick an existing craft.
+    # A free-text craft name that matches nothing would otherwise mint a Craft through the artisan
+    # form — the same write POST /crafts guards, reached sideways. Same predicate, so the two can
+    # never disagree: Professor and above.
     if not can_manage_crafts(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
-                f"Craft '{craft_name}' does not exist yet. Select an existing craft, or ask the "
-                "master admin to grant you craft creation access."
+                f"Craft '{craft_name}' does not exist yet. Select an existing craft, or ask a "
+                "professor or an admin to add it."
             ),
         )
     created = await db.craft.create(data={"name": craft_name, "createdById": current_user.id})
@@ -213,13 +232,13 @@ async def list_artisans(
         where["status"] = statusFilter
     if and_filters:
         where["AND"] = and_filters
-    total = await db.artisan.count(where=where)
-    items = await db.artisan.find_many(
+    total, items = await count_and_page(
+        db.artisan,
         where=where,
-        include=INCLUDE,
         skip=skip,
         take=page_size,
         order={"createdAt": "desc"},
+        relations=RELATIONS,
     )
     # A list page hands back many artisans at once, so mask each row the caller is not entitled to
     # read raw — otherwise one request yields every id AND every full Aadhaar on the page.
@@ -265,8 +284,8 @@ async def create_artisan(
 
 @router.get("/{artisan_id}")
 async def get_artisan(artisan_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    artisan = await db.artisan.find_unique(where={"id": artisan_id}, include=INCLUDE)
-    artisan = await require_record(db.artisan, artisan_id) if not artisan else artisan
+    artisan = await require_record(db.artisan, artisan_id)
+    await hydrate_relations([artisan], RELATIONS)
     # Masked unless this caller is entitled to the raw number (creator, or professor+) — decided
     # inside the encoder now, so the same rule covers this route and every route that merely embeds
     # an Artisan relation without thinking about it.
@@ -281,8 +300,9 @@ async def update_artisan(
 ) -> dict[str, Any]:
     artisan = await require_record(db.artisan, artisan_id)
     data = clean_data(payload.model_dump(exclude_unset=True))
-    # A caller shown the masked number who saves without touching it means "leave it alone".
-    data = _drop_unchanged_masked_aadhaar(data, artisan)
+    # A caller shown a masked number who saves without touching it means "leave it alone" — for the
+    # Pehchan card as much as for the Aadhaar, since both are masked on the way out to them.
+    data = drop_masked_identity_numbers(data)
     data = await resolve_craft_id(data, current_user)
     data = await attach_location(data)
     # Moving a record into (or between) workshops is a workshop submission too, so the create-time
@@ -377,15 +397,29 @@ async def get_artisan_questionnaire(artisan_id: str, _: Any = Depends(get_curren
     artisans it was recorded with). Deletion of any media stays uploader-or-admin; the interview row is
     admin-only — enforced on the media/questionnaire routes, not here.
     """
-    await require_record(db.artisan, artisan_id)
-    responses = await db.questionnaireresponse.find_many(
-        where={
-            "interview": {"is": {"artisans": {"some": {"artisanId": artisan_id}}}},
-            "answerText": {"not": None},
-        },
-        include={"question": True, "interview": True, "answeredBy": True},
-        order={"createdAt": "asc"},
+    # The artisan check, the answers and the interviews are three independent reads, so they run
+    # together — the 404 is still decided first, it just no longer holds the other two behind a
+    # cross-region round trip of its own. Every interview the artisan belongs to (alone, in a subset,
+    # or in a larger set) comes back with its recordings and co-artisans, so the same content is
+    # validatable for this artisan individually.
+    artisan, responses, interview_rows = await gather_reads(
+        db.artisan.find_unique(where={"id": artisan_id}),
+        db.questionnaireresponse.find_many(
+            where={
+                "interview": {"is": {"artisans": {"some": {"artisanId": artisan_id}}}},
+                "answerText": {"not": None},
+            },
+            include={"question": True, "interview": True, "answeredBy": True},
+            order={"createdAt": "asc"},
+        ),
+        db.questionnaireinterview.find_many(
+            where={"artisans": {"some": {"artisanId": artisan_id}}},
+            include={"artisans": {"include": {"artisan": True}}, "media": True},
+            order={"createdAt": "desc"},
+        ),
     )
+    if not artisan:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
     answered: list[dict[str, Any]] = []
     for response in responses:
         if not (response.answerText and response.answerText.strip()):
@@ -411,13 +445,6 @@ async def get_artisan_questionnaire(artisan_id: str, _: Any = Depends(get_curren
         )
     answered.sort(key=lambda item: ((item.get("sectionCode") or ""), item.get("sortOrder") or 0))
 
-    # Every interview the artisan belongs to (alone, in a subset, or in a larger set), with its
-    # recordings and the co-artisans, so the same content is validatable for this artisan individually.
-    interview_rows = await db.questionnaireinterview.find_many(
-        where={"artisans": {"some": {"artisanId": artisan_id}}},
-        include={"artisans": {"include": {"artisan": True}}, "media": True},
-        order={"createdAt": "desc"},
-    )
     interviews: list[dict[str, Any]] = []
     for interview in interview_rows:
         co_artisans = [
