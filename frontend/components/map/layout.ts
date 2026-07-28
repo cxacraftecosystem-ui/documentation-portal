@@ -62,16 +62,25 @@ export type PlacedPin = {
 /**
  * How far from the drawn point the record could really be, in kilometres.
  *
- * These are the atlas's own precision tiers made visible. A STATE-precision pin is drawn at a
- * capital and could be anywhere in the state, which at this scale is a halo the size of Rajasthan —
- * and it should look like that, because the alternative is a confident dot on Jaipur for a record
- * that only ever said "Rajasthan".
+ * These are the precision tiers made visible. A STATE-precision pin is drawn at a seat and could be
+ * anywhere in the state, which at this scale is a halo the size of Rajasthan — and it should look like
+ * that, because the alternative is a confident dot on Jaipur for a record that only ever said
+ * "Rajasthan".
+ *
+ * The two zeroes are the two MEASUREMENTS: a device fix and a pin somebody dropped on the subject's
+ * own place. Drawing a halo around either would overstate the uncertainty in the other direction.
+ *
+ * NATION is zero for a different reason. That pin means "every placed record in the country" and is
+ * positioned at their weighted mean, so a halo would be claiming the records might be somewhere else
+ * — but there is nowhere else; the point IS the aggregate. The level label carries the meaning.
  */
 const UNCERTAINTY_KM: Record<MapPoint["precision"], number> = {
+  SUBJECT_PIN: 0,
   MEASURED: 0,
   TOWN: 0,
   DISTRICT: 45,
-  STATE: 220
+  STATE: 220,
+  NATION: 0
 };
 
 export function pinRadius(total: number, busiest: number): number {

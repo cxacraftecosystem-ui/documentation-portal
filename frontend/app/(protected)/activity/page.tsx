@@ -33,8 +33,22 @@ type MediaWithUploader = MediaFile & { uploadedById?: string | null };
 /** /users/directory row — any authenticated user may list this. */
 type DirectoryUser = { id: string; name: string; email: string; role: string };
 
-/** The raw fetched lists, kept unfiltered so switching users only re-filters client-side. */
+/**
+ * One person's fetched lists, STAMPED WITH WHOSE THEY ARE.
+ *
+ * The stamp is load-bearing now that the API does the owner filtering. Switching person used to be a
+ * pure client-side re-filter of one unfiltered corpus; it is a re-fetch, and until the new request
+ * lands the state still holds the PREVIOUS person's rows — every one of which the server already
+ * narrowed to that person, so re-filtering them against the newly selected id matches nothing. The
+ * page would show "no activity" for somebody with plenty of it, then correct itself a moment later.
+ *
+ * Comparing the stamp against the current selection is what turns that window into an honest
+ * "loading" instead of a wrong answer, and doing it in the memo rather than by clearing state in the
+ * effect means there is not even a one-frame flash — passive effects run after paint.
+ */
 type RawLists = {
+  /** Whose rows these are. A mismatch with `activeUserId` means the switch is still in flight. */
+  ownerId: string;
   artisans: Array<Artisan & WithCreator>;
   products: Array<ProductDocumentation & WithCreator>;
   tools: Array<ToolDocumentation & WithCreator>;
@@ -51,27 +65,55 @@ export default function MyActivityPage() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * WHOSE activity is being read. Declared before the fetch because the fetch now depends on it: the
+   * API is asked for one person's records, so switching person is a re-fetch rather than a re-filter.
+   */
+  const activeUserId = selectedUserId ?? user?.id ?? "";
+
+  /**
+   * ONE PERSON'S RECORDS, ASKED FOR BY NAME.
+   *
+   * This used to fetch page one of every list — a hundred rows apiece — and sift it client-side for
+   * `createdById === activeUserId`. That worked only by accident: reading the repository was itself
+   * owner-scoped, so "the first hundred artisans you can see" and "the first hundred artisans you
+   * recorded" were the same hundred rows. Reading is open now, so page one is a hundred rows of the
+   * WHOLE repository and a person's own records fall off the end of it — silently, with no empty
+   * state and no truncation notice, which reads as "I did not record that" rather than as a paging
+   * artefact.
+   *
+   * So the ownership filter moved to the server (`createdBy` / `uploadedBy` on every list route). The
+   * client-side filter below is KEPT as well, deliberately: it costs nothing, and against an older
+   * deployment that ignores the new parameter it is the difference between an over-long list and a
+   * wrong one.
+   */
   useEffect(() => {
-    if (!user) return;
+    if (!user || !activeUserId) return;
+    let cancelled = false;
     const pageSize = 100;
+    // The record lists own their rows through `createdById`; MediaFile owns its through
+    // `uploadedById`, and the query key follows the column on both sides of the wire.
+    const mine = { pageSize, createdBy: activeUserId };
 
     async function load() {
       const [artisans, products, tools, workshops, crafts, interviews, media, directoryResult] =
         await Promise.allSettled([
-          listResource<Artisan & WithCreator>("/artisans", { pageSize }),
-          listResource<ProductDocumentation & WithCreator>("/products", { pageSize }),
-          listResource<ToolDocumentation & WithCreator>("/tools", { pageSize }),
-          listResource<Workshop & WithCreator>("/workshops", { pageSize }),
-          listResource<Craft & WithCreator>("/crafts", { pageSize }),
-          listResource<QuestionnaireInterview>("/questionnaire/interviews", { pageSize }),
-          listResource<MediaWithUploader>("/media", { pageSize }),
+          listResource<Artisan & WithCreator>("/artisans", mine),
+          listResource<ProductDocumentation & WithCreator>("/products", mine),
+          listResource<ToolDocumentation & WithCreator>("/tools", mine),
+          listResource<Workshop & WithCreator>("/workshops", mine),
+          listResource<Craft & WithCreator>("/crafts", mine),
+          listResource<QuestionnaireInterview>("/questionnaire/interviews", mine),
+          listResource<MediaWithUploader>("/media", { pageSize, uploadedBy: activeUserId }),
           apiFetch<DirectoryUser[]>("/users/directory")
         ]);
+      if (cancelled) return;
 
       const items = <T,>(result: PromiseSettledResult<{ items: T[] }>): T[] =>
         result.status === "fulfilled" ? result.value.items : [];
 
       setRaw({
+        ownerId: activeUserId,
         artisans: items(artisans),
         products: items(products),
         tools: items(tools),
@@ -89,7 +131,10 @@ export default function MyActivityPage() {
     }
 
     load();
-  }, [user]);
+    return () => {
+      cancelled = true;
+    };
+  }, [user, activeUserId]);
 
   // Hierarchy visibility: master admin sees everyone; admin sees the same rank and below (other
   // admins included, master admins excluded); everyone else sees only ranks STRICTLY below their
@@ -106,14 +151,15 @@ export default function MyActivityPage() {
     });
   }, [directory, user]);
 
-  const activeUserId = selectedUserId ?? user?.id ?? "";
   const viewingSelf = activeUserId === user?.id;
   const selectedEntry = directory.find((entry) => entry.id === activeUserId);
   const selectedName = viewingSelf ? user?.name : selectedEntry?.name;
   const selectedRole = viewingSelf ? user?.role : selectedEntry?.role;
 
   const groups = useMemo<ActivityGroup[] | null>(() => {
-    if (!raw || !activeUserId) return null;
+    // `null` is the page's "still loading" signal, and rows belonging to somebody else are exactly
+    // that — not an empty result for the person now selected.
+    if (!raw || !activeUserId || raw.ownerId !== activeUserId) return null;
     const by = <T extends WithCreator>(list: T[]): T[] => list.filter((item) => item.createdById === activeUserId);
     return [
       {

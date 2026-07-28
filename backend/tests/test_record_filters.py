@@ -21,7 +21,7 @@ from app.services.record_filters import (
 
 
 class FakeUser:
-    """A user below professor, so ``visibility_where`` returns a real predicate rather than {}."""
+    """A user below professor — the rank the two visibility policies actually differ on."""
 
     def __init__(self, role: str = "CROWDSOURCE", user_id: str = "u1"):
         self.role = role
@@ -53,28 +53,55 @@ def test_every_bucket_is_returned_even_when_no_filter_touches_it():
     assert set(wheres) == set(RECORD_TYPES)
 
 
-def test_row_visibility_survives_a_free_text_query():
-    # THE regression this file exists for. The search OR is assigned to `where["OR"]`; if the
-    # visibility predicate ever moved out of `where["AND"]` and onto the same key, a plain text
-    # search would quietly return every record in the repository.
+def test_reading_the_repository_is_open_to_every_rank():
+    # The policy this module now composes: a signed-in account may READ every row, whatever its rank.
+    # A volunteer's clauses must therefore carry NO owner predicate — the bug this replaced was a
+    # researcher's search, map and dashboard all silently narrowing to their own uploads.
+    for user in (VOLUNTEER, ADMIN):
+        wheres = asyncio.run(build_record_wheres(user))
+        for bucket in RECORD_TYPES:
+            assert wheres[bucket] == {}, f"{bucket} narrowed a plain read for {user.role}"
+
+
+def test_a_free_text_query_is_the_only_thing_a_plain_search_adds():
     wheres = asyncio.run(build_record_wheres(VOLUNTEER, q="bagru"))
     for bucket in RECORD_TYPES:
         where = wheres[bucket]
-        assert where["AND"], f"{bucket} lost its visibility predicate"
         assert "OR" in where, f"{bucket} lost its text search"
-        assert where["AND"] != where["OR"]
+        # No leftover empty AND: composing an empty predicate must not litter the clause with `[{}]`,
+        # which Prisma accepts but which makes every query log unreadable.
+        assert "AND" not in where, f"{bucket} carries an empty AND"
 
 
-def test_media_visibility_keys_off_the_upload_column():
-    wheres = asyncio.run(build_record_wheres(VOLUNTEER))
-    assert wheres["media"]["AND"][0]["OR"][0] == {"uploadedById": "u1"}
-    assert wheres["artisans"]["AND"][0]["OR"][0] == {"createdById": "u1"}
+def test_the_download_predicate_still_narrows_below_professor():
+    # Reading opened up; TAKING DATA OUT did not. This is the predicate every /export and /data query
+    # still rides, asserted directly because no read-side clause carries it any more.
+    from app.services.records import owned_or_granted_where
+
+    records = asyncio.run(owned_or_granted_where(VOLUNTEER))
+    assert records["OR"][0] == {"createdById": "u1"}
+    assert records["OR"][1]["createdBy"]["is"]["dataAccessAsOwner"]["some"] == {
+        "granteeId": "u1",
+        "status": "GRANTED",
+    }
+
+    media = asyncio.run(owned_or_granted_where(VOLUNTEER, owner_field="uploadedById"))
+    assert media["OR"][0] == {"uploadedById": "u1"}
+    assert "uploadedBy" in media["OR"][1]
+
+    # Professor and above take everything, as before.
+    assert asyncio.run(owned_or_granted_where(ADMIN)) == {}
 
 
-def test_a_professor_gets_no_visibility_predicate_at_all():
-    wheres = asyncio.run(build_record_wheres(ADMIN, q="bagru"))
-    for bucket in RECORD_TYPES:
-        assert "AND" not in wheres[bucket] or wheres[bucket].get("AND") != [{}]
+def test_mine_means_mine_at_every_rank():
+    # The dashboard's "your contribution" figure. It used to fall out of the read filter by accident,
+    # which is exactly why it was wrong for a professor — who saw the repository total labelled as
+    # their own work.
+    from app.services.records import own_rows_where
+
+    assert asyncio.run(own_rows_where(VOLUNTEER)) == {"createdById": "u1"}
+    assert asyncio.run(own_rows_where(ADMIN)) == {"createdById": "admin"}
+    assert asyncio.run(own_rows_where(ADMIN, owner_field="uploadedById")) == {"uploadedById": "admin"}
 
 
 def test_place_reaches_the_buckets_that_have_the_column_and_no_others():

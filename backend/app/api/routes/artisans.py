@@ -14,6 +14,7 @@ from app.services.access import guard_record_edit
 from app.services.artisan_identity import mask_aadhaar, normalize_aadhaar
 from app.services.concurrency import gather_reads
 from app.services.pagination import normalize_pagination, page_payload
+from app.services.record_filters import artisan_workshop_clause, resolve_workshop_ids
 from app.services.records import (
     Relation,
     public_encode,
@@ -28,7 +29,7 @@ from app.services.records import (
     merge_field_provenance,
     require_record,
     resubmit_status,
-    visibility_where,
+    viewable_where,
 )
 from app.services.workshop_access import (
     enforce_workshop_submission,
@@ -195,6 +196,19 @@ async def list_artisans(
     workshopId: str | None = None,
     place: str | None = None,
     statusFilter: str | None = None,
+    # WHOSE RECORDS. Reading is open to every signed-in account, so "the records I filed" is no
+    # longer a side effect of the visibility filter and has to be asked for. Without this the
+    # My Activity page had to fetch page 1 of the WHOLE repository and sift it client-side, which
+    # silently under-reported the moment the repository outgrew one page.
+    createdBy: str | None = None,
+    # The workshop SCOPE, plural, from the shared filter vocabulary — repeatable or comma-joined ids
+    # plus the reserved value "none". Distinct from the singular ``workshopId`` above, which stays
+    # because every existing form-picker link uses it; when both are sent both narrow.
+    #
+    # It is broader than the singular filter on purpose: it also counts an artisan who SAT IN an
+    # interview taken at the workshop, through the shared ``artisan_workshop_clause``, so the
+    # consolidated-questionnaire index and the completion matrix cannot disagree about who was there.
+    workshopIds: list[str] | None = Query(None),
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
@@ -204,7 +218,7 @@ async def list_artisans(
     # free-text search OR and the workshop OR can never overwrite one another — nor the row-visibility
     # filter, which joins the same AND.
     and_filters: list[dict[str, Any]] = []
-    vis = await visibility_where(current_user)
+    vis = await viewable_where(current_user)
     if vis:
         and_filters.append(vis)
     if search:
@@ -226,10 +240,15 @@ async def list_artisans(
             {"workshopId": workshopId},
             {"workshops": {"some": {"workshopId": workshopId}}},
         ]})
+    resolved_workshops = resolve_workshop_ids(workshopIds)
+    if resolved_workshops is not None:
+        and_filters.append(artisan_workshop_clause(*resolved_workshops))
     if place:
         where["place"] = contains(place)
     if statusFilter:
         where["status"] = statusFilter
+    if createdBy:
+        where["createdById"] = createdBy
     if and_filters:
         where["AND"] = and_filters
     total, items = await count_and_page(

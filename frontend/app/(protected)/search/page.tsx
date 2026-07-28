@@ -20,6 +20,11 @@ import {
   type SearchFilters
 } from "@/components/search/SearchFilters";
 import { StatusBadge } from "@/components/StatusBadge";
+import {
+  useWorkshopScope,
+  WorkshopScopeSelect,
+  workshopScopeFromSearchParams
+} from "@/components/WorkshopScopeSelect";
 import { apiFetch, buildQuery } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import type { Artisan, MediaFile, ProductDocumentation, ToolDocumentation, Workshop } from "@/lib/types";
@@ -90,29 +95,55 @@ export default function SearchPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Arriving from a dashboard total (or any /search?type=… link) must SHOW the list, not an empty
-  // form: the click already said what it wanted. An empty q is a valid search here — it means
-  // "everything of this type" — which is exactly what a total is asking for.
+  /**
+   * THE WORKSHOP SCOPE, and why this page has to have it.
+   *
+   * The map links here — "Browse as a list" — carrying its own workshop scope, and the two screens
+   * share one filter vocabulary precisely so that link means the same set of records on both sides. A
+   * search page that read the `workshopIds` in the URL and then ignored it would answer a scoped
+   * question with the whole repository, silently, which is worse than not offering the link.
+   *
+   * `defaultToMostRecent` is FALSE here. `/search` is the general way in to the corpus and its default
+   * has always been "everything"; quietly narrowing it to last week's workshop would change what every
+   * existing bookmark to this page means. The map and the completion matrix default the other way
+   * because they are read DURING a workshop.
+   */
+  const scope = useWorkshopScope({
+    defaultToMostRecent: false,
+    initialWorkshopIds: workshopScopeFromSearchParams(new URLSearchParams(searchParams.toString()))
+  });
+
+  // Arriving from a dashboard total (or any /search?type=… link, including the map's "Browse as a
+  // list") must SHOW the list, not an empty form: the click already said what it wanted. An empty q is
+  // a valid search here — it means "everything of this type" — which is exactly what a total is asking
+  // for, and what a bare workshop scope is asking for too.
   const arrived = useRef(false);
   useEffect(() => {
     if (arrived.current) return;
     const seeded = filtersFromSearchParams(new URLSearchParams(searchParams.toString()));
     const q = (searchParams.get("q") ?? "").trim();
-    if (!q && !seeded.types.length && !seeded.place && seeded.range === "any") return;
+    const scoped = workshopScopeFromSearchParams(new URLSearchParams(searchParams.toString()));
+    if (!q && !seeded.types.length && !seeded.place && seeded.range === "any" && !scoped.length) return;
     arrived.current = true;
     setFilters(seeded);
     setApplied({ q, filters: seeded });
   }, [searchParams]);
 
-  // Runs on submit (new `applied` object, even for the same text), on every filter change and on
-  // every page step. Every active filter goes into ONE query — buildQuery drops the keys that
-  // resolved to nothing, so an untouched filter costs nothing.
+  // Runs on submit (new `applied` object, even for the same text), on every filter change, on every
+  // workshop-scope change and on every page step. Every active filter goes into ONE query —
+  // buildQuery drops the keys that resolved to nothing, so an untouched filter costs nothing.
   useEffect(() => {
     if (!applied) return;
     let cancelled = false;
     setLoading(true);
     apiFetch<SearchResult>(
-      `/search${buildQuery({ q: applied.q, ...searchFilterParams(applied.filters), page, pageSize: PAGE_SIZE })}`
+      `/search${buildQuery({
+        q: applied.q,
+        ...searchFilterParams(applied.filters),
+        workshopIds: scope.queryValue,
+        page,
+        pageSize: PAGE_SIZE
+      })}`
     )
       .then((data) => {
         if (cancelled) return;
@@ -129,16 +160,48 @@ export default function SearchPage() {
     return () => {
       cancelled = true;
     };
-  }, [applied, page]);
+  }, [applied, page, scope.queryValue]);
+
+  /**
+   * A WORKSHOP PICK IS A SEARCH IN ITS OWN RIGHT, and without this it was a control that did nothing.
+   *
+   * Everything on this page hangs off `applied`, which starts null and is only set by the arrival
+   * effect, Search, or a filter chip. So on a bare `/search` — no query, no type, no place — choosing a
+   * workshop left `applied` null, both effects returned at their guard, and no request was made: the
+   * picker moved, the list did not, and nothing said why. "Everything from this workshop" is a complete
+   * question with an empty text box, exactly as "everything of this type" is, so it has to be able to
+   * start a search on its own.
+   */
+  useEffect(() => {
+    if (applied || !scope.workshopIds.length) return;
+    setApplied({ q: "", filters: EMPTY_SEARCH_FILTERS });
+  }, [applied, scope.workshopIds.length]);
 
   // The chips used to be links, so a narrowed search was a URL you could send someone or reload.
   // They are buttons now — a navigation would remount the page and take the other filters with it —
   // so the address bar is written back by hand instead. history.replaceState rather than the router:
   // this records where the researcher already is, it does not navigate anywhere.
+  //
+  // The workshop scope is written back too, so the link a researcher copies out of the address bar
+  // reproduces the list they are actually looking at — and can be pasted into /map, which reads the
+  // same key.
   useEffect(() => {
     if (!applied) return;
-    window.history.replaceState(null, "", `/search${buildQuery({ q: applied.q, ...filtersToLinkParams(applied.filters) })}`);
-  }, [applied]);
+    // FROM THE FIRST WRITE-BACK ON, THE ADDRESS BAR IS THIS PAGE'S OUTPUT, not its input. The arrival
+    // effect is a one-shot seed guarded by `arrived`, and it now also seeds from `workshopIds` — so
+    // without claiming the shot here, this write could hand the seeder a URL the page itself had just
+    // written and have it re-seed the filters from a value the user had since changed.
+    arrived.current = true;
+    window.history.replaceState(
+      null,
+      "",
+      `/search${buildQuery({
+        q: applied.q,
+        ...filtersToLinkParams(applied.filters),
+        workshopIds: scope.queryValue
+      })}`
+    );
+  }, [applied, scope.queryValue]);
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -212,10 +275,37 @@ export default function SearchPage() {
       */}
       <SearchFilterBar value={filters} onChange={changeFilters} showPlace={false} />
 
+      {/* The workshop scope applies IMMEDIATELY, like the panel filters and unlike the typed boxes
+          above: it is a picker, and a picker that needed a second button press to take effect reads
+          as broken. */}
+      <div className="mb-4 max-w-xl">
+        {/* THE PAGE GOES BACK TO 1, as it does for `submit` and every filter chip. The workshop scope
+            was the one filter on this page that left pagination standing, so narrowing from four pages
+            of results to one, while sitting on page 4, produced five empty buckets and an
+            "No more results" message — for a scope that plainly has records in it. `setPage` and
+            `setWorkshopIds` are batched in one handler, so exactly one request goes out. */}
+        <WorkshopScopeSelect
+          scope={{
+            ...scope,
+            setWorkshopIds: (next: string[]) => {
+              setPage(1);
+              scope.setWorkshopIds(next);
+            }
+          }}
+          label="Workshops"
+        />
+      </div>
+
       {result && shown === 0 ? (
         <EmptyState
           title={page > 1 ? "No more results" : "No matching records"}
-          body={page > 1 ? "Every result type has run out on this page. Go back to see the earlier matches." : undefined}
+          body={
+            scope.workshopIds.length
+              ? "Nothing matches inside the chosen workshops. Widen the workshop scope, or choose All records."
+              : page > 1
+                ? "Every result type has run out on this page. Go back to see the earlier matches."
+                : undefined
+          }
         />
       ) : null}
       {result ? (

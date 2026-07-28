@@ -488,12 +488,30 @@ _ALIASES: dict[str, str] = {
 # A dissolved district is deliberately NOT aliased. Delhi's Shahdara was split across several
 # neighbours, so any single target would be a guess; it fails loudly instead.
 _DISTRICT_ALIASES: dict[str, dict[str, str]] = {
+    "Sikkim": {
+        "East District": "Gangtok",
+        "West District": "Gyalshing",
+        "North District": "Mangan",
+        "South District": "Namchi",
+    },
+    "Arunachal Pradesh": {
+        "Upper Dibang Valley": "Dibang Valley",
+    },
+    "Andaman and Nicobar Islands": {
+        "South Andaman": "South Andamans",
+    },
+    "Tripura": {
+        "Sipahijala": "Sepahijala",
+        "Unokoti": "Unakoti",
+    },
     "Andhra Pradesh": {
         "Ananthapuramu": "Anantapur",
         "Cuddapah": "YSR Kadapa", "Kadapa": "YSR Kadapa", "Y.S.R.": "YSR Kadapa",
         "Nellore": "SPSR Nellore", "Sri Potti Sriramulu Nellore": "SPSR Nellore",
         "Visakhapatanam": "Visakhapatnam", "Vishakhapatnam": "Visakhapatnam",
         "Dr. B. R. Ambedkar Konaseema": "Konaseema",
+        "Anantpur": "Anantapur",
+        "Sri Potti Sriramulu Nell": "SPSR Nellore",
     },
     "Assam": {
         "Karimganj": "Sribhumi",
@@ -514,6 +532,9 @@ _DISTRICT_ALIASES: dict[str, dict[str, str]] = {
         "Kawardha": "Kabirdham",
         "Koriya": "Korea",
         "Gaurela Pendra Marwahi": "Gaurella Pendra Marwahi",
+        "Bametara": "Bemetara",
+        "Gariaband": "Gariyaband",
+        "Kabeerdham": "Kabirdham",
     },
     "Gujarat": {
         # The MapTiler spelling for Kachchh, and the one the researchers type.
@@ -528,6 +549,7 @@ _DISTRICT_ALIASES: dict[str, dict[str, str]] = {
         "Arvalli": "Aravalli",
         "Dang": "Dangs", "The Dangs": "Dangs",
         "Devbhoomi Dwarka": "Devbhumi Dwarka",
+        "Chota Udaipur": "Chhota Udaipur",
     },
     "Haryana": {
         "Mewat": "Nuh",
@@ -550,6 +572,7 @@ _DISTRICT_ALIASES: dict[str, dict[str, str]] = {
         "Saraikela-Kharsawan": "Saraikela Kharsawan", "Seraikela Kharsawan": "Saraikela Kharsawan",
         "Sahibganj": "Sahebganj",
         "Hazaribag": "Hazaribagh",
+        "Kodarma": "Koderma",
     },
     "Karnataka": {
         "Bangalore Urban": "Bengaluru Urban", "Bangalore Rural": "Bengaluru Rural",
@@ -565,6 +588,8 @@ _DISTRICT_ALIASES: dict[str, dict[str, str]] = {
         "Chamarajanagar": "Chamarajanagara",
         "Chikballapur": "Chikkaballapura",
         "Vijayanagara": "Vijayanagar",
+        "Bangalore": "Bengaluru Urban",
+        "Davanagere": "Davangere",
     },
     "Kerala": {
         "Cannanore": "Kannur",
@@ -587,6 +612,7 @@ _DISTRICT_ALIASES: dict[str, dict[str, str]] = {
         "East Nimar": "Khandwa",
         "West Nimar": "Khargone",
         "Hoshangabad": "Narmadapuram",
+        "Narsimhapur": "Narsinghpur",
     },
     "Maharashtra": {
         "Aurangabad": "Chhatrapati Sambhajinagar", "Sambhajinagar": "Chhatrapati Sambhajinagar",
@@ -596,6 +622,7 @@ _DISTRICT_ALIASES: dict[str, dict[str, str]] = {
         "Buldana": "Buldhana",
         "Gondiya": "Gondia",
         "Raigarh": "Raigad",
+        "Bid": "Beed",
     },
     "Odisha": {
         "Angul": "Anugul",
@@ -622,6 +649,7 @@ _DISTRICT_ALIASES: dict[str, dict[str, str]] = {
         "Ropar": "Rupnagar",
         "Firozpur": "Ferozepur", "Ferozepore": "Ferozepur",
         "Bhatinda": "Bathinda",
+        "Sahibzada Ajit Singh Nag": "Sahibzada Ajit Singh Nagar",
     },
     "Rajasthan": {
         "Sri Ganganagar": "Ganganagar", "Shri Ganganagar": "Ganganagar",
@@ -641,6 +669,9 @@ _DISTRICT_ALIASES: dict[str, dict[str, str]] = {
         "Villuppuram": "Villupuram",
         "Tiruvallur": "Thiruvallur",
         "Tiruvarur": "Thiruvarur",
+        "Kallakurichchi": "Kallakurichi",
+        "Tiruppattur": "Tirupathur",
+        "Viluppuram": "Villupuram",
     },
     "Telangana": {
         "Jagtial": "Jagitial",
@@ -649,6 +680,7 @@ _DISTRICT_ALIASES: dict[str, dict[str, str]] = {
         "Komaram Bheem Asifabad": "Kumuram Bheem Asifabad",
         "Warangal Urban": "Hanumakonda",
         "Warangal Rural": "Warangal",
+        "Jayashankar": "Jayashankar Bhupalapally",
     },
     "Uttar Pradesh": {
         "Allahabad": "Prayagraj",
@@ -668,6 +700,8 @@ _DISTRICT_ALIASES: dict[str, dict[str, str]] = {
         "Badaun": "Budaun",
         "Sonebhadra": "Sonbhadra",
         "Gautam Buddh Nagar": "Gautam Buddha Nagar",
+        "Shrawasti": "Shravasti",
+        "Mahrajganj": "Maharajganj",
     },
     "Uttarakhand": {
         "Rudra Prayag": "Rudraprayag",
@@ -689,6 +723,8 @@ _DISTRICT_ALIASES: dict[str, dict[str, str]] = {
         "Haora": "Howrah",
         "Puruliya": "Purulia",
         "Darjiling": "Darjeeling",
+        "North Twenty Four Pargan": "North 24 Parganas",
+        "South Twenty Four Pargana": "South 24 Parganas",
     },
 }
 
@@ -899,6 +935,45 @@ def validate_district(state: str | None, value: str | None) -> str | None:
     error = district_error(state, normalized)
     if error:
         raise ValueError(error)
+    return normalized
+
+
+def canonical_state(value: str | None) -> str | None:
+    """The canonical state name, or ``None`` for anything not on the closed list.
+
+    WHY THIS EXISTS BESIDE :func:`normalize_state`, which looks like it already does this. It does not,
+    and the difference is a trap: ``normalize_state`` returns an unrecognised value TRIMMED rather than
+    dropped, deliberately, so :func:`state_error` can quote it back to whoever typed it. That is right
+    for a WRITE path, where the user must be told what happened to their input.
+
+    It is wrong — silently — for a READ path that only wants to know "is this a real state". A caller
+    that treats a truthy ``normalize_state`` as "valid" accepts "Atlantis", and downstream it becomes a
+    map pin key, a group-by bucket and a district anchor for a state that does not exist. This pairs
+    the normaliser with its validator so a reader cannot get that wrong by omission.
+
+    Use :func:`validate_state` on writes (it raises, with the message), and this on reads.
+    """
+    normalized = normalize_state(value)
+    if normalized is None or state_error(normalized):
+        return None
+    return normalized
+
+
+def canonical_district(state: str | None, value: str | None) -> str | None:
+    """The canonical district name WITHIN ``state``, or ``None`` when the pair is not real.
+
+    The same distinction as :func:`canonical_state`, and it bites harder here because the check is
+    cross-field: ``normalize_district("Rajasthan", "Kachchh")`` returns "Kachchh" — a real district, of
+    Gujarat — because judging the pair is :func:`district_error`'s job, not the normaliser's. A read
+    path that trusted the normaliser would happily build a "Rajasthan|Kachchh" district that exists
+    nowhere, and average two states' records into it.
+    """
+    resolved_state = canonical_state(state)
+    if resolved_state is None:
+        return None
+    normalized = normalize_district(resolved_state, value)
+    if normalized is None or district_error(resolved_state, normalized):
+        return None
     return normalized
 
 

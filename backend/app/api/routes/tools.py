@@ -29,7 +29,7 @@ from app.services.records import (
     merge_field_provenance,
     require_record,
     resubmit_status,
-    visibility_where,
+    viewable_where,
 )
 
 router = APIRouter(prefix="/tools", tags=["tools"])
@@ -72,13 +72,18 @@ async def list_tools(
     statusFilter: str | None = None,
     dateFrom: datetime | None = None,
     dateTo: datetime | None = None,
+    # WHOSE RECORDS. Reading is open to every signed-in account, so "the records I filed" is no
+    # longer a side effect of the visibility filter and has to be asked for. Without this the
+    # My Activity page had to fetch page 1 of the WHOLE repository and sift it client-side, which
+    # silently under-reported the moment the repository outgrew one page.
+    createdBy: str | None = None,
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
     page, page_size, skip = normalize_pagination(page, pageSize)
     where: dict[str, Any] = {}
     # Visibility is AND-composed so the search OR (assigned below) can never overwrite it.
-    vis = await visibility_where(current_user)
+    vis = await viewable_where(current_user)
     if vis:
         where["AND"] = [vis]
     if search:
@@ -107,6 +112,8 @@ async def list_tools(
         where["traditionType"] = traditionType
     if statusFilter:
         where["status"] = statusFilter
+    if createdBy:
+        where["createdById"] = createdBy
     add_date_range(where, "createdAt", dateFrom, dateTo)
     total, items = await count_and_page(
         db.tooldocumentation,

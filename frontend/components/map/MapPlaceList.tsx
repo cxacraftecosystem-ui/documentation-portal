@@ -21,20 +21,42 @@ import type { RecordType } from "@/components/search/SearchFilters";
 /**
  * How each precision tier is described in words. The map draws uncertainty as a halo; this says the
  * same thing in a sentence, because a halo communicates nothing to a screen reader.
+ *
+ * Two of the six are MEASUREMENTS and four are lookups, and the wording keeps them apart on purpose:
+ * a reader who cannot tell a dropped pin from a state capital will read the second as the first.
  */
 const PRECISION_NOTE: Record<MapPrecision, string> = {
+  // Covers two shapes: a pin inside a named district, and — for a point keyed `pin:` — a pin with no
+  // state or district recorded at all, which the server places as itself rather than reporting as
+  // unplaced. Its `region` names the coordinate and says the names are missing.
+  SUBJECT_PIN: "pin dropped on the subject's own place",
   MEASURED: "GPS fix taken while recording",
   TOWN: "town located from the typed place name",
-  DISTRICT: "district only — drawn at its headquarters",
-  STATE: "state only — drawn at the state capital"
+  DISTRICT: "district position learned from pins inside it",
+  STATE: "state only — drawn at the state's seat",
+  NATION: "every placed record, folded into one point"
 };
 
 const PRECISION_BADGE: Record<MapPrecision, string> = {
+  SUBJECT_PIN: "Pinned",
   MEASURED: "Measured",
   TOWN: "Town",
   DISTRICT: "District",
-  STATE: "State"
+  STATE: "State",
+  NATION: "Nation"
 };
+
+/**
+ * Unknown precision values must not blank the badge. The server's vocabulary can gain a tier before
+ * this client is redeployed, and an empty pill beside a real count reads as a broken row.
+ */
+function precisionBadge(precision: MapPrecision): string {
+  return PRECISION_BADGE[precision] ?? String(precision);
+}
+
+function precisionNote(precision: MapPrecision): string {
+  return PRECISION_NOTE[precision] ?? "position of unstated precision";
+}
 
 export function MapPlaceList({
   points,
@@ -95,7 +117,7 @@ export function MapPlaceList({
                       {point.label}
                     </span>
                     <span className="rounded-full border border-line-200 bg-surface-50 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-ink-500">
-                      {PRECISION_BADGE[point.precision]}
+                      {precisionBadge(point.precision)}
                     </span>
                     {focused.has(point.key) ? (
                       <span className="rounded-full bg-purple-700 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-white">
@@ -118,7 +140,7 @@ export function MapPlaceList({
                   </span>
 
                   <span className="mt-1 block break-words text-[11px] leading-4 text-ink-500">
-                    {PRECISION_NOTE[point.precision]}
+                    {precisionNote(point.precision)}
                     {point.layer === "CAPTURE" && point.fixes ? (
                       <>
                         {" · "}
@@ -127,11 +149,33 @@ export function MapPlaceList({
                         {point.medianAccuracy ? `, median accuracy ±${point.medianAccuracy} m` : ""}
                       </>
                     ) : null}
-                    {point.layer === "ORIGIN" && point.spellings?.length ? (
+                    {/* Grouping to a district loses no information — it moves the finer names here. */}
+                    {point.layer === "ORIGIN" && point.places?.length ? (
                       <>
-                        {" · typed as "}
-                        {point.spellings.slice(0, 3).map((spelling) => `“${spelling}”`).join(", ")}
-                        {point.spellings.length > 3 ? ` and ${point.spellings.length - 3} more` : ""}
+                        {" · covers "}
+                        {point.places.slice(0, 3).map((name) => `“${name}”`).join(", ")}
+                        {point.places.length > 3 ? ` and ${point.places.length - 3} more` : ""}
+                      </>
+                    ) : null}
+                    {/* How much of this point's POSITION is measurement. A district holding forty
+                        records of which two carry a pin is a different thing from one where all forty
+                        do, and the pin looks identical either way. */}
+                    {point.layer === "ORIGIN" && typeof point.pinnedRecords === "number" && point.total > 0 ? (
+                      <>
+                        {" · "}
+                        {point.pinnedRecords === 0
+                          ? "no dropped pins here yet"
+                          : point.pinnedRecords === point.total
+                            ? "every record here is pinned"
+                            : `${point.pinnedRecords} of ${point.total} pinned`}
+                      </>
+                    ) : null}
+                    {point.fromPlaceText ? (
+                      <>
+                        {" · "}
+                        {point.fromPlaceText}{" "}
+                        {point.fromPlaceText === 1 ? "record placed" : "records placed"} from a typed
+                        place name rather than a stated address
                       </>
                     ) : null}
                   </span>
@@ -148,10 +192,11 @@ export function MapPlaceList({
             Not on the map
           </h3>
           {/* A place quietly missing from a map is indistinguishable from a place with no records,
-              so what could not be resolved is named here rather than dropped. */}
+              so what could not be placed is named here rather than dropped. */}
           <p className="mt-1 text-xs leading-5 text-ink-700">
-            These records name a place the atlas could not resolve to a point. They are counted in
-            the totals but have no pin.
+            These records carry no state on their location and no place name the atlas can resolve, so
+            there is nothing to place them by. They are counted in the totals but have no pin. Adding a
+            state — and ideally a district — to the record puts it on the map.
           </p>
           <ul className="mt-2 grid gap-1">
             {unplaced.map((entry) => (

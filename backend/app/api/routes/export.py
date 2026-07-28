@@ -15,7 +15,7 @@ from app.core.deps import can_download_dataset, get_current_user
 from app.services.access import owner_download_scope
 from app.services.csv_export import records_to_csv
 from app.services.record_fields import info_panel, info_text, interview_label
-from app.services.records import visibility_where
+from app.services.records import owned_or_granted_where
 
 router = APIRouter(prefix="/export", tags=["export"])
 
@@ -141,11 +141,11 @@ async def dataset_manifest(
             "specific researcher's data you have access to.",
         )
     else:
-        rec_where = await visibility_where(current_user)
+        rec_where = await owned_or_granted_where(current_user)
         # Media carries its own owner column, and the repository-wide download is not a licence to
         # read uploads the caller cannot see anywhere else in the app (GET /media, /search and the
         # data browser all filter on uploadedById). Empty — a no-op — for Professor and above.
-        media_vis = await visibility_where(current_user, owner_field="uploadedById")
+        media_vis = await owned_or_granted_where(current_user, owner_field="uploadedById")
 
     def _in_scope(rtype: str, rid: str) -> bool:
         return scope is None or rid in scope.get(rtype, set())
@@ -397,7 +397,7 @@ _CSV_INCLUDE = {"media": True, "createdBy": True, "workshop": True}
 async def export_products(current_user: Any = Depends(get_current_user)) -> Response:
     _require_dataset_download(current_user)
     records = await db.productdocumentation.find_many(
-        where=await visibility_where(current_user),
+        where=await owned_or_granted_where(current_user),
         include=_CSV_INCLUDE,
         take=EXPORT_TAKE,
         order={"createdAt": "desc"},
@@ -410,7 +410,7 @@ async def export_products(current_user: Any = Depends(get_current_user)) -> Resp
 async def export_tools(current_user: Any = Depends(get_current_user)) -> Response:
     _require_dataset_download(current_user)
     records = await db.tooldocumentation.find_many(
-        where=await visibility_where(current_user),
+        where=await owned_or_granted_where(current_user),
         include=_CSV_INCLUDE,
         take=EXPORT_TAKE,
         order={"createdAt": "desc"},

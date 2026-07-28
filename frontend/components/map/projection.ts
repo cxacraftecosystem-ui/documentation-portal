@@ -44,6 +44,43 @@ export function unitsPerKilometre(): number {
   return UNITS_PER_DEGREE / 111.32;
 }
 
+/**
+ * Border polylines as ONE path string, through the same `project` the outline and the pins use.
+ *
+ * One element rather than a thousand, for the reason `indiaOutlinePath` gives: React would otherwise
+ * reconcile 972 nodes on every render of a shape that cannot change.
+ *
+ * OPEN SUBPATHS — there is no `Z`. A border is a run between two junctions, not a ring, and closing
+ * one would draw a straight segment joining its ends: the Rajasthan/Gujarat border would grow a line
+ * across the country back to where it started.
+ *
+ * A run that decimates to a single point is dropped rather than emitted as a lone `M`, which paints
+ * nothing but still costs a subpath.
+ */
+export function bordersToPath(lines: Array<Array<[number, number]>>): string {
+  const parts: string[] = [];
+  for (const line of lines) {
+    let out = "";
+    let previousX = Number.NaN;
+    let previousY = Number.NaN;
+    let emitted = 0;
+    for (const [longitude, latitude] of line) {
+      const { x, y } = project(longitude, latitude);
+      const rx = Math.round(x * 10) / 10;
+      const ry = Math.round(y * 10) / 10;
+      // A point a tenth of a unit from the last one is below what this scale can show, and at 19,470
+      // points the saving is most of the string.
+      if (emitted > 0 && rx === previousX && ry === previousY) continue;
+      out += `${emitted === 0 ? "M" : "L"}${rx} ${ry}`;
+      previousX = rx;
+      previousY = ry;
+      emitted += 1;
+    }
+    if (emitted >= 2) parts.push(out);
+  }
+  return parts.join("");
+}
+
 let outline: string | null = null;
 
 /**

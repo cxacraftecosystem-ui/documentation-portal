@@ -8,6 +8,11 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.widget.Toast
+// Borrowed from the ui package, and the direction is backwards on purpose: the consolidated
+// questionnaire's DTOs live beside their screen because this file and ApiModels.kt were being edited
+// concurrently when that feature landed. Re-declaring them here would give the app two spellings of
+// one wire format; if they ever move into ApiModels.kt this import is the only line to delete.
+import com.fieldrepository.app.ui.ConsolidatedQuestionnaireDto
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -504,6 +509,7 @@ class FieldRepository(
         types: List<String>? = null,
         dateFrom: String? = null,
         dateTo: String? = null,
+        workshopIds: List<String>? = null,
         page: Int = 1,
         pageSize: Int = 10
     ): SearchResultsDto =
@@ -520,8 +526,100 @@ class FieldRepository(
                 ?.joinToString(","),
             dateFrom = dateFrom?.blankToNull(),
             dateTo = dateTo?.blankToNull(),
+            workshopIds = workshopIds.toQueryCsv(),
             page = page,
             pageSize = pageSize.coerceIn(1, 50)
+        )
+
+    // --- Map: where the records are ---
+
+    /**
+     * Every pin for the current filters, in BOTH layers — where the craft comes from (ORIGIN) and
+     * where it was recorded (CAPTURE). The filter vocabulary is [search]'s, argument for argument, so
+     * one set of UI filters drives both and the two can never disagree about what a phrase contains.
+     *
+     * [types] names the buckets in the API's PLURAL vocabulary (`artisans`, `workshops`, `products`,
+     * `tools`, `media`); null or empty counts all five.
+     *
+     * [workshopIds] is the shared workshop SCOPE. Null or empty means EVERY workshop — it is not a
+     * narrowing at all — and the reserved id `none` means "records linked to no workshop", so
+     * `listOf("none")` is a real and different question from `null`.
+     *
+     * [level] is `NATION` | `STATE` | `DISTRICT`: the administrative unit both layers are grouped at.
+     * Null lets the server apply its own default rather than hard-coding a second copy of it here;
+     * read the level actually used back off `MapPointsDto.level`, and build the toggle from
+     * `MapPointsDto.levels`.
+     *
+     * [focusType] + [focusId] ask for one record in context. Pass BOTH or neither — one alone is
+     * ignored — and note the map still draws the whole filtered corpus; the focus only names which
+     * pins hold that record, in `MapFocusDto.pointKeys`.
+     */
+    suspend fun mapPoints(
+        q: String? = null,
+        craftId: String? = null,
+        place: String? = null,
+        artisanId: String? = null,
+        mediaType: String? = null,
+        types: List<String>? = null,
+        dateFrom: String? = null,
+        dateTo: String? = null,
+        workshopIds: List<String>? = null,
+        level: String? = null,
+        focusType: String? = null,
+        focusId: String? = null
+    ): MapPointsDto =
+        api.mapPoints(
+            q = q?.blankToNull(),
+            craftId = craftId?.blankToNull(),
+            place = place?.blankToNull(),
+            artisanId = artisanId?.blankToNull(),
+            mediaType = mediaType?.blankToNull(),
+            types = types?.map { it.lowercase() }.toQueryCsv(),
+            dateFrom = dateFrom?.blankToNull(),
+            dateTo = dateTo?.blankToNull(),
+            workshopIds = workshopIds.toQueryCsv(),
+            level = level?.blankToNull(),
+            focusType = focusType?.blankToNull(),
+            focusId = focusId?.blankToNull()
+        )
+
+    /**
+     * The records behind ONE pin, fetched when a reader opens it rather than carried by [mapPoints] —
+     * the aggregate is a couple of dozen pins, but the records behind every pin would be the whole
+     * corpus in a payload that exists to draw thirteen dots.
+     *
+     * [key] is `MapPointDto.key`, passed through UNTOUCHED: it holds ':' and '|' and the encoding is
+     * Retrofit's job (see `FieldRepositoryApi.mapPointRecords`). Do not trim, split or re-case it.
+     *
+     * PASS THE SAME FILTERS THE MAP WAS DRAWN WITH, [level] and [workshopIds] included. The key names
+     * an administrative unit; which records sit in it is exactly what the filters decide, so a panel
+     * fetched with different filters would list records the pin was not counting.
+     */
+    suspend fun mapPointRecords(
+        key: String,
+        q: String? = null,
+        craftId: String? = null,
+        place: String? = null,
+        artisanId: String? = null,
+        mediaType: String? = null,
+        types: List<String>? = null,
+        dateFrom: String? = null,
+        dateTo: String? = null,
+        workshopIds: List<String>? = null,
+        level: String? = null
+    ): MapPointRecordsDto =
+        api.mapPointRecords(
+            key = key,
+            q = q?.blankToNull(),
+            craftId = craftId?.blankToNull(),
+            place = place?.blankToNull(),
+            artisanId = artisanId?.blankToNull(),
+            mediaType = mediaType?.blankToNull(),
+            types = types?.map { it.lowercase() }.toQueryCsv(),
+            dateFrom = dateFrom?.blankToNull(),
+            dateTo = dateTo?.blankToNull(),
+            workshopIds = workshopIds.toQueryCsv(),
+            level = level?.blankToNull()
         )
 
     // --- Data browser ---
@@ -686,7 +784,14 @@ class FieldRepository(
         out
     }
 
-    suspend fun artisans(): List<ArtisanDto> = api.artisans(pageSize = 100).items
+    /**
+     * [workshopIds] is the shared workshop scope: null or empty is EVERY workshop, and the reserved
+     * id `none` asks for artisans linked to no workshop. Broader than the singular `workshopId` the
+     * form pickers use — it also counts an artisan who merely sat in an interview taken at the
+     * workshop — so this list and the completion matrix agree about who was there.
+     */
+    suspend fun artisans(workshopIds: List<String>? = null): List<ArtisanDto> =
+        api.artisans(pageSize = 100, workshopIds = workshopIds.toQueryCsv()).items
 
     suspend fun crafts(): List<CraftDto> = api.crafts(pageSize = 100).items
 
@@ -1034,13 +1139,35 @@ class FieldRepository(
     suspend fun updateQuestionnaireInterview(id: String, body: QuestionnaireInterviewUpdateRequest): QuestionnaireInterviewDetailDto =
         api.updateInterview(id, body)
 
-    /** Completion matrix (artisans x sections). Pass [artisanId] to scope it to one artisan. */
-    suspend fun completionMatrix(artisanId: String? = null): CompletionMatrixDto =
-        api.completionMatrix(artisanId)
+    /**
+     * Completion matrix (artisans x sections). Pass [artisanId] to scope it to one artisan, and
+     * [workshopIds] to scope it to workshops — null or empty is every workshop, `none` is the records
+     * linked to none. LAST and defaulted so no existing call site has to change.
+     */
+    suspend fun completionMatrix(
+        artisanId: String? = null,
+        workshopIds: List<String>? = null
+    ): CompletionMatrixDto =
+        api.completionMatrix(artisanId?.blankToNull(), workshopIds.toQueryCsv())
 
     /** Admin-only: set ([status] = COMPLETED/NEEDS_REVIEW/NEEDS_REDO) or clear ([status] = null) one cell. */
     suspend fun setCompletionCell(artisanId: String, sectionId: String, status: String?) =
         api.setCompletionCell(CompletionCellRequest(artisanId, sectionId, status))
+
+    /**
+     * One artisan's questionnaire gathered from EVERY interview they sat in.
+     *
+     * [workshopIds] reads the document as it stands FOR THOSE WORKSHOPS: the whole document comes back
+     * either way, the scope only decides which sittings feed it. Null or empty is every workshop.
+     *
+     * The DTO is declared in `ui/ConsolidatedQuestionnaireScreen.kt` beside the screen that renders
+     * it — see the import note at the top of [FieldRepositoryApi] for why it is not in ApiModels.kt.
+     */
+    suspend fun consolidatedQuestionnaire(
+        artisanId: String,
+        workshopIds: List<String>? = null
+    ): ConsolidatedQuestionnaireDto =
+        api.consolidatedQuestionnaire(artisanId, workshopIds.toQueryCsv())
 
     /**
      * Upload a captured/selected file as a single streamed object. The bytes are streamed straight
@@ -2172,6 +2299,23 @@ class FieldRepository(
 }
 
 private fun String?.blankToNull(): String? = this?.trim()?.takeIf { it.isNotEmpty() }
+
+/**
+ * Comma-join a list-shaped query parameter, the way every route in the shared filter vocabulary reads
+ * one — or null when there is nothing to send.
+ *
+ * AN EMPTY LIST MUST BECOME NULL, not "". Absent means "every workshop / every bucket"; a blank
+ * string is one blank id, which matches nothing, so the two differ by the entire result set. Blanks
+ * and duplicates are dropped here rather than at the interface, which stays a plain description of
+ * the wire (house rule), and order is preserved so the query string a screen sends is stable across
+ * recompositions instead of depending on tick order.
+ *
+ * Case is left ALONE: workshop ids are case-sensitive cuids and the reserved sentinel `none` is
+ * already lowercase. Callers that need a lowercased vocabulary (the `types` buckets) lowercase
+ * before calling.
+ */
+private fun List<String>?.toQueryCsv(): String? =
+    this?.mapNotNull { it.blankToNull() }?.distinct()?.takeIf { it.isNotEmpty() }?.joinToString(",")
 
 // ---------------------------------------------------------------------------
 // The name a captured file is uploaded under.

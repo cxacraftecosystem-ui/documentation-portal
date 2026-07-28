@@ -25,7 +25,7 @@ from app.core.deps import (
     require_admin,
     require_questionnaire_manager,
 )
-from app.services.access import guard_record_edit
+from app.services.access import guard_record_edit, owner_download_scope
 from app.schemas.questionnaire import (
     CompletionCellUpdate,
     QuestionnaireInterviewCreate,
@@ -39,6 +39,11 @@ from app.schemas.questionnaire import (
 )
 from app.services.concurrency import gather_reads
 from app.services.pagination import normalize_pagination, page_payload
+from app.services.record_filters import (
+    artisan_workshop_clause,
+    resolve_workshop_ids,
+    workshop_clause,
+)
 from app.services.questionnaire_consolidation import (
     CSV_COLUMNS,
     consolidate_for_artisan,
@@ -59,7 +64,7 @@ from app.services.records import (
     public_encode,
     require_record,
     resubmit_status,
-    visibility_where,
+    viewable_where,
 )
 from app.services.workshop_access import (
     WorkshopSubmissionCheck,
@@ -484,26 +489,33 @@ async def list_interviews(
     statusFilter: str | None = None,
     dateFrom: datetime | None = None,
     dateTo: datetime | None = None,
+    # WHOSE RECORDS. Reading is open to every signed-in account, so "the records I filed" is no
+    # longer a side effect of the visibility filter and has to be asked for. Without this the
+    # My Activity page had to fetch page 1 of the WHOLE repository and sift it client-side, which
+    # silently under-reported the moment the repository outgrew one page.
+    createdBy: str | None = None,
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
     page, page_size, skip = normalize_pagination(page, pageSize)
     where: dict[str, Any] = {}
 
-    # Row visibility, which this route was missing entirely — it was the only record-list endpoint
-    # in the app without it (artisans, products, tools, media, workshops and search all call this).
-    # The consequence was not subtle: a CROWDSOURCE_VOLUNTEER, the lowest tier, who cannot even
-    # create a record, could page through every interview in the repository a hundred at a time,
-    # each one carrying its full set of recorded answers.
+    # The read predicate, composed the way every other record list composes it: nested under AND so
+    # it can never be overwritten by the free-text OR below, which is exactly how a filter like this
+    # gets silently dropped (`where["OR"] = [...]` replaces the key outright).
     #
-    # Nested under AND so it can never be overwritten by the free-text OR below, which is exactly
-    # how a filter like this gets silently dropped: `where["OR"] = [...]` replaces the key outright.
+    # It is EMPTY today. Reading the repository is open to every signed-in account, and that is the
+    # deliberate policy — see the banner above ``records.viewable_where``. It was not always: this
+    # route was once the only record list without a row filter at all, and the note that replaced this
+    # one recorded the consequence, that a CROWDSOURCE_VOLUNTEER could page through every interview a
+    # hundred at a time. What changed is not the tier's entitlement to READ but the whole
+    # repository's: everybody may now read everything, and what an interview's answers are protected
+    # BY is the download gate on the CSV plus the identity masking in ``public_encode`` — not
+    # concealment of the record's existence from the people documenting alongside it.
     and_filters: list[dict[str, Any]] = []
-    vis = await visibility_where(current_user)
+    vis = await viewable_where(current_user)
     if vis:
         and_filters.append(vis)
-    if and_filters:
-        where["AND"] = and_filters
 
     if search:
         where["OR"] = [{"title": contains(search)}, {"place": contains(search)}, {"notes": contains(search)}]
@@ -513,6 +525,10 @@ async def list_interviews(
         where["workshopId"] = workshopId
     if statusFilter:
         where["status"] = statusFilter
+    if createdBy:
+        where["createdById"] = createdBy
+    if and_filters:
+        where["AND"] = and_filters
     add_date_range(where, "interviewDate", dateFrom, dateTo)
     total, items = await count_and_page(
         db.questionnaireinterview,
@@ -650,7 +666,9 @@ async def interview_for_artisan_set(
 COMPLETION_STATUSES = {"COMPLETED", "NEEDS_REVIEW", "NEEDS_REDO"}
 
 
-async def _derived_completed_sections(artisan_id: str | None = None) -> dict[str, set[str]]:
+async def _derived_completed_sections(
+    artisan_id: str | None = None, workshop_ids: list[str] | None = None
+) -> dict[str, set[str]]:
     """artisanId -> set of sectionIds with recorded content in ANY interview containing the artisan.
 
     "Containing" covers the artisan interviewed alone, in a group, or as part of a larger superset —
@@ -663,10 +681,24 @@ async def _derived_completed_sections(artisan_id: str | None = None) -> dict[str
     per-artisan View Data view asks about ONE artisan, and reading every interview in the repository
     (with every answer and every media row attached) to answer that is the difference between a page
     that stays fast at a hundred artisans and one that does not.
+
+    ``workshop_ids`` narrows it to the interviews taken AT those workshops, which is what makes the
+    matrix answerable per workshop: "which sections did we cover at last week's workshop" is a
+    different question from "which sections has this artisan ever answered", and before this the
+    matrix could only answer the second one. The clause is built by the SHARED
+    ``record_filters.workshop_clause`` so the interview scope means exactly what it means everywhere
+    else, the reserved "none" value included.
     """
     interview_where: dict[str, Any] = (
         {"artisans": {"some": {"artisanId": artisan_id}}} if artisan_id else {}
     )
+    resolved = resolve_workshop_ids(workshop_ids)
+    if resolved is not None:
+        ids, include_unassigned = resolved
+        # An interview carries its own ``workshopId`` foreign key, so it takes the ordinary branch of
+        # the shared clause builder rather than the workshop-table one.
+        clause = workshop_clause(ids, include_unassigned)
+        interview_where.setdefault("AND", []).append(clause if clause else {"id": {"in": []}})
     questions, sections, interviews = await gather_reads(
         db.questionnairequestion.find_many(),
         db.questionnairesection.find_many(),
@@ -718,22 +750,41 @@ async def _derived_completed_sections(artisan_id: str | None = None) -> dict[str
 @router.get("/completion")
 async def completion_matrix(
     artisanId: str | None = None,
+    # The workshop scope, from the shared filter vocabulary: repeatable or comma-joined workshop ids
+    # plus the reserved value "none"; omitted means every workshop. It narrows BOTH halves of the
+    # matrix — which artisans are rows, and which interviews count towards a cell — because a matrix
+    # that scoped only one of the two would show a workshop's artisans against every interview they
+    # have ever sat in, which is precisely the confusion the control exists to remove.
+    workshopIds: list[str] | None = Query(None),
     _: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Completion matrix: artisans (rows) x active sections (columns). Each populated cell carries the
     data-derived completion flag and any admin override (COMPLETED/NEEDS_REVIEW/NEEDS_REDO). Pass
-    ``artisanId`` to scope it to a single artisan (the per-artisan View Data view)."""
+    ``artisanId`` to scope it to a single artisan (the per-artisan View Data view), and/or
+    ``workshopIds`` to scope it to one or more workshops."""
     # Four independent questions — which sections are active, which artisans are in scope, what the
     # data says is recorded, and what an admin has overridden — asked in one wave instead of one
     # after the other. The matrix was ten sequential cross-region round trips, and it is the first
     # thing the View Data screen loads.
     status_where = {"artisanId": artisanId} if artisanId else {}
+    artisan_where: dict[str, Any] = {"id": artisanId} if artisanId else {}
+
+    # WHICH ARTISANS ARE ROWS, under a workshop scope. An artisan belongs to a workshop two ways and
+    # both count: the ``workshopId`` column on the artisan record, and the WorkshopArtisan roster that
+    # carried the link before that column existed — the same OR ``GET /artisans?workshopId=`` uses. An
+    # artisan who merely SAT IN an interview at the workshop counts too, because that is what makes
+    # them a row worth checking; without it a workshop whose roster was never filled in would show an
+    # empty matrix while its interviews sat right there.
+    resolved_workshops = resolve_workshop_ids(workshopIds)
+    if resolved_workshops is not None:
+        artisan_where.setdefault("AND", []).append(
+            artisan_workshop_clause(*resolved_workshops)
+        )
+
     sections, artisan_rows, derived, overrides = await gather_reads(
         db.questionnairesection.find_many(where={"isActive": True}, order={"sortOrder": "asc"}),
-        db.artisan.find_many(
-            where={"id": artisanId} if artisanId else {}, order={"name": "asc"}
-        ),
-        _derived_completed_sections(artisanId),
+        db.artisan.find_many(where=artisan_where, order={"name": "asc"}),
+        _derived_completed_sections(artisanId, workshopIds),
         db.questionnairesectionstatus.find_many(where=status_where, include={"setBy": True}),
     )
     if artisanId and not artisan_rows:
@@ -866,8 +917,10 @@ async def update_interview(
 # literal /artisans.
 
 
-async def _consolidated_or_404(artisan_id: str, current_user: Any) -> dict[str, Any]:
-    payload = await consolidate_for_artisan(artisan_id, current_user)
+async def _consolidated_or_404(
+    artisan_id: str, current_user: Any, workshop_ids: list[str] | None = None
+) -> dict[str, Any]:
+    payload = await consolidate_for_artisan(artisan_id, current_user, workshop_ids)
     if payload is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
     return payload
@@ -875,7 +928,11 @@ async def _consolidated_or_404(artisan_id: str, current_user: Any) -> dict[str, 
 
 @router.get("/artisans/{artisan_id}/consolidated")
 async def consolidated_questionnaire(
-    artisan_id: str, current_user: Any = Depends(get_current_user)
+    artisan_id: str,
+    # The workshop scope, from the shared filter vocabulary. Omitted means every interview this
+    # artisan belongs to, which is the document's original meaning and stays the default.
+    workshopIds: list[str] | None = Query(None),
+    current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     """This artisan's answers from every interview they belong to, as one ordered document.
 
@@ -885,28 +942,53 @@ async def consolidated_questionnaire(
     newest first, with ``conflict`` set. See services/questionnaire_consolidation for why nothing here
     picks a winner and why a group sitting's answers are not attributed to one person.
 
+    Pass ``workshopIds`` to read the document as it stands FOR THOSE WORKSHOPS. The whole document is
+    recomputed over the narrowed interview set — summary counts, conflict flags and sources alike —
+    rather than being filtered after the fact, because a disagreement between two workshops is not a
+    disagreement within one of them.
+
     The stored one-interview-per-artisan-SET rule is untouched: this reads, it never merges.
     """
-    return await _consolidated_or_404(artisan_id, current_user)
+    return await _consolidated_or_404(artisan_id, current_user, workshopIds)
 
 
 @router.get("/artisans/{artisan_id}/consolidated.csv")
 async def consolidated_questionnaire_csv(
-    artisan_id: str, current_user: Any = Depends(get_current_user)
+    artisan_id: str,
+    workshopIds: list[str] | None = Query(None),
+    current_user: Any = Depends(get_current_user),
 ) -> Response:
     """The same document as a CSV — the artifact a researcher cites.
 
-    Deliberately NOT behind the dataset-download permission that /export/*.csv requires. Those are
-    whole-table dumps, which is what that gate is for; this returns exactly the rows the JSON endpoint
-    above already returned to this same caller, through the same ``visibility_where`` predicate, so it
-    conveys no access the caller did not already have. Gating it would only mean the researchers who
-    can read the document cannot cite it.
+    GATED, and it did not used to be. The old justification was that this "returns exactly the rows
+    the JSON endpoint already returned to this same caller", which was true while READING was itself
+    owner-scoped: whoever could open the document could already have transcribed it. Reading is open
+    now (``records.viewable_where``), and the repository's rule is that everybody may LOOK at every
+    record while taking data out stays earned. A CSV is taking data out — it is the file, not the view
+    — so the entitlement is checked here rather than inherited from the page beside it.
+
+    The check is ``owner_download_scope`` against the ARTISAN'S OWNER, not the blanket
+    dataset-download permission that /export/*.csv uses. Those are whole-table dumps and deserve the
+    blunter gate; this is one artisan's document, so the right question is "may you download THIS
+    researcher's data" — which is yes for an admin, for a global dataset downloader, for the
+    researcher who recorded the artisan, and for anyone holding a DOWNLOAD+ grant from them. A subset
+    grant that does not name this artisan is a 403, and so is no grant at all.
 
     One row per ANSWER, not per question, because that is what keeps a conflict legible in a
     spreadsheet: the two competing answers are two rows sharing a question, each with its own
     interview and date, rather than one cell with both crammed in.
     """
-    payload = await _consolidated_or_404(artisan_id, current_user)
+    artisan = await require_record(db.artisan, artisan_id)
+    scope = await owner_download_scope(current_user, get_value(artisan, "createdById"))
+    # ``None`` means "all of that owner's data". A subset grant has to actually name this artisan;
+    # otherwise the caller holds a download right over some other record entirely.
+    if scope is not None and artisan_id not in scope.get("artisans", set()):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your download access to this researcher's data does not cover this artisan. "
+            "You can still read the consolidated questionnaire on screen.",
+        )
+    payload = await _consolidated_or_404(artisan_id, current_user, workshopIds)
     output = StringIO()
     writer = csv.writer(output)
     writer.writerow(CSV_COLUMNS)

@@ -17,7 +17,8 @@ import kotlin.math.pow
 import kotlin.math.tan
 
 /*
- * The national outline the map screen draws, and the projection every pin shares with it.
+ * The national outline the map screen draws, the interior borders drawn inside it, and the projection
+ * every pin shares with both.
  *
  * WHY A BAKED OUTLINE AND NOT A MAP SDK. Google Maps, Mapbox and every OSM tile SDK draw their own
  * boundary for Jammu & Kashmir, which is the one thing this screen may not get wrong — depicting
@@ -35,32 +36,68 @@ import kotlin.math.tan
  * Aksai Chin, Gilgit-Baltistan, Muzaffarabad, Arunachal Pradesh and Srinagar all INSIDE; Lhasa and
  * Karachi OUTSIDE. Re-run those seven if this file is ever regenerated.
  *
+ * PROVENANCE OF res/raw/state_borders.bin AND res/raw/district_borders.bin. Built by
+ * `scripts/build_boundaries.py` — read its module docstring before touching either file. In short: a
+ * district source is decomposed by an undirected edge tally, so an edge shared by two districts of
+ * DIFFERENT states is a state border, one shared by two districts of the SAME state is a district
+ * border, and an edge appearing once is the coast or the international frontier and is DROPPED,
+ * because the outline above already draws it. That is what makes every interior border ship exactly
+ * once (as polygons, 86.4% of the source's edges would be shipped twice) and what makes the national
+ * boundary identical at all three detail levels by construction. 81 polylines / 25,764 bytes for the
+ * states, 972 polylines / 81,808 bytes for the districts.
+ *
+ * TWO THINGS THE BORDER FILES ARE NOT. They are not rings — see [buildBorderPath] for what closing
+ * them would draw. And they are not authoritative about the national frontier: measured against
+ * `india-osm.geojson`, the district source's outer extent differs by up to ~0.02 degrees (~2 km), so
+ * MapScreen clips every border layer to the outline rather than trusting two datasets to agree.
+ *
  * NOT to be confused with `MapPickerDialog` in FieldComponents.kt, which is a WebView over live OSM
  * raster tiles. That one is for CAPTURING a coordinate while online during data entry, where OSM's
  * own boundary is a rendering detail of a scratch pad. This one is the repository's own depiction of
  * the country, and is read-only and offline.
  */
 
-/** File header: magic, four float64 bounds, int32 ring count. */
+/** File header: magic, four float64 bounds, int32 record count. Same for all three IND1 assets. */
 private const val OUTLINE_MAGIC = 0x494E4431 // "IND1"
 
-/** Rings are stored on a uint16 grid spanning the bounds, so a coordinate is two bytes per axis. */
+/** Records are stored on a uint16 grid spanning the bounds, so a coordinate is two bytes per axis. */
 private const val QUANT_MAX = 65535.0
 
 /**
- * The outline in a projected, unit-width space, plus the projection that put it there.
+ * One IND1 asset in a projected, unit-width space, plus the projection that put it there.
  *
  * World space is Web Mercator normalised so that x runs 0..1 across the country's longitude span and
  * y uses THE SAME scale (so it runs 0..[aspect], downward). Equal scaling on both axes is what keeps
  * the shape conformal: pins and coastline are placed by one function, so a pin cannot drift off the
  * land it belongs to at any zoom.
+ *
+ * ALL THREE ASSETS DECLARE EFFECTIVELY THE SAME BOUNDS, which is why MapScreen can draw all of them
+ * under one translate and one scale. Not bit-identical, and it is worth knowing by how much: the
+ * outline's header carries the source's raw extent (68.2056009..97.395561 E, 6.7559971..37.084107 N)
+ * while the border files carry it rounded to the three decimal places their build quantises to
+ * (68.206..97.394, 6.756..37.082). Each file's own bounds are used to un-quantise its own grid, so the
+ * recovered longitude and latitude are right either way; the only residue is that a border's world
+ * space is scaled and offset from the outline's by ~7e-5 of the country's width. Measured at the
+ * extremes that is under 0.06 px on a 1000 px-wide canvas — a twentieth of the hairline the frontier
+ * is stroked with — and at the coast, where it would be visible if it were anything, MapScreen's clip
+ * to the outline absorbs it. Do not "fix" it by reprojecting borders through the outline's bounds
+ * unless that number grows: it would make loading a border depend on the outline already being read.
+ *
+ * Two more things follow from sharing the class. [rings] holds RINGS for the outline and
+ * OPEN POLYLINES for the two border files, so which builder walks it is not interchangeable
+ * ([buildOutlinePath] vs [buildBorderPath]). And [aspect] is only the COUNTRY's proportion when this
+ * is the outline: the border files contain no coastline, so their lowest point is not Indira Point and
+ * their aspect is not the canvas's. MapScreen sizes its frame from the outline alone.
  */
 class IndiaGeometry internal constructor(
-    /** Interleaved x,y world coordinates, one array per ring, largest ring first. */
+    /**
+     * Interleaved x,y world coordinates, one array per record, in file order — which is largest ring
+     * first for the outline and unordered for the border files, since nothing that draws them cares.
+     */
     internal val rings: List<FloatArray>,
-    /** Per-ring bounds in world space, so a whole ring can be culled or dotted without walking it. */
+    /** Per-record bounds in world space, so a whole record can be culled or dotted without walking it. */
     internal val ringBounds: List<Rect>,
-    /** Height of the country in world units; width is 1 by construction. */
+    /** Height of this geometry in world units; the country's width is 1 by construction. */
     val aspect: Float,
     private val minLon: Double,
     private val maxLon: Double,
@@ -102,10 +139,49 @@ fun haversineMetres(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Dou
     return 2 * r * kotlin.math.asin(min(1.0, kotlin.math.sqrt(a)))
 }
 
-/** Parses res/raw/india_outline.bin. Call off the main thread; it allocates ~12k points. */
-fun loadIndiaGeometry(context: Context): IndiaGeometry {
-    DataInputStream(context.resources.openRawResource(R.raw.india_outline).buffered()).use { input ->
-        require(input.readInt() == OUTLINE_MAGIC) { "india_outline.bin: bad magic" }
+/**
+ * Parses res/raw/india_outline.bin — 308 rings, 11,649 points. Call off the main thread.
+ *
+ * The signature is unchanged on purpose: MapScreen calls this, and the outline is the one geometry
+ * that must load whatever detail level is selected, because it is both the national boundary and the
+ * clip every border layer is drawn inside.
+ */
+fun loadIndiaGeometry(context: Context): IndiaGeometry =
+    loadIndGeometry(context, R.raw.india_outline)
+
+/**
+ * Parses res/raw/state_borders.bin — 81 open polylines, 6,350 points, 25,764 bytes. Call off the main
+ * thread.
+ *
+ * Draw with [buildBorderPath], never [buildOutlinePath]. These are interior borders only: the coast
+ * and the international frontier were dropped at build time because the outline already draws them.
+ */
+fun loadStateBorders(context: Context): IndiaGeometry =
+    loadIndGeometry(context, R.raw.state_borders)
+
+/**
+ * Parses res/raw/district_borders.bin — 972 open polylines, 19,470 points, 81,808 bytes. Call off the
+ * main thread, and only when the DISTRICT level is actually wanted: this is the largest of the three
+ * assets and the other two levels never draw it.
+ *
+ * Draw with [buildBorderPath], never [buildOutlinePath].
+ */
+fun loadDistrictBorders(context: Context): IndiaGeometry =
+    loadIndGeometry(context, R.raw.district_borders)
+
+/**
+ * The one IND1 reader. Shared by all three assets because the format is one format — magic, four
+ * float64 bounds, an int32 record count, then per record an int32 length and that many uint16 x/y
+ * pairs on a grid spanning the bounds — and a second copy of this loop is a second place for the
+ * quantisation to be got subtly wrong.
+ *
+ * It does not know or care whether the records are closed rings or open polylines: that distinction
+ * belongs to the DRAWING, and the two builders below are what carry it.
+ */
+private fun loadIndGeometry(context: Context, resourceId: Int): IndiaGeometry {
+    val name = runCatching { context.resources.getResourceEntryName(resourceId) }.getOrNull() ?: "IND1"
+    DataInputStream(context.resources.openRawResource(resourceId).buffered()).use { input ->
+        require(input.readInt() == OUTLINE_MAGIC) { "$name.bin: bad magic" }
         val minLon = input.readDouble()
         val maxLon = input.readDouble()
         val minLat = input.readDouble()
@@ -181,6 +257,9 @@ fun outlineBucketScale(scale: Float): Float {
  * Island rescue: a ring smaller than [MIN_ISLAND_PX] is emitted as a small square instead of its
  * true shape. Lakshadweep and the Nicobars are sub-pixel at national zoom and a degenerate subpath
  * renders as nothing at all — which would quietly drop island territory from the map of the country.
+ *
+ * FOR RINGS ONLY. The two border assets are open polylines; [buildBorderPath] draws those, and its
+ * doc says what each of the two behaviours above would do to one.
  */
 fun buildOutlinePath(geometry: IndiaGeometry, bucketScale: Float): Path {
     val path = Path()
@@ -237,6 +316,68 @@ fun buildOutlinePath(geometry: IndiaGeometry, bucketScale: Float): Path {
             }
             path.close()
         }
+    }
+    return path
+}
+
+/**
+ * The interior borders as one [Path] in pixels at [bucketScale] — state or district, whichever
+ * geometry is handed in. Stroke it; there is nothing here to fill.
+ *
+ * SHARES THE DECIMATION, DELIBERATELY DIFFERS ON EVERYTHING ELSE. The same [MIN_STEP_PX] rule as
+ * [buildOutlinePath], for the same reason and once per bucket rather than per frame — but the records
+ * in the border files are OPEN POLYLINES, not rings, and the two things [buildOutlinePath] does to a
+ * ring are both wrong for a polyline:
+ *
+ *   NO close(). A ring's last point is its first, so closing it costs nothing; a border's two ends are
+ *   two different places on the map. Closing the Rajasthan/Gujarat border would draw a straight line
+ *   from the Kutch coast back up to the Punjab tri-point, straight across the interior of India — a
+ *   line no border follows, laid over three other states, and indistinguishable at a glance from a
+ *   real border. Every one of the 81 state and 972 district polylines would grow one such line.
+ *
+ *   NO MIN_ISLAND_PX SQUARE. That substitution exists so Lakshadweep and the Nicobars cannot vanish:
+ *   an island is a TERRITORY, and drawing it a pixel too big is honest where drawing nothing is not.
+ *   A border segment is not a territory — it is a shared edge whose neighbours on both sides are
+ *   already drawn — so a sub-pixel one carries no information that is lost by omitting it, while a
+ *   1.6px box floating in the middle of Madhya Pradesh reads as a place the map is marking. A polyline
+ *   that decimates to fewer than two emitted points is therefore SKIPPED: the `moveTo` is deferred
+ *   until a second point survives, so a skipped polyline leaves no dangling subpath behind either.
+ */
+fun buildBorderPath(geometry: IndiaGeometry, bucketScale: Float): Path {
+    val path = Path()
+    val minStep = MIN_STEP_PX
+    for (index in geometry.rings.indices) {
+        val line = geometry.rings[index]
+        if (line.size < 4) continue // A one-point "border" is nothing to draw a line between.
+        var startX = 0f
+        var startY = 0f
+        var lastX = 0f
+        var lastY = 0f
+        var haveStart = false
+        var started = false
+        var i = 0
+        while (i < line.size) {
+            val x = line[i] * bucketScale
+            val y = line[i + 1] * bucketScale
+            if (!haveStart) {
+                startX = x
+                startY = y
+                lastX = x
+                lastY = y
+                haveStart = true
+            } else if (abs(x - lastX) + abs(y - lastY) >= minStep) {
+                if (!started) {
+                    path.moveTo(startX, startY)
+                    started = true
+                }
+                path.lineTo(x, y)
+                lastX = x
+                lastY = y
+            }
+            i += 2
+        }
+        // No close(): see above. A polyline where `started` stayed false emitted nothing at all, which
+        // is the intended outcome for a border shorter than a pixel.
     }
     return path
 }

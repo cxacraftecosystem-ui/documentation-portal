@@ -85,7 +85,13 @@ import java.util.TimeZone
  *
  *   ARTISAN LOCATION — state, district, village, and an optional pin. A STATEMENT BY THE
  *   RESEARCHER about the person being documented. This is what the map, the exports and the dataset
- *   use. A device reading never writes to it and never silently corrects it.
+ *   use. TWO ACTS may fill it in, and the difference between them is the rule the whole file turns
+ *   on. PINNING THE ARTISAN'S PLACE overwrites the state, district and pincode, because pointing at
+ *   a place on a map IS a statement about that place and asking somebody to confirm their own
+ *   action twice is friction that gets tapped through rather than read. A GPS FIX ARRIVING BY
+ *   ITSELF fills only the boxes that are still empty and offers the rest, because the device is
+ *   very often at a desk in another state from the artisan. Both announce what they wrote, by name,
+ *   with one control that puts back exactly what was there. Nothing here is written silently.
  *
  *   CAPTURED AT — coordinates, accuracy radius, timestamp. Provenance, collapsed by default,
  *   automatic. It says where the phone was, it is labelled as saying that, and it is never
@@ -334,10 +340,26 @@ private fun districtOptions(
  * strength of an error term. A blank box is honest; a district that arrived by itself reads as
  * measured fact and gets exported as one.
  *
+ * WHAT THE LIMIT GOVERNS NOW THAT A POINT CAN WRITE. Both halves, and it must not be softened at
+ * either: above the line a fix neither WRITES nor OFFERS. A one-tap "yes" to a district picked out
+ * of a 2.5 km circle is exactly as wrong as writing it in silently, and rather easier to tap. The
+ * coordinates themselves are still kept, with their radius — a rough position beats none — and the
+ * card says in words why no address came with them.
+ *
  * The same 1000 m, for the same physical reason, as the web card and as
  * [SATELLITE_FIX_LIMIT_METRES] in LocationCapture.kt.
  */
 private const val GEOCODE_ACCURACY_LIMIT_METRES = 1000.0
+
+/**
+ * How long a new point waits before it is looked up.
+ *
+ * Two unrelated reasons, both real. Typing a coordinate by hand re-emits on every keystroke and each
+ * emit is a different point, so this keeps it to one lookup per place rather than one per digit. And
+ * on the pin path it guarantees the pin's own write has been committed before the address write reads
+ * the boxes back. Invisible next to the geocoder's own round trip either way.
+ */
+private const val LOOKUP_DEBOUNCE_MS = 400L
 
 /** Trailing administrative words MapTiler and Android's geocoder disagree about attaching. */
 private val DISTRICT_SUFFIXES = listOf("district", "districts", "zila", "zilla", "jila", "jilla")
@@ -398,6 +420,88 @@ private data class PlaceSuggestion(
 }
 
 /**
+ * The three boxes a point is allowed to fill, named so a write can say which ones it touched.
+ *
+ * The village is deliberately absent. No closed list of Indian villages exists, so there is nothing
+ * to resolve a geocoded settlement name against — and `locality` names a tehsil, a bypass or a
+ * national highway often enough that a village taken from it is wrong more often than it is right.
+ */
+private enum class PlaceField(val label: String) {
+    State("state"),
+    District("district"),
+    Pincode("pincode")
+}
+
+/**
+ * "state, district and pincode" — the boxes a write touched, as a sentence.
+ *
+ * Named rather than counted. "3 fields were filled in" sends the researcher hunting for them; naming
+ * them says where to look, which is the whole value of announcing the write at all. Same sentence,
+ * built the same way, as `FIELD_NAMES` in the web card.
+ */
+private fun fieldNames(fields: List<PlaceField>): String = when (fields.size) {
+    0 -> ""
+    1 -> fields.first().label
+    else -> fields.dropLast(1).joinToString(", ") { it.label } + " and " + fields.last().label
+}
+
+/**
+ * Why a point is being looked up, and therefore what its answer is allowed to do to the boxes.
+ *
+ * The two are not a preference and not a setting; they are two different human acts, and the whole
+ * of the difference between them is enforced in `applyPlace`.
+ */
+private enum class PlaceIntent {
+    /**
+     * The researcher pointed at the artisan's place, or accepted an offer. A request for THIS
+     * place's address, so it overwrites — a blank pincode included.
+     */
+    Explicit,
+
+    /**
+     * A fix arrived by itself, or the device's own position was captured. Fills empty boxes and
+     * overwrites nothing.
+     */
+    Passive
+}
+
+/**
+ * One automatic write, kept so it can be announced and taken back.
+ *
+ * [previous] is the point of it. An "undo" that CLEARED the boxes instead of restoring them would
+ * destroy a typed answer just as thoroughly as the silent overwrite this replaces, so what was there
+ * is snapshotted at the moment of the write and put back verbatim.
+ */
+private data class AppliedWrite(
+    val fields: List<PlaceField>,
+    val previous: PlaceSuggestion,
+    val intent: PlaceIntent
+)
+
+/**
+ * The three geocodable answers as the boxes currently hold them.
+ *
+ * [PlaceSuggestion] doubles as this snapshot rather than earning a near-identical twin: it is
+ * already exactly these three values, and every comparison in the write path is "what is in the box
+ * against what the point says", which wants both sides in one shape.
+ */
+private fun StatedPlace.geocodable(): PlaceSuggestion = PlaceSuggestion(state, district, pincode)
+
+/**
+ * The record of what this card wrote, updated for one write of [fields] to [values].
+ *
+ * Fields the write did not touch keep whatever they were credited with before — which is what lets a
+ * researcher's own answer in one box sit beside a machine-filled one in the next without either
+ * being mistaken for the other. Undo passes an empty [values]: a restored box holds a human's value
+ * again, so this card is no longer the author of it.
+ */
+private fun PlaceSuggestion.crediting(fields: List<PlaceField>, values: PlaceSuggestion) = PlaceSuggestion(
+    state = if (PlaceField.State in fields) values.state else state,
+    district = if (PlaceField.District in fields) values.district else district,
+    pincode = if (PlaceField.Pincode in fields) values.pincode else pincode
+)
+
+/**
  * Ask the device's geocoder what is at these coordinates.
  *
  * `adminArea` is the state and `subAdminArea` is the DISTRICT — the Android equivalent of
@@ -422,21 +526,33 @@ private suspend fun geocode(context: Context, lat: Double, lng: Double): Triple<
     }
 
 /**
+ * The accuracy radius when it is too wide for a point to be allowed to name a place, or null when
+ * the point may be looked up.
+ *
+ * A HAND-PLACED PIN PASSES NULL AND IS EXEMPT, and that is not a loophole in the guard: the
+ * researcher pointed at the place, and a pointer has no error radius to disqualify it. What the
+ * limit disqualifies is a MEASUREMENT that admits to being kilometres wide.
+ */
+private fun coarseRadius(accuracy: Double?): Double? =
+    accuracy?.takeIf { it > GEOCODE_ACCURACY_LIMIT_METRES }
+
+/**
  * The suggestion for a point, or an empty one when the point is too coarse to have an address.
  *
- * A fix wider than [GEOCODE_ACCURACY_LIMIT_METRES] is not looked up at all, and returns the empty
- * suggestion rather than null — so a coarse fix CLEARS a previous point's machine-filled answers
- * instead of leaving them behind. That is the same rule as "the geocoder had nothing", because
- * physically it is the same situation: nothing is known about where this is.
+ * A fix wider than [GEOCODE_ACCURACY_LIMIT_METRES] is not looked up at all. The caller checks the
+ * radius too, so it can say why nothing appeared; the check is repeated here because the rule is the
+ * one thing in this file that may not be softened, and a guard that lives only at the call site is a
+ * guard the next call site forgets.
  */
 private suspend fun suggestPlaceFor(
     context: Context,
-    location: LocationRequest,
+    lat: Double,
+    lng: Double,
+    accuracy: Double?,
     reference: AddressReferenceDto
 ): PlaceSuggestion {
-    val metres = location.accuracy
-    if (metres != null && metres > GEOCODE_ACCURACY_LIMIT_METRES) return PlaceSuggestion()
-    val (adminArea, subAdminArea, postal) = geocode(context, location.latitude, location.longitude)
+    if (coarseRadius(accuracy) != null) return PlaceSuggestion()
+    val (adminArea, subAdminArea, postal) = geocode(context, lat, lng)
     val served = reference.statesAndUnionTerritories.ifEmpty { reference.states }
     val state = adminArea?.let { matchIndianState(it, served) }.orEmpty()
     val district = if (state.isBlank()) {
@@ -570,6 +686,12 @@ fun artisanLocationRequirementError(value: LocationRequest?): String? {
  * before there is one the four artisan answers are parked in [StatedPlace] and folded in the moment
  * a fix or a pin arrives — and the card says so, because four answers that silently do not save is
  * the worst version of this.
+ *
+ * WHICH PATH IS WHICH, because everything below reads better with the two named. The artisan's own
+ * MapPickerDialog at the bottom of this function is the EXPLICIT path: it writes the state, district
+ * and pincode of the point the researcher tapped, over whatever was there. Everything arriving
+ * through [LocationCaptureCard] — the fix taken on open, "Use current GPS", the capture pin, typed
+ * coordinates — is the PASSIVE path: it fills empty boxes only, and offers the rest.
  */
 @Composable
 fun LocationFieldsSection(
@@ -603,23 +725,44 @@ fun LocationFieldsSection(
     var pincodeProblemShown by remember { mutableStateOf(false) }
     var showArtisanMap by remember { mutableStateOf(false) }
     /*
-     * What this card last WROTE into the three boxes, on the researcher's instruction, and the
-     * whole of how "suggest, never overwrite" is decided. Anything in a box that is not this came
-     * from a human — typed here, or stored on the record and loaded after mount — and a later
-     * suggestion leaves it alone even when the researcher accepts that suggestion. Recording what
-     * was applied, rather than a "the user touched it" flag, is what makes both halves work at
-     * once: a second point can still replace the first point's answer, an edit form's stored
-     * answers are protected without this composable knowing when the record finished loading, and
-     * emptying a field by hand hands it back to the geocoder.
+     * What this card last WROTE into the three boxes, and the only thing afterwards that can tell a
+     * machine-filled answer from one a human gave.
+     *
+     * It is no longer what decides whether a write may happen — the passive path asks whether a box
+     * is EMPTY, which is both a stricter question and a simpler one. What still needs this is the
+     * case where a LATER point has nothing to say: the values standing in the boxes then describe
+     * the point BEFORE it, and only the ones this card copied in may be offered for clearing.
+     * Recording the VALUES rather than a "the user touched it" flag is what makes that survive a
+     * record that loads after mount, and hands a box back to the geocoder when a researcher empties
+     * it by hand.
      */
     var applied by remember { mutableStateOf(PlaceSuggestion()) }
     /*
-     * The geocoder's reading of the current point, waiting to be accepted or waved away.
+     * WHAT WAS JUST FILLED IN FOR THE RESEARCHER, AND WHAT IT REPLACED.
      *
-     * IT IS NOT WRITTEN ANYWHERE UNTIL SOMEBODY TAPS. That is the whole difference between this and
-     * what produced the fifteen wrong records: a device reading may propose where the artisan is,
-     * and only a researcher may say so. On site it is one tap; at a desk in Kharagpur it is
-     * correctly declined, and declining it costs nothing and leaves nothing behind.
+     * An automatic write with no visible trace is exactly the bug the offer below was built to avoid
+     * — a Bagru pincode saved onto a Dehradun record, because 95% of rural points return no postal
+     * code and the stale value survived. So the write is loud instead of silent: this drives a notice
+     * naming every box that changed, and one Undo that puts back precisely what was there.
+     *
+     * Cleared when a human edits any of the three boxes (see `setPlace`), and NOT cleared merely
+     * because another lookup went out — which is where this deliberately parts company with the web
+     * card. The live fix streams an update a second, so clearing the announcement at request time
+     * would erase the Undo for a pin the researcher dropped a moment ago, on a lookup that is not
+     * allowed to write anything anyway.
+     */
+    var autofill by remember { mutableStateOf<AppliedWrite?>(null) }
+    /** The radius of the last fix that was too coarse to name a place, for the notice saying so. */
+    var coarseFixMetres by remember { mutableStateOf<Double?>(null) }
+    /*
+     * The geocoder's reading of the current DEVICE point, for the parts of it the passive path was
+     * not allowed to write, waiting to be accepted or waved away.
+     *
+     * IT IS NOT WRITTEN ANYWHERE UNTIL SOMEBODY TAPS. That is what separates the passive path from
+     * what produced the fifteen wrong records: a device reading may fill a box that is EMPTY, but it
+     * may not replace an answer a researcher gave, so what it would have said is put on the table
+     * instead. On site that is one tap; at a desk in Kharagpur it is correctly declined, and
+     * declining it costs nothing and leaves nothing behind.
      */
     var offer by remember { mutableStateOf<PlaceSuggestion?>(null) }
     var offerPoint by remember { mutableStateOf<Pair<Double, Double>?>(null) }
@@ -637,6 +780,8 @@ fun LocationFieldsSection(
     var appliedNowStale by remember { mutableStateOf(false) }
     val latest = rememberUpdatedState(value)
     val lookup = remember { mutableStateOf<Job?>(null) }
+    /** What the in-flight lookup is for, so a passive one cannot cancel an explicit one. */
+    var lookupIntent by remember { mutableStateOf(PlaceIntent.Passive) }
     // The state the CURRENT coordinate is really in, when the geocoder can say and the answer is
     // worth showing. Read only — see the effect below.
     var coordinateState by remember { mutableStateOf("") }
@@ -662,6 +807,16 @@ fun LocationFieldsSection(
     fun setPlace(next: StatedPlace) {
         // A human has just had their say about these boxes, so there is nothing left to warn about.
         appliedNowStale = false
+        /*
+         * And nothing left to offer taking back, either. Once a researcher has edited one of the
+         * three boxes, an Undo restoring the snapshot from before the write would overwrite the edit
+         * they just made — a second silent overwrite, wearing the hat of the control that exists to
+         * prevent the first. The announcement goes rather than half of it being honoured.
+         *
+         * `applyPlace` and `undoAutofill` both write through here and then set this themselves,
+         * which is why clearing it unconditionally is safe.
+         */
+        autofill = null
         val current = latest.value
         if (current == null) parked = next else onChange(current.withStatedPlace(next))
     }
@@ -693,79 +848,250 @@ fun LocationFieldsSection(
         )
     }
 
-    /** Look up a NEW point and put the answer on the table. Nothing is written by this. */
-    fun suggestFor(placed: LocationRequest) {
-        lookup.value?.cancel()
+    /**
+     * Write a point's address into the three boxes it is allowed to touch, and report what changed.
+     *
+     * [intent] IS THE WHOLE DIFFERENCE, and it is not a preference:
+     *
+     *   * EXPLICIT — the researcher has just pointed at the artisan's place, or tapped "Use …" on an
+     *     offer. That is a request for THIS place's address, so every box is written, INCLUDING with
+     *     a BLANK pincode. Leaving the previous point's PIN standing under this point's coordinates
+     *     is exactly how a Bagru pincode ended up on a Dehradun record, and 57 of 60 sampled rural
+     *     Indian points carry no postal code at all — so "no answer" is the ORDINARY answer here and
+     *     reading it as "leave what is there" is the staleness bug itself, not a kindness.
+     *   * PASSIVE — a fix arrived by itself, or the device's own position was captured. Only EMPTY
+     *     boxes are filled and nothing is ever overwritten. A researcher at a desk in Kharagpur
+     *     documenting a Bagru artisan must not have "Rajasthan" replaced by "West Bengal", and one
+     *     typing the district while the receiver warms must not have it replaced a second later by a
+     *     satellite.
+     *
+     * Returns what it wrote and what it replaced — with [AppliedWrite.fields] empty when the point
+     * had nothing to add — so the caller can offer the leftovers, and so the write can be announced
+     * and undone from one place rather than at each call site.
+     */
+    fun applyPlace(fresh: PlaceSuggestion, intent: PlaceIntent): AppliedWrite {
+        // Wherever the answers currently live: a pin can be dropped before any coordinate exists, in
+        // which case the boxes are the parked ones and there is no LocationRequest to read.
+        val held = latest.value?.statedPlace() ?: parked
+        val previous = held.geocodable()
+        val overwrite = intent == PlaceIntent.Explicit
+        val touched = mutableListOf<PlaceField>()
+        var next = held
+
+        if (fresh.state.isNotBlank() && fresh.state != previous.state &&
+            (overwrite || previous.state.isBlank())
+        ) {
+            next = next.copy(state = fresh.state)
+            touched += PlaceField.State
+        }
+        /*
+         * THE STATE GATES THE OTHER TWO, and it gates them differently.
+         *
+         * A DISTRICT NEEDS A POSITIVE MATCH. It is only meaningful inside its own state — Bilaspur
+         * belongs to two of them, which is why the API resolves a district WITHIN a state — so it may
+         * be written only when the state now standing in the box IS the state the geocoder resolved
+         * it in. `suggestPlaceFor` already refuses to resolve a district under a state that did not
+         * match the served list; this is the other half of the same rule, and on the passive path it
+         * is the half that does the work. A researcher at a desk in Kharagpur who has typed Rajasthan
+         * for a Bagru artisan must not have Paschim Medinipur dropped in underneath it: that pairing
+         * is one the API refuses and no export could interpret. It goes into the offer instead, where
+         * accepting it is an explicit act and replaces both halves at once.
+         *
+         * A PINCODE NEEDS ONLY NOT TO BE CONTRADICTED. A code is a code OF a state — the leading
+         * digit is the postal zone — so 721302 written under a typed "Rajasthan" is a contradiction
+         * the API's own zone check would then accuse the researcher of having made. But with no state
+         * in the box there is nothing to contradict, and the code is still this point's own answer,
+         * so a positive match is more than this needs.
+         */
+        val stateAgrees = fresh.state.isNotBlank() && next.state.equals(fresh.state, ignoreCase = true)
+        val district = if (stateAgrees) fresh.district else ""
+        val contradicted = next.state.isNotBlank() && fresh.state.isNotBlank() && !stateAgrees
+        val pincode = if (contradicted) "" else fresh.pincode
+
+        // Written even when BLANK on the explicit path: a district belonging to the point before this
+        // one is worse than no district, and the state above may have just changed underneath it.
+        if (district != previous.district && (overwrite || previous.district.isBlank()) &&
+            (district.isNotBlank() || overwrite)
+        ) {
+            next = next.copy(district = district)
+            touched += PlaceField.District
+        }
+        if (pincode != previous.pincode && (overwrite || previous.pincode.isBlank()) &&
+            (pincode.isNotBlank() || overwrite)
+        ) {
+            next = next.copy(pincode = pincode)
+            touched += PlaceField.Pincode
+        }
+
+        // `toList()` because this outlives the function: an AppliedWrite parked in composable state
+        // must not share a mutable list with the builder above it.
+        val write = AppliedWrite(fields = touched.toList(), previous = previous, intent = intent)
+        if (touched.isEmpty()) return write
+        applied = applied.crediting(touched, next.geocodable())
+        // A pincode this card wrote has not been abandoned half-typed by anybody, so the on-blur
+        // complaint must not fire over it — and a blank one it wrote is not a problem at all.
+        pincodeProblemShown = false
+        setPlace(next)
+        // AFTER setPlace, which drops any earlier announcement: this is the one that stands now.
+        autofill = write
+        return write
+    }
+
+    /** Put back exactly what was in the three boxes before the last automatic write. */
+    fun undoAutofill() {
+        val write = autofill ?: return
+        val held = latest.value?.statedPlace() ?: parked
+        // The restored values are a human's again, so this card is no longer their author.
+        applied = applied.crediting(write.fields, PlaceSuggestion())
+        setPlace(
+            held.copy(
+                state = write.previous.state,
+                district = write.previous.district,
+                pincode = write.previous.pincode
+            )
+        )
+    }
+
+    /**
+     * Look up what is at a point and hand the answer to [applyPlace].
+     *
+     * [accuracy] is the radius of the reading, and null for a hand-placed pin — which is what exempts
+     * a pin from the coarse-fix guard below. Pass the pin's own coordinates on the explicit path: the
+     * artisan's address is resolved from where the researcher said the ARTISAN is, never from where
+     * the device happens to be standing.
+     */
+    fun lookupPlace(lat: Double, lng: Double, accuracy: Double?, intent: PlaceIntent) {
+        /*
+         * AN EXPLICIT LOOKUP OUTRANKS A PASSIVE ONE. The live fix streams an update a second, so
+         * without this a pin dropped on the artisan's place would routinely have its lookup
+         * cancelled by a satellite update that is not allowed to write anything anyway — and the
+         * explicit path would then fail at random, which is the worst way for it to fail.
+         */
+        val running = lookup.value
+        val explicitInFlight = lookupIntent == PlaceIntent.Explicit && running?.isActive == true
+        if (intent == PlaceIntent.Passive && explicitInFlight) return
+        running?.cancel()
+        lookupIntent = intent
+        // The previous point's offer is off the table whatever happens next, and it is dropped when
+        // the request GOES OUT rather than when it comes back: the seconds a rural lookup takes are
+        // exactly when the last place's answer sits under this place's coordinates.
         offer = null
         offerPoint = null
+        coarseFixMetres = coarseRadius(accuracy)
+        // ABSOLUTE, AND NOT TO BE SOFTENED — see [GEOCODE_ACCURACY_LIMIT_METRES]. Above the line
+        // there is no write and no offer either, only the notice explaining the silence.
+        if (coarseFixMetres != null) return
+
         lookup.value = scope.launch {
-            // Typing a coordinate by hand re-emits on every keystroke and each emit is a different
-            // point; waiting out the typing keeps this to one lookup per place, not one per digit.
-            delay(400)
-            val fresh = suggestPlaceFor(context, placed, reference)
-            val current = latest.value ?: return@launch
-            // The researcher may have moved the pin again while the lookup ran; the newer point is
-            // the one that must survive, so an answer for an old point is dropped.
-            if (!sameCoordinate(placed, current)) return@launch
+            delay(LOOKUP_DEBOUNCE_MS)
+            val fresh = suggestPlaceFor(context, lat, lng, accuracy, reference)
+
+            /*
+             * The researcher may have moved on while the lookup ran, and the newer point is the one
+             * that must survive — so an answer about a point that is no longer the one in question
+             * is dropped rather than written. WHICH point that is differs by path: the explicit
+             * answer belongs to the artisan's pin and the passive one to the captured coordinate.
+             */
+            when (intent) {
+                PlaceIntent.Explicit -> {
+                    // The pin itself is the point in question, so the pin is what is checked — a
+                    // researcher who moved it again, or removed it, has retracted this question.
+                    val held = latest.value?.statedPlace() ?: parked
+                    if (held.pinLat != trimCoordinate(lat) || held.pinLng != trimCoordinate(lng)) {
+                        return@launch
+                    }
+                }
+
+                PlaceIntent.Passive -> {
+                    val current = latest.value ?: return@launch
+                    val looked = LocationRequest(latitude = lat, longitude = lng)
+                    if (!sameCoordinate(looked, current)) return@launch
+                }
+            }
+
             if (fresh.isEmpty) {
-                val held = current.statedPlace()
-                appliedNowStale = !applied.isEmpty && (
+                /*
+                 * NOTHING FOUND IS NOT NOTHING TO SAY — and it is deliberately NOT treated as "this
+                 * place has no address", which is the one shortcut that would undo the rest of this
+                 * function. A geocoder that is absent from the build, rate-limited, or simply offline
+                 * in a rural workshop returns exactly this, so blanking the boxes here would let a
+                 * dropped connection erase a researcher's typed answer.
+                 *
+                 * What is left is the third answer, and it needed to be a third one. The boxes still
+                 * hold what was copied in for the PREVIOUS point: keeping that silently is what put
+                 * Bagru's pincode on a Dehradun record, and clearing it silently would un-answer a
+                 * question a researcher answered. So the card says what happened and offers the
+                 * button, which is the only version where nobody guesses on anybody's behalf.
+                 */
+                val held = latest.value?.statedPlace() ?: parked
+                val stale = !applied.isEmpty && (
                     (applied.state.isNotBlank() && held.state == applied.state) ||
                         (applied.district.isNotBlank() && held.district == applied.district) ||
                         (applied.pincode.isNotBlank() && held.pincode == applied.pincode)
                     )
+                appliedNowStale = stale
+                // The warning describes the same values and carries its own control, so leaving the
+                // announcement of the write it supersedes would be a second story about one thing.
+                if (stale) autofill = null
+                if (intent == PlaceIntent.Explicit) {
+                    // The researcher asked a direct question by tapping the map and is owed an
+                    // answer even when the answer is "the map does not know".
+                    onMessage("The map has no address for that pin — set the state and district yourself.")
+                }
                 return@launch
             }
+
             appliedNowStale = false
-            offer = fresh
-            offerPoint = current.latitude to current.longitude
+            val write = applyPlace(fresh, intent)
+            // Everything was written on the explicit path, and the notice says which. There is
+            // nothing left to put on the table.
+            if (intent == PlaceIntent.Explicit) return@launch
+            /*
+             * PASSIVE ONLY. Whatever the fix could not fill — because a human had already answered
+             * it — is still worth OFFERING, so a disagreement between the device and the typed answer
+             * is visible rather than swallowed. Read against the write's own snapshot rather than the
+             * boxes: the write has only just gone out through `onChange` and `latest` does not catch
+             * up until the next composition.
+             */
+            val previous = write.previous
+            val leftOver = (fresh.state.isNotBlank() && fresh.state != previous.state &&
+                PlaceField.State !in write.fields) ||
+                (fresh.district.isNotBlank() && fresh.district != previous.district &&
+                    PlaceField.District !in write.fields) ||
+                (fresh.pincode.isNotBlank() && fresh.pincode != previous.pincode &&
+                    PlaceField.Pincode !in write.fields)
+            if (leftOver) {
+                offer = fresh
+                offerPoint = lat to lng
+            }
         }
     }
 
     /**
-     * Take the offer, field by field.
+     * Take the offer, whole.
      *
-     * THE BUG THIS FIXES, in full, because it is subtle and it was live on this client after being
-     * removed from the web:
+     * Tapping "Use Dehradun, Uttarakhand" is an EXPLICIT request for that place's address, so it
+     * overwrites — which is both what the words on the button promise and the only behaviour in which
+     * they are not a lie. The alternative shipped here until now: the accept path protected any box a
+     * human had answered, so a researcher who tapped "Use Dehradun, Uttarakhand" over a typed
+     * "Rajasthan" watched the button do nothing to the state.
      *
-     *     if (suggestedState.isBlank() && suggestedPincode.isBlank()) return@launch
-     *     val nextPincode = if (pincodeIsHuman || suggestedPincode.isBlank()) current.pincode
-     *                       else suggestedPincode
-     *
-     * Both lines read "the geocoder had no answer" as "leave what is there". Those are not the same
-     * statement. A researcher who fixes a mis-tapped pin from Bagru to Dehradun, and whose Dehradun
-     * point returns no postcode — which is what 95% of rural Indian points do — keeps Bagru's
-     * pincode, on a record that now says Uttarakhand, with nothing on screen saying anything
-     * happened. The value was machine-written, was believed, and had no way of announcing it was
-     * stale.
-     *
-     * Two sentences replace them. A field this card wrote is replaced by the new answer, INCLUDING
-     * when the new answer is nothing. A field a human wrote is never touched at all.
+     * INCLUDING THE PARTS THAT ARE EMPTY. A point with no postal code clears the pincode box rather
+     * than leaving the last point's six digits standing under this point's state, which is the
+     * original bug wearing its last available disguise. A typed pincode is lost when this is pressed
+     * and that is the right trade: the button is a request for a different place's address, a value
+     * from the place before it is not worth more than the one just asked for, and the box is one
+     * keystroke from being right — with the Undo beside it in the meantime.
      */
     fun acceptOffer(fresh: PlaceSuggestion) {
-        val current = latest.value ?: return
-        val held = current.statedPlace()
-        val stateIsHuman = held.state.isNotBlank() && held.state != applied.state
-        val districtIsHuman = held.district.isNotBlank() && held.district != applied.district
-        val pincodeIsHuman = held.pincode.isNotBlank() && held.pincode != applied.pincode
-        val next = held.copy(
-            state = if (stateIsHuman) held.state else fresh.state,
-            district = if (districtIsHuman) held.district else fresh.district,
-            pincode = if (pincodeIsHuman) held.pincode else fresh.pincode
-        )
-        applied = fresh
         offer = null
         offerPoint = null
-        appliedNowStale = false
-        pincodeProblemShown = false
-        if (next == held) return
-        onChange(current.withStatedPlace(next))
+        applyPlace(fresh, PlaceIntent.Explicit)
     }
 
     /** Drop only what this card copied in, leaving anything a human typed exactly where it is. */
     fun clearApplied() {
-        val current = latest.value ?: return
-        val held = current.statedPlace()
+        val held = latest.value?.statedPlace() ?: parked
         setPlace(
             held.copy(
                 state = if (held.state == applied.state) "" else held.state,
@@ -804,13 +1130,55 @@ fun LocationFieldsSection(
         // ----- Group one: the artisan's location -----
         GroupHeading(
             title = "Artisan location",
-            subtitle = "Where the artisan actually works. This is your statement about them — the " +
-                "GPS never fills it in and never changes it. It is what the map, the exports and " +
-                "the dataset use."
+            subtitle = "Where the artisan actually works — what the map, the exports and the " +
+                "dataset use. Pinning the artisan's place on the map fills in the state, district " +
+                "and pincode, and says so, so you can put it back. A GPS fix fills in only what is " +
+                "still blank, because the device is very often at a desk in another state from the " +
+                "artisan."
         )
 
         /*
-         * The offer. One tap to take it, one to wave it away, and nothing at all if it is ignored.
+         * WHAT WAS JUST WRITTEN, AND HOW TO UNDO IT.
+         *
+         * A form that fills itself in silently is the bug the offer below was built to avoid — a
+         * Bagru pincode saved onto a Dehradun record, because 95% of rural points return no postal
+         * code and the stale value survived with nothing on screen saying anything had happened.
+         * Filling boxes in automatically is fine; doing it invisibly is not. So every automatic write
+         * names the boxes it touched and offers exactly one button that restores what was there.
+         */
+        val written = autofill
+        if (written != null) {
+            // Which act wrote it, because the two mean different things to a reader: one is their own
+            // pin read back to them, the other is a machine that found some boxes empty.
+            val source = when (written.intent) {
+                PlaceIntent.Explicit -> "Filled in from the place you pointed at: "
+                PlaceIntent.Passive -> "Filled in from this device's location (only the boxes that " +
+                    "were empty): "
+            }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.field.surface100, RoundedCornerShape(12.dp))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    source + fieldNames(written.fields) + ". Check it, and change anything that is " +
+                        "wrong — you know this place and the geocoder does not.",
+                    color = MaterialTheme.field.body,
+                    fontSize = 12.sp
+                )
+                OutlinedButton(
+                    onClick = { undoAutofill() },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) { Text("Undo") }
+            }
+        }
+
+        /*
+         * The offer: what the PASSIVE path read off the device's own point and was not allowed to
+         * write, because a researcher had already answered those boxes. One tap to take it, one to
+         * wave it away, and nothing at all if it is ignored.
          *
          * It names the coordinate and the radius it was read from, because "is this where the
          * artisan is?" is not a question anybody can answer about an unnamed point — and being able
@@ -864,8 +1232,8 @@ fun LocationFieldsSection(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    "The coordinates moved, and the map has nothing to say about the new point — " +
-                        "which is the ordinary answer in rural India rather than a fault. The state, " +
+                    "The location moved, and the map has nothing to say about the new point — which " +
+                        "is the ordinary answer in rural India rather than a fault. The state, " +
                         "district and pincode below still describe the PREVIOUS point. Check them, " +
                         "or clear the ones that were copied in.",
                     color = MaterialTheme.field.onWarningContainer,
@@ -876,6 +1244,31 @@ fun LocationFieldsSection(
                     modifier = Modifier.heightIn(min = 48.dp)
                 ) { Text("Clear the copied answers") }
             }
+        }
+
+        /*
+         * THE COARSE FIX, NAMED, and the reason no address arrived with it.
+         *
+         * The coordinates ARE kept: dropping them would leave the record with no location at all over
+         * a radius nobody would otherwise have noticed, and a rough position beats none. What must not
+         * happen is a district arriving from a 2.5 km circle — silently, or with a one-tap Yes beside
+         * it, which is no better.
+         *
+         * Shown only while it explains something the researcher can see. With the state and the
+         * district both answered there was nothing for the fix to add in the first place, and the
+         * live stream would otherwise re-raise this every second it reported.
+         */
+        val coarse = coarseFixMetres
+        if (coarse != null && (place.state.isBlank() || place.district.isBlank())) {
+            GroupNotice(
+                warn = true,
+                text = "No address was read from this device's location: the fix is only accurate to " +
+                    "${radiusLabel(coarse)}, which is its network estimate of where it is rather " +
+                    "than a satellite reading, and a circle that wide covers more than one district. " +
+                    "The coordinates have been kept with their radius, so nothing is lost. Choose the " +
+                    "state and district below, or pin the artisan's place on the map — a pin has no " +
+                    "radius to be wrong about."
+            )
         }
 
         SearchableSelectField(
@@ -1138,8 +1531,17 @@ fun LocationFieldsSection(
             onChange = { next ->
                 val hadCoordinate = value != null
                 emitCoordinate(next)
-                // Only a NEW point is worth a lookup; retyping a decimal place is not.
-                if (next != null && (!hadCoordinate || !sameCoordinate(next, value))) suggestFor(next)
+                /*
+                 * THE PASSIVE PATH, all of it: the fix taken when the form opens, "Use current GPS",
+                 * the pin dropped on the capture map, and typed coordinates. Every one of them says
+                 * where the DEVICE is, which is why none of them may overwrite a statement about the
+                 * artisan — they fill what is blank and offer the rest.
+                 *
+                 * Only a NEW point is worth a lookup; retyping a decimal place is not.
+                 */
+                if (next != null && (!hadCoordinate || !sameCoordinate(next, value))) {
+                    lookupPlace(next.latitude, next.longitude, next.accuracy, PlaceIntent.Passive)
+                }
             },
             required = required,
             isEdit = isEdit,
@@ -1160,10 +1562,27 @@ fun LocationFieldsSection(
             initialLat = place.pinLat.toDoubleOrNull() ?: value?.latitude,
             initialLng = place.pinLng.toDoubleOrNull() ?: value?.longitude,
             onDismiss = { showArtisanMap = false },
+            /*
+             * THE EXPLICIT PATH, and the only one in this file that overwrites.
+             *
+             * The researcher has pointed at the artisan's place, on a map, deliberately. That is a
+             * direct assertion about where the artisan is, so the state, district and pincode of that
+             * point are written over whatever was there — asking them to then confirm the state and
+             * district implied by their own pin is a second question about one answer, and a second
+             * question about one answer gets tapped through rather than read.
+             *
+             * The write is announced and undoable (see `autofill`) because an automatic write nobody
+             * can see is how a Bagru pincode ended up on a Dehradun record. Announced and reversible
+             * is a different thing from silent.
+             *
+             * The pin carries no accuracy, so the coarse-fix guard does not apply and correctly does
+             * not: the researcher pointed at the place, and a pointer has no error radius.
+             */
             onPick = { lat, lng ->
                 setPlace(place.copy(pinLat = trimCoordinate(lat), pinLng = trimCoordinate(lng)))
                 onMessage("Artisan pin set: ${trimCoordinate(lat)}, ${trimCoordinate(lng)}")
                 showArtisanMap = false
+                lookupPlace(lat, lng, accuracy = null, intent = PlaceIntent.Explicit)
             }
         )
     }

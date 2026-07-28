@@ -40,8 +40,9 @@ from app.services.records import (
     contains,
     jsonify_metadata,
     media_relation_data,
+    media_url_owners,
     require_record,
-    visibility_where,
+    viewable_where,
 )
 from app.services.workshop_access import (
     enforce_workshop_submission,
@@ -64,6 +65,10 @@ from app.services.s3 import (
 MULTIPART_PART_SIZE = 16 * 1024 * 1024
 
 router = APIRouter(prefix="/media", tags=["media"])
+
+# "the caller did not say which uploaders' URLs may travel". Distinct from None, which MEANS "all of
+# them" — see ``records.public_encode``.
+_UNSET_URLS = object()
 
 INCLUDE = {
     "uploadedBy": True,
@@ -95,18 +100,31 @@ async def _interview_labels(rows: list[Any]) -> dict[str, tuple[str, str]]:
     return {i.id: interview_record(i) for i in interviews}
 
 
-async def _public(rows: Any, viewer: Any = None) -> Any:
+async def _public(rows: Any, viewer: Any = None, *, media_urls: Any = _UNSET_URLS) -> Any:
     """``public_encode`` plus the derived display name for every media row it carries.
 
     ``originalFilename`` stays exactly as uploaded — it is the only handle a researcher has for
     matching a file against their own copy — and ``displayFilename`` is added beside it: the same
     ``{RecordType}-{RecordName}-{Descriptor}-{stamp}`` name the data browser and the export use, so
     a clip reads the same in the app list as it does in a downloaded zip. Nothing in storage moves.
+
+    THE ``url`` IS NOT ALWAYS PRESENT, and this is the one file where that matters most. Reading the
+    repository is open to every signed-in account, but a ``MediaFile.url`` is a fetchable object URL —
+    it IS the file — so it travels only to callers who may take that uploader's data. Every row still
+    travels: name, type, caption, transcript, parent record, uploader. ``media_url_owners`` resolves
+    the grant set (one query, and only below professor) so a grantee who may download a researcher's
+    data can also play their recordings. Callers that pass no ``viewer`` get the cheap safe default and
+    no URLs at all, which is correct for every internal use of this helper.
+
+    ``media_urls`` is for the one caller that has an uploader ID but no user object —
+    ``_finish_pending_media``, which is handing somebody back the file they have just uploaded.
     """
     many = isinstance(rows, list)
     items = list(rows) if many else [rows]
     labels = await _interview_labels([r for r in items if r is not None])
-    encoded = public_encode(rows, viewer)
+    if media_urls is _UNSET_URLS:
+        media_urls = await media_url_owners(viewer) if viewer is not None else set()
+    encoded = public_encode(rows, viewer, media_urls=media_urls)
     for row, out in zip(items, encoded if many else [encoded]):
         if row is None or not isinstance(out, dict):
             continue
@@ -233,7 +251,9 @@ async def _finish_pending_media(existing: Any, processing_requests: list[str] | 
     if processing_requests and not (existing.processingJobs or []):
         await enqueue_media_processing_jobs(existing, processing_requests, user_id, settings)
         existing = await db.mediafile.find_unique(where={"id": existing.id}, include=INCLUDE)
-    return await _public(existing)
+    # The uploader's own file, handed straight back to them: this function has their id rather than
+    # their user row, so the entitlement is stated directly instead of resolved from a viewer.
+    return await _public(existing, media_urls={user_id})
 
 
 @router.post("/complete", status_code=status.HTTP_201_CREATED)
@@ -302,7 +322,7 @@ async def complete_media_upload(
         raise
     await enqueue_media_processing_jobs(created, processing_requests, current_user.id, settings)
     created = await db.mediafile.find_unique(where={"id": created.id}, include=INCLUDE)
-    return await _public(created)
+    return await _public(created, current_user)
 
 
 @router.get("")
@@ -315,13 +335,16 @@ async def list_media(
     statusFilter: str | None = None,
     dateFrom: datetime | None = None,
     dateTo: datetime | None = None,
+    # WHOSE UPLOADS — the media equivalent of ``createdBy`` on the record lists. Same reason: with
+    # reading open, "my uploads" is a question, not a by-product of the row filter.
+    uploadedBy: str | None = None,
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
     page, page_size, skip = normalize_pagination(page, pageSize)
     where: dict[str, Any] = {}
     # Visibility is AND-composed so the search OR (assigned below) can never overwrite it.
-    vis = await visibility_where(current_user, owner_field="uploadedById")
+    vis = await viewable_where(current_user, owner_field="uploadedById")
     if vis:
         where["AND"] = [vis]
     if search:
@@ -334,6 +357,8 @@ async def list_media(
         where["linkedRecordId"] = linkedRecordId
     if statusFilter:
         where["status"] = statusFilter
+    if uploadedBy:
+        where["uploadedById"] = uploadedBy
     add_date_range(where, "createdAt", dateFrom, dateTo)
     total = await db.mediafile.count(where=where)
     items = await db.mediafile.find_many(
@@ -343,7 +368,7 @@ async def list_media(
         take=page_size,
         order={"createdAt": "desc"},
     )
-    return page_payload(await _public(items), total, page, page_size)
+    return page_payload(await _public(items, current_user), total, page, page_size)
 
 
 # linkedRecordType -> the typed foreign-key column that should point at the parent record. When a
@@ -379,10 +404,15 @@ def _relink_delegate(record_type: str) -> Any:
 
 
 @router.get("/orphans")
-async def list_orphan_media(_: Any = Depends(require_admin)) -> list[dict[str, Any]]:
+async def list_orphan_media(current_user: Any = Depends(require_admin)) -> list[dict[str, Any]]:
     """Admin-only recovery list: media still tagged to a record type/id whose parent no longer exists
     (the typed FK was nulled when the parent was deleted). The file is intact in object storage; this
-    lets an admin see it again — and re-link it to a live record via ``/media/{id}/relink``."""
+    lets an admin see it again — and re-link it to a live record via ``/media/{id}/relink``.
+
+    The caller is bound rather than discarded so the URLs come back: this is a recovery screen, an
+    orphan's only remaining handle IS its file, and ``_public`` withholds the URL from a caller it was
+    not given. An admin outranks the entitlement, so nothing here is widened — it is simply not
+    accidentally narrowed."""
     conditions = [
         {"linkedRecordType": rec_type, "linkedRecordId": {"not": None}, fk: None}
         for rec_type, fk in ORPHAN_FK_FIELDS.items()
@@ -392,14 +422,14 @@ async def list_orphan_media(_: Any = Depends(require_admin)) -> list[dict[str, A
         include=INCLUDE,
         order={"createdAt": "desc"},
     )
-    return await _public(rows)
+    return await _public(rows, current_user)
 
 
 @router.post("/{media_id}/relink")
 async def relink_media(
     media_id: str,
     payload: MediaRelinkRequest,
-    _: Any = Depends(require_admin),
+    current_user: Any = Depends(require_admin),
 ) -> dict[str, Any]:
     """Re-attach an orphaned (or mis-linked) media file to an existing record. Validates the target
     record exists, then sets both the string tag columns and the typed foreign key so it reappears
@@ -418,7 +448,7 @@ async def relink_media(
     }
     data.update(media_relation_data(rec_type, payload.linkedRecordId))
     updated = await db.mediafile.update(where={"id": media.id}, data=data, include=INCLUDE)
-    return await _public(updated)
+    return await _public(updated, current_user)
 
 
 @router.post("/{media_id}/refine-transcript")
@@ -449,7 +479,7 @@ async def refine_media_transcript(
 @router.post("/{media_id}/transcribe-now")
 async def transcribe_media_now_route(
     media_id: str,
-    _: Any = Depends(require_admin),
+    current_user: Any = Depends(require_admin),
 ) -> dict[str, Any]:
     """Admin/master-admin: transcribe this audio file right now, applying the transcription mode set on
     the settings page, and store the result — bypassing the queue and the off-peak window. Returns the
@@ -464,7 +494,7 @@ async def transcribe_media_now_route(
         )
     await transcribe_media_now(media, get_settings())
     updated = await db.mediafile.find_unique(where={"id": media_id}, include=INCLUDE)
-    return await _public(updated)
+    return await _public(updated, current_user)
 
 
 @router.post("/{media_id}/transcript")
@@ -488,7 +518,7 @@ async def set_media_transcript(
         data={"transcriptText": payload.text, "transcriptStatus": "COMPLETED", "transcriptError": None},
         include=INCLUDE,
     )
-    return await _public(updated)
+    return await _public(updated, current_user)
 
 
 @router.get("/jobs")
@@ -564,7 +594,7 @@ async def delete_staged_object(objectKey: str, current_user: Any = Depends(get_c
 async def get_media(media_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     media = await db.mediafile.find_unique(where={"id": media_id}, include=INCLUDE)
     media = await require_record(db.mediafile, media_id) if not media else media
-    return await _public(media)
+    return await _public(media, current_user)
 
 
 @router.delete("/{media_id}", status_code=status.HTTP_204_NO_CONTENT)

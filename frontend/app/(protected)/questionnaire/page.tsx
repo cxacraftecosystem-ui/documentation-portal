@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowDown, ArrowUp, ChevronDown, ClipboardList, GripVertical, Lock, Mic, Pencil, Plus, Save, Square, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ClipboardList, GripVertical, Lock, Mic, Pencil, Plus, Save, Square, Trash2 } from "lucide-react";
 
 import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
@@ -22,10 +22,12 @@ import { RowActions, rowAction } from "@/components/RowActions";
 import { SearchInput } from "@/components/SearchInput";
 import { EMPTY_FUNNEL, FunnelFilters, type FunnelValue } from "@/components/FunnelFilters";
 import { StatusBadge } from "@/components/StatusBadge";
+import { Accordion } from "@/components/ui/Accordion";
 import { MultiSelectDropdown } from "@/components/ui/Dropdown";
+import { useWorkshopScope, WorkshopScopeSelect } from "@/components/WorkshopScopeSelect";
 import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
-import { apiFetch, listResource } from "@/lib/api";
+import { apiFetch, buildQuery, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { locationFromForm, recordedAtFromForm, recordedTimezoneFromForm, textValue } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
@@ -1060,53 +1062,6 @@ function ClipRecorder({
   );
 }
 
-/**
- * Collapsible panel with a rotating chevron. Collapsed by default; `onOpenChange` lets a panel lazy-load
- * its contents the first time it is opened.
- */
-function Accordion({
-  title,
-  subtitle,
-  defaultOpen = false,
-  onOpenChange,
-  headerRight,
-  children
-}: {
-  title: string;
-  subtitle?: string;
-  defaultOpen?: boolean;
-  onOpenChange?: (open: boolean) => void;
-  headerRight?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  function toggle() {
-    const next = !open;
-    setOpen(next);
-    onOpenChange?.(next);
-  }
-  return (
-    <section className="panel mb-5">
-      <div className="flex items-center gap-3 p-4">
-        <button
-          type="button"
-          onClick={toggle}
-          aria-expanded={open}
-          className="flex min-w-0 flex-1 items-start gap-3 text-left"
-        >
-          <ChevronDown className={`mt-0.5 h-5 w-5 shrink-0 text-ink-500 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
-          <span className="min-w-0">
-            <span className="block font-display text-lg font-bold text-ink">{title}</span>
-            {subtitle ? <span className="mt-1 block text-sm text-ink-muted">{subtitle}</span> : null}
-          </span>
-        </button>
-        {headerRight}
-      </div>
-      {open ? <div className="border-t border-line-200 p-4">{children}</div> : null}
-    </section>
-  );
-}
-
 // --- "Check completion" cellular matrix (Android parity) ---
 
 type CompletionMatrix = {
@@ -1126,21 +1081,50 @@ function CompletionMatrixPanel({ canOverride }: { canOverride: boolean }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyCell, setBusyCell] = useState<string | null>(null);
-  const requested = useRef(false);
+  const opened = useRef(false);
 
-  async function refresh() {
+  /**
+   * WHICH WORKSHOPS THIS MATRIX IS ABOUT, defaulting to the most recent one.
+   *
+   * The scope is held HERE rather than inside the accordion because the accordion unmounts its
+   * children when it closes, and a selection that reset every time somebody collapsed the panel would
+   * be worse than no control at all.
+   *
+   * It also scopes BOTH halves of the matrix on the server — which artisans are rows, and which
+   * interviews count towards a cell. A matrix that scoped only one of the two would show a workshop's
+   * artisans against every interview they have ever sat in, which is precisely the confusion this
+   * control exists to remove.
+   */
+  const scope = useWorkshopScope();
+
+  const refresh = useCallback(async () => {
     try {
-      setMatrix(await apiFetch<CompletionMatrix>("/questionnaire/completion"));
+      setMatrix(
+        await apiFetch<CompletionMatrix>(
+          `/questionnaire/completion${buildQuery({ workshopIds: scope.queryValue })}`
+        )
+      );
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load the completion matrix");
     }
-  }
+  }, [scope.queryValue]);
 
-  // Lazy-load the matrix the first time the accordion is opened.
+  /**
+   * Load once the panel is open, and RELOAD whenever the scope moves — but never before the picker has
+   * settled on its default, or the first request would go out scoped to "all" and be replaced a
+   * moment later by the scoped one. Two requests, and for a second the matrix shows the wrong answer.
+   */
+  useEffect(() => {
+    if (!opened.current || scope.settling) return;
+    setLoading(true);
+    refresh().finally(() => setLoading(false));
+  }, [refresh, scope.settling]);
+
   function handleOpenChange(open: boolean) {
-    if (!open || requested.current) return;
-    requested.current = true;
+    if (!open || opened.current) return;
+    opened.current = true;
+    if (scope.settling) return; // the effect above fires as soon as the default lands
     setLoading(true);
     refresh().finally(() => setLoading(false));
   }
@@ -1179,10 +1163,18 @@ function CompletionMatrixPanel({ canOverride }: { canOverride: boolean }) {
       }`}
       onOpenChange={handleOpenChange}
     >
+      {/* The scope sits ABOVE the matrix, because it changes what every cell means. */}
+      <div className="mb-4 max-w-xl">
+        <WorkshopScopeSelect scope={scope} label="Workshops in this matrix" />
+      </div>
       {error ? <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       {loading ? <div className="text-sm text-ink-muted">Loading completion matrix...</div> : null}
       {matrix && matrix.artisans.length === 0 && !loading ? (
-        <p className="text-sm text-ink-muted">No artisans yet — the matrix appears once artisans are recorded.</p>
+        <p className="text-sm text-ink-muted">
+          {scope.workshopIds.length
+            ? "No artisans in the chosen workshops. Widen the scope, or choose All records."
+            : "No artisans yet — the matrix appears once artisans are recorded."}
+        </p>
       ) : null}
       {matrix && matrix.artisans.length > 0 ? (
         <>

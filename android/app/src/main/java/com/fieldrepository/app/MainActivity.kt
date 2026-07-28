@@ -138,7 +138,9 @@ import com.fieldrepository.app.data.DataAccessTierInfo
 import com.fieldrepository.app.data.EntryCommentDto
 import com.fieldrepository.app.data.MyGrantsDto
 import com.fieldrepository.app.data.RecordRevisionDto
+import com.fieldrepository.app.data.DashboardRecentSubmissionDto
 import com.fieldrepository.app.data.DashboardStats
+import com.fieldrepository.app.data.DashboardStatsMine
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.GoogleAuthClient
 import com.fieldrepository.app.data.LocationRequest
@@ -177,8 +179,12 @@ import com.fieldrepository.app.ui.CarryScopeState
 import com.fieldrepository.app.ui.carryScope
 import com.fieldrepository.app.ui.rememberCarryPrefill
 import com.fieldrepository.app.ui.Coral
+import com.fieldrepository.app.ui.ConsolidatedQuestionnaireScreen
 import com.fieldrepository.app.ui.DataBrowserScreen
 import com.fieldrepository.app.ui.FieldRepositoryTheme
+import com.fieldrepository.app.ui.MapScreen
+import com.fieldrepository.app.ui.WorkshopScopeSelect
+import com.fieldrepository.app.ui.rememberWorkshopScope
 import com.fieldrepository.app.ui.ProvideAppPreferences
 import com.fieldrepository.app.ui.SearchRecordTypes
 import com.fieldrepository.app.ui.SearchScreen
@@ -227,7 +233,9 @@ import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.ManageAccounts
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -362,6 +370,13 @@ private enum class EntryMode(
     // /data on the web: the whole repository as a directory tree, gated on require_dataset_downloader.
     // Named after the page's own title ("Data Browser") for the same reason as SEARCH above.
     DATA_BROWSER("Data Browser", "Data Browser", onDashboard = false),
+    // /map on the web, and a dashboard tile there too — the third way of reading the whole corpus
+    // (list, folder tree, place). Both strings are the web tile's own, which is why the label and the
+    // action title are the same word: the tile says "Map" and its button says "Open".
+    MAP("Map", "Map"),
+    // /questionnaire/consolidated on the web. Reads one artisan's answers back out of every interview
+    // they sat in; writes nothing, which is why it is not next to QUESTIONNAIRE above.
+    CONSOLIDATED_QUESTIONNAIRE("Consolidated questionnaire", "Consolidated questionnaire"),
     // "Tasks" matches the web nav label exactly. The card is the ASSIGNEE's to-do list; assigning work
     // is an admin action and lives in the admin hub.
     TASKS("Tasks", "My tasks"),
@@ -494,6 +509,8 @@ private fun EntryMode.icon(): ImageVector = when (this) {
     EntryMode.VIEW_DATA -> Icons.Filled.Visibility
     EntryMode.SEARCH -> Icons.Filled.Search
     EntryMode.DATA_BROWSER -> Icons.Filled.Storage
+    EntryMode.MAP -> Icons.Filled.Map
+    EntryMode.CONSOLIDATED_QUESTIONNAIRE -> Icons.Filled.Layers
     EntryMode.TASKS -> Icons.AutoMirrored.Filled.Assignment
     EntryMode.SHARING -> Icons.Filled.Share
     EntryMode.WORKSHOP_ACCESS -> Icons.Filled.LockOpen
@@ -860,9 +877,15 @@ private fun HomeScreen(
          * on the branch that OPENS a new one — so a field contributor or a volunteer answering an
          * interview somebody else started is doing the thing these two tiers exist for, on this
          * screen. Gating the screen would take that away to save them a 403 on the rarer case.
+         *
+         * MAP and CONSOLIDATED_QUESTIONNAIRE are reading surfaces and belong here for the same reason
+         * SEARCH does: `GET /map/points` and `GET /questionnaire/artisans/{id}/consolidated` ask for
+         * nothing but a login, and both have already filtered what they return through the caller's
+         * own row visibility. Gating either would hide the repository from the tiers that populate it.
          */
         EntryMode.QUESTIONNAIRE, EntryMode.MEDIA, EntryMode.VIEW_DATA, EntryMode.TASKS,
-        EntryMode.SHARING, EntryMode.WORKSHOP_ACCESS, EntryMode.SEARCH -> true
+        EntryMode.SHARING, EntryMode.WORKSHOP_ACCESS, EntryMode.SEARCH, EntryMode.MAP,
+        EntryMode.CONSOLIDATED_QUESTIONNAIRE -> true
     }
 
     // Keyed on role and on the one grant that still widens a rank floor here. Crafts and workshops
@@ -952,8 +975,10 @@ private fun HomeScreen(
             // The web's /search. [EntryMode.SEARCH] keeps the page's own title so the two entries that
             // both want the words "Browse records" cannot collide in one menu.
             NavDestination.BROWSE_RECORDS -> screen = screenFor(EntryMode.SEARCH)
+            NavDestination.MAP -> screen = screenFor(EntryMode.MAP)
             // The web's /data directory tree, which owns its whole viewport (see [Screen.DataBrowser]).
             NavDestination.VIEW_DATA -> screen = screenFor(EntryMode.DATA_BROWSER)
+            NavDestination.CONSOLIDATED_QUESTIONNAIRE -> screen = screenFor(EntryMode.CONSOLIDATED_QUESTIONNAIRE)
             NavDestination.SHARE_DATA_ACCESS -> screen = screenFor(EntryMode.SHARING)
             NavDestination.ASSIGN_TOOLS -> screen = Screen.ToolAssign
             // Android has no standalone review queue: reviewing happens inside the record browser,
@@ -1073,6 +1098,8 @@ private fun HomeScreen(
             EntryMode.WORKSHOP -> NavDestination.RECORD_WORKSHOP
             EntryMode.TASKS -> NavDestination.TASKS
             EntryMode.SEARCH -> NavDestination.BROWSE_RECORDS
+            EntryMode.MAP -> NavDestination.MAP
+            EntryMode.CONSOLIDATED_QUESTIONNAIRE -> NavDestination.CONSOLIDATED_QUESTIONNAIRE
             EntryMode.SHARING -> NavDestination.SHARE_DATA_ACCESS
             EntryMode.VIEW_DATA -> NavDestination.REVIEW
             EntryMode.USERS -> NavDestination.MANAGE_USERS
@@ -1315,6 +1342,10 @@ private fun HomeScreen(
                     onOpenReviews = if (canReview) {
                         ({ message = null; screen = Screen.AdminHub(AdminHubEntry.REVIEWS) })
                     } else null,
+                    // Every "Your contribution" figure counts this account's own rows, and My Activity
+                    // asks the API for exactly those — so the number and the list behind it agree.
+                    onOpenMyActivity = { message = null; screen = Screen.MyActivity },
+                    onOpenRecord = { mode, recordId -> message = null; screen = Screen.Edit(mode, recordId) },
                     onOpenArtisan = { artisanId -> message = null; screen = Screen.Edit(EntryMode.ARTISAN, artisanId) }
                 )
             }
@@ -1411,6 +1442,26 @@ private fun HomeScreen(
                 // ever does route here directly, it offers the way in rather than a blank screen.
                 EntryMode.DATA_BROWSER -> DataBrowserEntryCard(
                     onOpen = { message = null; screen = Screen.DataBrowser }
+                )
+                // /map on the web. Renders into the shared chrome like SEARCH above, so it draws no
+                // scaffold and no back control of its own.
+                EntryMode.MAP -> MapScreen(
+                    repository = repository,
+                    onError = { showMessage(it) },
+                    // A pin's records are the way out of the map. The map speaks the SINGULAR record
+                    // type — the same vocabulary [SearchRecordTypes] uses — so the search screen's own
+                    // mapper is reused rather than a second one written beside it that could drift.
+                    onOpenRecord = { recordType, recordId ->
+                        message = null
+                        screen = Screen.Edit(searchRecordEntryMode(recordType), recordId)
+                    }
+                )
+                // /questionnaire/consolidated on the web: the artisan picker, and the document behind
+                // it. Both halves live in the one screen because Android has no URL to give the
+                // document its own address.
+                EntryMode.CONSOLIDATED_QUESTIONNAIRE -> ConsolidatedQuestionnaireScreen(
+                    repository = repository,
+                    onError = { showMessage(it) }
                 )
                 EntryMode.TOOL -> ToolForm(
                     repository = repository,
@@ -2020,8 +2071,16 @@ private fun DashboardScreen(
     onUpdateExisting: (EntryMode) -> Unit,
     /** A tapped total opens search for the [SearchRecordTypes] bucket it counted. */
     onOpenSearchFor: (String) -> Unit,
-    /** null = this user cannot review, so "Pending" stays a figure they read but cannot open. */
+    /** null = this user cannot review, so "Pending review" stays a figure they read but cannot open. */
     onOpenReviews: (() -> Unit)?,
+    /**
+     * Where every "Your contribution" figure leads. All six count THIS account's own rows, and My
+     * Activity is the one screen that lists exactly those — so the figure and the list behind it
+     * cannot disagree, which is the whole reason that block is separate from the repository totals.
+     */
+    onOpenMyActivity: () -> Unit,
+    /** A recent-submission row opens the record it names. Types with no route are not tappable. */
+    onOpenRecord: (EntryMode, String) -> Unit,
     onOpenArtisan: (String) -> Unit
 ) {
     val configuration = LocalConfiguration.current
@@ -2108,6 +2167,10 @@ private fun DashboardScreen(
             }
         }
         StatsCard(stats = stats, onOpenSearchFor = onOpenSearchFor, onOpenReviews = onOpenReviews)
+        // The caller's own contribution, in the SAME six counters and the same order, so the two blocks
+        // read as one comparison rather than as two unrelated grids. Drawn only when the API sent it.
+        MyContributionCard(mine = stats?.mine, onOpenMyActivity = onOpenMyActivity)
+        RecentSubmissionsCard(stats = stats, onOpenRecord = onOpenRecord)
         if (recentArtisans.isNotEmpty()) {
             Text("Recent artisans", display = true, fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
             recentArtisans.take(6).forEach { artisan ->
@@ -2158,6 +2221,8 @@ private fun EntryMode.createButtonLabel(): String = when (this) {
     EntryMode.TASKS -> "Open"
     EntryMode.WORKSHOP_ACCESS -> "Open"
     EntryMode.SEARCH, EntryMode.DATA_BROWSER -> "Open"
+    // Both are read-only surfaces, and both web tiles say "Open" — "New" would offer to create a map.
+    EntryMode.MAP, EntryMode.CONSOLIDATED_QUESTIONNAIRE -> "Open"
     else -> "New"
 }
 
@@ -2252,12 +2317,24 @@ private fun CardButtonLabel(icon: ImageVector, text: String) {
     Text(text, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, fontSize = 13.sp)
 }
 
+/**
+ * THE REPOSITORY'S TOTALS, and saying so out loud is the point.
+ *
+ * These used to be the signed-in researcher's own upload counts wearing these labels, because the API
+ * filtered every total by ownership — so two people standing side by side read different numbers off
+ * the word "Artisans", and somebody who had not uploaded yet read six zeroes and concluded the
+ * repository was empty. Reading is open now, so these are the true totals; the caller's own
+ * contribution is [MyContributionCard], asked for explicitly and labelled as theirs. Never render one
+ * under the other's label.
+ *
+ * Heading, subtitle and all six labels are the web dashboard's, byte for byte.
+ */
 @Composable
 private fun StatsCard(
     stats: DashboardStats?,
-    /** Every figure but Pending counts a search bucket, so every figure but Pending opens one. */
+    /** Every figure but Pending review counts a search bucket, so every one of those opens one. */
     onOpenSearchFor: (String) -> Unit,
-    /** null = this user cannot review; Pending is then a figure, not a door. */
+    /** null = this user cannot review; Pending review is then a figure, not a door. */
     onOpenReviews: (() -> Unit)?
 ) {
     Card(
@@ -2266,7 +2343,12 @@ private fun StatsCard(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
-            Text("Repository totals", display = true, color = MaterialTheme.field.onBrandTile, fontSize = 24.sp)
+            Text("At a glance", display = true, color = MaterialTheme.field.onBrandTile, fontSize = 24.sp)
+            Text(
+                "Everything in the repository, not only your own entries.",
+                color = MaterialTheme.field.onBrandTileMuted,
+                fontSize = 12.sp
+            )
             Spacer(Modifier.height(12.dp))
             if (stats == null) {
                 Text("Loading...", color = MaterialTheme.field.onBrandTileMuted)
@@ -2283,14 +2365,14 @@ private fun StatsCard(
                         openDescription = "Opens a search of the artisans"
                     )
                     Stat(
+                        "Workshops", stats.totalWorkshops, Modifier.weight(1f).fillMaxHeight(),
+                        onOpen = { onOpenSearchFor(SearchRecordTypes.WORKSHOP) },
+                        openDescription = "Opens a search of the workshops"
+                    )
+                    Stat(
                         "Products", stats.totalProductRecords, Modifier.weight(1f).fillMaxHeight(),
                         onOpen = { onOpenSearchFor(SearchRecordTypes.PRODUCT) },
                         openDescription = "Opens a search of the products"
-                    )
-                    Stat(
-                        "Tools", stats.totalToolRecords, Modifier.weight(1f).fillMaxHeight(),
-                        onOpen = { onOpenSearchFor(SearchRecordTypes.TOOL) },
-                        openDescription = "Opens a search of the tools"
                     )
                 }
                 Spacer(Modifier.height(12.dp))
@@ -2299,7 +2381,12 @@ private fun StatsCard(
                     modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)
                 ) {
                     Stat(
-                        "Media", stats.totalMediaFiles, Modifier.weight(1f).fillMaxHeight(),
+                        "Tools", stats.totalToolRecords, Modifier.weight(1f).fillMaxHeight(),
+                        onOpen = { onOpenSearchFor(SearchRecordTypes.TOOL) },
+                        openDescription = "Opens a search of the tools"
+                    )
+                    Stat(
+                        "Media files", stats.totalMediaFiles, Modifier.weight(1f).fillMaxHeight(),
                         onOpen = { onOpenSearchFor(SearchRecordTypes.MEDIA) },
                         openDescription = "Opens a search of the media"
                     )
@@ -2307,19 +2394,265 @@ private fun StatsCard(
                         // The one figure that is not a bucket of records but a queue of work, so it
                         // leads to the queue — and only for whoever may act on it. It still SHOWS for
                         // everyone: a researcher has to be able to see their own backlog.
-                        "Pending", stats.pendingSubmissions, Modifier.weight(1f).fillMaxHeight(),
+                        "Pending review", stats.pendingSubmissions, Modifier.weight(1f).fillMaxHeight(),
                         onOpen = onOpenReviews,
                         openDescription = "Opens reviews and approvals"
-                    )
-                    Stat(
-                        "Workshops", stats.totalWorkshops, Modifier.weight(1f).fillMaxHeight(),
-                        onOpen = { onOpenSearchFor(SearchRecordTypes.WORKSHOP) },
-                        openDescription = "Opens a search of the workshops"
                     )
                 }
             }
         }
     }
+}
+
+/**
+ * THIS ACCOUNT'S OWN WORK, in the same six counters and the same order as [StatsCard] above, so the
+ * two read as one comparison rather than as two unrelated grids. Denser on purpose: it is the
+ * secondary question, and every tile leads to the same place.
+ *
+ * DRAWN ONLY WHEN THE API ACTUALLY SENT A `mine` BLOCK. A device can be talking to an API deployed
+ * before that block existed, and a row of zeroes synthesised from a missing field would be a lie in
+ * exactly the direction this whole change exists to fix — it would tell somebody their work is gone.
+ * Absent means "this server does not answer that question", and the honest render of that is nothing.
+ *
+ * "Awaiting review" rather than "Pending review": on this row the figure is the reader's own backlog,
+ * not the repository's queue, and the two are different numbers under one word otherwise.
+ */
+@Composable
+private fun MyContributionCard(mine: DashboardStatsMine?, onOpenMyActivity: () -> Unit) {
+    if (mine == null) return
+    val tiles = listOf(
+        Triple("Artisans", mine.totalArtisans, Icons.Filled.Person),
+        Triple("Workshops", mine.totalWorkshops, Icons.Filled.Groups),
+        Triple("Products", mine.totalProductRecords, Icons.Filled.Inventory2),
+        Triple("Tools", mine.totalToolRecords, Icons.Filled.Build),
+        Triple("Media files", mine.totalMediaFiles, Icons.Filled.PermMedia),
+        Triple("Awaiting review", mine.pendingSubmissions, Icons.Filled.RateReview)
+    )
+    ElevatedCard(
+        colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    "Your contribution",
+                    display = true,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                TextButton(onClick = onOpenMyActivity, contentPadding = PaddingValues(0.dp)) {
+                    Text("Open My Activity", fontSize = 12.sp)
+                }
+            }
+            tiles.chunked(3).forEach { rowTiles ->
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)
+                ) {
+                    rowTiles.forEach { (label, value, icon) ->
+                        MineStat(
+                            label = label,
+                            value = value,
+                            icon = icon,
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                            onOpen = onOpenMyActivity
+                        )
+                    }
+                    repeat(3 - rowTiles.size) { Spacer(modifier = Modifier.weight(1f)) }
+                }
+            }
+        }
+    }
+}
+
+/** One "Your contribution" figure. Smaller than [Stat] because it answers the smaller question. */
+@Composable
+private fun MineStat(
+    label: String,
+    value: Int,
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+    onOpen: () -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    Column(
+        modifier = modifier
+            .clip(MaterialTheme.shapes.medium)
+            .background(
+                MaterialTheme.colorScheme.primary
+                    .copy(alpha = if (pressed) 0.16f else 0.07f)
+                    .compositeOver(Canvas)
+            )
+            .clickable(
+                interactionSource = interaction,
+                indication = LocalIndication.current,
+                onClickLabel = "Opens My Activity"
+            ) { onOpen() }
+            // Merged, so TalkBack reads one figure and where it leads instead of an icon, a word and a
+            // bare number as three separate stops.
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Your ${label.lowercase()}: $value. Opens My Activity."
+            }
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                label,
+                color = Muted,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Text(
+            value.toString(),
+            display = true,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+/**
+ * The newest entries in the repository, whoever filed them — the web dashboard's "Recent submissions"
+ * table, in the shape a phone can read.
+ *
+ * `createdByName` is on every row and is not optional dressing: this list could once only hold the
+ * reader's own rows, so attribution went unsaid. Now that it is the whole repository's, a title with
+ * nobody's name against it is a record nobody can follow up on.
+ */
+@Composable
+private fun RecentSubmissionsCard(stats: DashboardStats?, onOpenRecord: (EntryMode, String) -> Unit) {
+    ElevatedCard(
+        colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "Recent submissions",
+                display = true,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                "The newest entries across the repository, whoever filed them.",
+                color = Muted,
+                fontSize = 11.sp
+            )
+            when {
+                stats == null -> Text("Loading...", color = Muted, fontSize = 12.sp)
+                stats.recentSubmissions.isEmpty() -> {
+                    Text(
+                        "No submissions yet",
+                        display = true,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        "New field documentation will appear here after records are created.",
+                        color = Muted,
+                        fontSize = 12.sp
+                    )
+                }
+                else -> stats.recentSubmissions.forEach { item ->
+                    RecentSubmissionRow(item = item, onOpenRecord = onOpenRecord)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentSubmissionRow(
+    item: DashboardRecentSubmissionDto,
+    onOpenRecord: (EntryMode, String) -> Unit
+) {
+    val mode = remember(item.type) { recentSubmissionEntryMode(item.type) }
+    val typeLabel = item.type.replaceFirstChar { it.uppercase() }
+    val title = item.title?.takeIf { it.isNotBlank() }
+        ?: "Untitled ${item.type.ifBlank { "record" }}"
+    // The row a researcher recognises is the one they want to correct, so the title is the way in —
+    // straight into the edit view for that record type, exactly as the web links it.
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .then(
+                if (mode == null) Modifier
+                else Modifier.clickable(onClickLabel = "Open $title") { onOpenRecord(mode, item.id) }
+            )
+            .padding(vertical = 8.dp, horizontal = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            title,
+            display = true,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp,
+            // Purple is the only action colour, so an openable title carries it and a dead one does
+            // not — which is the only signal on the row that says which is which.
+            color = if (mode == null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        val place = item.place?.takeIf { it.isNotBlank() }
+        Text(
+            listOfNotNull(typeLabel.takeIf { it.isNotBlank() }, place).joinToString(" · ").ifBlank { "Record" },
+            color = Muted,
+            fontSize = 11.sp
+        )
+        Text(
+            "Recorded by ${item.createdByName?.takeIf { it.isNotBlank() } ?: "-"}" +
+                " · ${item.status.ifBlank { "-" }}" +
+                " · ${formatIsoDate(item.createdAt) ?: "-"}",
+            color = Muted,
+            fontSize = 11.sp
+        )
+    }
+}
+
+/**
+ * Where a recent-submission row goes, mirroring the web's `recordHref`.
+ *
+ * Null means THERE IS NO ROUTE and the row is drawn as plain, untappable text. [searchRecordEntryMode]
+ * is deliberately not reused here: it falls back to ARTISAN for anything it does not recognise, which
+ * on this list would open the artisan editor on a process id and report the record as missing.
+ */
+private fun recentSubmissionEntryMode(type: String): EntryMode? = when (type.lowercase()) {
+    "artisan" -> EntryMode.ARTISAN
+    "product" -> EntryMode.PRODUCT
+    "process" -> EntryMode.PROCESS
+    "tool" -> EntryMode.TOOL
+    "workshop" -> EntryMode.WORKSHOP
+    "craft" -> EntryMode.CRAFT
+    // The API names an interview either way depending on the route that produced the row.
+    "questionnaire", "interview" -> EntryMode.QUESTIONNAIRE
+    // No edit form on either client; [EditScreen] shows the file with its transcript instead.
+    "media" -> EntryMode.MEDIA
+    else -> null
 }
 
 /**
@@ -8560,6 +8893,20 @@ private fun CompletionMatrixCard(
     onError: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    /*
+     * WHICH WORKSHOPS THIS MATRIX IS ABOUT. The shared control, same default (the most recent
+     * workshop) and same wire format as the map and the consolidated questionnaire, so a researcher
+     * moving between the three is always reading the same records.
+     *
+     * The server scopes BOTH HALVES from this one parameter: which artisans are rows, and which
+     * interviews count towards a cell. A matrix that scoped only one of the two would show a
+     * workshop's artisans against every interview they have ever sat in, which is precisely the
+     * confusion this control exists to remove.
+     *
+     * It applies in the per-artisan variant too ([artisanId] != null), where there is only ever one
+     * row: the scope still decides which interviews turn a cell green.
+     */
+    val workshopScope = rememberWorkshopScope(repository = repository, onError = onError)
     var matrix by remember(artisanId) { mutableStateOf<CompletionMatrixDto?>(null) }
     var loading by remember(artisanId) { mutableStateOf(true) }
     // Local override of cells so a tap reflects immediately without a full reload.
@@ -8568,16 +8915,32 @@ private fun CompletionMatrixCard(
     var scale by remember { mutableStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
 
-    fun reload() {
-        scope.launch {
-            loading = true
-            runCatching { repository.completionMatrix(artisanId) }
-                .onSuccess { matrix = it; cellOverrides = emptyMap() }
-                .onFailure { onError(it.message ?: "Unable to load completion") }
-            loading = false
-        }
+    /*
+     * Reloads when the scope moves, and NEVER fires before the picker has settled on its default: the
+     * first request would otherwise go out unscoped and be replaced a moment later, which is two
+     * requests and a second of the matrix showing the wrong answer.
+     *
+     * The load runs IN the effect rather than in this card's own coroutine scope, which the previous
+     * `reload()` used. Re-keying now CANCELS the request the previous scope started — two overlapping
+     * loads can otherwise land out of order and leave the matrix showing a scope nobody is on.
+     */
+    LaunchedEffect(artisanId, workshopScope.settled, workshopScope.requestKey) {
+        if (!workshopScope.settled) return@LaunchedEffect
+        loading = true
+        runCatching { repository.completionMatrix(artisanId, workshopScope.workshopIds) }
+            .onSuccess {
+                matrix = it
+                cellOverrides = emptyMap()
+                loading = false
+            }
+            .onFailure {
+                // Rethrown rather than reported: a superseded request is not a failed one, and
+                // rethrowing also leaves `loading` to the pass that replaced this one.
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                onError(it.message ?: "Unable to load completion")
+                loading = false
+            }
     }
-    LaunchedEffect(artisanId) { reload() }
 
     RecordCard(title = "Check completion", icon = Icons.Filled.GridView) {
         Text(
@@ -8587,6 +8950,8 @@ private fun CompletionMatrixCard(
             color = Muted,
             fontSize = 12.sp
         )
+        // The scope sits ABOVE the matrix, because it changes what every cell means.
+        WorkshopScopeSelect(scope = workshopScope, label = "Workshops in this matrix")
         // Legend.
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -8603,7 +8968,17 @@ private fun CompletionMatrixCard(
         when {
             loading -> Text("Loading completion…", color = Muted, fontSize = 12.sp)
             data == null || data.sections.isEmpty() -> Text("No questionnaire sections defined yet.", color = Muted, fontSize = 12.sp)
-            data.artisans.isEmpty() -> Text("No artisans to show.", color = Muted, fontSize = 12.sp)
+            // Two different facts, and saying the wrong one sends somebody to look for artisans that
+            // are there. The web's own two sentences.
+            data.artisans.isEmpty() -> Text(
+                if (!workshopScope.isAllRecords) {
+                    "No artisans in the chosen workshops. Widen the scope, or choose All records."
+                } else {
+                    "No artisans yet — the matrix appears once artisans are recorded."
+                },
+                color = Muted,
+                fontSize = 12.sp
+            )
             else -> {
                 val grid = data
                 val cellByKey: Map<Pair<String, String>, CompletionCellDto> =

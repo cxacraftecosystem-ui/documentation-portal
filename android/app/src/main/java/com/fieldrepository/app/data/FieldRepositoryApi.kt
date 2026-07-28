@@ -1,5 +1,11 @@
 package com.fieldrepository.app.data
 
+// THE ONE TYPE THIS LAYER BORROWS FROM THE UI PACKAGE, and the direction is backwards on purpose:
+// the consolidated-questionnaire DTOs were declared beside their screen in
+// ui/ConsolidatedQuestionnaireScreen.kt while this file and ApiModels.kt were being edited
+// concurrently, so re-declaring them here would give the app two incompatible spellings of one wire
+// format. If they are ever moved into ApiModels.kt, this import is the only line to delete.
+import com.fieldrepository.app.ui.ConsolidatedQuestionnaireDto
 import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
@@ -106,7 +112,11 @@ interface FieldRepositoryApi {
     @GET("artisans")
     suspend fun artisans(
         @Query("page") page: Int = 1,
-        @Query("pageSize") pageSize: Int = 20
+        @Query("pageSize") pageSize: Int = 20,
+        // The shared workshop scope, plural. BROADER than the singular `workshopId` filter the form
+        // pickers use: it also counts an artisan who merely SAT IN an interview taken at the
+        // workshop, so this list and the completion matrix cannot disagree about who was there.
+        @Query("workshopIds") workshopIds: String? = null
     ): PageResponse<ArtisanDto>
 
     @GET("crafts")
@@ -382,11 +392,23 @@ interface FieldRepositoryApi {
 
     @GET("questionnaire/completion")
     suspend fun completionMatrix(
-        @Query("artisanId") artisanId: String? = null
+        @Query("artisanId") artisanId: String? = null,
+        // The shared workshop scope: comma-joined ids plus the reserved "none". Absent = every
+        // workshop, which is why it is nullable rather than defaulted to a string.
+        @Query("workshopIds") workshopIds: String? = null
     ): CompletionMatrixDto
 
     @PUT("questionnaire/completion")
     suspend fun setCompletionCell(@Body body: CompletionCellRequest): JsonElement
+
+    // One artisan's answers gathered from EVERY interview they sat in. Scoped by the shared
+    // workshopIds so the same document can be read "as it stands for these workshops" — the whole
+    // document is always returned, the scope only decides which sittings feed it.
+    @GET("questionnaire/artisans/{id}/consolidated")
+    suspend fun consolidatedQuestionnaire(
+        @Path("id") artisanId: String,
+        @Query("workshopIds") workshopIds: String? = null
+    ): ConsolidatedQuestionnaireDto
 
     // --- Cross-researcher data access (Sharing) ---
     @GET("data-access/tiers")
@@ -587,9 +609,62 @@ interface FieldRepositoryApi {
         @Query("types") types: String? = null,
         @Query("dateFrom") dateFrom: String? = null,
         @Query("dateTo") dateTo: String? = null,
+        // The workshop SCOPE, comma-joined ids plus the reserved literal "none" for records linked to
+        // no workshop. ABSENT means every workshop; never send "" to mean "all", which the server
+        // reads as one blank id and matches nothing. See `record_filters.resolve_workshop_ids`.
+        @Query("workshopIds") workshopIds: String? = null,
         @Query("page") page: Int = 1,
         @Query("pageSize") pageSize: Int = 10
     ): SearchResultsDto
+
+    // --- Map: where the records ARE (aggregate pins, then one pin's records on demand) ---
+    // The filter vocabulary is `search`'s, spelled identically and sent from the same place, because
+    // a map that answered "Bagru, last 30 days" differently from the search box would leave no way
+    // to tell which of the two was lying.
+    @GET("map/points")
+    suspend fun mapPoints(
+        @Query("q") q: String? = null,
+        @Query("craftId") craftId: String? = null,
+        @Query("place") place: String? = null,
+        @Query("artisanId") artisanId: String? = null,
+        @Query("mediaType") mediaType: String? = null,
+        // Which buckets to count, comma-joined; omitted counts all five.
+        @Query("types") types: String? = null,
+        @Query("dateFrom") dateFrom: String? = null,
+        @Query("dateTo") dateTo: String? = null,
+        @Query("workshopIds") workshopIds: String? = null,
+        // NATION | STATE | DISTRICT — the administrative unit BOTH layers are grouped at. Null lets
+        // the server pick its default (DISTRICT) rather than this client hard-coding a second copy
+        // of it that could drift.
+        @Query("level") level: String? = null,
+        // The single-record scope. Both must be sent or neither: one alone is ignored, and the map
+        // still draws the whole filtered corpus either way.
+        @Query("focusType") focusType: String? = null,
+        @Query("focusId") focusId: String? = null
+    ): MapPointsDto
+
+    // The point key holds ':' and '|' — "district:Rajasthan|Jaipur", "capture:0.25:107_302".
+    // `encoded = false` is DELIBERATE and is the correct setting: Retrofit then percent-encodes the
+    // characters that are illegal in a path segment ('|' becomes %7C) and leaves ':' alone, which is
+    // legal there, and the route's `{point_key:path}` receives the key decoded and whole. Declaring
+    // it `encoded = true` would ship a raw '|' — not a legal URL character — and the request would
+    // either be rejected or silently mangled by the first proxy that normalised it.
+    @GET("map/points/{key}/records")
+    suspend fun mapPointRecords(
+        @Path(value = "key", encoded = false) key: String,
+        // These MUST be the filters the map was drawn with, level included. The key names an
+        // administrative unit; which records sit in it is what the filters decide.
+        @Query("q") q: String? = null,
+        @Query("craftId") craftId: String? = null,
+        @Query("place") place: String? = null,
+        @Query("artisanId") artisanId: String? = null,
+        @Query("mediaType") mediaType: String? = null,
+        @Query("types") types: String? = null,
+        @Query("dateFrom") dateFrom: String? = null,
+        @Query("dateTo") dateTo: String? = null,
+        @Query("workshopIds") workshopIds: String? = null,
+        @Query("level") level: String? = null
+    ): MapPointRecordsDto
 
     // --- Data browser (needs the dataset-download permission; rows are visibility-filtered) ---
     // ONE level of the virtual tree. path="" is the taxonomy chooser, not a folder listing.

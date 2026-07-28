@@ -2,6 +2,7 @@
 
 import { use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { AlertTriangle, FileAudio, GitCompareArrows, Layers, User, Users } from "lucide-react";
 
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
@@ -10,7 +11,12 @@ import { EmptyState } from "@/components/EmptyState";
 import { Markdown } from "@/components/Markdown";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
-import { apiFetch } from "@/lib/api";
+import {
+  useWorkshopScope,
+  WorkshopScopeSelect,
+  workshopScopeFromSearchParams
+} from "@/components/WorkshopScopeSelect";
+import { apiFetch, buildQuery } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import {
   DATE_BASIS_NOTE,
@@ -41,14 +47,36 @@ export default function ConsolidatedQuestionnairePage({
   params: Promise<{ artisanId: string }>;
 }) {
   const { artisanId } = use(params);
+  const searchParams = useSearchParams();
   const [data, setData] = useState<ConsolidatedQuestionnaire | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * WHICH WORKSHOPS THIS DOCUMENT COVERS.
+   *
+   * `defaultToMostRecent` is FALSE here, and it is the one screen where that is right. This is a
+   * document — the artifact a researcher cites — and its default meaning has always been "everything
+   * this artisan has ever said". Silently narrowing it to one workshop would change what a citation
+   * means without the reader asking for it. The index page and the URL can still open it scoped, and
+   * the control makes narrowing one click.
+   *
+   * The whole document is recomputed server-side over the narrowed interviews, so the summary counts
+   * and the divergence flags describe the scope rather than being filtered after the fact: a
+   * disagreement between two workshops is not a disagreement within one of them.
+   */
+  const scope = useWorkshopScope({
+    defaultToMostRecent: false,
+    initialWorkshopIds: workshopScopeFromSearchParams(new URLSearchParams(searchParams.toString()))
+  });
+
   useEffect(() => {
+    if (scope.settling) return;
     let active = true;
     setData(null);
     setError(null);
-    apiFetch<ConsolidatedQuestionnaire>(`/questionnaire/artisans/${artisanId}/consolidated`)
+    apiFetch<ConsolidatedQuestionnaire>(
+      `/questionnaire/artisans/${artisanId}/consolidated${buildQuery({ workshopIds: scope.queryValue })}`
+    )
       .then((result) => {
         if (active) setData(result);
       })
@@ -58,17 +86,32 @@ export default function ConsolidatedQuestionnairePage({
     return () => {
       active = false;
     };
-  }, [artisanId]);
+  }, [artisanId, scope.settling, scope.queryValue]);
 
   const jumpTargets = useMemo(
     () => (data?.sections ?? []).map((section) => ({ id: section.id, code: section.code, title: section.title })),
     [data]
   );
 
+  /**
+   * The scope control is rendered in EVERY branch, including the two failures below.
+   *
+   * That is not tidiness. Narrowing to a workshop this artisan was not at is a perfectly ordinary
+   * thing to do by accident, and it produces an empty or failed document — so the control that caused
+   * it has to still be on screen to undo it. Hiding it behind a successful load would leave the reader
+   * on a dead page whose only exit is the back button.
+   */
+  const scopeControl = (
+    <div className="mb-5 max-w-xl">
+      <WorkshopScopeSelect scope={scope} label="Workshops in this document" />
+    </div>
+  );
+
   if (error) {
     return (
       <div className="pb-16">
         <PageHeader title="Consolidated questionnaire" />
+        {scopeControl}
         <EmptyState title="This questionnaire could not be loaded" body={error} />
       </div>
     );
@@ -78,6 +121,7 @@ export default function ConsolidatedQuestionnairePage({
     return (
       <div className="pb-16">
         <PageHeader title="Consolidated questionnaire" />
+        {scopeControl}
         <div className="panel p-6 text-sm text-ink-500">Gathering answers from every interview…</div>
       </div>
     );
@@ -91,19 +135,38 @@ export default function ConsolidatedQuestionnairePage({
     <div className="pb-16">
       <PageHeader
         title={artisan.name}
+        // The sentence has to follow the scope. "All N interviews they took part in" is a claim about
+        // the whole corpus, and repeating it under a workshop filter would tell the reader they were
+        // looking at everything while they were looking at one workshop.
         description={
-          subtitle
-            ? `${subtitle} — every questionnaire answer recorded for this artisan, gathered from all ${summary.interviewCount} interviews they took part in.`
-            : `Every questionnaire answer recorded for this artisan, gathered from all ${summary.interviewCount} interviews they took part in.`
+          [
+            subtitle,
+            scope.workshopIds.length
+              ? `Questionnaire answers from the ${summary.interviewCount} interview${
+                  summary.interviewCount === 1 ? "" : "s"
+                } this artisan took part in within the chosen workshops.`
+              : `Every questionnaire answer recorded for this artisan, gathered from all ${summary.interviewCount} interview${
+                  summary.interviewCount === 1 ? "" : "s"
+                } they took part in.`
+          ]
+            .filter(Boolean)
+            .join(" — ")
         }
         icon={<Layers className="h-5 w-5" aria-hidden />}
         actions={
           <DownloadCsvButton
-            path={`/questionnaire/artisans/${artisan.id}/consolidated.csv`}
+            // The CSV carries the same scope, so the file a researcher cites is the document they read.
+            // The endpoint is download-gated (see its docstring) while this page is not, so a reader
+            // without download access still gets the document and simply cannot take the file.
+            path={`/questionnaire/artisans/${artisan.id}/consolidated.csv${buildQuery({
+              workshopIds: scope.queryValue
+            })}`}
             filename={`questionnaire-${artisan.name.replace(/[^A-Za-z0-9]+/g, "-")}.csv`}
           />
         }
       />
+
+      {scopeControl}
 
       <SummaryStrip summary={summary} />
 
@@ -111,10 +174,16 @@ export default function ConsolidatedQuestionnairePage({
         <div className="min-w-0 space-y-6">
           {nothingRecorded ? (
             <EmptyState
-              title="Nothing recorded yet"
-              body={`${artisan.name} appears in ${summary.interviewCount} interview${
-                summary.interviewCount === 1 ? "" : "s"
-              }, but no answers or recordings have been filed against them.`}
+              title={summary.interviewCount === 0 ? "Nothing in this scope" : "Nothing recorded yet"}
+              body={
+                summary.interviewCount === 0
+                  ? scope.workshopIds.length
+                    ? `${artisan.name} took part in no interviews at the chosen workshops. Widen the workshop scope, or choose All records.`
+                    : `${artisan.name} has not taken part in any interview yet.`
+                  : `${artisan.name} appears in ${summary.interviewCount} interview${
+                      summary.interviewCount === 1 ? "" : "s"
+                    }, but no answers or recordings have been filed against them.`
+              }
             />
           ) : null}
 
@@ -284,6 +353,20 @@ function AnswerCard({ row, ordinal }: { row: ConsolidatedAnswer; ordinal?: numbe
 
 function RecordingBody({ row }: { row: ConsolidatedAnswer }) {
   const failed = row.transcriptStatus && row.transcriptStatus !== "COMPLETED";
+  /**
+   * A recording with no URL. This is a ROUTINE state, not a fault, and the two reasons for it read very
+   * differently to the person looking at the page:
+   *
+   *   * the clip is here but this account may not take the file. Reading the repository is open to
+   *     everyone; a URL is the file itself, so it travels only to callers who may download that
+   *     uploader's data. The transcript below IS still the record, which is the point.
+   *   * the upload never finished, in which case there is no file to have.
+   *
+   * The page cannot tell them apart from the payload — deliberately, since saying "you are not allowed
+   * this" per clip would be noise on a document — so it says the one true thing that covers both, rather
+   * than leaving a bare filename with nothing under it and no explanation.
+   */
+  const withheld = !row.url;
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2 text-xs text-ink-500">
@@ -298,10 +381,17 @@ function RecordingBody({ row }: { row: ConsolidatedAnswer }) {
       ) : (
         <p className="text-xs italic text-ink-500">
           {failed
-            ? "Transcription did not complete for this clip — the audio above is the record."
-            : "No transcript yet — the audio above is the record."}
+            ? "Transcription did not complete for this clip."
+            : "No transcript yet for this clip."}
+          {withheld ? " The audio is not available to play here." : " The audio above is the record."}
         </p>
       )}
+      {withheld && row.transcriptText ? (
+        <p className="text-[0.7rem] italic leading-4 text-ink-500">
+          The transcript is the record here — playing or downloading the audio itself needs download
+          access to the researcher who recorded it.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -401,7 +491,7 @@ function UnfiledBlock({ rows }: { rows: ConsolidatedAnswer[] }) {
 function SourcesPanel({ interviews }: { interviews: InterviewSource[] }) {
   return (
     <div className="panel p-4">
-      <h2 className="section-eyebrow mb-3">Sources ({interviews.length})</h2>
+      <h2 className="eyebrow mb-3">Sources ({interviews.length})</h2>
       <ol className="space-y-3">
         {interviews.map((interview) => (
           <li key={interview.id} className="border-l-2 border-line-200 pl-3">
@@ -433,7 +523,7 @@ function SourcesPanel({ interviews }: { interviews: InterviewSource[] }) {
 function JumpPanel({ targets }: { targets: Array<{ id: string; code: string; title: string }> }) {
   return (
     <nav className="panel p-4" aria-label="Jump to section">
-      <h2 className="section-eyebrow mb-3">Sections</h2>
+      <h2 className="eyebrow mb-3">Sections</h2>
       <ul className="space-y-1">
         {targets.map((target) => (
           <li key={target.id}>

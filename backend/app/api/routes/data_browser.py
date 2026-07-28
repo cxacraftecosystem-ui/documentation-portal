@@ -84,7 +84,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response, Streamin
 
 from app.core.db import db
 from app.core.deps import require_dataset_downloader
-from app.services.records import visibility_where
+from app.services.records import owned_or_granted_where
 from app.services.record_fields import (
     MEDIA_COLOR,
     MEDIA_COLUMNS,
@@ -345,10 +345,10 @@ def _taxonomy_of(norm: str) -> str | None:
 # "WHOSE data" — and ``canDownloadDataset`` is a GRANTABLE boolean, so a researcher can hold it
 # without ranking Professor+. Until this scope existed every /data endpoint handed such a
 # researcher the whole repository, while /export/dataset — the sibling endpoint doing the same job
-# — filtered by ``visibility_where``. The permission means "download the data you can SEE", so the
+# — filtered by ``owned_or_granted_where``. The permission means "download the data you can SEE", so the
 # same filter now rides every query behind /tree, /manifest, /report and /media/{id}/download.
 #
-# Both filters are EMPTY for Professor and above (``visibility_where`` returns ``{}`` for them) and
+# Both filters are EMPTY for Professor and above (``owned_or_granted_where`` returns ``{}`` for them) and
 # every helper below short-circuits on an empty filter back to the exact call it made before, so
 # for professors, admins and the master admin this is a no-op down to the query shape.
 #
@@ -377,8 +377,8 @@ class Scope:
 
 async def _scope_for(user: Any) -> Scope:
     return Scope(
-        records=await visibility_where(user),
-        media=await visibility_where(user, owner_field="uploadedById"),
+        records=await owned_or_granted_where(user),
+        media=await owned_or_granted_where(user, owner_field="uploadedById"),
     )
 
 

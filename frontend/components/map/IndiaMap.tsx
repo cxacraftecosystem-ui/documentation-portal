@@ -22,14 +22,25 @@
  * animation loop in this file at all.
  */
 
-import { memo, useMemo } from "react";
+import { memo, useEffect, useId, useMemo, useState } from "react";
 
+import { loadBorders, type BorderLine } from "@/components/map/borderGeometry";
 import { layoutPins, type PlacedPin } from "@/components/map/layout";
-import { indiaOutlinePath, unitsPerKilometre, VIEW_BOX } from "@/components/map/projection";
-import type { MapPoint } from "@/components/map/types";
+import {
+  bordersToPath,
+  indiaOutlinePath,
+  unitsPerKilometre,
+  VIEW_BOX
+} from "@/components/map/projection";
+import type { AdminLevel, MapPoint } from "@/components/map/types";
 
 export type IndiaMapProps = {
   points: MapPoint[];
+  /**
+   * Which administrative borders to draw. NATION draws none — the outline IS the international
+   * border — STATE adds the state borders, DISTRICT adds the district borders on top of those.
+   */
+  level?: AdminLevel;
   /** Keys of points holding the focused record, drawn with a ring so they can be found at a glance. */
   focusKeys?: string[];
   selectedKey?: string | null;
@@ -56,8 +67,58 @@ const Coastline = memo(function Coastline() {
   );
 });
 
+/**
+ * The administrative borders for one level, fetched once and kept.
+ *
+ * NOT part of the module the way the outline is. The outline must exist before anything can be drawn,
+ * so it is 18 KiB of inlined string with no loading state to get wrong; these are wanted only once a
+ * reader asks for that level of detail, and the district file is the largest asset on the page. So the
+ * map paints immediately and the borders arrive a moment later — which is also why a failure here is
+ * silent: a map with pins and no district borders is still a map, and an error banner over one would be
+ * louder than the thing it is reporting.
+ */
+function useBorders(level: AdminLevel): { state: BorderLine[]; district: BorderLine[] } {
+  const [state, setState] = useState<BorderLine[]>([]);
+  const [district, setDistrict] = useState<BorderLine[]>([]);
+
+  const wantsState = level === "STATE" || level === "DISTRICT";
+  const wantsDistrict = level === "DISTRICT";
+
+  useEffect(() => {
+    if (!wantsState) return;
+    let live = true;
+    loadBorders("state")
+      .then((lines) => {
+        if (live) setState(lines);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [wantsState]);
+
+  useEffect(() => {
+    if (!wantsDistrict) return;
+    let live = true;
+    loadBorders("district")
+      .then((lines) => {
+        if (live) setDistrict(lines);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [wantsDistrict]);
+
+  // Kept once loaded rather than cleared when the level moves back down: stepping DISTRICT -> STATE ->
+  // DISTRICT is one gesture a reader makes while comparing, and re-fetching 68 KiB for it would make
+  // the toggle feel broken. `wantsState`/`wantsDistrict` decide what is DRAWN.
+  return { state: wantsState ? state : [], district: wantsDistrict ? district : [] };
+}
+
 export function IndiaMap({
   points,
+  level = "DISTRICT",
   focusKeys = [],
   selectedKey = null,
   hoveredKey = null,
@@ -69,6 +130,12 @@ export function IndiaMap({
   const focused = useMemo(() => new Set(focusKeys), [focusKeys]);
   const active = pins.find((pin) => pin.point.key === (hoveredKey ?? selectedKey)) ?? null;
 
+  const borders = useBorders(level);
+  const statePath = useMemo(() => bordersToPath(borders.state), [borders.state]);
+  const districtPath = useMemo(() => bordersToPath(borders.district), [borders.district]);
+  // One id per mounted map, so two maps on a page cannot share a clip path.
+  const clipId = `${useId()}-india`;
+
   return (
     <svg
       viewBox={`0 0 ${VIEW_BOX.width} ${VIEW_BOX.height}`}
@@ -77,7 +144,32 @@ export function IndiaMap({
       aria-hidden="true"
       focusable="false"
     >
+      {/*
+        THE CLIP IS WHY THE NATIONAL BOUNDARY IS THE SAME AT EVERY LEVEL.
+
+        The frontier is drawn from ONE source — the outline below, verified against the official
+        depiction — and the border layers are drawn INSIDE it. That is not belt-and-braces: the
+        district source these borders come from has an outer extent up to ~0.02 degrees (~2 km) away
+        from the outline's, so unclipped runs poke a few pixels past the coast and the country would
+        appear to have three slightly different edges depending on which level was showing.
+      */}
+      <defs>
+        <clipPath id={clipId}>
+          <path d={indiaOutlinePath()} clipRule="evenodd" />
+        </clipPath>
+      </defs>
+
       <Coastline />
+
+      {/* Under the pins, over the land. Weight carries the hierarchy — heavier is more significant —
+          and every one of them is NEUTRAL: purple is this product's only action colour, so a purple
+          border would compete with the pins for the same meaning. */}
+      <g clipPath={`url(#${clipId})`} fill="none" strokeLinejoin="round" strokeLinecap="round">
+        {districtPath ? (
+          <path d={districtPath} className="stroke-ink-300" strokeWidth={0.6} opacity={0.7} />
+        ) : null}
+        {statePath ? <path d={statePath} className="stroke-ink-500" strokeWidth={1.2} /> : null}
+      </g>
 
       {/* Uncertainty first, under everything: a halo is context for its pin, not a mark of its own. */}
       {pins

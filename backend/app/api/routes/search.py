@@ -8,7 +8,7 @@ from app.core.deps import get_current_user
 from app.services.concurrency import gather_reads
 from app.services.pagination import normalize_pagination
 from app.services.record_filters import RECORD_TYPES, build_record_wheres, resolve_types
-from app.services.records import public_encode
+from app.services.records import media_url_owners, public_encode
 
 router = APIRouter(prefix="/search", tags=["search"])
 
@@ -48,6 +48,12 @@ async def global_search(
     # stand alone, so "everything since the workshop" needs no artificial end date.
     dateFrom: datetime | None = None,
     dateTo: datetime | None = None,
+    # The workshop scope. Repeatable or comma-joined ids, plus the reserved value "none" for records
+    # that are not linked to a workshop at all; omitted means every workshop. Spelled exactly as
+    # ``GET /map/points`` spells it, because both are built from one client-side filter object — a
+    # search box that disagreed with the map about what "this workshop" contains would leave no way to
+    # tell which of the two was lying.
+    workshopIds: list[str] | None = Query(None),
     page: int = Query(1, ge=1),
     pageSize: int = Query(10, ge=1, le=50),
 ) -> dict[str, Any]:
@@ -66,6 +72,7 @@ async def global_search(
         media_type=mediaType,
         date_from=dateFrom,
         date_to=dateTo,
+        workshop_ids=workshopIds,
     )
     artisan_where = wheres["artisans"]
     workshop_where = wheres["workshops"]
@@ -137,6 +144,12 @@ async def global_search(
     # so older clients (and the Android app) are untouched. `types` joins them on the same terms —
     # the RESOLVED set, in bucket order, so a client can show "searching artisans and media" without
     # re-deriving what an omitted parameter meant.
+    #
+    # ``media_urls`` is resolved rather than left to the cheap default. Search is the widest read in the
+    # app and the media bucket is one of its five, so this is exactly the surface where "everyone may
+    # look, taking data out stays earned" has to hold: every media ROW comes back, and the fetchable
+    # ``url`` on it comes back only for uploaders the caller may download from. One query, and only
+    # below professor — see ``records.media_url_owners``.
     return public_encode(
         {
             "query": q,
@@ -153,5 +166,7 @@ async def global_search(
             # The pager walks all five buckets at once, so the last page is the last page of the
             # LONGEST bucket; at least 1 so an empty result still reads as "page 1 of 1".
             "pageCount": max(1, (max(totals.values()) + page_size - 1) // page_size),
-        }
+        },
+        current_user,
+        media_urls=await media_url_owners(current_user),
     )

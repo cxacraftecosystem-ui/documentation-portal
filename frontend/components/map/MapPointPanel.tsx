@@ -47,15 +47,29 @@ export function MapPointPanel({
       });
     return () => controller.abort();
     // `query` is rebuilt on every render of the parent, so depending on the object itself would
-    // refetch forever. The two things that actually change the answer are the pin and the filters.
+    // refetch forever. What actually changes the answer is the pin, the filters, the workshop scope
+    // and the level — the level because a point key names an administrative unit and the level decides
+    // which records sit in it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [point.key, JSON.stringify(query.filters), query.q]);
+  }, [point.key, JSON.stringify(query.filters), query.q, query.workshopIds, query.level]);
 
-  // A place resolves from several spellings, so "everything here" is best asked of Browse records
-  // using the place the researcher would recognise rather than a key only this map understands.
+  /**
+   * "Everything here" as a Browse records link.
+   *
+   * The `place` parameter is a free-text CONTAINS filter on the records' OWN place column, so it is
+   * only a faithful stand-in when the string actually appears there. `point.places` holds exactly
+   * that: the raw spellings the records were typed with, which is why it is used in preference to
+   * `point.label` — a district pin is labelled "Jaipur" while its records say "Bagru", and
+   * `place=Jaipur` would return none of them.
+   *
+   * When there is no typed spelling to send, the link carries the shared filters alone. A slightly
+   * wider list is a correct answer to a slightly wider question; a `place` filter that silently drops
+   * the rows the pin was counting would be a wrong answer to this one.
+   */
   const browseHref = `/search${buildQuery({
     ...filtersToLinkParams(query.filters),
-    place: point.layer === "ORIGIN" ? (point.spellings?.[0] ?? point.label) : undefined
+    workshopIds: query.workshopIds,
+    place: point.layer === "ORIGIN" ? point.places?.[0] : undefined
   })}`;
 
   return (
@@ -69,6 +83,23 @@ export function MapPointPanel({
             {point.label}
           </h2>
           <p className="mt-0.5 text-xs text-ink-500">{point.region}</p>
+          {/* Every finer place name that folded into this point. Grouping to a district does not lose
+              the town it was documented in — it says so here. */}
+          {point.places?.length ? (
+            <p className="mt-1 break-words text-[11px] leading-4 text-ink-500">
+              Covers {point.places.slice(0, 4).join(", ")}
+              {point.places.length > 4 ? ` and ${point.places.length - 4} more` : ""}.
+            </p>
+          ) : null}
+          {point.layer === "ORIGIN" && typeof point.pinnedRecords === "number" && point.total > 0 ? (
+            <p className="mt-1 text-[11px] leading-4 text-ink-500">
+              {point.pinnedRecords === point.total
+                ? "Every record here carries a pin on the subject's own place."
+                : point.pinnedRecords === 0
+                  ? "No record here carries a pin on the subject's place — this point comes from the stated address."
+                  : `${point.pinnedRecords} of ${point.total} records here carry a pin on the subject's place.`}
+            </p>
+          ) : null}
         </div>
         <button
           type="button"

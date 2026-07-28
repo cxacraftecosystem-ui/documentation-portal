@@ -46,6 +46,15 @@ data class UserDto(
     val authProvider: String? = null
 )
 
+/**
+ * `GET /dashboard/stats`.
+ *
+ * THE TOP-LEVEL TOTALS ARE THE REPOSITORY'S, not the caller's uploads. They used to be filtered by
+ * row visibility, so below Professor "Artisans" meant "artisans you entered" while the label said
+ * otherwise — an account that had uploaded nothing read a screen of zeroes indistinguishable from an
+ * empty repository. Reading is open now, so these are the true totals and the caller's own
+ * contribution is answered separately in [mine]. Never render one under the other's label.
+ */
 @Serializable
 data class DashboardStats(
     val totalArtisans: Int = 0,
@@ -53,7 +62,48 @@ data class DashboardStats(
     val totalProductRecords: Int = 0,
     val totalToolRecords: Int = 0,
     val totalMediaFiles: Int = 0,
+    val pendingSubmissions: Int = 0,
+    /**
+     * This account's own contribution, same keys as above so both rows render from one template.
+     *
+     * NULLABLE ON PURPOSE: a device can be talking to an API deployed before this block existed, and
+     * a missing `mine` must read as "this server does not answer that question" — hide the row —
+     * rather than as six honest zeroes, which would tell the user their work is gone.
+     */
+    val mine: DashboardStatsMine? = null,
+    /** The repository's newest entries across the four record types, newest first, capped at ten. */
+    val recentSubmissions: List<DashboardRecentSubmissionDto> = emptyList()
+)
+
+/** The caller's own uploads. Deliberately the SAME field names as [DashboardStats]'s totals. */
+@Serializable
+data class DashboardStatsMine(
+    val totalArtisans: Int = 0,
+    val totalWorkshops: Int = 0,
+    val totalProductRecords: Int = 0,
+    val totalToolRecords: Int = 0,
+    val totalMediaFiles: Int = 0,
     val pendingSubmissions: Int = 0
+)
+
+/**
+ * One row of the dashboard's recent-activity list. [type] is the SINGULAR record type — `artisan`,
+ * `workshop`, `product`, `tool` — because it names one row, not a search bucket.
+ *
+ * [title] is whichever name column the record type carries, so it is null for a row that has none.
+ * [createdByName] is whose work it is: the list could once only hold the reader's own rows, so it
+ * went unshown; now that the list is the repository's, an unattributed title is one nobody can
+ * follow up on. Still nullable — the account may have been deleted.
+ */
+@Serializable
+data class DashboardRecentSubmissionDto(
+    val id: String = "",
+    val type: String = "",
+    val status: String = "",
+    val createdAt: String? = null,
+    val title: String? = null,
+    val place: String? = null,
+    val createdByName: String? = null
 )
 
 @Serializable
@@ -325,6 +375,20 @@ data class MediaFileDto(
     val originalFilename: String,
     val mediaType: String,
     val mimeType: String? = null,
+    /**
+     * The fetchable object URL — ABSENT WHENEVER THIS ACCOUNT MAY NOT TAKE THE FILE, which is now a
+     * routine state rather than only the sign of an incomplete upload.
+     *
+     * Reading the repository is open to every signed-in account, so every media ROW travels: name,
+     * type, caption, transcript, parent record, uploader. But a URL is not a description of a file, it
+     * IS the file, so the server withholds it (and `objectKey`, from which it can be rebuilt) unless
+     * the caller may download that uploader's data — themselves, a professor or above, a holder of the
+     * dataset-download permission, or someone the uploader granted access to. See
+     * `records._MEDIA_URL_KEYS`.
+     *
+     * So treat null as "not for you" OR "not uploaded yet" and offer no player either way. It is not an
+     * error and must never be reported as one.
+     */
     val url: String? = null,
     val caption: String? = null,
     val transcriptStatus: String? = null,
@@ -1828,5 +1892,246 @@ data class DataManifestDto(
     val files: List<DataManifestFileDto> = emptyList(),
     val totalFiles: Int = 0,
     val totalMedia: Int = 0,
+    val truncated: Boolean = false
+)
+
+// ---------------------------------------------------------------------------
+// Map: WHERE the repository's records are.
+// GET /map/points and GET /map/points/{key}/records.
+//
+// TWO LAYERS, NEVER ADDED TOGETHER. A record has two different true locations: where its craft
+// COMES FROM (the ORIGIN layer, built from the subject's stated address, else the legacy free-text
+// place through the server's town atlas) and where it was RECORDED (the CAPTURE layer, built from
+// the device's GPS fix). One record can appear in both — its craft is from Bagru and it was
+// documented at a Kharagpur workshop — so `summary.originRecords` and `summary.captureRecords` are
+// two denominators over the same corpus. Adding them either double-counts that record or hides one
+// of its two truths; the layer a pin belongs to is [MapPointDto.layer].
+//
+// Every field here has a default, including the ones the server always sends. These payloads are the
+// only thing standing between a phone and a blank map, and a server that gains a summary field must
+// not be able to turn the whole screen into a parse error.
+// ---------------------------------------------------------------------------
+
+/**
+ * The five record buckets a pin folds, in the API's PLURAL vocabulary. A fixed five-key object, not
+ * a map: the keys are the wire's own closed list, so naming them is what lets a caller read
+ * `counts.artisans` instead of guessing at a string key that a typo would silently turn into null.
+ *
+ * Each defaults to 0 because a bucket the caller did not ask for is simply absent from the payload,
+ * and "not counted" draws the same as "none here" on a pin that was never counting it.
+ */
+@Serializable
+data class MapCountsDto(
+    val artisans: Int = 0,
+    val workshops: Int = 0,
+    val products: Int = 0,
+    val tools: Int = 0,
+    val media: Int = 0
+)
+
+/**
+ * One pin. [key] is what identifies it to `GET /map/points/{key}/records`, and is opaque: it is one
+ * of `nation:india`, `state:<State>`, `district:<State>|<District>` or
+ * `capture:<cell size>:<lat cell>_<lon cell>`. It contains ':' and '|', so it is URL-encoded on the
+ * way back (Retrofit does that — see `FieldRepositoryApi.mapPointRecords`). NEVER parse it to derive
+ * a label: [label], [region], [state] and [district] are the server's own resolved names.
+ *
+ * [layer] is `ORIGIN` or `CAPTURE`. [precision] is `SUBJECT_PIN` | `MEASURED` | `TOWN` | `DISTRICT`
+ * | `STATE` | `NATION` and [source] is `SUBJECT_PIN` | `STATED_ADDRESS` | `PLACE_TEXT` |
+ * `DEVICE_FIX` — together they say how much of this position is a measurement and how much is a
+ * lookup, which is the difference between "we stood here" and "we know the district".
+ *
+ * [latitude]/[longitude] are always sent for a point (the server cannot build one without a
+ * position) and are the WEIGHTED MEAN of everything folded in, not the corner of a grid cell.
+ *
+ * ORIGIN-only: [places] — every finer place name and free-text spelling that folded in, longest
+ * first, so grouping to a district moves that detail into the panel instead of losing it;
+ * [pinnedRecords] — how many of [total] are positioned by a real coordinate; [fromPlaceText] — how
+ * many reached this pin through the legacy prose column, i.e. which records to go and fill in.
+ *
+ * CAPTURE-only: [fixes] — how many separate GPS fixes this pin stands in for, so "317 records" is
+ * not mistaken for one measurement; [spreadMetres] — how much ground they cover; [medianAccuracy] —
+ * metres, null when no fix reported one. All three default so an ORIGIN pin, which omits them, is
+ * not a decoding failure; branch on [layer], never on `fixes > 0`.
+ */
+@Serializable
+data class MapPointDto(
+    val key: String = "",
+    val layer: String = "",
+    val label: String = "",
+    val region: String = "",
+    val state: String? = null,
+    val district: String? = null,
+    val latitude: Double = 0.0,
+    val longitude: Double = 0.0,
+    val precision: String = "",
+    val source: String = "",
+    val total: Int = 0,
+    val counts: MapCountsDto = MapCountsDto(),
+    val places: List<String> = emptyList(),
+    val pinnedRecords: Int = 0,
+    val fromPlaceText: Int = 0,
+    val fixes: Int = 0,
+    val spreadMetres: Int = 0,
+    val medianAccuracy: Double? = null
+)
+
+/**
+ * Records the map could NOT place, grouped by what their place column said. Blank, unreadable and
+ * "prose the atlas cannot resolve, with no state picked" all land here as one honest bucket rather
+ * than as a pin somewhere plausible. [label] is `No place recorded` when there was no text at all.
+ *
+ * This list must be shown. It is the count of records the map is silently not drawing, and hiding it
+ * makes a map of 60 records look like a map of the whole repository.
+ */
+@Serializable
+data class MapUnplacedDto(
+    val label: String = "",
+    val total: Int = 0,
+    val counts: MapCountsDto = MapCountsDto()
+)
+
+/**
+ * The one record the caller asked to see in context (`focusType` + `focusId`). The map still draws
+ * the whole filtered corpus — "in context" is meant literally — and this only names which pins hold
+ * the record, in [pointKeys], computed by the same ladder at the same level so a focus key always
+ * matches a drawn pin. Usually two keys: its origin pin and its capture pin.
+ *
+ * [type] is the PLURAL bucket name here (`artisans`, ...), matching what the request asked for.
+ */
+@Serializable
+data class MapFocusDto(
+    val type: String = "",
+    val id: String = "",
+    val title: String = "",
+    val place: String? = null,
+    val pointKeys: List<String> = emptyList(),
+    /**
+     * False when the current filters — the workshop scope above all — exclude this record, so its
+     * [pointKeys] ring no drawn pin.
+     *
+     * REPORTED RATHER THAN ENFORCED, and that is the whole reason it exists. The server used to resolve
+     * a focused record through the same narrowed clause the pins were built from and 404 when it missed,
+     * which took the ENTIRE map response down: "show this record on the map" from anything older than
+     * the most recent workshop produced an error screen instead of a map with one unringed pin.
+     *
+     * Defaults TRUE so an API that predates the field reads as it always behaved, where being out of
+     * scope was not representable at all.
+     */
+    val inScope: Boolean = true
+)
+
+/**
+ * How much of the structured address the corpus in play actually holds — the map's own quality,
+ * reported so "why is this record at the state capital" has an answer a researcher can act on (go
+ * and fill in the district, or drop a pin) instead of looking like a bug.
+ *
+ * [locations] is the denominator for all four: how many `Location` rows the filtered corpus touches.
+ */
+@Serializable
+data class MapAddressCompletenessDto(
+    val locations: Int = 0,
+    val withState: Int = 0,
+    val withDistrict: Int = 0,
+    val withPincode: Int = 0,
+    val withSubjectPin: Int = 0
+)
+
+/**
+ * What the map is standing on. [records] is how many records the filters matched at all; [byType]
+ * breaks that down over the same five buckets as a pin's counts.
+ *
+ * [originExcludes] names the buckets that CANNOT reach the origin layer — media has no place column
+ * of its own, a photograph inherits the record it belongs to — so the asymmetry is stated rather
+ * than left for a reader to notice. [captureTruncated] is true when more locations were in play than
+ * the server would read fixes for, i.e. the capture layer is incomplete.
+ *
+ * [clusterKilometres] is the radius fixes were merged at for the current level, which is what a
+ * "Recorded here" pin is really claiming. [anchoredDistricts] / [anchorPins] say how well the server
+ * knows where districts ARE and how much of that is measured rather than seeded from the atlas;
+ * [anchorsTruncated] means the anchor read hit its ceiling, so some districts fall back to coarser
+ * positions.
+ */
+@Serializable
+data class MapSummaryDto(
+    val records: Int = 0,
+    val byType: MapCountsDto = MapCountsDto(),
+    val originRecords: Int = 0,
+    val captureRecords: Int = 0,
+    val unplacedRecords: Int = 0,
+    val originExcludes: List<String> = emptyList(),
+    val captureTruncated: Boolean = false,
+    val clusterKilometres: Int = 0,
+    val address: MapAddressCompletenessDto = MapAddressCompletenessDto(),
+    val anchoredDistricts: Int = 0,
+    val anchorPins: Int = 0,
+    val anchorsTruncated: Boolean = false
+)
+
+/**
+ * `GET /map/points` — every pin for the current filters, both layers, plus what would not place.
+ *
+ * [scope] is `all` (no filter narrowed anything), `filtered`, or `record` (a focus was requested).
+ * [level] is the administrative unit the pins are GROUPED at — `NATION` | `STATE` | `DISTRICT` — and
+ * [levels] is the vocabulary to build the level toggle from, served so the client's list and the
+ * server's cannot drift apart. [types] is which buckets were counted, in the server's own order.
+ *
+ * [points] is already sorted: biggest first, ties by label.
+ */
+@Serializable
+data class MapPointsDto(
+    val scope: String = "",
+    val level: String = "",
+    val levels: List<String> = emptyList(),
+    val types: List<String> = emptyList(),
+    val points: List<MapPointDto> = emptyList(),
+    val unplaced: List<MapUnplacedDto> = emptyList(),
+    val focus: MapFocusDto? = null,
+    val summary: MapSummaryDto = MapSummaryDto()
+)
+
+/**
+ * One record behind a pin. [type] is the PLURAL bucket name (`artisans`, `workshops`, `products`,
+ * `tools`, `media`) — the same vocabulary the request's `types` filter uses.
+ *
+ * Hand-picked columns, and that is the security property: no identity field is in this shape at any
+ * rank, so a map cannot leak one however it renders a row.
+ */
+@Serializable
+data class MapPointRecordDto(
+    val type: String = "",
+    val id: String = "",
+    val title: String = "",
+    val place: String? = null,
+    val craft: String? = null,
+    val status: String = "",
+    val createdAt: String? = null
+)
+
+/**
+ * `GET /map/points/{key}/records` — the records behind ONE pin, fetched on demand so a pin can be
+ * navigated FROM rather than only looked at.
+ *
+ * MUST BE REQUESTED WITH THE SAME FILTERS THE MAP WAS DRAWN WITH, including `level` and the workshop
+ * scope. The key alone does not determine the answer: it names an administrative unit, and which
+ * records sit in that unit is exactly what the filters decide. [truncated] is true when the
+ * per-bucket cap was hit, so [total] is a floor, not the count.
+ */
+@Serializable
+data class MapPointRecordsDto(
+    val key: String = "",
+    val items: List<MapPointRecordDto> = emptyList(),
+    /**
+     * How many rows are IN [items] — not how many records the pin holds.
+     *
+     * [total] is the same number under an older name, kept because clients read it. Do not compare
+     * either against `MapPointDto.total`: that one is the pin's corpus count, this one is the length of
+     * a list capped at [cap] PER RECORD TYPE, so a pin holding 317 files answers with 40 here. A client
+     * that reads the two identically-named fields as the same quantity reports 277 missing records.
+     * [truncated] is the field that actually says which situation this is.
+     */
+    val shown: Int = 0,
+    val total: Int = 0,
+    val cap: Int = 0,
     val truncated: Boolean = false
 )

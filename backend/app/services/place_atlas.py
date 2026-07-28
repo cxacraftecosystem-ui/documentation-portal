@@ -75,6 +75,16 @@ class Place:
     precision: Precision
     #: Folded spellings that resolve here. Matched as a whole token-run, longest first.
     aliases: tuple[str, ...]
+    #: The CANONICAL district this place sits in, as ``services.address`` spells it.
+    #:
+    #: Added so this table can SEED ``geography.DistrictAnchors``: each row is a published town
+    #: coordinate that was checked by eye, which is a far better starting position for its district
+    #: than the state capital. It is a separate field rather than parsed out of ``region`` because
+    #: ``region`` is prose meant for a human ("Kachchh district, Gujarat (shown at Bhuj)") and parsing
+    #: prose to recover a canonical name is how the two quietly disagree.
+    #:
+    #: Optional only for a STATE-precision entry, which by definition names no district.
+    district: str | None = None
 
 
 # Every craft place the live corpus names, plus the workshop venue. Coordinates are the published
@@ -89,38 +99,59 @@ class Place:
 _PLACES: tuple[Place, ...] = (
     # Rajasthan — block printing
     Place("bagru", "Bagru", "Jaipur district, Rajasthan", "Rajasthan",
-          26.8149, 75.5449, Precision.TOWN, ("bagru",)),
+          26.8149, 75.5449, Precision.TOWN, ("bagru",), district="Jaipur"),
     Place("sanganer", "Sanganer", "Jaipur district, Rajasthan", "Rajasthan",
-          26.8168, 75.7889, Precision.TOWN, ("sanganer", "sanganeri")),
+          26.8168, 75.7889, Precision.TOWN, ("sanganer", "sanganeri"), district="Jaipur"),
     Place("balotra", "Balotra", "Barmer district, Rajasthan", "Rajasthan",
-          25.8318, 72.2400, Precision.TOWN, ("balotra", "balotara")),
+          25.8318, 72.2400, Precision.TOWN, ("balotra", "balotara"), district="Barmer"),
     Place("akola-chittorgarh", "Akola", "Chittorgarh district, Rajasthan", "Rajasthan",
-          24.8887, 74.6269, Precision.DISTRICT, ("akolachittorgarh", "akolarajasthan", "akola")),
+          24.8887, 74.6269, Precision.DISTRICT, ("akolachittorgarh", "akolarajasthan", "akola"),
+          district="Chittorgarh"),
     # Gujarat — Ajrakh
     Place("kachchh", "Kachchh", "Kachchh district, Gujarat (shown at Bhuj)", "Gujarat",
-          23.2419, 69.6669, Precision.DISTRICT, ("kachchh", "kutch", "kachchhbhuj", "bhuj")),
+          23.2419, 69.6669, Precision.DISTRICT, ("kachchh", "kutch", "kachchhbhuj", "bhuj"),
+          district="Kachchh"),
     # Uttar Pradesh — cane and bamboo
     Place("bareilly", "Bareilly", "Bareilly district, Uttar Pradesh", "Uttar Pradesh",
-          28.3670, 79.4304, Precision.TOWN, ("bareilly", "barreilly", "bareily")),
+          28.3670, 79.4304, Precision.TOWN, ("bareilly", "barreilly", "bareily"), district="Bareilly"),
     # Uttarakhand — Ringal
     Place("almora", "Almora", "Almora district, Uttarakhand", "Uttarakhand",
-          29.5892, 79.6467, Precision.TOWN, ("almora", "basaralmora", "basar")),
+          29.5892, 79.6467, Precision.TOWN, ("almora", "basaralmora", "basar"), district="Almora"),
     Place("bageshwar", "Bageshwar", "Bageshwar district, Uttarakhand", "Uttarakhand",
-          29.8373, 79.7710, Precision.TOWN, ("bageshwar", "bageswar", "bagheswar", "bagheshwar")),
+          29.8373, 79.7710, Precision.TOWN, ("bageshwar", "bageswar", "bagheswar", "bagheshwar"),
+          district="Bageshwar"),
     Place("rudraprayag", "Rudraprayag", "Rudraprayag district, Uttarakhand", "Uttarakhand",
-          30.2844, 78.9811, Precision.TOWN, ("rudraprayag",)),
+          30.2844, 78.9811, Precision.TOWN, ("rudraprayag",), district="Rudraprayag"),
     Place("dehradun", "Dehradun", "Dehradun district, Uttarakhand", "Uttarakhand",
-          30.3165, 78.0322, Precision.TOWN, ("dehradun", "ballupur", "ballupurdehradun")),
+          30.3165, 78.0322, Precision.TOWN, ("dehradun", "ballupur", "ballupurdehradun"),
+          district="Dehradun"),
     # Jammu and Kashmir
     Place("jammu", "Jammu", "Jammu district, Jammu and Kashmir", "Jammu and Kashmir",
-          32.7266, 74.8570, Precision.TOWN, ("jammu", "satwari", "oldsatwari")),
-    # Andhra Pradesh — Kalamkari
+          32.7266, 74.8570, Precision.TOWN, ("jammu", "satwari", "oldsatwari"), district="Jammu"),
+    # Andhra Pradesh — Kalamkari. LGD split the old Krishna district in 2022 and Kappaladoddi fell
+    # into the new Bapatla district; the record's own prose still says Krishna, which is why the
+    # human-facing `region` keeps it and the machine-facing `district` does not.
     Place("kappaladoddi", "Kappaladoddi", "Krishna district, Andhra Pradesh", "Andhra Pradesh",
-          16.1875, 81.1389, Precision.DISTRICT, ("kappaladoddi", "kappladoddi")),
+          16.1875, 81.1389, Precision.DISTRICT, ("kappaladoddi", "kappladoddi"), district="Krishna"),
     # West Bengal — the workshop venue itself, so the typed address and the GPS fix agree
     Place("kharagpur", "Kharagpur", "Paschim Medinipur district, West Bengal", "West Bengal",
-          22.3149, 87.3105, Precision.TOWN, ("kharagpur", "iitkharagpur")),
+          22.3149, 87.3105, Precision.TOWN, ("kharagpur", "iitkharagpur"), district="Paschim Medinipur"),
 )
+
+
+def atlas_district_anchors() -> tuple[tuple[str, str, float, float], ...]:
+    """(state, district, latitude, longitude) for every entry that names a district.
+
+    Read by ``geography.DistrictAnchors.seed_from_atlas``, which is the ONLY consumer and the reason
+    :attr:`Place.district` exists. A row whose district this build of ``services.address`` does not
+    recognise is dropped there rather than here, so a district rename shows up as a lost seed and not
+    as an import-time explosion.
+    """
+    return tuple(
+        (place.state, place.district, place.latitude, place.longitude)
+        for place in _PLACES
+        if place.district
+    )
 
 # Where a STATE-precision point is drawn: the capital, named on the pin. Only the states and union
 # territories the corpus can actually reach need an entry — an unlisted state resolves to UNPLACED,

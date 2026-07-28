@@ -46,14 +46,33 @@ import {
   roleLabel
 } from "@/lib/permissions";
 
-type DashboardStats = {
+/** The five record counters plus the pending backlog — the shape both halves of "At a glance" share. */
+type StatTotals = {
   totalArtisans: number;
   totalWorkshops: number;
   totalProductRecords: number;
   totalToolRecords: number;
   totalMediaFiles: number;
   pendingSubmissions: number;
-  recentSubmissions: Array<{ id: string; type: string; title: string; place?: string; status: string; createdAt: string }>;
+};
+
+type DashboardStats = StatTotals & {
+  recentSubmissions: Array<{
+    id: string;
+    type: string;
+    title: string;
+    place?: string;
+    status: string;
+    createdAt: string;
+    /** Whose record this is. Absent on an API that predates the repository-wide recent list. */
+    createdByName?: string | null;
+  }>;
+  /**
+   * This account's own contribution. Optional because a deployed API may not send it yet, in which
+   * case the second row of tiles is simply not drawn — never rendered as a row of zeroes, which
+   * would read as "you have contributed nothing".
+   */
+  mine?: StatTotals;
 };
 
 type Tile = {
@@ -182,6 +201,13 @@ function DashboardView() {
    * Pending review is the exception: it opens the review queue, and only for someone who may
    * actually act on it. A researcher who cannot review still SEES the backlog (it tells them
    * their own submissions are waiting) but the card does not pretend to be a door they can open.
+   *
+   * THESE ARE THE REPOSITORY'S TOTALS, and saying so out loud is the point. They used to be the
+   * signed-in researcher's own upload counts wearing these labels, because the API filtered every
+   * total by ownership — so two people standing side by side read different numbers off the word
+   * "Artisans", and somebody who had not uploaded yet read six zeroes and concluded the repository
+   * was empty. Reading is open now; the caller's own contribution is the second row below, asked for
+   * explicitly and labelled as theirs.
    */
   const statCards = stats
     ? [
@@ -198,6 +224,26 @@ function DashboardView() {
         }
       ]
     : [];
+
+  /**
+   * The same six counters for THIS account's own work, and every one of them opens My Activity —
+   * which now asks the API for `createdBy=<me>` rather than sifting page one of the repository, so
+   * the number and the list behind it agree again.
+   *
+   * Drawn only when the API actually sent a `mine` block. A row of zeroes synthesised from a missing
+   * field would be a lie in exactly the direction this whole change exists to fix.
+   */
+  const mineCards =
+    stats?.mine
+      ? [
+          { label: "Artisans", value: stats.mine.totalArtisans, icon: Users },
+          { label: "Workshops", value: stats.mine.totalWorkshops, icon: MapPinned },
+          { label: "Products", value: stats.mine.totalProductRecords, icon: Boxes },
+          { label: "Tools", value: stats.mine.totalToolRecords, icon: Hammer },
+          { label: "Media files", value: stats.mine.totalMediaFiles, icon: Camera },
+          { label: "Awaiting review", value: stats.mine.pendingSubmissions, icon: ClipboardCheck }
+        ]
+      : null;
 
   return (
     <>
@@ -249,7 +295,10 @@ function DashboardView() {
       ) : null}
 
       <section className="mt-8">
-        <h2 className="mb-3 font-display text-lg font-bold text-ink-900">At a glance</h2>
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <h2 className="font-display text-lg font-bold text-ink-900">At a glance</h2>
+          <p className="text-xs text-ink-500">Everything in the repository, not only your own entries.</p>
+        </div>
         {!stats && !error ? (
           <div className="panel p-4 text-sm text-ink-500">Loading...</div>
         ) : (
@@ -285,9 +334,45 @@ function DashboardView() {
         )}
       </section>
 
+      {/* The caller's own contribution, in the SAME six counters and the same order, so the two rows
+          read as one comparison rather than as two unrelated grids. Denser than the row above on
+          purpose: it is the secondary question, and every tile leads to the same place. */}
+      {mineCards ? (
+        <section className="mt-6">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <h2 className="font-display text-lg font-bold text-ink-900">Your contribution</h2>
+            <Link
+              href="/activity"
+              className="text-xs font-semibold text-purple-700 underline-offset-2 hover:underline"
+            >
+              Open My Activity
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            {mineCards.map((card) => (
+              <Link
+                key={card.label}
+                href="/activity"
+                aria-label={`Your ${card.label.toLowerCase()}: ${card.value}. Open My Activity.`}
+                className="panel block p-3 transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-700"
+              >
+                <div className="flex items-center gap-2">
+                  <card.icon className="h-4 w-4 shrink-0 text-purple-700" aria-hidden />
+                  <span className="min-w-0 truncate text-xs font-medium text-ink-500">{card.label}</span>
+                </div>
+                <div className="mt-2 font-display text-2xl font-bold text-ink-900">{card.value}</div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <section className="mt-6 panel overflow-hidden">
         <div className="border-b border-line-200 px-4 py-3">
           <h2 className="font-display font-bold text-ink-900">Recent submissions</h2>
+          <p className="mt-0.5 text-xs text-ink-500">
+            The newest entries across the repository, whoever filed them.
+          </p>
         </div>
         {!stats ? (
           <div className="p-4 text-sm text-ink-500">Loading...</div>
@@ -303,6 +388,9 @@ function DashboardView() {
                   <th className="px-4 py-3">Title</th>
                   <th className="px-4 py-3">Type</th>
                   <th className="px-4 py-3">Place</th>
+                  {/* The list is the whole repository now, so an unattributed row is a row nobody
+                      can follow up on. */}
+                  <th className="px-4 py-3">Recorded by</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Created</th>
                 </tr>
@@ -326,6 +414,7 @@ function DashboardView() {
                     </td>
                     <td className="px-4 py-3 capitalize text-ink-700">{item.type}</td>
                     <td className="px-4 py-3 text-ink-700">{item.place ?? "-"}</td>
+                    <td className="px-4 py-3 text-ink-700">{item.createdByName || "-"}</td>
                     <td className="px-4 py-3">
                       <StatusBadge status={item.status} />
                     </td>

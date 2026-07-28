@@ -58,3 +58,8 @@ local.properties
 
 # Local-only transcription implementation reference (do not commit)
 TRANSCRIPTION_SERVICE.md
+
+# Downloaded boundary sources for scripts/build_boundaries.py — 63 MB of published GeoJSON that the
+# script re-fetches with --fetch. The GENERATED assets under frontend/public/boundaries and
+# android/.../res/raw ARE committed; these inputs are not.
+.boundary-cache/

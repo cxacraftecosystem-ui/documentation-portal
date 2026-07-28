@@ -434,6 +434,18 @@ const AUTO_CAPTURE_BUDGET_MS = 60_000;
 /** How long the one-shot "Use current GPS" button waits. Shorter — somebody is standing there. */
 const MANUAL_CAPTURE_TIMEOUT_MS = 30_000;
 
+/**
+ * "state, district and pincode" — the fields an automatic write touched, as a sentence.
+ *
+ * Named rather than counted. "3 fields were filled in" tells a researcher to go and hunt for them;
+ * naming them tells them where to look, which is the whole value of announcing the write at all.
+ */
+const FIELD_NAMES = (fields: Array<"state" | "district" | "pincode">): string => {
+  const words = fields.map((field) => (field === "pincode" ? "pincode" : field));
+  if (words.length <= 1) return words[0] ?? "";
+  return `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+};
+
 /** "±40 m" / "±12 km" — the radius as a field researcher would say it. */
 function accuracyLabel(metres: number) {
   return metres < 1000 ? `±${Math.round(metres)} m` : `±${(metres / 1000).toFixed(1)} km`;
@@ -693,8 +705,30 @@ export function LocationFields({
   const [subjectLongitude, setSubjectLongitude] = useState(asText(initial?.subjectLongitude));
 
   const [reference, setReference] = useState<AddressReference | null>(null);
-  // What the current point would suggest, once a human has been asked. Never applied by itself.
+  // What the current point would suggest, for the cases the auto-fill below deliberately does not
+  // cover — a passive fix landing on top of an answer somebody already typed.
   const [suggestion, setSuggestion] = useState<(PointAddress & { metres: number | null }) | null>(null);
+  /**
+   * WHAT WAS JUST FILLED IN FOR THE RESEARCHER, and what it replaced.
+   *
+   * Picking a location now WRITES the state, district and pincode rather than offering them. That is
+   * what was asked for, and it is the right behaviour for an explicit act — dropping a pin on a place
+   * IS a statement about that place, and making somebody confirm their own action twice is friction
+   * that gets clicked through rather than read.
+   *
+   * But an automatic write with no visible trace is exactly the bug the suggestion flow was built to
+   * fix (a Bagru pincode saved onto a Dehradun record, because 95% of rural points return no postal
+   * code and the stale value survived). So the write is loud instead of silent: this state drives a
+   * notice naming every field that changed, and Undo puts back precisely what was there before.
+   * `previous` is the whole point — an undo that cleared the fields instead of restoring them would
+   * destroy a typed answer just as thoroughly as the silent overwrite did.
+   */
+  const [autofill, setAutofill] = useState<{
+    applied: Array<"state" | "district" | "pincode">;
+    previous: { state: string; district: string; pincode: string };
+    /** EXPLICIT: the researcher pointed at a place. PASSIVE: a GPS fix arrived on its own. */
+    mode: "explicit" | "passive";
+  } | null>(null);
   // Set when the last fix was too coarse for the geocoder to be allowed to name a district.
   const [coarseFixMetres, setCoarseFixMetres] = useState<number | null>(null);
   // Set when the lookup itself failed — offline is the normal weather here, and a suggestion that
@@ -726,8 +760,57 @@ export function LocationFields({
   const bestMetres = useRef<number | null>(null);
   // The point whose lookup failed, kept so it can be retried when the network returns. Coordinates
   // first, names later, is the normal order of events in the field, not the exception.
-  const pendingLookup = useRef<{ lat: string; lng: string; metres: number | null } | null>(null);
+  const pendingLookup = useRef<{
+    lat: string;
+    lng: string;
+    metres: number | null;
+    /** Whether the point came from an explicit act, so the retry behaves the way the original would. */
+    autoApply: boolean;
+  } | null>(null);
   const lookup = useRef<AbortController | null>(null);
+  /**
+   * Whether an EXPLICIT lookup has gone out and not yet come back.
+   *
+   * An explicit write stands from the moment the researcher asks for it, not from the moment it lands.
+   * A rural reverse geocode takes seconds and `watchPosition` re-reports about once a second, so
+   * without this a satellite update arriving in that window aborts the pin's lookup — silently, since
+   * an aborted request raises no failure notice and files no retry — and the pin the researcher just
+   * dropped never fills anything in. The `autofill`-based guard cannot cover it: `autofill` is only set
+   * once the response has been applied.
+   */
+  const explicitPending = useRef(false);
+
+  /**
+   * A live mirror of the three stated fields the geocoder may write.
+   *
+   * `applyGeocodedAddress` runs inside a promise callback created when the lookup went out, and a
+   * rural lookup can take seconds — during which the researcher may have typed into these boxes. The
+   * closure's copies would be stale, so the comparison ("is this already answered?") and the undo
+   * snapshot both read this instead.
+   */
+  const statedRef = useRef({ state: stateName, district, pincode });
+  // Synced in an effect rather than during render (a render-phase ref write is a lint error and a
+  // concurrent-rendering hazard). An effect is sufficient here and provably so: the only reader is a
+  // promise callback resolving a network response, which is a macrotask, and React has always flushed
+  // its effects for a commit before the next macrotask runs. So by the time a lookup returns, this
+  // mirror is current with the last keystroke.
+  useEffect(() => {
+    statedRef.current = { state: stateName, district, pincode };
+  }, [stateName, district, pincode]);
+
+  /**
+   * A mirror of {@link autofill}, for the same reason as `statedRef` and one more.
+   *
+   * `offerSuggestion` is called from `watchPosition`'s callback, which fires roughly once a second
+   * for as long as the automatic capture is hunting. Those calls hold whatever closure existed when
+   * the watch was opened, so the live value has to come from a ref — and it is needed there to
+   * enforce the rule below, that a satellite update must not wipe out the record of a write the
+   * researcher explicitly asked for.
+   */
+  const autofillRef = useRef(autofill);
+  useEffect(() => {
+    autofillRef.current = autofill;
+  }, [autofill]);
 
   const pincodeProblem = pincodeValidationError(pincode);
   const zoneProblem = postalZoneMismatch(stateName, pincode);
@@ -866,18 +949,190 @@ export function LocationFields({
    * connection leaves the last place's offer sitting under this place's coordinates, and a researcher
    * tapping "Use this" does not wait.
    */
-  function offerSuggestion(lat: string, lng: string, accuracyMetres?: number | null) {
-    // The previous point's offer is no longer on the table, whatever happens next.
-    lookup.current?.abort();
-    setSuggestion(null);
-    setLookupFailed(false);
-    if (!maptilerKey) return;
+  /**
+   * WRITE the geocoded address into the stated fields, and record what it replaced.
+   *
+   * `overwrite` is the whole difference between the two callers, and it is not a preference:
+   *
+   *   * EXPLICIT (`overwrite: true`) — the researcher just pointed at a place, or pressed "Use current
+   *     GPS". That is a request for THIS place's address, so a value describing the place before it is
+   *     not worth more than the one they asked for. Every field is written, INCLUDING a blank pincode,
+   *     because leaving the previous point's PIN under the new point's coordinates is exactly how a
+   *     Bagru pincode ended up on a Dehradun record.
+   *   * PASSIVE (`overwrite: false`) — a fix arrived on its own while the form was open. Only EMPTY
+   *     fields are filled. A researcher typing the district while the GPS is still hunting must not
+   *     have their answer overwritten a second later by a satellite.
+   *
+   * Returns the fields it actually changed, so the caller can decide whether there is anything to say.
+   */
+  function applyGeocodedAddress(found: PointAddress, { overwrite }: { overwrite: boolean }) {
+    // THE REF, NOT THE CLOSURE. This runs inside a promise callback that was created when the lookup
+    // went out, and a rural lookup can take seconds — during which the researcher may well have typed
+    // into these very boxes. Reading the closure's copies would compare against, and restore, values
+    // that were already stale, which is the silent-overwrite bug wearing a different hat.
+    const previous = { ...statedRef.current };
+    const applied: Array<"state" | "district" | "pincode"> = [];
 
+    const wroteState = Boolean(
+      found.state && (overwrite || !previous.state) && found.state !== previous.state
+    );
+    if (wroteState) {
+      setStateName(found.state);
+      applied.push("state");
+    }
+
+    /**
+     * THE STATE THE BOX WILL ACTUALLY HOLD once the write above has, or has not, happened — and every
+     * write below has to agree with it.
+     *
+     * A district is only meaningful INSIDE its state: "Bilaspur" is a district of Chhattisgarh and a
+     * different one of Himachal Pradesh, and the API validates the pair and rejects a mismatch. So the
+     * three writes cannot be independent, which is what they were.
+     *
+     * THE CASE THAT BROKE. A passive fix at a point the geocoder reads as Gujarat/Kachchh, on a form
+     * where the researcher has already typed Rajasthan and left the district blank. The state is NOT
+     * written (it is not empty, and passive never overwrites) — but the district branch only looked at
+     * `previous.district`, saw it empty, and wrote "Kachchh". The form then held Rajasthan + Kachchh: a
+     * pair that exists nowhere, that the researcher never entered, and that fails on save with an error
+     * about a district they did not choose. The pincode had the same shape through
+     * `postalZoneMismatch`, which would then accuse a correct pincode of disagreeing with a state.
+     *
+     * Requiring agreement is the whole fix: a district resolved against one state is written only where
+     * that state is the one standing.
+     */
+    const effectiveState = wroteState ? found.state : previous.state;
+    const geocodedStateStands = !found.state || found.state === effectiveState;
+
+    // Written even when BLANK on the explicit path — a district belonging to the previous state is
+    // worse than none, and the state above may have just changed underneath it.
+    if (geocodedStateStands && (overwrite || !previous.district) && found.district !== previous.district) {
+      if (found.district || overwrite) {
+        setDistrict(found.district);
+        applied.push("district");
+      }
+    }
+    if (geocodedStateStands && (overwrite || !previous.pincode) && found.pincode !== previous.pincode) {
+      if (found.pincode || overwrite) {
+        setPincode(found.pincode);
+        applied.push("pincode");
+      }
+    }
+
+    if (applied.length) {
+      setPincodeProblemShown(false);
+      setAddressProblemShown(false);
+      onDirty?.();
+    }
+    return { applied, previous };
+  }
+
+  /** Put back exactly what was there before the last automatic write. */
+  function undoAutofill() {
+    if (!autofill) return;
+    setStateName(autofill.previous.state);
+    setDistrict(autofill.previous.district);
+    setPincode(autofill.previous.pincode);
+    setAutofill(null);
+    onDirty?.();
+  }
+
+  /**
+   * A HUMAN HAS TAKEN OVER ONE OF THE THREE BOXES the geocoder wrote.
+   *
+   * Two things then have to change together, and neither was happening. The notice must stop NAMING
+   * that box — it says "filled in from the place you pointed at: state, district and pincode", which
+   * becomes false the moment somebody edits one of them. And Undo must stop WRITING to it: restoring
+   * the pre-write snapshot would throw away the value the researcher has just typed, which is the same
+   * silent overwrite the whole announce-and-undo mechanism exists to prevent, arriving by the one
+   * control that was supposed to be the safe way out.
+   *
+   * Both are fixed by moving the field's snapshot UP to what the human typed. Undo then restores it to
+   * itself — a no-op for the claimed box, still correct for the ones nobody has touched — and the
+   * notice drops the name because `applied` no longer lists it.
+   *
+   * THE RECORD SURVIVES with an empty `applied` rather than being cleared outright, because `mode` is
+   * what tells a passive GPS fix to stand down (see `explicitStanding`). Typing a district must not
+   * hand the three boxes back to the satellites.
+   */
+  function claimField(field: "state" | "district" | "pincode", value: string) {
+    setAutofill((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        applied: current.applied.filter((name) => name !== field),
+        previous: { ...current.previous, [field]: value }
+      };
+    });
+  }
+
+  /**
+   * Look up what is at these coordinates and, on the explicit paths, WRITE it.
+   *
+   * WHY THE SUGGESTION SURVIVES AT ALL. It is now the PASSIVE fallback: when a fix arrives on its own
+   * and the fields it would fill are already answered, there is nothing to write and something worth
+   * saying, so the offer is what appears. The two paths are complementary rather than alternatives.
+   *
+   * WHAT HAS NOT CHANGED. The offer — and now the write — is cleared when the request GOES OUT rather
+   * than when it comes back, because the seconds in between are exactly when a rural connection leaves
+   * the last place's answer sitting under this place's coordinates.
+   */
+  function offerSuggestion(
+    lat: string,
+    lng: string,
+    accuracyMetres?: number | null,
+    { autoApply = false }: { autoApply?: boolean } = {}
+  ) {
+    /**
+     * AN EXPLICIT WRITE OUTRANKS A PASSIVE LOOKUP, and this is the guard that makes it so.
+     *
+     * `watchPosition` re-reports as the satellites lock — roughly once a second while the automatic
+     * capture is hunting — and every report reaches here through `acceptFix`. Without this, a
+     * researcher who dropped a pin on the subject's place mid-hunt would watch the next satellite
+     * update silently clear the "filled in from the place you pointed at" notice, taking its Undo with
+     * it. Their answer would survive in the boxes (a passive write only fills EMPTY ones) but their
+     * ability to reverse it would not, which is precisely the half-visible behaviour this whole
+     * mechanism exists to avoid.
+     *
+     * So while an explicit act owns these three boxes, a passive fix stands down entirely: it does not
+     * clear the notice, does not abort the lookup in flight, does not write, and does not look up. The
+     * pin has already answered those boxes and a fix taken somewhere else has no business
+     * second-guessing it — and there is nothing left to offer either, because the offer's only purpose
+     * is to surface what the passive path was not allowed to write.
+     */
+    // "An explicit act owns these three boxes" — true from the moment one is REQUESTED (`explicitPending`)
+    // until it is undone or superseded (`autofill.mode`). Both halves are needed: the ref covers the
+    // seconds a rural lookup is in flight, the notice covers everything after it lands.
+    const explicitStanding =
+      !autoApply && (explicitPending.current || autofillRef.current?.mode === "explicit");
+
+    // A PASSIVE FIX MUST NOT ABORT AN EXPLICIT LOOKUP. This abort is what stops the previous point's
+    // answer landing under this point's coordinates, so it has to stay — but only for a call that
+    // outranks what is in flight. Letting a satellite update cancel the pin's lookup was the loudest
+    // version of this bug: the researcher pointed at a place and nothing whatsoever happened.
     // A map pin carries no accuracy because it needs none — the researcher pointed at the place.
+    // Recorded BEFORE the stand-down below, so the "this fix was too coarse to name a place" notice
+    // always describes the newest fix rather than an older one it happens to be sitting under.
     const coarse = typeof accuracyMetres === "number" && accuracyMetres > PINCODE_ACCURACY_LIMIT_METRES;
     setCoarseFixMetres(coarse ? accuracyMetres : null);
+
+    if (explicitStanding) {
+      // The offer is stale even though the write is not: it described a point nobody is asking about
+      // any more. Everything else is left exactly as the explicit act left it — including the lookup
+      // still in flight, which is the whole point.
+      setSuggestion(null);
+      return;
+    }
+    lookup.current?.abort();
+    setSuggestion(null);
+    setAutofill(null);
+    setLookupFailed(false);
+    if (!maptilerKey) return;
+    if (autoApply) explicitPending.current = true;
     // A fix wider than a district cannot choose between neighbouring districts, so it is not invited
-    // to try. Above the line there is no offer at all, only the notice explaining the silence.
+    // to try — and it is certainly not invited to WRITE. Rural districts and PIN areas are a few
+    // kilometres across, so past a kilometre the geocoder is picking a neighbour on the strength of an
+    // error term. Above the line there is no offer and no write, only the notice explaining the
+    // silence. This limit is the one thing the auto-fill must not soften.
     if (coarse) return;
 
     const controller = new AbortController();
@@ -885,19 +1140,41 @@ export function LocationFields({
     resolvePoint(lat, lng, controller.signal)
       .then((found) => {
         if (controller.signal.aborted) return;
+        if (autoApply) explicitPending.current = false;
         pendingLookup.current = null;
         // Nothing to offer is a complete answer, and it stays visible as an absence rather than as
         // the last point's suggestion.
         if (!found.state && !found.district) return;
-        setSuggestion({ ...found, metres: accuracyMetres ?? null });
+        const { applied, previous } = applyGeocodedAddress(found, { overwrite: autoApply });
+        if (applied.length) {
+          setAutofill({ applied, previous, mode: autoApply ? "explicit" : "passive" });
+        }
+        if (autoApply) return;
+        // PASSIVE ONLY. Anything the passive path could not fill — because it was already answered —
+        // is still worth OFFERING, so a disagreement between the fix and the typed answer is visible
+        // rather than swallowed. On the explicit path there is nothing left to offer: everything was
+        // written, and the notice says so.
+        const unfilled =
+          (found.state && found.state !== previous.state && !applied.includes("state")) ||
+          (found.district && found.district !== previous.district && !applied.includes("district")) ||
+          (found.pincode && found.pincode !== previous.pincode && !applied.includes("pincode"));
+        if (unfilled) setSuggestion({ ...found, metres: accuracyMetres ?? null });
       })
       .catch(() => {
         if (controller.signal.aborted) return;
+        // Released even on failure, or one offline pin drop would lock out every passive fix for the
+        // rest of the form's life. The pending POINT is what carries the intent forward, below.
+        if (autoApply) explicitPending.current = false;
         setLookupFailed(true);
         // Hold the point rather than the failure. A GPS fix needs no network and a reverse geocode
         // needs one, so out in a village the coordinates land and the names do not — which is the
         // normal sequence here, not a fault. Retried below the moment there is signal again.
-        pendingLookup.current = { lat, lng, metres: accuracyMetres ?? null };
+        //
+        // The MODE is held too. A pin the researcher dropped before losing signal is still an explicit
+        // statement about that place when the network comes back ten minutes later; downgrading the
+        // retry to a passive offer would silently make the offline path behave differently from the
+        // online one for the same action.
+        pendingLookup.current = { lat, lng, metres: accuracyMetres ?? null, autoApply };
       });
   }
 
@@ -911,13 +1188,30 @@ export function LocationFields({
     function retry() {
       const point = pendingLookup.current;
       if (!point) return;
-      offerSuggestion(point.lat, point.lng, point.metres);
+      /**
+       * AN EXPLICIT REPLAY IS AUTHORISED BY THE PIN, so it has to still BE the pin.
+       *
+       * "Remove pin" clears the coordinates and leaves this ref standing, so without this check the
+       * sequence — go offline, drop a pin, remove it, regain signal — replays an OVERWRITE of the
+       * state, district and pincode minutes later, from a point nobody is pointing at any more. The
+       * write would be announced, which is the promise this card makes, but announced is not the same
+       * as asked for.
+       *
+       * The coordinates are compared as the strings the pin wrote, which is exactly what
+       * `placeSubjectPin` stored — so this is an identity test, not a distance one.
+       */
+      if (point.autoApply && (point.lat !== subjectLatitude || point.lng !== subjectLongitude)) {
+        pendingLookup.current = null;
+        return;
+      }
+      offerSuggestion(point.lat, point.lng, point.metres, { autoApply: point.autoApply });
     }
     window.addEventListener("online", retry);
     return () => window.removeEventListener("online", retry);
-    // offerSuggestion closes over refs and setters only, so it never goes stale in a way this cares
-    // about.
-  }, []);
+    // Re-bound when the subject pin moves, so `retry` always compares against the pin standing NOW.
+    // Everything else `offerSuggestion` touches it reads through a ref or writes through a setter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjectLatitude, subjectLongitude]);
 
   /**
    * THE REVIEW FLAG, and the one thing it must never do is fix anything.
@@ -998,14 +1292,25 @@ export function LocationFields({
 
   /**
    * The researcher has pointed at the subject's place. This is a STATEMENT, so it goes in the stated
-   * group's own columns and touches nothing the device wrote — and, being a statement, it does not
-   * become a suggestion for the state and district either. The researcher is already answering those
-   * two by hand a few inches above; offering to fill them in from the pin they just dropped to
-   * illustrate the answer would be the form arguing with itself.
+   * group's own columns and touches nothing the device wrote.
+   *
+   * IT NOW ALSO FILLS IN THE STATE, DISTRICT AND PINCODE, overwriting whatever was there. That is the
+   * one path where overwriting is unambiguously right: the pin is a direct assertion about where the
+   * subject is, made by a person, on a map, deliberately. Asking them to then confirm the state and
+   * district implied by their own pin is a second question about the same answer, and a second
+   * question about the same answer gets clicked through rather than read.
+   *
+   * The write is announced and undoable — see `autofill` — because an automatic write nobody can see
+   * is how a Bagru pincode ended up on a Dehradun record. Announced and reversible is a different
+   * thing from silent.
+   *
+   * A hand-placed pin carries no accuracy, so the coarse-fix guard does not apply: the researcher
+   * pointed at the place, and a pointer has no error radius to disqualify it.
    */
   function placeSubjectPin(lat: string, lng: string) {
     setSubjectLatitude(lat);
     setSubjectLongitude(lng);
+    offerSuggestion(lat, lng, null, { autoApply: true });
     onDirty?.();
   }
 
@@ -1272,7 +1577,12 @@ export function LocationFields({
   }
 
   /**
-   * The researcher said yes. This is the ONLY path by which a geocoder's answer reaches a field.
+   * The researcher said yes to a suggestion the automatic write did not cover.
+   *
+   * It is no longer the only path by which a geocoder's answer reaches a field — see
+   * `applyGeocodedAddress` — but it is still the only path by which one OVERWRITES an answer somebody
+   * typed. That asymmetry is deliberate: a pin drop may overwrite because the pin IS the statement,
+   * and a passive GPS fix may not, so what the fix would have said is offered here instead.
    *
    * THE WHOLE ADDRESS, INCLUDING THE PARTS THAT ARE EMPTY. "Use this place's address" means this
    * place's address, so a point with no postal code clears the pincode box rather than leaving the
@@ -1294,6 +1604,9 @@ export function LocationFields({
     setPincodeProblemShown(false);
     setSuggestion(null);
     setAddressProblemShown(false);
+    // The "we filled this in for you" notice described the PASSIVE write this has just superseded.
+    // Leaving it up would offer an Undo that restores values from two edits ago.
+    setAutofill(null);
     onDirty?.();
   }
 
@@ -1335,12 +1648,48 @@ export function LocationFields({
             {stateRequired ? " *" : ""}
           </h3>
           <p className="mt-1 text-sm text-ink-500">
-            Where {subjectLabel} is. This is what the map, the exports and the research dataset use, and it is
-            yours to state — <strong className="font-semibold text-ink-700">nothing on this device fills it in</strong>.
-            The coordinates further down record where the device was when this record was made, which is very often a
-            desk in another state.
+            Where {subjectLabel} is. This is what the map, the exports and the research dataset use.{" "}
+            <strong className="font-semibold text-ink-700">
+              Pointing at a place on the map fills the state, district and pincode in for you
+            </strong>{" "}
+            — and says so, so you can put it back. A GPS fix fills in only what is still blank, because the
+            device is very often at a desk in another state from {subjectLabel}.
           </p>
         </div>
+
+        {/*
+          WHAT WAS JUST WRITTEN, and how to undo it. A form that fills itself in silently is the bug the
+          suggestion flow below was built to fix — a Bagru pincode saved onto a Dehradun record, because
+          95% of rural points return no postal code and the stale value survived. Filling in
+          automatically is fine; doing it invisibly is not. So every automatic write names the fields it
+          touched and offers exactly one button that restores what was there.
+        */}
+        {/* Hidden once every box it wrote has been claimed by a human. `autofill` itself survives that
+            (it is what keeps a passive GPS fix standing down), but a notice naming nothing and
+            offering an Undo that would restore nothing is noise over the researcher's own answer. */}
+        {autofill && autofill.applied.length ? (
+          <div className="grid gap-2 rounded-md border border-purple-200 bg-purple-50 px-3 py-2.5 text-sm text-purple-950">
+            <p className="flex items-start gap-2">
+              <Radar className="mt-0.5 h-4 w-4 shrink-0 text-purple-700" aria-hidden />
+              <span>
+                {autofill.mode === "explicit"
+                  ? "Filled in from the place you pointed at:"
+                  : "Filled in from this device's location (only the boxes that were empty):"}{" "}
+                <strong className="font-semibold">{FIELD_NAMES(autofill.applied)}</strong>. Check it, and
+                change anything that is wrong — you know this place and the geocoder does not.
+              </span>
+            </p>
+            <div>
+              <button
+                type="button"
+                className="rounded-md border border-purple-300 bg-white px-3 py-1.5 text-xs font-semibold text-purple-800 transition-colors hover:bg-purple-100"
+                onClick={undoAutofill}
+              >
+                Undo
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {review && (!stateName || stateName === (initial?.state ?? "")) ? (
           /*
@@ -1419,6 +1768,10 @@ export function LocationFields({
                 // the server would reject it anyway with a message about the wrong state.
                 setDistrict("");
                 setAddressProblemShown(false);
+                // Both boxes are now the researcher's, so neither may be named by the auto-fill notice
+                // or restored by its Undo. The district goes too because this handler just cleared it.
+                claimField("state", event.target.value);
+                claimField("district", "");
                 // The themed Dropdown is a button, so it fires no native input event for the form's
                 // onInput to catch: the surrounding form's dirty flag has to be raised by hand.
                 onDirty?.();
@@ -1443,6 +1796,7 @@ export function LocationFields({
               onChange={(event) => {
                 setDistrict(event.target.value);
                 setAddressProblemShown(false);
+                claimField("district", event.target.value);
                 onDirty?.();
               }}
             >
@@ -1494,6 +1848,7 @@ export function LocationFields({
                 const next = event.target.value.replace(/\D/g, "").slice(0, PINCODE_LENGTH);
                 setPincode(next);
                 setPincodeProblemShown(false);
+                claimField("pincode", next);
               }}
             />
             {pincodeProblemShown && pincodeProblem ? <p className="text-xs text-error-600">{pincodeProblem}</p> : null}

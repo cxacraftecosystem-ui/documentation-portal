@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.deps import get_current_user
 from app.services.address import address_reference
+from app.services.district_lineage import lineage_reference
 
 router = APIRouter(prefix="/reference", tags=["reference"])
 
@@ -38,3 +39,19 @@ async def get_address_reference(_: Any = Depends(get_current_user)) -> dict[str,
     read — so a client should cache it and re-fetch only when ``version`` changes.
     """
     return address_reference()
+
+
+@router.get("/district-lineage")
+async def get_district_lineage(_: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Which district a newer district was carved out of, for the 43 that have no border of their own.
+
+    SERVED RATHER THAN DUPLICATED. Both maps need to say "shown inside Barmer, which Balotra was carved
+    from", and two hand-copied tables of 43 rows is how the two apps come to disagree about the same
+    43 districts. Keyed exactly as ``frontend/public/boundaries/manifest.json`` keys its ``missing``
+    list, so a client can join the two directly.
+
+    Also a pure constant, and small — cache it beside the address reference. Read
+    ``services/district_lineage``'s header for why a fabricated border was not an option, and why
+    three Delhi entries are reported as unverified rather than given a plausible-looking parent.
+    """
+    return lineage_reference()

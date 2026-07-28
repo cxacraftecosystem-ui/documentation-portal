@@ -53,7 +53,7 @@ from app.services.records import (
     merge_field_provenance,
     require_record,
     resubmit_status,
-    visibility_where,
+    viewable_where,
 )
 from app.services.workshop_access import (
     DEFAULT_GRANT_LEVEL,
@@ -180,13 +180,18 @@ async def list_workshops(
     dateFrom: datetime | None = None,
     dateTo: datetime | None = None,
     statusFilter: str | None = None,
+    # WHOSE RECORDS. Reading is open to every signed-in account, so "the records I filed" is no
+    # longer a side effect of the visibility filter and has to be asked for. Without this the
+    # My Activity page had to fetch page 1 of the WHOLE repository and sift it client-side, which
+    # silently under-reported the moment the repository outgrew one page.
+    createdBy: str | None = None,
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
     page, page_size, skip = normalize_pagination(page, pageSize)
     where: dict[str, Any] = {}
     # Visibility is AND-composed so the search OR (assigned below) can never overwrite it.
-    vis = await visibility_where(current_user)
+    vis = await viewable_where(current_user)
     if vis:
         where["AND"] = [vis]
     if search:
@@ -195,6 +200,8 @@ async def list_workshops(
         where["place"] = contains(place)
     if statusFilter:
         where["status"] = statusFilter
+    if createdBy:
+        where["createdById"] = createdBy
     # dateFrom/dateTo filter on startDate — the workshop's own timeline, matching the ordering below.
     add_date_range(where, "startDate", dateFrom, dateTo)
     # ORDERING IS DELIBERATE — by the date the workshop HAPPENED, most recent first, NOT by
@@ -265,19 +272,23 @@ async def list_requestable_workshops(
 ) -> list[dict[str, Any]]:
     """Every workshop the caller could ASK about, with what they already hold on each.
 
-    This exists because ``GET /workshops`` is the wrong list to build a request picker from, in a way
-    that silently disables the whole feature for the people it is for. That endpoint AND-composes
-    ``visibility_where``, which below PROFESSOR narrows the result to records the caller CREATED (plus
-    ones shared with them). A researcher or volunteer who has just joined has created nothing, so the
-    picker rendered "No workshops to ask about" and there was no way to ask for access to anything —
-    to exactly the workshops they cannot see, which is the only reason to ask in the first place.
+    This exists because ``GET /workshops`` was the wrong list to build a request picker from, in a way
+    that silently disabled the whole feature for the people it is for. That endpoint AND-composed the
+    old row-visibility predicate, which below PROFESSOR narrowed the result to records the caller had
+    CREATED (plus ones shared with them). A researcher or volunteer who had just joined had created
+    nothing, so the picker rendered "No workshops to ask about" and there was no way to ask for access
+    to anything — to exactly the workshops they could not see, which is the only reason to ask in the
+    first place.
 
-    So this list is deliberately NOT visibility-filtered: you have to be able to name a workshop
-    before you can request it. What it must not do is become a back door into the content of a
-    workshop you have no access to, and that is why the row is hand-built here instead of reusing
-    ``INCLUDE``: only the identifying fields — title, place, and the dates — cross the wire. No
-    description, no notes, no artisans, no crafts, no records, no creator. If you add a field to this
-    projection, ask first whether somebody with zero access to the workshop may read it.
+    Reading is open now (``records.viewable_where``), so ``GET /workshops`` would no longer strand
+    anybody. This route stays, for the second reason it was built: it carries the caller's own standing
+    on each workshop, which the plain list does not, and it is capped and hand-projected. Keeping it is
+    also what stops the picker regressing if a read rule is ever introduced.
+
+    The projection is deliberately narrow. Only the identifying fields — title, place, and the dates —
+    cross the wire. No description, no notes, no artisans, no crafts, no records, no creator. If you
+    add a field to this projection, ask first whether somebody with zero access to the workshop may
+    read it.
 
     Each row also carries the caller's OWN standing, so the picker can be honest rather than offering
     to re-request something already held:

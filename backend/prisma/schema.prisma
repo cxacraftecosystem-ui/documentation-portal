@@ -1156,7 +1156,9 @@ model DataAccessGrant {
   scopeItems  DataAccessScopeItem[]
 
   // [granteeId] stands alone because it is NOT the leading column of the unique, and it is the hot
-  // one: `visibility_where` reads this table by grantee on every list request from below professor.
+  // one: `records.owned_or_granted_where` reads this table by grantee on every download and export
+  // request from below professor. (It used to ride every LIST request too, under the older name
+  // `visibility_where`, before reading the repository was opened to every signed-in account.)
   @@unique([ownerId, granteeId])
   @@index([granteeId])
   @@index([status])

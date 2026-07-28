@@ -21,7 +21,9 @@ import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Handyman
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.ManageAccounts
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.PermMedia
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Quiz
@@ -261,7 +263,21 @@ enum class NavDestination {
     MY_ACTIVITY,
     TASKS,
     BROWSE_RECORDS,
+    /**
+     * The web's `/map` — the repository read as geography. The third way of reading the whole corpus
+     * and it sits next to the other two: `/search` reads it as a list, `/data` as a folder tree,
+     * `/map` as a place. Ungated, because `GET /map/points` asks for nothing but a login: reading the
+     * repository is open to every signed-in account (`records.viewable_where`), and what the pins may
+     * NOT carry is bounded inside that route rather than at this entry.
+     */
+    MAP,
     VIEW_DATA,
+    /**
+     * The web's `/questionnaire/consolidated`. BROWSE and not RECORD: an interview is stored once per
+     * exact set of artisans, so one artisan's answers are scattered over several entries and this is
+     * the only surface that reads them back as one document. "Take interview" writes; this only reads.
+     */
+    CONSOLIDATED_QUESTIONNAIRE,
     SHARE_DATA_ACCESS,
     ASSIGN_TOOLS,
     REVIEW,
@@ -320,7 +336,16 @@ val FIELD_NAV_ITEMS: List<NavEntry> = listOf(
     // Everyone can be a task assignee; the "assign" half is gated inside the screen.
     NavEntry(NavDestination.TASKS, "Tasks", Icons.AutoMirrored.Filled.Assignment, NavGroup.BROWSE, everyone, "get_current_user"),
     NavEntry(NavDestination.BROWSE_RECORDS, "Browse records", Icons.Filled.Search, NavGroup.BROWSE, everyone, "get_current_user"),
+    // The third way of reading the whole corpus, in the web's own position in this group: /search reads
+    // it as a list, /data as a folder tree, /map as a place. Ungated to match /search, because
+    // GET /map/points asks for nothing but a login — reading the repository is open to every signed-in
+    // account. A volunteer and a professor open this screen and see the SAME numbers, which is the point
+    // of pooling the fieldwork and not a gap in this predicate. What stays earned is taking data out.
+    NavEntry(NavDestination.MAP, "Map", Icons.Filled.Map, NavGroup.BROWSE, everyone, "get_current_user"),
     NavEntry(NavDestination.VIEW_DATA, "View Data", Icons.Filled.Storage, NavGroup.BROWSE, FieldPermissions::canDownloadDataset, "require_dataset_downloader"),
+    // Browse rather than Record, for the reason on [NavDestination.CONSOLIDATED_QUESTIONNAIRE].
+    // GET /questionnaire/artisans/{id}/consolidated asks for nothing but a login.
+    NavEntry(NavDestination.CONSOLIDATED_QUESTIONNAIRE, "Consolidated questionnaire", Icons.Filled.Layers, NavGroup.BROWSE, everyone, "get_current_user"),
     NavEntry(NavDestination.SHARE_DATA_ACCESS, "Share data access", Icons.Filled.Share, NavGroup.BROWSE, everyone, "get_current_user"),
     // Linking a tool to an artisan needs a tool or an artisan of your own — both need record creation.
     // The endpoint only requires a login and then checks ownership per artisan, so this is the closest

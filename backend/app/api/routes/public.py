@@ -8,7 +8,7 @@ from the database instead, with the instant they were taken attached.
 WHY IT IS THE ONLY UNAUTHENTICATED READ HERE, AND WHY THAT IS SAFE. ``docs/CDN.md`` states the
 rule that every response under ``/api/*`` is a function of who is asking — six role tiers, workshop
 scoping, per-record grants, Aadhaar masking. This route is the deliberate exception and the only
-one: it takes no user, builds no ``visibility_where``, and reads no column. It issues eight bare
+one: it takes no user, builds no ``viewable_where``, and reads no column. It issues eight bare
 ``count()`` calls and returns eight integers. There is no per-caller variation for a shared cache
 to leak, because there is no caller in the query.
 

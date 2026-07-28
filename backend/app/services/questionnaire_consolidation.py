@@ -33,7 +33,8 @@ from typing import Any
 from app.core.db import db
 from app.core.deps import get_value, is_empty_value
 from app.services.concurrency import gather_reads
-from app.services.records import public_encode, visibility_where
+from app.services.record_filters import resolve_workshop_ids, workshop_clause
+from app.services.records import media_url_owners, public_encode, viewable_where
 
 # How many statements ``consolidate_for_artisan`` issues, whatever the artisan's interview count.
 # Asserted by the route's ``meta.queryCount`` so the number is checkable from a live response rather
@@ -126,6 +127,16 @@ def _provenance(interview_meta: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _may_take(media: Any, media_owners: set[str] | None) -> bool:
+    """Whether this caller may be handed the fetchable URL for one media row.
+
+    ``None`` is ``records.ALL_MEDIA_URLS`` — professor and above, or a holder of the global
+    dataset-download permission. Otherwise the row's uploader has to be in the resolved set: the
+    caller themselves, or a researcher who granted them data access.
+    """
+    return media_owners is None or get_value(media, "uploadedById") in media_owners
+
+
 def _answer_key(text: str | None) -> str:
     """Normalised answer text, for deciding whether two answers actually differ.
 
@@ -136,7 +147,9 @@ def _answer_key(text: str | None) -> str:
     return " ".join((text or "").split()).casefold()
 
 
-async def consolidate_for_artisan(artisan_id: str, current_user: Any) -> dict[str, Any] | None:
+async def consolidate_for_artisan(
+    artisan_id: str, current_user: Any, workshop_ids: list[str] | None = None
+) -> dict[str, Any] | None:
     """Build the consolidated questionnaire document for one artisan, or ``None`` if no such artisan.
 
     QUERY BUDGET — the reason this is shaped the way it is. The database is in a different AWS region
@@ -147,18 +160,37 @@ async def consolidate_for_artisan(artisan_id: str, current_user: Any) -> dict[st
     gathered waves regardless of interview count — wave two only waits because it needs the interview
     ids wave one produced. An artisan in four interviews and an artisan in forty cost the same.
 
-    Visibility is the shared ``visibility_where`` predicate, not a second rule written here: the
+    Visibility is the shared ``viewable_where`` predicate, not a second rule written here: the
     interviews this returns are exactly the interviews the caller can already list, and media is
     additionally filtered by its own ``uploadedById`` owner column the way the export path does.
+
+    ``workshop_ids`` narrows the document to the interviews taken AT those workshops, through the SAME
+    ``record_filters`` clause builder every other screen uses (the reserved "none" value included).
+    That is what lets a reader draw a conclusion from ONE workshop: "what did this artisan tell us at
+    last week's workshop" is a different document from "everything this artisan has ever said", and the
+    summary counts, the conflict flags and the sources panel all have to be computed over the narrowed
+    set rather than filtered afterwards — a conflict between two workshops is not a conflict inside
+    one of them, and post-filtering would leave the flag set with only one answer under it.
     """
     # Not a query — it reads the caller's rank and returns a predicate — so it can be resolved before
     # the wave rather than costing a trip of its own.
-    vis = await visibility_where(current_user)
-    media_vis = await visibility_where(current_user, owner_field="uploadedById")
+    vis = await viewable_where(current_user)
+    media_vis = await viewable_where(current_user, owner_field="uploadedById")
+    # WHOSE recordings this caller may actually be handed. Resolved once for the whole document, before
+    # the wave, because it is a single grant lookup and every recording entry below consults it.
+    media_owners = await media_url_owners(current_user)
 
     interview_where: dict[str, Any] = {"artisans": {"some": {"artisanId": artisan_id}}}
+    and_clauses: list[dict[str, Any]] = []
     if vis:
-        interview_where = {"AND": [interview_where, vis]}
+        and_clauses.append(vis)
+    resolved_workshops = resolve_workshop_ids(workshop_ids)
+    if resolved_workshops is not None:
+        ids, include_unassigned = resolved_workshops
+        clause = workshop_clause(ids, include_unassigned)
+        and_clauses.append(clause if clause else {"id": {"in": []}})
+    if and_clauses:
+        interview_where = {"AND": [interview_where, *and_clauses]}
 
     artisan, sections, questions, interviews = await gather_reads(
         db.artisan.find_unique(where={"id": artisan_id}, include={"craft": True}),
@@ -277,7 +309,15 @@ async def consolidate_for_artisan(artisan_id: str, current_user: Any) -> dict[st
             "mediaId": media.id,
             "filename": media.originalFilename,
             "mediaType": media.mediaType,
-            "url": media.url,
+            # WITHHELD AT THE SOURCE, not by the encoder. This entry is a hand-built dict, so it does
+            # not carry the ``objectKey`` marker ``records._redact_sensitive`` recognises a media node
+            # by — the scrub would walk straight past it and ship the URL. The entitlement is therefore
+            # applied here, against the same grant set every other media surface uses.
+            #
+            # A missing URL is a first-class state on this page: the transcript and the answer text are
+            # the document, and the audio is the evidence behind them. A reader who may not take the
+            # file still gets the whole account; the player simply is not offered.
+            "url": media.url if _may_take(media, media_owners) else None,
             "transcriptText": media.transcriptText,
             "transcriptStatus": media.transcriptStatus,
             "recordedByName": None,
@@ -381,7 +421,10 @@ async def consolidate_for_artisan(artisan_id: str, current_user: Any) -> dict[st
     # The artisan's own identity numbers are never selected onto this payload, but the encode runs
     # with no viewer anyway: it is the repository-wide guarantee that Aadhaar and Pehchan cannot
     # leave through a surface nobody has audited yet, and this is such a surface.
-    return public_encode(payload)
+    # The caller is named so the identity masking is judged against them rather than defaulting to
+    # masked, and ``media_urls`` is passed for the same reason it is resolved above — this payload is
+    # hand-built, so the encoder cannot recognise its recording entries as media nodes.
+    return public_encode(payload, current_user, media_urls=media_owners)
 
 
 # Column order matches how the document reads on screen — section, question, answer, then the

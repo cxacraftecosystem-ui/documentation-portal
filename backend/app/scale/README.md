@@ -101,11 +101,17 @@ fr:v1:artisan.list:7:u:clx9…:1f4c9a2b3d5e6f70
 └────────────────────────────── product prefix, so a shared Redis stays legible
 ```
 
-**The audience is not optional.** `records.visibility_where` returns different rows per viewer and
-`records.public_encode` masks Aadhaar per viewer, so a key without an audience would hand one
-researcher's rows — and another person's identity number — to whoever asked next. Use
-`audience_for(current_user)`. `role_audience(user)` exists only for responses that provably vary by
-rank alone (reference data, option lists) and shares one entry across every user of a role.
+**The audience is not optional.** `records.public_encode` masks Aadhaar per viewer — unmasked only for
+professor-and-above and for the researcher who recorded that particular artisan — so a key without an
+audience would hand one person's identity number to whoever asked next. Use `audience_for(current_user)`.
+`role_audience(user)` exists only for responses that provably vary by rank alone (reference data, option
+lists) and shares one entry across every user of a role; it is **never** correct for a response
+carrying an artisan, because the unmask test is per-individual rather than per-rank.
+
+Row scoping is no longer part of this. Reading is open to every signed-in account
+(`records.viewable_where` returns an empty filter), so two callers of the same list with the same
+parameters see the same rows. The per-user audience therefore over-keys — it costs cache sharing, not
+correctness — and must stay for the masking reason above.
 
 ### Invalidation
 

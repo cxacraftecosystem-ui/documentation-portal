@@ -25,6 +25,55 @@ _SENSITIVE_KEYS = {"passwordHash"}
 # made per node without the walk knowing anything about the shape it is walking.
 _IDENTITY_KEYS = ("aadhaarNumber", "pehchanCardNumber")
 
+# THE FIELDS THAT HAND OVER BYTES. A ``MediaFile.url`` is not a description of a file, it IS the file:
+# it is a fetchable object URL, stored on the row and set from ``s3.public_url_for_key``. Anyone
+# holding it can save the photograph or the recording, with no further call into this API.
+#
+# WHY THIS EXISTS AT ALL. It did not need to while reading the repository was owner-scoped: whoever
+# could see a media ROW could already download that uploader's data by definition, so the two were the
+# same entitlement and nobody had to say so. Opening reads to every signed-in account (see the banner
+# above ``viewable_where``) split them apart, and the repository's rule is that everybody may LOOK at
+# every record while taking data out stays earned. Left alone, ``GET /media`` and ``GET /search`` would
+# have become an index of direct download links to every file in the repository — which is precisely
+# the half of the rule that is not open.
+#
+# So the ROW still travels for everybody: the filename, the type, the caption, the transcript, which
+# record it belongs to, who uploaded it. Only the URL is withheld, and only from callers who may not
+# take that uploader's data.
+#
+# ``objectKey`` IS IN THIS LIST, and it has to be. ``s3.public_url_for_key`` is deterministic — the URL
+# is the CDN host plus the key, and the host is public knowledge — so handing over the key hands over
+# the file just as surely as handing over the URL, one string concatenation later. Withholding one and
+# not the other would be a lock on the door beside an open window. Nothing reads ``objectKey`` off a
+# LISTED row (the upload flow gets its key from the presign response, which is the caller's own object
+# by construction), so removing it from a read response costs no client anything.
+_MEDIA_URL_KEYS = ("url", "publicUrl", "objectKey")
+
+# How a node is recognised as a media file without the walk knowing what shape it is walking:
+# ``objectKey`` exists on MediaFile and on no other model, and a media node also carries its own
+# ``uploadedById``, so the entitlement decision can be made per node. Exactly the trick
+# ``_IDENTITY_KEYS`` uses with ``createdById``.
+_MEDIA_MARKER = "objectKey"
+
+#: Passed as ``media_urls`` to mean "every URL may travel" — a professor, an admin, or a caller
+#: holding the global dataset-download permission.
+ALL_MEDIA_URLS = None
+
+
+class _Unset:
+    """A sentinel distinct from ``None``, because ``None`` is a MEANINGFUL value for ``media_urls``.
+
+    ``media_urls=None`` means "allow every URL". So "the caller did not say" cannot also be ``None``,
+    or the safe default and the most permissive setting would be spelled identically — and a route that
+    simply forgot to think about it would get the widest answer.
+    """
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid only
+        return "<unset>"
+
+
+_UNSET = _Unset()
+
 
 def mask_identity_number(value: Any) -> Any:
     """The masked form of an artisan identity number.
@@ -37,12 +86,24 @@ def mask_identity_number(value: Any) -> Any:
     return mask_aadhaar(value)
 
 
-def _redact_sensitive(value: Any, viewer_id: str | None, unmasked: bool) -> Any:
-    """Recursively strip password hashes and mask identity numbers in an already-encoded payload.
+def _redact_sensitive(
+    value: Any,
+    viewer_id: str | None,
+    unmasked: bool,
+    media_urls: set[str] | None = None,
+) -> Any:
+    """Recursively scrub an already-encoded payload of everything that must not leave the API.
 
-    Mutates in place and returns the same object. ``unmasked`` short-circuits the identity masking
-    for a caller entitled to every raw value (professor and above); otherwise each artisan node is
-    judged on its own ``createdById``, because entitlement follows the artisan, not the payload.
+    Mutates in place and returns the same object. Three jobs:
+
+    * password hashes are dropped outright, however deeply nested;
+    * identity numbers are masked unless ``unmasked`` (professor and above) or the node's own
+      ``createdById`` is the viewer — entitlement follows the ARTISAN, not the payload;
+    * media URLs are dropped unless ``media_urls`` is ``None`` (all allowed) or contains the node's own
+      ``uploadedById`` — entitlement follows the FILE'S UPLOADER, for the same reason.
+
+    Both per-node tests read an owner column off the node being walked, which is what lets one pass
+    over an arbitrary shape make a per-record decision without knowing what shape it is.
     """
     if isinstance(value, dict):
         for key in _SENSITIVE_KEYS:
@@ -51,23 +112,35 @@ def _redact_sensitive(value: Any, viewer_id: str | None, unmasked: bool) -> Any:
             for key in _IDENTITY_KEYS:
                 if key in value:
                     value[key] = mask_identity_number(value[key])
+        # The marker is READ before the keys are dropped, which matters because ``objectKey`` is both
+        # the marker and one of the keys.
+        if media_urls is not None and _MEDIA_MARKER in value:
+            # Dropped rather than blanked. A key present and null reads as "this file has no URL",
+            # which is a real state (an upload that never completed) and must stay distinguishable
+            # from "you may not have it". An absent key is the honest third answer, and a client that
+            # renders a play button only when a URL is present degrades correctly on its own.
+            if value.get("uploadedById") not in media_urls:
+                for key in _MEDIA_URL_KEYS:
+                    value.pop(key, None)
         for nested in value.values():
-            _redact_sensitive(nested, viewer_id, unmasked)
+            _redact_sensitive(nested, viewer_id, unmasked, media_urls)
     elif isinstance(value, list):
         for item in value:
-            _redact_sensitive(item, viewer_id, unmasked)
+            _redact_sensitive(item, viewer_id, unmasked, media_urls)
     return value
 
 
-def public_encode(obj: Any, viewer: Any = None) -> Any:
+def public_encode(obj: Any, viewer: Any = None, *, media_urls: Any = _UNSET) -> Any:
     """``jsonable_encoder`` plus a recursive scrub of everything that must not leave the API.
 
-    Two jobs, both performed on the ENCODED structure so neither depends on how the row was loaded:
+    Three jobs, all performed on the ENCODED structure so none depends on how the row was loaded:
 
     * password hashes are removed outright, however deeply an embedded User relation is nested
       (``createdBy``/``uploadedBy``/``answeredBy``/``reviewedBy``);
     * ``aadhaarNumber`` and ``pehchanCardNumber`` are masked unless ``viewer`` is entitled to the raw
-      value — professor and above, or the researcher who recorded that particular artisan.
+      value — professor and above, or the researcher who recorded that particular artisan;
+    * ``url`` is removed from media nodes unless the caller may take that uploader's files — see
+      :data:`_MEDIA_URL_KEYS` for why a URL is a download rather than a description.
 
     ``viewer`` DEFAULTS TO MASKED, and that default is the point. The mask used to be applied
     per-route inside artisans.py, so it held on the three artisan routes and nowhere else: every
@@ -77,17 +150,75 @@ def public_encode(obj: Any, viewer: Any = None) -> Any:
     "masked on every exported or shared surface" contract hold for includes nobody has written yet:
     a new route leaks nothing until someone deliberately passes a caller who may see more.
 
+    ``media_urls`` follows the same defaulting discipline, and its default is deliberately the
+    CHEAPEST SAFE answer rather than the most generous correct one:
+
+    * omitted — derived from ``viewer`` with no database access: every URL for professor-and-above and
+      for a holder of the global dataset-download permission, otherwise only the viewer's OWN uploads.
+      A grantee therefore does not see URLs on a route that has not thought about it.
+    * ``None`` (:data:`ALL_MEDIA_URLS`) — every URL. For an already-gated download surface.
+    * a ``set`` of uploader ids — exactly those uploaders' URLs. Routes where a GRANTEE legitimately
+      needs the file pass ``await media_url_owners(viewer)``, which adds the granted uploaders at the
+      cost of one query.
+
     Pass the current user from any route whose caller legitimately needs the real number — the
     artisan edit form is the reason that path exists.
     """
-    from app.core.deps import get_value, has_rank
+    from app.core.deps import can_download_dataset, get_value, has_rank
 
     encoded = jsonable_encoder(obj)
     if viewer is None:
-        return _redact_sensitive(encoded, viewer_id=None, unmasked=False)
+        # No viewer named: mask everything and withhold every URL. `set()` rather than None, because
+        # None means "all allowed" and this is the path a route reaches by NOT thinking about it.
+        allowed: set[str] | None = set() if media_urls is _UNSET else media_urls
+        return _redact_sensitive(encoded, viewer_id=None, unmasked=False, media_urls=allowed)
+
+    viewer_id = get_value(viewer, "id")
+    if media_urls is _UNSET:
+        if has_rank(viewer, "PROFESSOR") or can_download_dataset(viewer):
+            allowed = ALL_MEDIA_URLS
+        else:
+            allowed = {viewer_id} if viewer_id else set()
+    else:
+        allowed = media_urls
     return _redact_sensitive(
-        encoded, viewer_id=get_value(viewer, "id"), unmasked=has_rank(viewer, "PROFESSOR")
+        encoded,
+        viewer_id=viewer_id,
+        unmasked=has_rank(viewer, "PROFESSOR"),
+        media_urls=allowed,
     )
+
+
+async def media_url_owners(viewer: Any) -> set[str] | None:
+    """Whose media URLs ``viewer`` may be handed: ``None`` for all, else a set of uploader ids.
+
+    ``None`` for professor-and-above and for a holder of the global dataset-download permission, since
+    both may already download the whole repository. Otherwise the viewer's own uploads plus every
+    uploader who has GRANTED them a data-access grant — the same tiered grants
+    ``services/access.owner_download_scope`` enforces on the export paths, so a grantee who may
+    download a researcher's data can also play their recordings, and nobody else can.
+
+    ONE query, and only for the ranks that need it. Pass the result to ``public_encode(media_urls=…)``
+    from the routes where a grantee genuinely needs the file — the media list, search, and the
+    consolidated questionnaire's audio. Everywhere else the cheap default is correct.
+
+    The grant is read COARSELY, ignoring ``allData``/``scopeItems``: a subset grant names record ids,
+    and a media file is not one of the record types a subset can name, so narrowing by it would
+    withhold the audio for the very interview that was shared. Erring wide here matches
+    ``visibility``'s own precedent for grant-gated reads and is still grant-gated.
+    """
+    from app.core.db import db
+    from app.core.deps import can_download_dataset, get_value, has_rank
+
+    if has_rank(viewer, "PROFESSOR") or can_download_dataset(viewer):
+        return ALL_MEDIA_URLS
+    viewer_id = get_value(viewer, "id")
+    if not viewer_id:
+        return set()
+    grants = await db.dataaccessgrant.find_many(
+        where={"granteeId": viewer_id, "status": "GRANTED"}
+    )
+    return {viewer_id, *(grant.ownerId for grant in grants)}
 
 
 def to_json(value: Any) -> Any:
@@ -296,26 +427,79 @@ def contains(value: str) -> dict[str, Any]:
     return {"contains": value.translate(_UNSEARCHABLE), "mode": "insensitive"}
 
 
-async def visibility_where(user: Any, owner_field: str = "createdById") -> dict[str, Any]:
-    """Row-visibility filter for record list queries.
+# =================================================================================================
+# WHO MAY SEE WHAT — two different questions, two different filters
+#
+# READING the repository and TAKING data out of it are not the same act, and until now one filter
+# answered both. That filter said "below Professor you see only your own rows plus rows whose owner
+# granted you access", and because every list route used it, it governed READING too. The result was
+# a repository that hid itself from the people filling it: a researcher's dashboard counted only
+# their own uploads, /search returned only their own uploads, the map drew only their own uploads,
+# and an account that had uploaded nothing yet opened an app that appeared to contain nothing at all.
+# For a shared documentation corpus that is precisely backwards — the whole point of pooling the
+# fieldwork is that everyone can see the pool.
+#
+# So the two questions are now asked separately:
+#
+#   viewable_where            — MAY THIS ACCOUNT LOOK AT THIS ROW?  Yes, for every signed-in
+#                               account. Reading is open across the repository.
+#   owned_or_granted_where    — MAY THIS ACCOUNT TAKE THIS ROW AWAY? Only their own rows, plus rows
+#                               whose owner granted them access. Unchanged, and still what every
+#                               download / export / bulk-manifest path uses.
+#
+# Nothing about DOWNLOADING, COMMENTING or EDITING moved. Those are decided by
+# ``services/access.py`` (the tiered grants), ``core/deps.py`` (the rank ladder) and the two
+# ``owned_or_granted_where`` surfaces below, exactly as before. And nothing about PII moved either:
+# ``public_encode`` masks Aadhaar and Pehchan numbers for anybody who is not the artisan's own
+# recorder or a Professor+, and it masks by DEFAULT — so widening who may read a row does not widen
+# who may read the regulated numbers on it.
+#
+# The old name ``visibility_where`` is deliberately GONE rather than redefined. It had seventeen call
+# sites and the two policies now differ, so a call site that kept compiling against the old name
+# would have silently picked whichever policy the rename happened to land on. Removing it forced
+# every one of them to be visited and classified.
+# =================================================================================================
 
-    Professor and above (and admins) see every record — an empty filter. Below professor a user sees
-    only records they own, plus records owned by anyone who has GRANTED them a data-access grant (any
-    tier, subset grants included — coarse, but always grant-gated). ``owner_field`` names the record's
+
+async def viewable_where(user: Any, owner_field: str = "createdById") -> dict[str, Any]:
+    """Row filter for READING the repository: everything, for every signed-in account.
+
+    Authentication is the gate — ``Depends(get_current_user)`` on the route — and past it there is no
+    per-row narrowing, so this returns an empty ``where``. ``owner_field`` is accepted and ignored so
+    that the read sites and the download sites are spelled the same way and can be told apart by
+    NAME rather than by argument.
+
+    WHY IT IS STILL A FUNCTION, AND STILL AWAITED. It is the one hook where the read policy lives. A
+    future rule — "records pending review are hidden from volunteers", say — belongs here, applied to
+    every list route at once, rather than being re-derived in twenty of them. Keeping the call sites
+    is what makes that a one-line change instead of an audit. It stays ``async`` because every caller
+    already awaits it, several inside ``gather_reads`` alongside real reads.
+
+    It must still be AND-composed the way it always was (nest it under ``where["AND"]``): it is empty
+    today, and a route that stopped composing it correctly would break the day it stops being empty.
+    """
+    return {}
+
+
+async def owned_or_granted_where(user: Any, owner_field: str = "createdById") -> dict[str, Any]:
+    """Row filter for TAKING DATA OUT — downloads, exports, and bulk manifests.
+
+    Professor and above (and admins) may take every row — an empty filter. Below professor the answer
+    is the rows they own, plus rows owned by anyone who has GRANTED them a data-access grant (any
+    tier, subset grants included — coarse, but always grant-gated). ``owner_field`` names the row's
     owner column (``createdById`` for records, ``uploadedById`` for media). It must be AND-composed
-    with any other ``OR`` a list route builds (nest it under ``where["AND"]``) so a search ``OR``
-    never overwrites it.
+    with any other ``OR`` the query builds (nest it under ``where["AND"]``) so a search ``OR`` never
+    overwrites it.
+
+    This is the ORIGINAL ``visibility_where`` body, unchanged, because the download policy is
+    unchanged. Only its reach shrank: it now rides the export and /data queries and nothing else.
 
     THE GRANT TEST IS PART OF THE PAGE QUERY, not a query of its own. Reading the grant table first
     and folding the owner ids into an ``IN`` list cost a full round trip BEFORE the page could even
-    be asked for — on every list request, from every user below professor, which is most of them. It
-    also got worse with success: the ``IN`` list is every owner who has ever granted the caller
-    anything, shipped as query parameters on every request. Expressed as a relation filter, Postgres
-    answers the same question inside the query it was already running, against the ``granteeId``
-    index that exists for exactly this.
-
-    Still ``async``: every caller awaits it, and the rank check below could not be usefully inlined
-    at seventeen call sites.
+    be asked for. It also got worse with success: the ``IN`` list is every owner who has ever granted
+    the caller anything, shipped as query parameters on every request. Expressed as a relation
+    filter, Postgres answers the same question inside the query it was already running, against the
+    ``granteeId`` index that exists for exactly this.
     """
     from app.core.deps import get_value, has_rank
 
@@ -335,6 +519,21 @@ async def visibility_where(user: Any, owner_field: str = "createdById") -> dict[
             },
         ]
     }
+
+
+async def own_rows_where(user: Any, owner_field: str = "createdById") -> dict[str, Any]:
+    """Row filter for "MINE" — strictly the rows this account owns, whatever its rank.
+
+    Distinct from both filters above and needed by neither of their call sites: it is what a
+    "you have contributed N records" figure means. That figure used to fall out of the old
+    ``visibility_where`` by accident, because below Professor the read filter WAS an ownership filter
+    — which is also why the same figure was wrong for a professor, who saw the repository total
+    labelled as their own work. Now that reading is open, "mine" has to be asked for explicitly, and
+    this is where it is asked.
+    """
+    from app.core.deps import get_value
+
+    return {owner_field: get_value(user, "id")}
 
 
 def apply_status_policy_create(user: Any, data: dict[str, Any]) -> dict[str, Any]:

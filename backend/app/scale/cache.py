@@ -117,12 +117,13 @@ async def cached_response(
 ) -> Any:
     """Return the cached response for these parameters, or run ``loader`` and cache what it returns.
 
-    ``audience`` is not optional and has no default on purpose. Every list in this API is filtered
-    per viewer (``records.visibility_where``) and masked per viewer (``records.public_encode``), so
-    an omitted audience would not merely lower the hit rate — it would hand one researcher's rows and
-    another person's Aadhaar number to whoever asked next. ``keys.audience_for(user)`` is the answer
-    for anything user-scoped; ``keys.role_audience`` only for responses that provably vary by rank
-    alone.
+    ``audience`` is not optional and has no default on purpose. Every list in this API is masked per
+    viewer (``records.public_encode`` unmasks an artisan's identity numbers only for that artisan's own
+    recorder, or for professor-and-above), so an omitted audience would not merely lower the hit rate —
+    it would hand one person's Aadhaar number to whoever asked next. ``keys.audience_for(user)`` is the
+    answer for anything user-scoped; ``keys.role_audience`` only for responses that provably vary by
+    rank alone. Note that per-RANK is not enough for anything carrying an artisan: the unmask test is
+    per-individual, so two researchers of equal rank must not share an entry.
 
     With the flag off this is one boolean read and a direct await of ``loader``, which is exactly
     what the route did before it adopted this.

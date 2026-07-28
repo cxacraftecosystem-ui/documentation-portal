@@ -73,15 +73,36 @@ test.beforeAll(async ({ browser }) => {
   await context.close();
 });
 
-async function openMap(page: Page, query = "") {
+/**
+ * Open the map and wait for it to have drawn.
+ *
+ * `allRecords` exists because the map now OPENS SCOPED to the most recent workshop — that is the
+ * default the feature asks for, and it is the right one for a screen read during a workshop. Every
+ * test below that means "the whole corpus" therefore has to widen the scope first, and doing it here
+ * rather than in each test keeps "what this test is about" separate from "how it got there".
+ */
+async function openMap(page: Page, query = "", { allRecords = true } = {}) {
   await page.goto(`/map${query}`);
   await expect(page.getByRole("heading", { name: "Where the work comes from" })).toBeVisible();
   // The list is the accessible half of the map, so waiting on it also proves it rendered.
   await expect(page.getByRole("heading", { name: "Every place, as a list" })).toBeVisible({
     timeout: 45_000
   });
+  if (allRecords) {
+    await page.getByRole("button", { name: "All records" }).first().click();
+    await expect(page.getByText(/Every workshop, and records not linked to one/)).toBeVisible();
+  }
   await page.waitForTimeout(500);
 }
+
+/**
+ * The three names the corpus's places are known by AT DISTRICT LEVEL, which is the map's default.
+ *
+ * The pins are administrative units now, not towns: Bagru is in Jaipur district and Kharagpur is in
+ * Paschim Medinipur, so those are the labels. Bareilly is both a town and its district and reads the
+ * same either way. Both spellings are matched so this stays true if the default level ever moves.
+ */
+const PLACE_LABEL = /Kharagpur|Paschim Medinipur|Bareilly|Bagru|Jaipur/;
 
 /** No page may scroll sideways — the quality floor, checked rather than eyeballed. */
 async function expectNoHorizontalOverflow(page: Page) {
@@ -112,11 +133,16 @@ test("scope 1 of 3 — the whole repository", async ({ page }) => {
   await page.setViewportSize(DESKTOP);
   await openMap(page);
 
-  const places = page.getByRole("button", { name: /Kharagpur|Bareilly|Bagru/ });
+  const places = page.getByRole("button", { name: PLACE_LABEL });
   await expect(places.first()).toBeVisible();
 
   // Both layers are present and told apart in TEXT, not only by pin shape.
-  await expect(page.getByText("Placed by craft origin")).toBeVisible();
+  await expect(page.getByText("Placed by address")).toBeVisible();
+  // The borders are real geometry now, and the legend names each one it is drawing. The default level
+  // is DISTRICT, so all three tiers should be listed.
+  await expect(page.getByText("Outline: international border")).toBeVisible();
+  await expect(page.getByText("State borders", { exact: true })).toBeVisible();
+  await expect(page.getByText("District borders", { exact: true })).toBeVisible();
   await expect(page.getByText("Placed by GPS fix")).toBeVisible();
   await expect(page.getByText(/GPS fix taken while recording/).first()).toBeVisible();
 
@@ -187,7 +213,7 @@ test("the graphic is hidden from assistive technology and holds nothing focusabl
   expect(await svg.locator("a, button, [tabindex]:not([tabindex='-1'])").count()).toBe(0);
 
   // Everything the picture says is reachable by keyboard through the list instead.
-  const first = page.getByRole("button", { name: /Kharagpur|Bareilly|Bagru/ }).first();
+  const first = page.getByRole("button", { name: PLACE_LABEL }).first();
   await first.focus();
   await expect(first).toBeFocused();
 });

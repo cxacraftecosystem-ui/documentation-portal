@@ -46,6 +46,11 @@ async def list_crafts(
     search: str | None = None,
     place: str | None = None,
     workshopId: str | None = None,
+    # WHOSE CRAFTS — same parameter, same reason, as the record lists: My Activity asks the API for
+    # one person's entries instead of sifting page one of the whole taxonomy. Note that
+    # ``Craft.createdById`` is NULLABLE (the seeded taxonomy has no author), so this narrows to the
+    # crafts somebody actually added, which is exactly what the activity page wants.
+    createdBy: str | None = None,
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
@@ -60,6 +65,8 @@ async def list_crafts(
         ]
     if place:
         where["place"] = contains(place)
+    if createdBy:
+        where["createdById"] = createdBy
     if workshopId:
         # Either reading counts: the craft's own workshopId column, or the WorkshopCraft join
         # (relation named ``workshops``) that carried the link before the column existed. Nested under

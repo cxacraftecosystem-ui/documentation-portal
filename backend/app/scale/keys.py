@@ -2,12 +2,19 @@
 
 READ THIS BEFORE CACHING ANYTHING. Two properties of this codebase decide the whole scheme:
 
-1. A LIST RESPONSE IS NOT THE SAME FOR TWO CALLERS. ``records.visibility_where`` returns an empty
-   filter for professor-and-above and an owner/grant filter for everyone below, and
-   ``records.public_encode`` masks Aadhaar per viewer on top of that. So a key that omits WHO IS
-   ASKING does not just serve a stale page, it serves another researcher's rows and another
+1. A LIST RESPONSE IS NOT THE SAME FOR TWO CALLERS. ``records.public_encode`` masks Aadhaar and
+   Pehchan numbers PER VIEWER — unmasked for professor-and-above and for the researcher who recorded
+   that particular artisan, masked for everybody else — so a key that omits WHO IS ASKING serves one
    person's identity numbers to someone who may not read them. Every key therefore carries an
    audience component, and the default audience is the individual user.
+
+   Which ROWS come back is no longer part of this: reading is open to every signed-in account
+   (``records.viewable_where`` returns an empty filter for everyone), so two callers of the same list
+   with the same parameters now see the same rows. That makes the per-user audience component
+   conservative rather than load-bearing for row scoping — it over-keys, costing cache sharing and
+   nothing else. Do NOT relax it to a role or a global audience on that basis: the masking above is
+   per-INDIVIDUAL, not per-rank, so a role-wide key would leak the numbers between two researchers of
+   equal rank.
 
 2. INVALIDATION MUST NOT ENUMERATE KEYS. There is no cheap "delete every artisan list page" in
    either backend: in Redis it is a SCAN over the keyspace, which is O(keyspace) and races with
