@@ -288,13 +288,28 @@ async def complete_media_upload(
     data["url"] = data.get("url") or public_url_for_key(data["objectKey"])
     data["uploadedById"] = current_user.id
     relation_data = media_relation_data(data.get("linkedRecordType"), data.get("linkedRecordId"))
+    parent: Any = None
     if relation_data:
         # The link maps to a typed FK — verify the target exists (mirrors /relink) so a bad id is a
-        # clean 404 instead of a ForeignKeyViolation 500 at create time.
+        # clean 404 instead of a ForeignKeyViolation 500 at create time. The row is KEPT rather than
+        # discarded: its ``workshopId`` is what this file inherits (see below).
         delegate = _relink_delegate(str(data["linkedRecordType"]).lower())
-        if delegate is None or await delegate.find_unique(where={"id": data["linkedRecordId"]}) is None:
+        parent = await delegate.find_unique(where={"id": data["linkedRecordId"]}) if delegate else None
+        if parent is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Linked record not found")
     data.update(relation_data)
+    # THE PARENTS WITH NO TYPED FOREIGN KEY still have a workshop to inherit, and this is where they get
+    # it. ``media_relation_data`` only knows the six link types that have a column on MediaFile, but the
+    # app sends more than six: ProcessForm uploads with ``process`` and ``processstep``, and the misc-media
+    # picker offers ``process`` and ``media`` as well. Those land carrying only the string tags — so
+    # without this lookup a whole record type's attachments keep arriving with a NULL workshop, which is
+    # the exact condition this change exists to end.
+    #
+    # It is a SEPARATE, non-fatal read on purpose. The 404 above stays where it is: for a link type with
+    # no column, a bad id has never been an error, and turning it into one now would break a client the
+    # moment it referenced something deleted.
+    if parent is None:
+        parent = await _tagged_parent(data.get("linkedRecordType"), data.get("linkedRecordId"))
 
     # A media upload attached to a workshop IS a workshop submission: MediaFile carries both
     # workshopId and status, and the review routes approve media exactly like any other record — so
@@ -310,6 +325,8 @@ async def complete_media_upload(
     # pin acts on: a late upload must be pinned to PENDING even if a client ever starts sending one.
     data.setdefault("status", "PENDING")
     pin_pending_if_late(data, current_user, check=check)
+
+    inherit_parent_workshop(data, parent)
 
     jsonify_metadata(data)
     try:
@@ -386,6 +403,89 @@ ORPHAN_FK_FIELDS = {
 }
 
 
+async def _tagged_parent(record_type: str | None, record_id: str | None) -> Any:
+    """The record a STRING-TAGGED upload hangs off, for workshop inheritance only. Never raises.
+
+    ``media_relation_data`` covers the six link types that have a typed column on MediaFile. The clients
+    send more: ``process`` and ``processstep`` from the process form, ``media`` from the misc-media
+    picker. Those rows carry only ``linkedRecordType``/``linkedRecordId``, so the only way to read their
+    parent's workshop is to look it up by the tag.
+
+    A ProcessStep has no workshop of its own — it is a step inside a Process — so its PARENT for this
+    purpose is that Process, which is the same one hop the process form itself makes.
+
+    Every failure answers None. This runs only to fill in a blank, so a missing row, a tag this server
+    has never heard of, or a database hiccup must all leave the upload alone rather than fail it.
+    """
+    normalized = (record_type or "").strip().lower()
+    if not normalized or not record_id:
+        return None
+    try:
+        if normalized == "processstep":
+            step = await db.processstep.find_unique(where={"id": record_id})
+            process_id = getattr(step, "processId", None)
+            return await db.process.find_unique(where={"id": process_id}) if process_id else None
+        delegate = {
+            "process": db.process,
+            # The five types that DO have a typed column are handled by the caller's own lookup; they
+            # are repeated here only so a future caller of this helper is not surprised by a gap.
+            "artisan": db.artisan,
+            "craft": db.craft,
+            "product": db.productdocumentation,
+            "tool": db.tooldocumentation,
+            "questionnaire": db.questionnaireinterview,
+            "questionnaireinterview": db.questionnaireinterview,
+            # A misc file linked to another misc file: the parent is itself a MediaFile, and its own
+            # workshop (inherited or chosen) is the honest answer for the child.
+            "media": db.mediafile,
+            "misc": db.mediafile,
+        }.get(normalized)
+        return await delegate.find_unique(where={"id": record_id}) if delegate else None
+    except Exception:  # noqa: BLE001 — see the docstring: this may only ever fill in a blank.
+        return None
+
+
+def inherit_parent_workshop(
+    data: dict[str, Any], parent: Any, *, replace: bool = False
+) -> dict[str, Any]:
+    """Give a media row the workshop its parent record already names. Mutates and returns ``data``.
+
+    WHY MEDIA NEEDS THIS AND THE RECORD TYPES DO NOT. Every other type has a workshop PICKER on its
+    form, so a researcher answers the question once and the answer is on the row. Media has no such
+    form — a clip is captured inside an interview, a photo inside a product — and ``/media/complete``
+    carries no ``workshopId`` of its own. ``media_relation_data`` sets ``workshopId`` for exactly one
+    upload shape, the one tagged ``workshop``, where the workshop IS the parent. Every other upload
+    landed with a NULL workshop, which is how 924 of 925 files in the live corpus came to be invisible
+    under every workshop scope while their parent records were perfectly well scoped.
+
+    ON CREATE IT ONLY FILLS A BLANK. An explicit ``workshopId`` in the payload, or the one
+    ``media_relation_data`` derived from a ``workshop``-tagged upload, is the caller's answer and wins.
+    ``replace=True`` is for RE-LINKING, where the parent is not filling a gap but changing: the file has
+    been moved under a different record, the parent is the authority on which workshop a file belongs
+    to, so a workshop inherited from the record it used to hang off is stale and must not survive the
+    move. It still never writes a NULL over a real id — a new parent with no workshop of its own leaves
+    the existing value alone, because "I do not know" is not an answer that should erase one.
+
+    IT RUNS AFTER THE SUBMISSION GATE, and that is deliberate rather than an ordering accident.
+    ``enforce_workshop_submission`` asks "may THIS user submit to THAT workshop, and is the window
+    still open" — a question about a submission somebody is making. Inheriting a parent's workshop is
+    not a submission: the parent already passed that gate when it was created, and the clip is being
+    filed under it, not offered to the workshop afresh. Running the gate on the inherited id would
+    block a researcher from adding a photo to a colleague's product at a workshop they were not
+    assigned to, and would flag every clip of an interview that was itself a late submission as a
+    second late submission. Both are the parent's status to carry, not the file's.
+
+    A parent with no workshop of its own contributes nothing, so nothing is guessed here: closing that
+    gap is ``services/workshop_inference``'s job, which has evidence this function does not.
+    """
+    if data.get("workshopId") and not replace:
+        return data
+    inherited = getattr(parent, "workshopId", None) if parent is not None else None
+    if inherited:
+        data["workshopId"] = inherited
+    return data
+
+
 def _relink_delegate(record_type: str) -> Any:
     """The Prisma delegate for a re-link target record type (or None if unsupported)."""
     return {
@@ -447,6 +547,13 @@ async def relink_media(
         "linkedRecordId": payload.linkedRecordId,
     }
     data.update(media_relation_data(rec_type, payload.linkedRecordId))
+    # Re-linking moves the file under a different record, so the workshop moves with it — otherwise an
+    # orphan recovered onto an interview at a workshop stays invisible under that workshop's scope,
+    # which is the condition this recovery screen exists to end, and a file moved BETWEEN workshops
+    # keeps counting towards the one it left. ``replace=True`` because the old value was the old
+    # parent's answer to a question the new parent now answers; a new parent with no workshop still
+    # leaves the existing id alone.
+    inherit_parent_workshop(data, target, replace=True)
     updated = await db.mediafile.update(where={"id": media.id}, data=data, include=INCLUDE)
     return await _public(updated, current_user)
 

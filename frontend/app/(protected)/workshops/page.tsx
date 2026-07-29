@@ -21,6 +21,7 @@ import { ResizableTh } from "@/components/ResizableTh";
 import { RowActions, rowAction } from "@/components/RowActions";
 import { SearchInput } from "@/components/SearchInput";
 import { StatusBadge } from "@/components/StatusBadge";
+import { WorkshopMappingPanel } from "@/components/settings/WorkshopMappingPanel";
 import { MultiSelectDropdown } from "@/components/ui/Dropdown";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
@@ -338,6 +339,17 @@ function WorkshopsPageBody() {
         icon={<MapPinned className="h-5 w-5" aria-hidden />}
       />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+
+      {/* WHY THIS SITS ON THE WORKSHOPS PAGE and not in Settings. What it fixes is a workshop's own
+          contents — "this workshop looks empty" — so the person who notices the symptom is already here,
+          looking at the workshop. Admin-only because it writes to hundreds of rows at once; the endpoints
+          are gated the same way, so the card is not the security boundary. */}
+      {allowAssign ? (
+        <div className="mb-5">
+          <WorkshopMappingPanel />
+        </div>
+      ) : null}
+
       {allowManage ? (
       <form
         ref={formRef}

@@ -72,6 +72,7 @@ from app.services.workshop_access import (
     pin_pending_if_late,
     stamp_workshop_submission,
 )
+from app.services.workshop_inference import count_unassigned_interviews
 
 router = APIRouter(prefix="/questionnaire", tags=["questionnaire"])
 
@@ -666,6 +667,15 @@ async def interview_for_artisan_set(
 COMPLETION_STATUSES = {"COMPLETED", "NEEDS_REVIEW", "NEEDS_REDO"}
 
 
+async def _zero() -> int:
+    """An awaitable 0, so a conditional count keeps its slot in a ``gather_reads`` wave.
+
+    Same reason as ``map_points._none``: the wave returns positionally, so a skipped read cannot simply
+    be omitted without renumbering every unpack below it.
+    """
+    return 0
+
+
 async def _derived_completed_sections(
     artisan_id: str | None = None, workshop_ids: list[str] | None = None
 ) -> dict[str, set[str]]:
@@ -781,11 +791,30 @@ async def completion_matrix(
             artisan_workshop_clause(*resolved_workshops)
         )
 
-    sections, artisan_rows, derived, overrides = await gather_reads(
+    # HOW MANY INTERVIEWS THIS SCOPE CANNOT SEE, asked in the same wave so it costs no round trip.
+    #
+    # An interview with a NULL ``workshopId`` counts towards NO workshop scope. That is correct — it
+    # genuinely does not say which workshop it was taken at — but it is also the exact shape of the bug
+    # this number exists to make visible: the matrix used to answer "nothing was covered here" while
+    # twenty-five interviews sat in the repository unlinked, and there was nothing on screen to tell a
+    # reader that a filter, not the fieldwork, was the reason.
+    #
+    # Only asked when a scope is actually narrowing. With no scope, or with the reserved "none" value in
+    # play, those interviews ARE in the derived scan, so there is no shortfall to report and a non-zero
+    # number would be a warning about nothing.
+    unassigned_relevant = resolved_workshops is not None and not resolved_workshops[1]
+    sections, artisan_rows, derived, overrides, unassigned_interviews = await gather_reads(
         db.questionnairesection.find_many(where={"isActive": True}, order={"sortOrder": "asc"}),
         db.artisan.find_many(where=artisan_where, order={"name": "asc"}),
         _derived_completed_sections(artisanId, workshopIds),
         db.questionnairesectionstatus.find_many(where=status_where, include={"setBy": True}),
+        # Narrowed to the one artisan on the per-artisan view, where the question is about them; left
+        # repository-wide on the full matrix, because the artisans in scope are not known until the read
+        # beside this one has returned and a second wave to refine a warning count is a round trip spent
+        # on a sentence.
+        count_unassigned_interviews([artisanId] if artisanId else None)
+        if unassigned_relevant
+        else _zero(),
     )
     if artisanId and not artisan_rows:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
@@ -823,6 +852,16 @@ async def completion_matrix(
         ],
         "artisans": [{"id": a.id, "name": a.name} for a in artisans],
         "cells": cells,
+        # THE SHORTFALL, stated rather than left to be inferred from an empty matrix. Zero whenever the
+        # scope cannot hide anything (no workshop chosen, or "none" explicitly included). See the read
+        # above; both clients render a notice when this is non-zero and an admin gets the way to fix it.
+        "unassignedInterviews": int(unassigned_interviews or 0),
+        # An admin mark is a judgement about (artisan, section) across the REPOSITORY — the override
+        # table is keyed on those two columns alone and carries no workshop — so a marked cell shows
+        # under every workshop scope, while the green DERIVED from recordings is scoped to the workshops
+        # chosen. Said on the wire so both clients can say it in the legend instead of each deciding
+        # whether it matters.
+        "overridesAreRepositoryWide": True,
     }
 
 

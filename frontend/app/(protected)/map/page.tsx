@@ -30,6 +30,18 @@
  *   * the workshops — WHICH RECORDS, again, from the same shared vocabulary.
  *   * the detail level — HOW THE SAME RECORDS ARE GROUPED. Nation / state / district. It is a view
  *     setting, not a filter, and it never changes a total.
+ *
+ * THE TWO PANES SCROLL INDEPENDENTLY, from `lg` up. The map is pinned in its own bounded, scrollable
+ * panel and the cards beside it are pinned in theirs, because they answer different questions and a
+ * reader working through the list has no reason to be dragging the picture off the screen — nor the other
+ * way round. Below `lg` there is one column and one scroller: the page. Nothing here reads a breakpoint
+ * in JavaScript; `useRevealRow` measures whichever scroller is actually overflowing at the time.
+ *
+ * CLICKING A PIN MOVES THE LIST TO IT. The pins carry a number in their hover label and the rows carry
+ * the same number, so the correspondence is legible before the click; the click then scrolls the card
+ * pane to that row — up or down, and not at all if it is already in view — and flashes it once. At NATION
+ * and STATE level the row also opens, because at those levels the row IS the whole selection and what a
+ * reader wants next is what is inside it.
  */
 
 import Link from "next/link";
@@ -38,11 +50,17 @@ import { useSearchParams } from "next/navigation";
 import { Crosshair, Info, MapPin } from "lucide-react";
 
 import { EmptyState } from "@/components/EmptyState";
+import { useRevealRow } from "@/components/hooks/useRevealRow";
 import { IndiaMap } from "@/components/map/IndiaMap";
 import { MapPlaceList } from "@/components/map/MapPlaceList";
 import { MapPointPanel } from "@/components/map/MapPointPanel";
 import { fetchMapPoints, type MapQuery } from "@/components/map/mapApi";
-import { ADMIN_LEVELS, type AdminLevel, type MapPointsResponse } from "@/components/map/types";
+import {
+  ADMIN_LEVELS,
+  type AdminLevel,
+  type MapPointChild,
+  type MapPointsResponse
+} from "@/components/map/types";
 import { PageHeader } from "@/components/PageHeader";
 import { SearchInput } from "@/components/SearchInput";
 import {
@@ -141,6 +159,46 @@ export default function MapPage() {
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
 
   /**
+   * Which rows have their finer breakdown open.
+   *
+   * A SET rather than one key, so opening a second state does not close the first — a reader comparing two
+   * states is comparing their districts, and a disclosure that shut the other one would make the
+   * comparison impossible. Cleared whenever the level changes, because every key is re-minted at a new
+   * level and stale ones would leave rows that can never be closed.
+   */
+  const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(() => new Set());
+
+  /**
+   * "The pin you just clicked is THIS row" — scroll the card pane to it and flash it once.
+   *
+   * `pendingReveal` exists because the reveal has to happen AFTER the render that reflects the new
+   * selection: selecting a pin inserts its detail panel above the list, which moves every row, so
+   * measuring during the click handler would measure a layout that is one frame out of date. The state
+   * flip is the signal; the effect further down does the work.
+   *
+   * The NONCE is what makes clicking the same pin twice flash twice. Without it the effect's dependency
+   * would be an unchanged key and the second click would do nothing visible, which reads as the feature
+   * having broken. It is carried in the same state object rather than in a ref because a ref written in a
+   * handler and read by an effect is exactly the pattern React's compiler lint refuses — and rightly:
+   * the render that shows the flash would not be scheduled by the write.
+   */
+  const [pendingReveal, setPendingReveal] = useState<{ key: string; nonce: number } | null>(null);
+  const requestReveal = useCallback((key: string) => {
+    setPendingReveal((current) => ({ key, nonce: (current?.nonce ?? 0) + 1 }));
+  }, []);
+
+  /**
+   * Where a drill-down is heading: the child key a reader chose inside a row, and the level it lives at.
+   *
+   * It cannot be applied on the spot. Choosing a child changes the DETAIL LEVEL, which refetches, and the
+   * response handler sets the selection — so a selection made now would be cleared a moment later. So the
+   * intent is parked here and an effect applies it once the response for that level has actually arrived.
+   */
+  const [drillTarget, setDrillTarget] = useState<{ key: string; level: AdminLevel } | null>(null);
+
+  const { registerRow, containerRef: cardsRef, reveal, flashKey } = useRevealRow();
+
+  /**
    * Which districts a borderless district borrows its outline from — 43 of the 795 have no border of
    * their own in the published boundary data.
    *
@@ -194,8 +252,11 @@ export default function MapPage() {
         setData(result);
         // Opening straight onto the focused record's point saves a reader hunting for the ring.
         // Changing the level re-keys every pin, so the previous selection is dropped rather than left
-        // pointing at a key that no longer exists.
+        // pointing at a key that no longer exists — and with it every open disclosure, whose keys are
+        // re-minted at the new level too. A drill-down is re-applied by the effect that watches
+        // `drillTarget`, which is the one case where the reader asked to land somewhere specific.
         setSelectedKey(result.focus?.pointKeys[0] ?? null);
+        setExpandedKeys(new Set());
       })
       .catch((cause: unknown) => {
         if (controller.signal.aborted) return;
@@ -241,9 +302,100 @@ export default function MapPage() {
       .map((point) => point.label);
   }, [points, lineage]);
 
-  const handleSelect = useCallback((key: string) => {
-    setSelectedKey((current) => (current === key ? null : key));
+  /**
+   * A pin or a row was chosen.
+   *
+   * Clicking the SAME thing again clears it — the long-standing behaviour, and the only way to close the
+   * detail panel from the map itself. Clearing deliberately does not reveal or flash anything: there is no
+   * row to point at, and scrolling the list on a deselect would move the reader for nothing.
+   *
+   * Choosing something new opens its disclosure as well, when it has one. At NATION and STATE level the
+   * row a reader lands on IS the whole of the selection, so what they want next is what is inside it;
+   * leaving it shut would make the reveal land on a row that says nothing they did not already know.
+   */
+  const handleSelect = useCallback(
+    (key: string, source: "map" | "list" = "map") => {
+      const wasSelected = selectedKey === key;
+      setSelectedKey(wasSelected ? null : key);
+      if (wasSelected) return;
+      const point = points.find((candidate) => candidate.key === key);
+      if (point?.children?.length) {
+        setExpandedKeys((current) => new Set(current).add(key));
+      }
+      // ONLY A MAP CLICK REVEALS. A reader who clicked a row is already looking at it, and the row's own
+      // selected styling is the answer; scrolling and flashing it would move the list under the pointer
+      // that just landed on it — and it would carry the detail panel, which opens ABOVE the list, out of
+      // view. The reveal exists to bridge the two views, so it fires only when the two disagree.
+      if (source === "map") requestReveal(key);
+    },
+    [points, selectedKey, requestReveal]
+  );
+
+  const toggleExpanded = useCallback((key: string) => {
+    setExpandedKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   }, []);
+
+  /**
+   * A child inside a row was chosen: re-group the map at the finer level and land on that child.
+   *
+   * `child.level` comes from the server, so the client never holds its own idea of which level is below
+   * which. Setting the level refetches; the effect below applies the selection once the response for that
+   * level has landed.
+   */
+  const handleDrillDown = useCallback((child: MapPointChild) => {
+    const target = child.level;
+    if (!target) return;
+    setDrillTarget({ key: child.key, level: target });
+    setLevel(target);
+  }, []);
+
+  /**
+   * Land the drill-down, once the response for the requested level is actually on screen.
+   *
+   * THREE GUARDS, and each one closes a way the intent could go wrong.
+   *
+   * 1. The reader has since moved the Detail control themselves (`level !== drillTarget.level`), or the
+   *    request failed. The intent is ABANDONED — it can no longer be satisfied, and an intent that
+   *    lingers would fire against whatever response arrived next, selecting and flashing a place nobody
+   *    chose. That was reachable: click a state child, then hit the Detail toggle before the response
+   *    lands.
+   * 2. The response on screen is still the previous level's. Guarded on `data.level`, not the local
+   *    `level`, because the local one changes the instant the reader clicks while the points have not
+   *    been replaced yet — selecting then would set a key that is not in the current list.
+   * 3. The key is not in the response after all. Not reachable through the UI (the server minted the key
+   *    at this level, for these filters), but the intent is dropped explicitly rather than retried.
+   */
+  useEffect(() => {
+    if (!drillTarget) return;
+    if (level !== drillTarget.level || error) {
+      setDrillTarget(null);
+      return;
+    }
+    if (!data || (data.level ?? level) !== drillTarget.level) return;
+    setDrillTarget(null);
+    if (!(data.points ?? []).some((point) => point.key === drillTarget.key)) return;
+    setSelectedKey(drillTarget.key);
+    requestReveal(drillTarget.key);
+  }, [drillTarget, data, error, level, requestReveal]);
+
+  /**
+   * The reveal itself, one commit after the selection that asked for it. See `pendingReveal`.
+   *
+   * It CLEARS the request after firing, and that matters for a reason that is not tidiness: `reveal`'s
+   * identity changes when the reduced-motion answer changes (it closes over that flag), so an uncleared
+   * request would re-fire — scrolling and flashing the last row a reader touched — the moment they
+   * toggled reduced motion in Settings, or the moment the OS did.
+   */
+  useEffect(() => {
+    if (!pendingReveal) return;
+    reveal(pendingReveal.key);
+    setPendingReveal(null);
+  }, [pendingReveal, reveal]);
 
   return (
     <div>
@@ -373,11 +525,21 @@ export default function MapPage() {
           ) : null}
 
           {/* `items-start` so the map panel is as tall as the map. Stretching it to match the list
-              beside it left a column of empty white under the coastline taller than the map itself. */}
-          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
+              beside it left a column of empty white under the coastline taller than the map itself.
+
+              TWO INDEPENDENT SCROLLERS from `lg` up. Both panes are pinned at the same offset and given
+              the same bounded height, and each owns its overflow — so a reader working down the cards
+              never drags the map away, and panning down a tall map never carries the cards off with it.
+              `overscroll-contain` stops a gesture that reaches the end of one pane from being handed on
+              to the page behind it, which is what made the whole document lurch at the bottom of a list.
+
+              Below `lg` neither rule applies: there is one column and the page is the scroller. That is
+              not a compromise — a phone has no room for two panes, and a nested same-axis scroller on a
+              touch screen is a gesture nobody can aim. */}
+          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,23rem)]">
             <section
               aria-label="Map of India showing where the documented records come from"
-              className="panel min-w-0 overflow-hidden p-3 sm:p-4 lg:sticky lg:top-24"
+              className="panel min-w-0 overflow-hidden p-3 sm:p-4 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7.5rem)] lg:overflow-y-auto lg:overscroll-contain"
             >
               <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-ink-500">
                 <span className="inline-flex items-center gap-1.5">
@@ -432,14 +594,29 @@ export default function MapPage() {
                   onHover={setHoveredKey}
                 />
               )}
+
+              {points.length ? (
+                <p className="mt-2 text-[11px] leading-4 text-ink-500">
+                  Point at a pin to read its number, and choose one to bring its entry in the list beside
+                  this map into view.
+                </p>
+              ) : null}
             </section>
 
             {/* `grid-cols-[minmax(0,1fr)]` rather than a bare `grid`. An implicit grid track takes
                 its minimum from its items' min-content, and a record title is arbitrary text a
                 researcher typed — one long filename with no spaces in the pin panel widened this
                 column past its 22rem and pushed the whole page sideways. An explicit zero minimum
-                is what stops any future content doing it again. */}
-            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-4">
+                is what stops any future content doing it again.
+
+                `ref` is the element `useRevealRow` scrolls. It measures this node and treats it as the
+                scroller only when it is actually overflowing, so one code path serves the pinned pane
+                here and the plain page flow on a phone — no breakpoint is read in JavaScript. `pr-1`
+                keeps the themed 10px scrollbar off the cards' right-hand borders. */}
+            <div
+              ref={cardsRef as React.RefObject<HTMLDivElement>}
+              className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-4 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7.5rem)] lg:overflow-y-auto lg:overscroll-contain lg:pr-1"
+            >
               {summary ? (
                 <section className="panel p-4">
                   <h2 className="font-display text-sm font-bold text-ink-900">
@@ -565,8 +742,12 @@ export default function MapPage() {
                   Every place, as a list
                 </h2>
                 <p className="mb-3 mt-1 text-xs text-ink-500">
-                  The same information as the map, at the same detail level. Choose a place to see the
-                  records there.
+                  The same information as the map, at the same detail level, numbered to match the pins.
+                  Choose a place to see the records there
+                  {data.childLevel
+                    ? `, or open a row for the ${data.childLevel.toLowerCase()}s inside it`
+                    : ""}
+                  .
                 </p>
                 {points.length === 0 && data.unplaced.length === 0 ? (
                   <p className="text-xs text-ink-500">Nothing to place.</p>
@@ -576,8 +757,15 @@ export default function MapPage() {
                     unplaced={data.unplaced}
                     selectedKey={selectedKey}
                     focusKeys={focusKeys}
-                    onSelect={handleSelect}
+                    hoveredKey={hoveredKey}
+                    childLevel={data.childLevel ?? null}
+                    expandedKeys={expandedKeys}
+                    flashKey={flashKey}
+                    registerRow={registerRow}
+                    onSelect={(key) => handleSelect(key, "list")}
                     onHover={setHoveredKey}
+                    onToggleExpanded={toggleExpanded}
+                    onDrillDown={handleDrillDown}
                   />
                 )}
               </section>

@@ -116,6 +116,30 @@ _CLUSTER_DEGREES_BY_LEVEL: dict[AdminLevel, float] = {
     AdminLevel.NATION: 5.0,
 }
 
+# WHAT A POINT'S DROPDOWN LISTS: the level immediately below the one being drawn.
+#
+# At NATION level the whole country is ONE dot and therefore one row, and at STATE level a state is one
+# dot and one row. A reader who clicks either has nowhere to go: the row they land on is the row they
+# already had. So each point carries the finer breakdown of ITSELF — the states inside the nation, the
+# districts inside the state — and the list renders it as a disclosure the reader can open. DISTRICT has
+# no entry because a district is the finest unit an Indian address names; there is nothing below it to
+# list, and inventing "villages" from free text would be a list of spellings, not places.
+#
+# It costs NO extra database read. Every group is already in hand with its counts, and placing a group is
+# a pure function of (location, place text, level) — so the children are the same fold run a second time
+# at a second level, over the same rows.
+_CHILD_LEVEL: dict[AdminLevel, AdminLevel | None] = {
+    AdminLevel.NATION: AdminLevel.STATE,
+    AdminLevel.STATE: AdminLevel.DISTRICT,
+    AdminLevel.DISTRICT: None,
+}
+
+# How many children one point carries. A nation has at most 36 states so it can never reach this; a
+# state has at most 795 districts, and a scope that somehow touched hundreds of them would be a
+# disclosure nobody scrolls. Truncation is FLAGGED on the point (``childrenTruncated``) rather than
+# silent, because a list that quietly stops is indistinguishable from a place with no records.
+_MAX_CHILDREN = 60
+
 # A hard ceiling on how many distinct capture points one request will fold. The live corpus has a
 # few hundred; this exists so that a repository which one day holds a hundred thousand located media
 # files degrades into a truncated map with a flag set, rather than into an out-of-memory kill on a
@@ -293,12 +317,73 @@ def _pin_point(latitude: float, longitude: float, degrees: float) -> StatedPoint
     )
 
 
+def _child_shell(placed: Any, level: AdminLevel, layer: str) -> dict[str, Any]:
+    """One entry in a point's dropdown: the same identity a real point has, minus what only a pin needs.
+
+    It carries a REAL point key at ``level``, which is the property that makes the dropdown more than
+    decoration — a client can hand the key straight back to ``GET /map/points?level=<level>`` and to
+    ``/map/points/{key}/records`` and get the same answer it would have got by using the level toggle. So
+    opening a state inside the nation and then choosing a district inside it is the same navigation as
+    switching the toggle twice, and lands on the same pin.
+
+    No ``places``/``pinnedRecords``/``fromPlaceText``: those explain how a DRAWN pin came to be where it
+    is, and a child is not drawn. Its position is still the weighted mean of what folds into it, so it is
+    honest if a future version does draw it.
+    """
+    return {
+        "key": placed.key,
+        "level": level.value,
+        "layer": layer,
+        "label": placed.label,
+        "region": placed.region,
+        "state": getattr(placed, "state", None),
+        "district": getattr(placed, "district", None),
+        "latitude": placed.latitude,
+        "longitude": placed.longitude,
+        "precision": placed.precision,
+        "source": placed.source,
+        "total": 0,
+        "counts": _empty_counts(),
+    }
+
+
+def _finish_children(
+    children: dict[str, dict[str, dict[str, Any]]],
+    positions: dict[tuple[str, str], list[tuple[float, float, int]]],
+    points: dict[str, dict[str, Any]],
+) -> None:
+    """Attach each point's dropdown, positioned and ordered. Mutates ``points``.
+
+    Ordered by count then label — the SAME order the drawn points use — so the busiest place is first in
+    both readings and the list beside the map cannot be sorted differently from the map.
+
+    A point with exactly one child gets an EMPTY list rather than a one-item dropdown. A disclosure whose
+    only content restates the row it hangs under is a control that does nothing, and a reader who opens
+    one learns to stop opening them.
+    """
+    for key, point in points.items():
+        entries = list(children.get(key, {}).values())
+        for entry in entries:
+            centre = mean_point(positions.get((key, entry["key"]), []))
+            if centre is not None:
+                entry["latitude"], entry["longitude"] = centre
+        entries.sort(key=lambda entry: (-entry["total"], entry["label"]))
+        if len(entries) < 2:
+            point["children"] = []
+            point["childrenTruncated"] = False
+            continue
+        point["children"] = entries[:_MAX_CHILDREN]
+        point["childrenTruncated"] = len(entries) > _MAX_CHILDREN
+
+
 def _origin_points(
     grouped: list[tuple[str, list[Any]]],
     locations: dict[str, Any],
     level: AdminLevel,
     anchors: DistrictAnchors,
     degrees: float,
+    child_level: AdminLevel | None = None,
+    child_degrees: float = 0.0,
 ) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]], int]:
     """Fold every bucket's (locationId, place) groups into ORIGIN points, plus what would not place.
 
@@ -319,6 +404,9 @@ def _origin_points(
     placed_total = 0
     # (key) -> list of (latitude, longitude, weight), folded into the mean at the end.
     positions: dict[str, list[tuple[float, float, int]]] = {}
+    # parentKey -> childKey -> the child shell, plus its own positions to average.
+    children: dict[str, dict[str, dict[str, Any]]] = {}
+    child_positions: dict[tuple[str, str], list[tuple[float, float, int]]] = {}
 
     for bucket, groups in grouped:
         for group in groups:
@@ -389,6 +477,30 @@ def _origin_points(
                 if name and name != point["label"] and name not in point["places"]:
                     point["places"].append(name)
 
+            # THE SAME GROUP, PLACED AGAIN ONE LEVEL DOWN. Pure computation over rows already in hand —
+            # no read, no second wave — because ``_group_geography`` is a function of (location, prose,
+            # level) and only the level changes here.
+            #
+            # The child ladder can legitimately land on the SAME key as its parent: at DISTRICT level a
+            # group that names a state and no district keys as ``state:<name>``, which is exactly what
+            # "in Rajasthan, district not stated" means and is precisely how the drawn map behaves at
+            # that level too. It is kept rather than filtered, because dropping it would make a state's
+            # dropdown silently undercount the records inside the state.
+            if child_level is not None:
+                resolved_child = _group_geography(
+                    location, place_text, child_level, anchors, child_degrees
+                )
+                if resolved_child is not None:
+                    child_placed, _child_kind = resolved_child
+                    entry = children.setdefault(placed.key, {}).setdefault(
+                        child_placed.key, _child_shell(child_placed, child_level, "ORIGIN")
+                    )
+                    entry["total"] += count
+                    entry["counts"][bucket] += count
+                    child_positions.setdefault((placed.key, child_placed.key), []).append(
+                        (child_placed.latitude, child_placed.longitude, count)
+                    )
+
     for key, point in points.items():
         centre = mean_point(positions.get(key, []))
         if centre is not None:
@@ -396,6 +508,8 @@ def _origin_points(
         # Longest first: "Bagru, Jaipur, Rajasthan" tells a reader more about what was typed than
         # "Bagru" does, and the panel shows only the first few.
         point["places"].sort(key=lambda name: (-len(name), name))
+
+    _finish_children(children, child_positions, points)
 
     return points, sorted(unplaced.values(), key=lambda entry: -entry["total"]), placed_total
 
@@ -443,11 +557,26 @@ def _locations_in_play(
 
 
 def _capture_points(
-    rows: list[Any], per_location: dict[str, dict[str, int]], degrees: float
+    rows: list[Any],
+    per_location: dict[str, dict[str, int]],
+    degrees: float,
+    child_level: AdminLevel | None = None,
+    child_degrees: float = 0.0,
 ) -> tuple[dict[str, dict[str, Any]], int]:
-    """Cluster the GPS fixes into pins a reader can tell apart, at this level's radius."""
+    """Cluster the GPS fixes into pins a reader can tell apart, at this level's radius.
+
+    A CAPTURE pin's dropdown is the same fixes re-clustered at the FINER radius, which is what makes the
+    two layers behave alike under the same control: at NATION level a five-degree cell folds the country
+    into one dot, and opening it says "these are the three venues inside it" rather than leaving a reader
+    to guess whether one pin means one place. The children are labelled by their coordinate because a
+    measured fix has no administrative name to borrow — that is the whole distinction between this layer
+    and ORIGIN, and inventing a name here would erase it.
+    """
     clusters: dict[tuple[int, int], dict[str, Any]] = {}
     captured_total = 0
+    # parent cell -> child cell -> the child's fixes and counts. Built in the SAME pass, so the finer
+    # clustering costs one extra integer division per row rather than a second walk over the corpus.
+    child_clusters: dict[tuple[int, int], dict[tuple[int, int], dict[str, Any]]] = {}
     for row in rows:
         latitude = getattr(row, "latitude", None)
         longitude = getattr(row, "longitude", None)
@@ -456,21 +585,32 @@ def _capture_points(
         counts = per_location.get(row.id)
         if counts is None:
             continue
+        parent_cell = _cell(latitude, longitude, degrees)
         cluster = clusters.setdefault(
-            _cell(latitude, longitude, degrees),
+            parent_cell,
             {"fixes": [], "counts": _empty_counts(), "total": 0, "accuracies": []},
         )
         cluster["fixes"].append((latitude, longitude))
         accuracy = getattr(row, "accuracy", None)
         if accuracy is not None:
             cluster["accuracies"].append(float(accuracy))
+        child: dict[str, Any] | None = None
+        if child_level is not None and child_degrees > 0:
+            child = child_clusters.setdefault(parent_cell, {}).setdefault(
+                _cell(latitude, longitude, child_degrees),
+                {"fixes": [], "counts": _empty_counts(), "total": 0},
+            )
+            child["fixes"].append((latitude, longitude))
         for bucket, value in counts.items():
             cluster["counts"][bucket] += value
             cluster["total"] += value
             captured_total += value
+            if child is not None:
+                child["counts"][bucket] += value
+                child["total"] += value
 
     points: dict[str, dict[str, Any]] = {}
-    for cluster in clusters.values():
+    for parent_cell, cluster in clusters.items():
         fixes = cluster["fixes"]
         # The pin sits on the MEAN of the fixes it folds, not on the corner of the grid cell that
         # happened to catch them — a cell corner is an artefact of the clustering, the mean is a
@@ -501,6 +641,39 @@ def _capture_points(
             "spreadMetres": _metres_across(fixes),
             "medianAccuracy": round(sorted(accuracies)[len(accuracies) // 2], 1) if accuracies else None,
         }
+
+        # The finer clusters inside this pin, each keyed as it WOULD be keyed at the child level — the
+        # cluster size is part of a capture key (see ``_capture_key``), so these keys are directly usable
+        # against ``/map/points/{key}/records?level=<child>`` exactly like the ORIGIN children are.
+        entries: list[dict[str, Any]] = []
+        for child in (child_clusters.get(parent_cell) or {}).values():
+            child_fixes = child["fixes"]
+            child_latitude = sum(value for value, _ in child_fixes) / len(child_fixes)
+            child_longitude = sum(value for _, value in child_fixes) / len(child_fixes)
+            entries.append(
+                {
+                    "key": _capture_key(child_fixes[0][0], child_fixes[0][1], child_degrees),
+                    "level": child_level.value if child_level else None,
+                    "layer": "CAPTURE",
+                    "label": "Recorded here",
+                    "region": f"{child_latitude:.4f}, {child_longitude:.4f}",
+                    "state": None,
+                    "district": None,
+                    "latitude": child_latitude,
+                    "longitude": child_longitude,
+                    "precision": "MEASURED",
+                    "source": "DEVICE_FIX",
+                    "total": child["total"],
+                    "counts": child["counts"],
+                    "fixes": len(child_fixes),
+                    "spreadMetres": _metres_across(child_fixes),
+                }
+            )
+        entries.sort(key=lambda entry: (-entry["total"], entry["region"]))
+        # One child is the pin restated, so it is not a dropdown — see ``_finish_children`` for why a
+        # disclosure that only repeats its own row teaches a reader to stop opening them.
+        points[key]["children"] = entries[:_MAX_CHILDREN] if len(entries) > 1 else []
+        points[key]["childrenTruncated"] = len(entries) > _MAX_CHILDREN
 
     return points, captured_total
 
@@ -602,6 +775,10 @@ async def map_points(
     selected = resolve_types(types)
     admin_level = resolve_admin_level(level)
     degrees = _CLUSTER_DEGREES_BY_LEVEL[admin_level]
+    # What every point's dropdown lists, and at what cluster radius. None at DISTRICT level, which is the
+    # finest unit an address names. See ``_CHILD_LEVEL``.
+    child_level = _CHILD_LEVEL[admin_level]
+    child_degrees = _CLUSTER_DEGREES_BY_LEVEL[child_level] if child_level else 0.0
     wheres = await build_record_wheres(
         current_user,
         q=q,
@@ -687,9 +864,11 @@ async def map_points(
 
     locations = {row.id: row for row in location_rows}
     origin, unplaced, origin_total = _origin_points(
-        grouped, locations, admin_level, anchors, degrees
+        grouped, locations, admin_level, anchors, degrees, child_level, child_degrees
     )
-    capture, capture_total = _capture_points(location_rows, per_location, degrees)
+    capture, capture_total = _capture_points(
+        location_rows, per_location, degrees, child_level, child_degrees
+    )
 
     focus: dict[str, Any] | None = None
     if focusType and focusId:
@@ -711,6 +890,10 @@ async def map_points(
         "level": admin_level.value,
         # The vocabulary the client renders its toggle from, so the two cannot drift out of step.
         "levels": [member.value for member in AdminLevel],
+        # Which level every point's ``children`` are keyed at, so a client drilling into a dropdown knows
+        # which level to switch the map to rather than having to re-derive the ladder. Null at DISTRICT,
+        # where there are no children at all.
+        "childLevel": child_level.value if child_level else None,
         "types": [bucket for bucket in RECORD_TYPES if bucket in selected],
         "points": points,
         "unplaced": unplaced,
@@ -927,7 +1110,7 @@ async def _stated_narrowing(
         spellings = [
             group["place"]
             for group in groups
-            if _atlas_place_matches(group.get("place"), state, district, kind)
+            if _atlas_place_matches(group.get("place"), state, district, kind, level)
         ]
         if spellings:
             spellings_by_bucket[bucket] = spellings
@@ -1058,9 +1241,27 @@ def _pair_belongs(
 
 
 def _atlas_place_matches(
-    place_text: str | None, state: str | None, district: str | None, kind: str
+    place_text: str | None,
+    state: str | None,
+    district: str | None,
+    kind: str,
+    level: AdminLevel,
 ) -> bool:
-    """Whether one free-text place resolves, through the atlas, into this administrative pin."""
+    """Whether one free-text place resolves, through the atlas, into this administrative pin.
+
+    ``level`` IS NOT OPTIONAL and the reason is the same one :func:`_pair_belongs` documents: a
+    ``state:X`` key means two different things depending on the level it was drawn at. At STATE level it
+    means "every district in X"; at DISTRICT level it means "in X, with no usable district" — and this
+    branch has to agree with the stated branch about which, or the two arms of the same OR admit
+    different rows.
+
+    They did not agree. Without the level, a ``state:X`` pin at DISTRICT level admitted every atlas place
+    in X — including the ones the atlas resolves to a district and which were therefore drawn on their own
+    ``district:X|Y`` pin. On the live corpus every ``Location`` has a NULL state, so the atlas branch is
+    the ONLY branch that fires, and one product recorded as "Jammu & Kashmir" draws a ``state:Jammu and
+    Kashmir`` pin whose panel then listed the eleven Jammu-district rows as well: a panel with more rows
+    in it than the pin it was opened from counts.
+    """
     resolved = resolve_place(place_text)
     if resolved.place is None:
         return False
@@ -1078,14 +1279,18 @@ def _atlas_place_matches(
         return place_state is not None
     if place_state != state:
         return False
-    if kind != "district":
-        return True
     place_district = (
         canonical_district(place_state, resolved.place.district)
         if place_state and resolved.place.district
         else None
     )
-    return place_district == district
+    if kind == "district":
+        return place_district == district
+    # kind == "state". The same fork ``_pair_belongs`` makes on its last line, for the same reason: at
+    # STATE level the pin IS the whole state, so every place in it belongs; at DISTRICT level the pin
+    # stands for the rows whose district is not known, so a place the atlas CAN put in a district belongs
+    # to that district's pin instead.
+    return True if level is AdminLevel.STATE else place_district is None
 
 
 async def _capture_narrowing(

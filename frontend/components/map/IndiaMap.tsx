@@ -130,6 +130,23 @@ export function IndiaMap({
   const focused = useMemo(() => new Set(focusKeys), [focusKeys]);
   const active = pins.find((pin) => pin.point.key === (hoveredKey ?? selectedKey)) ?? null;
 
+  /**
+   * THE SHARED NAME FOR A PLACE across the picture and the list beside it.
+   *
+   * `MapPlaceList` numbers its rows 1..N in the order the server returned the points, and the hover
+   * label below prints the same number, so "the third one" means one thing in both views. Derived from
+   * the `points` prop rather than from `pins`, because `layoutPins` may reorder while it resolves
+   * collisions and a number that depended on the collision pass would change as pins were nudged.
+   *
+   * It is NOT drawn inside the pin. The pin already carries a number — its record count — and that is
+   * the one fact a pin must never be ambiguous about; two numbers on a nine-pixel disc would make both
+   * unreadable.
+   */
+  const ordinals = useMemo(
+    () => new Map(points.map((point, index) => [point.key, index + 1])),
+    [points]
+  );
+
   const borders = useBorders(level);
   const statePath = useMemo(() => bordersToPath(borders.state), [borders.state]);
   const districtPath = useMemo(() => bordersToPath(borders.district), [borders.district]);
@@ -214,7 +231,7 @@ export function IndiaMap({
         />
       ))}
 
-      {active ? <HoverLabel pin={active} /> : null}
+      {active ? <HoverLabel pin={active} ordinal={ordinals.get(active.point.key)} /> : null}
       <ScaleBar />
     </svg>
   );
@@ -305,9 +322,17 @@ function Pin({
   );
 }
 
-/** The place name under the pointer. Drawn in SVG so it cannot be clipped by the map's own box. */
-function HoverLabel({ pin }: { pin: PlacedPin }) {
-  const width = Math.max(96, pin.point.label.length * 11 + 28);
+/**
+ * The place name under the pointer, led by the number its row carries in the list. Drawn in SVG so it
+ * cannot be clipped by the map's own box.
+ *
+ * The number is what turns "click a pin and the list jumps" from a surprise into an explanation: the
+ * reader has already read "3 · Jaipur" before they click, so when row 3 scrolls up and flashes, they can
+ * see that the two views agree. `ordinal` is optional so this stays drawable by any caller.
+ */
+function HoverLabel({ pin, ordinal }: { pin: PlacedPin; ordinal?: number }) {
+  const text = ordinal ? `${ordinal} · ${pin.point.label}` : pin.point.label;
+  const width = Math.max(96, text.length * 11 + 28);
   const left = Math.min(Math.max(pin.x - width / 2, 4), VIEW_BOX.width - width - 4);
   const above = pin.y - pin.radius - 40 > 0;
   const top = above ? pin.y - pin.radius - 40 : pin.y + pin.radius + 10;
@@ -322,7 +347,7 @@ function HoverLabel({ pin }: { pin: PlacedPin }) {
         dominantBaseline="central"
         className="fill-white font-sans text-[15px] font-medium"
       >
-        {pin.point.label}
+        {text}
       </text>
     </g>
   );

@@ -67,6 +67,10 @@ from app.services.workshop_access import (
     valid_level,
     workshop_is_curated,
 )
+from app.services.workshop_inference import (
+    apply_workshop_mapping,
+    plan_workshop_mapping,
+)
 
 router = APIRouter(prefix="/workshops", tags=["workshops"])
 
@@ -252,6 +256,53 @@ async def create_workshop(
     # cross-region round trip, plus one more per relation behind it.
     await hydrate_relations([created], RELATIONS)
     return public_encode(created)
+
+
+# --------------------------------------------------------------------------- the mapping gap
+# Declared above ``/{workshop_id}`` for the reason stated below the access-request banner: FastAPI
+# matches in declaration order, so ``/workshops/unmapped`` registered after ``/workshops/{workshop_id}``
+# would be swallowed as a workshop whose id is the word "unmapped".
+
+
+@router.get("/unmapped")
+async def unmapped_records(_: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Which records carry no workshop at all, and which workshop each one's own evidence points at.
+
+    A READ. Nothing is written, so this is safe to render, safe to re-render and safe to poll — it is
+    the preview an admin approves before :func:`map_unmapped_records` writes anything.
+
+    WHY THIS IS A SCREEN AND NOT A MIGRATION ALONE. ``workshopId`` arrived after a workshop's worth of
+    fieldwork was already recorded, and a row without it is invisible under every workshop scope while
+    still visible under "All records" — which reads as an empty workshop rather than as a broken
+    filter. A migration closes the gap that exists today; this closes the gap that appears the next
+    time a client is a version behind, without waiting for a deploy. See
+    ``services/workshop_inference`` for the evidence ladder and for why ambiguity is reported rather
+    than resolved.
+
+    ADMIN-GATED even though it only reads, because what it returns is a to-do list for an admin action
+    and a per-row account of records the caller may not own. The COUNT that ordinary users need — how
+    many interviews the completion matrix is missing — is served by ``GET /questionnaire/completion``
+    itself, so nobody has to hold this entitlement to understand their own screen.
+    """
+    return await plan_workshop_mapping()
+
+
+@router.post("/unmapped/map")
+async def map_unmapped_records(_: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Stamp every unassigned record whose own evidence names exactly one workshop.
+
+    Takes NO body. The plan is re-derived server-side rather than accepted from the caller: a
+    client-supplied list of "set this row's workshop to that id" is a much wider power than "close the
+    gap the server itself found", and it would already be stale between the report rendering and the
+    button being pressed.
+
+    Idempotent. Every write carries ``workshopId: None`` in its ``where``, so a second press changes
+    nothing and a row somebody assigned by hand in between keeps the answer the person gave it. The
+    response is the same shape as the preview, plus ``applied`` counts taken from what the database
+    reported it changed — so a row that slipped out from under a write appears as a shortfall rather
+    than being quietly absorbed.
+    """
+    return await apply_workshop_mapping()
 
 
 # --------------------------------------------------------------------------- access requests

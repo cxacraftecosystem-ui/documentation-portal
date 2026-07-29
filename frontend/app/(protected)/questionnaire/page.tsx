@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ArrowDown, ArrowUp, ClipboardList, GripVertical, Lock, Mic, Pencil, Plus, Save, Square, Trash2 } from "lucide-react";
 
@@ -1068,6 +1069,19 @@ type CompletionMatrix = {
   sections: Array<{ id: string; code: string; title: string; sortOrder: number }>;
   artisans: Array<{ id: string; name: string }>;
   cells: Array<{ artisanId: string; sectionId: string; derived: boolean; status: string | null; setByName?: string | null }>;
+  /**
+   * How many interviews the CHOSEN WORKSHOP SCOPE cannot see, because they name no workshop at all.
+   *
+   * The number exists so the failure mode can never be silent again. An interview with an empty
+   * `workshopId` counts towards no workshop scope, which is correct — it genuinely does not say where it
+   * was taken — but it is also exactly the shape of the bug that had this matrix reporting "nothing was
+   * covered" while twenty-five interviews sat in the repository unlinked. Zero whenever the scope cannot
+   * hide anything (no workshop chosen, or unassigned records explicitly included). Absent on an API that
+   * predates the field.
+   */
+  unassignedInterviews?: number;
+  /** True while an admin's mark is keyed on (artisan, section) alone, i.e. is not per workshop. */
+  overridesAreRepositoryWide?: boolean;
 };
 
 /**
@@ -1169,6 +1183,32 @@ function CompletionMatrixPanel({ canOverride }: { canOverride: boolean }) {
       </div>
       {error ? <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       {loading ? <div className="text-sm text-ink-muted">Loading completion matrix...</div> : null}
+
+      {/* THE SHORTFALL, NAMED. An interview that names no workshop is excluded from this matrix under any
+          workshop scope, and the exclusion used to be invisible: the matrix simply showed less green, which
+          reads as fieldwork that never happened. Saying the number turns that into something an admin can
+          act on — and the action is one page away. */}
+      {matrix && (matrix.unassignedInterviews ?? 0) > 0 ? (
+        <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-100 px-3 py-2 text-xs leading-5 text-amber-800">
+          <span className="font-semibold">
+            {matrix.unassignedInterviews} interview{matrix.unassignedInterviews === 1 ? "" : "s"} in the
+            repository name no workshop
+          </span>
+          , so {matrix.unassignedInterviews === 1 ? "it counts" : "they count"} towards no workshop scope and
+          nothing {matrix.unassignedInterviews === 1 ? "it holds" : "they hold"} turns a cell green here.
+          Choose <span className="font-semibold">All records</span> above to include{" "}
+          {matrix.unassignedInterviews === 1 ? "it" : "them"}
+          {canOverride ? (
+            <>
+              , or file {matrix.unassignedInterviews === 1 ? "it" : "them"} under a workshop from{" "}
+              <Link href="/workshops" className="font-semibold underline">
+                Workshops
+              </Link>
+            </>
+          ) : null}
+          .
+        </div>
+      ) : null}
       {matrix && matrix.artisans.length === 0 && !loading ? (
         <p className="text-sm text-ink-muted">
           {scope.workshopIds.length
@@ -1243,6 +1283,18 @@ function CompletionMatrixPanel({ canOverride }: { canOverride: boolean }) {
               <span className="h-3.5 w-3.5 rounded bg-line-200 ring-2 ring-amber-500" aria-hidden /> Admin override
             </span>
           </div>
+          {/* WHAT THE WORKSHOP SCOPE DOES AND DOES NOT NARROW. The green derived from recordings is scoped
+              to the chosen workshops; an admin's mark is not, because the override table is keyed on
+              (artisan, section) with no workshop column — a mark is a judgement about that artisan's
+              section across the repository. Said here rather than left for a reader to deduce from a cell
+              that stays green when the scope moves. */}
+          {matrix.overridesAreRepositoryWide ? (
+            <p className="mt-2 text-[11px] leading-4 text-ink-500">
+              The workshop scope narrows the green derived from recordings. An admin override is a judgement
+              about that artisan&rsquo;s section across the whole repository, so a marked cell keeps its
+              colour under every scope.
+            </p>
+          ) : null}
         </>
       ) : null}
     </Accordion>

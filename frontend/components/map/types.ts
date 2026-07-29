@@ -41,6 +41,40 @@ export type AdminLevel = (typeof ADMIN_LEVELS)[number];
 
 export type MapCounts = Record<RecordType, number>;
 
+/**
+ * One entry in a point's dropdown — the same place, one administrative level down.
+ *
+ * WHY POINTS HAVE CHILDREN AT ALL. At NATION level the whole country is a single dot and therefore a
+ * single row, and at STATE level a state is one dot and one row. "Click a pin, the list scrolls to its
+ * row" has nowhere to go at those levels: the row a reader lands on is the row they already had. So each
+ * point carries the level below it and the list renders that as a disclosure — the states inside the
+ * nation, the districts inside the state. DISTRICT points have none, because a district is the finest
+ * unit an Indian address names.
+ *
+ * `key` is a REAL point key at `level`, which is what makes the dropdown navigable rather than
+ * decorative: handing it back with `level=<child.level>` draws exactly the pin the level toggle would
+ * have drawn. See `map_points._child_shell`.
+ */
+export type MapPointChild = {
+  key: string;
+  /** The admin level this child's key belongs to — the level to switch the map to when drilling in. */
+  level: AdminLevel | null;
+  layer: MapLayer;
+  label: string;
+  region: string;
+  state: string | null;
+  district?: string | null;
+  latitude: number;
+  longitude: number;
+  precision: MapPrecision;
+  source?: MapSource;
+  total: number;
+  counts: MapCounts;
+  /** CAPTURE children only, mirroring the parent's own fields. */
+  fixes?: number;
+  spreadMetres?: number;
+};
+
 export type MapPoint = {
   key: string;
   layer: MapLayer;
@@ -70,6 +104,14 @@ export type MapPoint = {
   fixes?: number;
   spreadMetres?: number;
   medianAccuracy?: number | null;
+  /**
+   * The finer breakdown of this point, for the list's disclosure. Empty at DISTRICT level, and empty
+   * whenever there is only ONE child — a disclosure whose content restates the row it hangs under is a
+   * control that does nothing, and a reader who opens one learns to stop opening them. Absent on an API
+   * that predates the field, which is why every read of it is optional-chained.
+   */
+  children?: MapPointChild[];
+  childrenTruncated?: boolean;
 };
 
 /** A place that was typed but could not be resolved. Reported, never silently dropped. */
@@ -134,6 +176,12 @@ export type MapPointsResponse = {
   level?: AdminLevel;
   /** The levels the server offers, so the toggle is rendered from the server's own vocabulary. */
   levels?: AdminLevel[];
+  /**
+   * The level every point's `children` are keyed at — the level to switch the map to when a reader
+   * drills into a dropdown. Null at DISTRICT, where there are no children. Read from the server rather
+   * than re-derived here, so the client cannot hold a different idea of the ladder than the server does.
+   */
+  childLevel?: AdminLevel | null;
   types: RecordType[];
   points: MapPoint[];
   unplaced: UnplacedPlace[];

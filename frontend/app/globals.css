@@ -384,6 +384,44 @@ input[type="number"] {
   .file-trigger {
     @apply inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-purple-300 bg-card px-4 py-2 text-sm font-medium text-purple-700 transition hover:border-purple-400 hover:bg-purple-50;
   }
+
+  /*
+   * "THIS ROW, JUST NOW" — the answer to a selection made somewhere else on the page.
+   *
+   * Worn for ~1.4s by the row `components/hooks/useRevealRow` has just scrolled to, driven by a
+   * `data-flash="true"` attribute rather than a class so React can flip it without touching the
+   * className a dozen conditional styles are already composing.
+   *
+   * TWO SIGNALS, DELIBERATELY, and only one of them is motion. The ring is a plain static outline: it
+   * is what a reader sees who looked away during the pulse, and — this is the point — it is the ONLY
+   * half that survives `prefers-reduced-motion`, where the global rule further up this file collapses
+   * every animation to 0.01ms. A "which one" signal that exists only as movement is a signal those
+   * readers never receive.
+   *
+   * `outline` rather than `box-shadow` or a border: these rows already carry a conditional border for
+   * their selected state and a focus-visible ring of their own, and an outline stacks with both without
+   * changing the row's box or fighting the selected border for the same pixels.
+   */
+  .fr-flash-row[data-flash="true"] {
+    outline: 2px solid var(--purple-700);
+    outline-offset: 2px;
+    animation: fr-row-flash 700ms ease-out 1;
+  }
+}
+
+/* One pulse, not a loop. A repeating highlight reads as an error state and pulls the eye away from
+   whatever the reader chose to look at next. The purple is the product's single action colour, at the
+   low alpha that reads as a wash over a white or a purple-50 row rather than as a second fill. */
+@keyframes fr-row-flash {
+  0% {
+    background-color: oklch(0.47 0.198 305 / 0.22);
+  }
+  60% {
+    background-color: oklch(0.47 0.198 305 / 0.1);
+  }
+  100% {
+    background-color: transparent;
+  }
 }
 
 @layer utilities {

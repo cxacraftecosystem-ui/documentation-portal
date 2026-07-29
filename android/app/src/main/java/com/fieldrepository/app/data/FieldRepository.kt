@@ -845,6 +845,26 @@ class FieldRepository(
     suspend fun workshopSubmissionCheck(workshopId: String): WorkshopSubmissionCheckDto? =
         runCatching { api.workshopSubmissionCheck(workshopId) }.getOrNull()
 
+    /**
+     * Which records name NO workshop, and which workshop each one's own evidence points at. Admin-only.
+     *
+     * A pure READ and the preview [mapUnmappedRecords] acts on. It THROWS on failure rather than returning
+     * null, unlike [workshopSubmissionCheck] above: that one is a courtesy check on the way to saving a
+     * record a researcher is standing in a field to enter, so a failure must not cost them the entry. This
+     * is a whole screen whose only content is the report — a silent null would render "nothing is unmapped",
+     * which is the same wrong answer this feature exists to stop the app giving.
+     */
+    suspend fun unmappedRecords(): WorkshopMappingPlanDto = api.unmappedRecords()
+
+    /**
+     * File every unassigned record whose evidence names exactly one workshop, and return what was written.
+     *
+     * Sends no body: the server re-derives the plan, so this cannot ask for a particular row to be moved to
+     * a particular workshop. Idempotent — every write carries "and the column is still empty" — so pressing
+     * it twice changes nothing and a row somebody assigned by hand in between keeps that answer.
+     */
+    suspend fun mapUnmappedRecords(): WorkshopMappingPlanDto = api.mapUnmappedRecords()
+
     suspend fun createArtisan(body: ArtisanCreateRequest): ArtisanDto = api.createArtisan(body)
 
     suspend fun artisan(id: String): ArtisanDetailDto = api.artisan(id)

@@ -90,17 +90,38 @@ def test_the_nation_pins_atlas_branch_is_not_dead():
     then listed none of them, so a corpus whose locations are all legacy free text opened a pin reading
     "16 records" onto an empty panel.
     """
-    assert _atlas_place_matches("Bagru", None, None, "nation")
-    assert _atlas_place_matches("Kutch, Gujrat", None, None, "nation")
-    assert not _atlas_place_matches("somewhere nobody has heard of", None, None, "nation")
-    assert not _atlas_place_matches(None, None, None, "nation")
+    for level in AdminLevel:
+        assert _atlas_place_matches("Bagru", None, None, "nation", level)
+        assert _atlas_place_matches("Kutch, Gujrat", None, None, "nation", level)
+        assert not _atlas_place_matches("somewhere nobody has heard of", None, None, "nation", level)
+        assert not _atlas_place_matches(None, None, None, "nation", level)
 
 
 def test_the_atlas_branch_still_narrows_by_state_and_district():
-    assert _atlas_place_matches("Bagru", "Rajasthan", "Jaipur", "district")
-    assert not _atlas_place_matches("Bagru", "Rajasthan", "Barmer", "district")
-    assert not _atlas_place_matches("Bagru", "Gujarat", None, "state")
-    assert _atlas_place_matches("Bagru", "Rajasthan", None, "state")
+    for level in AdminLevel:
+        assert _atlas_place_matches("Bagru", "Rajasthan", "Jaipur", "district", level)
+        assert not _atlas_place_matches("Bagru", "Rajasthan", "Barmer", "district", level)
+        assert not _atlas_place_matches("Bagru", "Gujarat", None, "state", level)
+    # A STATE pin means "every district in this state", so a town the atlas can place belongs to it.
+    assert _atlas_place_matches("Bagru", "Rajasthan", None, "state", AdminLevel.STATE)
+
+
+def test_a_state_pin_at_district_level_admits_only_places_with_no_district():
+    """The atlas branch has to make the SAME fork ``_pair_belongs`` makes, or the two arms of one OR
+    admit different rows.
+
+    A ``state:X`` key means "every district in X" at STATE level and "in X, district not stated" at
+    DISTRICT level. Without the level, the atlas branch admitted every atlas place in the state at BOTH —
+    so a ``state:Jammu and Kashmir`` pin drawn at district detail (one product recorded as the bare state
+    name) listed the eleven Jammu-DISTRICT rows as well, and the panel held more rows than the pin it was
+    opened from counted. On the live corpus every ``Location`` carries a NULL state, which makes the atlas
+    branch the only branch that fires, so this was the whole answer rather than half of it.
+    """
+    # "Bagru" resolves to Jaipur district, so at DISTRICT level it belongs to Jaipur's pin, not the state's.
+    assert not _atlas_place_matches("Bagru", "Rajasthan", None, "state", AdminLevel.DISTRICT)
+    # A bare state name resolves with no district, so the state pin is the only pin it can belong to.
+    assert _atlas_place_matches("Rajasthan", "Rajasthan", None, "state", AdminLevel.DISTRICT)
+    assert _atlas_place_matches("Rajasthan", "Rajasthan", None, "state", AdminLevel.STATE)
 
 
 # --- Half a pin -----------------------------------------------------------------------------

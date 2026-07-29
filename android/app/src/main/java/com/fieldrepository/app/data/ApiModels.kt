@@ -1138,7 +1138,27 @@ data class QuestionnaireInterviewUpdateRequest(
 data class CompletionMatrixDto(
     val sections: List<CompletionSectionDto> = emptyList(),
     val artisans: List<CompletionArtisanDto> = emptyList(),
-    val cells: List<CompletionCellDto> = emptyList()
+    val cells: List<CompletionCellDto> = emptyList(),
+    /**
+     * How many questionnaire interviews the CHOSEN WORKSHOP SCOPE cannot see, because they name no
+     * workshop at all.
+     *
+     * The number exists so the failure mode can never be silent again. An interview with no `workshopId`
+     * counts towards no workshop scope — which is correct, it genuinely does not say where it was taken —
+     * but it is also exactly the shape of the bug that had this matrix reporting "nothing was covered at
+     * this workshop" while twenty-five interviews sat in the repository unlinked, leaving only the admin
+     * overrides visible. Zero whenever the scope cannot hide anything: no workshop chosen, or the
+     * unassigned records explicitly included.
+     */
+    val unassignedInterviews: Int = 0,
+    /**
+     * True while an admin's mark is keyed on (artisan, section) ALONE, i.e. is not per workshop.
+     *
+     * The server states it rather than leaving each client to work out whether it matters: the workshop
+     * scope narrows the green DERIVED from recordings, but a marked cell keeps its colour under every
+     * scope, and a reader watching a cell stay green as the scope moves deserves to be told why.
+     */
+    val overridesAreRepositoryWide: Boolean = false
 )
 
 @Serializable
@@ -1189,6 +1209,114 @@ data class AppSettingUpdateRequest(
     val batchWindowStart: String? = null,
     val batchWindowEnd: String? = null,
     val batchTimezone: String? = null
+)
+
+// ---------------------------------------------------------------------------
+// Records that name no workshop — GET /workshops/unmapped and POST /workshops/unmapped/map.
+//
+// WHY THIS EXISTS. Every control that narrows by workshop reads one column, `workshopId`. A record with
+// that column empty counts towards NO workshop scope — while remaining perfectly visible under "All
+// records". Since both clients OPEN scoped to the most recent workshop, the result reads as "nothing was
+// documented here" rather than as a filter excluding data sitting right there. That is exactly what
+// happened: 25 questionnaire interviews and 924 media files, every one recorded at the single workshop in
+// the repository, none carrying its id, and a completion matrix showing nothing but the cells an admin had
+// ticked by hand.
+//
+// The server decides everything. It reads the evidence, it names the rung that decided each row, and it
+// refuses to guess when the evidence is ambiguous — see `backend/app/services/workshop_inference.py`. This
+// client renders the report and presses the button; it never proposes a mapping of its own.
+//
+// Every field defaults, like the map payloads above and for the same reason: an admin screen that cannot
+// decode a new field is a screen that shows nothing at all.
+// ---------------------------------------------------------------------------
+
+/** One row the ladder looked at: where it would be filed, or why it was left alone. */
+@Serializable
+data class WorkshopMappingRowDto(
+    val id: String = "",
+    val title: String = "",
+    val workshopId: String? = null,
+    val workshopTitle: String? = null,
+    /** `PARENT` | `ARTISANS` | `WINDOW`, or null when the row could not be settled. */
+    val rung: String? = null,
+    /** The server's own sentence for that rung, so both clients word a decision identically. */
+    val rungCopy: String? = null,
+    /** `NO_EVIDENCE` | `AMBIGUOUS`, or null when the row WAS settled. */
+    val reason: String? = null,
+    val reasonCopy: String? = null,
+    /** Every workshop the deciding rung pointed at. More than one is what AMBIGUOUS means. */
+    val candidateTitles: List<String> = emptyList()
+)
+
+@Serializable
+data class WorkshopMappingRungCountDto(
+    val rung: String = "",
+    val copy: String = "",
+    val count: Int = 0
+)
+
+@Serializable
+data class WorkshopMappingReasonCountDto(
+    val reason: String = "",
+    val copy: String = "",
+    val count: Int = 0
+)
+
+@Serializable
+data class WorkshopMappingWorkshopCountDto(
+    val workshopId: String = "",
+    val title: String = "",
+    val count: Int = 0
+)
+
+/**
+ * One record type's share of the gap. [singular]/[plural] are the server's own nouns, so the two clients
+ * cannot call the same bucket two different things.
+ *
+ * [rows] is CAPPED by the server — the counts are the answer and the rows are the evidence for
+ * spot-checking it — with unresolved rows listed FIRST, because those are what an admin has to act on.
+ * [rowsTruncated] says the cap was hit. [applied] is null on the preview and the number actually written
+ * on the response to the button.
+ */
+@Serializable
+data class WorkshopMappingBucketDto(
+    val bucket: String = "",
+    val singular: String = "",
+    val plural: String = "",
+    val unassigned: Int = 0,
+    val resolved: Int = 0,
+    val unresolved: Int = 0,
+    val byRung: List<WorkshopMappingRungCountDto> = emptyList(),
+    val byReason: List<WorkshopMappingReasonCountDto> = emptyList(),
+    val byWorkshop: List<WorkshopMappingWorkshopCountDto> = emptyList(),
+    val rows: List<WorkshopMappingRowDto> = emptyList(),
+    val rowsTruncated: Boolean = false,
+    val applied: Int? = null
+)
+
+@Serializable
+data class WorkshopMappingWindowDto(
+    val id: String = "",
+    val title: String = "",
+    val start: String = "",
+    val end: String = ""
+)
+
+@Serializable
+data class WorkshopMappingTotalsDto(
+    val unassigned: Int = 0,
+    val resolved: Int = 0,
+    val unresolved: Int = 0,
+    /** Null on the preview; the number of rows actually written on the response to the button. */
+    val applied: Int? = null
+)
+
+@Serializable
+data class WorkshopMappingPlanDto(
+    /** The workshops as time spans, so the screen can say what the dates were read as. */
+    val workshops: List<WorkshopMappingWindowDto> = emptyList(),
+    val buckets: List<WorkshopMappingBucketDto> = emptyList(),
+    val totals: WorkshopMappingTotalsDto = WorkshopMappingTotalsDto()
 )
 
 // --- Cross-researcher data access (Sharing) ---
@@ -1973,7 +2101,54 @@ data class MapPointDto(
     val fromPlaceText: Int = 0,
     val fixes: Int = 0,
     val spreadMetres: Int = 0,
-    val medianAccuracy: Double? = null
+    val medianAccuracy: Double? = null,
+    /**
+     * The finer breakdown of this point, for the list's expandable row. See [MapPointChildDto].
+     *
+     * Empty at DISTRICT level and empty whenever the point holds only ONE child, both decided by the
+     * server: a disclosure whose content restates the row it hangs under is a control that does nothing,
+     * and a reader who opens one learns to stop opening them.
+     */
+    val children: List<MapPointChildDto> = emptyList(),
+    /** True when a point holds more children than the server will send. Stated, never silent. */
+    val childrenTruncated: Boolean = false
+)
+
+/**
+ * One entry inside a point's expandable row — the same place, one administrative level down.
+ *
+ * WHY POINTS HAVE CHILDREN AT ALL. At NATION level the whole country is a single dot and therefore a
+ * single row, and at STATE level a state is one dot and one row. "Tap a pin, the list scrolls to its row"
+ * has nowhere to go at those levels: the row a reader lands on is the row they already had. So each point
+ * carries the level below it — the states inside the nation, the districts inside the state — and the list
+ * renders that as a disclosure. DISTRICT points have none, because a district is the finest unit an Indian
+ * address names.
+ *
+ * [key] is a REAL point key at [level], which is what makes the disclosure navigable rather than
+ * decorative: tapping one switches the map to [level] and selects that key, landing on exactly the pin the
+ * Detail control would have drawn. [level] is `NATION` | `STATE` | `DISTRICT`, null on an older server.
+ *
+ * A CAPTURE point's children are tighter GPS clusters rather than administrative units, so their [label]
+ * is the layer's own "Recorded here" and [region] is the coordinate — a measured fix has no administrative
+ * name to borrow, and lending it one would erase the distinction between the two layers.
+ */
+@Serializable
+data class MapPointChildDto(
+    val key: String = "",
+    val level: String? = null,
+    val layer: String = "",
+    val label: String = "",
+    val region: String = "",
+    val state: String? = null,
+    val district: String? = null,
+    val latitude: Double = 0.0,
+    val longitude: Double = 0.0,
+    val precision: String = "",
+    val source: String = "",
+    val total: Int = 0,
+    val counts: MapCountsDto = MapCountsDto(),
+    val fixes: Int = 0,
+    val spreadMetres: Int = 0
 )
 
 /**
@@ -2087,7 +2262,15 @@ data class MapPointsDto(
     val points: List<MapPointDto> = emptyList(),
     val unplaced: List<MapUnplacedDto> = emptyList(),
     val focus: MapFocusDto? = null,
-    val summary: MapSummaryDto = MapSummaryDto()
+    val summary: MapSummaryDto = MapSummaryDto(),
+    /**
+     * The level every point's [MapPointDto.children] are keyed at — the level to switch the map to when a
+     * reader drills into one. Null at DISTRICT, where there are no children, and null on an older server.
+     *
+     * Read from the server rather than re-derived here, so this client cannot hold a different idea of the
+     * ladder than the server does.
+     */
+    val childLevel: String? = null
 )
 
 /**

@@ -1,10 +1,18 @@
 package com.fieldrepository.app.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -23,6 +31,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Place
@@ -42,6 +52,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
@@ -71,12 +82,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.MapCountsDto
+import com.fieldrepository.app.data.MapPointChildDto
 import com.fieldrepository.app.data.MapPointDto
 import com.fieldrepository.app.data.MapPointRecordDto
 import com.fieldrepository.app.data.MapPointsDto
 import com.fieldrepository.app.data.MapUnplacedDto
 import com.fieldrepository.app.data.apiErrorMessage
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -153,6 +166,15 @@ import kotlin.math.sqrt
 private val FALLBACK_ADMIN_LEVELS = listOf("NATION", "STATE", "DISTRICT")
 
 private const val DEFAULT_ADMIN_LEVEL = "DISTRICT"
+
+/**
+ * How long a revealed row stays lit, in milliseconds. The web's `FLASH_MS`, to the millisecond.
+ *
+ * Long enough to be seen after the list has finished scrolling, short enough that it does not read as a
+ * persistent selected state — the row already has its own, permanent, selected styling, and two
+ * overlapping "this one" signals would be one too many.
+ */
+private const val FLASH_MILLIS = 1400L
 
 /** The web's `LEVEL_COPY[…].label`. Unknown values are echoed rather than blanked. */
 private fun levelLabel(level: String): String = when (level) {
@@ -293,8 +315,15 @@ private fun formatMetres(value: Double): String =
 
 /**
  * The map. Hosted in the shared chrome: a bare [Column] and nothing else, because HomeScreen draws
- * the scaffold, the app bar, the scroll and the back button. It must NOT scroll itself — a nested
- * `verticalScroll` is measured with an infinite height budget and throws before it can draw.
+ * the scaffold, the app bar, the scroll and the back button. This Column must NOT scroll — a nested
+ * `verticalScroll` with no height bound is measured with an infinite budget and throws before it can draw.
+ *
+ * ONE BOUNDED EXCEPTION, and it is what makes the map and the list scroll independently on a phone: the
+ * place list scrolls INSIDE its own card, at a fixed maximum height (see [MapPlaceListCard] and
+ * [LIST_MAX_HEIGHT]). That is legal for exactly the reason the rule exists — its height is bounded, so the
+ * infinite measure never reaches it — and it is the same pattern the completion matrix uses. The effect is
+ * the phone's version of the web's two pinned panes: working down the places leaves the picture they
+ * describe exactly where it is, and only when the list runs out does the gesture pass on to the page.
  *
  * WHAT THIS SCREEN DOES NOT CARRY, stated so the omission is a decision rather than a gap: the web
  * puts the shared `/search` filter bar (text, place, record types, date range) above the map. This
@@ -378,6 +407,81 @@ fun MapScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var selectedKey by remember { mutableStateOf<String?>(null) }
 
+    /**
+     * Which rows have their finer breakdown open.
+     *
+     * A SET rather than one key, so opening a second state does not close the first — a reader comparing
+     * two states is comparing their districts, and a disclosure that shut the other one would make the
+     * comparison impossible. Cleared whenever the level changes, because every key is re-minted at a new
+     * level and stale ones would leave rows that can never be closed.
+     */
+    var expandedKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    /*
+     * "THE PIN YOU JUST TAPPED IS THIS ROW" — the reveal and the flash.
+     *
+     * Two pieces of state and a NONCE each. The nonce is what makes tapping the same pin twice reveal and
+     * flash twice: both are driven by `LaunchedEffect`s down in the row, and an unchanged key would not
+     * re-key them, so the second tap would look like nothing happened.
+     *
+     * The flash is cleared by a timer here rather than by the row, so exactly one row can be flashing at a
+     * time however fast a reader taps.
+     */
+    var revealKey by remember { mutableStateOf<String?>(null) }
+    var revealNonce by remember { mutableStateOf(0) }
+    var flashKey by remember { mutableStateOf<String?>(null) }
+    var flashNonce by remember { mutableStateOf(0) }
+
+    /**
+     * Where a drill-down is heading: the child key a reader chose inside a row, and the level it lives at.
+     *
+     * It cannot be applied on the spot. Choosing a child changes the DETAIL LEVEL, which re-requests, and
+     * the response handler sets the selection — so a selection made now would be cleared a moment later.
+     * The intent is parked here and applied once the response for that level has actually arrived.
+     */
+    var drillTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
+
+    /** The place list's own scroller. See [MapPlaceListCard] for why the list is bounded and scrolls. */
+    val listScroll = rememberScrollState()
+
+    /** Bring a row into view and flash it once. */
+    fun reveal(key: String) {
+        revealKey = key
+        revealNonce += 1
+        flashKey = key
+        flashNonce += 1
+    }
+
+    /**
+     * A pin or a row was chosen.
+     *
+     * Tapping the SAME thing again clears it — the long-standing behaviour, and the only way to close the
+     * detail panel from the map itself. Clearing deliberately reveals and flashes nothing: there is no row
+     * to point at, and moving the list on a deselect would move the reader for nothing.
+     *
+     * Choosing something new opens its disclosure as well, when it has one. At NATION and STATE level the
+     * row a reader lands on IS the whole of the selection, so what they want next is what is inside it;
+     * leaving it shut would make the reveal land on a row saying nothing they did not already know.
+     */
+    fun onSelectPoint(key: String) {
+        if (selectedKey == key) {
+            selectedKey = null
+            return
+        }
+        selectedKey = key
+        val point = data?.points?.firstOrNull { it.key == key }
+        if ((point?.children?.size ?: 0) > 1) expandedKeys = expandedKeys + key
+        reveal(key)
+    }
+
+    // The flash's lifetime, held here so only one row is ever lit. Re-keying on the nonce cancels the
+    // previous wait, which is what stops an earlier tap turning off a later one's highlight.
+    LaunchedEffect(flashNonce) {
+        if (flashKey == null) return@LaunchedEffect
+        delay(FLASH_MILLIS)
+        flashKey = null
+    }
+
     LaunchedEffect(level, workshopScope.requestKey, workshopScope.settled, activeFocusType, activeFocusId) {
         if (!workshopScope.settled) return@LaunchedEffect
         loading = true
@@ -397,8 +501,24 @@ fun MapScreen(
                 data = result
                 // Opening straight onto the focused record's point saves a reader hunting for the
                 // ring. Changing the level RE-KEYS every pin, so the previous selection is dropped
-                // rather than left pointing at a key that no longer exists.
-                selectedKey = result.focus?.pointKeys?.firstOrNull()
+                // rather than left pointing at a key that no longer exists — and with it every open
+                // disclosure, whose keys are re-minted at the new level too.
+                //
+                // A DRILL-DOWN IS THE ONE SELECTION THAT SURVIVES a level change: the reader asked to end
+                // up on that child. The key was minted by the server at this very level, so it cannot
+                // resurrect a pin that does not exist — but it is checked against the response anyway.
+                //
+                // AND IT IS ABANDONED THE MOMENT IT CANNOT BE SATISFIED. If the reader moved the Detail
+                // control themselves before the response landed, the intent is for a level nobody is on
+                // any more; keeping it would let it fire against whatever response arrived next, flashing
+                // a place nobody chose. `level` here is the level THIS request was made for, so comparing
+                // the intent against it is the same test the web page makes.
+                val drill = drillTarget?.takeIf { it.second == (result.level.ifBlank { level }) }
+                if (drill != null || drillTarget?.second != level) drillTarget = null
+                val landed = drill?.first?.takeIf { key -> result.points.any { it.key == key } }
+                selectedKey = landed ?: result.focus?.pointKeys?.firstOrNull()
+                expandedKeys = emptySet()
+                if (landed != null) reveal(landed)
                 error = null
                 loading = false
             }
@@ -412,6 +532,10 @@ fun MapScreen(
                 error = message
                 onError(message)
                 loading = false
+                // A drill-down whose request failed can never be satisfied, and an intent left standing
+                // would fire against the next response that happened to be at its level — selecting and
+                // flashing a place nobody chose.
+                drillTarget = null
             }
     }
 
@@ -519,7 +643,14 @@ fun MapScreen(
                             points = points,
                             focusKeys = focusKeys,
                             selectedKey = selectedKey,
-                            onSelect = { key -> selectedKey = if (selectedKey == key) null else key }
+                            onSelect = { key -> onSelectPoint(key) }
+                        )
+                    }
+                    if (points.isNotEmpty()) {
+                        Text(
+                            "Tap a pin to read its number and bring its entry in the list below into view.",
+                            color = MaterialTheme.field.muted,
+                            fontSize = 11.sp
                         )
                     }
                 }
@@ -548,7 +679,33 @@ fun MapScreen(
                     unplaced = current.unplaced,
                     focusKeys = focusKeys,
                     selectedKey = selectedKey,
-                    onSelect = { key -> selectedKey = if (selectedKey == key) null else key }
+                    childLevel = current.childLevel,
+                    expandedKeys = expandedKeys,
+                    flashKey = flashKey,
+                    flashNonce = flashNonce,
+                    revealKey = revealKey,
+                    revealNonce = revealNonce,
+                    listScroll = listScroll,
+                    onSelect = { key -> onSelectPoint(key) },
+                    onToggleExpanded = { key ->
+                        expandedKeys = if (expandedKeys.contains(key)) expandedKeys - key else expandedKeys + key
+                    },
+                    onDrillDown = { child ->
+                        // `child.level` comes from the server, so this client never holds its own idea of
+                        // which level is below which. Same level (reachable from a future same-level child)
+                        // means nothing will re-request, so it is applied here rather than waiting for a
+                        // response that is not coming.
+                        val target = child.level
+                        if (!target.isNullOrBlank()) {
+                            if (target == level) {
+                                selectedKey = child.key
+                                reveal(child.key)
+                            } else {
+                                drillTarget = child.key to target
+                                level = target
+                            }
+                        }
+                    }
                 )
             }
         }
@@ -953,6 +1110,10 @@ private fun IndiaMapCanvas(
     val scaleInk = MaterialTheme.field.muted
     val originCount = MaterialTheme.colorScheme.onPrimary
     val captureCount = primary
+    // The selected pin's label: the app's darkest ink as a chip, its surface colour as the text. Read
+    // here rather than inside the DrawScope because MaterialTheme is not readable from a draw lambda.
+    val labelBackground = MaterialTheme.colorScheme.onSurface
+    val labelInk = MaterialTheme.colorScheme.surface
 
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val widthPx = with(density) { maxWidth.toPx() }
@@ -1115,6 +1276,21 @@ private fun IndiaMapCanvas(
                 )
             }
 
+            // The selected pin's number and name, over every mark. See [drawPinLabel].
+            pins.firstOrNull { it.point.key == selectedKey }?.let { pin ->
+                val ordinal = points.indexOfFirst { it.key == pin.point.key } + 1
+                if (ordinal > 0) {
+                    drawPinLabel(
+                        pin = pin,
+                        ordinal = ordinal,
+                        measurer = measurer,
+                        density = density,
+                        background = labelBackground,
+                        ink = labelInk
+                    )
+                }
+            }
+
             drawScaleBar(frame = frame, measurer = measurer, density = density, ink = scaleInk)
         }
     }
@@ -1183,6 +1359,53 @@ private fun DrawScope.drawPin(
 }
 
 /** Without one, nobody can tell whether two pins are 20 km apart or 200. */
+/**
+ * The selected pin's name, led by the number its row carries in the list below.
+ *
+ * WHAT THIS IS THE ANDROID ANSWER TO. The web draws this label on HOVER, which a touch screen has not
+ * got — so the moment it appears here is SELECTION, which is the same moment for the same reason: the
+ * reader has just pointed at one place and wants to know which it is. The NUMBER is the point of it. It
+ * is the shared name for a place across the picture and the list: tapping this pin scrolls the list to
+ * the row carrying the same number and flashes it, and without the number on the pin a reader would see
+ * the list move and have no way to check that the two views agree.
+ *
+ * Drawn LAST, over the pins, and only for one pin — the selected one — because a label on every pin at
+ * district detail is thirteen overlapping words and no map at all.
+ */
+private fun DrawScope.drawPinLabel(
+    pin: PlacedPin,
+    ordinal: Int,
+    measurer: TextMeasurer,
+    density: Density,
+    background: Color,
+    ink: Color
+) {
+    val text = "$ordinal · ${pin.point.label}"
+    val measured = measurer.measure(
+        AnnotatedString(text),
+        style = TextStyle(fontFamily = FieldBodyFontFamily, fontSize = 11.sp, color = ink)
+    )
+    val padX = with(density) { 7.dp.toPx() }
+    val padY = with(density) { 4.dp.toPx() }
+    val boxWidth = measured.size.width + padX * 2
+    val boxHeight = measured.size.height + padY * 2
+    val gap = with(density) { 6.dp.toPx() }
+
+    // Above the pin when there is room, below it otherwise, and always inside the canvas horizontally —
+    // the busiest pin is often at the coast, where a centred label would be half off the edge.
+    val left = (pin.x - boxWidth / 2f).coerceIn(0f, max(0f, size.width - boxWidth))
+    val above = pin.y - pin.radius - gap - boxHeight >= 0f
+    val top = if (above) pin.y - pin.radius - gap - boxHeight else pin.y + pin.radius + gap
+
+    drawRoundRect(
+        color = background,
+        topLeft = Offset(left, top),
+        size = androidx.compose.ui.geometry.Size(boxWidth, boxHeight),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(with(density) { 6.dp.toPx() })
+    )
+    drawText(measured, topLeft = Offset(left + padX, top + padY))
+}
+
 private fun DrawScope.drawScaleBar(
     frame: MapFrame,
     measurer: TextMeasurer,
@@ -1455,6 +1678,23 @@ private fun MapStatTile(label: String, value: Int, icon: ImageVector?, modifier:
  * Every place, as a list. Not a fallback: the canvas is one unlabelled graphic, so this is the only
  * way a TalkBack user reads the map, and it is therefore held to a higher bar than a caption —
  * every place, every count, the precision of every point, and the same selection.
+ *
+ * THE LIST SCROLLS INSIDE ITSELF, and that is the phone's version of the web's two independent panes.
+ * On a laptop the map is pinned in one bounded scroller and the cards in another, so working down the
+ * list never drags the picture off the screen. A phone has one column and no room for two panes side by
+ * side, so the equivalent is a bounded list that scrolls WITHIN this card: the map above stays exactly
+ * where it is while a reader works through the places, and only when the list reaches its end does the
+ * gesture pass on to the page. A nested same-axis scroller is legal precisely because the height is
+ * bounded ([LIST_MAX_HEIGHT]) — an unbounded one is measured with an infinite height budget and throws
+ * before it draws, which is the crash the header of [MapScreen] warns about.
+ *
+ * THE ROWS ARE NUMBERED, and the number is the shared name for a place across the two views: the
+ * selected pin draws "3 · Jaipur" and this row says "3". Tapping a pin brings its row into view and
+ * flashes it once, so a reader can see that the picture and the list agree.
+ *
+ * A ROW CAN OPEN. At NATION level the whole country is one dot and one row, and at STATE level a state
+ * is one dot and one row — so "tap the pin, find its row" has nowhere to go. Those rows carry the level
+ * below them ([MapPointDto.children]) as a disclosure, and choosing one drills the whole map down to it.
  */
 @Composable
 private fun MapPlaceListCard(
@@ -1462,12 +1702,23 @@ private fun MapPlaceListCard(
     unplaced: List<MapUnplacedDto>,
     focusKeys: List<String>,
     selectedKey: String?,
-    onSelect: (String) -> Unit
+    childLevel: String?,
+    expandedKeys: Set<String>,
+    flashKey: String?,
+    flashNonce: Int,
+    revealKey: String?,
+    revealNonce: Int,
+    listScroll: ScrollState,
+    onSelect: (String) -> Unit,
+    onToggleExpanded: (String) -> Unit,
+    onDrillDown: (MapPointChildDto) -> Unit
 ) {
     MapCard(title = "Every place, as a list") {
         Text(
-            "The same information as the map, at the same detail level. Choose a place to see the " +
-                "records there.",
+            "The same information as the map, at the same detail level, numbered to match the pins. " +
+                "Choose a place to see the records there" +
+                (childLevel?.let { ", or open a row for the ${it.lowercase(Locale.ROOT)}s inside it" } ?: "") +
+                ".",
             color = MaterialTheme.field.muted,
             fontSize = 11.sp
         )
@@ -1477,53 +1728,172 @@ private fun MapPlaceListCard(
             return@MapCard
         }
 
-        points.forEach { point ->
-            PlaceRow(
-                point = point,
-                isSelected = point.key == selectedKey,
-                isFocused = focusKeys.contains(point.key),
-                onClick = { onSelect(point.key) }
-            )
-        }
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                // The size modifier comes BEFORE the scroll so the scrollable is measured against a
+                // bounded budget. Reversed, the bound would be applied to an already-infinite measure and
+                // the crash above is back. `heightIn` rather than `height`: a two-place list must shrink
+                // to two places rather than sit in a half-empty box.
+                .heightIn(max = LIST_MAX_HEIGHT)
+                .verticalScroll(listScroll)
+        ) {
+            points.forEachIndexed { index, point ->
+                PlaceRow(
+                    point = point,
+                    ordinal = index + 1,
+                    isSelected = point.key == selectedKey,
+                    isFocused = focusKeys.contains(point.key),
+                    isFlashing = point.key == flashKey,
+                    flashNonce = flashNonce,
+                    shouldReveal = point.key == revealKey,
+                    revealNonce = revealNonce,
+                    childLevel = childLevel,
+                    isExpanded = expandedKeys.contains(point.key),
+                    onClick = { onSelect(point.key) },
+                    onToggleExpanded = { onToggleExpanded(point.key) },
+                    onDrillDown = onDrillDown
+                )
+            }
 
-        if (unplaced.isNotEmpty()) UnplacedBlock(unplaced)
+            if (unplaced.isNotEmpty()) UnplacedBlock(unplaced)
+        }
     }
 }
 
+/**
+ * How tall the place list may grow before it scrolls inside itself.
+ *
+ * Chosen so the MAP IS STILL ON SCREEN above it on an ordinary phone: at district detail a row is about
+ * 120dp, so this shows three and a half of them — enough to read a place and see the next one exists,
+ * and not so much that the picture the list is describing has scrolled away. The same reasoning as the
+ * completion matrix's own bounded box.
+ */
+private val LIST_MAX_HEIGHT = 440.dp
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PlaceRow(
     point: MapPointDto,
+    ordinal: Int,
     isSelected: Boolean,
     isFocused: Boolean,
-    onClick: () -> Unit
+    isFlashing: Boolean,
+    flashNonce: Int,
+    shouldReveal: Boolean,
+    revealNonce: Int,
+    childLevel: String?,
+    isExpanded: Boolean,
+    onClick: () -> Unit,
+    onToggleExpanded: () -> Unit,
+    onDrillDown: (MapPointChildDto) -> Unit
 ) {
     val buckets = point.counts.byBucket().filter { it.second > 0 }
+    val reduceMotion = LocalAppPreferences.current.reducedMotion
 
+    /*
+     * "SCROLL ME INTO VIEW" — the row's half of tapping a pin.
+     *
+     * A BringIntoViewRequester rather than arithmetic on the ScrollState: it asks the nearest scrollable
+     * ancestor to reveal this node and moves it the MINIMUM distance needed, which is exactly the
+     * behaviour wanted — up if the row is above, down if below, and not at all if it is already visible.
+     * Doing the sums by hand would need this row's offset inside the scroller, which means measuring, and
+     * a measured offset goes stale the moment a disclosure above it opens.
+     *
+     * Keyed on the NONCE as well as the key, so tapping the same pin twice reveals twice. Without it the
+     * effect would not re-run and the second tap would look like nothing happened.
+     */
+    val revealRequester = remember { BringIntoViewRequester() }
+    LaunchedEffect(revealNonce, shouldReveal) {
+        if (shouldReveal) revealRequester.bringIntoView()
+    }
+
+    /*
+     * THE FLASH. One pulse of the action colour washed over the row, then gone.
+     *
+     * An Animatable read from `drawBehind` rather than an `animateColorAsState` read in composition: the
+     * draw lambda re-runs on the animation clock without recomposing anything, so a pulse costs one
+     * repaint of one row instead of a recomposition per frame.
+     *
+     * TWO SIGNALS, and only one of them is motion. The border below is a plain conditional, so a reader
+     * with reduced motion on still gets "this row" — under that preference the wash is held at a constant
+     * instead of pulsing, because a signal that exists only as movement is a signal those readers never
+     * receive.
+     */
+    val flash = remember { Animatable(0f) }
+    LaunchedEffect(flashNonce, isFlashing) {
+        if (!isFlashing) {
+            flash.snapTo(0f)
+            return@LaunchedEffect
+        }
+        if (reduceMotion) {
+            flash.snapTo(0.45f)
+        } else {
+            flash.snapTo(0f)
+            flash.animateTo(1f, animationSpec = tween(durationMillis = 160))
+            flash.animateTo(0f, animationSpec = tween(durationMillis = 900))
+        }
+    }
+    val flashWash = MaterialTheme.colorScheme.primary
+    val rowShape = MaterialTheme.shapes.small
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(0.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .bringIntoViewRequester(revealRequester)
+            .background(
+                if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.field.surface50,
+                rowShape
+            )
+            .drawBehind {
+                val alpha = flash.value
+                if (alpha > 0f) {
+                    drawRoundRect(
+                        color = flashWash.copy(alpha = 0.22f * alpha),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.minDimension * 0.06f)
+                    )
+                }
+            }
+            .border(
+                if (isFlashing) 2.dp else 1.dp,
+                when {
+                    isFlashing -> MaterialTheme.colorScheme.primary
+                    isSelected -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.field.hairline
+                },
+                rowShape
+            )
+    ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.field.surface50,
-                MaterialTheme.shapes.small
-            )
-            .border(
-                1.dp,
-                if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.field.hairline,
-                MaterialTheme.shapes.small
-            )
             .clickable(onClick = onClick)
             .heightIn(min = 48.dp)
             .padding(horizontal = 10.dp, vertical = 10.dp)
     ) {
         // The layer, as the shape on the map says it: a place mark for an origin, a crosshair for a
-        // measured fix.
-        Icon(
-            if (point.layer == "CAPTURE") Icons.Filled.GpsFixed else Icons.Filled.Place,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(20.dp)
-        )
+        // measured fix. Under it, the number this place carries on the map.
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Icon(
+                if (point.layer == "CAPTURE") Icons.Filled.GpsFixed else Icons.Filled.Place,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+            Text(
+                ordinal.toString(),
+                display = true,
+                color = MaterialTheme.field.muted,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
 
         Column(
             verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -1534,7 +1904,7 @@ private fun PlaceRow(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    point.label,
+                    "$ordinal. ${point.label}",
                     display = true,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 14.sp,
@@ -1598,6 +1968,130 @@ private fun PlaceRow(
             )
         }
     }
+
+        /*
+         * THE DISCLOSURE — this point, one administrative level finer.
+         *
+         * Present only when the server sent children, which it does at NATION and STATE level and only when
+         * there are at least TWO of them: a disclosure whose content restates the row it hangs under is a
+         * control that does nothing, and a reader who opens one learns to stop opening them. That decision
+         * is the server's ([MapPointChildDto]) so both clients cannot disagree about when to show it.
+         */
+        if (point.children.size > 1) {
+            HorizontalDivider(color = MaterialTheme.field.hairline)
+            Column(
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onToggleExpanded)
+                        .heightIn(min = 40.dp)
+                ) {
+                    Icon(
+                        if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        childSummary(point, childLevel),
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                if (isExpanded) {
+                    point.children.forEachIndexed { childIndex, child ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                // The card surface, so a child row sits a rung ABOVE the surface-50 the row
+                                // it hangs under is painted on — the nesting reads as depth rather than as
+                                // two rows of the same weight.
+                                .background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.small)
+                                .border(1.dp, MaterialTheme.field.hairline, MaterialTheme.shapes.small)
+                                .clickable { onDrillDown(child) }
+                                .heightIn(min = 44.dp)
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                "$ordinal.${childIndex + 1}",
+                                display = true,
+                                color = MaterialTheme.field.placeholder,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(1.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    child.label,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(child.region, color = MaterialTheme.field.muted, fontSize = 11.sp)
+                            }
+                            Text(
+                                child.total.toString(),
+                                color = MaterialTheme.field.body,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                    if (point.childrenTruncated) {
+                        Text(
+                            "The busiest are listed. Switch the detail level to " +
+                                (childLevel ?: "DISTRICT").lowercase(Locale.ROOT) + " to see them all.",
+                            color = MaterialTheme.field.muted,
+                            fontSize = 11.sp
+                        )
+                    }
+                    // WHY THESE LEAD BACK INTO THE MAP AND NOT INTO THE RECORDS. Choosing one re-groups the
+                    // whole map at the finer level and selects it — the same navigation as moving the Detail
+                    // control and then tapping that pin — so the reader ends up somewhere they could have
+                    // reached by hand, with the pin, the borders and the record panel all agreeing.
+                    Text(
+                        "Choosing one moves the map to " +
+                            (childLevel ?: "DISTRICT").lowercase(Locale.ROOT) + " detail.",
+                        color = MaterialTheme.field.placeholder,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * How the disclosure describes what is inside it.
+ *
+ * A CAPTURE point's children are tighter GPS clusters rather than administrative units, so calling them
+ * "districts" would be wrong in the one way this whole subsystem refuses to be wrong — it would lend a
+ * measurement an administrative name it has not got. Worded exactly as the web's `childSummary`.
+ */
+private fun childSummary(point: MapPointDto, childLevel: String?): String {
+    val count = point.children.size
+    if (point.layer == "CAPTURE") {
+        return "$count separate recording ${if (count == 1) "place" else "places"} inside this pin"
+    }
+    val noun = when (childLevel) {
+        "NATION" -> if (count == 1) "place" else "places"
+        "STATE" -> if (count == 1) "state" else "states"
+        else -> if (count == 1) "district" else "districts"
+    }
+    return "$count $noun inside this point"
 }
 
 /**

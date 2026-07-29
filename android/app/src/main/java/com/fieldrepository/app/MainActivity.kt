@@ -22,6 +22,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -221,6 +222,7 @@ import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Build
@@ -281,6 +283,7 @@ import com.fieldrepository.app.data.StagedMedia
 import com.fieldrepository.app.data.TaskDto
 import com.fieldrepository.app.data.WorkshopAccessLevelDto
 import com.fieldrepository.app.data.WorkshopAssignmentDto
+import com.fieldrepository.app.data.WorkshopMappingPlanDto
 import com.fieldrepository.app.data.WorkshopSubmissionCheckDto
 import com.fieldrepository.app.data.titleCasePreview
 import androidx.compose.runtime.DisposableEffect
@@ -309,6 +312,7 @@ import java.io.FileOutputStream
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -2931,6 +2935,19 @@ private fun formatIsoDate(value: String?): String? {
     }.getOrNull()
 }
 
+/**
+ * One day from an ISO stamp, for a caption. [daysBefore] steps back, which is what turns an EXCLUSIVE
+ * window bound into the last day the window actually covers — printing the bound raw would name a day the
+ * window does not include, i.e. a caption that contradicts the rule it is explaining.
+ *
+ * An unparseable value is echoed rather than rendered blank: a caption is not worth losing to a stamp
+ * shape this build has not seen.
+ */
+private fun formatIsoDay(value: String?, daysBefore: Long = 0): String {
+    val date = parseIsoToLocalDate(value) ?: return value.orEmpty()
+    return formatIsoDate(date.minusDays(daysBefore).toString()) ?: value.orEmpty()
+}
+
 /** Render a numeric value into an editable string without a trailing ".0" for whole numbers. */
 private fun numToText(value: String?): String {
     val raw = value?.trim().orEmpty()
@@ -5502,6 +5519,14 @@ private fun WorkshopForm(
             selectedArtisans.sorted().joinToString(","), selectedCrafts.sorted().joinToString(",")).joinToString("") != initialSig ||
             media.uris.isNotEmpty() || media.measurementUri != null
     )
+
+    // WHY THIS SITS ON THE WORKSHOP SCREEN and not in Settings, matching the web's /workshops page: what it
+    // fixes is a workshop's own contents — "this workshop looks empty" — so whoever notices the symptom is
+    // already here. Create-mode only, so it does not push an edit form down the screen, and admin-only; the
+    // endpoints are gated the same way, so this predicate is not the security boundary.
+    if (!isEdit && repository.cachedUser()?.isAdminUser() == true) {
+        WorkshopMappingCard(repository = repository, onError = onError)
+    }
 
     RecordCard(title = if (isEdit) "Edit workshop" else "Add workshop") {
         RegisterUnsavedGuard(dirty = dirty) { submit() }
@@ -8952,6 +8977,45 @@ private fun CompletionMatrixCard(
         )
         // The scope sits ABOVE the matrix, because it changes what every cell means.
         WorkshopScopeSelect(scope = workshopScope, label = "Workshops in this matrix")
+
+        /*
+         * THE SHORTFALL, NAMED. An interview that names no workshop is excluded from this matrix under any
+         * workshop scope, and the exclusion used to be invisible: the matrix simply showed less green,
+         * which reads as fieldwork that never happened. Saying the number turns that into something an
+         * admin can act on — the Workshop screen carries the card that files them.
+         *
+         * The server sends 0 whenever the scope cannot hide anything (no workshop chosen, or the
+         * unassigned records explicitly included), so this is a plain `> 0` test rather than a second
+         * copy of that rule.
+         */
+        val hidden = matrix?.unassignedInterviews ?: 0
+        if (hidden > 0) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.field.warningContainer, MaterialTheme.shapes.small)
+                    .padding(10.dp)
+            ) {
+                Text(
+                    "$hidden interview${if (hidden == 1) "" else "s"} in the repository name no workshop",
+                    color = MaterialTheme.field.onWarningContainer,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    "So ${if (hidden == 1) "it counts" else "they count"} towards no workshop scope and " +
+                        "nothing ${if (hidden == 1) "it holds" else "they hold"} turns a cell green here. " +
+                        "Choose All records above to include ${if (hidden == 1) "it" else "them"}" +
+                        if (canEdit) {
+                            ", or file ${if (hidden == 1) "it" else "them"} under a workshop from the " +
+                                "Workshop screen."
+                        } else ".",
+                    color = MaterialTheme.field.onWarningContainer,
+                    fontSize = 11.sp
+                )
+            }
+        }
         // Legend.
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -8962,6 +9026,22 @@ private fun CompletionMatrixCard(
             CompletionLegendChip(CompletionAmber, "Requires review")
             CompletionLegendChip(CompletionRed, "Needs redo")
             CompletionLegendChip(CompletionEmpty, "Not started")
+        }
+        /*
+         * WHAT THE WORKSHOP SCOPE DOES AND DOES NOT NARROW. The green derived from recordings is scoped to
+         * the chosen workshops; an admin's mark is not, because the override table is keyed on (artisan,
+         * section) with no workshop column — a mark is a judgement about that artisan's section across the
+         * repository. Said here rather than left for a reader to deduce from a cell that stays green as the
+         * scope moves. The server states the fact so both clients cannot describe it differently.
+         */
+        if (matrix?.overridesAreRepositoryWide == true) {
+            Text(
+                "The workshop scope narrows the green derived from recordings. An admin override is a " +
+                    "judgement about that artisan's section across the whole repository, so a marked cell " +
+                    "keeps its colour under every scope.",
+                color = MaterialTheme.field.muted,
+                fontSize = 11.sp
+            )
         }
 
         val data = matrix
@@ -12032,6 +12112,288 @@ private fun RecordCard(title: String, icon: ImageVector? = null, content: @Compo
             }
             content()
         }
+    }
+}
+
+/**
+ * "Which records are not filed under any workshop, and where do they belong?" — the admin card.
+ *
+ * WHY THIS SCREEN EXISTS. Every control that narrows by workshop reads one column, `workshopId`. A record
+ * with that column empty counts towards NO workshop scope — while remaining perfectly visible under "All
+ * records". Since this app OPENS scoped to the most recent workshop, the result reads as "nothing was
+ * documented here" rather than as a filter excluding data sitting right there. That is exactly what
+ * happened: 25 questionnaire interviews and 924 media files, every one recorded at the single workshop in
+ * the repository, none carrying its id, and a completion matrix showing nothing but the cells an admin had
+ * ticked by hand.
+ *
+ * IT IS A PREVIEW FIRST, ALWAYS. The report is a plain read and loads on open; nothing is written until the
+ * button is pressed, and the button says exactly how many rows it will touch. Rows the evidence cannot
+ * settle are listed BY NAME with the reason, because "949 of 949" is a fine answer and "947 of 949" has to
+ * say which two and why — that is the difference between a tool an admin can trust and one they have to
+ * verify by hand afterwards.
+ *
+ * The web's `components/settings/WorkshopMappingPanel.tsx` is the same card against the same two endpoints,
+ * with the same copy. Change them together.
+ */
+@Composable
+private fun WorkshopMappingCard(
+    repository: FieldRepository,
+    onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var plan by remember { mutableStateOf<WorkshopMappingPlanDto?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var applying by remember { mutableStateOf(false) }
+    var appliedTotal by remember { mutableStateOf<Int?>(null) }
+    // Re-check bumps this, which re-keys the effect below. A plain function call would need its own
+    // coroutine scope and could overlap with the load already in flight.
+    var reloadKey by remember { mutableStateOf(0) }
+
+    LaunchedEffect(reloadKey) {
+        loading = true
+        runCatching { repository.unmappedRecords() }
+            .onSuccess { plan = it; loading = false }
+            .onFailure {
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                onError(it.apiErrorMessage("The unmapped records could not be read."))
+                loading = false
+            }
+    }
+
+    RecordCard(title = "Records not filed under a workshop", icon = Icons.Filled.Link) {
+        Text(
+            "A record with no workshop is excluded from every workshop scope — search, the map, the data " +
+                "browser, the exports and the completion matrix — while still appearing under All records. " +
+                "That reads as an empty workshop rather than as a filter. This finds them and files each one " +
+                "where its own evidence points: the record it hangs off, the artisans in it, or the workshop " +
+                "whose dates it was recorded inside.",
+            color = MaterialTheme.field.muted,
+            fontSize = 12.sp
+        )
+
+        val current = plan
+        when {
+            loading && current == null ->
+                Text("Reading every record that names no workshop…", color = MaterialTheme.field.muted, fontSize = 12.sp)
+
+            current == null ->
+                Text(
+                    "The report could not be read. Tap Re-check to try again.",
+                    color = MaterialTheme.field.body,
+                    fontSize = 12.sp
+                )
+
+            current.totals.unassigned == 0 ->
+                Text(
+                    "Every record in the repository names the workshop it was captured at. Nothing is hidden " +
+                        "from a workshop scope.",
+                    color = MaterialTheme.field.body,
+                    fontSize = 12.sp
+                )
+
+            else -> {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    MappingStatTile("Not filed", current.totals.unassigned, Modifier.weight(1f))
+                    MappingStatTile("Can be filed", current.totals.resolved, Modifier.weight(1f))
+                    MappingStatTile("Need a person", current.totals.unresolved, Modifier.weight(1f))
+                }
+
+                // Only the buckets with something to say. Five lines reading "0 product records" bury the
+                // one line that matters.
+                current.buckets.filter { it.unassigned > 0 }.forEach { bucket ->
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.field.surface50, MaterialTheme.shapes.small)
+                            .padding(10.dp)
+                    ) {
+                        val noun = if (bucket.unassigned == 1) bucket.singular else bucket.plural
+                        Text(
+                            "${bucket.unassigned} $noun" +
+                                if (bucket.applied != null) {
+                                    " — ${bucket.applied} filed just now"
+                                } else {
+                                    " — ${bucket.resolved} can be filed" +
+                                        if (bucket.unresolved > 0) ", ${bucket.unresolved} need a person" else ""
+                                },
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        if (bucket.byWorkshop.isNotEmpty()) {
+                            Text(
+                                "Filed under " + bucket.byWorkshop.joinToString(", ") { "${it.title} (${it.count})" } + ".",
+                                color = MaterialTheme.field.muted,
+                                fontSize = 11.sp
+                            )
+                        }
+                        // WHICH RULE DECIDED, aggregated. An admin approving a bulk write needs to know
+                        // whether 924 files were filed because their parent records said so or because their
+                        // timestamps merely fell inside a window — different levels of certainty, and the card
+                        // must not flatten them into one number.
+                        bucket.byRung.forEach { entry ->
+                            Text(
+                                "${entry.count} because ${entry.copy}.",
+                                color = MaterialTheme.field.body,
+                                fontSize = 11.sp
+                            )
+                        }
+                        val stuck = bucket.rows.filter { it.workshopId == null }
+                        if (stuck.isNotEmpty()) {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.field.warningContainer, MaterialTheme.shapes.small)
+                                    .padding(8.dp)
+                            ) {
+                                Text(
+                                    "Left alone — open the record and choose its workshop by hand",
+                                    color = MaterialTheme.field.onWarningContainer,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                stuck.forEach { row ->
+                                    Text(
+                                        row.title +
+                                            (row.reasonCopy?.let { " — $it" } ?: "") +
+                                            (if (row.candidateTitles.isNotEmpty()) {
+                                                " (" + row.candidateTitles.joinToString(" or ") + ")"
+                                            } else ""),
+                                        color = MaterialTheme.field.onWarningContainer,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                                // Compared against THIS list's own length, not `rowsTruncated`. That flag
+                                // is about the bucket's whole row list, which the server caps and fills
+                                // with resolved rows too — reading it here reported "the list is capped"
+                                // on a complete list of two, a false alarm on the one block an admin has
+                                // to act on.
+                                if (stuck.size < bucket.unresolved) {
+                                    Text(
+                                        "${bucket.unresolved - stuck.size} more are not listed. Re-check " +
+                                            "after filing these to see the rest.",
+                                        color = MaterialTheme.field.onWarningContainer,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (current.totals.resolved > 0) {
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                applying = true
+                                runCatching { repository.mapUnmappedRecords() }
+                                    .onSuccess {
+                                        appliedTotal = it.totals.applied ?: 0
+                                        // RE-READ rather than render the apply response. That response is
+                                        // built from the ladder run the writes were derived FROM — a record
+                                        // of what was done, not a picture of what is left — so rendering it
+                                        // would leave the tiles reporting the records just filed as still
+                                        // unfiled and the button offering to file them again.
+                                        reloadKey += 1
+                                    }
+                                    .onFailure { failure ->
+                                        if (failure is kotlinx.coroutines.CancellationException) throw failure
+                                        onError(failure.apiErrorMessage("The records could not be mapped."))
+                                    }
+                                applying = false
+                            }
+                        },
+                        enabled = !applying,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            if (applying) {
+                                "Filing…"
+                            } else {
+                                "File ${current.totals.resolved} record" +
+                                    (if (current.totals.resolved == 1) "" else "s") + " under its workshop"
+                            }
+                        )
+                    }
+                    Text(
+                        "Only ever fills an empty workshop — nothing already filed is moved or cleared, and " +
+                            "pressing it twice changes nothing.",
+                        color = MaterialTheme.field.muted,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        }
+
+        appliedTotal?.let { total ->
+            Text(
+                if (total == 0) {
+                    "Nothing left to file — every record the evidence could settle was already filed."
+                } else {
+                    "$total record${if (total == 1) "" else "s"} filed. They now appear under their workshop " +
+                        "everywhere: search, the map, the data browser, the exports and the completion matrix."
+                },
+                color = MaterialTheme.field.body,
+                fontSize = 12.sp
+            )
+        }
+
+        plan?.let { current ->
+            if (current.workshops.isEmpty()) {
+                Text(
+                    "No workshop in the repository has a date, so nothing can be filed by when it was " +
+                        "recorded. Adding a start and end date to a workshop makes that evidence available.",
+                    color = MaterialTheme.field.muted,
+                    fontSize = 11.sp
+                )
+            } else {
+                // The WINDOWS, not just the titles. An end date is stored differently by each client — the
+                // web form sends the last millisecond of the day, this app sends midnight — so "recorded
+                // inside that workshop's dates" is only checkable if the dates the server read are on
+                // screen. `end` is the exclusive bound, so the day printed is the one before it.
+                current.workshops.forEach { window ->
+                    Text(
+                        "${window.title} — read as ${formatIsoDay(window.start)} to " +
+                            formatIsoDay(window.end, daysBefore = 1),
+                        color = MaterialTheme.field.placeholder,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        }
+
+        OutlinedButton(onClick = { reloadKey += 1 }, enabled = !loading && !applying) {
+            Text("Re-check")
+        }
+    }
+}
+
+/**
+ * One figure in [WorkshopMappingCard]'s header row.
+ *
+ * Its own tile rather than MapScreen's `MapStatTile`: that one is file-private to `ui/MapScreen.kt` (and
+ * takes an icon this card has no use for), and widening its visibility to share three boxes would tie an
+ * admin card to the map screen's internals for no gain.
+ */
+@Composable
+private fun MappingStatTile(label: String, value: Int, modifier: Modifier = Modifier) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        modifier = modifier
+            .background(MaterialTheme.field.surface50, MaterialTheme.shapes.small)
+            .border(1.dp, MaterialTheme.field.hairline, MaterialTheme.shapes.small)
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+    ) {
+        Text(label.uppercase(Locale.ROOT), color = MaterialTheme.field.muted, fontSize = 10.sp)
+        Text(
+            value.toString(),
+            display = true,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 

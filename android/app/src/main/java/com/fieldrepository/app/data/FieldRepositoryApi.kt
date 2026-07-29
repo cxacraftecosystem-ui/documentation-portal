@@ -204,6 +204,21 @@ interface FieldRepositoryApi {
     @GET("workshops/{id}/submission-check")
     suspend fun workshopSubmissionCheck(@Path("id") id: String): WorkshopSubmissionCheckDto
 
+    // Which records name NO workshop, and where each one's own evidence points. Admin-only, a pure read,
+    // and the preview the button below acts on. See [WorkshopMappingPlanDto].
+    //
+    // Declared beside `workshops/{id}` and it does not collide: FastAPI registers the literal
+    // `/workshops/unmapped` before the parameterised route, so it is never read as a workshop whose id is
+    // the word "unmapped".
+    @GET("workshops/unmapped")
+    suspend fun unmappedRecords(): WorkshopMappingPlanDto
+
+    // File every unassigned record whose evidence names exactly one workshop. NO BODY — the server
+    // re-derives the plan rather than trusting one sent back, so this client cannot ask for an arbitrary
+    // row to be moved to an arbitrary workshop. Idempotent: it only ever fills an empty column.
+    @POST("workshops/unmapped/map")
+    suspend fun mapUnmappedRecords(): WorkshopMappingPlanDto
+
     @Multipart
     @POST("media/analyze-measurement")
     suspend fun analyzeMeasurement(
