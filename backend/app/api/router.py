@@ -8,6 +8,7 @@ from app.api.routes import (
     dashboard,
     data_access,
     data_browser,
+    datasets,
     export,
     feedback,
     map_points,
@@ -47,6 +48,9 @@ api_router.include_router(map_points.router)
 api_router.include_router(review.router)
 api_router.include_router(export.router)
 api_router.include_router(data_browser.router)
+# The bulk, admin-authenticated dataset API. Mounted like any other router; what makes it different
+# is the credential it accepts (see app/api/routes/datasets.py and deps.require_dataset_admin).
+api_router.include_router(datasets.router)
 api_router.include_router(app_release.router)
 api_router.include_router(feedback.router)
 api_router.include_router(preferences.router)

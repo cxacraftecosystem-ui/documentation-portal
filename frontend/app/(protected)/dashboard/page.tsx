@@ -96,8 +96,18 @@ type Tile = {
 /**
  * Where a "recent submission" row goes when it is clicked.
  *
- * Only the types with a per-record route can be linked; workshops, crafts and interviews are
- * edited inline on their own list pages, so those land on the list rather than a URL that 404s.
+ * Two shapes, because the app has two ways of editing a record and neither is going away:
+ *
+ * * artisans, products and tools own a real `/[id]/edit` ROUTE, so the id is a path segment;
+ * * workshops, crafts and processes are edited INLINE on their list page, so the id travels as
+ *   `?edit=` and `useEditDeepLink` on that page loads it into the form.
+ *
+ * The three inline types used to return the bare list route and drop the id — clicking a named row
+ * in Recent submissions opened the blank CREATE form for its type, which is the same screen the
+ * "New" tile opens. (`/processes?edit=` was the exception: it carried the id but nothing on the
+ * receiving page read it, so it behaved identically until that page grew the hook.) Interviews are
+ * still list-level: an interview is identified by its artisan SET, not by a row id, so
+ * `/questionnaire` has no single-record form to deep-link into.
  */
 function recordHref(type: string, id: string): string | null {
   switch ((type || "").toLowerCase()) {
@@ -110,9 +120,9 @@ function recordHref(type: string, id: string): string | null {
     case "process":
       return `/processes?edit=${id}`;
     case "workshop":
-      return "/workshops";
+      return `/workshops?edit=${id}`;
     case "craft":
-      return "/crafts";
+      return `/crafts?edit=${id}`;
     case "questionnaire":
     case "interview":
       return "/questionnaire";

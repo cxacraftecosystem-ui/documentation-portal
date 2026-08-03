@@ -592,7 +592,12 @@ const BROWSE_TYPES: Record<string, BrowseTypeDef> = {
   workshop: {
     label: "Workshops",
     linkedType: "workshop",
-    editHref: () => "/workshops",
+    // Workshops, crafts and processes are edited INLINE on their list page rather than at a
+    // `/[id]/edit` route, so the id travels as `?edit=` — read by `useEditDeepLink` on each of those
+    // pages. Every one of these three used to discard the id this signature declares and return the
+    // bare list route, which rendered the CREATE form: "Edit record" on a record the researcher had
+    // already drilled into showed them an empty form, and filling it in made a second record.
+    editHref: (id) => `/workshops?edit=${id}`,
     load: async () =>
       sortRecent((await listResource<Workshop>("/workshops", { pageSize: 100 })).items).map((x) => ({
         id: x.id,
@@ -604,7 +609,7 @@ const BROWSE_TYPES: Record<string, BrowseTypeDef> = {
   craft: {
     label: "Crafts",
     linkedType: "craft",
-    editHref: () => "/crafts",
+    editHref: (id) => `/crafts?edit=${id}`,
     load: async () =>
       sortRecent((await listResource<Craft & WithCreator>("/crafts", { pageSize: 100 })).items).map((x) => ({
         id: x.id,
@@ -630,7 +635,7 @@ const BROWSE_TYPES: Record<string, BrowseTypeDef> = {
   process: {
     label: "Processes",
     linkedType: "process",
-    editHref: () => "/processes",
+    editHref: (id) => `/processes?edit=${id}`,
     load: async () =>
       sortRecent(
         (

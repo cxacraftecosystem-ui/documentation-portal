@@ -1163,9 +1163,9 @@ two private re-implementations already exist and a third must not.
   awaiting handler hangs on a promise nobody can settle.
 - `LateSubmissionDialog` is `zIndex={105}` because `UnsavedChangesDialog` stays mounted while its own
   Save runs the submit that opens it — an equal z-index would cover "Submit anyway".
-- ⚠ `CollabDialog` and its two inline copies (`crafts/page.tsx:388`, `workshops/page.tsx:538`) are
-  pre-`FieldDialog` legacy: `fixed inset-0 z-50 bg-black/40`, no trap, no Escape, no restoration, no
-  scroll lock. **Reuse the component, never the markup.**
+- ⚠ Every list page now uses the shared `CollabDialog`. The hand-rolled overlay that used to sit
+  inline in `crafts/page.tsx` (`fixed inset-0 z-50 bg-black/40` — no trap, no Escape, no focus
+  restoration, no scroll lock) is gone. **Reuse the component, never that markup.**
 
 ### 12.13 The visual anatomy of a form screen, top to bottom
 
@@ -1181,6 +1181,57 @@ only) → `MediaCaptureField` → `SaveButton`. Status is a locked `StatusBadge`
 **Page frame:** `PageHeader` → banners → `panel`. A list screen is a panel-wrapped table using
 `ResizableTh`, `StatusBadge` and `Pagination`; a selected row reveals an action strip of
 `rowAction(tone)` entries in `RowActions`.
+
+### 13.0 The two shapes of "edit a record", and the link each one needs
+
+**There are exactly two, and a link that picks the wrong one loses the record id.**
+
+| shape | types | the link |
+|---|---|---|
+| a real route | artisans, products, tools | `/{type}/{id}/edit` |
+| an INLINE form on the list page | crafts, workshops, processes | `/{type}?edit={id}` |
+
+The second group has no `/[id]/edit` route, so the id has to travel as a query parameter. Every link
+that offered to edit one used to return the **bare list route** — `/crafts`, `/workshops` — which
+renders that page's inline form in CREATE mode. So "Edit this workshop" and "New workshop" landed on
+the identical blank form, the clicked record was nowhere on screen, and filling the form in produced
+a SECOND record. It was wrong in six places at once (`/data`'s `editHref`, the dashboard's
+`recordHref` **and** its Update tiles, `/search`, `DataSearchPanel`, the map's `RECORD_HREF`) because
+each had independently decided the id was not carryable.
+
+**Receiving side — always `useEditDeepLink` (`components/hooks/useEditDeepLink.ts`), never hand-rolled.**
+
+```tsx
+const { loading } = useEditDeepLink<Craft>({
+  endpoint: "/crafts", basePath: "/crafts",
+  targetRef: formRef,              // omit when the form REPLACES the page (/processes)
+  onEdit: resetForm,               // the page's own seeder — not setEditing
+  onNew: () => resetForm(null),    // OMIT to leave ?new=1 alone (see below)
+  onError: setError,
+  allowed: allowManage,
+  errorMessage: "Unable to load that craft"
+});
+```
+
+- **`onEdit` must be the page's full seeder, not `setEditing`.** On `/workshops` the two link pickers
+  are React state, not form controls: seeding only `editing` shows the title and place with the
+  artisan and craft rosters silently EMPTY — and saving then clears them.
+- **The record is fetched BY ID**, never looked up in the list on screen: the caller arrives from
+  another page and the row is usually not on page 1 of a 20-row list. (Android has always done this —
+  `EditScreen` refetches behind a `LoadingCard`.)
+- **Omit `onNew` when the page derives `?new=1` on every render** (`/processes`' `isNew`). It is a
+  render MODE there, not a one-shot intent, and consuming it closes the create form as it opens.
+- **Both parameters are one-shot and are stripped with `router.replace`** once applied — a parameter
+  that survived would re-apply on every re-read and put a cancelled edit back under the Back button.
+  The hook forgets its `handled` token when the URL is clean, which is what lets the *same* record be
+  opened twice in a row.
+- **The scroll is deferred one `requestAnimationFrame`** (the form remounts on `key={editing?.id}`
+  and reveals edit-only blocks) and goes to `targetRef`, **not** `window.scrollTo(0, 0)` — on
+  `/workshops` an admin has the mapping panel above the form. Give the form `scroll-mt-28`.
+- `useSearchParams` needs a **Suspense boundary** (Next 16). Keep `UploadsProvider` OUTSIDE it.
+
+**Sending side: never link to the bare list route for an edit.** If you are writing an `editHref`,
+a `recordHref` or a `RECORD_HREF` entry whose signature takes an `id`, use it.
 
 - **Create buttons are gated to `null`, not disabled** (`canCreateRecords(user)`): an ungated "New …"
   invites every tier to press a button that lands on a refusal.
@@ -1458,6 +1509,34 @@ Each of these looks wrong and is deliberate. Most were a shipped bug.
 - Filter a `WorkshopAssignment` list to `status === "GRANTED"`.
 - `/artisans` has no `workshopId` filter — narrow client-side.
 - `AddressReference.districts` is optional in the type deliberately (separate deploys).
+
+**Effects guarded by a ref (the deadlock shape)**
+- **An effect that claims a ref guard on START and gates its completion on a `cancelled` flag MUST
+  release that guard in its cleanup.** Otherwise a teardown between "work issued" and "work resolved"
+  leaves the guard held by an attempt that can no longer finish, the re-run returns at the guard, and
+  nothing ever completes — a spinner that never stops. `reactStrictMode: true` (`next.config.ts`)
+  makes React run setup → cleanup → setup on **every** mount, so this deadlocks 100% of the time in
+  `npm run dev` and looks like "the feature just doesn't work". `useEditDeepLink` shipped this bug and
+  now does `if (handled.current === token) handled.current = null` in its cleanup.
+- **Never put a preference that settles after mount in a dependency array.**
+  `useAppReducedMotion()` reads false on the server and the first client render, then flips once
+  ThemeProvider reads storage — so as a dep it tears an in-flight effect down, in production, for
+  exactly the users who asked for less motion. Read it through a ref (as `useEditDeepLink` does), the
+  same treatment the callbacks get.
+
+**Edit links**
+- Crafts, workshops and processes have **no `/[id]/edit` route** — the id travels as `?edit={id}`
+  (§13.0). A bare `/crafts` / `/workshops` link opens the blank CREATE form; it shipped that way in
+  six places.
+- A deep-linked seed goes through the page's **`guard()`**, not straight to `resetForm`: the form is
+  typeable while the fetch is in flight and `resetForm` remounts it and clears `dirty`, so seeding
+  directly discards whatever was typed with nothing asked.
+- `useEditDeepLink`'s `onEdit` takes the page's **full seeder**, not `setEditing` — the workshop
+  rosters are React state and a partial seed silently clears them on save.
+- Omit `onNew` on a page that derives `?new=1` itself, or the create form closes as it opens.
+- `/workshops` sends `artisanIds`/`craftIds` **only when they changed**: the backend 403s a
+  non-privileged editor who re-sends an already-populated roster, even untouched. Android's
+  `WorkshopForm` diffs them the same way.
 
 **Silent-emptiness class (the repeat offender)**
 - A NULL `workshopId` matches no workshop scope → a full corpus renders empty. Fixed by

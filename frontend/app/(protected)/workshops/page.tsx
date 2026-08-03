@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MapPinned } from "lucide-react";
 
@@ -12,6 +12,7 @@ import { Field, MultiNoteField, Select, TextArea, TextInput } from "@/components
 import { DateRangeField } from "@/components/forms/DateRangeField";
 import { LocationFields, type LocationInitialValues } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
+import { useEditDeepLink } from "@/components/hooks/useEditDeepLink";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { UploadProgress } from "@/components/media/UploadProgress";
 import { UploadTray } from "@/components/media/UploadTray";
@@ -53,6 +54,20 @@ function linkedCraftIds(workshop: Workshop | null): string[] {
     .filter((id): id is string => Boolean(id));
 }
 
+/**
+ * Do these two id lists name the same set? ORDER-INSENSITIVE on purpose: the multi-selects hand back
+ * the order the researcher ticked boxes in, while the stored list comes back in the join table's own
+ * order, so comparing sequences would report "changed" for a roster nobody touched — which is the
+ * exact 403 the diff in `submit` exists to avoid. Both inputs are already duplicate-free (the join
+ * table is unique on the pair; the pickers cannot tick a row twice), so a length check plus
+ * membership is a true set comparison here.
+ */
+function sameIdSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const seen = new Set(a);
+  return b.every((id) => seen.has(id));
+}
+
 const statusOptions: RecordStatus[] = ["DRAFT", "PENDING", "APPROVED", "REJECTED", "NEEDS_REVISION"];
 
 /** Section id the workshop media batch publishes under, so the page-level tray can aggregate it. */
@@ -62,7 +77,10 @@ const MEDIA_SECTION_LABEL = "Workshop media";
 export default function WorkshopsPage() {
   return (
     <UploadsProvider>
-      <WorkshopsPageBody />
+      {/* Next 16: `useEditDeepLink` reads useSearchParams, which must sit inside a Suspense boundary. */}
+      <Suspense fallback={<div className="panel p-4 text-sm text-ink-500">Loading...</div>}>
+        <WorkshopsPageBody />
+      </Suspense>
       <UploadTray />
     </UploadsProvider>
   );
@@ -223,6 +241,29 @@ function WorkshopsPageBody() {
     setDirty(false);
   }
 
+  // `/workshops?edit=<id>` loads that workshop into the form below; `/workshops?new=1` opens a blank
+  // one. Both are how the View Data browser, a search result, the dashboard tiles and Recent
+  // submissions reach this page — before this they all linked to the bare `/workshops`, so
+  // "Update workshop" landed on the create form with none of the record's fields in it.
+  //
+  // The fetched record goes through the SAME `resetForm` a row click uses, which is what re-seeds the
+  // two link pickers: `artisanIds` and `craftIds` are React state rather than form controls, so a
+  // deep link that only set `editing` would have shown the workshop's title and place with its
+  // artisan and craft rosters silently empty — and saving would then have cleared them.
+  const { loading: deepLinkLoading } = useEditDeepLink<Workshop>({
+    endpoint: "/workshops",
+    basePath: "/workshops",
+    targetRef: formRef,
+    // Through `guard`, exactly as the row Edit button below goes through it — see the same note on
+    // /crafts for why seeding directly would silently discard work typed while the fetch was in
+    // flight.
+    onEdit: (record) => guard(() => resetForm(record)),
+    onNew: () => guard(() => resetForm(null)),
+    onError: setError,
+    allowed: allowManage,
+    errorMessage: "Unable to load that workshop"
+  });
+
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     // React nulls event.currentTarget after the first await — capture it before any async work.
@@ -230,8 +271,10 @@ function WorkshopsPageBody() {
     const form = new FormData(formElement);
     setSaving(true);
     try {
-      const payload = {
-        title: requiredText(form, "title"),
+      const title = requiredText(form, "title");
+      const location = locationFromForm(form);
+      const payload: Record<string, unknown> = {
+        title,
         date: requiredText(form, "date"),
         startDate: requiredText(form, "startDate"),
         endDate: requiredText(form, "endDate"),
@@ -240,13 +283,32 @@ function WorkshopsPageBody() {
         notes: textValue(form, "notes"),
         // Below professor the backend forces PENDING on create and drops status changes on update.
         status: canSetStatus ? requiredText(form, "status") : "PENDING",
-        artisanIds,
-        craftIds,
-        location: locationFromForm(form)
+        location
       };
+      /*
+       * THE TWO ROSTERS ARE SENT ONLY WHEN THEY CHANGED, and only on an edit. This mirrors Android's
+       * WorkshopForm, which diffs them the same way, and it is a permission fix rather than a saving
+       * of bytes.
+       *
+       * `PATCH /workshops/{id}` re-checks each roster it is SENT: when the caller is neither an
+       * admin nor the workshop's creator and lacks EDIT-level access to it,
+       * `assert_can_contribute_relation(..., populated=link_count > 0, ...)` refuses any send at all
+       * against an already-populated roster. Sending both unconditionally therefore meant a
+       * professor who opened someone else's workshop, corrected a typo in its PLACE and pressed
+       * Update was answered "Only the original contributor or an admin can change populated
+       * relation: artisanIds" — a refusal about two pickers they had not touched, on a save the
+       * server would otherwise have accepted. Omitting an unchanged roster leaves `artisanIds` unset
+       * in the payload, which is exactly what the WorkshopUpdate schema's `list[str] | None = None`
+       * means: do not touch this relation.
+       *
+       * On CREATE both are always sent — there is no stored roster to compare against, and the
+       * create path has no such check.
+       */
+      if (!editing || !sameIdSet(artisanIds, linkedArtisanIds(editing))) payload.artisanIds = artisanIds;
+      if (!editing || !sameIdSet(craftIds, linkedCraftIds(editing))) payload.craftIds = craftIds;
       // Offline this queues to the outbox with its media rather than failing at the Save button.
       const outcome = await saveOrQueue<Workshop>({
-        label: `Workshop · ${payload.title || "Untitled"}`,
+        label: `Workshop · ${title || "Untitled"}`,
         endpoint: editing ? `/workshops/${editing.id}` : "/workshops",
         method: editing ? "PATCH" : "POST",
         body: payload,
@@ -254,8 +316,8 @@ function WorkshopsPageBody() {
           {
             files: mediaFiles,
             linkedRecordType: "workshop",
-            caption: `Field media for ${payload.title || "workshop"}`,
-            location: payload.location
+            caption: `Field media for ${title || "workshop"}`,
+            location
           }
         ]
       });
@@ -272,7 +334,7 @@ function WorkshopsPageBody() {
           linkedRecordType: "workshop",
           linkedRecordId: saved.id,
           caption: `Field media for ${saved.title}`,
-          location: payload.location,
+          location,
           onProgress: setUploadProgress
         });
         setUploadProgress(null);
@@ -339,6 +401,11 @@ function WorkshopsPageBody() {
         icon={<MapPinned className="h-5 w-5" aria-hidden />}
       />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+      {deepLinkLoading ? (
+        <div className="mb-4 rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-muted">
+          Loading the workshop you asked to edit...
+        </div>
+      ) : null}
 
       {/* WHY THIS SITS ON THE WORKSHOPS PAGE and not in Settings. What it fixes is a workshop's own
           contents — "this workshop looks empty" — so the person who notices the symptom is already here,
@@ -357,8 +424,20 @@ function WorkshopsPageBody() {
         onSubmit={submit}
         onInput={() => setDirty(true)}
         onKeyDown={handleFormEnter}
-        className="panel mb-5 grid gap-4 p-4"
+        // scroll-mt-28 clears the island nav when `?edit=` scrolls this form into view, and it is
+        // load-bearing here in a way it is not on /crafts: an admin has the workshop-mapping panel
+        // sitting above this form, so there is real content to scroll past.
+        className="panel mb-5 grid scroll-mt-28 gap-4 p-4"
       >
+        {/* WHICH workshop is in the form — see the same chip on /crafts for why the button label is
+            not enough on its own when the researcher arrived here from another page entirely. */}
+        {editing ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-field-200 px-2.5 py-1 text-xs font-medium text-ink-900">
+              Editing: {editing.title}
+            </span>
+          </div>
+        ) : null}
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
           <Field label="Workshop title" required>
             <TextInput name="title" required defaultValue={editing?.title ?? ""} />

@@ -17,6 +17,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { ProcessForm, type ProcessRecord } from "@/components/forms/ProcessForm";
+import { useEditDeepLink } from "@/components/hooks/useEditDeepLink";
 import { apiFetch, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { canCreateRecords } from "@/lib/permissions";
@@ -121,6 +122,27 @@ function ProcessesPageInner() {
     }
   }
 
+  /**
+   * `/processes?edit=<id>` — the link the dashboard's Recent submissions rows and the View Data
+   * browser have always produced for a process. Nothing on this page read it, so both landed on the
+   * plain list and the researcher had to find the row again themselves.
+   *
+   * `onNew` is deliberately NOT passed: `?new=1` is a render mode this page derives on every render
+   * (`isNew` above), not a one-shot intent, and a hook that consumed and stripped it would close the
+   * create form the moment it opened. No `targetRef` either — the edit view REPLACES the list, so
+   * the top of the document is the form, which is where `openEdit` already scrolls.
+   */
+  const { loading: deepLinkLoading } = useEditDeepLink<ProcessRecord>({
+    endpoint: "/processes",
+    basePath: "/processes",
+    onEdit: setEditing,
+    onError: setError,
+    // PATCH /processes/{id} is gated by `get_current_user` and decides field by field inside
+    // `guard_record_edit`, exactly like the row Edit button below, which is offered to everyone.
+    allowed: true,
+    errorMessage: "Unable to load this process"
+  });
+
   async function remove(id: string) {
     const ok = await confirm(
       deleteConfirm(
@@ -142,6 +164,11 @@ function ProcessesPageInner() {
     <>
       {error ? (
         <div className="mb-4 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-error-600">{error}</div>
+      ) : null}
+      {deepLinkLoading ? (
+        <div className="mb-4 rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-muted">
+          Loading the process you asked to edit...
+        </div>
       ) : null}
       {success ? (
         <div className="mb-4 rounded-md border border-emerald-200 bg-success-100 px-3 py-2 text-sm text-success-600">{success}</div>

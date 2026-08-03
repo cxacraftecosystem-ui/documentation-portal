@@ -345,6 +345,11 @@ Researchers can create questionnaire interviews, link one interview to many arti
 - `POST /api/review/{recordType}/{recordId}/reject`
 - `GET /api/export/products.csv` — dataset-download permission required
 - `GET /api/export/tools.csv` — dataset-download permission required
+- `POST /api/datasets/token` — exchange **admin** email/password for a read-only `dataset:read` token
+- `GET /api/datasets` — bulk-download catalogue: every dataset, its row count and its URLs
+- `GET /api/datasets/{dataset}` — one page of a dataset (JSON)
+- `GET /api/datasets/{dataset}.ndjson` — the whole dataset, streamed, no row cap
+- `GET /api/datasets/{dataset}.csv` — the whole dataset as CSV, streamed, no row cap
 - `GET /api/data/tree?path=` — admin data browser: one level of the virtual file system
   (workshops → artisans → products/tools/questionnaire/misc; users → uploads by type; media-types)
 - `GET /api/data/manifest?path=&include=` — flattened subtree manifest filtered by
@@ -352,6 +357,16 @@ Researchers can create questionnaire interviews, link one interview to many arti
 - `GET /api/data/media/{id}/download?format=mp4` — single file; audio is converted to `.mp4` (AAC)
 
 Researchers can create and manage their own submissions. Admins can view all records, manage users, review submissions and export CSV.
+
+### Bulk Dataset API
+
+`/api/datasets` is mass download **for a machine**, behind **admin credentials** — a scheduled
+mirror, an archival snapshot, a statistics pipeline. It streams (`.ndjson` / `.csv`, no row cap,
+constant memory, keyset-paged), it is filtered by the same shared `workshopIds` vocabulary as every
+other screen, and it sends `X-Dataset-Total` before each body so a client can *prove* a download is
+complete rather than assume it. Artisan identity numbers are masked by default and released only to
+a master admin who asks by name. A `dataset:read` token minted from admin credentials reaches this
+router and nothing else in the API. Full reference: [docs/DATASET_API.md](docs/DATASET_API.md).
 
 ### Data Browser
 

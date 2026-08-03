@@ -101,7 +101,10 @@ function rowsFrom(result: SearchResult, filters: SearchFilters): Row[] {
       kind: "Workshop",
       title: w.title,
       subtitle: [w.place, w.date ? new Date(w.date).toLocaleDateString() : ""].filter(Boolean).join(" · "),
-      href: "/workshops",
+      // The id has to travel: a workshop is edited inline on its list page, so `?edit=` is its
+      // equivalent of the `/[id]/edit` route the other record types have. A bare "/workshops" here
+      // opened the blank create form, even though `locate` on the next line proves the id was known.
+      href: `/workshops?edit=${w.id}`,
       locate: { type: "workshop", id: w.id }
     });
   }

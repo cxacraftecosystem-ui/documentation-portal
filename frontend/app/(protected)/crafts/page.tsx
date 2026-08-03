@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Landmark } from "lucide-react";
 
-import { CollabPanel } from "@/components/CollabPanel";
+import { CollabDialog } from "@/components/CollabDialog";
 import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { FieldProvenance } from "@/components/FieldProvenance";
 import { Field, TextArea, TextInput } from "@/components/FormControls";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
+import { useEditDeepLink } from "@/components/hooks/useEditDeepLink";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { UploadProgress } from "@/components/media/UploadProgress";
@@ -40,7 +41,10 @@ const MEDIA_SECTION_LABEL = "Craft media";
 export default function CraftsPage() {
   return (
     <UploadsProvider>
-      <CraftsPageBody />
+      {/* Next 16: `useEditDeepLink` reads useSearchParams, which must sit inside a Suspense boundary. */}
+      <Suspense fallback={<div className="panel p-4 text-sm text-ink-500">Loading...</div>}>
+        <CraftsPageBody />
+      </Suspense>
       <UploadTray />
     </UploadsProvider>
   );
@@ -131,6 +135,24 @@ function CraftsPageBody() {
     setMediaFiles([]);
     setDirty(false);
   }
+
+  // `/crafts?edit=<id>` loads that craft into the form below; `/crafts?new=1` opens a blank one.
+  // Both are how the View Data browser, the dashboard tiles and Recent submissions reach this page —
+  // before this they all linked to the bare `/crafts`, so "Update craft" landed on the create form.
+  const { loading: deepLinkLoading } = useEditDeepLink<Craft>({
+    endpoint: "/crafts",
+    basePath: "/crafts",
+    targetRef: formRef,
+    // Through `guard`, exactly as the row Edit button below goes through it: the form stays typeable
+    // while the fetch is in flight, and `resetForm` remounts it (`key={editing?.id}`) and clears
+    // `dirty` — so seeding directly would throw away anything typed in those seconds with nothing
+    // asked and nothing said. Dirty means the unsaved-changes dialog decides, as everywhere else.
+    onEdit: (record) => guard(() => resetForm(record)),
+    onNew: () => guard(() => resetForm(null)),
+    onError: setError,
+    allowed: allowManage,
+    errorMessage: "Unable to load that craft"
+  });
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -243,6 +265,11 @@ function CraftsPageBody() {
     <>
       <PageHeader title="Crafts" description="Maintain craft vocabulary used to link artisans, products and tools." icon={<Landmark className="h-5 w-5" aria-hidden />} />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+      {deepLinkLoading ? (
+        <div className="mb-4 rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-muted">
+          Loading the craft you asked to edit...
+        </div>
+      ) : null}
       {allowManage ? (
       <form
         ref={formRef}
@@ -250,8 +277,19 @@ function CraftsPageBody() {
         onSubmit={submit}
         onInput={() => setDirty(true)}
         onKeyDown={handleFormEnter}
-        className="panel mb-5 grid gap-3 p-4 md:grid-cols-2 lg:grid-cols-4"
+        // scroll-mt-28 clears the island nav when `?edit=` scrolls this form into view (§AppShell pt-24).
+        className="panel mb-5 grid scroll-mt-28 gap-3 p-4 md:grid-cols-2 lg:grid-cols-4"
       >
+        {/* WHICH craft is in the form. Arriving from ?edit= drops the researcher straight into a
+            populated form part-way down the page, and "Update craft" on the button is too far away
+            (and too generic) to answer "update WHICH one" on its own. */}
+        {editing ? (
+          <div className="flex flex-wrap items-center gap-2 md:col-span-2 lg:col-span-4">
+            <span className="rounded-full bg-field-200 px-2.5 py-1 text-xs font-medium text-ink-900">
+              Editing: {editing.name}
+            </span>
+          </div>
+        ) : null}
         {/* The workshop leads every other dropdown: it is the context the record belongs to. */}
         <WorkshopSelect state={workshop} onDirty={() => setDirty(true)} saving={saving} />
         <Field label="Craft name" required>
@@ -384,19 +422,9 @@ function CraftsPageBody() {
         )}
         {data ? <Pagination page={data.page} pages={data.pages} total={data.total} onPage={setPage} /> : null}
       </section>
-      {collabId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setCollabId(null)}>
-          <div className="panel max-h-[85vh] w-full max-w-lg overflow-y-auto p-4" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="font-display font-bold text-lg text-ink">Comments &amp; edit history</h2>
-              <button className="text-sm text-ink-muted" onClick={() => setCollabId(null)}>
-                Close
-              </button>
-            </div>
-            <CollabPanel recordType="craft" recordId={collabId} />
-          </div>
-        </div>
-      ) : null}
+      {/* The hand-rolled overlay this replaces was pre-FieldDialog legacy: no focus trap, no Escape,
+          no focus restoration and no scroll lock. /workshops already used the shared component. */}
+      <CollabDialog recordType="craft" recordId={collabId} onClose={() => setCollabId(null)} />
       <UnsavedChangesDialog
         open={confirmAction !== null}
         saving={saving}

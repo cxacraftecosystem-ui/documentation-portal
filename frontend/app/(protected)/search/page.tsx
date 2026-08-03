@@ -337,8 +337,10 @@ export default function SearchPage() {
               subtitle: item.place,
               status: item.status,
               date: item.date,
-              // Workshops are created and edited inline on their list page — there is no /workshops/[id].
-              href: "/workshops",
+              // Workshops are created and edited inline on their list page — there is no
+              // /workshops/[id] — so the id travels as `?edit=`, which that page reads via
+              // `useEditDeepLink`. Linking to the bare list dropped the id and opened a create form.
+              href: `/workshops?edit=${item.id}`,
               actionLabel: "Open in Workshops"
             }))}
           />

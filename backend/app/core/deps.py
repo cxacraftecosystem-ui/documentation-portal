@@ -295,15 +295,64 @@ async def resolve_user(user_id: str) -> Any:
     return await _load_user(user_id, settings.auth_user_cache_ttl_seconds)
 
 
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+# =================================================================================================
+# SCOPED TOKENS
+#
+# Every token this API has ever issued is a SESSION token: it carries no ``scope`` claim and stands
+# for its account in full, which is right for a browser and wrong for a script. ``POST
+# /api/datasets/token`` mints the other kind — a long-lived credential a nightly export job can hold
+# — and a credential that lives on a build server must be able to do strictly less than the admin
+# who created it, or handing it out is the same as handing out the admin's password.
+#
+# The narrowing is enforced HERE, at the one function every authenticated route in the app depends
+# on, rather than by the dataset routes being careful. That direction is the whole point: a scoped
+# token is refused by default and admitted only where a dependency names its scope, so a route added
+# next year is closed to it without its author having to know scoped tokens exist. Written the other
+# way round — trusting each route to check — the read-only promise would have lasted exactly until
+# the first route that forgot, and "read-only" would have meant "may DELETE /crafts/{id}".
+#
+# Tokens are not revocable within their lifetime (there is no token store). What IS revocable is the
+# account: ``resolve_user`` re-reads the User row on every request behind a 5-second cache, so
+# demoting or deleting the service admin kills every token it ever minted, within 5 seconds.
+# =================================================================================================
+
+#: Scope claim carried by a dataset token: the bulk read-only export API and nothing else.
+DATASET_READ_SCOPE = "dataset:read"
+
+#: The claim scoped tokens are marked with. Absent on every session token, which is what makes the
+#: default-deny below backwards compatible: existing tokens are unscoped and stay unrestricted.
+TOKEN_SCOPE_CLAIM = "scope"
+
+
+async def _user_from_bearer(
+    credentials: HTTPAuthorizationCredentials | None,
+    *,
+    allowed_scopes: frozenset[str],
 ) -> Any:
+    """The account behind a bearer token, refusing any scope not in ``allowed_scopes``.
+
+    ``allowed_scopes`` is deliberately a required keyword with no default: adding a scope must be a
+    decision taken at each dependency, not something a caller can inherit by omission.
+    """
     if not credentials:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
     try:
         payload = decode_access_token(credentials.credentials)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+    # 403, not 401: the credential is genuine and unexpired: it is simply not admitted HERE. A 401
+    # would send an API client off to re-authenticate, which would mint another token of the same
+    # scope and fail identically — a retry loop instead of an error message.
+    scope = payload.get(TOKEN_SCOPE_CLAIM)
+    if scope is not None and str(scope) not in allowed_scopes:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"This token is scoped to '{scope}' and cannot be used on this endpoint. "
+                "Sign in normally for full API access."
+            ),
+        )
 
     user_id = payload.get("sub")
     if not user_id:
@@ -312,6 +361,35 @@ async def get_current_user(
     user = await resolve_user(user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User no longer exists")
+    return user
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> Any:
+    """The signed-in account. Session tokens only — see the scoped-token banner above."""
+    return await _user_from_bearer(credentials, allowed_scopes=frozenset())
+
+
+async def require_dataset_admin(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> Any:
+    """Admin credentials for the bulk dataset API, from a session OR a `dataset:read` token.
+
+    ADMIN RANK IS CHECKED AGAINST THE LIVE USER ROW, never against the token's ``role`` claim: a
+    dataset token may outlive the admin's tenure, and a role baked into a JWT is a promotion that
+    cannot be taken back. ``resolve_user`` has already re-read the row by the time this runs.
+
+    Deliberately stricter than ``require_dataset_downloader`` (Professor and above, or an explicit
+    grant), which gates the in-app export surfaces. This API hands over the repository in bulk to a
+    non-interactive caller, so it is admin-only exactly as asked.
+    """
+    user = await _user_from_bearer(credentials, allowed_scopes=frozenset({DATASET_READ_SCOPE}))
+    if not is_admin(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required for the bulk dataset API.",
+        )
     return user
 
 

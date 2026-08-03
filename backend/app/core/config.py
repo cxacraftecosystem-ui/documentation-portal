@@ -102,6 +102,14 @@ class Settings(BaseSettings):
     # Constrained to HMAC algorithms by _normalise_jwt_algorithm below (see _ALLOWED_JWT_ALGORITHMS).
     jwt_algorithm: str = "HS256"
     jwt_expires_minutes: int = Field(default=60 * 24 * 7, alias="JWT_EXPIRES_MINUTES")
+    # Lifetime of a `dataset:read` token from POST /api/datasets/token. Longer than a session token
+    # (30 days by default) BECAUSE it is narrower: it can only read the export API, so the cost of a
+    # long life is bounded in a way a session token's is not — and the job holding it is a cron entry
+    # nobody re-authenticates by hand. Revocation is by demoting or deleting the account it names,
+    # which takes effect within the identity cache's TTL; see deps.require_dataset_admin.
+    dataset_token_expires_minutes: int = Field(
+        default=60 * 24 * 30, alias="DATASET_TOKEN_EXPIRES_MINUTES"
+    )
     # Escape hatch for local development ONLY: lets the API start with a short/placeholder
     # JWT_SECRET instead of refusing to boot (see app.core.security.verify_jwt_configuration).
     # Never set this in a deployed environment — a guessable secret means anyone can mint tokens

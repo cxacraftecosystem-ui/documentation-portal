@@ -208,14 +208,19 @@ export type PointRecordsResponse = {
 
 /**
  * Where a record of each type is opened. The SAME destinations the search results use, so a pin and
- * a search hit for one record never lead to two different places. Workshops are edited inline on
- * the workshops list and media has no per-record route, so both land on their list page.
+ * a search hit for one record never lead to two different places.
+ *
+ * Workshops are edited INLINE on the workshops list rather than at a `/[id]/edit` route, so the id
+ * travels as `?edit=` instead of as a path segment — `useEditDeepLink` on that page reads it and
+ * loads the record. It used to be a bare `/workshops`, which discarded the id this signature
+ * declares and landed every pin's workshop on a blank create form. Media genuinely has no
+ * per-record route, so it alone still lands on its list page.
  */
 export const RECORD_HREF: Record<RecordType, (id: string) => string> = {
   artisans: (id) => `/artisans/${id}/edit`,
   products: (id) => `/products/${id}/edit`,
   tools: (id) => `/tools/${id}/edit`,
-  workshops: () => "/workshops",
+  workshops: (id) => `/workshops?edit=${id}`,
   media: () => "/media"
 };
 

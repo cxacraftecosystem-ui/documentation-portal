@@ -98,15 +98,44 @@ def verify_jwt_configuration() -> None:
     raise RuntimeError(f"{message} (set ALLOW_WEAK_JWT_SECRET=true to override in development)")
 
 
-def create_access_token(subject: str, extra_claims: dict[str, Any] | None = None) -> str:
+def create_access_token(
+    subject: str,
+    extra_claims: dict[str, Any] | None = None,
+    *,
+    expires_minutes: int | None = None,
+) -> str:
+    """Mint a signed bearer token for *subject*.
+
+    ``expires_minutes`` overrides the configured session lifetime, and is keyword-only so a caller
+    cannot lengthen a token's life by accident when it meant to pass claims. The one caller that
+    uses it is ``POST /api/datasets/token``, whose credential is deliberately longer-lived than a
+    browser session because it is deliberately narrower (see ``deps.DATASET_READ_SCOPE``).
+    """
     settings = get_settings()
     now = datetime.now(UTC)
+    minutes = settings.jwt_expires_minutes if expires_minutes is None else expires_minutes
     payload: dict[str, Any] = {
         "sub": subject,
         "iat": int(now.timestamp()),
-        "exp": now + timedelta(minutes=settings.jwt_expires_minutes),
+        "exp": now + timedelta(minutes=minutes),
     }
     if extra_claims:
+        # ``extra_claims`` may not overwrite the three claims that decide WHO the token is for and
+        # HOW LONG it lasts. Both callers today pass a dict this module built, so nothing is
+        # exploitable — but a blind ``update`` means the day someone forwards a claim influenced by
+        # request data, that caller can mint a token for another subject or one that never expires,
+        # and ``decode_access_token``'s mandatory-``sub``/``exp`` hardening would wave it through
+        # because both claims are present. Refused loudly rather than silently dropped: a caller
+        # passing ``sub`` has misunderstood the signature, and quietly ignoring it would leave them
+        # believing they had changed the subject.
+        #
+        # ``scope`` is deliberately NOT reserved — POST /api/datasets/token sets it, and it can only
+        # ever NARROW what the token may reach (see deps._user_from_bearer).
+        reserved = {"sub", "iat", "exp"} & extra_claims.keys()
+        if reserved:
+            raise ValueError(
+                f"extra_claims may not override reserved claims: {', '.join(sorted(reserved))}"
+            )
         payload.update(extra_claims)
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 

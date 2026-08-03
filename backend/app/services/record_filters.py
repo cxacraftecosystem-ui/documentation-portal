@@ -148,6 +148,42 @@ def artisan_workshop_clause(ids: list[str], include_unassigned: bool) -> dict[st
     return {"OR": branches} if branches else {"id": {"in": []}}
 
 
+def craft_workshop_clause(ids: list[str], include_unassigned: bool) -> dict[str, Any]:
+    """"Which crafts belong to these workshops" — a ``Craft`` predicate, always non-empty.
+
+    A CRAFT REACHES A WORKSHOP TWO WAYS and both count, which is why this is a shared helper rather
+    than the bare ``workshopId`` column test every other table gets:
+
+      1. ``Craft.workshopId`` — the column added when every record type gained a workshop.
+      2. The ``WorkshopCraft`` join, which carried the link before that column existed and is still
+         what ``POST``/``PATCH /crafts`` writes alongside the column (``link_workshop_craft``), what
+         a workshop's "Crafts covered" picker reads, and what the export tree builds its craft
+         folders from.
+
+    THE TWO GENUINELY DISAGREE ON THE LIVE REPOSITORY. Every craft on it was created before the
+    column existed, so all of them had a NULL ``workshopId`` and a perfectly good join row: a
+    column-only predicate returned NOTHING for a workshop whose crafts were sitting right there. That
+    is the repository's most repeated bug — a scope that renders empty over a full corpus and looks
+    exactly like having no data. ``GET /crafts?workshopId=`` has always read both (see the note above
+    its ``where`` clause); this is that reading, lifted into the shared vocabulary so a second screen
+    cannot answer the question differently.
+
+    Returns an IMPOSSIBLE predicate rather than ``None`` when the selection can match nothing, for
+    the same reason ``artisan_workshop_clause`` does: "matches no craft" must not be mistakable for
+    "do not filter".
+    """
+    branches: list[dict[str, Any]] = []
+    if ids:
+        branches.append({"workshopId": {"in": ids}})
+        branches.append({"workshops": {"some": {"workshopId": {"in": ids}}}})
+    if include_unassigned:
+        # Unassigned means BOTH readings are empty. A craft with a join row but no column is linked
+        # to that workshop by every query in the app, so calling it unassigned would double-count it
+        # — the same rule artisan_workshop_clause applies to a roster-only artisan.
+        branches.append({"AND": [{"workshopId": None}, {"workshops": {"none": {}}}]})
+    return {"OR": branches} if branches else {"id": {"in": []}}
+
+
 def resolve_types(raw: list[str] | None) -> set[str]:
     """Which buckets this request covers. Absent, empty, or all-blank means all five.
 
