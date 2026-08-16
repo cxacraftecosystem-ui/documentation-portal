@@ -657,17 +657,27 @@ fun DataBrowserScreen(
                                         onProgress = { done, total -> zipDone = done; zipTotal = total }
                                     )
                                 }.onSuccess { result ->
+                                    // The walk stops at MAX_MANIFEST_FILES / MAX_WALK_DEPTH and the
+                                    // server reports that it did. Saying "Archive saved — 20,000
+                                    // files" over a subtree that has more is the one message here
+                                    // that could send somebody away believing they have everything.
+                                    val short = if (result.truncated) {
+                                        " This folder holds more than one archive can carry, so " +
+                                            "some of it is not included."
+                                    } else {
+                                        ""
+                                    }
                                     note(
                                         when {
                                             result.total == 0 ->
                                                 "Nothing in this folder matches the selected filters."
                                             result.failed > 0 ->
                                                 "Archive saved with ${result.saved} of ${result.total} files — " +
-                                                    "${result.failed} failed. Saved to ${result.displayLocation}"
+                                                    "${result.failed} failed. Saved to ${result.displayLocation}" + short
                                             else ->
                                                 "Archive saved — ${result.total} " +
                                                     "file${if (result.total == 1) "" else "s"}. " +
-                                                    "Saved to ${result.displayLocation}"
+                                                    "Saved to ${result.displayLocation}" + short
                                         }
                                     )
                                 }.onFailure {

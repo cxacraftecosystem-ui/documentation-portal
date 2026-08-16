@@ -1,24 +1,29 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/components/AuthProvider";
-import { Field, Select, TextArea, TextInput } from "@/components/FormControls";
-import { CarryContextBanner, carryScope, useCarryContext, type CarryScopeState } from "@/components/forms/CarryContextBanner";
+import { mergeById } from "@/components/data/cappedList";
+import { CappedListNotice } from "@/components/data/CappedListNotice";
+import { Field, Select, TextInput } from "@/components/FormControls";
+import { CarryContextBanner, carryScope, useCarryContext } from "@/components/forms/CarryContextBanner";
 import { LocationFields, type LocationInitialValues } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
+import { craftChangeClearsArtisan, useCraftAndArtisanOptions, useRecordOffPage } from "@/components/forms/recordPickers";
 import { TitleCasedInput } from "@/components/forms/TitleCasedInput";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { GridMeasurement, type GridFiles, type GridGroup } from "@/components/media/GridMeasurement";
 import { UploadProgress } from "@/components/media/UploadProgress";
+import { RichTextField } from "@/components/richtext/RichTextField";
+import { appendStoredParagraph } from "@/components/richtext/storedRichText";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
-import { apiFetch, listResource } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { locationFromForm, numericValue, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue, useUnsavedChanges } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
-import { appendRemarksWithExif, collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, uploadMediaFile, type BatchProgress } from "@/lib/media";
+import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, uploadMediaFile, type BatchProgress } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
 import { hasRank } from "@/lib/permissions";
 import type { Artisan, Craft, RecordStatus, ToolDocumentation } from "@/lib/types";
@@ -79,8 +84,6 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
   const { user } = useAuth();
   const canSetStatus = hasRank(user, "PROFESSOR");
   const formRef = useRef<HTMLFormElement>(null);
-  const [artisans, setArtisans] = useState<Artisan[]>([]);
-  const [crafts, setCrafts] = useState<Craft[]>([]);
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -99,10 +102,38 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
   const [breadth, setBreadth] = useState(initial?.breadthInches != null ? String(initial.breadthInches) : "");
   const [height, setHeight] = useState(initial?.height != null ? String(initial.height) : "");
   const [gridFiles, setGridFiles] = useState<GridFiles>({});
-  // "Can I see this artisan?" and "is there any signal?" are different answers, and the carry-
-  // forward prefill treats them differently — see useCarryContext. Artisans and crafts arrive from
-  // the same request, so one state covers the scopes built from both.
-  const [referenceState, setReferenceState] = useState<CarryScopeState>("pending");
+  /**
+   * The craft and artisan dropdowns' contents, and what they are NOT showing.
+   *
+   * Shared with ProductForm, which asks the identical question and had the identical defect in it —
+   * see `forms/recordPickers` for the three requests this makes and for the 100-row ceiling that
+   * made the second and third ones necessary. `referenceState` still means what it did ("can I see
+   * this artisan?" and "is there any signal?" are different answers, and `useCarryContext` treats
+   * them differently); it lives in the hook only because it is settled by the same load.
+   */
+  const {
+    artisans,
+    crafts,
+    referenceState,
+    craftCut,
+    craftArtisanCut,
+    artisansLoadedForCraft
+  } = useCraftAndArtisanOptions({ craftId, artisanId });
+  /**
+   * THIS TOOL'S OWN CRAFT IS ALWAYS AN OPTION, wherever it sorts.
+   *
+   * The hook above does the by-id rescue for the ARTISAN and for nobody else. `GET /crafts` is
+   * clamped to 100 rows and ordered NAME ASCENDING (deliberately — `routes/crafts.py:82-87`), so the
+   * cut is stable and always falls in the same place: every tool of a craft whose name sorts past it
+   * opens with its craft dropdown reading "Unlinked / type below" beside a REQUIRED "Craft name" box
+   * holding the right name. The stored link is intact and would be saved untouched — but the form
+   * says it is not, and the obvious repair for a craft that looks unlinked is to pick one, which is
+   * the single action that really does rewrite the link.
+   *
+   * Identical to ProductForm's, by the same hook. Do not write a variant of it.
+   */
+  const offPageCraft = useRecordOffPage<Craft>("/crafts", craftId, crafts);
+  const craftOptions = useMemo(() => (offPageCraft ? mergeById(crafts, [offPageCraft]) : crafts), [crafts, offPageCraft]);
   const { dirty, markDirty, resetDirty } = useUnsavedChanges();
   const [backPromptOpen, setBackPromptOpen] = useState(false);
   // Hands the prompt to the round back control in the page header, which is now the only back
@@ -123,16 +154,6 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
     return value.trim() && Number.isFinite(n) ? n : null;
   };
 
-  useEffect(() => {
-    Promise.all([listResource<Artisan>("/artisans", { pageSize: 100 }), listResource<Craft>("/crafts", { pageSize: 100 })])
-      .then(([artisanResult, craftResult]) => {
-        setArtisans(artisanResult.items);
-        setCrafts(craftResult.items);
-        setReferenceState("loaded");
-      })
-      .catch(() => setReferenceState("unavailable"));
-  }, []);
-
   // Offer the sitting this researcher was last working in, however they got here — the query string
   // only survives a click straight through from the save screen (lib/carryContext). The TOOL in the
   // bag is this form's own subject and is never applied here; a product or process in it belongs to
@@ -141,7 +162,10 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
     enabled: !isEdit,
     // Both dropdowns are built from exactly these two lists, so "absent from the list" is both
     // "you can no longer reach it" and "this form could not show it" — one check answers both.
-    scopes: [carryScope("artisan", referenceState, artisans), carryScope("craft", referenceState, crafts)],
+    // `craftOptions`, not `crafts`: a carried craft that is merely off the picker's first page IS
+    // reachable — the by-id lookup fetched it — and pruning it would drop a perfectly good link from
+    // the bag for the same "absent from page one" reason the artisan side already corrects.
+    scopes: [carryScope("artisan", referenceState, artisans), carryScope("craft", referenceState, craftOptions)],
     // This form has no product, tool or process field, so it neither fills those in nor lets the
     // banner claim it did — they stay in the bag for the forms that do.
     applies: ["craft", "artisan", "workshop"],
@@ -211,7 +235,12 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
         traditionType: requiredText(form, "traditionType") || "UNKNOWN",
         replacementCost: numericValue(form, "replacementCost"),
         suggestionsForToolImprovement: textValue(form, "suggestionsForToolImprovement"),
-        remarks: appendRemarksWithExif(textValue(form, "remarks") as string | null, exifRemark),
+        // `appendStoredParagraph` and NOT `appendRemarksWithExif`: remarks is a rich-text editor
+        // now, so this column may hold a JSON document, and concatenating the EXIF summary onto the
+        // end of a JSON string produces a value that is neither valid JSON nor readable prose. The
+        // helper appends INTO the document when there is one and is byte-for-byte the old behaviour
+        // when there is not.
+        remarks: appendStoredParagraph(textValue(form, "remarks") as string | null, exifRemark),
         artisanId: artisanId || null,
         craftId: craftId || null,
         workshopId: workshop.workshopId || null,
@@ -390,21 +419,28 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
               onChange={(event) => {
                 const next = event.target.value;
                 setCraftId(next);
-                const craft = crafts.find((c) => c.id === next);
+                const craft = craftOptions.find((c) => c.id === next);
                 if (craft) setCraftName(craft.name);
-                if (next && artisanId && !artisans.some((a) => a.id === artisanId && a.craftId === next)) {
+                // Drop the artisan ONLY when this form actually knows they practise a different
+                // craft — never merely because it cannot see them. The distinction, and the silent
+                // link deletion that made it necessary, are argued in `forms/recordPickers`.
+                if (craftChangeClearsArtisan({ nextCraftId: next, artisanId, artisans })) {
                   setArtisanId("");
                 }
                 markDirty();
               }}
             >
+              {/* "Unlinked" must mean unlinked. It is the placeholder a browser falls back to when
+                  `value` matches no <option>, so it doubled as "linked to a craft that is not on
+                  page one" until `craftOptions` carried that craft — see `offPageCraft` above. */}
               <option value="">Unlinked / type below</option>
-              {crafts.map((craft) => (
+              {craftOptions.map((craft) => (
                 <option key={craft.id} value={craft.id}>
                   {craft.name}
                 </option>
               ))}
             </Select>
+            <CappedListNotice cuts={[craftCut]} />
           </Field>
           <Field label="Craft name" required>
             <TitleCasedInput name="craftName" required value={craftName} onChange={(event) => setCraftName(event.target.value)} />
@@ -438,9 +474,15 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
                 </option>
               ))}
             </Select>
-            {craftId && artisansForCraft.length === 0 ? (
+            {/* A claim about the REPOSITORY, so it waits for the repository's answer about THIS
+                craft. Printed off a stale roster it said "no artisans are linked to this craft yet"
+                over a craft with a dozen of them — the silent-emptiness failure in one sentence, and
+                the reason `artisansLoadedForCraft` records WHICH craft the loaded rows are for
+                rather than a bare boolean. */}
+            {craftId && artisansLoadedForCraft === craftId && artisansForCraft.length === 0 ? (
               <p className="mt-1 text-xs text-ink-muted">No artisans are linked to this craft yet.</p>
             ) : null}
+            <CappedListNotice cuts={[craftId ? craftArtisanCut : null]} />
           </Field>
           <Field label="Artisan name" required>
             <TitleCasedInput name="artisanName" required value={artisanName} onChange={(event) => setArtisanName(event.target.value)} />
@@ -515,12 +557,34 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
           </Field>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
-          <Field label="Suggestions for improvement">
-            <TextArea name="suggestionsForToolImprovement" defaultValue={initial?.suggestionsForToolImprovement ?? ""} />
-          </Field>
-          <Field label="Remarks">
-            <TextArea name="remarks" defaultValue={initial?.remarks ?? ""} />
-          </Field>
+          {/*
+            THE TWO NARRATIVE BOXES ON THIS FORM. Both were already `<TextArea>` (`min-h-24`, no
+            length cap) and both hold prose a researcher would rather speak than thumb in. `remarks`
+            is also searched by a raw `contains` at `tools.py:99`, which is the reason
+            `RichTextField` keeps writing plain prose until something is actually formatted.
+
+            `processUsedIn` above is DELIBERATELY LEFT ALONE even though the review registry
+            (`components/review/reviewEditFields.ts`) marks it `multiline: true` and the CSV exports
+            it as "Usage". On this form it is a single-line `TextInput` (line 487), and that
+            disagreement predates this change by a long way; resolving it means deciding which of
+            the two is right, which is a change to what the field IS rather than to what it can do.
+            Recorded here so the next person does not read the omission as an oversight in the
+            sweep.
+          */}
+          <RichTextField
+            name="suggestionsForToolImprovement"
+            label="Suggestions for improvement"
+            defaultValue={initial?.suggestionsForToolImprovement ?? ""}
+            className="md:col-span-2"
+            onDirty={markDirty}
+          />
+          <RichTextField
+            name="remarks"
+            label="Remarks"
+            defaultValue={initial?.remarks ?? ""}
+            className="md:col-span-2"
+            onDirty={markDirty}
+          />
           <StatusField canSetStatus={canSetStatus} initialStatus={initial?.status} onDirty={markDirty} />
         </div>
         <MediaCaptureField

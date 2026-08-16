@@ -80,6 +80,21 @@ export function canManageQuestionnaire(user: User | null | undefined) {
 }
 
 /**
+ * The access roster — who may sign in at all, and the queue of people who were turned away.
+ * `require_admin` on every route in `backend/app/api/routes/access_roster.py`.
+ *
+ * ADMIN AND MASTER ADMIN, matching the requirement's "the admins and master admins should get a
+ * notification to approve or reject the user". Professors are deliberately outside it even though
+ * they manage USERS: the pending queue holds the email addresses of strangers who tried to get into
+ * this institution's repository, which is not information the tiers below administration have any
+ * reason to hold. Managing an account that already exists and deciding whether an account may exist
+ * at all are two different powers, and this is the second one.
+ */
+export function canManageAccessRoster(user: User | null | undefined) {
+  return isAdmin(user);
+}
+
+/**
  * Add or edit a craft — `can_manage_crafts` / `require_craft_manager`. Professor and above, RANK
  * ALONE: the `canManageCrafts` column is no longer read on either side, because a per-user grant
  * that lifted a researcher over the taxonomy was invisible in the role column. Deleting a craft is
@@ -189,6 +204,19 @@ export const ROUTE_GUARDS: RouteGuard[] = [
     gate: "require_admin",
     title: "Admin access required",
     message: "The settings hub is available to admins and the master admin only."
+  },
+  {
+    // Nested under /admin, which is already admin-guarded — this row exists for its WORDING, not for
+    // its predicate. Longest-match wins, so somebody who follows a link to the roster and is not
+    // entitled to it is told what the roster is rather than being told about a settings hub they
+    // were not trying to open. If the tiers ever diverge (a roster-only capability, say), this is
+    // the line that has to change, and it is already here to change.
+    path: "/admin/access-roster",
+    can: canManageAccessRoster,
+    gate: "require_admin",
+    title: "Admin access required",
+    message:
+      "The access roster decides who may sign in to the repository at all, and holds the queue of people waiting for a decision. It is available to admins and the master admin only."
   },
   {
     // The page now holds two things with two different owners, so the ROUTE is admin and the halves

@@ -1,7 +1,7 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 
 # _seg (filesystem-safe segment) and _uniq (collision-free path) are SHARED with the data browser
 # rather than re-implemented here: both modules emit the same manifest shape into the same
@@ -9,7 +9,16 @@ from fastapi.responses import Response
 # repository would unpack differently depending on which endpoint produced the manifest.
 # workshop_reaches_artisan is shared for the same reason one level up — WHICH artisans a workshop
 # contains. Restating that rule here is what let the zip and the browser disagree; see its use below.
-from app.api.routes.data_browser import _seg, _uniq, workshop_reaches_artisan
+# manifest_ndjson_response is shared for the same reason and one more: the streamed shape has to be
+# byte-identical between the two endpoints or the ONE client-side reader that consumes both
+# (FieldRepository.readManifest on Android) would need two parsers, which is how the two manifests
+# drifted apart the last time they were written separately.
+from app.api.routes.data_browser import (
+    _seg,
+    _uniq,
+    manifest_ndjson_response,
+    workshop_reaches_artisan,
+)
 from app.core.db import db
 from app.core.deps import can_download_dataset, get_current_user
 from app.services.access import owner_download_scope
@@ -114,10 +123,12 @@ def _details(kind: str, record: Any) -> str:
     return info_text(info_panel(kind, record))
 
 
-@router.get("/dataset")
+@router.get("/dataset", response_model=None)
 async def dataset_manifest(
-    ownerId: str | None = None, current_user: Any = Depends(get_current_user)
-) -> dict[str, Any]:
+    ownerId: str | None = None,
+    stream: bool = False,
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any] | StreamingResponse:
     """Build the downloadable manifest.
 
     Without ``ownerId`` this is the whole repository and requires the global dataset-download
@@ -127,6 +138,11 @@ async def dataset_manifest(
 
     Response: ``{files, totalFiles, totalMedia, truncated}`` — ``truncated`` is true when any table
     hit its row cap, so the client can warn rather than present a partial zip as complete.
+
+    ``stream=1`` answers the same entries as NDJSON with the three numbers in headers instead of a
+    wrapper object. Opt-in, because every deployed client reads the JSON object; see
+    :func:`app.api.routes.data_browser.manifest_ndjson_response` for the allocation failure it
+    exists to stop.
     """
     rec_where: dict[str, Any] = {}
     media_vis: dict[str, Any] = {}
@@ -370,6 +386,8 @@ async def dataset_manifest(
             emit_interview("_Unlinked", it)
 
     media_count = sum(1 for f in files if "url" in f)
+    if stream:
+        return manifest_ndjson_response(files, media_count, truncated, "dataset.ndjson")
     return {
         "files": files,
         "totalFiles": len(files),

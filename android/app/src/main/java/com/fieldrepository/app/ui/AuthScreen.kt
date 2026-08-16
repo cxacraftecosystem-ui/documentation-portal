@@ -261,8 +261,24 @@ private fun BrandBand() {
                 }
             }
 
+            /*
+             * THIS LINE USED TO SAY "New Google accounts join as Crowdsource Volunteers and are
+             * elevated by an admin", and it stopped being true the day the sign-in gate shipped: a
+             * Google address no longer self-provisions anything, and one that is not on the access
+             * roster gets no account and no token. The sentence below is the web sign-in page's,
+             * verbatim — change them together.
+             *
+             * THIS COMPOSABLE IS NOT WIRED UP. The live sign-in card is `LoginScreen` in
+             * MainActivity.kt; nothing calls this one. WHOEVER CONNECTS IT MUST ALSO GIVE IT THE
+             * REFUSAL BRANCH `LoginScreen` has: an `ACCESS_PENDING` refusal has to be drawn as a
+             * WAITING state, distinct from the red "Invalid email or password", and it has to
+             * branch on the server's `detail.code` (via `Throwable.apiFailure`) rather than on the
+             * English prose. Without that, a person waiting on an administrator is told they got
+             * their password wrong — which is the exact failure this feature exists to prevent.
+             */
             Text(
-                "New Google accounts join as Crowdsource Volunteers and are elevated by an admin.",
+                "Access is by invitation: an administrator adds your address to the roster. " +
+                    "Sign in once and your request reaches them.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White.copy(alpha = 0.45f)
             )

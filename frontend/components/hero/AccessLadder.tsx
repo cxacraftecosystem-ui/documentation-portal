@@ -67,9 +67,16 @@ export default function AccessLadder() {
           Six tiers, and each one inherits the last.
         </motion.h2>
         <motion.p variants={item} className="mt-4 max-w-2xl text-base leading-relaxed text-ink-500">
-          New accounts start at the bottom and are raised by an admin. Individual capabilities —
-          dataset download, review, craft and workshop creation, the questionnaire builder — can also
-          be granted one at a time, without moving anyone up the ladder.
+          {/* THE LADDER IS THE SECOND GATE — see the same note in the Designer repo. This read
+              "New accounts start at the bottom and are raised by an admin", which described the
+              whole of admission when signing in was open to anyone who could authenticate. The
+              allow-list is now the first gate; a reader who knows only the ladder reads a refusal
+              at the door as a bug. */}
+          An administrator admits your address to the platform first; the ladder then decides what
+          the account may do. Newly admitted accounts start at the bottom unless the admitting
+          administrator chose otherwise, and are raised by an admin from there. Individual
+          capabilities — dataset download, review, craft and workshop creation, the questionnaire
+          builder — can also be granted one at a time, without moving anyone up the ladder.
         </motion.p>
 
         <ol className="mt-12 space-y-2.5">

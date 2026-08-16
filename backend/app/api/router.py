@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.routes import (
+    access_roster,
     app_release,
     artisans,
     auth,
@@ -34,6 +35,9 @@ api_router = APIRouter(prefix="/api")
 api_router.include_router(auth.router)
 api_router.add_api_route("/me", auth.me, methods=["GET"], tags=["auth"])
 api_router.include_router(users.router)
+# The sign-in gate's admin side. Mounted next to /users because it answers the same question from
+# the other end: /users is who has an account, /access-roster is who is allowed to have one.
+api_router.include_router(access_roster.router)
 api_router.include_router(artisans.router)
 api_router.include_router(crafts.router)
 api_router.include_router(workshops.router)

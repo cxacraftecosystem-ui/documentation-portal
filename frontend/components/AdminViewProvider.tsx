@@ -157,6 +157,16 @@ export const ADMIN_CHROME_ROUTES: AdminChromeRoute[] = [
     blurb: "It gathers reviews, recovered recordings, feedback, tool assignment and user management in one place."
   },
   {
+    // More specific than "/admin" above (longest match wins), because the honest sentence for this
+    // one is different: hiding the settings hub hides tools, hiding the roster hides a QUEUE that
+    // other people are waiting in. An admin who turned the toggle off should be told that is what
+    // they are not looking at.
+    path: "/admin/access-roster",
+    label: "The access roster",
+    blurb:
+      "It decides who may sign in at all, and holds the pending requests from people who were turned away."
+  },
+  {
     // Professor+ by role, so this rule can only ever fire for an ADMIN — a professor has no toggle
     // and `adminChromeVisible` returns true for them, which is what keeps them out of this branch.
     path: "/users",

@@ -103,17 +103,44 @@ private val errorBodyJson = Json { ignoreUnknownKeys = true; isLenient = true }
  *
  * Retrofit buffers the error body, but reading it CONSUMES the buffer — call this once per failure.
  */
-fun Throwable.apiErrorMessage(fallback: String): String {
+fun Throwable.apiErrorMessage(fallback: String): String = apiFailure(fallback).message
+
+/**
+ * A failed request, read ONCE: the sentence for the person, plus the stable code when the server
+ * sent one.
+ *
+ * WHY THE CODE IS SEPARATE FROM THE SENTENCE. The sign-in gate answers a refused caller with
+ * `{"detail": {"code": "ACCESS_PENDING", "message": "…"}}` precisely so a client can branch on
+ * something that is not English prose — the sign-in screen has to tell "you are waiting for an
+ * administrator" apart from "wrong email or password" and draw them differently, and matching on
+ * the sentence would break the first time somebody improves the wording. [message] is still the
+ * server's own text, verbatim; nothing here composes a replacement.
+ *
+ * IT MUST BE ONE FUNCTION AND NOT TWO. Retrofit buffers the error body and reading it CONSUMES the
+ * buffer, so a `code` reader called beside [apiErrorMessage] would get an empty body — whichever
+ * ran second would silently see nothing. Hence one read, both answers.
+ */
+data class ApiFailure(
+    /** e.g. `ACCESS_PENDING`. Null for a plain-string detail, a 422 list, or a transport failure. */
+    val code: String?,
+    /** What to show the person: the API's own sentence, else the platform's, else the fallback. */
+    val message: String
+)
+
+fun Throwable.apiFailure(fallback: String): ApiFailure {
     val plain = message?.takeIf { it.isNotBlank() } ?: fallback
     // Not an HTTP failure at all (no connection, timeout, serialization): the platform message is all
     // there is, and it is more informative than anything this function could invent.
-    val http = this as? HttpException ?: return plain
+    val http = this as? HttpException ?: return ApiFailure(null, plain)
     val raw = runCatching { http.response()?.errorBody()?.string() }.getOrNull()
-    if (raw.isNullOrBlank()) return plain
+    if (raw.isNullOrBlank()) return ApiFailure(null, plain)
     val detail = (runCatching { errorBodyJson.parseToJsonElement(raw) }.getOrNull() as? JsonObject)
         ?.get("detail")
-        ?: return plain
-    return detailMessage(detail) ?: plain
+        ?: return ApiFailure(null, plain)
+    val code = ((detail as? JsonObject)?.get("code") as? JsonPrimitive)?.contentOrNull
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+    return ApiFailure(code, detailMessage(detail) ?: plain)
 }
 
 /** Pull the human-readable text out of whichever `detail` shape FastAPI returned. */
@@ -230,6 +257,69 @@ class FieldRepository(
 
     // --- Cross-researcher data access (Sharing) ---
     suspend fun userDirectory(): List<UserDto> = api.userDirectory()
+
+    // --- The access roster: who may sign in at all ----------------------------------------------
+    //
+    // Thin pass-throughs on purpose. Every rule that matters — only ACTIVE admits, `joinedAt` is
+    // stamped once and never moved, a rejection is not undone by the rejected person retrying, the
+    // master admin can never be taken off the list — lives on the server, in
+    // `app/services/access_roster.py`, because both clients and both applications have to obey the
+    // same one. A convenience here that "helpfully" decided any of them would be a second opinion.
+
+    /** One page of the roster, newest request first. `status` null = every status. See the API. */
+    suspend fun accessRoster(
+        page: Int = 1,
+        pageSize: Int = 50,
+        search: String? = null,
+        status: String? = null
+    ): PageResponse<AccessRosterDto> = api.accessRoster(
+        page = page,
+        pageSize = pageSize,
+        search = search?.trim()?.ifBlank { null },
+        status = status?.ifBlank { null }
+    )
+
+    /** How many people are waiting on an administrator. THE NOTIFICATION. */
+    suspend fun accessRosterPendingCount(): Int = api.accessRosterPendingCount().pending
+
+    suspend fun addToAccessRoster(
+        email: String,
+        fullName: String? = null,
+        notes: String? = null,
+        grantedRole: String? = null
+    ): AccessRosterDto = api.addToAccessRoster(
+        AccessRosterCreateBody(
+            email = email.trim(),
+            fullName = fullName?.trim()?.ifBlank { null },
+            notes = notes?.trim()?.ifBlank { null },
+            grantedRole = grantedRole?.ifBlank { null }
+        )
+    )
+
+    /**
+     * Approve, and set the tier the person joins at in the same call.
+     *
+     * ONE CALL AND NOT TWO. Approving and then promoting would leave a window in which somebody an
+     * admin deliberately admitted as a Researcher can sign in as a volunteer — and if the second
+     * call failed, the window would be permanent and invisible.
+     */
+    suspend fun approveAccessRosterEntry(id: String, grantedRole: String? = null): AccessRosterDto =
+        api.updateAccessRosterEntry(
+            id,
+            AccessRosterUpdateBody(status = "ACTIVE", grantedRole = grantedRole?.ifBlank { null })
+        )
+
+    /**
+     * Refuse. The entry STAYS, and a later attempt by the same person bumps their counter without
+     * re-opening the request — see `access_roster.record_access_request` for why re-opening was
+     * rejected as a design: a rejection an applicant can undo by tapping "sign in" again is not a
+     * rejection, it is a timer, and the admin gets the same request back every day forever.
+     */
+    suspend fun rejectAccessRosterEntry(id: String): AccessRosterDto =
+        api.updateAccessRosterEntry(id, AccessRosterUpdateBody(status = "REJECTED"))
+
+    /** Suspend — never a delete. The row is the record that this address was admitted. */
+    suspend fun suspendAccessRosterEntry(id: String): AccessRosterDto = api.suspendAccessRosterEntry(id)
     suspend fun dataAccessTiers(): List<DataAccessTierInfo> = api.dataAccessTiers()
     suspend fun dataAccessGrants(): MyGrantsDto = api.dataAccessGrants()
     suspend fun requestDataAccess(ownerId: String, tier: String, note: String?): DataAccessGrantDto =
@@ -793,7 +883,37 @@ class FieldRepository(
     suspend fun artisans(workshopIds: List<String>? = null): List<ArtisanDto> =
         api.artisans(pageSize = 100, workshopIds = workshopIds.toQueryCsv()).items
 
+    /**
+     * The same request, WITH the envelope — because `total` is the half that says whether the list
+     * is whole.
+     *
+     * `pageSize = 100` is not a generous default somebody forgot to raise: `normalize_pagination`
+     * clamps to `MAX_PAGE_SIZE = 100` (`backend/app/services/pagination.py`), so it is the ceiling
+     * and cannot be widened from this client even in principle. Every caller of [artisans] above
+     * keeps `.items` and drops `total`, which is exactly how a cut list came to render
+     * indistinguishably from a repository with nothing in it. A screen that shows this list must be
+     * able to say so — see `ui/RecordPickers.listCutNotice`.
+     */
+    suspend fun artisansPage(workshopIds: List<String>? = null): PageResponse<ArtisanDto> =
+        api.artisans(pageSize = 100, workshopIds = workshopIds.toQueryCsv())
+
+    /**
+     * One craft's artisans, filtered by the server rather than in memory.
+     *
+     * The request the record forms were missing. Filtering a 100-row page of the WHOLE artisan table
+     * down to one craft on the device gives the intersection of that craft with the newest hundred
+     * rows overall; asking the server for `craftId` gives the craft's roster, up to the same ceiling
+     * — which for a single craft is, in practice, all of them. The envelope is returned for the same
+     * reason as above: "in practice" is not a property of the code, so the caller still has to be
+     * able to say when it was not.
+     */
+    suspend fun artisansForCraftPage(craftId: String): PageResponse<ArtisanDto> =
+        api.artisans(pageSize = 100, craftId = craftId)
+
     suspend fun crafts(): List<CraftDto> = api.crafts(pageSize = 100).items
+
+    /** [crafts] with the envelope kept, for the same reason as [artisansPage]. */
+    suspend fun craftsPage(): PageResponse<CraftDto> = api.crafts(pageSize = 100)
 
     suspend fun products(): List<ProductDetailDto> = api.products(pageSize = 100).items
 
@@ -901,49 +1021,160 @@ class FieldRepository(
     suspend fun deleteProcess(id: String) = api.deleteProcess(id)
     suspend fun deleteInterview(id: String) = api.deleteInterview(id)
 
-    /** Result of a full-dataset download: where it was saved and how many files succeeded. */
-    data class DatasetDownloadResult(val displayLocation: String, val saved: Int, val total: Int, val failed: Int)
+    /**
+     * Result of a full-dataset download: where it was saved and how many files succeeded.
+     *
+     * [truncated] is the SERVER's answer, not this client's: true when the repository is larger than
+     * the export caps and the archive therefore cannot be the whole of it. It is carried all the way
+     * out to the button's message because "Saved to Downloads — 4,312/4,312 files" over an archive
+     * missing everything past the cap is a wrong answer that reads as a right one.
+     */
+    data class DatasetDownloadResult(
+        val displayLocation: String,
+        val saved: Int,
+        val total: Int,
+        val failed: Int,
+        val truncated: Boolean = false
+    )
+
+    /**
+     * Read a download manifest without ever holding it whole, and hand each entry to [onEntry].
+     *
+     * WHY THE MANIFEST IS SPOOLED TO DISK FIRST, WHICH IS THE PART THAT LOOKS REDUNDANT.
+     *
+     * The obvious shape — read a line, zip that file, read the next line — is wrong here, and would
+     * fail in the field rather than on a desk. The manifest response is served by the API host while
+     * every media object is fetched from S3 on [storageClient]; consuming the manifest lazily means
+     * its socket stays open for the whole download and sits idle for as long as each media transfer
+     * takes. `ApiClient` sets a 60-second read timeout (deliberately, for mobile data), so the first
+     * media file slower than a minute would kill the manifest connection mid-download and take the
+     * whole archive with it. Spooling drains the manifest at full speed, closes its connection, and
+     * leaves a file we can re-read at whatever pace S3 answers.
+     *
+     * `copyTo` streams in 8 KB chunks, so the spool costs one buffer, not one manifest — the peak
+     * heap for the whole operation becomes the longest single LINE (one entry; at worst one
+     * transcript body), against the ~48 MB single contiguous allocation the typed call asks for.
+     * See `data/ManifestStream.kt` for the OutOfMemoryError this replaces.
+     *
+     * THE FALLBACK IS NOT DEAD CODE. `?stream=1` is a query parameter, and a server that predates it
+     * ignores it and answers the ordinary JSON object. That response must still produce an archive —
+     * handsets update on their own schedule and a client that only works against a new server is a
+     * client that breaks every phone in the field on the day of a rollback. [buffered] is that path,
+     * and it is the OLD behaviour exactly: one whole-manifest allocation, which is fine on the small
+     * repositories that never hit this defect and is at least an attempt on the large ones.
+     */
+    private suspend fun <T> readManifest(
+        streamed: suspend () -> retrofit2.Response<okhttp3.ResponseBody>,
+        buffered: suspend () -> Triple<List<T>, Int, Boolean>,
+        deserializer: kotlinx.serialization.DeserializationStrategy<T>,
+        spool: File,
+        onEntry: suspend (entry: T, announcedTotal: Int) -> Unit
+    ): ManifestOutcome {
+        val response = streamed()
+        val body = response.body()
+        val ndjson = response.isSuccessful && body != null &&
+            ManifestStream.isNdjson(response.headers()["Content-Type"])
+        if (!ndjson) {
+            // Not the streamed format. Close what did arrive — an unclosed ResponseBody leaks the
+            // connection out of OkHttp's pool — and ask again for the shape this server does speak.
+            runCatching { body?.close() }
+            val (files, total, truncated) = buffered()
+            for (entry in files) onEntry(entry, total)
+            return ManifestOutcome(total = total, truncated = truncated, unreadable = 0)
+        }
+        // Read BEFORE the body, which is the whole point of putting these in headers: the caller
+        // needs the total to report progress from the first entry, not after the last one.
+        val total = ManifestStream.count(response.headers()[ManifestStream.TOTAL_HEADER])
+        val truncated = ManifestStream.flag(response.headers()[ManifestStream.TRUNCATED_HEADER])
+        try {
+            body!!.byteStream().use { input ->
+                FileOutputStream(spool).use { out -> input.copyTo(out) }
+            }
+            var unreadable = 0
+            spool.reader(Charsets.UTF_8).use { reader ->
+                val lines = ManifestLines(reader, ApiClient.json, deserializer)
+                // A plain `for`, not `forEach`: the body suspends (a folder download asks the API
+                // to transcode each audio row), and only the loop keeps us in the caller's coroutine.
+                for (entry in lines.entries()) onEntry(entry, total)
+                unreadable = lines.unreadable
+            }
+            return ManifestOutcome(total = total, truncated = truncated, unreadable = unreadable)
+        } finally {
+            // cacheDir is not guaranteed to be swept, and a 48 MB spool left behind after every
+            // download is the kind of thing that quietly fills a field handset.
+            spool.delete()
+        }
+    }
 
     /**
      * Pull the full dataset manifest, then download every media object straight from S3 and zip the
      * whole directory tree to the device's Downloads folder. [onProgress] reports (done, total) as each
      * entry is written so the UI can show real progress. Individual file failures are skipped, not fatal.
+     *
+     * The manifest is read entry-by-entry ([readManifest]) rather than deserialised whole, so a large
+     * repository no longer has to fit in one allocation. `total` therefore comes from the server's
+     * `X-Dataset-Total` header instead of `files.size`; while it is unknown (-1, an old server that
+     * sent no header) progress reports the running count as the total, which reads as "N of N so
+     * far" rather than as a wrong fraction.
      */
     suspend fun downloadDataset(
         context: Context,
         onProgress: (done: Int, total: Int) -> Unit
     ): DatasetDownloadResult = withContext(Dispatchers.IO) {
-        val manifest = api.datasetManifest()
-        val total = manifest.files.size
         val stamp = DateTimeFormatter.ofPattern("ddMMyyyyHHmmss").withZone(ZoneId.systemDefault()).format(Instant.now())
         val zipName = "FieldRepository_dataset_$stamp.zip"
         val tmp = File(context.cacheDir, zipName)
         var failed = 0
-        ZipOutputStream(BufferedOutputStream(FileOutputStream(tmp))).use { zip ->
-            manifest.files.forEachIndexed { index, f ->
+        var written = 0
+        val outcome = ZipOutputStream(BufferedOutputStream(FileOutputStream(tmp))).use { zip ->
+            readManifest(
+                streamed = { api.datasetManifestStream() },
+                buffered = {
+                    val manifest = api.datasetManifest()
+                    Triple(manifest.files, manifest.files.size, manifest.truncated)
+                },
+                deserializer = DatasetFileDto.serializer(),
+                spool = File(context.cacheDir, "$zipName.manifest")
+            ) { f, announced ->
                 runCatching {
                     zip.putNextEntry(ZipEntry(f.path))
                     when {
                         f.content != null -> zip.write(f.content.toByteArray(Charsets.UTF_8))
-                        f.url != null -> {
-                            val request = Request.Builder().url(f.url).build()
-                            storageClient.newCall(request).execute().use { resp ->
-                                if (resp.isSuccessful) resp.body?.byteStream()?.copyTo(zip) else throw IllegalStateException("HTTP ${resp.code}")
-                            }
-                        }
+                        f.url != null -> writeObject(f.url, zip)
                     }
                     zip.closeEntry()
                 }.onFailure {
                     failed++
                     runCatching { zip.closeEntry() }
                 }
-                onProgress(index + 1, total)
+                written++
+                onProgress(written, if (announced >= 0) announced else written)
             }
         }
         val location = persistFileToDownloads(context, tmp, zipName, "application/zip")
         tmp.delete()
-        DatasetDownloadResult(displayLocation = location, saved = total - failed, total = total, failed = failed)
+        DatasetDownloadResult(
+            displayLocation = location,
+            saved = written - failed,
+            total = manifestTotal(outcome, written),
+            failed = manifestTotal(outcome, written) - (written - failed),
+            truncated = outcome.truncated
+        )
     }
+
+    /**
+     * How many files the download was SUPPOSED to contain — the server's count, not ours.
+     *
+     * The server's is the honest denominator and the two can legitimately differ. A line that would
+     * not decode was never handed to the zip loop, so it is in the server's count and not in
+     * [seen]; and if a stream ends early the count is higher than anything we saw. Reporting
+     * `seen` as the total in either case would let the archive present itself as complete while
+     * being short, which is the failure the `truncated` flag exists to stop and this would
+     * reintroduce by another door. Falls back to what arrived only when there is no header to
+     * believe (-1 — a server that predates it).
+     */
+    private fun manifestTotal(outcome: ManifestOutcome, seen: Int): Int =
+        if (outcome.total >= 0) maxOf(outcome.total, seen) else seen + outcome.unreadable
 
     /**
      * Download the styled .xlsx relational report straight into the public Downloads folder (same
@@ -976,6 +1207,11 @@ class FieldRepository(
      * skipped, never fatal.
      *
      * [folderName] names the .zip; the requested folder's own name is the natural choice.
+     *
+     * The manifest is read entry-by-entry ([readManifest]) for the same reason [downloadDataset]
+     * does it, and this endpoint is if anything the worse of the two: an unfiltered folder manifest
+     * inlines the FULL transcript of every audio row in the subtree, so its byte size is bounded by
+     * nothing at all.
      */
     suspend fun downloadDataFolder(
         context: Context,
@@ -984,8 +1220,6 @@ class FieldRepository(
         folderName: String? = null,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }
     ): DatasetDownloadResult = withContext(Dispatchers.IO) {
-        val manifest = api.dataManifest(path, include?.blankToNull())
-        val total = manifest.files.size
         val stamp = DateTimeFormatter.ofPattern("ddMMyyyyHHmmss").withZone(ZoneId.systemDefault()).format(Instant.now())
         val stem = (folderName ?: path.substringAfterLast('/')).blankToNull()
             ?.replace(Regex("[^A-Za-z0-9._-]+"), "_")?.take(60)
@@ -993,8 +1227,17 @@ class FieldRepository(
         val zipName = "FieldRepository_${stem}_$stamp.zip"
         val tmp = File(context.cacheDir, zipName)
         var failed = 0
-        ZipOutputStream(BufferedOutputStream(FileOutputStream(tmp))).use { zip ->
-            manifest.files.forEachIndexed { index, f ->
+        var written = 0
+        val outcome = ZipOutputStream(BufferedOutputStream(FileOutputStream(tmp))).use { zip ->
+            readManifest(
+                streamed = { api.dataManifestStream(path, include?.blankToNull()) },
+                buffered = {
+                    val manifest = api.dataManifest(path, include?.blankToNull())
+                    Triple(manifest.files, manifest.files.size, manifest.truncated)
+                },
+                deserializer = DataManifestFileDto.serializer(),
+                spool = File(context.cacheDir, "$zipName.manifest")
+            ) { f, announced ->
                 runCatching {
                     zip.putNextEntry(ZipEntry(f.path))
                     when {
@@ -1008,12 +1251,19 @@ class FieldRepository(
                     failed++
                     runCatching { zip.closeEntry() }
                 }
-                onProgress(index + 1, total)
+                written++
+                onProgress(written, if (announced >= 0) announced else written)
             }
         }
         val location = persistFileToDownloads(context, tmp, zipName, "application/zip")
         tmp.delete()
-        DatasetDownloadResult(displayLocation = location, saved = total - failed, total = total, failed = failed)
+        DatasetDownloadResult(
+            displayLocation = location,
+            saved = written - failed,
+            total = manifestTotal(outcome, written),
+            failed = manifestTotal(outcome, written) - (written - failed),
+            truncated = outcome.truncated
+        )
     }
 
     /** Stream the API's .mp4 conversion of one audio row into [sink]. False = let the caller fall back. */

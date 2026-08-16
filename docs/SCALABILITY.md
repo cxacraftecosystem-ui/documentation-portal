@@ -369,10 +369,36 @@ be preserved, not replaced with server-side archiving.
 **Fix:**
 
 - `Workbook(write_only=True)` plus `wb.save(temp_path)` and a `FileResponse`. Peak heap drops to
-  roughly one row.
+  roughly one row. **Still unimplemented.**
 - Feed sheets from a generator that pages the query in batches rather than materialising every row.
-- For the manifest, stream NDJSON (`{"path":…,"url":…}` per line) behind a `?stream=1` flag, keeping
-  the existing JSON shape as the default so no client breaks.
+  **Still unimplemented.**
+- ~~For the manifest, stream NDJSON (`{"path":…,"url":…}` per line) behind a `?stream=1` flag,
+  keeping the existing JSON shape as the default so no client breaks.~~ **DONE** —
+  `data_browser.manifest_ndjson_response`, offered by both `GET /export/dataset?stream=1` and
+  `GET /data/manifest?stream=1`, with `X-Dataset-Total` / `X-Dataset-Media` /
+  `X-Dataset-Truncated` carrying what the wrapper object used to. The default JSON shape is
+  unchanged and must stay so: both browser clients and every installed Android build read it.
+
+**Why the manifest was done first, and what it actually fixed.** The client half was the urgent
+one. `FieldRepositoryApi.datasetManifest()` and `.dataManifest()` were typed Retrofit calls, so the
+whole body went through the kotlinx-serialization converter's `Serializer.FromString` —
+`decodeFromString(body.string())` — and `ResponseBody.string()` allocates ONE contiguous `ByteArray`
+the size of the entire response and copies it into ONE contiguous `String`. At the ~48 MB modelled
+above that is a single 48 MB allocation request on a handset heap that is also holding Compose, and
+it fails as `java.lang.OutOfMemoryError: Failed to allocate a 48000000 byte allocation`.
+`android:largeHeap="true"` was already set, so that mitigation was spent — and would not have
+helped: a large enough *contiguous* allocation fails on a fragmented heap however much total free
+memory is reported.
+
+The Android downloads (`FieldRepository.downloadDataset`, `.downloadDataFolder`) now spool the
+NDJSON to a cache file and zip it a line at a time, so peak heap is one entry rather than one
+manifest. The spool is not redundant: the manifest is served by the API host while every media
+object comes from S3, so consuming the stream lazily would hold the manifest socket open and idle
+for the length of each media transfer, and `ApiClient`'s 60-second read timeout would kill it. On
+the server side the streamed path also drops each entry as it is encoded, which removes the second
+copy `JSONResponse` used to hold beside the list. What it does **not** do is make the server's
+manifest *build* incremental — the list is still assembled whole before the first byte is sent, and
+the caps above are still what bounds it.
 
 **Cost to the pilot:** `write_only` cannot measure content to size columns after the fact, so column
 widths become fixed rather than content-fitted, and the Overview sheet must be written first from

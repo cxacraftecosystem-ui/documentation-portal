@@ -14,6 +14,7 @@ import {
 } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { DynamicIslandNav } from "@/components/DynamicIslandNav";
+import { PageSelvedge } from "@/components/PageSelvedge";
 import { isAdmin, roleLabel, routeGuardFor } from "@/lib/permissions";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -70,6 +71,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         Skip to content
       </a>
       <DynamicIslandNav />
+      {/* Decorative only — see PageSelvedge. It is `fixed z-0`, so `main` below carries an
+          explicit `relative z-10`: a positioned element paints above ordinary flow content
+          regardless of source order, and without that the strips would sit ON the page. */}
+      <PageSelvedge />
       <motion.main
         id="main-content"
         tabIndex={-1}
@@ -77,7 +82,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.22, ease: "easeOut" }}
-        className="mx-auto max-w-7xl px-4 pb-12 pt-24"
+        className="relative z-10 mx-auto max-w-7xl px-4 pb-12 pt-24"
       >
         {blocked && guard ? (
           <RouteLocked title={guard.title} message={guard.message} role={roleLabel(user.role)} />

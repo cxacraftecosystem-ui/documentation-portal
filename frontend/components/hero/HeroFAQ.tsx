@@ -9,7 +9,11 @@ import { useHeroReducedMotion } from "@/components/hero/useHeroMotion";
 const FAQS = [
   {
     q: "Who can sign in?",
-    a: "Anyone with an account — email and password, or Google. New accounts start as Crowdsource Volunteers, and an admin elevates them up the six-tier ladder (field contributor, researcher, professor, admin) as their role in the project grows."
+    a: "Only addresses an administrator has admitted. Signing in — by password or with Google — checks your address against the platform allow-list first; if it is not on the list, no account is created and your request goes to the administrators as a pending approval. Everyone already using the repository when the allow-list was introduced was carried onto it, so nothing changed for existing accounts. Once you are admitted you join the six-tier ladder, and an admin raises you up it (field contributor, researcher, professor, admin) as your role in the project grows."
+  },
+  {
+    q: "I signed in with Google and was told I need approval. Why?",
+    a: "Because a verified Google address is proof of who you are, not permission to be here. Google sign-in used to create an account for any address that could authenticate; now it is checked against the same allow-list as a password, so an address nobody has admitted gets no account and no token. Your request is queued for an administrator, and you will be able to sign in once they approve it. A refused password and an address awaiting approval are answered differently, so you are never left guessing which of the two you are looking at."
   },
   {
     q: "What happens to my recordings?",
@@ -25,7 +29,7 @@ const FAQS = [
   },
   {
     q: "What can a brand-new account actually do?",
-    a: "New accounts start as Crowdsource Volunteers: they can take interviews, upload media, and comment on existing records. Creating artisans, products, processes and tools begins at Field Contributor, and an admin raises the tier when the person's role in the project does."
+    a: "A newly admitted account starts at the bottom of the ladder — Crowdsource Volunteer unless the administrator who admitted it chose a higher tier — and can take interviews, upload media, and comment on existing records. Creating artisans, products, processes and tools begins at Field Contributor, and an admin raises the tier when the person's role in the project does."
   },
   {
     q: "Does it work offline?",

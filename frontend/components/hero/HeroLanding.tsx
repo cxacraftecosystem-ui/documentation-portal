@@ -416,9 +416,14 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
         <h2 className="relative font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
           Ready to document living craft?
         </h2>
+        {/* The last thing a visitor reads before the sign-in button, so it is where the allow-list
+            has to be said. It previously described a door that no longer opens: an address nobody
+            has admitted now gets a pending request rather than an account, and sending somebody to
+            a sign-in screen without telling them makes the refusal there read as a fault. */}
         <p className="relative mx-auto mt-3 max-w-xl text-white/75">
-          Sign in with your researcher account, or with Google — new accounts start as
-          Crowdsource Volunteers and are elevated by an admin.
+          Sign in with your researcher account, or with Google. Access is by invitation: an
+          administrator admits your address first, and a new sign-in from an address that is not yet
+          on the list becomes a request for approval rather than an account.
         </p>
         <div className="relative mt-8 flex flex-wrap items-center justify-center gap-4">
           <Link

@@ -27,6 +27,32 @@ enum AuthProvider {
   GOOGLE
 }
 
+/// Where one email address stands with the institution — the SIGN-IN GATE's only vocabulary.
+///
+/// Four values and not two, because "never let in" and "let in and then stopped" are different
+/// facts about a person and an audit a year from now has to be able to tell them apart. Both
+/// refuse the sign-in; only one of them is a revocation.
+///
+/// ACTIVE is the ONLY value that admits. Every other value is a refusal, and any code that tests
+/// for a row's EXISTENCE rather than for `status = ACTIVE` has written an authentication bypass —
+/// PENDING rows are created by UNAUTHENTICATED sign-in attempts, so "a row exists" is a statement
+/// an attacker can make come true about their own address. See `AccessRoster` and
+/// `app/services/access_roster.py::roster_admits`.
+enum AccessStatus {
+  /// Somebody proved they own this address, was refused, and is waiting for an admin. Written by
+  /// the sign-in path itself; see `AccessRoster.requestCount`.
+  PENDING
+  /// Admitted. The one value that lets a sign-in through.
+  ACTIVE
+  /// An admin looked at a PENDING request and said no. Distinct from SUSPENDED because this person
+  /// was NEVER admitted, and distinct from deleting the row because a deleted row would go straight
+  /// back into the admin's queue the next time they tried to sign in.
+  REJECTED
+  /// Was admitted, and an admin ended it. The account, its records and its authorship all survive —
+  /// which is the entire reason access is a separate fact from `User.role`.
+  SUSPENDED
+}
+
 enum RecordStatus {
   DRAFT
   PENDING
@@ -171,8 +197,109 @@ model User {
   recordRevisions RecordRevision[] @relation("RecordRevisionEditedBy")
   tasksAssigned   AssignedTask[]   @relation("TaskAssignee")
   tasksCreated    AssignedTask[]   @relation("TaskCreator")
+  accessDecisions AccessRoster[]   @relation("AccessRosterDecidedBy")
 
   @@index([role])
+}
+
+/// THE SIGN-IN GATE. One row per email address the institution has an opinion about.
+///
+/// WHY THIS IS KEYED BY EMAIL AND NOT BY `User.id`. An admin has to be able to admit somebody
+/// BEFORE their account exists — that is the whole point. This application has no password
+/// self-registration and no invitation email; the only way a person who has never been here gets an
+/// account is by signing in with Google, and until they do there is no `User` row to point at. So
+/// the roster is a list of ADDRESSES, and the account attaches itself to the row on first sign-in.
+///
+/// WHY THIS IS A SEPARATE FACT FROM `User.role`, and must stay one. The role column is read when
+/// deciding who may review whose work and whose records may be edited (`deps.can_review_record`,
+/// `deps.can_edit_others_record`), so revoking access by demoting somebody to the bottom tier is
+/// RETROACTIVE: it silently rewrites the standing of every record they ever created and every
+/// review they ever signed. Suspending a roster row ends their sign-ins and leaves the authorship
+/// of their fieldwork exactly as it was. Anyone tempted to "simplify" this by adding an
+/// `isDisabled` boolean to `User` is proposing that revocation and demotion be the same operation;
+/// they are not.
+///
+/// THE ROWS IN THIS TABLE ARE WRITTEN BY UNAUTHENTICATED CALLERS. A PENDING row is created by the
+/// sign-in path itself, by anybody who can prove they own an email address (see
+/// `app/services/access_roster.py::record_access_request` for what "prove" means and what bounds
+/// the write). Therefore: **existence of a row admits nobody.** Only `status = ACTIVE` admits, and
+/// any query here that tests for a row rather than for the status has written an authentication
+/// bypass that an attacker can trigger on their own address in one HTTP request.
+model AccessRoster {
+  id String @id @default(cuid())
+
+  /// Lower-cased on every write, by `access_roster.normalise_email` and nowhere else. Joined to
+  /// `User.email`, which is itself unique and also stored lower-cased by the auth path. A roster
+  /// row typed `A.Sharma@Example.org` that never matches the account signing in as
+  /// `a.sharma@example.org` is a person locked out of the application by a capital letter, with an
+  /// admin looking straight at the row that was supposed to let them in.
+  email String @unique
+
+  /// PENDING by default, because the default way a row comes into existence is a refused sign-in.
+  /// An admin adding somebody ahead of time passes ACTIVE explicitly.
+  status AccessStatus @default(PENDING)
+
+  /// The tier the account is PROVISIONED at when this address first signs in successfully.
+  ///
+  /// "All the users by default join as the lowest rung unless promoted there itself" — so the
+  /// default is the bottom of the ladder, and the "promoted there itself" is an admin changing this
+  /// column on the roster screen while approving the request.
+  ///
+  /// AUTHORITATIVE ONLY UNTIL THE ACCOUNT EXISTS. Once there is a `User` row, `User.role` is the
+  /// role, and this column is a historical note about what they were let in as. It is deliberately
+  /// NOT re-applied on later sign-ins: doing so would let a stale roster row silently DEMOTE an
+  /// admin who was promoted through `PATCH /users/{id}` afterwards, and the demotion would be
+  /// invisible in the login response.
+  grantedRole UserRole @default(CROWDSOURCE_VOLUNTEER)
+
+  /// Written by an ADMIN only, never by the sign-in path. See the module docstring of
+  /// `app/services/access_roster.py`: a display name taken from an unverified source is
+  /// attacker-controlled text rendered in an admin's queue, and the queue is the one screen in this
+  /// product a stranger can cause content to appear on.
+  fullName String?
+  notes    String?
+
+  /// DATE OF JOINING THE PLATFORM — the requirement's own words, and the reason this column is not
+  /// just `createdAt`. `createdAt` is when the ROW appeared, which for a refused stranger is the
+  /// day they were turned away, not the day they joined. `joinedAt` is stamped when the address is
+  /// first admitted (status becomes ACTIVE), and the grandfathering migration back-fills it from
+  /// `User.createdAt` so that every account that predates the gate shows the date it really joined
+  /// rather than the date this feature shipped.
+  joinedAt DateTime?
+
+  /// The first time an admitted address actually SIGNED IN. Distinct from `joinedAt`: an admin
+  /// approves five people in March and in April needs to know which of them ever opened the app —
+  /// an approval nobody acted on looks identical to one that was ignored. Written once (the WHERE
+  /// clause carries `firstSeenAt: null`), so two simultaneous logins cannot race it.
+  firstSeenAt DateTime?
+
+  /// HOW OFTEN THIS ADDRESS HAS BEEN TURNED AWAY, and the reason one person hammering the sign-in
+  /// form is one row rather than a thousand. Deduping by email is what makes the unauthenticated
+  /// write bounded: a repeat attempt is an UPDATE of these two columns, never an INSERT.
+  ///
+  /// It is also the only signal an admin has that a REJECTED person keeps trying — the re-attempt
+  /// deliberately does not re-open the request (see `record_access_request`), so without a counter
+  /// their persistence would be invisible.
+  requestCount     Int      @default(1)
+  firstRequestedAt DateTime @default(now())
+  lastRequestedAt  DateTime @default(now())
+
+  /// Who decided, and when. `SetNull` rather than `Cascade`: an admin leaving the institution must
+  /// not erase the record that a decision was taken, only who took it.
+  decidedAt   DateTime?
+  decidedById String?
+  decidedBy   User?     @relation("AccessRosterDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// `status` alone answers the pending COUNT (the notification), which admins poll; the composite
+  /// answers the pending LIST, which is ordered by most-recently-asked so the queue reads as a
+  /// queue. `email` is already indexed by its unique constraint — that is the gate's own lookup and
+  /// it runs on every single sign-in, so it must never become a sequential scan.
+  @@index([status])
+  @@index([status, lastRequestedAt])
+  @@index([decidedById])
 }
 
 /// A documentation task assigned by an admin/master admin to a user, so field work is

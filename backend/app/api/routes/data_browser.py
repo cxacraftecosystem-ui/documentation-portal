@@ -74,7 +74,9 @@ call only runs the queries that level needs (each bounded by ``TAKE``).
 
 import asyncio
 import io
+import json
 import re
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
@@ -1890,16 +1892,112 @@ async def _walk(
         await asyncio.gather(*child_walks)
 
 
-@router.get("/manifest")
+# ---------------------------------------------------------------------------
+# Serving a manifest as NDJSON — shared with /export/dataset.
+#
+# WHY THIS EXISTS. Both manifest endpoints answered with ONE JSON object holding every entry, and
+# the entries carry inline text: a details.txt body per record, and — with ``include=transcripts``
+# or no filter at all — the FULL transcript of every audio row in the subtree. ``MAX_MANIFEST_FILES
+# = 20000`` here and ``MEDIA_TAKE = 20000`` + 6x``EXPORT_TAKE`` in export.py bound the entry COUNT
+# and nothing bounds the byte size, so ``docs/SCALABILITY.md:373-377`` already measures this at
+# 476 kB today and models ~48 MB at 100x the media.
+#
+# On the handset that single body is what fails. Retrofit's kotlinx-serialization converter is
+# ``Serializer.FromString``: its ``fromResponseBody`` calls ``okhttp3.ResponseBody.string()`` and
+# then ``decodeFromString`` (verified against the bytecode of
+# retrofit2-kotlinx-serialization-converter 1.0.0, not from memory). ``string()`` bottoms out in
+# okio's ``Buffer.readByteArray(byteCount)``, which is ONE contiguous ``ByteArray`` of the whole
+# body, immediately copied into one contiguous ``String``. A 48 MB manifest therefore asks Android's
+# allocator for a single 48 MB array on a heap that is also holding Compose, and the app dies with
+# ``java.lang.OutOfMemoryError: Failed to allocate a 48000000 byte allocation``. ``largeHeap`` is
+# already on (AndroidManifest.xml:22), so that mitigation is spent — a big enough CONTIGUOUS
+# allocation fails on a fragmented heap regardless of how much total free memory there is.
+#
+# NDJSON rather than a JSON array, for the reason ``datasets.py`` already gives: an array must be
+# closed before a parser can begin, so a client cannot consume it incrementally and a truncated one
+# yields nothing. One entry per line means the client decodes one entry at a time and never holds
+# more than the longest single line.
+#
+# THE DEFAULT SHAPE IS UNCHANGED, DELIBERATELY. ``?stream=1`` is opt-in because the browser clients
+# (frontend/app/(protected)/data/page.tsx, sharing/page.tsx) and every installed Android build read
+# the JSON object, and there is no way to make them all upgrade at once. Do not "tidy" this by
+# making NDJSON the default: that turns a deployment into a fleet-wide download outage.
+# ---------------------------------------------------------------------------
+
+MANIFEST_NDJSON_MEDIA_TYPE = "application/x-ndjson"
+# The counts and the truncation flag travel as HEADERS because in NDJSON there is nowhere else to
+# put them: they must arrive BEFORE the first entry so the client can show real progress from the
+# first file, and a trailing summary line would be lost exactly when it matters (a dropped
+# connection). ``X-Dataset-Total`` is the name datasets.py's ``_stream_headers`` already uses for
+# "how many things are in this body"; the two must not disagree about that word.
+MANIFEST_TOTAL_HEADER = "X-Dataset-Total"
+MANIFEST_MEDIA_HEADER = "X-Dataset-Media"
+MANIFEST_TRUNCATED_HEADER = "X-Dataset-Truncated"
+# Lines per yield. Matches datasets.py's STREAM_BATCH: one ASGI send per entry would spend more
+# time in the protocol than in the encode on a 20,000-entry manifest.
+_MANIFEST_STREAM_CHUNK = 200
+
+
+def manifest_ndjson_response(
+    files: list[dict[str, Any]],
+    total_media: int,
+    truncated: bool,
+    filename: str,
+) -> StreamingResponse:
+    """Serve an already-built manifest as newline-delimited JSON, one entry per line.
+
+    This does NOT make the SERVER's manifest build incremental — both callers still assemble the
+    whole ``files`` list before they get here, and doing otherwise means restructuring two
+    recursive builders that de-duplicate paths against sets they can only fill by walking
+    everything first. What it does remove is the SECOND copy: ``JSONResponse`` would encode that
+    list into one ~48 MB ``bytes`` object held beside the list itself while the socket drains.
+
+    The entries are dropped from ``files`` as they are encoded (``files[i] = None``) for the same
+    reason — the inline ``content`` strings are most of the manifest's weight, and releasing each
+    one at the point it becomes bytes keeps the peak at roughly one copy instead of two. The list
+    is the caller's, but the caller has already returned by the time this generator runs, so
+    nothing else can observe the holes. Do not remove the ``= None`` as a tidy-up: on a
+    single-worker t3.micro the doubled peak is the difference this endpoint's caps exist to avoid.
+    """
+    total_files = len(files)
+
+    async def body() -> AsyncIterator[bytes]:
+        for start in range(0, total_files, _MANIFEST_STREAM_CHUNK):
+            lines: list[str] = []
+            for index in range(start, min(start + _MANIFEST_STREAM_CHUNK, total_files)):
+                entry = files[index]
+                files[index] = None  # type: ignore[call-overload]  # see the docstring
+                lines.append(json.dumps(entry, ensure_ascii=False))
+            yield ("\n".join(lines) + "\n").encode("utf-8")
+
+    return StreamingResponse(
+        body(),
+        media_type=MANIFEST_NDJSON_MEDIA_TYPE,
+        headers={
+            MANIFEST_TOTAL_HEADER: str(total_files),
+            MANIFEST_MEDIA_HEADER: str(total_media),
+            # Spelled "true"/"false" rather than 1/0 so a reader cannot mistake it for a count.
+            MANIFEST_TRUNCATED_HEADER: "true" if truncated else "false",
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
+
+
+@router.get("/manifest", response_model=None)
 async def data_manifest(
     path: str = "",
     include: str | None = None,
+    stream: bool = False,
     current_user: Any = Depends(require_dataset_downloader),
-) -> dict[str, Any]:
+) -> dict[str, Any] | StreamingResponse:
     """Flattened manifest of the subtree below ``path`` — same shape as /export/dataset
     ({files:[{path,url?,content?,mediaId?,mediaType?}], totalFiles, totalMedia, truncated});
     the client downloads/zips client-side. ``include`` filters entry kinds; omitted = everything.
-    The walk reuses the /tree listers, so it carries the same row visibility."""
+    The walk reuses the /tree listers, so it carries the same row visibility.
+
+    ``stream=1`` answers the same entries as NDJSON with the counts in headers — see
+    :func:`manifest_ndjson_response` for why, and why it is opt-in.
+    """
     include_set: set[str] | None = None
     if include is not None and include.strip():
         include_set = {t.strip().lower() for t in include.split(",") if t.strip()}
@@ -1909,6 +2007,10 @@ async def data_manifest(
     state = {"truncated": False}
     await _walk(norm, "", include_set, files, 0, set(), state, scope)
     total_media = sum(1 for f in files if f.get("mediaId") and f.get("content") is None)
+    if stream:
+        return manifest_ndjson_response(
+            files, total_media, bool(state["truncated"]), "manifest.ndjson"
+        )
     return {
         "files": files,
         "totalFiles": len(files),
@@ -2960,8 +3062,29 @@ async def download_media(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Audio conversion unavailable: pydub is not installed on the server.",
             ) from exc
-        size = int(media.sizeBytes or 0)
-        if size > MAX_CONVERT_BYTES:
+        # TWO CHECKS, BECAUSE THE COLUMN IS A CLAIM AND THE LENGTH IS A FACT.
+        #
+        # ``MediaFile.sizeBytes`` is whatever the client declared at ``POST /media/complete``: the
+        # schema bounds it only from below (``Field(gt=0)``), it is stored verbatim, and nothing in
+        # this codebase ever reconciles it against the stored object — there is no ``head_object``
+        # anywhere in ``backend/app``. Nor does the upload signature bound the body:
+        # ``s3.presign_put_url`` signs Bucket/Key/ContentType and no ``content-length-range``, and
+        # its docstring records why that must stay so (a signed condition breaks every Android build
+        # already in the field). So an account holding ``canDownloadDataset`` could presign an upload
+        # declaring ``sizeBytes: 1024``, PUT 1.5 GB to the returned URL, complete it as AUDIO, and
+        # then click download on their OWN row: the 413 below would not fire, ``get_object_bytes``
+        # would pull 1.5 GB into the heap of this single-worker uvicorn process, and pydub/ffmpeg
+        # would decode a second copy beside it. The box OOMs, taking every in-flight request with it.
+        #
+        # The declared size is kept as the CHEAP first refusal — it costs nothing and rejects the
+        # honest large recording before a byte moves. The real length is then checked before the
+        # expensive half, which is the transcode: ffmpeg decoding compressed audio is where one copy
+        # becomes several, so refusing between the fetch and the decode removes the multiplier even
+        # though the fetch itself has already happened. What remains after this is one oversized read
+        # into the heap; closing that needs a ``head_object`` helper in ``services/s3``, which is
+        # written up as a follow-up rather than bolted on from here.
+        declared = int(media.sizeBytes or 0)
+        if declared > MAX_CONVERT_BYTES:
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail="This recording is too large to convert in-process; download the original.",
@@ -2974,6 +3097,16 @@ async def download_media(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Could not fetch the audio bytes from object storage.",
             ) from exc
+        if len(raw) > MAX_CONVERT_BYTES:
+            # Same answer as the declared-size refusal, deliberately: the caller asked for a
+            # conversion of something too big to convert, and which of the two numbers caught it is
+            # the server's business. Dropping the reference first so the bytes are collectable while
+            # FastAPI builds the response.
+            del raw
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="This recording is too large to convert in-process; download the original.",
+            )
         try:
             # ffmpeg decode + AAC encode runs in a worker thread so requests keep flowing.
             out = await asyncio.to_thread(_convert_audio_to_mp4, raw)

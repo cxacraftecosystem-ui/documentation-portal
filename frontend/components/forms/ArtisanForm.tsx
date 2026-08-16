@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/AuthProvider";
+import { LIST_PAGE_CEILING, listCut, mergeById, type ListCut } from "@/components/data/cappedList";
+import { CappedListNotice } from "@/components/data/CappedListNotice";
 import { CarryForwardCards } from "@/components/CarryForwardCards";
-import { Field, MultiNoteField, Select, TextArea, TextInput } from "@/components/FormControls";
+import { Field, Select, TextInput } from "@/components/FormControls";
 import { AadhaarField, aadhaarValidationError, isMaskedIdentityNumber } from "@/components/forms/AadhaarField";
 import { CarryContextBanner, carryScope, useCarryContext, type CarryScopeState } from "@/components/forms/CarryContextBanner";
 import { DosDontsField } from "@/components/forms/DosDontsField";
@@ -14,16 +16,20 @@ import { DuplicateArtisanDialog } from "@/components/forms/DuplicateArtisanDialo
 import { LocationFields, type LocationInitialValues } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { PhoneField } from "@/components/forms/PhoneField";
+import { useRecordOffPage } from "@/components/forms/recordPickers";
 import { TitleCasedInput } from "@/components/forms/TitleCasedInput";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { UploadProgress } from "@/components/media/UploadProgress";
+import { DictatedTextArea } from "@/components/richtext/DictatedTextArea";
+import { RichTextField } from "@/components/richtext/RichTextField";
+import { appendStoredParagraph } from "@/components/richtext/storedRichText";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { ApiError, apiFetch, buildQuery, listResource } from "@/lib/api";
 import { locationFromForm, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue, useUnsavedChanges } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
-import { appendRemarksWithExif, collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, type BatchProgress } from "@/lib/media";
+import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, type BatchProgress } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
 import { hasRank } from "@/lib/permissions";
 import type { AadhaarLookupResult, Artisan, ArtisanIdentityConflict, ArtisanIdentityMatch, Craft, RecordStatus } from "@/lib/types";
@@ -303,6 +309,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
   const [craftId, setCraftId] = useState(initial?.craftId ?? "");
   // "Can I see this craft?" and "is there any signal?" are different answers — see useCarryContext.
   const [craftListState, setCraftListState] = useState<CarryScopeState>("pending");
+  const [craftCut, setCraftCut] = useState<ListCut | null>(null);
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   // A rejected duplicate is not a generic error: it names an existing artisan the researcher should
@@ -352,9 +359,17 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
     email.trim() && !EMAIL_RE.test(email.trim()) ? "Enter a valid email address (name@example.com)." : null;
 
   useEffect(() => {
-    listResource<Craft>("/crafts", { pageSize: 100 })
+    listResource<Craft>("/crafts", { pageSize: LIST_PAGE_CEILING })
       .then((result) => {
         setCrafts(result.items);
+        // What this dropdown is NOT showing. `/crafts` is clamped to 100 rows server-side and the
+        // envelope's `total` was being dropped on the floor, so a repository past the ceiling showed
+        // a partial list of crafts under no indication at all that it was partial — and this field
+        // is REQUIRED, sitting directly above "Or new craft name". A researcher who cannot find an
+        // existing craft in a list that will not admit it is short does the reasonable thing and
+        // types the name into the box below, which creates a SECOND craft row for a craft that
+        // already exists. See `components/data/cappedList`.
+        setCraftCut(listCut(result, "crafts"));
         setCraftListState("loaded");
       })
       .catch(() => {
@@ -362,6 +377,23 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         setCraftListState("unavailable");
       });
   }, []);
+
+  /**
+   * THIS ARTISAN'S OWN CRAFT IS ALWAYS AN OPTION, wherever it sorts.
+   *
+   * `GET /crafts` is clamped to 100 rows and ordered NAME ASCENDING (deliberately — see the ordering
+   * comment in `routes/crafts.py:82-87`), so once the repository holds more crafts than that the cut
+   * is stable and always falls in the same place: every artisan of a craft whose name sorts past it
+   * opens with this REQUIRED dropdown reading "Select existing craft", as though the record had no
+   * craft. The stored link is intact and would be saved untouched — but the form says it is not, and
+   * the two repairs it invites are both destructive: pick a different craft, or type the real name
+   * into "Or new craft name" below and mint a DUPLICATE craft row for a craft that already exists.
+   *
+   * Same hook as ProductForm and ToolForm use for the same reason (`forms/recordPickers`). Three
+   * forms need this rule; do not give one of them a bespoke version.
+   */
+  const offPageCraft = useRecordOffPage<Craft>("/crafts", craftId, crafts);
+  const craftOptions = useMemo(() => (offPageCraft ? mergeById(crafts, [offPageCraft]) : crafts), [crafts, offPageCraft]);
 
   /**
    * The craft and the workshop carry into a new artisan; the ARTISAN in the bag never does.
@@ -374,7 +406,11 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
    */
   const carry = useCarryContext({
     enabled: !initial,
-    scopes: [carryScope("craft", craftListState, crafts)],
+    // `craftOptions`, not `crafts`: a carried craft that is merely off the picker's first page IS
+    // reachable — the by-id lookup above fetched it — and pruning it would drop a good link from the
+    // bag for the "absent from page one" reason that is exactly what this port set out to stop
+    // meaning "absent from the repository".
+    scopes: [carryScope("craft", craftListState, craftOptions)],
     applies: ["craft", "workshop"],
     onApply: (context) => {
       if (context.craftId) setCraftId(context.craftId);
@@ -470,7 +506,15 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         email: textValue(form, "email"),
         place: requiredText(form, "place"),
         address: textValue(form, "address"),
-        notes: appendRemarksWithExif(textValue(form, "notes") as string | null, exifRemark),
+        // `appendStoredParagraph` and NOT `appendRemarksWithExif`: the notes box is a rich-text
+        // editor now, so this column may hold a JSON document. Concatenating the EXIF summary onto
+        // the end of a JSON string produces a value that is neither valid JSON nor readable prose —
+        // the editor would show raw braces followed by the summary, and so would the artisan CSV,
+        // the review panel and the Android form. The helper appends INTO the document when there is
+        // one and is byte-for-byte `appendRemarksWithExif` when there is not.
+        //
+        // "paragraph" because this column is blank-line separated: see the RichTextField below.
+        notes: appendStoredParagraph(textValue(form, "notes") as string | null, exifRemark, "paragraph"),
         // Identity. The Aadhaar mirror input carries the bare digits (the visible box only groups
         // them for reading), or the mask verbatim when the editor was never shown the real number —
         // which the API recognises and drops, leaving the stored value alone. The Pehchan mask has
@@ -649,18 +693,22 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
                 setCraftId(event.target.value);
                 // An explicit pick replaces the remembered craft and retires the banner: from here
                 // on what is on screen is the researcher's own choice, not a suggestion.
-                const craft = crafts.find((candidate) => candidate.id === event.target.value);
+                const craft = craftOptions.find((candidate) => candidate.id === event.target.value);
                 if (craft) carry.remember({ craftId: craft.id, craftName: craft.name }, { explicit: true });
                 markDirty();
               }}
             >
+              {/* This placeholder is what a browser falls back to when `value` matches no <option>,
+                  so until `craftOptions` carried the record's own craft it doubled as "linked to a
+                  craft that is not on page one" — see `offPageCraft` above. */}
               <option value="">Select existing craft</option>
-              {crafts.map((craft) => (
+              {craftOptions.map((craft) => (
                 <option value={craft.id} key={craft.id}>
                   {craft.name}
                 </option>
               ))}
             </Select>
+            <CappedListNotice cuts={[craftCut]} />
           </Field>
           <Field label="Or new craft name">
             <TitleCasedInput name="newCraftName" placeholder="Used when no existing craft is selected" />
@@ -690,10 +738,48 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
             />
             {emailError ? <p className="text-xs text-error-600">{emailError}</p> : null}
           </Field>
-          <Field label="Address">
-            <TextArea name="address" defaultValue={initial?.address ?? ""} />
-          </Field>
-          <MultiNoteField defaultValue={initial?.notes ?? ""} />
+          {/*
+            DICTATION BUT NOT RICH TEXT, and the split is the whole point of there being two
+            controls. An address is three lines, so a researcher standing in a courtyard genuinely
+            wants to speak it rather than thumb it in — but a bold word or a bulleted list in a
+            postal address is meaningless, and a formatting toolbar here would be an invitation to
+            store a document in the column `record_fields.py:257` prints as "Address" in the CSV and
+            the workbook.
+          */}
+          <DictatedTextArea
+            name="address"
+            label="Address"
+            defaultValue={initial?.address ?? ""}
+            onDirty={markDirty}
+          />
+          {/*
+            NOTES IS THE ONE LARGE NARRATIVE BOX ON THIS FORM, so it is the one that gets the editor.
+
+            IT REPLACES `MultiNoteField`, whose several textareas were joined with a blank line into
+            this same `Artisan.notes` column. `join="paragraph"` is what keeps that contract: an
+            unformatted document is written back blank-line separated, so `MultiNoteField` in
+            `components/FormControls.tsx` — which still edits this same column on the questionnaire
+            and workshop pages, and splits it on a blank line — and `MultiNoteInput` in Android's
+            `MainActivity.kt` both still reconstruct exactly the notes written here. Drop that
+            argument and four notes silently become one the next time the record is opened on a
+            handset or on either of those two pages.
+
+            WHAT THE RESEARCHER LOSES is the explicit "Add note" button; what they gain is a real
+            list control, a microphone, and the ability to write a paragraph that is longer than two
+            rows without it looking like a mistake. The stored value is the same shape either way,
+            which is why this substitution needs no migration and no Android release.
+
+            The EXIF remark that `submit` appends to this field goes through `appendStoredParagraph`
+            rather than `appendRemarksWithExif` for the reason given up there.
+          */}
+          <RichTextField
+            name="notes"
+            label="Notes"
+            defaultValue={initial?.notes ?? ""}
+            join="paragraph"
+            className="md:col-span-2"
+            onDirty={markDirty}
+          />
           {/* Android parity (ArtisanForm): the three identity answers sit after the contact and
               notes fields and before Do's/Don'ts. Grouping them makes the dependency between
               "holds a card" and "card number" obvious at a glance. */}

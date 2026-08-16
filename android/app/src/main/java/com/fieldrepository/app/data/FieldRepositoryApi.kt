@@ -53,6 +53,56 @@ interface FieldRepositoryApi {
     @GET("users/directory")
     suspend fun userDirectory(): List<UserDto>
 
+    // --- The access roster: who may sign in at all (require_admin on every route) ---------------
+    //
+    // Declared next to /users because the two answer one question from opposite ends: /users is who
+    // HAS an account, /access-roster is who is allowed to have one.
+
+    /**
+     * The roster, newest request first. `status` absent means EVERY status — refused and suspended
+     * rows included, which is the point: an admin arrives here because somebody says they cannot
+     * sign in, and the row refusing them is the one they need to see.
+     *
+     * `pageSize` is capped at 100 SERVER-SIDE whatever is sent (`normalize_pagination`), so the
+     * response's own `pageSize`/`total` are the truth about what came back — never the request's.
+     */
+    @GET("access-roster")
+    suspend fun accessRoster(
+        @Query("page") page: Int = 1,
+        @Query("pageSize") pageSize: Int = 50,
+        @Query("search") search: String? = null,
+        @Query("status") status: String? = null
+    ): PageResponse<AccessRosterDto>
+
+    /**
+     * How many people are waiting on an administrator. THE NOTIFICATION, in its entirety — there is
+     * no email and no push in this codebase, so the requirement's "the admins and master admins
+     * should get a notification" is this number, on surfaces admins already open.
+     *
+     * A bare count and not a list on purpose: the server answers it out of an index without reading
+     * a row, which is what keeps it cheap enough to poll from a nav bar.
+     */
+    @GET("access-roster/pending-count")
+    suspend fun accessRosterPendingCount(): AccessRosterPendingCountDto
+
+    @POST("access-roster")
+    suspend fun addToAccessRoster(@Body body: AccessRosterCreateBody): AccessRosterDto
+
+    @PATCH("access-roster/{id}")
+    suspend fun updateAccessRosterEntry(
+        @Path("id") id: String,
+        @Body body: AccessRosterUpdateBody
+    ): AccessRosterDto
+
+    /**
+     * SUSPEND. Never a delete, whatever the verb says: the server sets `status = SUSPENDED` and
+     * answers 200 WITH THE ROW, so the entry stays on screen — dated, and one tap from restored.
+     * A real delete would drop the person back into the pending queue at their next sign-in, which
+     * is exactly the loop REJECTED and SUSPENDED exist to break.
+     */
+    @DELETE("access-roster/{id}")
+    suspend fun suspendAccessRosterEntry(@Path("id") id: String): AccessRosterDto
+
     @GET("review/pending")
     suspend fun pendingReviews(): PendingReviewListDto
 
@@ -116,7 +166,18 @@ interface FieldRepositoryApi {
         // The shared workshop scope, plural. BROADER than the singular `workshopId` filter the form
         // pickers use: it also counts an artisan who merely SAT IN an interview taken at the
         // workshop, so this list and the completion matrix cannot disagree about who was there.
-        @Query("workshopIds") workshopIds: String? = null
+        @Query("workshopIds") workshopIds: String? = null,
+        /**
+         * One craft's roster, filtered by the SERVER (`routes/artisans.py:234-235` — the parameter
+         * has always been there; nothing on this client had ever sent it).
+         *
+         * This is the whole point of the parameter existing here. Both record forms used to load one
+         * 100-row page of the entire artisan table and filter it by craft in memory, which makes the
+         * dropdown the intersection of one craft with the newest hundred rows overall — see
+         * `ui/RecordPickers.kt` for what that cost. Filtering where the WHERE clause is turns that
+         * into the craft's actual roster.
+         */
+        @Query("craftId") craftId: String? = null
     ): PageResponse<ArtisanDto>
 
     @GET("crafts")
@@ -291,6 +352,27 @@ interface FieldRepositoryApi {
     // Save an (approved, AI-refined) transcript in place of the stored one. Uploader or admin only.
     @POST("media/{id}/transcript")
     suspend fun setTranscript(@Path("id") id: String, @Body body: TranscriptUpdateRequest): MediaFileDto
+
+    // The whole-repository download manifest.
+    //
+    // TWO DECLARATIONS OF ONE ROUTE, AND THE STREAMED ONE IS THE ONE TO USE. The typed call below
+    // returns a fully-materialised DTO, which sends the response through Retrofit's
+    // kotlinx-serialization converter — `Serializer.FromString`, i.e. `decodeFromString(body
+    // .string())`, i.e. the entire body as one contiguous ByteArray and then one contiguous String.
+    // The manifest is unbounded in bytes (the server caps the entry COUNT at 20,000 media rows plus
+    // 6x5,000 record rows and inlines every details.txt and every transcript), so on a large
+    // repository that single allocation is what throws
+    // `OutOfMemoryError: Failed to allocate a N byte allocation` on the handset. See
+    // data/ManifestStream.kt for the full account.
+    //
+    // The typed one is KEPT, not deleted, because it is the fallback for a server that predates
+    // `?stream=1`: such a server ignores the unknown parameter and answers `application/json`, and
+    // the client has to be able to finish the download against it. It must not be used for anything
+    // else — a new caller wanting "the list of files" should take the streamed route and consume it
+    // a line at a time.
+    @Streaming
+    @GET("export/dataset")
+    suspend fun datasetManifestStream(@Query("stream") stream: Int = 1): Response<ResponseBody>
 
     @GET("export/dataset")
     suspend fun datasetManifest(): DatasetManifestDto
@@ -693,6 +775,20 @@ interface FieldRepositoryApi {
 
     // The flattened subtree below `path`, for client-side zipping. `include` is a CSV of
     // text,images,videos,audios,transcripts,documents,other; omitted means everything.
+    //
+    // Same pair, same reason, as `datasetManifest`/`datasetManifestStream` above: a folder manifest
+    // with `include=transcripts` (or no filter) inlines every transcript body in the subtree, so it
+    // is unbounded in bytes too. The DOWNLOAD path takes the streamed one. The typed one stays
+    // because the data browser's transcript panel genuinely needs the whole list resident — it
+    // indexes into it on every toggle — and because it is the fallback for an older server.
+    @Streaming
+    @GET("data/manifest")
+    suspend fun dataManifestStream(
+        @Query("path") path: String = "",
+        @Query("include") include: String? = null,
+        @Query("stream") stream: Int = 1
+    ): Response<ResponseBody>
+
     @GET("data/manifest")
     suspend fun dataManifest(
         @Query("path") path: String = "",

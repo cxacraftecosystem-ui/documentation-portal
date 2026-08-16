@@ -21,7 +21,8 @@ from fastapi import APIRouter, Depends
 from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, is_admin
+from app.services.access_roster import pending_count
 from app.services.concurrency import gather_reads
 from app.services.records import own_rows_where, viewable_where
 
@@ -152,8 +153,19 @@ async def dashboard_stats(current_user: Any = Depends(get_current_user)) -> dict
     ]
     recent = sorted(recent, key=lambda item: item["createdAt"], reverse=True)[:10]
 
+    # THE SIGN-IN GATE'S NOTIFICATION, ON THE SCREEN ADMINISTRATORS ALREADY OPEN. There is no email
+    # and no push anywhere in this codebase, so "the admins should get a notification to approve or
+    # reject the user" comes down to putting the number where they will see it without going to look.
+    #
+    # ADMINS ONLY, and NULL — not zero — for everybody else. A zero would render as a badge saying
+    # there is nothing to approve, which tells a researcher that an approval queue exists and that
+    # they are entitled to know its size; null lets a client omit the whole element. The count is
+    # skipped rather than computed-and-hidden, so a non-admin's dashboard pays nothing for it.
+    pending_access_requests = await pending_count() if is_admin(current_user) else None
+
     return jsonable_encoder(
         {
+            "pendingAccessRequests": pending_access_requests,
             # The repository. These are what the labels have always claimed to be.
             "totalArtisans": artisans,
             "totalWorkshops": workshops,

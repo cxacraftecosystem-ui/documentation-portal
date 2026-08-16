@@ -81,6 +81,29 @@ function butiGroup(mark: (typeof TILE_MARKS)[number]): string {
  * impressions so each can be misregistered on its own and lit in sequence. Opacity is set by the
  * element rather than by the fill, so one tile serves both densities.
  */
+/**
+ * ONE buti in a 24×24 cell, for the narrow selvedge strips down the page margins.
+ *
+ * SEPARATE FROM [butiTileUrl] BECAUSE THE TWO ARE SOLVING OPPOSITE PROBLEMS. That one exists to
+ * defeat the grid: 96px carrying four impressions at four rotations, so a wide field of cloth reads
+ * as texture rather than wallpaper. A selvedge is 16px wide — barely wider than one motif — so a
+ * 96px tile would crop three of its four marks away and leave a strip of severed petals. A margin
+ * IS a regular repeat in real embroidery, one motif after another down the edge, so this returns
+ * exactly that and the tiling that would be wrong on the field is right here.
+ *
+ * NO COLOUR IS BAKED IN, and that is load-bearing rather than tidy: this is consumed as a CSS
+ * `mask-image`, so only the motif's ALPHA is read and the strip is painted with a theme token
+ * behind it. A data URI cannot see `currentColor`, so a filled tile would need one variant per
+ * theme and would go wrong the moment the palette moved — under a mask, light and dark are the same
+ * one string. The fill below is opaque black only because alpha-masking needs an opaque source.
+ */
+export function butiSelvedgeUrl(): string {
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="${BUTI_VIEWBOX}">` +
+    `<path fill="#000" fill-rule="${BUTI_FILL_RULE}" d="${BUTI_PATH}"/></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+
 export function butiTileUrl(fill = "#ffffff"): string {
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">` +

@@ -1,13 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Lock, Plus } from "lucide-react";
 
 import { useAuth } from "@/components/AuthProvider";
+import { LIST_PAGE_CEILING, listCut, mergeById, type ListCut } from "@/components/data/cappedList";
+import { CappedListNotice } from "@/components/data/CappedListNotice";
+import { OnDeviceDictationButton } from "@/components/dictation/OnDeviceDictationButton";
 import { Field, Select, TextInput } from "@/components/FormControls";
 import { FieldProvenance } from "@/components/FieldProvenance";
 import { CarryContextBanner, carryScope, useCarryContext, type CarryScopeState } from "@/components/forms/CarryContextBanner";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
+import { useRecordOffPage } from "@/components/forms/recordPickers";
 import { TitleCasedInput } from "@/components/forms/TitleCasedInput";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
 import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
@@ -184,24 +188,59 @@ function MultiNoteInput({ label, value, onChange }: { label: string; value: stri
     <div className="grid gap-2">
       <span className="text-sm font-semibold text-ink-900">{label}</span>
       {rows.map((note, index) => (
-        <div key={index} className="flex items-start gap-2">
-          <textarea
-            className="field-input min-h-16 flex-1"
-            rows={2}
-            placeholder={rows.length > 1 ? `Note ${index + 1}` : "Note"}
-            value={note}
-            onChange={(event) => emit(rows.map((n, i) => (i === index ? event.target.value : n)))}
+        <div key={index} className="grid gap-1">
+          <div className="flex items-start gap-2">
+            <textarea
+              className="field-input min-h-16 flex-1"
+              rows={2}
+              placeholder={rows.length > 1 ? `Note ${index + 1}` : "Note"}
+              value={note}
+              onChange={(event) => emit(rows.map((n, i) => (i === index ? event.target.value : n)))}
+            />
+            {rows.length > 1 ? (
+              <button
+                type="button"
+                aria-label="Remove note"
+                className="field-button-secondary h-9 min-h-0 shrink-0 px-2.5"
+                onClick={() => emit(rows.filter((_, i) => i !== index))}
+              >
+                ✕
+              </button>
+            ) : null}
+          </div>
+          {/*
+            A MICROPHONE PER NOTE, AND NO FORMATTING TOOLBAR.
+
+            Dictation belongs here: this is the box a researcher fills standing at a loom describing
+            what the artisan's hands are doing, which is the whole argument for speaking instead of
+            typing. Rich text does not belong here, and the reason is thirty lines above this
+            comment — `emit` joins the rows with a blank line and `splitNotes` tears them apart
+            again on the way back in, and Android's own `MultiNoteInput` in `MainActivity.kt` does
+            the same to the same column. A document in one of these rows would come back as one note containing
+            JSON. The user's rule — formatting on the LARGER boxes only — reads the same way from
+            this side: a two-line "additional context for this step" is not a larger box.
+
+            The button is per ROW rather than one for the group because a single microphone would
+            have to guess which note the phrase belongs in, and its only defensible guess (the last
+            one) is wrong exactly when somebody is going back to fill in note two.
+
+            `explainWhenUnavailable` is on for the FIRST ROW ONLY. On Firefox the alternative is the
+            same three-line paragraph repeated once per note, and a paragraph repeated four times is
+            not honesty, it is noise that stops being read. One copy, carried by the first row, with
+            every other row silent.
+
+            The joiner is the same one `DictatedTextArea` uses, and for the same reason: the
+            recogniser stops and starts across a long answer, so a commit APPENDS, and without the
+            space a note dictated in three goes comes out as "…the warpis sized…".
+          */}
+          <OnDeviceDictationButton
+            fieldLabel={rows.length > 1 ? `${label}, note ${index + 1}` : label}
+            explainWhenUnavailable={index === 0}
+            onCommit={(phrase) => {
+              const joiner = !note || /\s$/.test(note) ? "" : " ";
+              emit(rows.map((n, i) => (i === index ? `${note}${joiner}${phrase}` : n)));
+            }}
           />
-          {rows.length > 1 ? (
-            <button
-              type="button"
-              aria-label="Remove note"
-              className="field-button-secondary h-9 min-h-0 shrink-0 px-2.5"
-              onClick={() => emit(rows.filter((_, i) => i !== index))}
-            >
-              ✕
-            </button>
-          ) : null}
         </div>
       ))}
       <button type="button" className="field-button-secondary h-9 min-h-0 justify-self-start px-3 text-xs" onClick={() => emit([...rows, ""])}>
@@ -262,6 +301,17 @@ export function ProcessForm({
   // forward prefill treats them differently — see useCarryContext.
   const [artisanListState, setArtisanListState] = useState<CarryScopeState>("pending");
   const [artisanProducts, setArtisanProducts] = useState<ProductDocumentation[]>([]);
+  /**
+   * WHAT THE TWO PICKERS ARE NOT SHOWING — see `components/data/cappedList`.
+   *
+   * Both loads below ask for the ceiling `normalize_pagination` clamps to and both used to keep only
+   * `.items`. The artisan dropdown is the exposed one: unlike the product and tool forms' it is NOT
+   * scoped by craft, so it really is the newest hundred rows of the whole artisan table, with no
+   * search box and no page two. The products load is per artisan and is therefore whole in practice
+   * — but "in practice" is not a property of the code, so it is reported the same way.
+   */
+  const [artisanCut, setArtisanCut] = useState<ListCut | null>(null);
+  const [productCut, setProductCut] = useState<ListCut | null>(null);
   const [productsLoading, setProductsLoading] = useState(false);
   const [productLoadError, setProductLoadError] = useState<string | null>(null);
 
@@ -279,13 +329,30 @@ export function ProcessForm({
   const statusChoices = initial?.status && !STATUS_OPTIONS.includes(String(initial.status)) ? [String(initial.status), ...STATUS_OPTIONS] : STATUS_OPTIONS;
 
   useEffect(() => {
-    listResource<Artisan>("/artisans", { pageSize: 100 })
+    listResource<Artisan>("/artisans", { pageSize: LIST_PAGE_CEILING })
       .then((result) => {
         setArtisans(result.items);
+        setArtisanCut(listCut(result, "artisans"));
         setArtisanListState("loaded");
       })
       .catch(() => setArtisanListState("unavailable"));
   }, []);
+
+  /**
+   * THE ARTISAN THIS PROCESS IS ALREADY FILED UNDER, whatever page they are on.
+   *
+   * `GET /artisans` orders `createdAt desc` and is clamped to 100 rows, so an older process opened
+   * for editing pointed at an artisan the dropdown could not draw — and this field is REQUIRED and
+   * gates the product dropdown beneath it, which is fetched per artisan. The form therefore opened
+   * claiming no artisan, offering no products, and the only way forward on screen was to pick a
+   * DIFFERENT artisan. Same hook, same argument, as the craft pickers in the artisan, product and
+   * tool forms (`forms/recordPickers`).
+   */
+  const offPageArtisan = useRecordOffPage<Artisan>("/artisans", artisanId, artisans);
+  const artisanOptions = useMemo(
+    () => (offPageArtisan ? mergeById(artisans, [offPageArtisan]) : artisans),
+    [artisans, offPageArtisan]
+  );
 
   /**
    * The carried product, held until the artisan's product list arrives.
@@ -302,7 +369,11 @@ export function ProcessForm({
   // product they documented last, which is what this record is about.
   const carry = useCarryContext({
     enabled: !isEdit,
-    scopes: [carryScope("artisan", artisanListState, artisans)],
+    // `artisanOptions`, not `artisans`: a carried artisan who is merely off the picker's first page
+    // IS reachable — the by-id lookup fetched them — and pruning them here would drop a good link
+    // from the bag for the "absent from page one" reason this whole change set exists to stop
+    // conflating with "absent from the repository".
+    scopes: [carryScope("artisan", artisanListState, artisanOptions)],
     // No craft or tool field here, so neither is filled in nor claimed; both stay in the bag.
     applies: ["artisan", "product", "workshop"],
     onApply: (context) => {
@@ -333,11 +404,12 @@ export function ProcessForm({
     }
     setProductsLoading(true);
     setProductLoadError(null);
-    const artisanName = artisans.find((artisan) => artisan.id === artisanId)?.name?.trim();
-    listResource<ProductDocumentation>("/products", { artisanId, artisanName, pageSize: 100 })
+    const artisanName = artisanOptions.find((artisan) => artisan.id === artisanId)?.name?.trim();
+    listResource<ProductDocumentation>("/products", { artisanId, artisanName, pageSize: LIST_PAGE_CEILING })
       .then((result) => {
         if (cancelled) return;
         setArtisanProducts(result.items);
+        setProductCut(listCut(result, "products for this artisan"));
         setProductsLoading(false);
         // This list is both the dropdown's options and the only proof the carried product is still
         // this artisan's and still reachable, so the deferred half of the prefill resolves here.
@@ -366,7 +438,7 @@ export function ProcessForm({
     return () => {
       cancelled = true;
     };
-  }, [artisanId, artisans, pruneCarried]);
+  }, [artisanId, artisanOptions, pruneCarried]);
 
   // Unsaved-changes guard: signature of every user-editable field + pending file counts. The
   // workshop only counts once the USER has picked one — the create form's automatic most-recent
@@ -541,7 +613,7 @@ export function ProcessForm({
       });
       // Bank the sitting the moment the record is accepted (queued counts — offline is the normal
       // case), so the next form opened from the dashboard already knows where the researcher is.
-      const savedArtisan = artisans.find((a) => a.id === artisanId);
+      const savedArtisan = artisanOptions.find((a) => a.id === artisanId);
       const savedProduct = artisanProducts.find((product) => product.id === productId);
       carry.remember({
         artisanId,
@@ -698,7 +770,7 @@ export function ProcessForm({
               if (picked !== artisanId) {
                 setArtisanId(picked);
                 setProductId("");
-                const artisan = artisans.find((a) => a.id === picked);
+                const artisan = artisanOptions.find((a) => a.id === picked);
                 // An explicit pick replaces the remembered context and retires the banner: from
                 // here on the artisan on screen is the researcher's own choice, not a suggestion.
                 if (artisan) {
@@ -707,13 +779,17 @@ export function ProcessForm({
               }
             }}
           >
+            {/* This placeholder is also what a browser falls back to when `value` matches no
+                <option>, so until `artisanOptions` carried the record's own artisan it doubled as
+                "filed under an artisan who is not on page one" — see `offPageArtisan` above. */}
             <option value="">Select the artisan</option>
-            {artisans.map((artisan) => (
+            {artisanOptions.map((artisan) => (
               <option key={artisan.id} value={artisan.id}>
                 {artisan.name} · {artisan.place}
               </option>
             ))}
           </Select>
+          <CappedListNotice cuts={[artisanCut]} />
         </Field>
         {artisanError ? <p className="mt-1 text-xs text-error-600">{artisanError}</p> : null}
       </div>
@@ -732,7 +808,7 @@ export function ProcessForm({
               // banner must stop claiming it — and remembering then banks the one they chose. The
               // artisan above is still our suggestion, so the banner stays up saying so.
               pruneCarried("product");
-              const artisan = artisans.find((candidate) => candidate.id === artisanId);
+              const artisan = artisanOptions.find((candidate) => candidate.id === artisanId);
               carry.remember({
                 artisanId,
                 artisanName: artisan?.name ?? null,
@@ -760,6 +836,10 @@ export function ProcessForm({
         {!productsLoading && !productLoadError && artisanId && artisanProducts.length > 0 ? (
           <p className="mt-1 text-xs text-ink-500">{artisanProducts.length} product(s) available for this artisan.</p>
         ) : null}
+        {/* The count above says how many are OFFERED. This says whether that is all of them — the
+            two sentences answer different questions and a reader given only the first will read it
+            as the second. */}
+        <CappedListNotice cuts={[artisanId ? productCut : null]} />
         {productError ? <p className="mt-1 text-xs text-error-600">{productError}</p> : null}
       </div>
 

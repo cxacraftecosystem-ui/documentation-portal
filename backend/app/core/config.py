@@ -191,6 +191,31 @@ class Settings(BaseSettings):
     # RESEARCHER to restore the pre-six-tier behavior.
     default_signup_role: str = Field(default="CROWDSOURCE_VOLUNTEER", alias="DEFAULT_SIGNUP_ROLE")
 
+    # --- The sign-in gate (app/services/access_roster.py) ---------------------------------------
+    #
+    # THE KILL SWITCH. The gate refuses everybody who is not on the roster, and its back-fill
+    # migration is the only thing standing between the existing user base and a lockout. If that
+    # back-fill ever turns out to have missed somebody in production, the remedy has to be faster
+    # than a code deploy — this is that remedy: set ACCESS_ROSTER_ENFORCED=false, restart, and the
+    # application behaves exactly as it did before the gate existed while an admin repairs the
+    # roster. It defaults to TRUE because a gate that ships disabled is not a gate, and because a
+    # flag nobody ever exercises is a flag that does not work when it is needed.
+    #
+    # THIS IS NOT A FEATURE FLAG AND MUST NOT BE USED AS ONE. Turning it off restores unrestricted
+    # Google self-provisioning: any verified Google address on earth gets an account and a token.
+    access_roster_enforced: bool = Field(default=True, alias="ACCESS_ROSTER_ENFORCED")
+
+    # THE CEILING ON THE PENDING QUEUE, and the reason there is one at all: a PENDING row is written
+    # by an UNAUTHENTICATED caller (see access_roster.record_access_request). Ownership of the
+    # address must be proved before a row is written, which makes mass creation expensive — an
+    # attacker needs one real, Google-verified mailbox per row — but "expensive" is not "bounded",
+    # and a disposable-mailbox provider makes it merely tedious. At the cap, further NEW addresses
+    # are refused with the same sentence as everyone else and no row is stored; addresses ALREADY on
+    # the roster keep working normally, because bumping a counter on an existing row grows nothing.
+    # The cap is deliberately generous: it is a backstop against a flood, not a quota on an
+    # institution, and an admin who legitimately reaches it sees the count and clears the queue.
+    access_roster_max_pending: int = Field(default=2000, alias="ACCESS_ROSTER_MAX_PENDING")
+
     # Speech-to-text provider chain (highest priority first): ElevenLabs Scribe when
     # ELEVENLABS_API_KEY is set, else Deepgram Nova-3 when DEEPGRAM_API_KEY is set, else OpenAI
     # Whisper. The OpenAI key's primary role is transcript refinement/translation; it only

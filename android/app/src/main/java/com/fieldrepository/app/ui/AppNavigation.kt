@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Handyman
+import androidx.compose.material.icons.filled.HowToReg
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.ManageAccounts
@@ -282,6 +283,15 @@ enum class NavDestination {
     ASSIGN_TOOLS,
     REVIEW,
     SETTINGS_HUB,
+    /**
+     * The web's `/admin/access-roster` — the sign-in gate's admin side, and the only destination in
+     * this menu that carries a live count.
+     *
+     * It opens the admin hub already on its roster tool rather than being a `Screen` of its own,
+     * because that is what every other admin tool in this app is and the hub's single back arrow
+     * already knows how to pop one level out of it.
+     */
+    ACCESS_ROSTER,
     MANAGE_USERS,
     SETTINGS,
     GIVE_FEEDBACK
@@ -359,6 +369,14 @@ val FIELD_NAV_ITEMS: List<NavEntry> = listOf(
     // Admin — capability holders below admin (professors, grantees) keep these permanently; admins,
     // who own the toggle, see them only while admin view is ON.
     NavEntry(NavDestination.SETTINGS_HUB, "Settings hub", Icons.Filled.Tune, NavGroup.ADMIN, FieldPermissions::isAdmin, "require_admin", adminSurface = true),
+    // The sign-in gate's admin side, in the web's own position: directly above "Manage users",
+    // because the two answer one question from opposite ends — /users is who HAS an account, the
+    // roster is who is allowed to have one. An admin chasing "why can this person not log in?"
+    // reaches for the users screen, finds no row, and needs the next line of the menu to be the
+    // answer. ADMIN and not PROFESSOR: the pending queue holds the addresses of strangers who tried
+    // to get into this institution's repository, which is not information the tiers below
+    // administration have any reason to hold.
+    NavEntry(NavDestination.ACCESS_ROSTER, "Access roster", Icons.Filled.HowToReg, NavGroup.ADMIN, FieldPermissions::isAdmin, "require_admin", adminSurface = true),
     NavEntry(NavDestination.MANAGE_USERS, "Manage users", Icons.Filled.ManageAccounts, NavGroup.ADMIN, FieldPermissions::canManageUsers, "require_professor", adminSurface = true),
 
     // Account — personal, so nothing here is role-gated. On Android "Settings" is the Appearance &
@@ -1250,6 +1268,12 @@ private fun IslandChip(
  *
  * @param currentDestination highlights the entry the user is on, the drawer's equivalent of the web's
  *   `aria-current="page"` purple state.
+ * @param badges how many things behind a destination are waiting for this user, by destination.
+ *   THE NOTIFICATION lives here: there is no email and no push in this codebase, so "the admins
+ *   should be notified to approve or reject" is a number on the menu they already open. Only
+ *   POSITIVE counts draw — an absent key and a zero both mean "nothing to say", and a "0" rendered
+ *   while the count is still being fetched would tell an admin a queue is empty at the exact moment
+ *   it might not be.
  */
 @Composable
 fun AppNavigationDrawerContent(
@@ -1259,6 +1283,7 @@ fun AppNavigationDrawerContent(
     onToggleAdminView: () -> Unit,
     onLogout: () -> Unit,
     currentDestination: NavDestination? = null,
+    badges: Map<NavDestination, Int> = emptyMap(),
     pushingUpdate: Boolean = false,
     onPushUpdate: () -> Unit = {}
 ) {
@@ -1315,12 +1340,12 @@ fun AppNavigationDrawerContent(
                 .verticalScroll(rememberScrollState())
         ) {
             rootItems.forEach { entry ->
-                NavRow(entry, entry.destination == currentDestination, onNavigate)
+                NavRow(entry, entry.destination == currentDestination, badges[entry.destination], onNavigate)
             }
             groups.forEach { (group, entries) ->
                 NavGroupHeading(group.label)
                 entries.forEach { entry ->
-                    NavRow(entry, entry.destination == currentDestination, onNavigate)
+                    NavRow(entry, entry.destination == currentDestination, badges[entry.destination], onNavigate)
                 }
             }
             Spacer(Modifier.padding(bottom = 8.dp))
@@ -1378,11 +1403,29 @@ private fun NavGroupHeading(label: String) {
 }
 
 @Composable
-private fun NavRow(entry: NavEntry, selected: Boolean, onNavigate: (NavDestination) -> Unit) {
+private fun NavRow(
+    entry: NavEntry,
+    selected: Boolean,
+    badge: Int?,
+    onNavigate: (NavDestination) -> Unit
+) {
     NavigationDrawerItem(
         label = { Text(entry.label, style = MaterialTheme.typography.labelLarge) },
         selected = selected,
         icon = { Icon(entry.icon, contentDescription = null) },
+        // `badgeText` is Material's own slot, so the count lands in the row's accessibility node
+        // instead of beside it — and it is worded, not a bare numeral. "3" announced after "Access
+        // roster" says nothing: three what? Colour and a digit never carry a meaning alone anywhere
+        // in this app, and a badge is the easiest place to forget that.
+        badge = badge?.takeIf { it > 0 }?.let {
+            {
+                Text(
+                    "$it waiting",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.field.warning
+                )
+            }
+        },
         onClick = { onNavigate(entry.destination) },
         modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
     )

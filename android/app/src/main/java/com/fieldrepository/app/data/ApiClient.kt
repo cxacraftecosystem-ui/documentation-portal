@@ -38,6 +38,28 @@ object ApiClient {
     /** Linear-ish backoff with a hard cap, so a struggling origin gets breathing room without long stalls. */
     private fun backoffMillis(attempt: Int): Long = minOf(4_000L, 600L * attempt)
 
+    /**
+     * THE decoder for anything this API says — the converter's, and the one every hand-rolled parse
+     * must borrow rather than re-declare.
+     *
+     * It used to be a local inside [retrofit], which was fine while Retrofit was the only thing
+     * decoding. It is not any more: `FieldRepository.readManifest` decodes the streamed download
+     * manifest a line at a time (see `data/ManifestStream.kt`), and a second `Json { }` built
+     * beside this one would be a second set of leniency rules over the same wire format. That is
+     * not hypothetical — every setting below exists because a real response needed it, and a
+     * streamed manifest entry is the same JSON object the typed DTO carries. One spelling.
+     */
+    val json: Json = Json {
+        ignoreUnknownKeys = true
+        explicitNulls = false
+        // The API serializes Prisma Decimal columns (measurements, costs) as JSON *strings*
+        // (e.g. "12.5"). isLenient lets numeric DTO fields decode from quoted values, and
+        // coerceInputValues falls back to defaults if a non-null field arrives null — together
+        // these stop a single measured record from failing an entire list deserialization.
+        isLenient = true
+        coerceInputValues = true
+    }
+
     fun create(tokenStore: TokenStore): FieldRepositoryApi =
         retrofit(tokenStore).create(FieldRepositoryApi::class.java)
 
@@ -49,17 +71,6 @@ object ApiClient {
      * the Decimal-as-string leniency that keeps one measured record from failing a whole list.
      */
     fun retrofit(tokenStore: TokenStore): Retrofit {
-        val json = Json {
-            ignoreUnknownKeys = true
-            explicitNulls = false
-            // The API serializes Prisma Decimal columns (measurements, costs) as JSON *strings*
-            // (e.g. "12.5"). isLenient lets numeric DTO fields decode from quoted values, and
-            // coerceInputValues falls back to defaults if a non-null field arrives null — together
-            // these stop a single measured record from failing an entire list deserialization.
-            isLenient = true
-            coerceInputValues = true
-        }
-
         val logging = HttpLoggingInterceptor().apply {
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
         }

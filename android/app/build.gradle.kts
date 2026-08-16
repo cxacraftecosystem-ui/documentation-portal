@@ -98,4 +98,16 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // A JVM unit-test source set, for the rules that are too important to be verifiable only by
+    // looking at a screen.
+    //
+    // This module had no test dependency at all, which is why `src/test/` did not exist. The rule
+    // that made one necessary is `ui/RecordPickers.craftChangeClearsArtisan`: its predecessor
+    // silently DELETED a stored artisan link whenever the picker happened not to hold the artisan,
+    // and reproducing that by hand needs a repository with more than 100 artisans and a record old
+    // enough to sort off page one. That is not a thing anybody re-checks before a release, so the
+    // rule is a pure function and this dependency is how it stays checked. Compose is deliberately
+    // not on the test classpath — nothing worth asserting here needs a renderer.
+    testImplementation("junit:junit:4.13.2")
 }

@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff, Lock, Mail } from "lucide-react";
+import { Clock, Eye, EyeOff, Lock, Mail } from "lucide-react";
 
 import { FieldRepoLogo } from "@/components/FieldRepoLogo";
 import { useAuth } from "@/components/AuthProvider";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { GLASS_PANEL, GlassSurface } from "@/components/ui/GlassSurface";
 import { useToast } from "@/components/ui/Toast";
+import { accessRefusalCode } from "@/lib/accessRoster";
 import { cn } from "@/lib/utils";
 
 declare global {
@@ -106,6 +107,21 @@ function LoginView() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * `ACCESS_PENDING` / `ACCESS_REJECTED` / `ACCESS_SUSPENDED`, or null for every other failure.
+   *
+   * THIS IS THE FEATURE, AND IT IS DELIBERATELY NOT COLLAPSED INTO `error`. The product owner's
+   * ruling is explicit: "wrong password and pending approval should be differentiated." A person
+   * waiting on an administrator must not be left believing they mistyped something, because what
+   * they will do about that belief is reset a password that was never wrong and telephone the wrong
+   * desk about it for a week. The code, not the prose, is what this branches on — see
+   * `accessRefusalCode` for why.
+   *
+   * The account-enumeration cost was weighed and accepted upstream: a caller who holds an address
+   * can learn that this institution knows it. What must not widen past that is anything else — the
+   * server's sentences name no person, no role and no other account, and nothing here adds to them.
+   */
+  const [refusal, setRefusal] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const googleHost = useRef<HTMLDivElement | null>(null);
   const renderedWidth = useRef(0);
@@ -145,15 +161,34 @@ function LoginView() {
       window.google?.accounts.id.initialize({
         client_id: googleClientId,
         callback: async (response) => {
+          setError(null);
+          setRefusal(null);
           try {
             await loginWithGoogle(response.credential);
             router.replace("/dashboard");
           } catch (err) {
-            toast({
-              title: "Google sign-in failed",
-              description: err instanceof Error ? err.message : "Please try again.",
-              tone: "error"
-            });
+            /**
+             * GOOGLE FAILURES LAND IN THE CARD'S BANNER, NOT IN A TOAST — and that change is what
+             * makes the gate visible on this path at all.
+             *
+             * Google sign-in is now allow-listed like everything else: a verified Google identity
+             * that is not on the roster gets no account and no token, and is told it is waiting for
+             * an administrator. That sentence is something the person must READ and act on (by
+             * waiting, and by talking to an admin), and a toast is the wrong home for it twice
+             * over — `aria-live="polite"` never interrupts, so a screen reader may not reach it
+             * before it is gone, and it dismisses itself after five seconds. The banner stays until
+             * the next attempt.
+             *
+             * The toast is kept ONLY for failures that are not the gate — a rejected ID token, a
+             * network drop — where "try again" really is the whole advice.
+             */
+            const code = accessRefusalCode(err);
+            const message = err instanceof Error ? err.message : "Please try again.";
+            setRefusal(code);
+            setError(message);
+            if (!code) {
+              toast({ title: "Google sign-in failed", description: message, tone: "error" });
+            }
           }
         }
       });
@@ -196,10 +231,15 @@ function LoginView() {
     event.preventDefault();
     setLoading(true);
     setError(null);
+    setRefusal(null);
     try {
       await login(email, password);
       router.replace("/dashboard");
     } catch (err) {
+      // Two outcomes, told apart on purpose (see the `refusal` state). A wrong password is still a
+      // 401 with the same sentence it has always had; a correct credential for an address the
+      // roster does not admit is a 403 carrying a code and its own sentence.
+      setRefusal(accessRefusalCode(err));
       setError(err instanceof Error ? err.message : "Unable to sign in or reach the server.");
     } finally {
       setLoading(false);
@@ -248,8 +288,17 @@ function LoginView() {
             ))}
           </ul>
         </div>
+        {/*
+          THIS LINE USED TO SAY "New Google accounts join as Crowdsource Volunteers and are elevated
+          by an admin", and it stopped being true the day the sign-in gate shipped. A Google address
+          no longer self-provisions ANYTHING: if it is not on the access roster it gets no account
+          and no token, and becomes a request an admin has to approve. Leaving the old sentence up
+          would have promised every visitor an account the application no longer gives them, on the
+          one page where they find out otherwise.
+        */}
         <p className="relative z-10 text-xs text-white/40">
-          New Google accounts join as Crowdsource Volunteers and are elevated by an admin.
+          Access is by invitation: an administrator adds your address to the roster. Sign in once and your request
+          reaches them. Approved accounts join at the lowest tier unless an admin sets a higher one.
         </p>
       </aside>
 
@@ -271,8 +320,41 @@ function LoginView() {
             <p className="text-sm text-ink-500">Sign in to your account</p>
           </div>
 
-          {error ? (
-            <div className="mb-4 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-error-600">{error}</div>
+          {/*
+            THE TWO REFUSALS, SIDE BY SIDE IN ONE PLACE.
+
+            "Awaiting approval" is drawn as a WAITING state — amber, a clock, a heading that says
+            what is happening — and "invalid email or password" stays the red error it has always
+            been. That difference is not decoration: it is the whole of the ruling. Somebody who has
+            been turned away pending a decision must be able to tell, at a glance and without
+            reading carefully, that they have not got their password wrong.
+
+            REJECTED and SUSPENDED take the red treatment, because for the person reading them
+            something IS wrong and the only thing that changes it is talking to a human. They still
+            carry their own distinct sentence from the server; only the styling is shared.
+
+            `role="status"` on the waiting variant and `role="alert"` on the error one, so a screen
+            reader is told which of the two it is without having to parse the sentence.
+          */}
+          {error && refusal === "ACCESS_PENDING" ? (
+            <div
+              role="status"
+              className="mb-4 flex gap-3 rounded-md border border-amber-500/30 bg-amber-100 px-3 py-3 text-sm text-amber-800"
+            >
+              <Clock className="mt-0.5 h-5 w-5 shrink-0" aria-hidden />
+              <div>
+                <p className="font-semibold">Waiting for an administrator</p>
+                {/* The sentence is the SERVER's, verbatim. It is written once, in
+                    `access_roster.ACCESS_PENDING_DETAIL`, and served to this page, to the Android
+                    app and to the other application, so a person who tries two of them is not told
+                    two different things about one decision. */}
+                <p className="mt-1 leading-6">{error}</p>
+              </div>
+            </div>
+          ) : error ? (
+            <div role="alert" className="mb-4 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-error-600">
+              {error}
+            </div>
           ) : null}
 
           <form onSubmit={submit} className="grid gap-3">
@@ -376,6 +458,14 @@ function LoginView() {
               <ComingSoonBadge />
             </Button>
           </div>
+
+          {/* The brand panel carries this on a wide screen, but it is `hidden … lg:flex` — so on a
+              phone, which is where most first sign-ins happen, the allow-list would be a surprise
+              delivered only by a refusal. */}
+          <p className="mt-4 text-center text-xs leading-5 text-ink-500 lg:hidden">
+            Access is by invitation: an administrator adds your address to the roster. Sign in once and your request
+            reaches them.
+          </p>
 
           <p className="mt-4 text-center text-sm text-ink-500">
             No account yet?{" "}

@@ -12,6 +12,7 @@ import {
   Settings,
   ShieldCheck,
   SlidersHorizontal,
+  UserCheck,
   UserCog,
   Wrench,
   type LucideIcon
@@ -20,6 +21,7 @@ import {
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
+import { usePendingAccessCount } from "@/components/hooks/usePendingAccessCount";
 import { ResizableTh } from "@/components/ResizableTh";
 import { RowActions, rowAction } from "@/components/RowActions";
 import { useAuth } from "@/components/AuthProvider";
@@ -34,6 +36,15 @@ type Tile = {
   href: string;
   icon: LucideIcon;
   visible?: boolean;
+  /**
+   * A count rendered on the tile — how many things behind it are waiting for this admin.
+   *
+   * `null` means "not known yet" and renders nothing; `0` means the server said there is nothing
+   * waiting and also renders nothing, because a "0" badge is visual noise on nine tiles. Only a
+   * positive number draws. The distinction between the two still matters upstream — see
+   * `usePendingAccessCount`.
+   */
+  badge?: number | null;
 };
 
 /** /media/orphans returns the whole recovery list, so the table pages client-side. */
@@ -51,6 +62,13 @@ const PAGE_SIZE = 20;
 export default function AdminHubPage() {
   const { user, loading: authLoading } = useAuth();
   const permitted = isAdmin(user);
+  /**
+   * The access roster's pending count, for the tile below.
+   *
+   * Called unconditionally, above the early returns, because a hook cannot be called conditionally
+   * — it gates itself on the same admin predicate internally and makes no request for anybody else.
+   */
+  const { pending: pendingAccess } = usePendingAccessCount();
 
   const [orphans, setOrphans] = useState<MediaFile[] | null>(null);
   const [page, setPage] = useState(1);
@@ -141,6 +159,22 @@ export default function AdminHubPage() {
       icon: ShieldCheck
     },
     {
+      // The tile the sign-in gate hangs off. It sits NEXT TO "Manage users" on purpose: the two
+      // answer the same question from opposite ends — /users is who has an account, the roster is
+      // who is allowed to have one — and an admin chasing "why can this person not log in?" reaches
+      // for the users screen first and finds nothing there, because the refusal is not on the
+      // account, it is on the address.
+      //
+      // The badge is the whole notification. There is no email and no push in this codebase, so a
+      // count on a surface admins already open is how "the admins should be notified to approve or
+      // reject the user" is delivered.
+      label: "Access roster",
+      description: "Who may sign in at all, plus the queue of people waiting for a decision.",
+      href: "/admin/access-roster",
+      icon: UserCheck,
+      badge: pendingAccess
+    },
+    {
       label: "Manage users",
       description: "Roles, promotions, capability grants, and account admin.",
       href: "/users",
@@ -182,8 +216,23 @@ export default function AdminHubPage() {
               href={tile.href}
               className="group flex flex-col gap-2 rounded-lg border border-line-200 bg-card p-4 shadow-sm transition hover:border-purple-300 hover:shadow-md"
             >
-              <div className="grid h-10 w-10 place-items-center rounded-md bg-purple-800">
-                <tile.icon className="h-5 w-5 text-white" aria-hidden />
+              <div className="flex items-start justify-between gap-2">
+                <div className="grid h-10 w-10 place-items-center rounded-md bg-purple-800">
+                  <tile.icon className="h-5 w-5 text-white" aria-hidden />
+                </div>
+                {/* Only a POSITIVE count draws. Null is "not known yet" and zero is "nothing is
+                    waiting" — both render nothing, because a row of "0" badges is noise and a "0"
+                    shown while the request is still in flight would say the queue is empty at the
+                    exact moment it might not be. The number is also worded for a screen reader,
+                    since a bare "3" beside a tile title announces nothing. */}
+                {typeof tile.badge === "number" && tile.badge > 0 ? (
+                  <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                    <span aria-hidden>{tile.badge}</span>
+                    <span className="sr-only">
+                      {tile.badge} waiting for a decision
+                    </span>
+                  </span>
+                ) : null}
               </div>
               <div className="font-display text-base font-bold leading-snug text-ink-900">{tile.label}</div>
               <p className="text-xs leading-5 text-ink-500">{tile.description}</p>

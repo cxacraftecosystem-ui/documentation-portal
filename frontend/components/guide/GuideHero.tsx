@@ -36,9 +36,19 @@ export function GuideHero({ stepCount, onStart }: { stepCount: number; onStart: 
   });
 
   const facts = [
+    /*
+     * ACCESS COMES FIRST because the walkthrough is reachable before anybody has an account — it is
+     * linked off the landing page — so its readers now include people whose sign-in was just
+     * refused. Since the platform allow-list shipped, an address nobody has admitted gets a pending
+     * request instead of an account; teaching that reader the documentation steps without first
+     * telling them why the door did not open sends them looking for a fault in the app.
+     *
+     * It replaces the review fact rather than joining it: four facts is a list and three is an
+     * orientation, and review is taught properly at the step where the reader is doing it.
+     */
+    { icon: ShieldCheck, text: "Access is by invitation — an admin admits your address first" },
     { icon: ListOrdered, text: `${stepCount} steps, in the order you do them in the field` },
-    { icon: Compass, text: "Every record is scoped to a workshop" },
-    { icon: ShieldCheck, text: "Everything you submit is reviewed before it counts" }
+    { icon: Compass, text: "Every record is scoped to a workshop" }
   ];
 
   return (

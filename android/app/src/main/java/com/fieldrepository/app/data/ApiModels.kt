@@ -1111,11 +1111,20 @@ data class DatasetFileDto(
     val content: String? = null
 )
 
+/**
+ * `GET /export/dataset` — the whole-repository download manifest.
+ *
+ * [truncated] is true when any table hit its export cap (`EXPORT_TAKE = 5000` per record table,
+ * `MEDIA_TAKE = 20000` for media). The server has always sent it and this DTO used to drop it on
+ * the floor, so an archive missing everything past the cap presented itself as complete. Defaulted
+ * to false so a server that predates the field still parses.
+ */
 @Serializable
 data class DatasetManifestDto(
     val files: List<DatasetFileDto> = emptyList(),
     val totalFiles: Int = 0,
-    val totalMedia: Int = 0
+    val totalMedia: Int = 0,
+    val truncated: Boolean = false
 )
 
 @Serializable
@@ -2317,4 +2326,101 @@ data class MapPointRecordsDto(
     val total: Int = 0,
     val cap: Int = 0,
     val truncated: Boolean = false
+)
+
+// ---------------------------------------------------------------------------------------------
+// The access roster — the admin side of the sign-in gate
+// ---------------------------------------------------------------------------------------------
+//
+// WHAT THIS IS. Until the gate shipped, this application refused nobody: any verified Google
+// address on earth got a `User` row and a bearer token, automatically, at the lowest tier. The
+// roster is the institution's answer to "who may sign in at all", and it is NOT the user table —
+// a row usually exists BEFORE the account does (an admin admits an address; the account provisions
+// itself on first sign-in) and it outlives the access (suspending keeps the row). That is why
+// every one of these endpoints is keyed by EMAIL and not by user id.
+//
+// ONLY `status == "ACTIVE"` ADMITS. A PENDING row is created BY THE REFUSED CALLER, so "a row
+// exists for this address" and "this person may sign in" are one clause apart. Any screen that
+// conflates them is showing an admin an authentication bypass and calling it a roster.
+
+/** One roster row, exactly as `access_roster.roster_payload` serialises it. */
+@Serializable
+data class AccessRosterDto(
+    val id: String = "",
+    val email: String = "",
+    /** PENDING | ACTIVE | REJECTED | SUSPENDED — `AccessStatus` in prisma/schema.prisma. */
+    val status: String = "PENDING",
+    /** The tier this address gets on admission. NOT the live account role — see [accountRole]. */
+    val grantedRole: String = "CROWDSOURCE_VOLUNTEER",
+    /**
+     * ADMIN-WRITTEN ONLY, and that is a security property rather than an omission: the sign-in path
+     * never stores a display name from an unverified source, because the pending queue is the one
+     * screen in this product where a stranger can cause content to appear.
+     */
+    val fullName: String? = null,
+    val notes: String? = null,
+    /** The date of joining the platform. Stamped the FIRST time an address is admitted, never moved. */
+    val joinedAt: String? = null,
+    /** First successful sign-in. Null on an ACTIVE row = admitted but never taken up. */
+    val firstSeenAt: String? = null,
+    /** Refused attempts. 0 = an administrator added this row and nobody asked to be here. */
+    val requestCount: Int = 0,
+    val firstRequestedAt: String? = null,
+    val lastRequestedAt: String? = null,
+    val decidedAt: String? = null,
+    val decidedById: String? = null,
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
+    /** The account behind the address, when one exists. Resolved server-side for the whole page. */
+    val userId: String? = null,
+    /**
+     * The account's LIVE role, which disagrees with [grantedRole] the moment somebody is promoted
+     * through the users screen. Both are shown, because an admin reading only the roster would
+     * otherwise be looking at a stale tier and believing it current.
+     */
+    val accountRole: String? = null,
+    val accountName: String? = null
+)
+
+/** `GET /access-roster/pending-count` — the notification, in its entirety. */
+@Serializable
+data class AccessRosterPendingCountDto(
+    val pending: Int = 0
+)
+
+/**
+ * `POST /access-roster` — put an address on the allow list. No account is required and none is
+ * created; the account provisions itself, at [grantedRole], the first time that address signs in.
+ *
+ * [grantedRole] absent means the bottom of the ladder: "all the users by default join as the lowest
+ * rung unless promoted there itself". The server bounds it by the calling admin's own tier.
+ */
+@Serializable
+data class AccessRosterCreateBody(
+    val email: String,
+    val fullName: String? = null,
+    val notes: String? = null,
+    val grantedRole: String? = null,
+    val isActive: Boolean = true
+)
+
+/**
+ * `PATCH /access-roster/{id}` — approve, refuse, restore or correct one entry.
+ *
+ * EVERY FIELD IS NULLABLE AND NULL MEANS "LEAVE IT ALONE": the Retrofit converter is configured
+ * with `explicitNulls = false` (ApiClient.kt), so an unset field is omitted from the JSON entirely
+ * and the server's `exclude_unset` leaves the column untouched. That is what stops an admin fixing
+ * a typo in a note from silently re-approving somebody another admin had rejected.
+ *
+ * `status = "PENDING"` is refused by the server on purpose: putting a request back in the queue is
+ * indistinguishable, on the queue, from a fresh request by the applicant, so one admin could
+ * quietly undo another's rejection with nothing on screen saying so.
+ */
+@Serializable
+data class AccessRosterUpdateBody(
+    val email: String? = null,
+    val status: String? = null,
+    val grantedRole: String? = null,
+    val fullName: String? = null,
+    val notes: String? = null
 )

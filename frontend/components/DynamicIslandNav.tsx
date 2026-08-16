@@ -27,6 +27,7 @@ import {
   Settings as SettingsIcon,
   Share2,
   SlidersHorizontal,
+  UserCheck,
   UserCog,
   Users,
   Wrench,
@@ -36,11 +37,13 @@ import {
 
 import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
+import { usePendingAccessCount } from "@/components/hooks/usePendingAccessCount";
 import { HoveredLink, MenuItem } from "@/components/ui/navbar-menu";
 import { FieldRepoLogo } from "@/components/FieldRepoLogo";
 import {
   canCreateRecords,
   canDownloadDataset,
+  canManageAccessRoster,
   canManageCrafts,
   canManageUsers,
   canManageWorkshops,
@@ -76,6 +79,12 @@ type NavItem = {
 };
 
 const everyone = () => true;
+
+/**
+ * The one destination in this menu that carries a live count, named once so the entry below and the
+ * badge lookup in the renderer cannot drift apart.
+ */
+const ACCESS_ROSTER_HREF = "/admin/access-roster";
 
 /**
  * The single source of truth for navigation. Every destination carries its own predicate, so the
@@ -140,6 +149,20 @@ export const NAV_ITEMS: NavItem[] = [
   // too removed the link from an admin who still had the route — an open page with no way to reach it.
   { href: "/review", label: "Review", icon: Eye, group: "Browse", can: canReview, gate: "require_reviewer" },
   { href: "/admin", label: "Settings hub", icon: SlidersHorizontal, group: "Admin", can: isAdmin, gate: "require_admin", adminSurface: true },
+  // The sign-in gate's admin side, and the only nav entry in this app that carries a count. It sits
+  // directly above "Manage users" because the two answer one question from opposite ends: /users is
+  // who HAS an account, the roster is who is allowed to have one. An admin chasing "why can this
+  // person not log in?" reaches for the users screen, finds no row, and needs the next line of the
+  // menu to be the answer.
+  {
+    href: ACCESS_ROSTER_HREF,
+    label: "Access roster",
+    icon: UserCheck,
+    group: "Admin",
+    can: canManageAccessRoster,
+    gate: "require_admin",
+    adminSurface: true
+  },
   { href: "/users", label: "Manage users", icon: UserCog, group: "Admin", can: canManageUsers, gate: "require_professor", adminSurface: true },
 
   // Account — personal, so nothing here is role-gated.
@@ -171,9 +194,38 @@ export function isNavItemVisible(item: NavItem, user: User | null | undefined, a
 
 const spring = { type: "spring" as const, stiffness: 260, damping: 30 };
 
+/**
+ * A count beside a menu entry.
+ *
+ * Amber and not red: a pending access request is not an incident, it is work waiting for somebody.
+ * `amber-100`/`amber-800` are the two brand rungs of that scale in this config (`amber-50`/`-200`
+ * deep-merge with stock Tailwind and do not pair with them).
+ *
+ * THE NUMBER IS WORDED FOR A SCREEN READER. A bare "3" announced after "Access roster" says nothing
+ * — three what? — so the digits are `aria-hidden` and a real sentence sits beside them. Colour and
+ * a bare numeral never carry the meaning on their own anywhere in this app.
+ */
+function NavBadge({ count }: { count: number | null }) {
+  if (count === null) return null;
+  return (
+    <span className="ml-auto inline-flex items-center rounded-full border border-amber-500/30 bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold leading-none text-amber-800">
+      <span aria-hidden>{count}</span>
+      <span className="sr-only">{count} waiting for a decision</span>
+    </span>
+  );
+}
+
 export function DynamicIslandNav() {
   const { user, logout } = useAuth();
   const { adminMode, canAdmin, toggleAdminView } = useAdminView();
+  /**
+   * The access roster's pending count. THE NOTIFICATION: there is no email and no push in this
+   * codebase, so "admins should be notified to approve or reject" is a number on the surfaces they
+   * already have open — and the nav is on every single protected page, which makes it the one
+   * surface that cannot be missed. The hook gates itself on the admin predicate and makes no
+   * request for anybody else, so calling it unconditionally here costs a non-admin nothing.
+   */
+  const { pending: pendingAccess } = usePendingAccessCount();
   const router = useRouter();
   const pathname = usePathname();
   const [active, setActive] = useState<string | null>(null);
@@ -308,6 +360,16 @@ export function DynamicIslandNav() {
 
   const isActivePath = (href: string) => href.split("?")[0] === activeBase;
 
+  /**
+   * The count to draw beside a menu entry, or null for none.
+   *
+   * Only a POSITIVE number draws: null from the hook means "not known yet" and zero means the
+   * server said nobody is waiting, and neither deserves a badge — a "0" rendered while the request
+   * is still in flight would tell an admin the queue is empty at the exact moment it might not be.
+   */
+  const badgeFor = (href: string): number | null =>
+    href === ACCESS_ROSTER_HREF && typeof pendingAccess === "number" && pendingAccess > 0 ? pendingAccess : null;
+
   return (
     <>
       <div className="nav-island-frame pointer-events-none fixed inset-x-0 top-3 z-50 flex justify-center">
@@ -367,6 +429,7 @@ export function DynamicIslandNav() {
                           <span className="inline-flex items-center gap-2">
                             <item.icon className="h-3.5 w-3.5 text-ink-300" aria-hidden />
                             {item.label}
+                            <NavBadge count={badgeFor(item.href)} />
                           </span>
                         </HoveredLink>
                       ))}
@@ -454,6 +517,7 @@ export function DynamicIslandNav() {
                   >
                     <item.icon className="h-4 w-4 shrink-0 text-ink-300" aria-hidden />
                     {item.label}
+                    <NavBadge count={badgeFor(item.href)} />
                   </Link>
                 ))}
               </div>

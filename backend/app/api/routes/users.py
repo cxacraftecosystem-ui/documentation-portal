@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -17,6 +18,7 @@ from app.core.deps import (
 )
 from app.core.security import hash_password
 from app.schemas.users import UserCreate, UserUpdate
+from app.services.access_roster import ensure_admitted
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import clean_data, contains
 
@@ -139,6 +141,20 @@ async def create_user(payload: UserCreate, current_user: Any = Depends(require_a
             "canDownloadDataset": is_master or payload.canDownloadDataset,
         }
     )
+    # AN ACCOUNT CREATED HERE MUST ALSO BE ADMITTED BY THE SIGN-IN GATE, or the admin has just made
+    # an account that cannot sign in — and they would find that out from the new user, by telephone,
+    # a day later. Creating the account IS the decision to let this person in; there is no second
+    # approval step an admin was meant to remember, and requiring one would be a trap with no signal
+    # attached to it. The roster row carries the same tier the account was created at, and the
+    # admin's own id as the decider.
+    await ensure_admitted(
+        user.email,
+        granted_role=role,
+        full_name=user.name,
+        notes="Admitted automatically: an administrator created this account.",
+        decided_by_id=current_user.id,
+        joined_at=user.createdAt,
+    )
     # A brand-new cuid cannot already be cached, but every write to a User row invalidates without
     # exception — a rule with a documented exception is a rule the next person has to re-derive.
     invalidate_cached_user(user.id)
@@ -199,7 +215,27 @@ async def update_user(
         data["canReview"] = True
         data["canViewProvenance"] = True
         data["canDownloadDataset"] = True
+    # Read BEFORE the update. ``user`` is the pre-update row today, but "the object I read earlier
+    # still holds the old value" is an assumption about the ORM's identity map, not about this code,
+    # and the thing that depends on it below is whether somebody can still sign in.
+    previous_email = user.email
     updated = await db.user.update(where={"id": user_id}, data=data)
+    if "email" in data and data["email"] != previous_email:
+        # CHANGING SOMEBODY'S ADDRESS MOVES THEM PAST THEIR OWN ROSTER ROW. The gate is keyed by
+        # email — that is what lets an admin admit a person before their account exists — so an
+        # account renamed from a@x to b@x is refused at the next sign-in by a roster that has never
+        # heard of b@x, and the admin who renamed them has no reason to connect the two. The new
+        # address is admitted at the account's live tier, and the old row is left exactly as it is:
+        # it is the record that a@x was once recognised, and silently deleting an entry from an
+        # audit trail because a related row changed is not something this table does.
+        await ensure_admitted(
+            updated.email,
+            granted_role=str(getattr(updated.role, "value", updated.role)),
+            full_name=updated.name,
+            notes=f"Address changed from {previous_email} by an administrator.",
+            decided_by_id=current_user.id,
+            joined_at=updated.createdAt,
+        )
     # This is the promotion/demotion route: the cached identity now describes authority the user no
     # longer has (or has not been given yet), so it must not outlive the write by even one request.
     invalidate_cached_user(user_id)
@@ -217,5 +253,20 @@ async def delete_user(user_id: str, current_user: Any = Depends(require_admin)) 
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="You cannot delete your own account")
     assert_can_manage_target(current_user, user)
     await db.user.delete(where={"id": user_id})
+    # DELETING THE ACCOUNT MUST ALSO CLOSE THE DOOR. The roster is keyed by EMAIL, not by user id,
+    # so the ACTIVE row survives the account — and an ACTIVE row is an instruction to provision. Left
+    # alone, the person an admin just deleted signs in with Google and gets a brand-new account at
+    # the tier the roster still remembers, which reads to the admin as the delete button not working.
+    # SUSPENDED rather than deleted, for the reason the whole roster is: the record that this address
+    # was once recognised is what an audit asks for, and a deleted row goes straight back into the
+    # pending queue on their next attempt.
+    await db.accessroster.update_many(
+        where={"email": user.email},
+        data={
+            "status": "SUSPENDED",
+            "decidedAt": datetime.now(UTC),
+            "decidedById": current_user.id,
+        },
+    )
     # A deleted account must stop authenticating immediately, not when a TTL happens to expire.
     invalidate_cached_user(user_id)

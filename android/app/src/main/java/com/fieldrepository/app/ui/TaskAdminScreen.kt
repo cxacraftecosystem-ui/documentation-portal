@@ -850,17 +850,33 @@ private fun AssignWorkTab(
                 modifier = Modifier.fillMaxWidth()
             )
             FieldLabel("Description")
-            OutlinedTextField(
+            /*
+             * THE MICROPHONE, AND DELIBERATELY NOT THE RICH EDITOR.
+             *
+             * It is the biggest box on this screen and it is prose, so it clears the size bar the
+             * user set for these controls — and dictation belongs on it, because an administrator
+             * describing what good work looks like is composing four sentences of guidance, which is
+             * faster said than typed.
+             *
+             * THE EDITOR STAYS OUT BECAUSE THIS COLUMN ALREADY HAS A FORMATTING PROMISE AND IT IS A
+             * DIFFERENT ONE. The placeholder below says "Markdown is supported" — a promise nothing
+             * in this app currently renders, which is a pre-existing inconsistency and not this
+             * work's to resolve. Putting a rich toolbar over a column whose stated format is Markdown
+             * would give one field two formatting models and leave whoever reads the assignment
+             * looking at whichever one lost. Deciding between them is a product question about
+             * `AssignedTask.description`; until it is answered this box gains the control that is
+             * unambiguously an improvement and none of the one that is not.
+             *
+             * `label = null` because this screen puts the field's name ABOVE the box with
+             * `FieldLabel`; a floating label here would print "Description" twice.
+             */
+            RecordProseField(
+                label = null,
                 value = form.description,
                 onValueChange = { form.description = it },
-                placeholder = {
-                    Text(
-                        "What good work looks like here. Markdown is supported.",
-                        color = MaterialTheme.field.placeholder
-                    )
-                },
+                placeholder = "What good work looks like here. Markdown is supported.",
                 minLines = 3,
-                modifier = Modifier.fillMaxWidth()
+                dictate = true,
             )
             FieldLabel("Due date")
             DueDateField(value = form.dueDate, onChange = { form.dueDate = it })

@@ -280,6 +280,31 @@ ARTISAN = RecordSpec(
             lambda a: "Yes" if a.pehchanCardAvailable else "No",
         ),
         _f("Pehchan card number", lambda a: mask_aadhaar(a.pehchanCardNumber)),
+        # ---------------------------------------------------------------------------------------
+        # AGE AND EXPERIENCE HAVE NO WRITER. Both columns below are blank on every artisan recorded
+        # since the raw-JSON textarea was taken off the artisan form, because that textarea was the
+        # only thing on any surface that ever put these keys into ``extraMetadata``. Grep confirms
+        # it: neither ``frontend/components/forms/ArtisanForm.tsx`` nor Android's ``ArtisanForm``
+        # writes ``age``, ``experienceYears``, ``experience`` or ``yearsOfExperience`` — both write
+        # ``extraMetadata`` as ``{"mediaExif": …}`` and nothing else, under a comment that says
+        # extraMetadata is programmatic now. So these two fields print an empty cell in the data
+        # browser's info panel, in every generated ``details.txt``, in the artisan sheet of the
+        # ``/data/report`` workbook and inside every ``/export/dataset`` zip.
+        #
+        # THE READS STAY, and are deliberately NOT deleted. The textarea existed for most of this
+        # project's life, so records entered through it may hold these keys, and dropping the reads
+        # would silently retire data that is genuinely there. The three spellings on the experience
+        # line are three generations of that hand-typed key and must all survive for the same reason.
+        #
+        # THE FIX IS A COLUMN, exactly as District/State/Pincode above got one — an
+        # ``experienceYears Int?`` on model Artisan read column-first with these keys as the
+        # fallback, plus (for age) a ``dateOfBirth`` rather than an ``age``, because an age drifts and
+        # a date of birth does not; storing the drifting one re-creates this rot in a different
+        # place. That is a migration plus a form field on both surfaces and a product decision about
+        # what researchers are asked to collect, so it is NOT being made here as a side effect of a
+        # picker fix. Until then, this comment is the record: the cells are empty because nothing
+        # fills them, not because the artisans have no age and no experience.
+        # ---------------------------------------------------------------------------------------
         _f("Age", lambda a: meta_val(meta_of(a), "age")),
         _f("Gender", lambda a: a.gender),
         _f(
