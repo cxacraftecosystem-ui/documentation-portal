@@ -2424,3 +2424,95 @@ data class AccessRosterUpdateBody(
     val fullName: String? = null,
     val notes: String? = null
 )
+
+// ---------------------------------------------------------------------------------------------
+// A designer's OWN provider keys — `GET /ai/providers`, `GET|PUT|DELETE /me/ai-keys[/…]`
+//
+// SEPARATE FROM [ManagedSecretDto] AND ITS OPPOSITE IN EVERY RESPECT. That one describes the
+// DEPLOYMENT's keys, is master-admin only, and has a reveal endpoint because a master admin
+// sometimes has to compare a stored key against a provider dashboard. These describe ONE PERSON's
+// own key, billed to their own card at their own provider, and there is deliberately no reveal
+// route at all — nobody, administrator included, has any business reading somebody else's personal
+// credential. The last four characters are the most this app can ever show.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * One model a designer can choose, and the honest list of what it can be used for.
+ *
+ * [tasks] IS NOT DECORATION AND MUST BE RENDERED. It carries the enum names the server uses —
+ * PROOFREAD, EXPAND, SUMMARISE, TRANSLATE, TRANSCRIBE, CAPTION — and it is how a designer learns
+ * BEFORE choosing that, for instance, no Claude model can transcribe audio. Dropping it from the
+ * screen would let somebody paste a Claude key believing their recordings were now on their own
+ * account, and find out otherwise from a bill that never arrives.
+ */
+@Serializable
+data class AiModelDto(
+    val id: String,
+    val label: String = "",
+    val note: String = "",
+    val tasks: List<String> = emptyList(),
+    /** Indicative USD per million tokens. Null for models the provider does not price per token. */
+    val inputPricePerMTok: Double? = null,
+    val outputPricePerMTok: Double? = null
+)
+
+/** One provider: how to get a key, what it costs, and which models it offers. */
+@Serializable
+data class AiProviderDto(
+    val provider: String,
+    val label: String = "",
+    /** What a key from this provider starts with, checked before an obviously-wrong paste is sent. */
+    val keyPrefix: String? = null,
+    val consoleUrl: String = "",
+    val pricingUrl: String = "",
+    /** The accordion: how to get a key, one action per step, in the order they will be done. */
+    val howTo: List<String> = emptyList(),
+    val defaultModel: String = "",
+    val models: List<AiModelDto> = emptyList()
+)
+
+/**
+ * `GET /ai/providers`.
+ *
+ * [pricesCheckedOn] TRAVELS WITH EVERY PRICE THIS APP PRINTS. The figures go stale — providers
+ * re-price, and some of the current rates are introductory — and a stale price shown as current is
+ * a small lie told to somebody deciding how to spend their own money.
+ */
+@Serializable
+data class AiCatalogueDto(
+    val pricesCheckedOn: String = "",
+    val tasks: List<String> = emptyList(),
+    val providers: List<AiProviderDto> = emptyList()
+)
+
+/**
+ * One provider row for the signed-in person. Carries no plaintext, ever — see the block comment
+ * above on why there is no reveal.
+ */
+@Serializable
+data class UserAiKeyDto(
+    val provider: String,
+    val label: String = "",
+    /** True when a key is stored AND can still be decrypted. */
+    val configured: Boolean = false,
+    /** A stored key the server can no longer decrypt: the owner must paste it again. */
+    val unreadable: Boolean = false,
+    val hint: String? = null,
+    val model: String = "",
+    /** False when the saved model is no longer one this app offers — the row says so rather than
+     *  silently correcting it, because the designer's own choice is what is being overridden. */
+    val modelKnown: Boolean = true,
+    val lastStatus: String = "UNKNOWN",
+    val lastCheckedAt: String? = null,
+    val lastError: String? = null,
+    val updatedAt: String? = null
+)
+
+/** `PUT /me/ai-keys/{provider}`. Both fields are optional: sending only [model] changes the model
+ *  without making somebody find their key again, which is what stops a UI teaching people to keep
+ *  a credential somewhere convenient and less safe. */
+@Serializable
+data class UserAiKeySetBody(
+    val key: String? = null,
+    val model: String? = null
+)

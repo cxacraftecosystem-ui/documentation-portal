@@ -663,6 +663,37 @@ interface FieldRepositoryApi {
     // --- Managed provider keys (MASTER ADMIN ONLY; every route is require_master_admin) ---
     // Cheap by design: no provider is contacted here, so the list costs one query however many
     // keys are configured. The list NEVER carries a value — only /reveal does.
+    // ── A designer's OWN provider keys ────────────────────────────────────────────────────
+    //
+    // NO REVEAL ROUTE, and that is a deliberate absence rather than an omission: the secrets API
+    // above has one because the deployment's keys belong to the organisation, and nobody has the
+    // equivalent need for somebody else's personal credential. The server takes the owner from the
+    // token, so none of these carries a user id — there is no shape of request that reads or
+    // writes another person's key.
+
+    /** The catalogue every settings screen is built from: providers, models, capabilities, how-to. */
+    @GET("ai/providers")
+    suspend fun aiProviders(): AiCatalogueDto
+
+    /** This person's own keys, one row per provider, with no plaintext in any of them. */
+    @GET("me/ai-keys")
+    suspend fun myAiKeys(): List<UserAiKeyDto>
+
+    /** Save or rotate a key, or change only the model by sending a body with no key. */
+    @PUT("me/ai-keys/{provider}")
+    suspend fun setMyAiKey(
+        @Path("provider") provider: String,
+        @Body body: UserAiKeySetBody
+    ): UserAiKeyDto
+
+    /** Remove it; this work goes back to whatever key the server itself is set up with. */
+    @DELETE("me/ai-keys/{provider}")
+    suspend fun deleteMyAiKey(@Path("provider") provider: String): UserAiKeyDto
+
+    /** Ask the provider whether the stored key works, now, and remember the answer. */
+    @POST("me/ai-keys/{provider}/test")
+    suspend fun testMyAiKey(@Path("provider") provider: String): UserAiKeyDto
+
     @GET("secrets")
     suspend fun managedSecrets(): List<ManagedSecretDto>
 

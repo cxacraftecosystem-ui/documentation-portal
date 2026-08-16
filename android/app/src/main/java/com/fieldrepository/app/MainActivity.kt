@@ -166,6 +166,7 @@ import com.fieldrepository.app.data.apiFailure
 import com.fieldrepository.app.data.occurrenceDate
 import com.fieldrepository.app.ui.AccessRosterScreen
 import com.fieldrepository.app.ui.ApiKeysScreen
+import com.fieldrepository.app.ui.MyAiKeysScreen
 import com.fieldrepository.app.ui.AppPreferences
 import com.fieldrepository.app.ui.AppPreferencesStore
 import com.fieldrepository.app.ui.AppNavigationDrawerContent
@@ -429,6 +430,10 @@ private sealed interface Screen {
     data object Settings : Screen
     /** This account's Appearance + Accessibility — /settings on the web. Open to every user. */
     data object Appearance : Screen
+
+    /** This account's OWN provider keys. Personal, not administrative — the
+     *  deployment's keys live behind the admin hub's API keys entry. */
+    data object MyAiKeys : Screen
     /**
      * The /data directory-tree browser. Its own Screen rather than a Create mode because it owns its
      * whole viewport: it draws its own top bar and lays out with a LazyColumn, which must never be
@@ -1215,6 +1220,7 @@ private fun HomeScreen(
             is Screen.Feedback -> Screen.Dashboard
             is Screen.Settings -> Screen.Dashboard
             is Screen.Appearance -> Screen.Dashboard
+            is Screen.MyAiKeys -> Screen.Appearance
             is Screen.DataBrowser -> Screen.Dashboard
             // One level at a time: from a tool back to the tool list, and only then out. This is
             // what lets the single header arrow replace the in-page "All admin tools" button — the
@@ -1245,6 +1251,7 @@ private fun HomeScreen(
         is Screen.Feedback -> "App feedback"
         is Screen.Settings -> "Settings"
         is Screen.Appearance -> "Appearance & accessibility"
+        is Screen.MyAiKeys -> null
         is Screen.DataBrowser -> "Data Browser"
         // A reviewer who is not an admin lands on the review tool alone (see the AdminHub branch
         // below), so the header must not announce a hub of admin tools they were never given.
@@ -1269,6 +1276,7 @@ private fun HomeScreen(
         is Screen.ToolAssign -> NavDestination.ASSIGN_TOOLS
         is Screen.Feedback -> NavDestination.GIVE_FEEDBACK
         is Screen.Appearance -> NavDestination.SETTINGS
+        is Screen.MyAiKeys -> NavDestination.SETTINGS
         is Screen.DataBrowser -> NavDestination.VIEW_DATA
         // The roster is the one hub tool with a menu entry of its own, so it must highlight ITS row
         // rather than the hub's — a menu that says you are on "Settings hub" while the roster is on
@@ -1390,6 +1398,12 @@ private fun HomeScreen(
                         repository = repository,
                         current = preferences,
                         onChanged = onPreferencesChanged,
+                        onBack = { attemptExit { goBack() } },
+                        onOpenMyAiKeys = { screen = Screen.MyAiKeys }
+                    )
+
+                    is Screen.MyAiKeys -> MyAiKeysScreen(
+                        repository = repository,
                         onBack = { attemptExit { goBack() } }
                     )
 
@@ -1854,7 +1868,7 @@ private fun HomeScreen(
             }
 
             // Hosted above, outside this scrolling Column, because they own their whole viewport.
-            is Screen.Appearance, is Screen.DataBrowser -> Unit
+            is Screen.Appearance, is Screen.MyAiKeys, is Screen.DataBrowser -> Unit
         }
 
         message?.let {

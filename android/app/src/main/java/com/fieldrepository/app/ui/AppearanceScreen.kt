@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -342,6 +343,7 @@ fun AppearanceScreen(
     current: AppPreferences,
     onChanged: (AppPreferences) -> Unit,
     onBack: () -> Unit,
+    onOpenMyAiKeys: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
@@ -452,6 +454,29 @@ fun AppearanceScreen(
                 )
             }
             SaveStatusLine(saving = saving, error = error)
+        }
+
+        /*
+         * ---- The account's own AI keys -------------------------------------------------
+         *
+         * ON THIS SCREEN BECAUSE A KEY FOLLOWS THE ACCOUNT. Everything above is a preference
+         * saved against this account and applied on every device it signs in on, and a
+         * personal provider key is the same kind of thing — stored on the server, applying
+         * on the phone and on the web alike. It is deliberately NOT in the admin hub beside
+         * the DEPLOYMENT's keys: those are the organisation's and are master-admin only,
+         * this one is the person's own and is billed to them, and confusing the two is how
+         * somebody ends up paying for work they did not do.
+         */
+        PreferenceCard {
+            PreferenceCardHeading(Icons.Filled.VpnKey, "My AI keys")
+            Text(
+                "Use your own OpenAI, Gemini or Claude key for transcription and the other " +
+                    "AI work you ask for, at a model of your choice, billed to you. Leave it " +
+                    "empty and everything works as it does now.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.field.muted
+            )
+            OutlinedButton(onClick = onOpenMyAiKeys) { Text("Open my AI keys") }
         }
     }
 }

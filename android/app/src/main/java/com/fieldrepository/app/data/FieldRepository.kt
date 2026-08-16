@@ -524,6 +524,21 @@ class FieldRepository(
      * Set or rotate a key. Takes effect on the next provider call — no restart, no redeploy. Blank is
      * a 422 by design: use [clearSecret] to fall back to the deployed environment value.
      */
+    // ── A designer's OWN provider keys ────────────────────────────────────────────────────
+    // Thin pass-throughs: there is no caching and no local store for these on purpose. A key is a
+    // credential, and the only copy that should exist on the handset is the one being typed.
+
+    suspend fun aiProviders(): AiCatalogueDto = api.aiProviders()
+
+    suspend fun myAiKeys(): List<UserAiKeyDto> = api.myAiKeys()
+
+    suspend fun setMyAiKey(provider: String, key: String?, model: String?): UserAiKeyDto =
+        api.setMyAiKey(provider, UserAiKeySetBody(key = key?.takeIf { it.isNotBlank() }, model = model))
+
+    suspend fun deleteMyAiKey(provider: String): UserAiKeyDto = api.deleteMyAiKey(provider)
+
+    suspend fun testMyAiKey(provider: String): UserAiKeyDto = api.testMyAiKey(provider)
+
     suspend fun setSecret(key: String, value: String): ManagedSecretDto =
         api.setSecret(key, ManagedSecretSetBody(value = value.trim()))
 
