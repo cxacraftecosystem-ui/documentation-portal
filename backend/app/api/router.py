@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.routes import (
+    ai_keys,
     access_roster,
     app_release,
     artisans,
@@ -32,6 +33,7 @@ from app.api.routes import (
 
 api_router = APIRouter(prefix="/api")
 
+api_router.include_router(ai_keys.router)
 api_router.include_router(auth.router)
 api_router.add_api_route("/me", auth.me, methods=["GET"], tags=["auth"])
 api_router.include_router(users.router)

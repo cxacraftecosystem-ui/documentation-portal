@@ -228,9 +228,13 @@ async def abort_multipart(
 @router.post("/transcribe")
 async def transcribe_media_audio(
     file: UploadFile = File(...),
-    _: Any = Depends(get_current_user),
+    # NAMED, not discarded. This was `_: Any = Depends(get_current_user)` — the dependency ran, so
+    # the route was authenticated, but the caller's identity went nowhere. It is needed now: the
+    # person at the microphone is who a personal provider key belongs to, and a transcription that
+    # cannot say whose it is has to be billed to the organisation by default.
+    current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    return await transcribe_audio(file, get_settings())
+    return await transcribe_audio(file, get_settings(), user_id=current_user.id)
 
 
 @router.post("/analyze-measurement")

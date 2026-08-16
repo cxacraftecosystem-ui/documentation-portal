@@ -9,6 +9,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { AppSettingsPanel } from "@/components/settings/AppSettingsPanel";
 import { GetTheAppPanel } from "@/components/settings/GetTheAppPanel";
 import { PublishAppUpdatePanel } from "@/components/settings/PublishAppUpdatePanel";
+import { MyAiKeysPanel } from "@/components/settings/MyAiKeysPanel";
 import { AccessibilityCard, AppearanceCard } from "@/components/settings/PersonalSettingsCards";
 import { WorkshopAccessRequestPanel } from "@/components/settings/WorkshopAccessRequestPanel";
 import { isAdmin, isMasterAdmin } from "@/lib/permissions";
@@ -118,6 +119,11 @@ export default function SettingsPage() {
 
         {/* Everyone sees this: the two apps are one product and each is better at half the job. */}
         <GetTheAppPanel />
+
+        {/* Personal, not deployment-wide: this is the caller's own provider key, billed to
+            them. The panel that manages the ORGANISATION's keys is master-admin only and
+            lives behind the administration links below. */}
+        <MyAiKeysPanel />
 
         <WorkshopAccessRequestPanel />
 

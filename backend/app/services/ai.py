@@ -12,7 +12,14 @@ import requests
 from fastapi import UploadFile
 
 from app.core.config import Settings
-from app.services import app_settings, managed_secrets
+from app.services import (
+    anthropic_verbs,
+    app_settings,
+    managed_secrets,
+    user_ai_keys,
+)
+from app.services.ai_providers import AiProvider, AiTask
+from app.services.user_ai_keys import AiCredential
 
 logger = logging.getLogger(__name__)
 
@@ -669,14 +676,83 @@ def _transcribe_sync(
     }
 
 
-async def transcribe_audio(file: UploadFile, settings: Settings) -> dict[str, Any]:
+async def transcribe_audio(
+    file: UploadFile, settings: Settings, *, user_id: str | None = None
+) -> dict[str, Any]:
     content = await file.read()
     return await transcribe_audio_bytes(
         content,
         file.filename or "recording.webm",
         file.content_type or "audio/webm",
         settings,
+        user_id=user_id,
     )
+
+
+def _transcribe_on_personal_key(
+    content: bytes, filename: str, mime_type: str, credential: AiCredential
+) -> dict[str, Any] | None:
+    """One transcription attempt on a designer's OWN key. ``None`` means "not this provider".
+
+    RETURNS None RATHER THAN RAISING for a provider that cannot transcribe, because the caller's
+    contract is "try this, then fall into the chain" and an exception there would be indistinguishable
+    from a provider that was reached and failed. Anthropic never arrives here at all — ``resolve``
+    will not hand back a Claude credential for a transcription task, because no Claude model accepts
+    audio — so this is belt and braces rather than the enforcement point.
+    """
+    if credential.provider is AiProvider.OPENAI:
+        response = requests.post(
+            "https://api.openai.com/v1/audio/transcriptions",
+            headers={"Authorization": f"Bearer {credential.api_key}"},
+            data={"model": credential.model, "response_format": "json"},
+            files={"file": (filename, content, mime_type or "application/octet-stream")},
+            timeout=180,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return _transcription_result(str(payload.get("text") or "").strip(), payload)
+
+    if credential.provider is AiProvider.GEMINI:
+        # Gemini takes audio as an inline part on the ordinary generate endpoint — there is no
+        # separate transcription route. The prompt is deliberately bare: this is a transcription and
+        # not a summary, and any instruction beyond "write down what is said" is an invitation to
+        # tidy the speech, which is precisely what a field transcript must not do.
+        response = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{credential.model}:generateContent",
+            headers={"x-goog-api-key": credential.api_key},
+            json={
+                "contents": [
+                    {
+                        "parts": [
+                            {
+                                "text": "Transcribe this recording word for word, in the language "
+                                "spoken. Do not translate, summarise, tidy or omit anything. "
+                                "Return only the transcript."
+                            },
+                            {
+                                "inlineData": {
+                                    "mimeType": mime_type or "audio/mpeg",
+                                    "data": base64.b64encode(content).decode("ascii"),
+                                }
+                            },
+                        ]
+                    }
+                ]
+            },
+            timeout=180,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        candidates = payload.get("candidates") or []
+        parts = ((candidates[0].get("content") or {}).get("parts") or []) if candidates else []
+        text = "".join(str(part.get("text", "")) for part in parts).strip()
+        # An empty answer is NOT a transcript of a silent recording — it is a refusal or a safety
+        # block, and returning it would file an empty transcript against real audio. None sends the
+        # job into the server's chain, which is the honest outcome.
+        return _transcription_result(text, payload) if text else None
+
+    return None
+
 
 
 async def transcribe_audio_bytes(
@@ -684,10 +760,42 @@ async def transcribe_audio_bytes(
     filename: str,
     mime_type: str,
     settings: Settings,
+    *,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     # Prime the managed-secret cache on the event loop BEFORE any thread hop, so both the provider
     # chain below and the header reads inside the thread see keys saved in the UI.
     await managed_secrets.refresh_if_stale()
+
+    # ── A DESIGNER'S OWN KEY, AND WHY IT DOES NOT JOIN THE FAILOVER CHAIN ──────────────────────
+    #
+    # The chain below is this repository's transcription quality ladder: ElevenLabs first because it
+    # auto-detects the regional languages, Deepgram second, Whisper last, each one tried when the one
+    # before it fails. It is ordered by how well each provider hears an Odia courtyard, and the order
+    # is administrator-configurable for exactly that reason.
+    #
+    # A personal key is a BILLING choice, not a quality one, so it is offered as a first attempt and
+    # the chain remains intact behind it. If the designer's own provider fails, the job falls into
+    # the ordinary ladder and the recording still gets transcribed — a recording is the one artefact
+    # in this app that cannot be re-taken, and no billing preference is worth losing one over.
+    #
+    # `user_id` is None for the queue worker unless the job carries its requester, which is what
+    # keeps a background drain off an arbitrary designer's card.
+    if user_id:
+        personal = await user_ai_keys.resolve(user_id, AiTask.TRANSCRIBE)
+        if personal is not None and personal.is_user_supplied:
+            try:
+                answer = await asyncio.to_thread(
+                    _transcribe_on_personal_key, content, filename, mime_type, personal
+                )
+                if answer is not None:
+                    return answer
+            except Exception as exc:  # noqa: BLE001 - fall into the chain, never fail the recording
+                logger.warning(
+                    "A designer's own transcription key failed (%s); falling back to the "
+                    "server's provider chain",
+                    redact_secrets(str(exc)),
+                )
     # Resolve the chain here, per job, and hand it to the thread: the ranking lives in the database
     # and awaiting it is impossible once inside `to_thread`. Reading it now is also what makes a
     # reorder apply to the very next job in both the API and the queue process, with no restart.

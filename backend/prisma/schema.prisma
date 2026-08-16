@@ -189,6 +189,7 @@ model User {
   workshopAccessRequests  WorkshopAssignment[] @relation("WorkshopAssignmentRequestedBy")
   workshopAccessDecisions WorkshopAssignment[] @relation("WorkshopAssignmentDecidedBy")
   managedSecretsUpdated   ManagedSecret[]      @relation("ManagedSecretUpdatedBy")
+  aiCredentials           UserAiCredential[]   @relation("UserAiCredentialOwner")
   dataAccessAsOwner   DataAccessGrant[] @relation("DataAccessOwner")
   dataAccessAsGrantee DataAccessGrant[] @relation("DataAccessGrantee")
   dataAccessRequested DataAccessGrant[] @relation("DataAccessRequestedBy")
@@ -1336,4 +1337,45 @@ model RecordRevision {
 
   @@index([recordType, recordId])
   @@index([editedById])
+}
+
+/// ONE DESIGNER'S OWN KEY for one provider, encrypted with the same Fernet as ManagedSecret.
+///
+/// SEPARATE FROM ManagedSecret ON PURPOSE, and the separation is a permission boundary rather than
+/// tidiness. A ManagedSecret is the DEPLOYMENT's key: one row per provider, written only by the
+/// master admin from the Settings hub, and used by every request the server serves. A row here is
+/// ONE PERSON's key, readable and writable only by that person, and used only for work they
+/// themselves ask for. Putting both in one table would mean one careless `find_unique(where={"key":
+/// ...})` served somebody else's credential to a provider on somebody else's behalf — and the
+/// billing for that lands on a real person's card.
+///
+/// `model` is the designer's chosen model id, validated against `services/ai_providers` at write
+/// time. It is nullable: a key with no model chosen runs the provider's default, which is what
+/// somebody who pasted a key and pressed Save expects.
+model UserAiCredential {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation("UserAiCredentialOwner", fields: [userId], references: [id], onDelete: Cascade)
+  /// OPENAI | GEMINI | ANTHROPIC — the AiProvider enum in services/ai_providers.
+  provider      String
+  /// Fernet ciphertext. Never logged, never serialised to a response, never revealed — unlike a
+  /// ManagedSecret there is no reveal endpoint for these, because no administrator has any business
+  /// reading a designer's personal credential.
+  valueEnc      String
+  /// Last four characters of the plaintext, so the owner can tell two of their own keys apart.
+  hint          String?
+  /// The chosen model id. NULL means "the provider's default", resolved at call time so that a
+  /// default which moves does not leave every designer pinned to a retired model.
+  model         String?
+  /// Result of the most recent reachability probe: UNKNOWN / OK / FAILED.
+  lastStatus    String   @default("UNKNOWN")
+  lastCheckedAt DateTime?
+  lastError     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  /// One key per provider per person. A designer with two OpenAI keys has no way to say which one
+  /// a given job should use, so the second replaces the first.
+  @@unique([userId, provider])
+  @@index([userId])
 }

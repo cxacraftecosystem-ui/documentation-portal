@@ -258,6 +258,22 @@ def _probe_openai(value: str) -> tuple[bool, str | None]:
     )
 
 
+def _probe_anthropic(value: str) -> tuple[bool, str | None]:
+    """Anthropic's model list — the cheapest authenticated GET the API has.
+
+    ``anthropic-version`` is NOT optional and is not a courtesy: the API rejects a request without
+    it, so a probe that omitted the header would report every valid key as broken. It is pinned to
+    the long-standing ``2023-06-01`` rather than to anything newer because this call reads a list of
+    ids and needs no feature that a later version introduces — the point is to learn whether the key
+    authenticates, and the oldest version that answers that is the one least likely to move.
+    """
+    return _probe_http(
+        "https://api.anthropic.com/v1/models",
+        headers={"x-api-key": value, "anthropic-version": "2023-06-01"},
+        secret=value,
+    )
+
+
 def _probe_elevenlabs(value: str) -> tuple[bool, str | None]:
     return _probe_http("https://api.elevenlabs.io/v1/user", headers={"xi-api-key": value}, secret=value)
 
@@ -319,6 +335,17 @@ MANAGED_KEYS: dict[str, ManagedKey] = {
             ),
             settings_attr="openai_api_key",
             probe=_probe_openai,
+        ),
+        ManagedKey(
+            key="ANTHROPIC_API_KEY",
+            label="Anthropic Claude",
+            description=(
+                "Proofreading, expanding, summarising, translating and photo captions when a "
+                "designer has not supplied their own key. Claude cannot transcribe audio — no "
+                "Claude model accepts a sound file — so transcription is unaffected by this key."
+            ),
+            settings_attr="anthropic_api_key",
+            probe=_probe_anthropic,
         ),
         ManagedKey(
             key="ELEVENLABS_API_KEY",

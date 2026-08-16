@@ -19,6 +19,19 @@ dependencies = [
     "requests>=2.32.0",
     "pydub>=0.25.1",
     "openpyxl>=3.1.2",
+    # The Claude provider (app/services/anthropic_verbs.py), added with designer-supplied API keys.
+    #
+    # THE OFFICIAL SDK RATHER THAN `requests`, WHICH IS THE ODD ONE OUT IN THIS BACKEND. The OpenAI
+    # and Gemini calls in app/services/ai.py are hand-written HTTP, and this deliberately is not:
+    # the Claude request surface has moved twice in the past year in ways that return a 400 rather
+    # than degrading (sampling parameters removed, the thinking budget replaced, prefill refused),
+    # and a hand-written body pins this repository to whichever shape was current the day it was
+    # typed. The SDK carries those rules and its own retry and timeout behaviour.
+    #
+    # It is an IMPORT-OPTIONAL dependency all the same: anthropic_verbs imports it lazily inside the
+    # call, so a deployment that has not installed it answers "Claude is unavailable on this server"
+    # instead of failing to boot. Everything else in this backend keeps working.
+    "anthropic>=0.40.0",
 ]
 
 [project.optional-dependencies]
