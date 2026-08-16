@@ -81,6 +81,20 @@ class ArtisanCreate(APIModel):
     status: str = "PENDING"
     recordedAt: datetime | None = None
     recordedTimezone: str = "Asia/Kolkata"
+    # ── THE TWO FACTS THE DESIGN WORKSHOP ASKS EVERY ARTISAN FOR ────────────────────────────
+    #
+    # Both were read only from `extraMetadata` spellings the record form stopped writing years ago,
+    # so the artisan record sheet printed two permanently empty cells and nothing in this product
+    # could record either fact. `record_fields.py` carried a note naming exactly this fix — a
+    # column read first with the legacy keys behind it, and a DATE rather than an age.
+    #
+    # A DATE, NOT AN AGE: the record sheet prints an age derived from this. See the column comment
+    # in schema.prisma — an age written down is wrong within a year and nothing notices.
+    dateOfBirth: datetime | None = None
+    # 0..90, the same bound the sibling repository's design-workshop registry uses, so an artisan
+    # exported from one product and imported into the other cannot carry a number the other side
+    # refuses.
+    experienceYears: int | None = Field(default=None, ge=0, le=90)
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
 
@@ -138,6 +152,8 @@ class ArtisanUpdate(APIModel):
     pehchanCardNumber: str | None = None
     dos: str | None = None
     donts: str | None = None
+    dateOfBirth: datetime | None = None
+    experienceYears: int | None = Field(default=None, ge=0, le=90)
     craftId: str | None = None
     craftName: str | None = None
     workshopId: str | None = None

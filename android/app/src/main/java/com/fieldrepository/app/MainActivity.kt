@@ -66,6 +66,8 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Timeline
+import com.fieldrepository.app.ui.parseFieldDate
+import com.fieldrepository.app.ui.FieldDateField
 import com.fieldrepository.app.ui.FieldIslandNav
 import com.fieldrepository.app.ui.NavGroup
 import com.fieldrepository.app.ui.visibleNavItems
@@ -5284,6 +5286,23 @@ private fun ArtisanForm(
     var aadhaar by remember(editing) { mutableStateOf(editing?.aadhaarNumber.orEmpty()) }
     var pehchanAvailable by remember(editing) { mutableStateOf(editing?.pehchanCardAvailable ?: true) }
     var pehchanNumber by remember(editing) { mutableStateOf(editing?.pehchanCardNumber.orEmpty()) }
+    /*
+     * ── THE TWO FACTS THE DESIGN WORKSHOP ASKS OF EVERY ARTISAN ─────────────────────────────
+     *
+     * Both were read only from legacy metadata this app stopped writing years ago, so the artisan
+     * record sheet printed two empty cells and nothing could record either fact. A DATE and not an
+     * age: the sheet shows an age and the server derives it, so it is still right next year.
+     */
+    // Explicit type argument: `parseFieldDate` returns a nullable LocalDate and the chain through
+    // `?.let` gives the compiler nothing to infer `T` from.
+    var dateOfBirth by remember(editing) {
+        mutableStateOf<java.time.LocalDate?>(
+            editing?.dateOfBirth?.take(10)?.let { parseFieldDate(it) }
+        )
+    }
+    var experienceYears by remember(editing) {
+        mutableStateOf(editing?.experienceYears?.toString().orEmpty())
+    }
     var dosItems by remember(editing) { mutableStateOf(splitNumbered(editing?.dos)) }
     var dontsItems by remember(editing) { mutableStateOf(splitNumbered(editing?.donts)) }
     var craftId by remember(editing) { mutableStateOf(editing?.craftId ?: prefill?.craftId ?: "") }
@@ -5467,6 +5486,8 @@ private fun ArtisanForm(
                 // false, and only an explicit true can move a record back off "No".
                 pehchanCardAvailable = pehchanAvailable,
                 pehchanCardNumber = if (pehchanAvailable) pehchanNumber.blankToNull() else null,
+                dateOfBirth = dateOfBirth?.toString(),
+                experienceYears = experienceYears.toIntOrNull(),
                 dos = dosText,
                 donts = dontsText,
                 craftId = craftId.ifBlank { null },
@@ -5585,6 +5606,26 @@ private fun ArtisanForm(
             selectedValue = gender,
             includeNone = false
         ) { gender = it }
+        FieldDateField(
+            label = "Date of birth",
+            value = dateOfBirth,
+            onValueChange = { dateOfBirth = it },
+            // Nobody is born tomorrow, and a future date would derive a negative age.
+            maximum = java.time.LocalDate.now(),
+            clearable = true,
+            supportingText = "The record sheet shows an age, worked out from this date."
+        )
+        OutlinedTextField(
+            value = experienceYears,
+            // Digits only, and capped at two of them: 0..90 mirrors the stage registry's own bounds
+            // for `participant.experienceYears`, so this form cannot accept a number the workshop
+            // would then refuse on a row it filled in from this very record.
+            onValueChange = { typed -> experienceYears = typed.filter { it.isDigit() }.take(2) },
+            label = { Text("Experience (years)") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
         ArtisanPhoneField(value = phone, error = phoneError) { phone = it; phoneError = null }
         OutlinedTextField(
             value = email,

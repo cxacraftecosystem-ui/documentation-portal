@@ -518,6 +518,20 @@ data class ArtisanCreateRequest(
     // built with `encodeDefaults = false`, so a non-null default would be DROPPED from the payload
     // whenever it matched — and a PATCH that omits the flag cannot flip a "No" record back to "Yes".
     // With null as the default, whatever the form sets is always on the wire.
+    /**
+     * ── THE TWO FACTS THE DESIGN WORKSHOP ASKS OF EVERY ARTISAN ──────────────────────────────
+     *
+     * Both were read only from legacy `extraMetadata` spellings this app stopped writing years ago,
+     * so the artisan record sheet printed two permanently empty cells and nothing in the product
+     * could record either fact.
+     *
+     * A DATE, NOT AN AGE: the record sheet shows an age and the server derives it from this every time
+     * it is read, because an age written down is wrong within a year and nothing would notice.
+     * Sent as `yyyy-MM-dd`; the API accepts a bare date.
+     */
+    val dateOfBirth: String? = null,
+    /** Years practising the craft. 0..90, the same bound the sibling repository uses. */
+    val experienceYears: Int? = null,
     val pehchanCardAvailable: Boolean? = null,
     val pehchanCardNumber: String? = null,
     // Newline-separated, numbered Do's (positive prompt) and Don'ts (negative prompt). Required on the
@@ -837,6 +851,8 @@ data class ArtisanDetailDto(
     // .xlsx report, exports — gets the "XXXX XXXX 9012" mask), because the edit form has to show the
     // researcher what is stored before they change it.
     val aadhaarNumber: String? = null,
+    val dateOfBirth: String? = null,
+    val experienceYears: Int? = null,
     val pehchanCardAvailable: Boolean = true,
     val pehchanCardNumber: String? = null,
     val dos: String? = null,

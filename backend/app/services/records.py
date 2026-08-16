@@ -75,6 +75,39 @@ class _Unset:
 _UNSET = _Unset()
 
 
+def derive_age(date_of_birth: Any, *, on: datetime | None = None) -> int | None:
+    """Whole years between ``date_of_birth`` and today. None when there is no usable date.
+
+    **AGE IS DERIVED AND NEVER STORED**, which is the entire reason ``Artisan.dateOfBirth`` is a date
+    rather than the age column the workshop's participant table asks for. An age written down is
+    wrong within a year and nothing in this system would ever notice: a record entered as "42" reads
+    42 for the rest of its life, in every report it is printed in. Computing it here means it is
+    right on the day it is printed and right again next year, on the same row, with nobody editing
+    anything.
+
+    ``on`` exists so a test can ask what this returns on a stated day rather than on the day the
+    test happens to run — an age function tested against ``now()`` passes in March and fails in
+    September, on the birthday of whatever fixture it uses.
+
+    Returns None rather than 0 for a missing, unparseable or future date: a blank box and "zero
+    years old" are different statements, and the second is one this repository would be making up.
+    """
+    if not date_of_birth:
+        return None
+    if isinstance(date_of_birth, str):
+        try:
+            date_of_birth = datetime.fromisoformat(date_of_birth.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    born = getattr(date_of_birth, "date", lambda: date_of_birth)()
+    today = (on or datetime.now(UTC)).date()
+    # The birthday-not-yet-reached correction, spelled out rather than divided: (today - born).days
+    # // 365 drifts by a day every four years and reports somebody as a year older than they are for
+    # a few days around their birthday, which is exactly the kind of wrongness nobody checks.
+    years = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+    return years if 0 <= years <= 130 else None
+
+
 def mask_identity_number(value: Any) -> Any:
     """The masked form of an artisan identity number.
 

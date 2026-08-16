@@ -37,6 +37,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterable
 
 from app.services.artisan_identity import mask_aadhaar
+from app.services.records import derive_age
 
 # ---------------------------------------------------------------------------
 # Value coercion
@@ -101,6 +102,11 @@ def human_size(value: Any) -> str:
 def cell(value: Any) -> str:
     """Any value -> a trimmed string safe to drop straight into a table cell."""
     return "" if value is None else str(value).strip()
+
+
+def _first_answer(*values: Any) -> Any:
+    """The first value that is not None. NOT `or`: 0 and "" are answers, not absences."""
+    return next((v for v in values if v is not None), None)
 
 
 def meta_of(record: Any) -> dict[str, Any]:
@@ -280,36 +286,33 @@ ARTISAN = RecordSpec(
             lambda a: "Yes" if a.pehchanCardAvailable else "No",
         ),
         _f("Pehchan card number", lambda a: mask_aadhaar(a.pehchanCardNumber)),
-        # ---------------------------------------------------------------------------------------
-        # AGE AND EXPERIENCE HAVE NO WRITER. Both columns below are blank on every artisan recorded
-        # since the raw-JSON textarea was taken off the artisan form, because that textarea was the
-        # only thing on any surface that ever put these keys into ``extraMetadata``. Grep confirms
-        # it: neither ``frontend/components/forms/ArtisanForm.tsx`` nor Android's ``ArtisanForm``
-        # writes ``age``, ``experienceYears``, ``experience`` or ``yearsOfExperience`` — both write
-        # ``extraMetadata`` as ``{"mediaExif": …}`` and nothing else, under a comment that says
-        # extraMetadata is programmatic now. So these two fields print an empty cell in the data
-        # browser's info panel, in every generated ``details.txt``, in the artisan sheet of the
-        # ``/data/report`` workbook and inside every ``/export/dataset`` zip.
+        # ── AGE AND EXPERIENCE NOW HAVE COLUMNS ────────────────────────────────────────────
         #
-        # THE READS STAY, and are deliberately NOT deleted. The textarea existed for most of this
-        # project's life, so records entered through it may hold these keys, and dropping the reads
-        # would silently retire data that is genuinely there. The three spellings on the experience
-        # line are three generations of that hand-typed key and must all survive for the same reason.
+        # This block used to carry a long note explaining that both cells were empty because
+        # nothing filled them — they were read only from `extraMetadata` spellings that the record
+        # form stopped writing years ago — and naming the fix: an `experienceYears Int?` column read
+        # column-first with those keys as the fallback, plus a `dateOfBirth` rather than an `age`,
+        # "because an age drifts and a date of birth does not". That is what happened.
         #
-        # THE FIX IS A COLUMN, exactly as District/State/Pincode above got one — an
-        # ``experienceYears Int?`` on model Artisan read column-first with these keys as the
-        # fallback, plus (for age) a ``dateOfBirth`` rather than an ``age``, because an age drifts and
-        # a date of birth does not; storing the drifting one re-creates this rot in a different
-        # place. That is a migration plus a form field on both surfaces and a product decision about
-        # what researchers are asked to collect, so it is NOT being made here as a side effect of a
-        # picker fix. Until then, this comment is the record: the cells are empty because nothing
-        # fills them, not because the artisans have no age and no experience.
-        # ---------------------------------------------------------------------------------------
-        _f("Age", lambda a: meta_val(meta_of(a), "age")),
+        # The date is printed AND the age beside it, in that order, because they are two different
+        # kinds of statement: the date is what the artisan said and does not change, the age is a
+        # fact about today that this sheet works out each time it is drawn.
+        _f("Date of birth", lambda a: getattr(a, "dateOfBirth", None)),
+        # `is not None` and NOT `or`: a derived 0 is a real answer and `or` would read it
+        # as absent and print a stale metadata value instead.
+        _f("Age", lambda a: _first_answer(
+            derive_age(getattr(a, "dateOfBirth", None)),
+            meta_val(meta_of(a), "age"),
+        )),
         _f("Gender", lambda a: a.gender),
         _f(
             "Experience (years)",
-            lambda a: meta_val(meta_of(a), "experienceYears", "experience", "yearsOfExperience"),
+            # The column first, the legacy metadata behind it: the migration copied every clean
+            # number across and deliberately left the ones it could not parse ("30+", "about 30")
+            # in the JSON rather than guessing, and those rows are the oldest and best documented.
+            lambda a: getattr(a, "experienceYears", None)
+            if getattr(a, "experienceYears", None) is not None
+            else meta_val(meta_of(a), "experienceYears", "experience", "yearsOfExperience"),
         ),
         _f("Do's", lambda a: a.dos),
         _f("Don'ts", lambda a: a.donts),

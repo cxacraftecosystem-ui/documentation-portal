@@ -582,6 +582,31 @@ model Artisan {
   pehchanCardNumber String?  @unique
   address       String?
   notes         String?
+  /// DATE OF BIRTH, AND DELIBERATELY NOT AN AGE COLUMN.
+  ///
+  /// The design workshop's participant table asks every artisan for an Age and an Experience, and
+  /// until these two columns existed this table could answer neither: both were read out of legacy
+  /// `extraMetadata` spellings that researchers used before the record form was structured, and the
+  /// form stopped writing free metadata a long time ago. So an artisan IMPORTED into a workshop
+  /// arrived with both boxes blank and an artisan ADDED from the workshop had nowhere to put them —
+  /// the designer typed them in from a printout, which is the exact behaviour the reference picker
+  /// exists to end. `participant.experienceYears` is a TABLE_COLUMN, so the blank printed in every
+  /// submitted report.
+  ///
+  /// It is a DATE and not a number because an age column is wrong within a year of being written
+  /// and nothing in this system would ever notice: a record entered as "42" is silently "42" for
+  /// the rest of its life. Age is derived from this at read time — see `derive_age` in
+  /// services/records — so it is right on the day it is printed and right again next year.
+  dateOfBirth   DateTime?
+  /// Years this artisan has practised the craft. A number and not a date, because the thing a
+  /// designer knows is "about thirty years" and the year they started is a harder question that
+  /// gets a rounder, less honest answer.
+  ///
+  /// Ages with the record rather than with the artisan, which is a real limitation and an accepted
+  /// one: an artisan documented in 2024 with 30 years reads 30 in 2030. `recordedAt` is on the same
+  /// row, so a reader can always tell how old the statement is, and inflating it automatically
+  /// would be inventing a fact nobody stated.
+  experienceYears Int?
   // Newline-separated, numbered guidance for working with this artisan: dos = positive prompt (what to
   // do / emphasise), donts = negative prompt (what to avoid). Required on new records; nullable so the
   // existing rows from before this field can be backfilled later instead of blocking the migration.

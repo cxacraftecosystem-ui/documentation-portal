@@ -502,6 +502,12 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         name: requiredText(form, "name"),
         localName: textValue(form, "localName"),
         gender: textValue(form, "gender"),
+        // `null` and not `undefined` when blank: on a PATCH an omitted key means "leave it alone",
+        // so clearing a date entered by mistake would silently do nothing.
+        dateOfBirth: textValue(form, "dateOfBirth") || null,
+        experienceYears: textValue(form, "experienceYears")
+          ? Number(textValue(form, "experienceYears"))
+          : null,
         phone: textValue(form, "phone"),
         email: textValue(form, "email"),
         place: requiredText(form, "place"),
@@ -722,6 +728,37 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
                 <option key={option}>{option}</option>
               ))}
             </Select>
+          </Field>
+          {/* ── THE TWO FACTS THE RECORD SHEET COULD NOT ANSWER ────────────────────────────
+              Age and experience were read only from `extraMetadata` spellings this form stopped
+              writing when the raw JSON textarea was removed, so both cells on the artisan record
+              sheet were permanently empty — not because artisans have no age, but because nothing
+              collected it. These are the inputs that fill them.
+
+              A DATE OF BIRTH AND NOT AN AGE: the sheet shows an age, derived from this on every
+              read, because an age written down is wrong within a year and nothing would notice. */}
+          <Field label="Date of birth">
+            <TextInput
+              name="dateOfBirth"
+              type="date"
+              defaultValue={initial?.dateOfBirth ? String(initial.dateOfBirth).slice(0, 10) : ""}
+              max={new Date().toISOString().slice(0, 10)}
+              onChange={markDirty}
+            />
+          </Field>
+          <Field label="Experience (years)">
+            <TextInput
+              name="experienceYears"
+              type="number"
+              inputMode="numeric"
+              /* 0..90, the same bound the sibling repository's design-workshop registry uses, so an
+                 artisan cannot carry a number the other product would refuse. */
+              min={0}
+              max={90}
+              step={1}
+              defaultValue={initial?.experienceYears ?? ""}
+              onChange={markDirty}
+            />
           </Field>
           <Field label="Phone">
             <PhoneField name="phone" defaultValue={initial?.phone} onValueChange={markDirty} />
