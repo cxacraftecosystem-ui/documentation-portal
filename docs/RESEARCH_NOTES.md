@@ -82,8 +82,8 @@ flowchart TB
 
   subgraph remote["Managed, off-box"]
     s3[("S3 · media objects<br/>6.66 GiB / 925 objects")]
-    pooler["Supabase transaction pooler :6543<br/>ap-northeast-1 — DIFFERENT REGION"]
-    pg[("PostgreSQL 16<br/>32 models · 82 indexes")]
+    pooler["Supabase session pooler :5432<br/>ap-south-1 — SAME REGION since 2026-09-13"]
+    pg[("PostgreSQL 17<br/>36 models · 189 indexes")]
     stt["STT providers<br/>ElevenLabs → Deepgram → Whisper"]
   end
 
@@ -100,10 +100,33 @@ flowchart TB
 
 **Verification of the topology claims.** The instance class, core count and memory are specified in
 `backend/DEPLOY_AWS.md:19` (`t3.micro` — 2 vCPU burstable, 1 GiB RAM, Ubuntu 24.04) and the
-single-worker uvicorn invocation at `backend/DEPLOY_AWS.md:81`. The cross-region database is not an
-inference: the pooler hostname in `backend/.env` is
-`aws-1-ap-northeast-1.pooler.supabase.com`, while the deployment guide provisions EC2 and S3 in
-`ap-south-1` (`DEPLOY_AWS.md:186,261`). **MEASURED** — hostname read directly, credentials withheld.
+single-worker uvicorn invocation at `backend/DEPLOY_AWS.md:81`.
+
+> **CORRECTED 2026-09-13 — THE CROSS-REGION HOP IS GONE, AND THIS PARAGRAPH USED TO BE THE
+> EVIDENCE FOR IT.**
+>
+> What it said, and what was true when it said it: the pooler hostname in `backend/.env` was
+> `aws-1-ap-northeast-1.pooler.supabase.com` while EC2 and S3 are provisioned in `ap-south-1`
+> (`DEPLOY_AWS.md:186,261`) — every query crossed roughly 5,000 km, and the 690 ms round trip
+> measured above is what that cost. That finding is why `hydrate_relations` exists: the read path
+> was rebuilt to spend three database waits per page instead of 2+N, because each wait was
+> expensive. **Do not delete that machinery now that the distance is gone** — it is still correct,
+> and it is what makes the page cheap rather than merely tolerable.
+>
+> What is true now: the database was moved to a NEW Supabase project in `ap-south-1`
+> (`ilkdjfxvwctzdcgbtcjw`, PostgreSQL 17.6, Micro compute), in the same account and organisation,
+> and the API now reads `aws-0-ap-south-1.pooler.supabase.com:5432`. The move was a `pg_dump` of
+> the `public` schema restored into the new project and verified table-by-table: 58 tables,
+> 2,893 rows, 90 foreign keys and 23 enums, all matching the source exactly. The old
+> `ap-northeast-1` project was kept alive after the cutover rather than deleted, so a rollback is
+> repointing one secret.
+>
+> **The 690 ms figure above is therefore HISTORICAL and has not been re-measured.** It is left in
+> the diagram's edge label deliberately — deleting it would erase the reason the read path looks
+> the way it does — but nobody should quote it as current. Re-measuring it is the obvious next
+> piece of work, and until somebody does, the honest statement is "the distance was removed on
+> 2026-09-13; the new latency is unmeasured". Check with:
+> `ssh ubuntu@$EC2_HOST "grep -m1 ^DATABASE_URL /home/ubuntu/app/backend/.env | sed -E 's#://[^@]+@#://…@#'"`
 
 ---
 

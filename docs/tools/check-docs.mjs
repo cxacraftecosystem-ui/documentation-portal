@@ -358,6 +358,50 @@ const NOT_A_PATH = new Map([
   ["frontend/frontend", "CI.md names it as the wrong path a misconfiguration produces"],
 ]);
 
+/*
+ * PATHS A DOCUMENT IS RIGHT TO NAME AND A FRESH CHECKOUT IS RIGHT NOT TO HAVE.
+ *
+ * WHY THIS EXISTS, AND WHY ITS ABSENCE MADE THE WHOLE CHECKER USELESS HERE. Before 2026-09-13 this
+ * file reported **27 problems**, and TWENTY-TWO of them were this one mistake repeated: a document
+ * correctly telling a reader to create `backend/.env` from `.env.example`, and the checker calling
+ * that a broken path because the file is gitignored and therefore absent from a clean tree. The
+ * remaining five were real. A gate whose output is 81% false positives is a gate nobody reads, and
+ * one nobody reads cannot be wired into CI — which is exactly what happened: this checker is
+ * referenced by no workflow and no npm script, so the five REAL failures had been sitting unread.
+ *
+ * The sibling repository hit the same wall on its first CI run (35 failures, every one a document
+ * naming a file the reader is being told to make) and solved it with this list rather than with
+ * per-document exemptions, for the reason its comment gives: "A gate that fails for a reason the
+ * author cannot reproduce is a gate that gets switched off." This is that fix, with the entries
+ * that are true for THIS repository.
+ *
+ * MATCHED BY PREFIX, so `backend/.venv/Lib/site-packages/prisma/` is covered by `backend/.venv/`
+ * without enumerating what a virtualenv happens to contain this week.
+ *
+ * A path listed here is still checked in one direction: if it EXISTS it is fine, and if it does not
+ * that is expected. What this cannot catch is a typo inside one of these prefixes, which is the
+ * price of the rule and is cheaper than the alternative.
+ */
+const CREATED_BY_THE_DEVELOPER = [
+  ["backend/.env", "gitignored (.gitignore:5) — ENVIRONMENT.md tells the reader to create it from .env.example"],
+  ["backend/.venv", "gitignored — the virtualenv a developer builds, named in the setup instructions"],
+  ["frontend/.env.local", "gitignored — DEPLOYMENT_VERCEL.md and ENVIRONMENT.md tell the reader to create it"],
+  ["frontend/node_modules", "gitignored — produced by npm install"],
+  ["frontend/.next", "gitignored — Next's build and dev output"],
+  ["frontend/.vercel", "gitignored — written by `vercel link`/`vercel pull`; it is what says which Vercel project a checkout deploys to"],
+  ["android/local.properties", "gitignored — written by Android Studio on first open, or by hand with sdk.dir"],
+  ["android/app/libs/", "gitignored — AARs fetched at build time rather than committed"],
+  // Named in CI.md on purpose: it is the key an operator holds for THIS repository's API box, and
+  // that document's job is partly to stop somebody reaching for the wrong one.
+  ["infra/terraform/fieldrepo-deploy.pem", "a private key, never committed — CI.md names it as the file an operator holds"],
+  ["infra/terraform/terraform.tfstate", "gitignored — local Terraform state, including per-workspace copies under terraform.tfstate.d/"],
+  ["infra/terraform/.terraform", "gitignored — Terraform's working directory"],
+];
+
+function expectedAbsent(p) {
+  return CREATED_BY_THE_DEVELOPER.some(([prefix]) => p === prefix || p.startsWith(prefix));
+}
+
 function resolveRepoPath(p) {
   return PATH_ROOTS.some((root) => existsSync(join(root, p)));
 }
@@ -371,6 +415,7 @@ function checkPaths() {
       const p = m[1].replace(/[.,;:)]+$/, "");
       if (p.includes("*") || p.includes("…")) continue; // globs and elisions are prose, not paths
       if (NOT_A_PATH.has(p)) continue;
+      if (expectedAbsent(p)) continue;
       checked += 1;
       if (!resolveRepoPath(p)) fail(`${rel}: path does not exist — ${p}`);
     }
