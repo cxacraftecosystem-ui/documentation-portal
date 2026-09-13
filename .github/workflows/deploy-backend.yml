@@ -147,6 +147,78 @@ jobs:
         env:
           BACKEND_ENV: ${{ secrets.BACKEND_ENV }}
 
+      # ─── PIN THE DATABASE URL, FOR THE SAME REASON CORS IS PINNED BELOW ────────────────────
+      #
+      # WHAT THIS CLOSES. `BACKEND_ENV` is a write-only secret: it can be replaced wholesale and
+      # never read back or edited a line at a time. So on 2026-09-13, when this project's database
+      # moved from Supabase `ap-northeast-1` to a new project in `ap-south-1` — same account, same
+      # organisation, next to the EC2 box and the S3 bucket instead of 5,000 km from them — the
+      # step ABOVE became the thing that would quietly undo the move. It writes `BACKEND_ENV`
+      # verbatim over `/home/ubuntu/app/backend/.env`, so the first deploy after the cutover would
+      # have restored the OLD Tokyo DSN on top of the corrected one, and the API would have gone
+      # back to reading and writing a database that everybody had stopped watching. Nothing would
+      # have failed. The health check would have been green. The only symptom would have been
+      # records saved after the cutover quietly going missing from the live database.
+      #
+      # WHY NOT JUST REWRITE THE SECRET. Because rewriting `BACKEND_ENV` means retyping every other
+      # key in it — JWT_SECRET, the AWS pair, OPENAI_API_KEY, GEMINI_API_KEYS, the Google client
+      # ids — from a copy nobody can diff against the original. The comment on the CORS step below
+      # already says how that ends: "A wholesale rewrite of a secret nobody can print is how a
+      # database URL gets lost." This step is that sentence taken seriously for the database URL
+      # itself.
+      #
+      # WHAT IT BUYS BEYOND THE MIGRATION. `DATABASE_URL` now has exactly ONE source of truth: the
+      # `DATABASE_URL` Actions secret, which is ALSO what `backup-db.yml` dumps from. Before this
+      # step there were two — that secret and the line buried inside `BACKEND_ENV` — and nothing
+      # compared them, so the nightly backup could have been faithfully copying a database the API
+      # was no longer using. One key, one secret, one answer.
+      #
+      # It is authoritative and not additive: the inherited line is deleted before the new one is
+      # appended, so whatever `BACKEND_ENV` carries is irrelevant by the time the app starts. It
+      # runs BEFORE "Install deps, migrate, restart", so `prisma migrate deploy` in that step
+      # targets the pinned database and not the inherited one.
+      # TWO COMMANDS AND NOT ONE, BECAUSE OF WHERE THE SECRET TRAVELS. The DSN must never appear in
+      # an `ssh` argument: arguments are visible in `ps` on the remote box to every local user, and
+      # they land in the shell history of the runner. The existing "Write .env" step solves this by
+      # piping the value over STDIN — but a `bash -s` heredoc already OWNS stdin, so the two
+      # techniques cannot be combined in one command. So: first hand the value over on stdin to a
+      # 0600 temp file, then run the script that consumes it. The temp file is removed by the
+      # script itself, including on failure, via `trap`.
+      - name: Pin the database URL
+        run: |
+          set -euo pipefail
+          if [ -z "${DB_URL:-}" ]; then
+            echo "::error::the DATABASE_URL secret is empty. Refusing to deploy a box with no database — set it in Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          printf '%s' "$DB_URL" | ssh ubuntu@${{ secrets.EC2_HOST }} \
+            'umask 077 && cat > /home/ubuntu/app/backend/.dburl'
+          ssh ubuntu@${{ secrets.EC2_HOST }} 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/app/backend
+          trap 'rm -f /home/ubuntu/app/backend/.dburl' EXIT
+          url="$(cat .dburl)"
+          [ -n "$url" ] || { echo "the piped DATABASE_URL arrived empty"; exit 1; }
+          # The .env write above uses `printf '%s'`, which emits NO trailing newline, so a bare `>>`
+          # would glue the new key onto the end of whatever the last line is and silently corrupt
+          # that variable. Guarantee the newline first — the CORS step below carries the same guard
+          # and the same scar.
+          [ -s .env ] && [ -n "$(tail -c1 .env)" ] && printf '\n' >> .env
+          # Drop any inherited value, so this is authoritative rather than additive.
+          sed -i '/^DATABASE_URL=/d' .env
+          printf 'DATABASE_URL=%s\n' "$url" >> .env
+          chmod 600 .env
+          # Assert the key landed on a line of its own. `grep -q` rather than `grep -c`: a count of
+          # zero exits 1, which under `set -e` fails the step with no explanation of what was wrong.
+          grep -q '^DATABASE_URL=' .env || { echo "DATABASE_URL did not land on its own line"; exit 1; }
+          # Print the HOST ONLY, never the credentials. Actions logs are readable by anyone with
+          # repository access, and Actions only masks a value it knows verbatim — a substring of a
+          # secret (the password inside a URL) is NOT masked for you.
+          echo "database pinned to: $(grep -m1 '^DATABASE_URL=' .env | sed -E 's#^DATABASE_URL=postgresql://[^@]+@#>>> #')"
+          REMOTE
+        env:
+          DB_URL: ${{ secrets.DATABASE_URL }}
+
       # Pin CORS to the origins that actually exist, in the workflow rather than in BACKEND_ENV.
       #
       # The deployed API answered `access-control-allow-origin: *`. That is not the hole it looks
