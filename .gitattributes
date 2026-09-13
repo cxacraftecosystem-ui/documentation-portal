@@ -1,0 +1,52 @@
+# ─── WHY THIS FILE EXISTS ──────────────────────────────────────────────────────────────────
+#
+# It did not, until 2026-09-13, and that was harmless for exactly as long as this repository
+# held no binary assets of its own. `public/` contained only `boundaries/` (JSON), so there was
+# nothing for a line-ending rule to corrupt and nothing for a diff to mangle.
+#
+# That stopped being true when the two institutional marks landed in `frontend/public/logos/`:
+# a 27 KB indexed PNG and a 99 KB SVG. Git auto-detected the PNG as binary and stored both
+# blobs byte-for-byte (verified: md5 of the committed blobs equals md5 of the source files) —
+# but auto-detection is a heuristic applied at add time, and `core.autocrlf` on a contributor's
+# Windows checkout is free to rewrite the SVG's line endings on the way OUT. An SVG with CRLF
+# still renders, so that drift is invisible in a browser and shows up only as a file that no
+# longer matches the sibling repository it was copied from — which is precisely the check
+# `e2e/landing-institutions-unit.spec.ts` and any future asset-parity test would make.
+#
+# The rules below are the sibling repository's (`designer-portal/.gitattributes`), narrowed to
+# the formats this tree actually holds. Keeping them identical is deliberate: two products that
+# share assets should not disagree about how those assets are stored.
+
+# Normalise text, and let Git decide the working-copy ending per platform.
+* text=auto
+
+# Never touch these. `binary` is `-text -diff`: no line-ending conversion, no attempt to diff.
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.webp          binary
+*.pdf           binary
+*.docx          binary
+*.xlsx          binary
+*.zip           binary
+*.jar           binary
+*.keystore      binary
+*.p12           binary
+*.woff          binary
+*.woff2         binary
+*.ttf           binary
+*.otf           binary
+*.m4a           binary
+*.mp3           binary
+*.mp4           binary
+*.wav           binary
+
+# SVG is text and benefits from a real diff, but it is an ASSET here — copied between
+# repositories and compared byte-for-byte — so it is pinned to LF rather than left to autocrlf.
+*.svg           text eol=lf
+
+# The Gradle wrapper must stay LF or it will not execute on a POSIX runner.
+gradlew         text eol=lf
+*.sh            text eol=lf
