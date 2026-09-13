@@ -37,7 +37,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterable
 
 from app.services.artisan_identity import mask_aadhaar
-from app.services.records import derive_age
+from app.services.records import derive_age, derive_experience_years
 
 # ---------------------------------------------------------------------------
 # Value coercion
@@ -148,11 +148,24 @@ def artisan_names(interview: Any) -> list[str]:
 
 
 def interview_label(interview: Any) -> str:
-    """An interview is identified by the artisans it covers, not its internal title."""
+    """An interview is identified by the artisans it covers, not its internal title.
+
+    DISAMBIGUATED BY INSTRUMENT SINCE 2026-09-13, and that suffix is not decoration. Dropping the
+    global ``artisanSetKey`` unique made two interviews per artisan set legal — the same five
+    artisans sat once for the 2nd-workshop instrument and again for the 3rd — so a label built from
+    the artisans ALONE now returns the identical string for two different sittings. This label names
+    export-zip folders, data-browser tree nodes and report cells; only one of those call sites
+    de-duplicates, so two sittings would otherwise land in one folder and the second would overwrite
+    the first's details.txt.
+
+    The suffix is added only when the instrument is actually known and only as a parenthetical, so
+    every label for the single-instrument years reads exactly as it always did.
+    """
     names = artisan_names(interview)
-    if names:
-        return ", ".join(names)
-    return (getattr(interview, "title", None) or "").strip() or "Interview"
+    base = ", ".join(names) if names else (getattr(interview, "title", None) or "").strip()
+    base = base or "Interview"
+    instrument = getattr(getattr(interview, "questionnaire", None), "title", None)
+    return f"{base} ({instrument})" if instrument else base
 
 
 # ---------------------------------------------------------------------------
@@ -305,14 +318,28 @@ ARTISAN = RecordSpec(
             meta_val(meta_of(a), "age"),
         )),
         _f("Gender", lambda a: a.gender),
+        # THE JOIN DATE IS PRINTED AND THE EXPERIENCE IS DERIVED BESIDE IT, in that order, for the
+        # same reason the date of birth and the age are printed that way a few lines up: they are two
+        # different kinds of statement. The date is what the artisan told a researcher and does not
+        # change; the number is a fact about today that this sheet works out each time it is drawn.
+        _f("Practising since", lambda a: getattr(a, "craftStartDate", None)),
         _f(
             "Experience (years)",
-            # The column first, the legacy metadata behind it: the migration copied every clean
-            # number across and deliberately left the ones it could not parse ("30+", "about 30")
-            # in the JSON rather than guessing, and those rows are the oldest and best documented.
-            lambda a: getattr(a, "experienceYears", None)
-            if getattr(a, "experienceYears", None) is not None
-            else meta_val(meta_of(a), "experienceYears", "experience", "yearsOfExperience"),
+            # THREE SOURCES, IN ORDER — the value derived from the join date, then the stated column,
+            # then the legacy metadata. Written through `_first_answer` because this one lambda feeds
+            # the data browser's info card, the /data/report workbook, `details.txt` inside the
+            # dataset zip and the /export CSVs: four surfaces that would otherwise disagree about one
+            # artisan.
+            #
+            # `_first_answer` and NOT `or`: zero years is a real answer (a first-month apprentice) and
+            # `or` would read it as absent and print a staler value instead. The legacy branch is
+            # 20260816170000's deliberate refusal to guess at "30+" and "about 30", and those rows are
+            # the oldest and best documented — it must not be dropped.
+            lambda a: _first_answer(
+                derive_experience_years(getattr(a, "craftStartDate", None)),
+                getattr(a, "experienceYears", None),
+                meta_val(meta_of(a), "experienceYears", "experience", "yearsOfExperience"),
+            ),
         ),
         _f("Do's", lambda a: a.dos),
         _f("Don'ts", lambda a: a.donts),
@@ -365,7 +392,20 @@ TOOL = RecordSpec(
         _f("Usage", lambda t: t.processUsedIn),
         _f("Material", lambda t: t.material),
         _f("Years in use", lambda t: t.yearsInUse),
-        _f("Dimensions (LxB in)", lambda t: dims(t.lengthInches, t.breadthInches)),
+        _f("Dimensions (LxBxH in)", lambda t: dims(t.lengthInches, t.breadthInches, t.heightInches)),
+        # THIS CELL WAS "Dimensions (LxB in)" AND PRINTED TWO NUMBERS, because `ToolDocumentation`
+        # had no `heightInches` — while `GridMeasurement.tsx` was handing an INCHES reading to the
+        # unit-less `height` column beside it (see migration 20260913120100). The two-number cell was
+        # the visible half of that; the lost unit was the half that mattered.
+        #
+        # THE HEIGHT BELOW IS A DIFFERENT COLUMN FROM THE THIRD NUMBER IN THE CELL ABOVE, which is
+        # why both print and neither is redundant. `height` is the OLD unit-less column, kept because
+        # rows already hold values in it and nothing in the database can say what unit those are in.
+        # IT IS THE SAME ROW THAT WAS ALREADY HERE, moved under the new comment rather than added — a
+        # second `Height` entry would ship a duplicate column into a public dataset header, because
+        # `sheet_columns` is a plain list with no dedupe and `datasets._csv_columns('tool')` is
+        # derived from it (so `test_dataset_api`'s advertised-columns assertion would agree with the
+        # duplicate rather than catch it).
         _f("Height", lambda t: num(t.height)),
         _f("Width", lambda t: num(t.width)),
         _f("Thickness", lambda t: num(t.thickness)),
@@ -406,6 +446,16 @@ INTERVIEW = RecordSpec(
     title=interview_label,
     fields=(
         _f("Artisans", lambda i: ", ".join(artisan_names(i)) or None),
+        # WHICH INSTRUMENT. This module is the single registry behind the data-browser info panel,
+        # the /data/report workbook, the /export/dataset zip's details.txt and the CSV downloads
+        # (see this file's banner), so a column added here reaches all of them at once. Without it
+        # every exported description of an interview omits which questionnaire it was taken on —
+        # which was a question nobody could ask while there was only one, and is unanswerable from
+        # the export the moment there are two.
+        _f(
+            "Questionnaire",
+            lambda i: getattr(getattr(i, "questionnaire", None), "title", None),
+        ),
         _f("Location", lambda i: i.place),
         _f("Language", lambda i: i.language),
         _f("Recorded at", lambda i: date_str(i.interviewDate or i.recordedAt)),

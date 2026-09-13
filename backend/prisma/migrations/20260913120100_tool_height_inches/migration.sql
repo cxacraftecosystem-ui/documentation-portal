@@ -1,0 +1,56 @@
+-- The third of the tool's dimension triple, so a measured HEIGHT can be recorded as a height.
+--
+-- =============================================================================================
+-- THIS IS NOT PARITY TIDYING. IT CLOSES A LIVE DEFECT IN THIS REPOSITORY.
+-- =============================================================================================
+--
+-- "ProductDocumentation" has carried "lengthInches" / "breadthInches" / "heightInches" since it was
+-- written. "ToolDocumentation" stopped at two, and nothing pointed at the gap because the product
+-- form is correct and the tool form is not, so one of the two always looked right.
+--
+-- The grid-measurement panel returns an INCHES reading and both clients hand it to the wrong column
+-- on the tool form only:
+--
+--   * frontend/components/media/GridMeasurement.tsx:74-77 reads `result.analysis.valueInches` and
+--     calls `onHeight` with it;
+--   * frontend/components/forms/ToolForm.tsx wires that `onHeight` to `setHeight`, i.e. to
+--     "ToolDocumentation"."height";
+--   * android/.../MainActivity.kt's ToolForm does the identical thing
+--     (`onHeight = { height = numToText(it) }`).
+--
+-- And "height" DECLARES NO UNIT. So every tool height ever measured with the grid in this product
+-- is stored in a column from which nothing can recover what unit it is in -- which is the whole
+-- defect the `*Inches` naming exists to prevent. The product form, two files away, writes the same
+-- reading into "heightInches".
+--
+-- THE COLUMN IS HALF THE FIX AND THE FORMS ARE THE OTHER HALF. A column no client writes is a column
+-- that stays empty while the bug above goes on happening. The web and Android tool forms are owned
+-- by another workstream in this wave; if they have not landed when you read this, the defect is
+-- still live and this file is the reason it is now FIXABLE rather than the reason it is fixed.
+--
+-- =============================================================================================
+-- WHY THE PLAIN "height" COLUMN STAYS
+-- =============================================================================================
+--
+-- It is not a duplicate and it is NOT being migrated into this one. Rows already hold values in
+-- "height", and NOTHING IN THE DATABASE CAN SAY WHAT UNIT THOSE ARE IN. Copying them across would
+-- invent a unit for every one of them -- the very failure this design avoids -- and it would do so
+-- irreversibly, because a later migration could not tell a copied value from a typed one.
+--
+-- So "height" keeps whatever it holds and keeps meaning "as recorded, unit unknown", and
+-- "heightInches" starts empty and only ever holds a figure somebody measured in inches. Both print,
+-- and neither is redundant: `record_fields.py`'s TOOL spec gains the third number in its dimensions
+-- cell and keeps its separate bare "Height" row.
+--
+-- =============================================================================================
+-- WHY THIS IS SAFE TO APPLY
+-- =============================================================================================
+--
+-- Additive and nullable. No existing row changes, no existing query breaks, and a client that has
+-- never heard of the column is unaffected -- which matters here because a handset may be a fortnight
+-- behind the server. The type mirrors its two siblings and the product's triple exactly:
+-- DECIMAL(10,2).
+--
+-- Rolling back:  ALTER TABLE "ToolDocumentation" DROP COLUMN "heightInches";
+
+ALTER TABLE "ToolDocumentation" ADD COLUMN IF NOT EXISTS "heightInches" DECIMAL(10,2);

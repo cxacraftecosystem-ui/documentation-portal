@@ -11,11 +11,12 @@ import { CarryContextBanner, carryScope, useCarryContext } from "@/components/fo
 import { LocationFields, type LocationInitialValues } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { craftChangeClearsArtisan, useCraftAndArtisanOptions, useRecordOffPage } from "@/components/forms/recordPickers";
-import { TitleCasedInput } from "@/components/forms/TitleCasedInput";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { GridMeasurement, type GridFiles, type GridGroup } from "@/components/media/GridMeasurement";
 import { UploadProgress } from "@/components/media/UploadProgress";
+import { DictatedTextInput } from "@/components/richtext/DictatedTextInput";
+import { DictationUnavailableNotice } from "@/components/richtext/DictationUnavailableNotice";
 import { RichTextField } from "@/components/richtext/RichTextField";
 import { appendStoredParagraph } from "@/components/richtext/storedRichText";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
@@ -78,6 +79,44 @@ function StatusField({
   );
 }
 
+/**
+ * ── DICTATION ON THIS FORM: WHICH BOXES HAVE A MICROPHONE, AND WHY THE REST DO NOT ──────────────
+ *
+ * The rule: a free-text box HAS a microphone unless there is a reason it must not, and the reason is
+ * written down here so that a later reader can tell a decision from an oversight. One-line boxes use
+ * `DictatedTextInput`; the four narrative ones use `RichTextField`, whose editor carries the
+ * microphone at the caret so a phrase lands inside the document rather than on the end of it.
+ *
+ * DICTATED: Product name · Local name · Craft name · Artisan name · Place · Time taken to complete ·
+ * Size · Raw materials used · Main tools used · Function or use · Remarks · (and Village, inside the
+ * location card, which owns its own decision).
+ *
+ * TIME TAKEN AND SIZE ARE DICTATED, though they sit beside a row of numbers that are not. Neither is
+ * a measurement: both are `String?` columns nothing parses, and what researchers actually write in
+ * them is a sentence — "about three days, longer in the monsoon", "roughly a forearm across". The
+ * boxes below them are `type="number"`, which is a different thing entirely and is why they are on
+ * the other list.
+ *
+ * NOT DICTATED, one line each, and each is a rule rather than a preference:
+ *
+ *  - **Workshop, Linked craft, Linked artisan, Product type, Market demand, Status** — closed
+ *    vocabularies and record pickers behind a themed dropdown. There is no free text to speak.
+ *  - **Length, Breadth, Height, Cost of making, Selling price** — `type="number"` boxes. A recogniser
+ *    spells digits out in words ("thirty"), which a native number input DISCARDS silently: the box is
+ *    empty after a spoken answer with nothing on screen saying why. The three dimensions carry a
+ *    second reason — the grid-measurement capture PROPOSES them and a person accepts, so a spoken
+ *    third route would record an acceptance for a reading nobody can re-derive.
+ *  - **Document using grid, Product media** — file pickers and capture cards.
+ *
+ * NOT title-cased, deliberately, though they are dictated: **Local name** (Devanagari or Gujarati,
+ * where capitalising means nothing — `records.py:335-338` leaves it out for that reason), **Time
+ * taken** and **Size** (absent from the API's title-cased set, so a hint would promise a
+ * normalisation that never happens).
+ *
+ * ONE SENTENCE FOR THE WHOLE FORM. Every control above passes `explainWhenUnavailable={false}` and
+ * `DictationUnavailableNotice` sits once at the top. Twelve microphones down one form is twelve
+ * copies of the Firefox paragraph, which is how a true sentence becomes wallpaper.
+ */
 export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -95,6 +134,17 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
   const [craftName, setCraftName] = useState(initial?.craftName ?? searchParams.get("craftName") ?? "");
   const [artisanName, setArtisanName] = useState(initial?.artisanName ?? searchParams.get("artisanName") ?? "");
   const [place, setPlace] = useState(initial?.place ?? searchParams.get("place") ?? "");
+  /*
+    HOISTED FOR THE MICROPHONE. These four were uncontrolled `defaultValue` boxes; `DictatedTextInput`
+    is controlled by its caller and has exactly one mode, for the reason written out in that file (a
+    self-controlled box repaints stale text on a form cleared by `formElement.reset()`). This form
+    clears by NAVIGATING AWAY, so the trap does not bite here — but one contract for the control
+    across the app is worth more than a second mode on this one screen.
+  */
+  const [productName, setProductName] = useState(initial?.productName ?? "");
+  const [localName, setLocalName] = useState(initial?.localName ?? "");
+  const [timeTaken, setTimeTaken] = useState(initial?.timeTakenToCompleteProduct ?? "");
+  const [size, setSize] = useState(initial?.size ?? "");
   // Dimensions are controlled so the "Document using grid" capture can auto-fill them.
   const [length, setLength] = useState(initial?.lengthInches != null ? String(initial.lengthInches) : "");
   const [breadth, setBreadth] = useState(initial?.breadthInches != null ? String(initial.breadthInches) : "");
@@ -362,18 +412,52 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
       <form ref={formRef} onSubmit={submit} onInput={markDirty} onKeyDown={handleFormEnter} className="panel grid gap-4 p-4">
         {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
         <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
+        {/*
+          THE ONE PLACE THIS FORM EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.
+          Every dictated control below passes `explainWhenUnavailable={false}`, including the four
+          rich-text editors, because on Firefox the same honest paragraph printed twelve times down
+          one form is a block of grey text nobody reads. Removing this line does not remove the
+          sentence from one box; it removes it from ALL of them.
+
+          ABOVE the grid and not inside it: the grid is up to three columns, so a paragraph mounted
+          as one of its children would be a column-wide sliver beside the workshop picker.
+        */}
+        <DictationUnavailableNotice />
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {/* Android parity (ProductForm): the workshop opens the form, because it is the context
               every other answer belongs to — not merely the first dropdown. */}
           <WorkshopSelect state={workshop} onDirty={markDirty} saving={saving} />
-          <Field label="Product name" required>
-            {/* Product/craft/artisan names and place are title-cased by the API on write, so the box
-                says what will actually be stored (Android parity — see forms/TitleCasedInput). */}
-            <TitleCasedInput name="productName" required defaultValue={initial?.productName ?? ""} />
-          </Field>
-          <Field label="Local name">
-            <TextInput name="localName" defaultValue={initial?.localName ?? ""} />
-          </Field>
+          {/* Product/craft/artisan names and place are title-cased by the API on write
+              (`backend/app/services/records.py:339-354`), so the box says what will actually be
+              stored — `titleCased` mounts `TitleCasedInput` itself inside the dictated box, never a
+              copy of its hint. `markDirty()` BY HAND in every `onChange` below: a dictated phrase is
+              a React state write and fires no native `input` event for the form's `onInput` to
+              catch, so a researcher who only ever spoke would be told there was nothing to lose. */}
+          <DictatedTextInput
+            name="productName"
+            label="Product name"
+            required
+            titleCased
+            explainWhenUnavailable={false}
+            value={productName}
+            onChange={(next) => {
+              setProductName(next);
+              markDirty();
+            }}
+          />
+          {/* NOT title-cased: `localName` is Devanagari or Gujarati, where capitalising means
+              nothing. It still gets a microphone — the recogniser takes whichever of the eleven
+              languages it is set to. */}
+          <DictatedTextInput
+            name="localName"
+            label="Local name"
+            explainWhenUnavailable={false}
+            value={localName}
+            onChange={(next) => {
+              setLocalName(next);
+              markDirty();
+            }}
+          />
           <Field label="Product type">
             <Select name="productType" defaultValue={initial?.productType ?? "OTHER"} onChange={markDirty}>
               {productTypes.map((option) => (
@@ -411,9 +495,18 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
             </Select>
             <CappedListNotice cuts={[craftCut]} />
           </Field>
-          <Field label="Craft name" required>
-            <TitleCasedInput name="craftName" required value={craftName} onChange={(event) => setCraftName(event.target.value)} />
-          </Field>
+          <DictatedTextInput
+            name="craftName"
+            label="Craft name"
+            required
+            titleCased
+            explainWhenUnavailable={false}
+            value={craftName}
+            onChange={(next) => {
+              setCraftName(next);
+              markDirty();
+            }}
+          />
           <Field label="Linked artisan (fills artisan + place)">
             <Select
               name="artisanId"
@@ -453,26 +546,101 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
             ) : null}
             <CappedListNotice cuts={[craftId ? craftArtisanCut : null]} />
           </Field>
-          <Field label="Artisan name" required>
-            <TitleCasedInput name="artisanName" required value={artisanName} onChange={(event) => setArtisanName(event.target.value)} />
-          </Field>
-          <Field label="Place" required>
-            <TitleCasedInput name="place" required value={place} onChange={(event) => setPlace(event.target.value)} />
-          </Field>
-          <Field label="Time taken to complete">
-            <TextInput name="timeTakenToCompleteProduct" defaultValue={initial?.timeTakenToCompleteProduct ?? ""} />
-          </Field>
-          <Field label="Size">
-            <TextInput name="size" defaultValue={initial?.size ?? ""} />
-          </Field>
+          <DictatedTextInput
+            name="artisanName"
+            label="Artisan name"
+            required
+            titleCased
+            explainWhenUnavailable={false}
+            value={artisanName}
+            onChange={(next) => {
+              setArtisanName(next);
+              markDirty();
+            }}
+          />
+          <DictatedTextInput
+            name="place"
+            label="Place"
+            required
+            titleCased
+            explainWhenUnavailable={false}
+            value={place}
+            onChange={(next) => {
+              setPlace(next);
+              markDirty();
+            }}
+          />
+          {/* DICTATED ON PURPOSE, BESIDE THE NUMBERS THAT ARE NOT. Neither of these is a
+              measurement: both are `String?` columns nothing parses, and what researchers write in
+              them is a sentence. Not title-cased — both are absent from the API's title-cased set,
+              so a hint here would promise a normalisation that never happens. */}
+          <DictatedTextInput
+            name="timeTakenToCompleteProduct"
+            label="Time taken to complete"
+            explainWhenUnavailable={false}
+            value={timeTaken}
+            onChange={(next) => {
+              setTimeTaken(next);
+              markDirty();
+            }}
+          />
+          <DictatedTextInput
+            name="size"
+            label="Size"
+            explainWhenUnavailable={false}
+            value={size}
+            onChange={(next) => {
+              setSize(next);
+              markDirty();
+            }}
+          />
+          {/*
+            `min={0}` ON EVERY MEASUREMENT AND PRICE ON THIS FORM, AND IT IS HALF OF A PAIR.
+
+            Every one of these boxes accepted a negative and stored it. A negative length is not a
+            measurement and a negative selling price is not a price, and the sibling application's
+            workshop registry declares the fields these are carried into as non-negative — so this
+            product was accepting a quantity that product would refuse on a row it filled in FROM
+            here. The server half landed with it (`ge=0` across `ProductCreate`/`ProductUpdate`,
+            `backend/app/schemas/records.py:444-451`), and the two are deliberately not
+            interchangeable: `min` refuses the value IN THE BOX, by name, before a request is made,
+            while `ge=0` refuses it for every client that is not this one. The same pair is on
+            `ToolForm`, which carries the longer form of this argument.
+
+            A BEHAVIOUR CHANGE ON EDIT, AND KNOWINGLY SO: this form posts the WHOLE payload back on
+            an edit, so a row that already holds a negative will refuse every save until the number
+            is corrected — including a save that was only fixing a caption. The audit query that
+            finds those rows is written out beside the server bound.
+          */}
           <Field label="Length (inches)">
-            <TextInput name="lengthInches" type="number" step="0.01" value={length} onChange={(event) => setLength(event.target.value)} />
+            <TextInput
+              name="lengthInches"
+              type="number"
+              step="0.01"
+              min={0}
+              value={length}
+              onChange={(event) => setLength(event.target.value)}
+            />
           </Field>
           <Field label="Breadth (inches)">
-            <TextInput name="breadthInches" type="number" step="0.01" value={breadth} onChange={(event) => setBreadth(event.target.value)} />
+            <TextInput
+              name="breadthInches"
+              type="number"
+              step="0.01"
+              min={0}
+              value={breadth}
+              onChange={(event) => setBreadth(event.target.value)}
+            />
           </Field>
           <Field label="Height (inches)">
-            <TextInput name="heightInches" type="number" step="0.01" value={height} onChange={(event) => setHeight(event.target.value)} />
+            <TextInput
+              name="heightInches"
+              type="number"
+              step="0.01"
+              min={0}
+              value={height}
+              onChange={(event) => setHeight(event.target.value)}
+            />
           </Field>
         </div>
         <GridMeasurement
@@ -493,10 +661,10 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         />
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           <Field label="Cost of making">
-            <TextInput name="costOfMaking" type="number" step="0.01" defaultValue={initial?.costOfMaking ?? ""} />
+            <TextInput name="costOfMaking" type="number" step="0.01" min={0} defaultValue={initial?.costOfMaking ?? ""} />
           </Field>
           <Field label="Selling price">
-            <TextInput name="sellingPrice" type="number" step="0.01" defaultValue={initial?.sellingPrice ?? ""} />
+            <TextInput name="sellingPrice" type="number" step="0.01" min={0} defaultValue={initial?.sellingPrice ?? ""} />
           </Field>
           <Field label="Market demand">
             <Select name="marketDemand" defaultValue={initial?.marketDemand ?? "UNKNOWN"} onChange={markDirty}>
@@ -528,12 +696,19 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
             `md:col-span-2` on each is not decoration: this grid is two columns, and the toolbar
             carries eight groups of controls that wrap to four rows inside a half-width column,
             leaving the chrome taller than the box it belongs to.
+
+            `explainWhenUnavailable={false}` on each: the editor mounts the on-device microphone
+            inside itself, so without the flag a browser with no recogniser (Firefox) would print the
+            form-level paragraph PLUS one copy under each of these four — five copies of one sentence
+            down one form, which is how a true sentence becomes wallpaper. The form says it once, at
+            the top (`DictationUnavailableNotice`).
           */}
           <RichTextField
             name="rawMaterialsUsed"
             label="Raw materials used"
             defaultValue={initial?.rawMaterialsUsed ?? ""}
             className="md:col-span-2"
+            explainWhenUnavailable={false}
             onDirty={markDirty}
           />
           <RichTextField
@@ -541,6 +716,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
             label="Main tools used"
             defaultValue={initial?.mainToolsUsed ?? ""}
             className="md:col-span-2"
+            explainWhenUnavailable={false}
             onDirty={markDirty}
           />
           <RichTextField
@@ -548,6 +724,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
             label="Function or use"
             defaultValue={initial?.productFunctionUse ?? ""}
             className="md:col-span-2"
+            explainWhenUnavailable={false}
             onDirty={markDirty}
           />
           <RichTextField
@@ -555,6 +732,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
             label="Remarks"
             defaultValue={initial?.remarks ?? ""}
             className="md:col-span-2"
+            explainWhenUnavailable={false}
             onDirty={markDirty}
           />
           <StatusField canSetStatus={canSetStatus} initialStatus={initial?.status} onDirty={markDirty} />

@@ -3,7 +3,7 @@ import math
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from prisma.errors import UniqueViolationError
 
 from app.core.config import get_settings
@@ -24,7 +24,11 @@ from app.schemas.media import (
     TranscriptRefineRequest,
     TranscriptUpdateRequest,
 )
-from app.services.ai import analyze_measurement_image, refine_transcript_text, transcribe_audio
+from app.services.ai import (
+    analyze_measurement_image_bytes,
+    refine_transcript_text,
+    transcribe_audio_bytes,
+)
 from app.services.media_naming import display_filename, interview_record
 from app.services.media_queue import (
     enqueue_media_processing_jobs,
@@ -32,6 +36,7 @@ from app.services.media_queue import (
     transcribe_media_now,
 )
 from app.services.pagination import normalize_pagination, page_payload
+from app.services.uploads import read_upload_bounded
 from app.services.records import (
     public_encode,
     add_date_range,
@@ -63,6 +68,46 @@ from app.services.s3 import (
 # S3 multipart part size. >= 5 MiB (S3 minimum for all but the last part); 16 MiB keeps the part
 # count low for large videos while staying small enough to retry a single part cheaply.
 MULTIPART_PART_SIZE = 16 * 1024 * 1024
+
+# ---------------------------------------------------------------------------------------------
+# THE TWO INLINE-UPLOAD CEILINGS, AND WHY THEY ARE AN ORDER OF MAGNITUDE APART — A30-10
+# ---------------------------------------------------------------------------------------------
+#
+# These are the ONLY two routes in this file that take a file body inline; everything else on
+# /media is presigned straight to S3 precisely so the t3.micro never holds the bytes. Both used to
+# hand their ``UploadFile`` to a shim in ``app/services/ai.py`` whose first line was
+# ``content = await file.read()`` — read-to-EOF — so the ceiling each route believed in was applied
+# one line AFTER the entire body had been materialised as one contiguous ``bytes`` in the heap.
+# Both shims are now deleted (see the block comments left in their place at ai.py) and both routes
+# read through ``services/uploads.read_upload_bounded``, which counts the bytes as it copies them
+# and refuses the moment the running total passes the number below. The peak this process can ever
+# be holding for one of these requests is the ceiling plus one 1 MiB chunk, whatever the caller
+# actually sent.
+#
+# A SINGLE SHARED NUMBER WOULD BE WRONG IN BOTH DIRECTIONS, which is the whole reason there are two
+# constants here rather than one middleware:
+#
+#   * A GRID-SHEET PHOTOGRAPH is one still from a phone camera, pointed at a sheet of squared paper
+#     with an object on it. 8 MB is a generous full-resolution JPEG and matches the questionnaire
+#     workbook's ceiling (``WORKBOOK_MAX_UPLOAD_BYTES``, routes/questionnaire.py) so the two admin
+#     doors refuse at the same size. Anything much larger is a video, a burst, or the whole
+#     workbench — none of which measures better than the sheet alone, which is what the remedy
+#     sentence at the call site says.
+#
+#   * A DICTATION CLIP is a whole field answer spoken into a handset, and 25 MB is about twenty
+#     minutes of the compressed audio the capture screens record. It is deliberately the largest
+#     thing this API accepts inline and it is still not the route for a long recording: a full
+#     interview belongs in workshop audio, which is presigned to S3 and transcribed by the queue in
+#     the background, and the remedy sentence at that call site names it. Raising this number is
+#     not the fix for "my recording was refused"; that route is.
+#
+# NEITHER NUMBER BOUNDS THE NETWORK OR THE DISK. The framework has already parsed the multipart
+# form and spooled it before either route function is entered — see the correction in
+# ``services/uploads``'s module docstring. What refuses an oversized body before this process sees
+# it at all is ``client_max_body_size 200M`` on the nginx site (infra/terraform/user_data.sh:27).
+# These two constants bound the HEAP, and changing them changes nothing about what the box accepts.
+MEASUREMENT_MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+DICTATION_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 router = APIRouter(prefix="/media", tags=["media"])
 
@@ -227,6 +272,11 @@ async def abort_multipart(
 
 @router.post("/transcribe")
 async def transcribe_media_audio(
+    # THE REQUEST IS BOUND ONLY SO THE CEILING CAN BE CHECKED ON ``Content-Length`` BEFORE THE
+    # SPOOLED BODY IS COPIED INTO THE HEAP. Nothing else in this handler reads it. Declaring it
+    # costs the route nothing — FastAPI injects it — and skips a pointless 25 MB copy on the
+    # ordinary honest mistake of attaching a video to a dictation field.
+    request: Request,
     file: UploadFile = File(...),
     # NAMED, not discarded. This was `_: Any = Depends(get_current_user)` — the dependency ran, so
     # the route was authenticated, but the caller's identity went nowhere. It is needed now: the
@@ -234,19 +284,63 @@ async def transcribe_media_audio(
     # cannot say whose it is has to be billed to the organisation by default.
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    return await transcribe_audio(file, get_settings(), user_id=current_user.id)
+    """Transcribe one dictated clip inline, bounded at ``DICTATION_MAX_UPLOAD_BYTES``.
+
+    THE REMEDY IS A LITERAL HERE RATHER THAN AN IMPORT, and that is the instruction
+    ``tests/test_upload_bounds.py`` leaves with ``DICTATION_REMEDY``: the sentence belongs to THIS
+    route, and a shared constant would invite a third route to reach for a remedy that names a
+    fallback it does not have. It is also the one piece of advice a researcher standing in a
+    courtyard can act on — "send a smaller file" is not an instruction when what they are holding
+    is a forty-minute interview, and workshop audio is the route that accepts it.
+    """
+    content = await read_upload_bounded(
+        file,
+        DICTATION_MAX_UPLOAD_BYTES,
+        request=request,
+        purpose="recording",
+        remedy=(
+            "Upload a longer recording as workshop audio instead — it is transcribed in the "
+            "background."
+        ),
+    )
+    return await transcribe_audio_bytes(
+        content,
+        file.filename or "recording.webm",
+        file.content_type or "audio/webm",
+        get_settings(),
+        user_id=current_user.id,
+    )
 
 
 @router.post("/analyze-measurement")
 async def analyze_media_measurement(
+    request: Request,  # bound for the Content-Length pre-check only — see /transcribe above
     file: UploadFile = File(...),
     dimension: str | None = Query(default=None),
     _: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Analyse a grid-sheet photo and estimate a measurement. When ``dimension`` is one of
     length/breadth/height the result carries a single ``valueInches``; otherwise it returns the
-    legacy length+breadth pair."""
-    return await analyze_measurement_image(file, get_settings(), dimension)
+    legacy length+breadth pair.
+
+    Bounded at ``MEASUREMENT_MAX_UPLOAD_BYTES``. The remedy names the action that actually clears
+    the refusal from a phone camera — photograph the sheet alone — because a smaller picture of the
+    whole workbench measures no better than the large one did.
+    """
+    content = await read_upload_bounded(
+        file,
+        MEASUREMENT_MAX_UPLOAD_BYTES,
+        request=request,
+        purpose="grid-sheet photograph",
+        remedy="Photograph the grid sheet alone rather than the whole workbench.",
+    )
+    return await analyze_measurement_image_bytes(
+        content,
+        file.filename or "measurement.jpg",
+        file.content_type or "image/jpeg",
+        get_settings(),
+        dimension,
+    )
 
 
 async def _finish_pending_media(existing: Any, processing_requests: list[str] | None, user_id: str, settings: Any) -> dict[str, Any]:
@@ -617,7 +711,33 @@ async def set_media_transcript(
     """Replace a media file's stored transcript with approved text (e.g. an AI-refined transcript the
     user accepted). Allowed for the uploader or an admin, mirroring the media-delete permission. Marks
     the transcript COMPLETED and clears any prior error. Declared before ``GET /{media_id}`` so the
-    two-segment path resolves here."""
+    two-segment path resolves here.
+
+    IT IS ALSO WHERE THE EDITED FLAG IS SET, and this is the ONLY place in the codebase that sets it.
+    ``transcriptEditedAt`` / ``transcriptEditedById`` answer a question this table could not answer
+    before: a transcript a researcher had rewritten line by line and one that came straight off the
+    provider were byte-indistinguishable to every reader. Both are stamped from the SERVER clock and
+    the server-resolved caller — an edit stamp a client could choose is not an audit stamp — and
+    neither is on ``TranscriptUpdateRequest`` or ``MediaCompleteRequest``. Both request models are
+    ``extra="forbid"``, so an upload that tried to arrive pre-stamped as human-edited is refused
+    outright rather than believed.
+
+    ACCEPTING AN AI REFINEMENT ALSO STAMPS IT, AND THAT IS THE CONSERVATIVE ANSWER. This route is
+    reached both by a researcher who retyped a paragraph and by one who read a refined version and
+    pressed Accept. The second is still a person deciding these are the right words, and the flag
+    says "a human stands behind this text" rather than "a human typed every character". The opposite
+    default — stamping only what somebody retyped — would mark accepted text as the machine's own,
+    which is the assertion these columns exist to stop being made silently.
+
+    THE QUEUE NEVER CLEARS THE FLAG. ``services/media_queue`` writes ``transcriptText`` on every
+    provider result and touches neither column; if it ever blanked ``transcriptEditedAt``, a
+    researcher's corrections would be recorded as the machine's own words at the moment a later
+    refinement pass overwrote them. ``test_media_transcript_edit_stamp`` pins that absence.
+
+    NULL IS "NOT STATED" AND NEVER "NEVER EDITED": this route has been able to replace a transcript
+    since long before the columns existed, so rows written before migration 20260913120200 genuinely
+    do not say. A reader must render three states, which is why the flag travels as
+    ``transcriptEditedAt ? true : undefined`` and never as ``!!media.transcriptEditedAt``."""
     media = await require_record(db.mediafile, media_id)
     if not is_admin(current_user) and getattr(media, "uploadedById", None) != current_user.id:
         raise HTTPException(
@@ -626,7 +746,17 @@ async def set_media_transcript(
         )
     updated = await db.mediafile.update(
         where={"id": media.id},
-        data={"transcriptText": payload.text, "transcriptStatus": "COMPLETED", "transcriptError": None},
+        data={
+            "transcriptText": payload.text,
+            "transcriptStatus": "COMPLETED",
+            "transcriptError": None,
+            # Server clock and server-resolved identity — an edit stamp a client could choose is not
+            # an audit stamp. ``datetime.now(UTC)`` rather than a Prisma default because this column
+            # has no default: it must stay NULL for every row the queue writes, and only ever gain a
+            # value here.
+            "transcriptEditedAt": datetime.now(UTC),
+            "transcriptEditedById": current_user.id,
+        },
         include=INCLUDE,
     )
     return await _public(updated, current_user)

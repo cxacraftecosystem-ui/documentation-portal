@@ -219,6 +219,27 @@ export const ROUTE_GUARDS: RouteGuard[] = [
       "The access roster decides who may sign in to the repository at all, and holds the queue of people waiting for a decision. It is available to admins and the master admin only."
   },
   {
+    // THE ONLY GUARD UNDER /questionnaire, AND THE ONLY ONE THERE SHOULD BE. /questionnaire itself
+    // is open to every signed-in user — a volunteer answering an interview is the whole point of the
+    // app — so this row is deliberately the NARROW one and nothing above it claims the prefix.
+    // Longest match wins, so somebody who follows a link here and is not entitled is told what a
+    // questionnaire workbook is rather than being told about a settings hub they were not trying to
+    // open.
+    //
+    // TWO TIERS ON ONE SUBJECT, and the wording is what carries the difference. `require_admin` on
+    // the workbook routes is not a narrowing of the builder: one spreadsheet re-states the WHOLE
+    // instrument and everything absent from it is removed by rule, so a professor who deleted the
+    // rows they were not interested in would retire every question they deleted across twenty-two
+    // sections. Adding or editing ONE question stays at `require_questionnaire_manager`, on
+    // /questionnaire, and this message says so rather than leaving a professor to guess.
+    path: "/questionnaire/workbooks",
+    can: isAdmin,
+    gate: "require_admin",
+    title: "Admin access required",
+    message:
+      "Uploading a questionnaire workbook re-states the whole instrument in one press, so it is available to admins and the master admin only. Adding or editing individual questions is on the Questionnaire page and is open to professors and questionnaire managers."
+  },
+  {
     // The page now holds two things with two different owners, so the ROUTE is admin and the halves
     // gate themselves. Key VALUES stay master-admin (every /secrets route is require_master_admin,
     // and the page renders ApiKeysPanel only for them); RANKING the transcription providers is

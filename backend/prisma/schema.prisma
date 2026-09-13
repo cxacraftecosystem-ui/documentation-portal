@@ -62,6 +62,22 @@ enum RecordStatus {
   NEEDS_REVISION
 }
 
+/// Whether a `Workshop` row is a Design & Prototype Development Workshop or an ordinary craft
+/// documentation visit. Both are `Workshop` rows and nothing used to tell them apart.
+///
+/// `DESIGN_PROTOTYPE` NAMES A THING THIS PRODUCT DOES NOT MODEL, and that is deliberate rather than
+/// an oversight: there is no DesignWorkshop table here. It exists because the two repositories
+/// coordinate their record vocabularies on purpose — see `ArtisanCreate.experienceYears`' 0..90
+/// bound in schemas/records.py for the same decision made about a number — so a workshop recorded
+/// here and later adopted by the sibling product can carry the same mark.
+///
+/// `OTHER` is the default so every workshop recorded before this column keeps behaving exactly as
+/// it did — the list is unchanged unless somebody marks a row.
+enum WorkshopType {
+  DESIGN_PROTOTYPE
+  OTHER
+}
+
 enum MediaType {
   IMAGE
   VIDEO
@@ -179,6 +195,7 @@ model User {
   requestedMediaProcessingJobs MediaProcessingJob[] @relation("MediaProcessingRequestedBy")
   reviews   ReviewLog[]            @relation("ReviewReviewer")
   questionnaireInterviews QuestionnaireInterview[] @relation("QuestionnaireCreatedBy")
+  questionnairesCreated   Questionnaire[]          @relation("QuestionnaireInstrumentCreatedBy")
   questionnaireResponses QuestionnaireResponse[] @relation("QuestionnaireAnsweredBy")
   appReleases AppRelease[] @relation("AppReleasePublishedBy")
   feedback    Feedback?    @relation("FeedbackUser")
@@ -598,15 +615,68 @@ model Artisan {
   /// the rest of its life. Age is derived from this at read time — see `derive_age` in
   /// services/records — so it is right on the day it is printed and right again next year.
   dateOfBirth   DateTime?
-  /// Years this artisan has practised the craft. A number and not a date, because the thing a
-  /// designer knows is "about thirty years" and the year they started is a harder question that
-  /// gets a rounder, less honest answer.
+  /// THE DAY THIS ARTISAN BEGAN PRACTISING THE CRAFT, and the feeder `experienceYears` is derived
+  /// from.
   ///
-  /// Ages with the record rather than with the artisan, which is a real limitation and an accepted
-  /// one: an artisan documented in 2024 with 30 years reads 30 in 2030. `recordedAt` is on the same
-  /// row, so a reader can always tell how old the statement is, and inflating it automatically
-  /// would be inventing a fact nobody stated.
+  /// It is the same argument `dateOfBirth` above makes, applied to the same table one column later.
+  /// A stated NUMBER of years is right on the day it is written and silently wrong from then on; a
+  /// stated DATE is right on the day it is printed and right again next year, with nobody editing
+  /// anything. `record_fields.py`'s "Experience (years)" row feeds the data browser card, the
+  /// /data/report workbook, details.txt inside the dataset zip and both /export CSVs, so the decay
+  /// is not theoretical — it prints, in files a ministry reader opens, years after the visit.
+  ///
+  /// NULL ON EVERY ROW THAT EXISTS TODAY, deliberately, and the migration that adds this column
+  /// (20260913120000) refuses to backfill it. Read that file before adding one: a date computed
+  /// from `experienceYears` and `recordedAt` would carry no information those two columns do not
+  /// already carry, and it would permanently destroy the difference between a date a human stated
+  /// and a date a script guessed — at which point `derive_experience_years` would start inflating
+  /// the guess with the calendar.
+  craftStartDate DateTime?
+  /// Years this artisan has practised the craft, AS SOMEBODY STATED IT. It is no longer the only
+  /// answer to that question: `craftStartDate` above is, when a row has one, and the readers derive
+  /// from the date in preference to this number. See `derive_experience_years` in services/records.
+  ///
+  /// IT IS STILL COLLECTED AND STILL READ, and this paragraph used to be the argument for it being
+  /// the ONLY thing collected: "A number and not a date, because the thing a designer knows is
+  /// 'about thirty years' and the year they started is a harder question that gets a rounder, less
+  /// honest answer." That half is still true and is why the number box did not go away — an artisan
+  /// who says "about thirty years" and cannot name a year still has to be recordable, and on every
+  /// row written before 20260913120000 this column (or the legacy `extraMetadata` spelling behind
+  /// it) is the only answer that exists. What changed is that a researcher who CAN name the year is
+  /// no longer forced to convert it into a number that starts decaying the moment they type it.
+  ///
+  /// The rest of that paragraph was a statement of the cost of storing a number, and it stands
+  /// unaltered for every row that has no `craftStartDate`: this value ages with the RECORD rather
+  /// than with the artisan, so an artisan documented in 2024 with 30 years reads 30 in 2030.
+  /// `recordedAt` is on the same row, so a reader can always tell how old the statement is, and
+  /// inflating it automatically would be inventing a fact nobody stated.
   experienceYears Int?
+  /// THE REMAINING MONTHS OF THAT SAME EXPERIENCE, 0-11, and never a total.
+  ///
+  /// The requirement is TWO DROPDOWNS ON ONE LINE — "5 years" beside "6 months" — and the read-back
+  /// has to hand the form back exactly what was chosen. So this is a second column and NOT an
+  /// `experienceTotalMonths` that the two boxes are computed out of. A single stored 66 has to be
+  /// re-divided on every read, and that arithmetic cannot tell "5 years and 6 months" from
+  /// "66 months" from "five and a half years"; it would also make `experienceYears` beside it a
+  /// DERIVED column overnight — a column four export surfaces read — to save one integer of storage.
+  ///
+  /// IT SITS EXACTLY WHERE `experienceYears` SITS IN THE PRECEDENCE: behind the date, never in front
+  /// of it.
+  ///
+  /// NULLABLE AND NOT `@default(0)`, which is also why the migration that adds it backfills nothing.
+  /// Every row in this table was written by a form that asked for years alone. A zero default would
+  /// put "and no months" on record for all of them as a stated fact, and the second dropdown would
+  /// open with an answer already selected on records whose artisan was never asked the question.
+  /// Absent and zero are different answers, and NULL is the only one of the two that is true here.
+  ///
+  /// Bounded 0..11 by `CHECK ("experienceMonths" BETWEEN 0 AND 11)` in migration 20260913120000 AND
+  /// by ge/le on ArtisanCreate/ArtisanUpdate — the CHECK because the database must not hold twelve
+  /// months, the pydantic bound because a CHECK violation arrives as a bare 500 naming no field.
+  ///
+  /// IT REACHES NO EXPORT SURFACE, and that is a decision rather than an omission: a months column
+  /// in a ministry-facing header is an owner call with its own blast radius, and the sibling
+  /// repository made the same choice. The value stops at the API.
+  experienceMonths Int?
   // Newline-separated, numbered guidance for working with this artisan: dos = positive prompt (what to
   // do / emphasise), donts = negative prompt (what to avoid). Required on new records; nullable so the
   // existing rows from before this field can be backfilled later instead of blocking the migration.
@@ -659,6 +729,8 @@ model Artisan {
 model Workshop {
   id            String       @id @default(cuid())
   title         String
+  /// Whether this is a Design & Prototype Development Workshop or an ordinary one. See the enum.
+  workshopType  WorkshopType @default(OTHER)
   date          DateTime
   startDate     DateTime?
   endDate       DateTime?
@@ -676,9 +748,67 @@ model Workshop {
   updatedAt     DateTime     @updatedAt
   locationId    String?
   createdById   String
+  /// THE INSTRUMENT IN USE AT THIS WORKSHOP — the answer to "which questions apply here", chosen
+  /// once by an admin rather than re-decided by every researcher who opens the capture form.
+  ///
+  /// HOW THIS COMPOSES WITH `AssignedTask.sectionIds`, which already answers a neighbouring
+  /// question: this column chooses the INSTRUMENT, that array chooses WHICH PARTS OF IT one person
+  /// owns. A set and a subset, not two answers — and `tasks.resolve_scope` now refuses a subset
+  /// that is not one.
+  ///
+  /// NULLABLE = "not chosen yet", which resolves to the default instrument. Every workshop that
+  /// existed on 2026-09-13 was BACKFILLED to the 2nd-workshop instrument instead of being left
+  /// NULL, because leaving them NULL would mean that the day an operator flips `isDefault` to the
+  /// 3rd instrument, every historical workshop silently changes which instrument it is recorded as
+  /// having used. SetNull on delete: retiring an instrument must not delete a workshop.
+  questionnaireId String?
+  /// THE CREATE THIS ROW CAME FROM, NAMED BY THE CLIENT THAT QUEUED IT — the idempotency key that
+  /// makes an offline replay land once, however many times it is sent. THIS IS THE CANONICAL COPY
+  /// OF THE ARGUMENT; the same column on ProductDocumentation, ToolDocumentation and Process points
+  /// back here rather than restating it.
+  ///
+  /// ── THE DUPLICATE THIS CLOSES, WHICH BOTH OUTBOXES HAD WRITTEN DOWN AS UNCLOSABLE ──────────
+  ///
+  /// A queued create is POSTed, the server writes the row, and the answer is lost on the way back:
+  /// a tunnel, a captive portal, the process killed by the OS while the request was in flight. The
+  /// client learned nothing, so the entry is still queued and the next pass sends it again. Both
+  /// clients guard the case they CAN see — `frontend/lib/offline.ts` writes `createdId` the moment
+  /// an answer lands and the drain reads it back; Android's `PendingEntry.createdId`
+  /// (data/Offline.kt) says "non-null means the record IS on the server". Neither can guard the case
+  /// where the answer never arrived at all, because both are records of a REPLY, and this
+  /// repository's own `persistProgress` says so in as many words: *"a few milliseconds of IndexedDB
+  /// is as small as that window gets without idempotency keys on the API."* This is that key.
+  ///
+  /// IT IS ALSO THE ONLY GUARD THAT CROSSES A DEVICE OR A PROFILE. `createdId` is a fact ONE browser
+  /// profile — or one handset's queue file — holds about its own send. A queue restored onto a
+  /// second handset, or drained after a sign-out and back in, holds no such record, and the same
+  /// fieldwork is then filed twice under one researcher's name in a register nobody reconciles.
+  ///
+  /// ── WHY A PLAIN `@unique` ON A NULLABLE COLUMN, AND NOT A PARTIAL INDEX ────────────────────
+  ///
+  /// Postgres permits any number of NULLs under a unique index, so `String? @unique` ALREADY IS the
+  /// partial index: `CREATE UNIQUE INDEX … WHERE "clientKey" IS NOT NULL` builds the same guarantee
+  /// while being inexpressible in this file, which would leave the schema and the database
+  /// describing different tables. `Artisan.aadhaarNumber` above carries the identical argument for
+  /// the identical reason ("Postgres permits any number of NULLs under one"), and this follows it
+  /// rather than inventing a second treatment of one problem.
+  ///
+  /// FOUR MODELS AND NOT SIX. `Artisan.aadhaarNumber` and `Craft.name` are @unique already and each
+  /// answers a pre-write 409 naming the row that holds the value, so a replayed create of either is
+  /// refused by the dedup key that exists for exactly that purpose. A second mechanism beside either
+  /// would be two guards that can disagree about what a duplicate is.
+  ///
+  /// NULL IS TODAY'S BEHAVIOUR, EXACTLY. Every row written before this column has none, no backfill
+  /// invents one, and a create that sends no key is written and answered precisely as it was before
+  /// — which is what every fielded APK and every cached web bundle does. See
+  /// `services/records.client_key_replay` for what a key that IS sent buys, and
+  /// `routes/workshops.create_workshop` for why the replay branch REPAIRS an empty roster instead of
+  /// either skipping the roster writes or re-running them unconditionally.
+  clientKey     String?      @unique
 
   location  Location?              @relation(fields: [locationId], references: [id], onDelete: SetNull)
   createdBy User                   @relation("WorkshopCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  questionnaire Questionnaire?     @relation("WorkshopQuestionnaire", fields: [questionnaireId], references: [id], onDelete: SetNull)
   artisans  WorkshopArtisan[]
   crafts    WorkshopCraft[]
   products  ProductDocumentation[]
@@ -701,6 +831,10 @@ model Workshop {
   @@index([startDate])
   @@index([createdById])
   @@index([status])
+  @@index([questionnaireId])
+  // The picker filters on the type and orders by date; one composite index serves both. Equality
+  // first, then the sort column, for the reason the Artisan block above gives.
+  @@index([workshopType, startDate])
   // Not the list order (that is startDate) — this is for the review queue and the dashboard's
   // "recent submissions", which order workshops by createdAt like every other record type.
   @@index([createdAt])
@@ -768,6 +902,8 @@ model ProductDocumentation {
   workshopId                 String?
   locationId                 String?
   createdById                String
+  /// The idempotency key of the create this row came from. See `Workshop.clientKey`.
+  clientKey                  String?      @unique
 
   artisan   Artisan?    @relation(fields: [artisanId], references: [id], onDelete: SetNull)
   craft     Craft?      @relation(fields: [craftId], references: [id], onDelete: SetNull)
@@ -801,6 +937,17 @@ model ToolDocumentation {
   width                         Decimal?      @db.Decimal(10, 2)
   lengthInches                  Decimal?      @db.Decimal(10, 2)
   breadthInches                 Decimal?      @db.Decimal(10, 2)
+  /// The THIRD of the triple. `ProductDocumentation` has carried all three since it was written;
+  /// this table stopped at two, and the omission was not harmless: the grid-measurement panel
+  /// returns an INCHES reading (`GridMeasurement.tsx` reads `analysis.valueInches`) and both clients
+  /// handed it to the plain `height` column above — a column that DECLARES NO UNIT — losing the one
+  /// fact the column name is there to carry. The product form, two files away, wrote the same
+  /// reading into `heightInches` all along.
+  ///
+  /// `height` above is a DIFFERENT COLUMN and is not being merged into this one: rows already hold
+  /// values in it and nothing in the database can say what unit those are in. See migration
+  /// 20260913120100.
+  heightInches                  Decimal?      @db.Decimal(10, 2)
   measurementImageId            String?
   measurementAnalysis           Json?
   measurementAnalysisStatus     String?
@@ -826,6 +973,8 @@ model ToolDocumentation {
   workshopId                    String?
   locationId                    String?
   createdById                   String
+  /// The idempotency key of the create this row came from. See `Workshop.clientKey`.
+  clientKey                     String?       @unique
 
   artisan   Artisan?    @relation(fields: [artisanId], references: [id], onDelete: SetNull)
   craft     Craft?      @relation(fields: [craftId], references: [id], onDelete: SetNull)
@@ -876,6 +1025,23 @@ model MediaFile {
   transcriptSummary String?
   transcriptStatus String?
   transcriptError  String?
+  /// Whether the transcript above is still the machine's words, and who changed them if not.
+  ///
+  /// `transcriptEditedAt` IS THE FLAG, and NULL on it means "not stated" rather than "never
+  /// edited" — `POST /media/{id}/transcript` has been able to replace a transcript since long
+  /// before these columns existed, so rows written before 20260913120200 genuinely do not say. Both
+  /// clients render three states because of that: edited, not edited, and silent. Backfilling a
+  /// `false` would have printed "the machine said this" over text a researcher typed, which is the
+  /// single assertion the flag was asked for in order to stop making silently — and so would
+  /// `edited={!!media.transcriptEditedAt}` on the reading end.
+  ///
+  /// `transcriptEditedById` carries NO relation, exactly as `reviewedById` below carries none: this
+  /// is an audit stamp rather than a navigable edge, and a foreign key would force `onDelete` to
+  /// answer whether removing an account may rewrite a transcript's provenance into "nobody edited
+  /// this". It may not. See the migration for the rest of the argument, including why
+  /// `services/media_queue` must never clear the flag.
+  transcriptEditedAt DateTime?
+  transcriptEditedById String?
   linkedRecordType String?
   linkedRecordId   String?
   status           RecordStatus @default(PENDING)
@@ -959,25 +1125,137 @@ model MediaProcessingJob {
   @@index([toolId])
 }
 
-model QuestionnaireSection {
-  id        String   @id @default(cuid())
-  code      String   @unique
-  title     String
-  sortOrder Int
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+/// ONE NAMED INSTRUMENT. The parent this product did not have.
+///
+/// Until 2026-09-13 there was exactly ONE questionnaire, globally: `QuestionnaireSection` was the
+/// top of the tree, its `code` was `@unique` across the whole database and its `sortOrder` was
+/// `@@unique` across the whole database. That was correct while the institution ran one workshop
+/// series with one instrument. It stopped being correct the moment a 3rd Craft Toolkit Workshop
+/// arrived with 22 sections of its own coded A..V — because EVERY ONE of those codes is already
+/// taken by the 2nd workshop's corpus (RESP, A..W), so seeding the new instrument against the old
+/// uniques would not have created 22 sections. It would have RETITLED 22 live ones, silently
+/// relabelling the questions and every answer hanging off them.
+///
+/// WHY A TABLE AND NOT A NULLABLE DISCRIMINATOR COLUMN. A nullable column cannot carry a real
+/// unique index: Postgres treats NULLs as distinct, so `@@unique([instrument, code])` over a
+/// nullable `instrument` permits unlimited duplicates on exactly the legacy rows that most need
+/// protecting. The designer portal reached the same conclusion and recorded it —
+/// see designer-portal schema.prisma:1727-1729, "the rejected nullable-questionnaireId design".
+///
+/// THERE IS NO DELETE, AND DELIBERATELY SO. Every child relation below is `onDelete: Restrict`.
+/// An instrument is the parent of institutional fieldwork; the delete that looks convenient on a
+/// list screen is the one that takes 284 questions and a year of answers with it. Retire with
+/// `isActive = false`, which is what `DELETE /questionnaire/sections/{id}` already does one level
+/// down (routes/questionnaire.py:396-403) and what the web confirm dialog already promises
+/// ("Questions are deactivated, not erased" — frontend .../questionnaire/page.tsx).
+model Questionnaire {
+  id          String   @id @default(cuid())
+  /// THE IDENTITY, and the key both seeders find their row by on a re-run — the same choice the
+  /// designer's `seed_shared_questionnaire.py:80-86` makes and for the same reason ("an identity
+  /// rather than a preference"). Unique HERE and not only in the script, because that script has
+  /// no lock: two operators running it at once against a title-less key publish two standard forms
+  /// and no client can tell which is current. The database refuses instead.
+  title       String
+  /// Prose for the picker ("81 questions across 22 sections, used from the 3rd workshop on").
+  /// Carries no behaviour and is read by nothing but a human.
+  description String?
+  /// Retire without deleting. A retired instrument stops appearing in the picker and stops being
+  /// bindable to a workshop; every interview already recorded against it keeps working unchanged.
+  isActive    Boolean  @default(true)
+  /// WHICH INSTRUMENT WHEN NOBODY SAID. Two callers need this and neither can be refused:
+  ///   * an OLD Android build POSTing /questionnaire/interviews with no `questionnaireId` at all —
+  ///     `ignoreUnknownKeys` means it will keep doing that for as long as handsets go unupdated;
+  ///   * the capture page opened with no workshop chosen.
+  /// Enforced as AT MOST ONE by a PARTIAL unique index in the migration, not by application code,
+  /// because "only one row may be true" is precisely the rule two admins clicking at the same
+  /// moment break. Prisma cannot express a partial unique index, so it is invisible here on
+  /// purpose — see the migration, and the test that executes the migration to prove it exists
+  /// (tests/test_questionnaire_instruments_migration.py).
+  isDefault   Boolean  @default(false)
+  /// Picker order. NOT unique, deliberately: two instruments sharing a position is a cosmetic tie,
+  /// while a unique sortOrder is the exact constraint that forced `reorder_sections` into a
+  /// negative-then-positive two-pass (routes/questionnaire.py:411-415). One such dance per schema
+  /// is enough. Reads order by (sortOrder asc, createdAt asc).
+  sortOrder   Int
+  /// Provenance, like every other record (compare Workshop.createdById, schema.prisma:678).
+  ///
+  /// NULLABLE, which is the one place this column differs from every other `createdById` in the
+  /// schema, and the reason is the migration rather than the product: the backfilled 2nd-workshop
+  /// row is created by SQL that may run on a database with no accounts yet (a fresh `migrate
+  /// deploy` happens BEFORE `seed_admin.py` — README.md:83-84). A NOT NULL here would make this
+  /// migration's success depend on seed ORDER, which is the class of failure
+  /// `20260725170000_repair_migration_history_drift` exists to record. Rows created through the
+  /// API always carry a creator.
+  createdById String?
+  /// NOT A SCHEMA VERSION. The count of destructive-ish edits — a supersede or a retire — applied
+  /// after the first answer existed, so a client holding a cached copy of the form can tell it is
+  /// stale with an integer compare instead of a question diff. An ordinary edit (a reworded question
+  /// nobody has answered, a reordered section) does NOT move it: the number means "an answer you are
+  /// holding may now be attached to a wording that is no longer asked", not "something changed".
+  version     Int      @default(1)
+  /// The workbook this questionnaire was last uploaded from, so two spreadsheets a fortnight apart
+  /// are tellable apart on the admin screen. Null for an instrument that was never uploaded — every
+  /// one that exists today, since both seeders build theirs from JSON.
+  sourceFilename String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  questions QuestionnaireQuestion[]
+  createdBy  User?                    @relation("QuestionnaireInstrumentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  sections   QuestionnaireSection[]
+  questions  QuestionnaireQuestion[]
+  interviews QuestionnaireInterview[]
+  workshops  Workshop[]               @relation("WorkshopQuestionnaire")
+
+  @@unique([title])
+  @@index([isActive, sortOrder])
+}
+
+model QuestionnaireSection {
+  id              String   @id @default(cuid())
+  /// NOT NULL. Every section belongs to exactly one instrument; there is no such thing as a
+  /// free-floating section, and a nullable column here would undo the composite uniques below.
+  questionnaireId String
+  code            String
+  title           String
+  sortOrder       Int
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  /// Restrict, NOT Cascade — the opposite of the designer's equivalent (designer
+  /// schema.prisma:1728), and the difference is what the two tables hold. A designer's draft form
+  /// is disposable; this one holds a ministry's fieldwork. Cascade here would also fail HALFWAY,
+  /// because QuestionnaireResponse.question is itself Restrict (schema.prisma below) — a delete
+  /// would erase the sections, then abort on the first answered question, in a repo with no
+  /// transaction idiom (zero `db.tx()` call sites). Refusing at the top is the only clean answer.
+  questionnaire   Questionnaire @relation(fields: [questionnaireId], references: [id], onDelete: Restrict)
+  questions       QuestionnaireQuestion[]
   sectionStatuses QuestionnaireSectionStatus[]
 
-  @@unique([sortOrder])
-  @@index([isActive, sortOrder])
+  /// Codes are unique WITHIN an instrument and nowhere else. Two instruments both naming a section
+  /// "A" is not a collision, it is the normal case — the 2nd workshop's A is "PERSONAL DETAILS OF
+  /// THE ARTISAN" and the 3rd's is "ORIGIN, HISTORY, PLACE AND PERSONAL JOURNEY".
+  @@unique([questionnaireId, code])
+  /// Scoped for the same reason, and it is ALSO what makes the seeder safe: the fatal collision
+  /// was the new section A claiming sortOrder 1 while RESP still held it globally.
+  @@unique([questionnaireId, sortOrder])
+  @@index([questionnaireId, isActive, sortOrder])
 }
 
 /// Admin-set completion status for one (artisan, section) cell on the "Check completion" matrix.
 /// Absent row = no manual override (the matrix then falls back to data-derived completion). A row
 /// here is an explicit verdict by an admin/master admin that overrides the derived green.
+///
+/// PER-INSTRUMENT BY CONSTRUCTION, since 2026-09-13. This table is keyed on (artisanId, sectionId)
+/// and a sectionId now belongs to exactly one instrument, so an admin's override on the 2nd
+/// workshop's section D cannot leak onto the 3rd workshop's section D. It remains repository-wide
+/// ACROSS WORKSHOPS, which is what `overridesAreRepositoryWide: True` on the completion payload
+/// says (routes/questionnaire.py) and which is still true.
+///
+/// `section` is ON DELETE CASCADE and this file is NOT the place that protects these rows — the
+/// 34 admin verdicts on the live database are protected by QuestionnaireSection.questionnaire being
+/// `Restrict`, one level up: nothing can delete a section without first deleting its instrument,
+/// and nothing can delete an instrument at all.
 model QuestionnaireSectionStatus {
   id        String   @id @default(cuid())
   artisanId String
@@ -996,23 +1274,85 @@ model QuestionnaireSectionStatus {
   @@index([sectionId])
 }
 
+/// ONE PROMPT. Answers are plain prose — there is no question TYPE column here and none is coming
+/// in this change.
+///
+/// The 3rd-workshop instrument's section V ("NETWORK / ECOSYSTEM MAPPING — STRUCTURED FIELDS",
+/// questions 76-81 by global position) asks for repeating lists: "List the designers you have
+/// connected with, including name, place/organisation, nature of relationship and frequency of
+/// interaction." Those ship as PROSE PROMPTS, on purpose, and this comment is the decision so
+/// nobody re-opens it: a repeating-row answer needs a renderer on the web form, on Android, in the
+/// consolidated document, in its CSV columns and in the completion derivation — five surfaces —
+/// and the DEFAULT capture mode is one audio recording for the whole section with the answer boxes
+/// hidden (frontend/components/forms/QuestionnaireCaptureControls.tsx:27), so a grid would be
+/// invisible to most interviewers on day one. The prompts name their own fields, so a prose answer
+/// is self-describing and can be structured later without being re-collected.
 model QuestionnaireQuestion {
-  id          String   @id @default(cuid())
-  sectionCode String
-  sectionTitle String
-  prompt      String
-  sortOrder   Int
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  sectionId   String?
+  id              String   @id @default(cuid())
+  /// DENORMALISED FROM THE SECTION, and NOT NULL, for three reasons that are all about `sectionId`
+  /// being nullable below: (1) a question whose section was hard-deleted would otherwise have no
+  /// path to an instrument at all, while its answers survive under Restrict; (2)
+  /// `_derived_completed_sections` read EVERY question with no `where` to build its map
+  /// (routes/questionnaire.py) and needed a column to narrow on; (3) this table already
+  /// denormalises its parent as `sectionCode`/`sectionTitle`, kept in lock-step by `update_section`
+  /// (routes/questionnaire.py). One more parent key is the same pattern, with the same
+  /// rule: NOTHING may move a question between instruments. `update_question` and
+  /// `reorder_questions` both refuse it with a 422.
+  questionnaireId String
+  sectionCode     String
+  sectionTitle    String
+  prompt          String
+  sortOrder       Int
+  isActive        Boolean  @default(true)
+  /// The "Help text" column of the .xlsx pro-forma. Optional: the parser reports a blank one as
+  /// nothing at all, which is the ordinary case. Without this column the import would read a column
+  /// an admin had typed into and throw the values away with no row-level failure to report — the app
+  /// asking a question and then ignoring the answer.
+  helpText        String?
+  /// The "Required" column of the pro-forma. NOT NULL with a default, because "not stated" and "not
+  /// required" are the same instruction to a researcher and a third state would have to be rendered
+  /// on two clients for no gain.
+  isRequired      Boolean  @default(false)
+  /// When this question stopped being asked because answers had already been recorded against it.
+  ///
+  /// DISTINCT FROM isActive, WHICH ALREADY HAS AN OWNER. DELETE /questionnaire/questions/{id}
+  /// (routes/questionnaire.py) soft-deletes by writing isActive = false and nothing else, and
+  /// DELETE /questionnaire/sections/{id} does the same to every question under the section. So
+  /// isActive alone cannot tell "a professor switched this off last March" from "this was retired
+  /// because answers exist". The workbook re-upload needs that distinction and cannot fake it: it
+  /// REACTIVATES a question it finds named in the workbook, and it must never reactivate a retired
+  /// one — or downloading a questionnaire and uploading it back unchanged resurrects every question
+  /// anybody ever replaced, each standing next to its replacement.
+  retiredAt       DateTime?
+  /// The question that replaced this one when an answered question was reworded. A PLAIN STRING
+  /// COLUMN, not a Prisma self-relation and not a foreign key: it is only ever READ, to render
+  /// "replaced by" and to keep the consolidated document from printing the two wordings as two
+  /// unrelated questions with half the answers under each. A relation would add a join to every
+  /// question read for one string on one screen, and the row it names cannot be gone while it is
+  /// named — a replacement is created active, and an active question carrying an answer cannot be
+  /// deleted because QuestionnaireResponse.question is Restrict.
+  supersededById  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  sectionId       String?
 
-  section   QuestionnaireSection? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  questionnaire Questionnaire         @relation(fields: [questionnaireId], references: [id], onDelete: Restrict)
+  /// Restrict, changed from SetNull on 2026-09-13. Nothing in this app hard-deletes a section —
+  /// DELETE /questionnaire/sections/{id} flips `isActive` (routes/questionnaire.py:396-403) — so
+  /// this forbids nothing that works today. What it stops is the silent version of the failure:
+  /// SetNull left the questions invisible to every client (`section_payloads` drops a NULL
+  /// sectionId) while their answers sat in the database, findable by nobody. A refusal at the FK is
+  /// loud and recoverable; an orphan is neither.
+  section   QuestionnaireSection? @relation(fields: [sectionId], references: [id], onDelete: Restrict)
   responses QuestionnaireResponse[]
 
   @@index([sectionCode])
   @@index([sectionId])
   @@index([isActive])
+  @@index([questionnaireId, isActive])
+  /// Read by the consolidated document, which walks the supersede chain so a reworded question and
+  /// its replacement print as one question rather than two with the answers split between them.
+  @@index([supersededById])
 }
 
 model QuestionnaireInterview {
@@ -1039,27 +1379,45 @@ model QuestionnaireInterview {
   createdById   String
   locationId    String?
   // Deterministic key for the exact set of artisans this interview covers (sorted, comma-joined
-  // artisan ids). Enforces ONE interview per artisan set: creation is idempotent on this key, so
-  // every client lands on the single canonical entry instead of spawning duplicates. NULL only when
-  // an interview has no artisans (those are not deduped). A subset is a different set => different key.
-  artisanSetKey String?      @unique
+  // artisan ids). Enforces ONE interview per artisan set PER INSTRUMENT — see
+  // @@unique([questionnaireId, artisanSetKey]) below. NULL only when an interview has no artisans
+  // (those are not deduped). A subset is a different set => different key.
+  //
+  // THE `@unique` ON THIS COLUMN ALONE WAS DROPPED 2026-09-13 and this is the reason: it meant one
+  // artisan set could hold exactly one interview REPOSITORY-WIDE. The same artisans sat for the
+  // 2nd-workshop instrument and must be able to sit again for the 3rd; under the old index the
+  // second sitting FOLDED into the first (routes/questionnaire.create_interview) and the 3rd
+  // workshop's answers landed on the 2nd workshop's interview. No value changed — `artisan_set_key`
+  // computes exactly what it always did. Only the scope of the index moved.
+  artisanSetKey String?
   /// The workshop this interview was conducted at, named EXPLICITLY on the record — previously an
   /// interview had no path to a workshop at all. Nullable, so every interview recorded before this
   /// column keeps behaving exactly as before.
   workshopId    String?
+  /// WHICH INSTRUMENT THIS SITTING WAS TAKEN ON. NOT NULL: it is half of the uniqueness key below,
+  /// and a nullable left column would make that index no constraint at all (Postgres treats NULLs
+  /// as distinct), re-creating exactly the 133-rows-for-18-sets duplication that migration
+  /// 20260622120000 spent 87 lines eliminating. Resolved on create as: the body's questionnaireId,
+  /// else the workshop's bound instrument, else the default. Never changes afterwards —
+  /// `QuestionnaireInterviewUpdate` has no such field and `APIModel` is `extra="forbid"`, so a
+  /// client that tries gets a 422 from pydantic before the handler sees it.
+  questionnaireId String
 
   createdBy User                             @relation("QuestionnaireCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   location  Location?                        @relation(fields: [locationId], references: [id], onDelete: SetNull)
   workshop  Workshop?                        @relation("InterviewWorkshop", fields: [workshopId], references: [id], onDelete: SetNull)
+  questionnaire Questionnaire                @relation(fields: [questionnaireId], references: [id], onDelete: Restrict)
   artisans  QuestionnaireInterviewArtisan[]
   responses QuestionnaireResponse[]
   media     MediaFile[]                      @relation("QuestionnaireMedia")
 
+  @@unique([questionnaireId, artisanSetKey])
   @@index([createdById])
   @@index([status])
   @@index([interviewDate])
   @@index([workshopId, createdAt])
   @@index([createdAt])
+  @@index([questionnaireId, createdAt])
 }
 
 model QuestionnaireInterviewArtisan {
@@ -1113,6 +1471,19 @@ model Process {
   /// reach a workshop only through its parent product; both readings still work, and this column is
   /// nullable so every row recorded before it keeps behaving exactly as before.
   workshopId          String?
+  /// The idempotency key of the create this row came from. See `Workshop.clientKey`.
+  ///
+  /// PROCESS HAS A HAZARD THE OTHER THREE DO NOT. `create_process` writes ProcessStep rows AFTER the
+  /// row itself, and a create body carries no step ids — so a replay that re-ran `_sync_steps` would
+  /// put every step in `to_create`, delete the originals, and hand the process a set of BRAND NEW
+  /// step ids. `MediaFile.linkedRecordId` addresses those ids with NO foreign key (see the
+  /// polymorphic pair on MediaFile above), and `_hydrate` finds a step's media by matching the
+  /// CURRENT ids, so every photograph and clip captured against a step would become an orphan: still
+  /// in the bucket, still a row, attached to nothing, and undetectable afterwards. The replay branch
+  /// in `routes/processes.create_process` therefore answers from the stored row and reaches
+  /// `_sync_steps` in exactly one case — a stored process with ZERO steps, which is the shape a
+  /// create that committed its row and then failed on the step list leaves behind.
+  clientKey           String?      @unique
 
   product   ProductDocumentation @relation(fields: [productId], references: [id], onDelete: Cascade)
   createdBy User                 @relation("ProcessCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)

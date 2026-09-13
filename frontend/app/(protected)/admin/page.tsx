@@ -6,6 +6,7 @@ import {
   AudioLines,
   ClipboardCheck,
   ClipboardList,
+  FileSpreadsheet,
   KeyRound,
   Lock,
   MessageSquare,
@@ -149,6 +150,20 @@ export default function AdminHubPage() {
       description: "Hand documentation work to the people below you, then hold it to account.",
       href: "/settings/tasks",
       icon: ClipboardList
+    },
+    {
+      // THE HUB IS WHERE ADMINS ACTUALLY NAVIGATE FROM; the nav sheet is the keyboard route. A
+      // feature registered in ROUTE_GUARDS, ADMIN_CHROME_ROUTES and NAV_ITEMS but not here is
+      // reachable and unfindable — the same defect as an unregistered route wearing a different
+      // hat, and the one most likely to be reported as "the upload never shipped".
+      //
+      // It sits after Task assignment because the two are read together: an admin who has just
+      // switched a section off with an upload is told, in the report, how many assigned tasks still
+      // name it, and the next thing they open is the board.
+      label: "Questionnaire workbooks",
+      description: "Download the instrument as a spreadsheet, edit it in Excel, upload it back.",
+      href: "/questionnaire/workbooks",
+      icon: FileSpreadsheet
     },
     {
       label: "Workshop access",

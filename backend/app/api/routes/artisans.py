@@ -20,6 +20,7 @@ from app.services.records import (
     public_encode,
     apply_status_policy_create,
     apply_status_policy_update,
+    assert_expected_updated_at,
     attach_location,
     clean_data,
     contains,
@@ -29,6 +30,7 @@ from app.services.records import (
     merge_field_provenance,
     require_record,
     resubmit_status,
+    take_expected_updated_at,
     viewable_where,
 )
 from app.services.workshop_access import (
@@ -58,6 +60,73 @@ _IDENTITY_CONSTRAINTS = {
     "aadhaarNumber": "Aadhaar number",
     "pehchanCardNumber": "Artisan Pehchan Card number",
 }
+
+# ARTISAN'S OWN NULLABLE SCALARS — the names ``clean_data`` must let an explicit ``null`` through for
+# on this model, and the reason a researcher can retract a phone number at all.
+#
+# A FIELD THAT CANNOT BE CLEARED IS A 200 THAT DOES NOTHING. Until this tuple existed, emptying the
+# phone box on the artisan form showed the field empty, reported success, and left the stored number
+# in the database: ``clean_data`` dropped the ``None`` before anything could act on it. The case with
+# no workaround at all is retracting personal information a subject has asked to have removed —
+# there is no "" to send instead when the column is a nullable ``String?`` and the client means NULL.
+#
+# WHY THIS IS A PER-MODEL LIST AND NOT MORE ENTRIES IN ``records.CLEARABLE_KEYS``: that set is global
+# and ``clean_data`` does not know which table a payload is bound for. ``email`` is nullable here and
+# NOT NULL on other tables, so a global entry would trade one silent no-op for a constraint violation
+# elsewhere. See the ``clearable`` section of ``clean_data``'s docstring for the whole argument,
+# including why this may only be passed from a route that dumps with ``exclude_unset=True`` —
+# ``update_artisan`` below does, and must keep doing.
+#
+# WHAT IS DELIBERATELY ABSENT, so a later reader does not "complete" the list:
+#   * ``name`` and ``place`` — NOT NULL on Artisan.
+#   * ``pehchanCardAvailable``, ``status``, ``recordedAt``, ``recordedTimezone`` — NOT NULL.
+#   * ``craftId``/``workshopId``/``locationId`` and both identity numbers — already global.
+#   * ``craftName`` — not a column at all; ``resolve_craft_id`` turns it into ``craftId``.
+#   * ``extraMetadata`` — nullable, but naming it here would change nothing: ``merge_field_provenance``
+#     OWNS that column on this route and reassigns it a few lines below the clean, so the null never
+#     survives to Prisma either way. Left out rather than listed-and-inert.
+#
+# ``dos``/``donts`` ARE here even though ``ArtisanCreate`` demands them, and that asymmetry is the
+# existing one, not a new one: the columns are nullable precisely because rows recorded before the
+# fields existed hold NULL, and ``ArtisanUpdate`` deliberately carries no ``min_length`` on either —
+# so an editor can already empty the box today by sending ``""``. NULL is the honest spelling of the
+# same edit rather than a state the model did not already have.
+#
+# WHAT A RETRACTION DOES NOT ERASE, because nobody should read this list as a right-to-erasure
+# mechanism. ``services/access.record_revision`` copies the OLD value of every changed column that is
+# not in ``REVISION_SKIP_FIELDS`` into an immutable ``RecordRevision.changes`` blob — so the number
+# the subject asked to have removed is copied INTO the ledger by the request that removes it, and the
+# revision panel reads it back. Narrowing that is an audit-surface decision with its own blast radius
+# and is an OWNER CALL, not a follow-up patch. ``merge_field_provenance`` also skips a cleared field
+# entirely (``is_empty_value(None)`` is True), so ``extraMetadata.fieldProvenance.phone`` keeps its
+# old ``{by, byName, at}`` stamp on a column that is now NULL: not the number, but still a row in the
+# "Field contributions" panel naming who entered it and when.
+_CLEARABLE_COLUMNS = (
+    "localName",
+    "gender",
+    "phone",
+    "email",
+    "address",
+    "notes",
+    "dateOfBirth",
+    # CLEARABLE for the same reason ``dateOfBirth`` is: a date typed into the wrong box has to be
+    # retractable from the form that typed it, and an omitted key on a PATCH means "leave it alone".
+    # Clearing it does not blank the artisan's experience — it hands the answer back to the stated
+    # ``experienceYears`` number, then to the legacy metadata, which is what the precedence in
+    # ``record_fields``' "Experience (years)" row is for.
+    "craftStartDate",
+    "experienceYears",
+    # THE MONTHS BESIDE THE YEARS, AND CLEARABLE FOR THE SAME REASON THE YEARS ARE. The two boxes are
+    # answered and un-answered together on the form, so a pair where one can be blanked and the other
+    # cannot would leave an artisan reading "and 6 months" under an empty years box, with no way back
+    # from the screen that typed it. NULL and 0 are different answers here — see
+    # ``ArtisanUpdate.experienceMonths`` — and this entry is what makes the NULL half reachable:
+    # without it ``clean_data`` drops the explicit null and the PATCH answers 200 having changed
+    # nothing at all.
+    "experienceMonths",
+    "dos",
+    "donts",
+)
 
 
 def _violated_identity_field(error: Exception) -> str | None:
@@ -318,7 +387,19 @@ async def update_artisan(
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     artisan = await require_record(db.artisan, artisan_id)
-    data = clean_data(payload.model_dump(exclude_unset=True))
+    # ``exclude_unset=True`` IS THE PRECONDITION OF ``clearable``, not a stylistic choice: it is what
+    # makes a present key mean "the caller sent this". Drop it and every optional the client left
+    # alone would arrive as ``None`` and be written as an explicit NULL over stored data.
+    data = clean_data(payload.model_dump(exclude_unset=True), clearable=_CLEARABLE_COLUMNS)
+    # The precondition is a QUESTION, not a column — taken out of the body on the line after the
+    # clean, because everything between here and the write reads ``data``: ``guard_record_edit``
+    # diffs it into a ``RecordRevision``, ``merge_field_provenance`` stamps a contributor against
+    # every key it holds, and Prisma is finally handed it as columns.
+    expected_updated_at = take_expected_updated_at(data)
+    # ABOVE ``guard_record_edit``, and that ordering is the whole of the safety in a backend with no
+    # transactions: ``guard_record_edit`` ends in ``record_revision``, which COMMITS a ledger row
+    # asserting a change, and there is nothing here to roll it back with.
+    assert_expected_updated_at(artisan, expected_updated_at)
     # A caller shown a masked number who saves without touching it means "leave it alone" — for the
     # Pehchan card as much as for the Aadhaar, since both are masked on the way out to them.
     data = drop_masked_identity_numbers(data)
@@ -415,13 +496,19 @@ async def get_artisan_questionnaire(artisan_id: str, _: Any = Depends(get_curren
     ``interviews`` (each interview the artisan is in, with its recordings/media, notes, and the other
     artisans it was recorded with). Deletion of any media stays uploader-or-admin; the interview row is
     admin-only — enforced on the media/questionnaire routes, not here.
+
+    ``answered`` IS GROUPED BY INSTRUMENT FIRST and each row carries ``questionnaireId`` /
+    ``questionnaireTitle``. Since the 2026-09-13 instruments migration one artisan can sit for two
+    questionnaires whose sections share every code, so neither the order nor the two fields is
+    cosmetic — see the block comment above the sort below for what a code-only ordering does to that
+    list.
     """
     # The artisan check, the answers and the interviews are three independent reads, so they run
     # together — the 404 is still decided first, it just no longer holds the other two behind a
     # cross-region round trip of its own. Every interview the artisan belongs to (alone, in a subset,
     # or in a larger set) comes back with its recordings and co-artisans, so the same content is
     # validatable for this artisan individually.
-    artisan, responses, interview_rows = await gather_reads(
+    artisan, responses, interview_rows, instruments = await gather_reads(
         db.artisan.find_unique(where={"id": artisan_id}),
         db.questionnaireresponse.find_many(
             where={
@@ -436,9 +523,18 @@ async def get_artisan_questionnaire(artisan_id: str, _: Any = Depends(get_curren
             include={"artisans": {"include": {"artisan": True}}, "media": True},
             order={"createdAt": "desc"},
         ),
+        # EVERY INSTRUMENT, IN ONE ROW-SET, RATHER THAN A NESTED include ON EACH ANSWER. There are a
+        # handful of questionnaires and there can be hundreds of answers; joining the instrument
+        # onto every response row would repeat the same title and description hundreds of times over
+        # the wire from the database for two strings used once per row. This is the shape
+        # ``services/questionnaire_consolidation`` already uses for the same lookup, so the two
+        # screens that render an artisan's answers cannot disagree about what an instrument is
+        # called.
+        db.questionnaire.find_many(),
     )
     if not artisan:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
+    instrument_by_id = {row.id: row for row in instruments}
     answered: list[dict[str, Any]] = []
     for response in responses:
         if not (response.answerText and response.answerText.strip()):
@@ -446,6 +542,20 @@ async def get_artisan_questionnaire(artisan_id: str, _: Any = Depends(get_curren
         question = response.question
         interview = response.interview
         answered_by = response.answeredBy
+        # WHICH INSTRUMENT THIS ANSWER BELONGS TO, taken from the QUESTION rather than the
+        # interview. Both rows carry it and the two cannot disagree - a question may never move
+        # between instruments (``update_question`` and ``reorder_questions`` both refuse it with a
+        # 422, schema.prisma:1299) and an interview's ``questionnaireId`` is resolved once at create
+        # and has no update path at all - but the question is the row whose ``sectionCode`` and
+        # ``sortOrder`` are being sorted on below, so the instrument that disambiguates them must
+        # come from the same row or the sort key is assembled from two sources. The interview is the
+        # fallback only for the impossible case of an unhydrated question, where every other field
+        # on this dict is already None.
+        questionnaire_id = (
+            getattr(question, "questionnaireId", None)
+            or getattr(interview, "questionnaireId", None)
+        )
+        instrument = instrument_by_id.get(questionnaire_id)
         answered.append(
             {
                 "responseId": response.id,
@@ -454,6 +564,12 @@ async def get_artisan_questionnaire(artisan_id: str, _: Any = Depends(get_curren
                 "sectionCode": question.sectionCode if question else None,
                 "sectionTitle": question.sectionTitle if question else None,
                 "sortOrder": question.sortOrder if question else 0,
+                # NEW WIRE FIELDS, 2026-09-13. Without them a client rendering this list has no way
+                # to tell the 2nd workshop's section A from the 3rd's: the code, the title and very
+                # often the prompt are identical between instruments, so two answers to two
+                # different questions print as one question answered twice.
+                "questionnaireId": questionnaire_id,
+                "questionnaireTitle": getattr(instrument, "title", None),
                 "answerText": response.answerText,
                 "notes": response.notes,
                 "interviewId": response.interviewId,
@@ -462,7 +578,39 @@ async def get_artisan_questionnaire(artisan_id: str, _: Any = Depends(get_curren
                 "answeredByName": answered_by.name if answered_by else None,
             }
         )
-    answered.sort(key=lambda item: ((item.get("sectionCode") or ""), item.get("sortOrder") or 0))
+    # ==============================================================================================
+    # BY INSTRUMENT FIRST. SORTING ON (sectionCode, sortOrder) ALONE NOW INTERLEAVES TWO WORKSHOPS.
+    # ==============================================================================================
+    #
+    # ``20260913100000_questionnaire_instruments`` made one artisan legitimately interviewable once
+    # per instrument. The 2nd Craft Toolkit Workshop's corpus is coded RESP, A..W and the 3rd's is
+    # coded A..V - EVERY ONE of the 22 new codes already existed, which is the collision the
+    # migration's header spends its first paragraphs on. So an artisan who sat for both has two
+    # section "A"s, two section "B"s, and within each a ``sortOrder`` that restarts at 1.
+    #
+    # A sort on ``(sectionCode, sortOrder)`` does not merely order those badly, it SHUFFLES THEM
+    # TOGETHER: 3rd-workshop A1 lands next to 2nd-workshop A1, under one heading, with nothing on
+    # the row to say they came from different instruments. A researcher reading that list sees one
+    # questionnaire answered inconsistently. Section V is the worst case in the corpus -
+    # "International Exposure and Overseas Travel" in one instrument and "NETWORK / ECOSYSTEM
+    # MAPPING" in the other - so the two sets of answers do not even describe the same subject.
+    #
+    # The instrument's own ``sortOrder`` leads, so the 2nd workshop's account reads before the 3rd's,
+    # which is the order ``questionnaire_consolidation`` already prints the same artisan's document
+    # in. Its ID BREAKS THE TIE, and that tie is real rather than defensive:
+    # ``Questionnaire.sortOrder`` is deliberately NOT unique (schema.prisma:1175) because two
+    # instruments sharing a picker position is a cosmetic tie, so without the id the interleaving
+    # comes straight back for any two instruments an admin happened to give the same number - and it
+    # comes back NON-DETERMINISTICALLY, in a different order on every load, from whatever order the
+    # database returned the rows in.
+    answered.sort(
+        key=lambda item: (
+            getattr(instrument_by_id.get(item.get("questionnaireId")), "sortOrder", 0) or 0,
+            item.get("questionnaireId") or "",
+            item.get("sectionCode") or "",
+            item.get("sortOrder") or 0,
+        )
+    )
 
     interviews: list[dict[str, Any]] = []
     for interview in interview_rows:

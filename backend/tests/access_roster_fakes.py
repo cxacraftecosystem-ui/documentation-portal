@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from prisma.errors import UniqueViolationError
 
 import app.core.db as core_db
 
@@ -81,12 +82,52 @@ class FakeTable:
     """One table. Rows are ``SimpleNamespace`` so handler code reads them by attribute, as it does
     with prisma models."""
 
-    def __init__(self, defaults: dict[str, Any], seed: list[dict[str, Any]] | None = None) -> None:
+    def __init__(
+        self,
+        defaults: dict[str, Any],
+        seed: list[dict[str, Any]] | None = None,
+        unique_keys: tuple[tuple[str, ...], ...] = (),
+    ) -> None:
         self.defaults = defaults
         self.rows: list[SimpleNamespace] = []
         self.writes: list[tuple[str, dict[str, Any]]] = []
+        #: Composite unique indexes this table carries, as tuples of column names. EMPTY by default,
+        #: so every caller that predates this sees no behaviour change at all. A test that is ABOUT
+        #: a unique index must declare it, or it is not testing anything: the fake would otherwise
+        #: accept two rows the database refuses and the test goes green over a bug. That is not
+        #: hypothetical — the seeder's whole reordering design exists because
+        #: `@@unique([questionnaireId, sortOrder])` refuses a mid-corpus collision, and against a
+        #: fake with no uniqueness the unsound version of that design passes.
+        self.unique_keys = unique_keys
         for values in seed or []:
             self.rows.append(self._materialise(values))
+
+    def _refuse_duplicate(self, values: dict[str, Any], exclude_id: str | None = None) -> None:
+        """Raise as Postgres would.
+
+        NULLs are exempt — Postgres treats them as distinct under a unique index, which is exactly
+        why `artisanSetKey IS NULL` interviews are not deduped and why
+        `@@unique([questionnaireId, artisanSetKey])` still allows several per instrument.
+        """
+        for key in self.unique_keys:
+            probe = tuple(values.get(field) for field in key)
+            if any(part is None for part in probe):
+                continue
+            for other in self.rows:
+                if exclude_id is not None and getattr(other, "id", None) == exclude_id:
+                    continue
+                if tuple(getattr(other, field, None) for field in key) == probe:
+                    raise UniqueViolationError(
+                        {
+                            "user_facing_error": {
+                                "message": (
+                                    f"duplicate key value violates unique constraint "
+                                    f"{key}: {probe}"
+                                ),
+                                "meta": {},
+                            }
+                        }
+                    )
 
     def _materialise(self, values: dict[str, Any]) -> SimpleNamespace:
         stamp = values.get("createdAt") or _now()
@@ -119,8 +160,14 @@ class FakeTable:
     ) -> list[Any]:
         found = [row for row in self.rows if _matches(row, where)]
         if order:
-            field, direction = next(iter(order.items()))
-            found.sort(key=lambda row: getattr(row, field, None), reverse=direction == "desc")
+            # A LIST of order clauses is the multi-key form prisma-client-py accepts
+            # (`order=[{"sortOrder": "asc"}, {"createdAt": "asc"}]`) and the resolver's default
+            # lookup uses it. Applied last-key-first so the first clause is the primary sort, which
+            # is what a stable sort gives for free.
+            clauses = order if isinstance(order, list) else [order]
+            for clause in reversed(clauses):
+                field, direction = next(iter(clause.items()))
+                found.sort(key=lambda row: getattr(row, field, None), reverse=direction == "desc")
         found = found[skip:]
         return found[:take] if take is not None else found
 
@@ -131,6 +178,9 @@ class FakeTable:
 
     async def create(self, data: dict[str, Any], **_: Any) -> Any:
         row = self._materialise(dict(data))
+        # BEFORE the append, so a refusal leaves no row behind — which is what makes "raised before
+        # the first write" an assertable property rather than a hope.
+        self._refuse_duplicate(vars(row))
         self.rows.append(row)
         self.writes.append(("create", dict(data)))
         return row
@@ -139,6 +189,8 @@ class FakeTable:
         row = await self.find_unique(where)
         if row is None:
             return None
+        candidate = {**vars(row), **data}
+        self._refuse_duplicate(candidate, exclude_id=getattr(row, "id", None))
         for field, value in data.items():
             setattr(row, field, value)
         row.updatedAt = _now()
@@ -162,17 +214,94 @@ class FakeTable:
         return row
 
 
+#: Column defaults for the questionnaire container and its children, mirroring prisma/schema.prisma
+#: exactly as USER_DEFAULTS does. A column added to a model shows up in one place.
+QUESTIONNAIRE_DEFAULTS: dict[str, Any] = {
+    "title": "An instrument",
+    "description": None,
+    "isActive": True,
+    "isDefault": False,
+    "sortOrder": 1,
+    "createdById": None,
+}
+
+SECTION_DEFAULTS: dict[str, Any] = {
+    "questionnaireId": None,
+    "code": "A",
+    "title": "A section",
+    "sortOrder": 1,
+    "isActive": True,
+}
+
+QUESTION_DEFAULTS: dict[str, Any] = {
+    "questionnaireId": None,
+    "sectionId": None,
+    "sectionCode": "A",
+    "sectionTitle": "A section",
+    "prompt": "A prompt",
+    "sortOrder": 1,
+    "isActive": True,
+}
+
+RESPONSE_DEFAULTS: dict[str, Any] = {
+    "interviewId": None,
+    "questionId": None,
+    "answerText": None,
+    "notes": None,
+    "answeredById": None,
+}
+
+INTERVIEW_DEFAULTS: dict[str, Any] = {
+    "title": "An interview",
+    "questionnaireId": None,
+    "artisanSetKey": None,
+    "workshopId": None,
+    "status": "PENDING",
+    "createdById": None,
+}
+
+
 class FakeDb:
-    """``db``, with the two tables the gate reads. Anything else raises rather than returning None —
-    a silent ``None`` from an unmodelled table is how a test passes for the wrong reason."""
+    """``db``, with the tables the gate and the questionnaire seeder read. Anything else raises
+    rather than returning None — a silent ``None`` from an unmodelled table is how a test passes for
+    the wrong reason.
+
+    THE SAME SENTENCE IS THE ARGUMENT FOR THE UNIQUE KEYS BELOW. A fake that models a table but not
+    its unique indexes accepts writes the database refuses, so a test about a unique index passes
+    over broken code — which is a subtler version of exactly the failure the docstring rule above
+    exists to prevent.
+    """
 
     def __init__(
         self,
         users: list[dict[str, Any]] | None = None,
         roster: list[dict[str, Any]] | None = None,
+        questionnaires: list[dict[str, Any]] | None = None,
+        sections: list[dict[str, Any]] | None = None,
+        questions: list[dict[str, Any]] | None = None,
+        responses: list[dict[str, Any]] | None = None,
+        interviews: list[dict[str, Any]] | None = None,
     ) -> None:
         self.user = FakeTable(USER_DEFAULTS, users)
         self.accessroster = FakeTable(ROSTER_DEFAULTS, roster)
+        self.questionnaire = FakeTable(
+            QUESTIONNAIRE_DEFAULTS, questionnaires, unique_keys=(("title",),)
+        )
+        self.questionnairesection = FakeTable(
+            SECTION_DEFAULTS,
+            sections,
+            unique_keys=(("questionnaireId", "code"), ("questionnaireId", "sortOrder")),
+        )
+        # NO unique index, by design: the (sectionId, sortOrder) one was dropped by
+        # 20260616120000_questionnaire_sections/migration.sql:52 so questions could move between
+        # sections, and adding it now would force a two-pass into `reorder_questions`.
+        self.questionnairequestion = FakeTable(QUESTION_DEFAULTS, questions)
+        self.questionnaireresponse = FakeTable(
+            RESPONSE_DEFAULTS, responses, unique_keys=(("interviewId", "questionId"),)
+        )
+        self.questionnaireinterview = FakeTable(
+            INTERVIEW_DEFAULTS, interviews, unique_keys=(("questionnaireId", "artisanSetKey"),)
+        )
 
     def __getattr__(self, name: str) -> Any:  # pragma: no cover - a guard, not a path
         raise AssertionError(

@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { ArrowDown, ArrowUp, ClipboardList, GripVertical, Lock, Mic, Pencil, Plus, Save, Square, Trash2 } from "lucide-react";
 
 import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
+import { OnDeviceDictationButton } from "@/components/dictation/OnDeviceDictationButton";
 import { EmptyState } from "@/components/EmptyState";
 import { Field, MultiNoteField, Select, TextArea, TextInput } from "@/components/FormControls";
 import { CarryContextBanner, carryScope, useCarryContext, type CarryScopeState } from "@/components/forms/CarryContextBanner";
@@ -17,8 +18,13 @@ import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components
 import { UploadProgress } from "@/components/media/UploadProgress";
 import { UploadTray } from "@/components/media/UploadTray";
 import { RecordingStrip } from "@/components/media/Waveform";
+import { DictatedTextArea } from "@/components/richtext/DictatedTextArea";
+import { DictatedTextInput } from "@/components/richtext/DictatedTextInput";
+import { appendDictatedPhrase } from "@/components/richtext/dictatedValue";
+import { DictationUnavailableNotice } from "@/components/richtext/DictationUnavailableNotice";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
+import { QuestionHelpText, RequiredByInstrument } from "@/components/questionnaires/QuestionHelpText";
 import { RowActions, rowAction } from "@/components/RowActions";
 import { SearchInput } from "@/components/SearchInput";
 import { EMPTY_FUNNEL, FunnelFilters, type FunnelValue } from "@/components/FunnelFilters";
@@ -42,7 +48,25 @@ import {
 import { saveOrQueue } from "@/lib/offline";
 import { canManageQuestionnaire, hasRank, isAdmin } from "@/lib/permissions";
 import { UploadsProvider, useEagerStaging, useUploads } from "@/lib/uploads";
-import type { Artisan, PageResult, QuestionnaireInterview, QuestionnaireQuestion, QuestionnaireSection } from "@/lib/types";
+import type { Artisan, PageResult, Questionnaire, QuestionnaireInterview, QuestionnaireQuestion, QuestionnaireSection } from "@/lib/types";
+
+/**
+ * The API's own ceiling on an interview title — `QuestionnaireInterviewCreate.title` is
+ * `Field(min_length=1, max_length=220)` (`backend/app/schemas/questionnaire.py`).
+ *
+ * WRITTEN DOWN BECAUSE DICTATION IS THE ONE PATH THAT CAN EXCEED IT. A DOM `maxLength` bounds typing
+ * and pasting and has no opinion at all about a value written into React state, which is exactly what
+ * a committed phrase is; `clampToColumn` inside `DictatedTextInput` is what actually enforces this,
+ * and it does nothing at all unless a number is handed to it. An over-long title 422s the WHOLE body,
+ * so a researcher who spoke one sentence too many into the title box loses every answer in the
+ * interview — and `saveOrQueue` refuses to bank a 4xx for later (`lib/offline.ts`), so the sitting is
+ * not queued either: it is gone, with the artisan already on their way home.
+ *
+ * ONLY THE TITLE CARRIES ONE. `place`, `language` and `notes` are declared `str | None` with no
+ * `max_length` on the same model, and inventing a cap the API does not have is a cap that refuses an
+ * answer the API would have stored.
+ */
+const INTERVIEW_TITLE_MAX = 220;
 
 /** Section ids the two questionnaire upload paths publish under, for the page-level tray. */
 const INTERVIEW_SECTION = "interview-audio";
@@ -75,6 +99,18 @@ function QuestionnairePageBody() {
   const { addCompleted } = useUploads();
   const searchParams = useSearchParams();
   const [sections, setSections] = useState<QuestionnaireSection[]>([]);
+  /**
+   * WHICH INSTRUMENT THIS CAPTURE IS ON. Two exist and their section codes collide completely, so
+   * "section A" is meaningless without one.
+   *
+   * `instrumentTouched` is the same stale-prefill-vs-deliberate-choice problem the RESP block below
+   * solves with `prefilled`: the workshop effect wants to move the instrument whenever the workshop
+   * changes, and a manager who deliberately picked another one must not have it snatched back on
+   * the next re-render. The ref is what tells those two cases apart.
+   */
+  const [instruments, setInstruments] = useState<Questionnaire[]>([]);
+  const [questionnaireId, setQuestionnaireId] = useState<string | null>(null);
+  const instrumentTouched = useRef(false);
   const [artisans, setArtisans] = useState<Artisan[]>([]);
   const [data, setData] = useState<PageResult<QuestionnaireInterview> | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -103,6 +139,26 @@ function QuestionnairePageBody() {
   const [searchQuery, setSearchQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /*
+    THE THREE HEADER BOXES LIVE IN REACT STATE, WHICH IS FORCED ON US BY THE CONTROL, NOT PREFERRED.
+
+    `DictatedTextInput` is controlled by its caller and deliberately has no self-controlled mode —
+    see its header for the argument. The reason it matters HERE more than on most forms is the two
+    `formElement.reset()` calls in `submit` below: `reset()` rewrites the DOM nodes and tells React
+    nothing, so a box that owned its own value would re-paint the previous interview's title over the
+    next artisan's. `clearHeaderBoxes` therefore sits in the same block as each `reset()`.
+
+    THE `name` ATTRIBUTES ON THE THREE BOXES ARE LOAD-BEARING AND SILENT IF DROPPED. `submit` reads
+    all three out of a `FormData` — `textValue(form, "title")`, `"place"`, `"language"` — so a box
+    rendered without its `name` submits NOTHING, with no type error, no runtime warning and a 201 in
+    reply. The interview saves with a generated title, no place and no language, and nobody finds out
+    until somebody reads the record back. `DictatedTextInput` renders a real `<input name=…>`, so
+    FormData reads these exactly as it read the `<TextInput>`s they replaced; keeping the state below
+    in step is only about the reset.
+  */
+  const [title, setTitle] = useState("");
+  const [place, setPlace] = useState("");
+  const [language, setLanguage] = useState("");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -148,7 +204,13 @@ function QuestionnairePageBody() {
       return;
     }
     let active = true;
-    const query = selectedArtisanIds.map((id) => `artisanIds=${encodeURIComponent(id)}`).join("&");
+    // SCOPED TO THE INSTRUMENT ON SCREEN. Without it the lookup finds the OTHER instrument's
+    // sitting for these artisans, the form flips to "Add to shared entry", and the researcher is
+    // offered a sitting the create would never have folded into — the two would disagree.
+    const query = [
+      ...selectedArtisanIds.map((id) => `artisanIds=${encodeURIComponent(id)}`),
+      ...(questionnaireId ? [`questionnaireId=${encodeURIComponent(questionnaireId)}`] : [])
+    ].join("&");
     apiFetch<QuestionnaireInterview | null>(`/questionnaire/interviews/by-artisans?${query}`)
       .then((result) => {
         if (active) setExistingEntry(result ?? null);
@@ -159,7 +221,7 @@ function QuestionnairePageBody() {
     return () => {
       active = false;
     };
-  }, [selectedSetKey, selectedArtisanIds]);
+  }, [selectedSetKey, selectedArtisanIds, questionnaireId]);
 
   /**
    * What this effect last wrote into `answers`, per question. It is how a stale prefill is told apart
@@ -213,12 +275,27 @@ function QuestionnairePageBody() {
 
   // Sections + artisans back the capture form and the builder; they change only when an admin edits
   // the questionnaire, so they load once (and again on `onChanged`) rather than per list page/filter.
-  async function loadMeta() {
+  async function loadMeta(instrumentId?: string | null) {
     try {
-      const [sectionList, artisanResult] = await Promise.all([
-        apiFetch<QuestionnaireSection[]>("/questionnaire/sections"),
+      // THREE reads, still one wave. The instrument list joins it rather than following it, because
+      // a sequential "which instruments exist, then give me that one's sections" is two round trips
+      // before the form can render a single question.
+      const [instrumentList, sectionList, artisanResult] = await Promise.all([
+        apiFetch<Questionnaire[]>("/questionnaires"),
+        apiFetch<QuestionnaireSection[]>(
+          `/questionnaire/sections${buildQuery({ questionnaireId: instrumentId ?? undefined })}`
+        ),
         listResource<Artisan>("/artisans", { pageSize: 100 })
       ]);
+      setInstruments(instrumentList);
+      // The server resolved SOME instrument for that read whether or not we named one, and its
+      // sections carry the id it chose. Reading it back off them keeps the picker showing what the
+      // form is actually built from rather than what the client guessed.
+      const resolved = instrumentId ?? sectionList[0]?.questionnaireId
+        ?? instrumentList.find((instrument) => instrument.isDefault)?.id
+        ?? instrumentList[0]?.id
+        ?? null;
+      setQuestionnaireId(resolved);
       setSections(sectionList);
       setArtisans(artisanResult.items);
       setArtisanListState("loaded");
@@ -228,6 +305,30 @@ function QuestionnairePageBody() {
       setError(err instanceof Error ? err.message : "Unable to load questionnaire");
     }
   }
+
+  /**
+   * THE WORKSHOP CHOOSES THE INSTRUMENT — until somebody says otherwise.
+   *
+   * A workshop is bound to one questionnaire by an admin, and opening the capture form at that
+   * workshop should open the questions that apply there without anybody choosing again. Guarded by
+   * `instrumentTouched` so a questionnaire manager running a pilot on the other instrument keeps
+   * their choice: without the ref the next workshop re-render silently takes it back, and the
+   * researcher's answers go to the instrument they did not pick.
+   */
+  const boundInstrumentId = useMemo(
+    () => workshop.workshops?.find((row) => row.id === workshop.workshopId)?.questionnaireId ?? null,
+    [workshop.workshops, workshop.workshopId]
+  );
+
+  useEffect(() => {
+    if (instrumentTouched.current) return;
+    const bound = boundInstrumentId;
+    if (!bound || bound === questionnaireId) return;
+    setQuestionnaireId(bound);
+    void loadMeta(bound);
+    // `loadMeta` is deliberately NOT a dependency: it is re-created every render, so listing it
+    // would re-run this effect on every render and re-fetch the whole instrument each time.
+  }, [boundInstrumentId, questionnaireId]);
 
   /**
    * Open on the artisan this researcher was last documenting.
@@ -437,6 +538,26 @@ function QuestionnairePageBody() {
     };
   }
 
+  /**
+   * The dictated header boxes, emptied — the half of "clear the form" that `reset()` cannot reach.
+   *
+   * CALLED BESIDE EVERY `formElement.reset()`, NEVER INSTEAD OF ONE. `reset()` still owns the
+   * uncontrolled controls on this form (status, the workshop select, the location card, the notes
+   * rows); this owns the three controlled ones. Miss this call and the next interview opens with the
+   * previous artisan's title and place already typed in, which is worse than a stale box on any other
+   * screen in this app: the questionnaire's uniqueness key is the artisan SET, so a researcher who
+   * does not notice files a second sitting under a title naming the wrong person.
+   *
+   * `""` and not `undefined`: a controlled input handed `undefined` switches to uncontrolled, React
+   * warns once in development and the box keeps whatever the DOM node last held — which is precisely
+   * the bug this function exists to close.
+   */
+  function clearHeaderBoxes() {
+    setTitle("");
+    setPlace("");
+    setLanguage("");
+  }
+
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     // React nulls event.currentTarget after the first await — capture it before any async work.
@@ -464,6 +585,11 @@ function QuestionnairePageBody() {
           notes: textValue(form, "notes"),
           status: canPickStatus ? textValue(form, "status") || "APPROVED" : "PENDING",
           workshopId: workshop.workshopId || null,
+          // WRITTEN AT QUEUE TIME, NOT AT REPLAY TIME. This same object is what `saveOrQueue`
+          // serialises into the outbox, so an interview captured today and replayed next week files
+          // on the instrument the researcher was actually looking at — not on whatever the default
+          // has become by then. Do not "simplify" this away on the offline path.
+          questionnaireId: questionnaireId || null,
           artisanIds,
           responses,
           recordedAt,
@@ -511,6 +637,7 @@ function QuestionnairePageBody() {
       if (outcome.queued) {
         // OutboxBanner at the top of the page names the entry and says where it lives.
         formElement.reset();
+        clearHeaderBoxes();
         setAnswers({});
         setMediaFiles([]);
         setQuestionAudioFiles({});
@@ -571,6 +698,7 @@ function QuestionnairePageBody() {
         });
       }
       formElement.reset();
+      clearHeaderBoxes();
       setAnswers({});
       setMediaFiles([]);
       setQuestionAudioFiles({});
@@ -622,25 +750,105 @@ function QuestionnairePageBody() {
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
 
       {/* 1) Completion matrix — top of the page, collapsed by default. */}
-      <CompletionMatrixPanel canOverride={adminMode && isAdmin(user)} />
+      <CompletionMatrixPanel canOverride={adminMode && isAdmin(user)} questionnaireId={questionnaireId} />
 
       <form onSubmit={submit} onKeyDown={handleFormEnter} className="panel mb-5 grid gap-4 p-4">
         <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-          <Field label="Interview title" required>
-            <TextInput name="title" required />
-          </Field>
+          {/*
+            THE ONE PLACE THIS PAGE EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.
+
+            Every dictated box on this page passes `explainWhenUnavailable={false}`, and there are a
+            lot of them: three here, one under every answer box in every section, and four more in the
+            builder below. Without this line, on Firefox — which implements no `SpeechRecognition` at
+            all — all of them would simply vanish and nothing anywhere would say why; with the button's
+            own sentence under each instead, an eighty-one-question instrument prints eighty-one copies
+            of one paragraph, which is the reader learning to skip grey text and then skipping the one
+            place it mattered. EXACTLY ONE, on the whole page: the builder is a collapsed accordion
+            further down this same file and deliberately does not mount a second.
+
+            `md:col-span-2 lg:col-span-4` because this is a child of the four-column field grid and
+            `className` here reaches the `<p>` itself — without it the sentence wraps into one cell.
+          */}
+          <DictationUnavailableNotice className="md:col-span-2 lg:col-span-4" />
+          {/*
+            `titleCased` ON TITLE AND PLACE, AND NOT ON LANGUAGE, is read off the server rule rather
+            than guessed: `create_interview` runs `clean_data(...)` (`backend/app/api/routes/
+            questionnaire.py`), which title-cases every column in `TITLE_CASE_FIELDS`
+            (`backend/app/services/records.py`) — `title` and `place` are both in that set and
+            `language` is not. `TitleCasedInput` then says "Will be saved as …" whenever the server's
+            normalisation would change what is in the box. That sentence matters MORE with a
+            microphone than without one: a recogniser hands back its own casing and nobody typed it,
+            so without the hint the value simply changes after saving and the form and the record
+            disagree with no one having been told.
+          */}
+          <DictatedTextInput
+            name="title"
+            label="Interview title"
+            required
+            titleCased
+            maxLength={INTERVIEW_TITLE_MAX}
+            explainWhenUnavailable={false}
+            value={title}
+            onChange={setTitle}
+          />
           {/* No date field: the server derives interviewDate from recordedAt, which is when the
               interview was actually captured. Asking a researcher to confirm today's date was a
-              field to tab past that could only ever be wrong. */}
-          <Field label="Place">
-            <TextInput name="place" />
-          </Field>
-          <Field label="Language">
-            <TextInput name="language" placeholder="Bangla, Hindi, English..." />
-          </Field>
+              field to tab past that could only ever be wrong. AND NO MICROPHONE ON A DATE even if one
+              were re-added: a spoken date is the one thing a recogniser gets wrong in a way that
+              still parses. */}
+          <DictatedTextInput
+            name="place"
+            label="Place"
+            titleCased
+            explainWhenUnavailable={false}
+            value={place}
+            onChange={setPlace}
+          />
+          {/*
+            Language is FREE TEXT here and not a closed vocabulary, which is why it gets a microphone
+            at all. The column is `str | None` with no enum behind it on either side — the placeholder
+            names three examples and the artisan's own answer ("Kutchi, and some Gujarati") is a
+            perfectly good value. A dropdown of language names is the change that would REMOVE the
+            microphone, not one that would sit beside it.
+          */}
+          <DictatedTextInput
+            name="language"
+            label="Language"
+            placeholder="Bangla, Hindi, English..."
+            explainWhenUnavailable={false}
+            value={language}
+            onChange={setLanguage}
+          />
           {/* The workshop leads every other dropdown: it is the context the interview belongs to. */}
           <WorkshopSelect state={workshop} saving={saving} />
+          {/*
+            A <Field> + <Select>, and NOT a <details>. `e2e/questionnaire-capture.spec.ts` locates
+            the questionnaire's sections as `form.panel details` minus "Captured at", then takes
+            `.first()`; a collapsible control here would join that set and break the default-capture
+            spec while looking like a styling change. Sits immediately after the workshop because
+            that is what usually chooses it.
+          */}
+          <Field label="Questionnaire">
+            <Select
+              name="questionnaireId"
+              value={questionnaireId ?? ""}
+              disabled={saving || instruments.length === 0}
+              onChange={(event) => {
+                // An explicit pick, so the workshop effect stops moving it. See instrumentTouched.
+                instrumentTouched.current = true;
+                setQuestionnaireId(event.target.value);
+                void loadMeta(event.target.value);
+              }}
+            >
+              {instruments.map((instrument) => (
+                <option key={instrument.id} value={instrument.id}>
+                  {instrument.title}
+                  {instrument.id === boundInstrumentId ? " (this workshop)" : ""}
+                </option>
+              ))}
+            </Select>
+          </Field>
           <Field label="Status">
             {canPickStatus ? (
               <Select name="status" defaultValue="APPROVED">
@@ -818,7 +1026,16 @@ function QuestionnairePageBody() {
                   <div key={question.id} className="grid gap-1">
                     <span className="field-label" id={`question-label-${question.id}`}>
                       {question.sortOrder}. {question.prompt}
+                      <RequiredByInstrument question={question} />
                     </span>
+                    {/* THE PRO-FORMA'S "Help text" COLUMN, ON THE SCREEN THE ANSWER IS GIVEN ON.
+                        An admin types guidance under a question in Excel and the import stores it;
+                        rendering it nowhere would mean the app asked a question and ignored the
+                        answer — eighty-one help texts in the database and none on any screen. It is
+                        deliberately OUTSIDE the label: `aria-labelledby` names the textarea with the
+                        prompt, and folding a paragraph of guidance into that label would make a
+                        screen reader announce the whole thing every time focus entered the box. */}
+                    <QuestionHelpText question={question} />
                     {/* Same rule as the section recorder above: the button belongs to individual
                         mode, but clips already recorded stay visible and stay saved in either. */}
                     {capture.recordingMode === "INDIVIDUAL" || questionAudioFiles[question.id]?.length ? (
@@ -855,11 +1072,58 @@ function QuestionnairePageBody() {
                       />
                     ) : null}
                     {capture.hideAnswers ? null : (
-                      <TextArea
-                        aria-labelledby={`question-label-${question.id}`}
-                        value={answers[question.id] ?? ""}
-                        onChange={(event) => setAnswers((current) => ({ ...current, [question.id]: event.target.value }))}
-                      />
+                      <>
+                        <TextArea
+                          aria-labelledby={`question-label-${question.id}`}
+                          value={answers[question.id] ?? ""}
+                          onChange={(event) => setAnswers((current) => ({ ...current, [question.id]: event.target.value }))}
+                        />
+                        {/*
+                          THE ANSWER BOX IS THE REASON THIS PAGE HAS MICROPHONES AT ALL. A researcher
+                          sitting on the floor of a workshop is holding a phone in one hand and a
+                          question sheet in the other; an eighty-one-question instrument typed with a
+                          thumb is why the answer boxes were switched off by default in the first
+                          place.
+
+                          THE BARE BUTTON AND NOT `DictatedTextArea`, which is the component every
+                          other multi-line box on this page uses. Two reasons, both structural: this
+                          box is named by the prompt above it through `aria-labelledby`, and
+                          `DictatedTextArea` renders a `<label>` of its own — mounting it here would
+                          print the prompt twice and a screen reader would read it twice. And the
+                          value lives in the page's `answers` map (it is what `submit` turns into
+                          `responses`), while `DictatedTextArea` owns its value internally and reports
+                          it only through `FormData` under a `name`; these boxes have no `name`,
+                          because eighty-one of them in one `FormData` is not how an interview is
+                          submitted.
+
+                          `setAnswers((current) => …)` — THE UPDATER FORM, NOT `answers[question.id]`
+                          READ FROM THE RENDER CLOSURE. `OnDeviceDictationButton` installs its
+                          recogniser handlers once and reaches this callback through a ref, so the
+                          callback it calls is current; what is NOT current is any value this closure
+                          captured. Reading the map from the closure would append each phrase to the
+                          answers as they stood when the microphone was pressed, silently discarding
+                          everything typed into any box in between — invisible while testing with one
+                          short phrase and obvious only to the researcher who dictated three
+                          paragraphs. `appendDictatedPhrase` is the shared joiner rule
+                          (`components/richtext/dictatedValue.ts`): it APPENDS, because the recogniser
+                          stops and starts at every pause for breath, and it puts a single space in
+                          unless the box already ends in whitespace, or an answer dictated in five
+                          goes comes out as "…the warpis sized…".
+
+                          `explainWhenUnavailable={false}` on every one of these: the page says it
+                          once at the top of the form.
+                        */}
+                        <OnDeviceDictationButton
+                          fieldLabel={`the answer to question ${question.sectionCode}${question.sortOrder}`}
+                          explainWhenUnavailable={false}
+                          onCommit={(phrase) =>
+                            setAnswers((current) => ({
+                              ...current,
+                              [question.id]: appendDictatedPhrase(current[question.id] ?? "", phrase)
+                            }))
+                          }
+                        />
+                      </>
                     )}
                     <UploadProgress
                       progress={questionProgress[question.id] ?? null}
@@ -966,7 +1230,13 @@ function QuestionnairePageBody() {
       </section>
 
       {/* 2) Questionnaire builder — bottom of the page, collapsed by default. */}
-      {canManageQuestionnaire(user) ? <QuestionnaireAdminEditor sections={sections} onChanged={loadMeta} /> : null}
+      {canManageQuestionnaire(user) ? (
+        <QuestionnaireAdminEditor
+          sections={sections}
+          questionnaireId={questionnaireId}
+          onChanged={() => loadMeta(questionnaireId)}
+        />
+      ) : null}
 
       {activePreview ? <MediaLightbox item={activePreview} onClose={() => setActivePreview(null)} /> : null}
     </>
@@ -1080,6 +1350,13 @@ type CompletionMatrix = {
    * predates the field.
    */
   unassignedInterviews?: number;
+  /**
+   * WHICH INSTRUMENT THIS MATRIX IS ABOUT. Two instruments run overlapping section codes, so a
+   * grid of columns headed "A", "B", "C" is an unlabelled claim without this. Absent on an API
+   * that predates the field.
+   */
+  questionnaireId?: string | null;
+  questionnaireTitle?: string | null;
   /** True while an admin's mark is keyed on (artisan, section) alone, i.e. is not per workshop. */
   overridesAreRepositoryWide?: boolean;
 };
@@ -1090,7 +1367,19 @@ type CompletionMatrix = {
  * (overrides carry an amber ring). In admin view, admins click a cell to cycle the override:
  * complete -> not complete -> clear (back to the derived state).
  */
-function CompletionMatrixPanel({ canOverride }: { canOverride: boolean }) {
+function CompletionMatrixPanel({
+  canOverride,
+  questionnaireId
+}: {
+  canOverride: boolean;
+  /**
+   * WHICH INSTRUMENT'S MATRIX. Without it the server resolves the default, which is the right
+   * answer for an old client and the wrong one for a page whose form is already open on the other
+   * instrument — the columns would be one instrument's sections and the form's another's, both
+   * labelled "A".
+   */
+  questionnaireId: string | null;
+}) {
   const [matrix, setMatrix] = useState<CompletionMatrix | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1115,14 +1404,17 @@ function CompletionMatrixPanel({ canOverride }: { canOverride: boolean }) {
     try {
       setMatrix(
         await apiFetch<CompletionMatrix>(
-          `/questionnaire/completion${buildQuery({ workshopIds: scope.queryValue })}`
+          `/questionnaire/completion${buildQuery({
+            workshopIds: scope.queryValue,
+            questionnaireId: questionnaireId ?? undefined
+          })}`
         )
       );
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load the completion matrix");
     }
-  }, [scope.queryValue]);
+  }, [scope.queryValue, questionnaireId]);
 
   /**
    * Load once the panel is open, and RELOAD whenever the scope moves — but never before the picker has
@@ -1172,7 +1464,12 @@ function CompletionMatrixPanel({ canOverride }: { canOverride: boolean }) {
   return (
     <Accordion
       title="Check completion"
-      subtitle={`Which questionnaire sections are covered for each artisan, derived from recorded answers and audio.${
+      // The instrument is NAMED in the subtitle rather than left to be inferred from the column
+      // headings. Two instruments run overlapping codes, so "A, B, C" across the top says nothing
+      // about which questionnaire is being reported on.
+      subtitle={`${
+        matrix?.questionnaireTitle ? `${matrix.questionnaireTitle} — ` : ""
+      }Which questionnaire sections are covered for each artisan, derived from recorded answers and audio.${
         canOverride ? " Click a cell to cycle an admin override: complete, not complete, clear." : ""
       }`}
       onOpenChange={handleOpenChange}
@@ -1347,7 +1644,67 @@ function moveQuestionInSections(
   return clone;
 }
 
-function QuestionnaireAdminEditor({ sections, onChanged }: { sections: QuestionnaireSection[]; onChanged: () => Promise<void> }) {
+/**
+ * One section's "Title" box in the builder's edit row — a microphone on a box that submits through
+ * `FormData`.
+ *
+ * WHY THIS IS A COMPONENT AND NOT THREE MORE LINES IN THE FORM ABOVE. `DictatedTextInput` is
+ * controlled by its caller, and the edit row it sits in is otherwise uncontrolled: `updateSection`
+ * reads `form.get("code")` and `form.get("title")` out of a `FormData` built from the submitted
+ * element, and every other control in the row is seeded with `defaultValue`. Holding the title for
+ * every section in one map in the parent would mean re-seeding that map from `localSections` on every
+ * server reload — `onChanged` replaces the whole list after any add, remove, reorder or reparent —
+ * and a map that missed one of those refreshes is a box showing a title the database no longer has.
+ * Local state plus a re-seed keyed on the row's own identity is the same shape `QuestionTile` already
+ * uses for `prompt` in this file, for the same reason.
+ *
+ * THE `name` IS STILL LOAD-BEARING. The component renders a real `<input name="title">`, so
+ * `updateSection`'s `form.get("title")` reads it exactly as it read the `<TextInput>` this replaced.
+ * Drop the attribute and Save writes `""` over the section's title — `String(form.get("title") ?? "")`
+ * turns the missing key into an empty string and PATCHes it — which is a section renamed to nothing
+ * on every question that denormalises `sectionTitle`.
+ *
+ * A TITLE IS FREE TEXT AND GETS A MICROPHONE; THE CODE BESIDE IT DOES NOT. See the note on the
+ * add-section form for why an identity code is the one box dictation must not touch.
+ */
+function SectionTitleField({ section }: { section: QuestionnaireSection }) {
+  const [value, setValue] = useState(section.title);
+
+  /**
+   * Re-seed when the ROW changes underneath us, which is not the same as when the component mounts.
+   *
+   * The builder keys its section blocks by `section.id`, so a reorder MOVES this component rather
+   * than rebuilding it, and a save reloads every section from the server. Without this, a title
+   * edited on the server (by the workbook import, or by another admin) would sit behind a stale local
+   * value that the next Save would write straight back over. Depending on `section.title` and not
+   * only on `section.id` is the half that catches the second case.
+   */
+  useEffect(() => {
+    setValue(section.title);
+  }, [section.id, section.title]);
+
+  return (
+    <DictatedTextInput
+      name="title"
+      label="Title"
+      required
+      explainWhenUnavailable={false}
+      value={value}
+      onChange={setValue}
+    />
+  );
+}
+
+function QuestionnaireAdminEditor({
+  sections,
+  questionnaireId,
+  onChanged
+}: {
+  sections: QuestionnaireSection[];
+  /** The instrument being built. A new section joins THIS one, not whichever is the default. */
+  questionnaireId: string | null;
+  onChanged: () => Promise<void>;
+}) {
   const confirm = useConfirm();
   const [localSections, setLocalSections] = useState<QuestionnaireSection[]>(sections);
   const [newCode, setNewCode] = useState("");
@@ -1358,6 +1715,27 @@ function QuestionnaireAdminEditor({ sections, onChanged }: { sections: Questionn
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  /**
+   * A REMOUNT COUNTER PER SECTION FOR THE ADD-QUESTION BOX, AND THE BUG IT CLOSES.
+   *
+   * That box is a `DictatedTextArea`, which owns its own value and re-seeds from `defaultValue` on
+   * REMOUNT only. The add-question form clears itself with `formElement.reset()` — and `reset()`
+   * rewrites the DOM node and tells React nothing at all. So without a key that changes, the prompt
+   * an admin just filed STAYS ON SCREEN, the form looks as though nothing happened, and the next
+   * press of "Add question" files the same question a second time. Two identical questions in one
+   * section is not a cosmetic defect: the workbook download prints both, the re-upload matches both
+   * by id, and every interview from then on asks the artisan the same thing twice.
+   *
+   * PER SECTION, KEYED BY `section.id`, NOT ONE COUNTER FOR THE BUILDER. A single number would
+   * remount EVERY section's add-question box on every add, throwing away a prompt half-typed in
+   * another section — the builder renders one such form per section and they are all on screen at
+   * once. `?? 0` is the un-bumped state, so a section that has never been added to needs no entry.
+   *
+   * BUMPED ONLY ON SUCCESS, in the same block as the `reset()`. A failed add leaves the prompt in the
+   * box on purpose: the admin's text is the only copy of it, and `addQuestion` throwing means the
+   * server did not take it.
+   */
+  const [questionNonce, setQuestionNonce] = useState<Record<string, number>>({});
 
   // Server state is authoritative: whenever the parent reloads sections, replace the local copy
   // (this also lands the canonical result after an optimistic drag persists).
@@ -1372,7 +1750,11 @@ function QuestionnaireAdminEditor({ sections, onChanged }: { sections: Questionn
     try {
       await apiFetch("/questionnaire/sections", {
         method: "POST",
-        body: JSON.stringify({ code: newCode.trim(), title: newTitle.trim() })
+        // The instrument is sent EXPLICITLY. The server would resolve the default if it were
+        // omitted — which is what an un-updated builder gets and is correct for it — but this page
+        // knows which instrument it is showing, and adding a section to a different one than the
+        // list above it is the mistake that field is for.
+        body: JSON.stringify({ questionnaireId, code: newCode.trim(), title: newTitle.trim() })
       });
       setNewCode("");
       setNewTitle("");
@@ -1571,12 +1953,26 @@ function QuestionnaireAdminEditor({ sections, onChanged }: { sections: Questionn
     >
       <div className="grid gap-4">
         <form onSubmit={addSection} className="grid gap-3 rounded-md border border-line-200 bg-field-100 p-3 md:grid-cols-[160px_1fr_auto]">
+          {/* NO MICROPHONE ON THE CODE. "A", "RESP", "FIELD" is an identity code in a closed set the
+              instrument already uses — every question denormalises it as `sectionCode` and the
+              workbook matches rows on it — and a recogniser asked for "RESP" hands back "resp",
+              "rest" or "R E S P" with equal confidence. A box whose value must be exact is the one
+              box dictation must not touch. */}
           <Field label="Section code">
             <TextInput value={newCode} onChange={(event) => setNewCode(event.target.value)} placeholder="A, RESP, FIELD..." required />
           </Field>
-          <Field label="Section title">
-            <TextInput value={newTitle} onChange={(event) => setNewTitle(event.target.value)} placeholder="Section title" required />
-          </Field>
+          {/* NO `name`, AND THAT IS CORRECT HERE RATHER THAN AN OVERSIGHT: `addSection` builds its
+              body from `newCode`/`newTitle` state and never constructs a `FormData` at all, so a
+              `name` would submit through a channel nothing reads. Contrast the three header boxes at
+              the top of this file, where dropping `name` silently drops the value. */}
+          <DictatedTextInput
+            label="Section title"
+            placeholder="Section title"
+            required
+            explainWhenUnavailable={false}
+            value={newTitle}
+            onChange={setNewTitle}
+          />
           <div className="flex items-end">
             <button className="field-button" disabled={saving}>
               <Plus className="h-4 w-4" aria-hidden />
@@ -1640,9 +2036,7 @@ function QuestionnaireAdminEditor({ sections, onChanged }: { sections: Questionn
                 <Field label="Code">
                   <TextInput name="code" defaultValue={section.code} required />
                 </Field>
-                <Field label="Title">
-                  <TextInput name="title" defaultValue={section.title} required />
-                </Field>
+                <SectionTitleField section={section} />
                 <label className="flex items-end gap-2 pb-2 text-sm text-ink-muted">
                   <input name="isActive" type="checkbox" defaultChecked={section.isActive} />
                   Active
@@ -1720,15 +2114,35 @@ function QuestionnaireAdminEditor({ sections, onChanged }: { sections: Questionn
                     setMessage(null);
                     try {
                       await addQuestion(section, new FormData(formElement));
+                      // BOTH LINES, AND NEITHER IS THE OTHER'S SPELLING. `reset()` clears the
+                      // uncontrolled DOM controls this form may grow; the nonce is the only thing
+                      // that clears the dictated box, which React owns. See `questionNonce` above for
+                      // the duplicate-question defect that a missing bump produces.
                       formElement.reset();
+                      setQuestionNonce((current) => ({ ...current, [section.id]: (current[section.id] ?? 0) + 1 }));
                     } catch (err) {
                       setMessage(err instanceof Error ? err.message : "Unable to add question");
                     }
                   }}
                 >
-                  <Field label={`New question in ${section.code}`}>
-                    <TextArea name="prompt" placeholder="Write the question prompt..." required />
-                  </Field>
+                  {/* `name="prompt"` IS LOAD-BEARING: `addQuestion` reads this box out of
+                      `new FormData(formElement)`, so a dropped attribute is an "Add question" button
+                      that silently adds nothing. `required` is carried through by the component
+                      rather than re-added around it — `DictatedTextArea` puts it on the real
+                      `<textarea>`, so the browser's own empty check is exactly what it was.
+
+                      A `helper` AND NOT A `placeholder`, which is what this box carried before: a
+                      placeholder vanishes the moment the first dictated phrase lands, and this
+                      component has no placeholder prop for exactly that reason. The line is drawn
+                      under the label instead, where it survives being spoken into. */}
+                  <DictatedTextArea
+                    key={questionNonce[section.id] ?? 0}
+                    name="prompt"
+                    label={`New question in ${section.code}`}
+                    helper="Write the question prompt..."
+                    required
+                    explainWhenUnavailable={false}
+                  />
                   <div className="flex items-end">
                     <button className="field-button-secondary">
                       <Plus className="h-4 w-4" aria-hidden />
@@ -1848,7 +2262,33 @@ function QuestionTile({
 
       <div className="min-w-0 flex-1">
         {editing ? (
-          <TextArea value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={2} />
+          <>
+            <TextArea
+              aria-label={`Prompt for question ${question.sectionCode}${question.sortOrder}`}
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              rows={2}
+            />
+            {/*
+              The bare button and not `DictatedTextArea`, for the same two reasons as the answer
+              boxes: this textarea is controlled by the tile (the "Cancel" button restores
+              `question.prompt` from the props, which a self-controlled box could not be told about)
+              and it carries no visible label of its own — the tile is a row in a list, not a form.
+              `aria-label` above therefore names the box, and the microphone names it again in its own
+              accessible label, so a screen-reader user knows which of a dozen tiles is listening.
+
+              The updater form of `setPrompt` for the reason spelled out at the answer boxes: the
+              recogniser's handlers are installed once, and a phrase committed a minute into a long
+              rewording must append to what is in the box NOW, not to what it held when the microphone
+              was pressed.
+            */}
+            <OnDeviceDictationButton
+              fieldLabel={`the prompt for question ${question.sectionCode}${question.sortOrder}`}
+              explainWhenUnavailable={false}
+              disabled={disabled || savingTile}
+              onCommit={(phrase) => setPrompt((current) => appendDictatedPhrase(current, phrase))}
+            />
+          </>
         ) : (
           <p className="text-sm text-ink-900">
             <span className="mr-1 font-semibold text-ink-500">{question.sortOrder}.</span>

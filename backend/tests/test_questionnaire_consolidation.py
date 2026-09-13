@@ -28,6 +28,12 @@ from app.services.questionnaire_consolidation import (
 ARTISAN_ID = "artisan-subject"
 OTHER_ID = "artisan-other"
 
+#: The two instruments, by the deterministic ids the migration and the seeders write down. Spelled
+#: out here rather than imported so this file keeps testing the DOCUMENT rather than agreeing with
+#: the constants module about what an id is.
+W2 = "qnr_2nd_craft_toolkit_workshop"
+W3 = "qnr_3rd_craft_toolkit_workshop"
+
 
 def _dt(day: int) -> datetime:
     return datetime(2026, 6, day, 9, 0, tzinfo=UTC)
@@ -52,11 +58,34 @@ class _Db:
             setattr(self, name, _Delegate(rows))
 
 
-def _question(qid, section_id, order, prompt):
-    return SimpleNamespace(id=qid, sectionId=section_id, sortOrder=order, prompt=prompt)
+def _instrument(iid, title, order):
+    return SimpleNamespace(id=iid, title=title, sortOrder=order, isActive=True)
 
 
-def _interview(iid, title, day):
+def _section_row(sid, code, title, order, questionnaire_id=W2):
+    """A stored section row. NOT `_section`, which further down this file is the payload accessor —
+    two functions of that name in one module and the later one silently wins."""
+    return SimpleNamespace(
+        id=sid,
+        code=code,
+        title=title,
+        sortOrder=order,
+        isActive=True,
+        questionnaireId=questionnaire_id,
+    )
+
+
+def _question(qid, section_id, order, prompt, questionnaire_id=W2):
+    return SimpleNamespace(
+        id=qid,
+        sectionId=section_id,
+        sortOrder=order,
+        prompt=prompt,
+        questionnaireId=questionnaire_id,
+    )
+
+
+def _interview(iid, title, day, questionnaire_id=W2):
     return SimpleNamespace(
         id=iid,
         title=title,
@@ -64,6 +93,7 @@ def _interview(iid, title, day):
         recordedAt=_dt(day),
         createdAt=_dt(day),
         status="APPROVED",
+        questionnaireId=questionnaire_id,
         workshop=SimpleNamespace(title="Almora workshop"),
     )
 
@@ -106,8 +136,8 @@ def _build_db():
     and one names nothing.
     """
     sections = [
-        SimpleNamespace(id="sec-a", code="A", title="Origin", sortOrder=1, isActive=True),
-        SimpleNamespace(id="sec-b", code="B", title="Family", sortOrder=2, isActive=True),
+        _section_row("sec-a", "A", "Origin", 1),
+        _section_row("sec-b", "B", "Family", 2),
     ]
     questions = [
         _question("q1", "sec-a", 1, "How did you learn the craft?"),
@@ -134,6 +164,7 @@ def _build_db():
     return _Db(
         artisan=[SimpleNamespace(id=ARTISAN_ID, name="Subject Artisan", place="Almora",
                                 craft=SimpleNamespace(name="Cane and Bamboo"))],
+        questionnaire=[_instrument(W2, "2nd Craft Toolkit Workshop", 1)],
         questionnairesection=sections,
         questionnairequestion=questions,
         questionnaireinterview=interviews,
@@ -347,3 +378,106 @@ def test_unknown_artisan_yields_none(monkeypatch):
         asyncio.run(qc.consolidate_for_artisan("nope", SimpleNamespace(id="v", role="MASTER_ADMIN")))
         is None
     )
+
+
+# --- Two instruments: the same codes, different questions ----------------------------------------
+#
+# From 2026-09-13 an artisan can have answers on TWO instruments whose section codes collide
+# entirely (the 2nd workshop runs RESP, A..W; the 3rd runs A..V). Every test below is about the
+# document NOT merging them.
+
+
+def _build_two_instrument_db():
+    """One artisan, two sittings, one on each instrument. Both instruments have a section "A" and
+    both mean something different by it."""
+    sections = [
+        _section_row("w2-a", "A", "Personal details of the artisan", 1, W2),
+        _section_row("w3-a", "A", "Origin, history, place and personal journey", 1, W3),
+    ]
+    questions = [
+        _question("w2-q1", "w2-a", 1, "What is your name?", W2),
+        _question("w3-q1", "w3-a", 1, "Where did the craft reach your family from?", W3),
+    ]
+    interviews = [
+        _interview("iv-w2", "Second workshop sitting", 20, W2),
+        _interview("iv-w3", "Third workshop sitting", 24, W3),
+    ]
+    links = [_link("iv-w2", ARTISAN_ID, "Subject Artisan"), _link("iv-w3", ARTISAN_ID, "Subject Artisan")]
+    responses = [
+        _response("r-w2", "iv-w2", "w2-q1", "Vikram."),
+        _response("r-w3", "iv-w3", "w3-q1", "From my grandmother's village."),
+    ]
+    media = [
+        # Tagged with a BARE SECTION CODE, on the 2nd workshop's sitting. Both instruments have an
+        # "A"; only one of them may claim this clip.
+        _media("m-w2", "iv-w2", "clip.mp3", 20, extra={"sectionCode": "A"}),
+        _media("m-none", "iv-w3", "nothing.mp3", 24),
+    ]
+    return _Db(
+        artisan=[SimpleNamespace(id=ARTISAN_ID, name="Subject Artisan", place="Almora",
+                                 craft=SimpleNamespace(name="Cane and Bamboo"))],
+        questionnaire=[
+            _instrument(W2, "2nd Craft Toolkit Workshop", 1),
+            _instrument(W3, "3rd Craft Toolkit Workshop", 2),
+        ],
+        questionnairesection=sections,
+        questionnairequestion=questions,
+        questionnaireinterview=interviews,
+        questionnaireinterviewartisan=links,
+        questionnaireresponse=responses,
+        mediafile=media,
+    )
+
+
+@pytest.fixture()
+def two_instrument_payload(monkeypatch):
+    monkeypatch.setattr(qc, "db", _build_two_instrument_db())
+    import asyncio
+
+    return asyncio.run(
+        qc.consolidate_for_artisan(ARTISAN_ID, SimpleNamespace(id="viewer", role="MASTER_ADMIN"))
+    )
+
+
+def test_a_consolidated_document_groups_by_instrument_before_section(two_instrument_payload):
+    sections = two_instrument_payload["sections"]
+    assert len(sections) == 2, "two sections both coded A must never be merged into one"
+    # The 2nd workshop's instrument sorts first (Questionnaire.sortOrder 1 before 2), so its
+    # account reads before the 3rd's rather than being interleaved with it.
+    assert [s["questionnaireId"] for s in sections] == [W2, W3]
+    assert [s["code"] for s in sections] == ["A", "A"]
+    assert [s["title"] for s in sections] == [
+        "Personal details of the artisan",
+        "Origin, history, place and personal journey",
+    ]
+
+
+def test_the_csv_header_and_every_row_have_the_same_width(two_instrument_payload):
+    """CSV_COLUMNS and _csv_row are two independent positional lists. A header added without its
+    value shifts every field one column to the right, silently, in a file people join on."""
+    assert len(CSV_COLUMNS) == 22
+    rows = consolidated_rows(two_instrument_payload)
+    # All three row shapes the flattener produces: an answer, a section recording, an unfiled clip.
+    assert len(rows) >= 4
+    for row in rows:
+        assert len(row) == len(CSV_COLUMNS), row
+
+
+def test_the_questionnaire_column_carries_the_instrument_title(two_instrument_payload):
+    rows = consolidated_rows(two_instrument_payload)
+    column = CSV_COLUMNS.index("Questionnaire")
+    interview_column = CSV_COLUMNS.index("Interview")
+    titled = {row[column] for row in rows if row[interview_column]}
+    assert titled == {"2nd Craft Toolkit Workshop", "3rd Craft Toolkit Workshop", ""}
+    # The unfiled clip resolved to no section, so it names no instrument — rather than leaking
+    # whichever one the loop happened to see last.
+    unfiled = [row for row in rows if row[CSV_COLUMNS.index("Section")] == "(unfiled)"]
+    assert unfiled and all(row[column] == "" for row in unfiled)
+
+
+def test_a_clip_tagged_with_a_section_code_resolves_within_its_own_instrument(two_instrument_payload):
+    """`extraMetadata.sectionCode = "A"` on a 2nd-workshop sitting must land on the 2nd workshop's
+    section A. Keyed by code alone it landed on whichever section row the database returned last."""
+    by_instrument = {s["questionnaireId"]: s for s in two_instrument_payload["sections"]}
+    assert [r["mediaId"] for r in by_instrument[W2]["recordings"]] == ["m-w2"]
+    assert by_instrument[W3]["recordings"] == []

@@ -195,7 +195,18 @@ class _Api:
             transport = httpx.ASGITransport(app=_APP)
             async with httpx.AsyncClient(transport=transport, base_url="http://matrix.test") as client:
                 response = await client.request(method, f"/api{path}", json=body)
-            payload = response.json() if response.content else {}
+            # PARSED ONLY WHEN IT IS JSON. Every route in this matrix used to answer JSON or nothing,
+            # so `response.json()` on any non-empty body was safe. `GET /questionnaires/pro-forma`
+            # answers 200 with an .xlsx, and httpx raises JSONDecodeError on it — which is not
+            # `_DatabaseTouched` and is not caught below, so the test ERRORS instead of asserting,
+            # and the failure reads as a broken test rather than as a broken guard.
+            # A non-JSON body carries no `detail` to report, so `{}` is the honest payload for it.
+            content_type = response.headers.get("content-type", "")
+            payload = (
+                response.json()
+                if response.content and content_type.startswith("application/json")
+                else {}
+            )
             detail = payload.get("detail", payload) if isinstance(payload, dict) else payload
             return _Outcome(reached=False, status_code=response.status_code, detail=detail)
 
@@ -374,7 +385,16 @@ def test_a_volunteer_still_answers_an_interview_that_already_exists(
         return {"id": existing.id}
 
     monkeypatch.setattr(questionnaire, "merge_into_interview", fold)
-    api.preload("questionnaireinterview", SimpleNamespace(find_unique=_returning(SimpleNamespace(id="i1"))))
+    # TWO preloads, and the second one is why this test still tests what it says it does. Since the
+    # questionnaire-container change `create_interview` resolves an INSTRUMENT before it looks for
+    # an existing sitting, which is a read of `db.questionnaire`; without handing that delegate over
+    # the tripwire fires on the instrument lookup instead of on the fold, `_Outcome(reached=True)`
+    # comes back, and the test passes while no longer exercising the lower-tier contribution path it
+    # exists for. And the lookup itself is now `find_first` over (questionnaireId, artisanSetKey),
+    # not `find_unique` over the set key alone — a `find_unique`-only stub would raise AttributeError
+    # rather than fold.
+    api.preload("questionnaire", SimpleNamespace(find_first=_returning(SimpleNamespace(id="qnr-1"))))
+    api.preload("questionnaireinterview", SimpleNamespace(find_first=_returning(SimpleNamespace(id="i1"))))
 
     outcome = api.as_(_user(role)).call("POST", "/questionnaire/interviews", INTERVIEW_BODY)
 
@@ -385,7 +405,10 @@ def test_a_volunteer_still_answers_an_interview_that_already_exists(
 @pytest.mark.parametrize("role", LOWER_TIERS)
 def test_a_volunteer_may_not_open_an_interview_for_an_artisan_set_that_has_none(api: _Api, role: str) -> None:
     """The other half of the same endpoint: nothing to fold into means this really is a create."""
-    api.preload("questionnaireinterview", SimpleNamespace(find_unique=_returning(None)))
+    # Same two preloads, same reason — see the test above. The refusal has to come from the create
+    # gate AFTER both reads, not from the tripwire firing on either of them.
+    api.preload("questionnaire", SimpleNamespace(find_first=_returning(SimpleNamespace(id="qnr-1"))))
+    api.preload("questionnaireinterview", SimpleNamespace(find_first=_returning(None)))
 
     outcome = api.as_(_user(role)).call("POST", "/questionnaire/interviews", INTERVIEW_BODY)
 
@@ -407,6 +430,225 @@ def test_a_volunteer_still_comments_on_an_existing_record(
     )
 
     assert outcome.reached, outcome
+
+
+# --- The questionnaire CONTAINER: two tiers, and the line between them ----------------------------
+#
+# Building a FORM stays where it has always been (`require_questionnaire_manager` — Professor and
+# above, or the `canManageQuestionnaire` grant). Two acts were narrowed to `require_admin` in the
+# questionnaire-container change, and neither is an edit to a form:
+#
+#   * which instrument is the DEFAULT — where every client that names no instrument lands, including
+#     Android builds that predate the field and offline payloads queued before them;
+#   * which instrument a WORKSHOP uses — which questions every researcher at that event is shown.
+#
+# The row that matters most is the LAST one: it asserts the narrowing did not leak onto the builder.
+
+QUESTIONNAIRE_MANAGER_ROUTES = [
+    ("POST", "/questionnaires", {"title": "A third instrument"}),
+    ("PATCH", "/questionnaires/q1", {"title": "Renamed"}),
+    # The builder. Deliberately in the SAME list, because its tier did not change.
+    ("POST", "/questionnaire/sections", {"code": "Z", "title": "A new section"}),
+]
+
+ADMIN_ONLY_ROUTES = [
+    ("PUT", "/questionnaires/q1/default", {"isDefault": True}),
+    ("PUT", "/workshops/w1/questionnaire", {"questionnaireId": "q1"}),
+]
+
+
+@pytest.mark.parametrize("method,path,body", QUESTIONNAIRE_MANAGER_ROUTES)
+def test_a_researcher_cannot_build_a_questionnaire_without_the_grant(
+    api: _Api, method: str, path: str, body: dict
+) -> None:
+    outcome = api.as_(_user("RESEARCHER")).call(method, path, body)
+
+    assert outcome.refused, outcome
+    assert api.tripwire.touched is False
+
+
+@pytest.mark.parametrize("method,path,body", QUESTIONNAIRE_MANAGER_ROUTES)
+def test_a_professor_builds_a_questionnaire_and_so_does_a_granted_researcher(
+    api: _Api, method: str, path: str, body: dict
+) -> None:
+    assert api.as_(_user("PROFESSOR")).call(method, path, body).reached
+    api.tripwire.reset()
+    granted = api.as_(_user("RESEARCHER", canManageQuestionnaire=True))
+    assert granted.call(method, path, body).reached
+
+
+@pytest.mark.parametrize("method,path,body", ADMIN_ONLY_ROUTES)
+def test_choosing_the_default_and_binding_a_workshop_are_refused_below_admin(
+    api: _Api, method: str, path: str, body: dict
+) -> None:
+    """THE TEST THAT PINS THE NARROWING. A Professor holding `canManageQuestionnaire` may build any
+    form in the repository and still may not decide which one every unqualified client lands on."""
+    professor = api.as_(_user("PROFESSOR", canManageQuestionnaire=True))
+
+    outcome = professor.call(method, path, body)
+
+    assert outcome.refused, outcome
+    assert api.tripwire.touched is False
+
+
+@pytest.mark.parametrize("method,path,body", ADMIN_ONLY_ROUTES)
+@pytest.mark.parametrize("role", ["ADMIN", "MASTER_ADMIN"])
+def test_an_admin_chooses_the_default_and_binds_a_workshop(
+    api: _Api, role: str, method: str, path: str, body: dict
+) -> None:
+    assert api.as_(_user(role)).call(method, path, body).reached
+
+
+def test_the_narrowing_did_not_leak_onto_the_section_builder(api: _Api) -> None:
+    """Stated twice, on purpose. `critic-1-coverage.json` gap #9 names this exact accident: a
+    narrowing applied to a neighbouring route by copy-paste, taking the form away from the people
+    whose job is to build it. POST /questionnaire/sections is still Professor's."""
+    outcome = api.as_(_user("PROFESSOR")).call(
+        "POST", "/questionnaire/sections", {"code": "Z", "title": "A new section"}
+    )
+
+    assert outcome.reached, outcome
+
+
+# --- The questionnaire WORKBOOK: admin only, and the builder beside it is NOT ---------------------
+#
+# Two tiers on one subject, which is new in this codebase and is the thing most likely to be
+# "harmonised" by a later change. Both directions are asserted: widening the workbook routes hands
+# the whole-instrument press to every questionnaire grant-holder, and narrowing the builder takes the
+# section editor away from the professors who use it today.
+#
+# AND THE TWO GATES ARE DIFFERENT KINDS OF PREDICATE, which is what the director ranks below are
+# doing in this file. `is_admin` (deps.py:59-60) is SET MEMBERSHIP over {"MASTER_ADMIN", "ADMIN"};
+# `can_manage_questionnaire` (deps.py:67-70) is a RANK FLOOR at PROFESSOR. A rank inserted between 40
+# and 50 therefore gains the editor automatically and is refused the workbook automatically —
+# MINISTRY_ADMIN included, despite the name. Deliberate, documented in docs/PERMISSIONS.md §1.1, and
+# asserted both ways here so that changing it has to be a decision rather than a side effect.
+
+WORKBOOK_ROUTES = [
+    ("GET", "/questionnaires/pro-forma"),
+    ("GET", "/questionnaires/q1/xlsx"),
+    ("GET", "/questionnaires/q1/question-set.xlsx"),
+    ("POST", "/questionnaires/upload"),
+    ("POST", "/questionnaires/q1/upload"),
+]
+
+# The four ladder roles below ADMIN, plus the three the role workstream inserts between PROFESSOR and
+# ADMIN. Listing the three now means this file goes red the day they land if anybody widens the set
+# literal in `is_admin` without saying so. A role absent from ROLE_RANK ranks 0 (deps.py:52), which
+# is refused by both gates, so these rows pass today and stay meaningful tomorrow.
+BELOW_ADMIN = (
+    "CROWDSOURCE_VOLUNTEER",
+    "FIELD_CONTRIBUTOR",
+    "RESEARCHER",
+    "PROFESSOR",
+    "ASSISTANT_DIRECTOR",
+    "REGIONAL_DIRECTOR",
+    "MINISTRY_ADMIN",
+)
+
+
+@pytest.mark.parametrize("method,path", WORKBOOK_ROUTES)
+@pytest.mark.parametrize("role", BELOW_ADMIN)
+def test_nobody_below_admin_reaches_a_questionnaire_workbook_route(
+    api: _Api, method: str, path: str, role: str
+) -> None:
+    outcome = api.as_(_user(role)).call(method, path)
+
+    assert outcome.refused, outcome
+    assert api.tripwire.touched is False
+
+
+@pytest.mark.parametrize("method,path", WORKBOOK_ROUTES)
+def test_the_questionnaire_grant_does_not_open_the_workbook_door(
+    api: _Api, method: str, path: str
+) -> None:
+    """`canManageQuestionnaire` is Professor-tier and opens the SECTION EDITOR. It must not open
+    this: one spreadsheet re-states the whole instrument, and everything absent from it is removed by
+    rule."""
+    outcome = api.as_(_user("PROFESSOR", canManageQuestionnaire=True)).call(method, path)
+
+    assert outcome.refused, outcome
+    assert api.tripwire.touched is False
+
+
+@pytest.mark.parametrize("role", ("ADMIN", "MASTER_ADMIN"))
+def test_an_admin_reaches_the_workbook_upload_handler(api: _Api, role: str) -> None:
+    outcome = api.as_(_user(role)).call("POST", "/questionnaires/upload")
+
+    # A multipart route with no file is a 422 from FastAPI's own body validation, which runs AFTER
+    # the dependencies and therefore BEFORE the handler body — so the tripwire is the wrong
+    # instrument here and the assertion is that the gate did not answer 403.
+    assert outcome.status_code == 422, outcome
+
+
+def test_the_pro_forma_path_is_not_swallowed_by_an_id_route(api: _Api) -> None:
+    """ROUTE ORDER, PINNED. `/questionnaires/pro-forma` is a literal segment sharing a prefix with
+    `/questionnaires/{questionnaire_id}`, and `[^/]+` matches "pro-forma" happily. Declared below the
+    id route, this answers 404 "Record not found" — which reads as a broken database, not as a
+    routing problem, and would send somebody looking in Prisma. The pro-forma touches no database at
+    all, so a 200 carrying an .xlsx is proof the literal route won.
+
+    Requires the content-type guard in `_Api.call`: this is the only route in this file that answers
+    a non-JSON body, and without that guard this test ERRORS on `response.json()` instead of
+    asserting anything."""
+    outcome = api.as_(_user("ADMIN")).call("GET", "/questionnaires/pro-forma")
+
+    assert outcome.status_code == 200, outcome
+    assert outcome.reached is False  # no delegate was read; the workbook is built in memory
+    assert api.tripwire.touched is False
+
+
+# ONE BODY PER ROUTE, NOT ONE BODY FOR ALL FOUR. Every questionnaire schema inherits APIModel, which
+# is extra="forbid" (app/schemas/common.py:13). A single {"code","title","sectionId","prompt"} body
+# is rejected by all four with a 422 from body validation — `reached` is then False and the failure
+# reads exactly like a permission regression, which is the one thing this file must never lie about.
+EDITOR_ROUTES = [
+    ("POST", "/questionnaire/sections", {"code": "A", "title": "T"}),
+    ("PATCH", "/questionnaire/sections/s1", {"title": "T"}),
+    ("POST", "/questionnaire/questions", {"sectionId": "s1", "prompt": "P"}),
+    ("PATCH", "/questionnaire/questions/q1", {"prompt": "P"}),
+]
+
+
+@pytest.mark.parametrize("method,path,body", EDITOR_ROUTES)
+def test_the_section_and_question_editor_is_still_professor_tier(
+    api: _Api, method: str, path: str, body: dict
+) -> None:
+    """THE OTHER HALF OF THE SPLIT. A change that made the whole questionnaire admin-only would pass
+    every test above and would silently remove the editor from every professor in the repository."""
+    outcome = api.as_(_user("PROFESSOR")).call(method, path, body)
+
+    assert outcome.reached, outcome
+
+
+@pytest.mark.parametrize("method,path,body", EDITOR_ROUTES)
+def test_the_questionnaire_grant_still_opens_the_editor(
+    api: _Api, method: str, path: str, body: dict
+) -> None:
+    outcome = api.as_(_user("RESEARCHER", canManageQuestionnaire=True)).call(method, path, body)
+
+    assert outcome.reached, outcome
+
+
+def test_a_ministry_admin_is_refused_the_workbook_but_still_reaches_the_section_editor(
+    api: _Api,
+) -> None:
+    """THE ASYMMETRY, WRITTEN DOWN AS A TEST because it is the one a reader will meet as a bug.
+
+    `is_admin` is set membership over {"MASTER_ADMIN", "ADMIN"} (deps.py:59-60) and
+    `can_manage_questionnaire` is a rank floor at PROFESSOR (deps.py:67-70). MINISTRY_ADMIN ranks 48
+    in the role workstream's ladder — above the floor, outside the set — so it edits questions and
+    cannot upload a workbook. If that is ever wrong, it is wrong deliberately: widen the set literal
+    and change this test in the same commit.
+
+    Written so it passes BEFORE the ladder lands too: an unknown role ranks 0 (deps.py:52), so the
+    editor half is skipped rather than asserted false, and the refusal half holds either way."""
+    assert api.as_(_user("MINISTRY_ADMIN")).call("POST", "/questionnaires/upload").refused
+
+    if deps.ROLE_RANK.get("MINISTRY_ADMIN", 0) >= deps.ROLE_RANK["PROFESSOR"]:
+        api.tripwire.reset()
+        method, path, body = EDITOR_ROUTES[0]
+        assert api.as_(_user("MINISTRY_ADMIN")).call(method, path, body).reached
 
 
 # --- "Below them", decided once ------------------------------------------------------------------

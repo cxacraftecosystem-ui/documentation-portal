@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/components/AuthProvider";
@@ -11,11 +11,12 @@ import { CarryContextBanner, carryScope, useCarryContext } from "@/components/fo
 import { LocationFields, type LocationInitialValues } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { craftChangeClearsArtisan, useCraftAndArtisanOptions, useRecordOffPage } from "@/components/forms/recordPickers";
-import { TitleCasedInput } from "@/components/forms/TitleCasedInput";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { GridMeasurement, type GridFiles, type GridGroup } from "@/components/media/GridMeasurement";
 import { UploadProgress } from "@/components/media/UploadProgress";
+import { DictatedTextInput } from "@/components/richtext/DictatedTextInput";
+import { DictationUnavailableNotice } from "@/components/richtext/DictationUnavailableNotice";
 import { RichTextField } from "@/components/richtext/RichTextField";
 import { appendStoredParagraph } from "@/components/richtext/storedRichText";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
@@ -78,6 +79,43 @@ function StatusField({
   );
 }
 
+/**
+ * ── DICTATION ON THIS FORM: WHICH BOXES HAVE A MICROPHONE, AND WHY THE REST DO NOT ──────────────
+ *
+ * The rule: a free-text box HAS a microphone unless there is a reason it must not, and the reason is
+ * written down here so that a later reader can tell a decision from an oversight. One-line boxes use
+ * `DictatedTextInput`; the two narrative ones use `RichTextField`, whose editor carries the
+ * microphone at the caret so a phrase lands inside the document rather than on the end of it.
+ *
+ * DICTATED: Toolkit name · Local name · English name · Craft name · Artisan name · Place · Process
+ * used in · Material · Suggestions for improvement · Remarks · (and Village, inside the location
+ * card, which owns its own decision).
+ *
+ * MATERIAL IS DICTATED AND THE MEASUREMENTS ARE NOT, which is the one line of this register a
+ * reviewer will stop at. "Mango wood with an iron collar" is free prose — neither a measurement nor a
+ * vocabulary — and it is the answer most likely to be given while holding the tool.
+ *
+ * NOT DICTATED, one line each, and each is a rule rather than a preference:
+ *
+ *  - **Workshop, Linked craft, Linked artisan, Maker, Tradition type, Status** — closed vocabularies
+ *    and record pickers behind a themed dropdown. There is no free text to speak.
+ *  - **Years in use, Height, Height (inches), Width, Length, Breadth, Thickness, Weight, Radius,
+ *    Replacement cost** — `type="number"` boxes. A recogniser spells digits out in words ("thirty"),
+ *    which a native number input DISCARDS silently: the box is empty after a spoken answer with
+ *    nothing saying why. Length, Breadth and Height (inches) carry a second reason — the
+ *    grid-measurement capture PROPOSES all three and a person accepts, so a spoken fourth route
+ *    would record an acceptance for a reading nobody can re-derive.
+ *  - **Document using grid, Process stages media, Tool media** — file pickers and capture cards.
+ *
+ * NOT title-cased, deliberately, though they are dictated: **Local name** (Devanagari or Gujarati,
+ * where capitalising means nothing), **Process used in** and **Material** — all three are absent
+ * from the API's title-cased set (`backend/app/services/records.py:339-354`), so a "Will be saved
+ * as …" hint on any of them would promise a normalisation that never happens.
+ *
+ * ONE SENTENCE FOR THE WHOLE FORM. Every control above passes `explainWhenUnavailable={false}` and
+ * `DictationUnavailableNotice` sits once at the top. Eleven microphones down one form is eleven
+ * copies of the Firefox paragraph, which is how a true sentence becomes wallpaper.
+ */
 export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -95,13 +133,53 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
   const [craftName, setCraftName] = useState(initial?.craftName ?? searchParams.get("craftName") ?? "");
   const [artisanName, setArtisanName] = useState(initial?.artisanName ?? searchParams.get("artisanName") ?? "");
   const [place, setPlace] = useState(initial?.place ?? searchParams.get("place") ?? "");
+  /*
+    HOISTED FOR THE MICROPHONE. These five were uncontrolled `defaultValue` boxes; `DictatedTextInput`
+    is controlled by its caller and has exactly one mode, for the reason written out in that file (a
+    self-controlled box repaints stale text on a form cleared by `formElement.reset()`). This form
+    clears by NAVIGATING AWAY, so the trap does not bite here — but one contract for the control
+    across the app is worth more than a second mode on this one screen.
+  */
+  const [toolkitName, setToolkitName] = useState(initial?.toolkitName ?? "");
+  const [localName, setLocalName] = useState(initial?.localName ?? "");
+  const [englishName, setEnglishName] = useState(initial?.englishName ?? "");
+  const [processUsedIn, setProcessUsedIn] = useState(initial?.processUsedIn ?? "");
+  const [material, setMaterial] = useState(initial?.material ?? "");
   // Android parity: ordered "Process stages" captures, archived as STAGE_STEP_1, STAGE_STEP_2, …
   const [stageFiles, setStageFiles] = useState<File[]>([]);
   // Grid-measurable dimensions are controlled so the "Document using grid" capture can auto-fill them.
   const [length, setLength] = useState(initial?.lengthInches != null ? String(initial.lengthInches) : "");
   const [breadth, setBreadth] = useState(initial?.breadthInches != null ? String(initial.breadthInches) : "");
   const [height, setHeight] = useState(initial?.height != null ? String(initial.height) : "");
+  /*
+    THE THIRD MEASUREMENT THE GRID PANEL PROPOSES, AND THE COLUMN IT SHOULD ALWAYS HAVE FILLED.
+
+    `height` above is the OLD unit-less column. It is kept rather than merged because rows already
+    hold values in it and nothing in the database can say what unit those are in — see
+    `backend/app/schemas/records.py` at `ToolCreate.heightInches` and migration 20260913120100.
+
+    The defect this box closes is not a missing field, it is a SILENT one: `GridMeasurement`'s
+    `onHeight` returns a reading in INCHES and the only box it could reach was the unit-less one, so
+    every grid-measured tool height in this repository was stored with no recoverable unit, under a
+    200, with the number looking perfectly right on screen. `onHeight` below now writes THIS state
+    and the unit-less box is typed by hand or not at all.
+  */
+  const [heightInches, setHeightInches] = useState(initial?.heightInches != null ? String(initial.heightInches) : "");
   const [gridFiles, setGridFiles] = useState<GridFiles>({});
+  /*
+    ONE SENTENCE, TWO BOXES, AND IT IS REFERENCED BY BOTH.
+
+    Two boxes both labelled with the word "Height" on one form is a question a researcher cannot
+    answer from the labels, and the honest answer is not short enough to fit in a label. So it is a
+    real paragraph under them, and `aria-describedby` on BOTH inputs — not one — because a reader
+    who tabs into either one has exactly the same question. `useId` rather than a literal so the
+    attribute cannot collide if this form is ever mounted twice on a page.
+
+    It lives OUTSIDE the two `Field`s deliberately: `Field` is a `<label>`, and a `<p>` is not
+    phrasing content, so nesting it there is invalid markup AND folds the whole sentence into each
+    box's accessible name — a screen reader would read the paragraph twice before saying "Height".
+  */
+  const heightHelpId = useId();
   /**
    * The craft and artisan dropdowns' contents, and what they are NOT showing.
    *
@@ -228,6 +306,11 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
         width: numericValue(form, "width"),
         lengthInches: toNum(length),
         breadthInches: toNum(breadth),
+        // The unit-bearing height. `toNum` and not `numericValue` for the same reason as the three
+        // above it: the box is controlled so the grid panel can fill it, and a controlled input's
+        // value still reaches FormData — but reading it from state is the single source and cannot
+        // disagree with what is on screen.
+        heightInches: toNum(heightInches),
         thickness: numericValue(form, "thickness"),
         weight: numericValue(form, "weight"),
         radius: numericValue(form, "radius"),
@@ -396,22 +479,60 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
       <form ref={formRef} onSubmit={submit} onInput={markDirty} onKeyDown={handleFormEnter} className="panel grid gap-4 p-4">
         {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
         <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
+        {/*
+          THE ONE PLACE THIS FORM EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.
+          Every dictated control below passes `explainWhenUnavailable={false}`, including the two
+          rich-text editors, because on Firefox the same honest paragraph printed eleven times down
+          one form is a block of grey text nobody reads. This form carries more microphones than any
+          other screen in the app, which is exactly why it may not repeat itself.
+
+          ABOVE the grid and not inside it: the grid is up to three columns, so a paragraph mounted
+          as one of its children would be a column-wide sliver beside the workshop picker.
+        */}
+        <DictationUnavailableNotice />
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {/* Android parity (ToolForm): the workshop opens the form, because it is the context
               every other answer belongs to — not merely the first dropdown. */}
           <WorkshopSelect state={workshop} onDirty={markDirty} saving={saving} />
-          <Field label="Toolkit name" required>
-            {/* Toolkit/English/craft/artisan names and place are title-cased by the API on write, so
-                the box says what will be stored (Android parity — see forms/TitleCasedInput). Local
-                name is NOT: it is Devanagari/Gujarati, where capitalising means nothing. */}
-            <TitleCasedInput name="toolkitName" required defaultValue={initial?.toolkitName ?? ""} />
-          </Field>
-          <Field label="Local name">
-            <TextInput name="localName" defaultValue={initial?.localName ?? ""} />
-          </Field>
-          <Field label="English name">
-            <TitleCasedInput name="englishName" defaultValue={initial?.englishName ?? ""} />
-          </Field>
+          {/* Toolkit/English/craft/artisan names and place are title-cased by the API on write
+              (`backend/app/services/records.py:339-354`), so the box says what will actually be
+              stored — `titleCased` mounts `TitleCasedInput` itself inside the dictated box, never a
+              copy of its hint. Local name is NOT: it is Devanagari/Gujarati, where capitalising means
+              nothing. `markDirty()` BY HAND in every `onChange` below: a dictated phrase is a React
+              state write and fires no native `input` event for the form's `onInput` to catch. */}
+          <DictatedTextInput
+            name="toolkitName"
+            label="Toolkit name"
+            required
+            titleCased
+            explainWhenUnavailable={false}
+            value={toolkitName}
+            onChange={(next) => {
+              setToolkitName(next);
+              markDirty();
+            }}
+          />
+          <DictatedTextInput
+            name="localName"
+            label="Local name"
+            explainWhenUnavailable={false}
+            value={localName}
+            onChange={(next) => {
+              setLocalName(next);
+              markDirty();
+            }}
+          />
+          <DictatedTextInput
+            name="englishName"
+            label="English name"
+            titleCased
+            explainWhenUnavailable={false}
+            value={englishName}
+            onChange={(next) => {
+              setEnglishName(next);
+              markDirty();
+            }}
+          />
           <Field label="Linked craft (fills craft name)">
             <Select
               name="craftId"
@@ -442,9 +563,18 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
             </Select>
             <CappedListNotice cuts={[craftCut]} />
           </Field>
-          <Field label="Craft name" required>
-            <TitleCasedInput name="craftName" required value={craftName} onChange={(event) => setCraftName(event.target.value)} />
-          </Field>
+          <DictatedTextInput
+            name="craftName"
+            label="Craft name"
+            required
+            titleCased
+            explainWhenUnavailable={false}
+            value={craftName}
+            onChange={(next) => {
+              setCraftName(next);
+              markDirty();
+            }}
+          />
           <Field label="Linked artisan (fills artisan + place)">
             <Select
               name="artisanId"
@@ -484,41 +614,150 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
             ) : null}
             <CappedListNotice cuts={[craftId ? craftArtisanCut : null]} />
           </Field>
-          <Field label="Artisan name" required>
-            <TitleCasedInput name="artisanName" required value={artisanName} onChange={(event) => setArtisanName(event.target.value)} />
-          </Field>
-          <Field label="Place" required>
-            <TitleCasedInput name="place" required value={place} onChange={(event) => setPlace(event.target.value)} />
-          </Field>
-          <Field label="Process used in">
-            <TextInput name="processUsedIn" defaultValue={initial?.processUsedIn ?? ""} />
-          </Field>
-          <Field label="Material">
-            <TextInput name="material" defaultValue={initial?.material ?? ""} />
-          </Field>
+          <DictatedTextInput
+            name="artisanName"
+            label="Artisan name"
+            required
+            titleCased
+            explainWhenUnavailable={false}
+            value={artisanName}
+            onChange={(next) => {
+              setArtisanName(next);
+              markDirty();
+            }}
+          />
+          <DictatedTextInput
+            name="place"
+            label="Place"
+            required
+            titleCased
+            explainWhenUnavailable={false}
+            value={place}
+            onChange={(next) => {
+              setPlace(next);
+              markDirty();
+            }}
+          />
+          {/* STILL A SINGLE-LINE BOX, and still disagreeing with the review registry — see the note
+              above the two editors below. A microphone changes what the box can DO, not what the
+              field IS. */}
+          <DictatedTextInput
+            name="processUsedIn"
+            label="Process used in"
+            explainWhenUnavailable={false}
+            value={processUsedIn}
+            onChange={(next) => {
+              setProcessUsedIn(next);
+              markDirty();
+            }}
+          />
+          {/* Free prose — "mango wood with an iron collar" — neither a measurement nor a vocabulary,
+              and the answer most likely to be given while holding the tool. */}
+          <DictatedTextInput
+            name="material"
+            label="Material"
+            explainWhenUnavailable={false}
+            value={material}
+            onChange={(next) => {
+              setMaterial(next);
+              markDirty();
+            }}
+          />
           <Field label="Years in use">
             <TextInput name="yearsInUse" type="number" min={0} defaultValue={initial?.yearsInUse ?? ""} />
           </Field>
+          {/*
+            `min={0}` ON EVERY MEASUREMENT AND PRICE ON THIS FORM, AND IT IS HALF OF A PAIR.
+
+            Every one of these boxes accepted a negative and stored it. A negative length is not a
+            measurement, and the sibling application's workshop registry declares the fields these
+            are carried into as non-negative — so this product was accepting a quantity that product
+            would refuse on a row it filled in FROM here. The server half landed with it (`ge=0`
+            across `ToolCreate`/`ToolUpdate`, `backend/app/schemas/records.py:572-592`), and the two
+            are deliberately not interchangeable: `min` refuses the value IN THE BOX, by name, before
+            a request is made, while `ge=0` refuses it for every client that is not this one.
+
+            IT IS `min`, NOT A PATTERN OR A CHECK IN `submit`. A native number input with `min={0}`
+            blocks the submit and names the field; a JS check would have to invent its own error
+            surface, and this form's error treatments are chosen by meaning — "you typed a negative
+            into a box that is on screen" is a field-level refusal, which is exactly what the browser
+            already draws.
+
+            A BEHAVIOUR CHANGE ON EDIT, AND KNOWINGLY SO: this form posts the WHOLE payload back on
+            an edit, so a row that already holds a negative will refuse every save until the number
+            is corrected — including a save that was only fixing the village name. The audit query
+            that finds those rows is written out beside the server bound.
+          */}
           <Field label="Height">
-            <TextInput name="height" type="number" step="0.01" value={height} onChange={(event) => setHeight(event.target.value)} />
+            <TextInput
+              name="height"
+              type="number"
+              step="0.01"
+              min={0}
+              aria-describedby={heightHelpId}
+              value={height}
+              onChange={(event) => setHeight(event.target.value)}
+            />
           </Field>
           <Field label="Width">
-            <TextInput name="width" type="number" step="0.01" defaultValue={initial?.width ?? ""} />
+            <TextInput name="width" type="number" step="0.01" min={0} defaultValue={initial?.width ?? ""} />
           </Field>
           <Field label="Length (inches)">
-            <TextInput name="lengthInches" type="number" step="0.01" value={length} onChange={(event) => setLength(event.target.value)} />
+            <TextInput
+              name="lengthInches"
+              type="number"
+              step="0.01"
+              min={0}
+              value={length}
+              onChange={(event) => setLength(event.target.value)}
+            />
           </Field>
           <Field label="Breadth (inches)">
-            <TextInput name="breadthInches" type="number" step="0.01" value={breadth} onChange={(event) => setBreadth(event.target.value)} />
+            <TextInput
+              name="breadthInches"
+              type="number"
+              step="0.01"
+              min={0}
+              value={breadth}
+              onChange={(event) => setBreadth(event.target.value)}
+            />
           </Field>
+          <Field label="Height (inches)">
+            <TextInput
+              name="heightInches"
+              type="number"
+              step="0.01"
+              min={0}
+              aria-describedby={heightHelpId}
+              value={heightInches}
+              onChange={(event) => setHeightInches(event.target.value)}
+            />
+          </Field>
+          {/*
+            THE DISAMBIGUATION, SPANNING THE ROW SO IT SITS UNDER BOTH BOXES IT DESCRIBES.
+
+            Named by `aria-describedby` from "Height" and from "Height (inches)" — see `heightHelpId`
+            above for why it is a paragraph outside both `Field`s rather than a hint inside either.
+            It says which box the grid panel fills, because that is the question a researcher who has
+            just pressed "Document using grid" is actually asking, and it says what the unit-less one
+            is for without calling it deprecated: rows hold real values in it and somebody has to be
+            able to correct one.
+          */}
+          <p id={heightHelpId} className="text-xs leading-5 text-ink-500 md:col-span-2 xl:col-span-3">
+            Two height boxes, on purpose. <strong className="font-semibold">Height (inches)</strong> is the one
+            to fill in: it is the height the grid-measurement panel below writes, and the only one whose unit
+            the record can state. <strong className="font-semibold">Height</strong> is the older box, kept
+            because tools already hold values in it and nothing recorded what unit those were measured in —
+            leave it empty unless you are correcting one of those.
+          </p>
           <Field label="Thickness">
-            <TextInput name="thickness" type="number" step="0.01" defaultValue={initial?.thickness ?? ""} />
+            <TextInput name="thickness" type="number" step="0.01" min={0} defaultValue={initial?.thickness ?? ""} />
           </Field>
           <Field label="Weight">
-            <TextInput name="weight" type="number" step="0.01" defaultValue={initial?.weight ?? ""} />
+            <TextInput name="weight" type="number" step="0.01" min={0} defaultValue={initial?.weight ?? ""} />
           </Field>
           <Field label="Radius">
-            <TextInput name="radius" type="number" step="0.01" defaultValue={initial?.radius ?? ""} />
+            <TextInput name="radius" type="number" step="0.01" min={0} defaultValue={initial?.radius ?? ""} />
           </Field>
         </div>
         <GridMeasurement
@@ -528,8 +767,18 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
             if (b) setBreadth(b);
             markDirty();
           }}
+          /*
+            THE READING IS IN INCHES, SO IT GOES IN THE BOX THAT SAYS INCHES.
+
+            This wrote `setHeight` — the unit-less column — until the record-parity sweep, which is
+            how every grid-measured tool height in this repository came to be stored with no
+            recoverable unit. Nothing reported it: the number was right, the box was filled, the save
+            returned 200, and only the UNIT was lost. See `heightInches` above and migration
+            20260913120100. ProductForm's identical panel has always written its own `heightInches`;
+            this is the two forms agreeing again.
+          */
           onHeight={(value) => {
-            setHeight(value);
+            setHeightInches(value);
             markDirty();
           }}
           onFilesChange={(files) => {
@@ -553,7 +802,7 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
             </Select>
           </Field>
           <Field label="Replacement cost">
-            <TextInput name="replacementCost" type="number" step="0.01" defaultValue={initial?.replacementCost ?? ""} />
+            <TextInput name="replacementCost" type="number" step="0.01" min={0} defaultValue={initial?.replacementCost ?? ""} />
           </Field>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
@@ -563,19 +812,22 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
             is also searched by a raw `contains` at `tools.py:99`, which is the reason
             `RichTextField` keeps writing plain prose until something is actually formatted.
 
-            `processUsedIn` above is DELIBERATELY LEFT ALONE even though the review registry
+            `processUsedIn` above is still a SINGLE-LINE box even though the review registry
             (`components/review/reviewEditFields.ts`) marks it `multiline: true` and the CSV exports
-            it as "Usage". On this form it is a single-line `TextInput` (line 487), and that
-            disagreement predates this change by a long way; resolving it means deciding which of
-            the two is right, which is a change to what the field IS rather than to what it can do.
-            Recorded here so the next person does not read the omission as an oversight in the
-            sweep.
+            it as "Usage". It now carries a microphone (line 611) — that changes what the
+            box can DO, not what the field IS, so the disagreement is untouched and still open.
+            Recorded here so the next person does not read either half as an oversight. The old
+            version of this paragraph cited "line 487" for that box, which had drifted by seven lines
+            before this edit and is the standing proof that a `file:line` inside a `.tsx` is checked
+            by nothing: `docs/tools/check-docs.mjs` verifies citations in `.md` files only.
           */}
           <RichTextField
             name="suggestionsForToolImprovement"
             label="Suggestions for improvement"
             defaultValue={initial?.suggestionsForToolImprovement ?? ""}
             className="md:col-span-2"
+            // Said once at the top of this form by `DictationUnavailableNotice`.
+            explainWhenUnavailable={false}
             onDirty={markDirty}
           />
           <RichTextField
@@ -583,6 +835,8 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
             label="Remarks"
             defaultValue={initial?.remarks ?? ""}
             className="md:col-span-2"
+            // Said once at the top of this form by `DictationUnavailableNotice`.
+            explainWhenUnavailable={false}
             onDirty={markDirty}
           />
           <StatusField canSetStatus={canSetStatus} initialStatus={initial?.status} onDirty={markDirty} />

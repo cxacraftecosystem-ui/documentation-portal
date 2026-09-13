@@ -91,10 +91,46 @@ class ArtisanCreate(APIModel):
     # A DATE, NOT AN AGE: the record sheet prints an age derived from this. See the column comment
     # in schema.prisma — an age written down is wrong within a year and nothing notices.
     dateOfBirth: datetime | None = None
+    # THE JOINING DATE THE EXPERIENCE IS DERIVED FROM. Same argument `dateOfBirth` above makes: a
+    # stated number of years is right on the day it is typed and silently wrong from then on.
+    # `derive_experience_years` in services/records turns this into the number four export surfaces
+    # print, on every read.
+    #
+    # NO BOUND, deliberately, unlike `experienceYears` below. A date is not a count, so there is no
+    # ceiling to mirror; a date that derives to something outside 0..90 (a typo'd century, a date in
+    # the future) is dropped by the derivation rather than refused here, which leaves the stated
+    # number and the legacy metadata behind it still readable. Refusing the whole PATCH would lose an
+    # edit to the phone number that happened to travel beside a mistyped year.
+    craftStartDate: datetime | None = None
     # 0..90, the same bound the sibling repository's design-workshop registry uses, so an artisan
     # exported from one product and imported into the other cannot carry a number the other side
     # refuses.
     experienceYears: int | None = Field(default=None, ge=0, le=90)
+    # ── THE REMAINING MONTHS OF THAT SAME EXPERIENCE — 0..11, A REMAINDER AND NEVER A TOTAL ────
+    #
+    # The requirement is two dropdowns on one line, "5 years" beside "6 months", and the read-back has
+    # to hand the form back exactly what was chosen — which is why this is a second column rather than
+    # an ``experienceTotalMonths`` the two boxes are divided out of. ``Artisan.experienceMonths`` in
+    # schema.prisma carries that argument in full.
+    #
+    # 11 AND NOT 12: twelve months is not a bigger month, it is a year the box above already holds.
+    #
+    # DECLARED HERE AND NOT LEFT TO THE ``CHECK`` CONSTRAINT. The column carries
+    # ``CHECK ("experienceMonths" BETWEEN 0 AND 11)``, and a CHECK violation surfaces as a driver
+    # error raised from inside the write: a bare 500 naming no field, on a save the researcher cannot
+    # correct. ``ge``/``le`` here is a 422 whose ``loc`` names the box.
+    #
+    # ABSENT, NULL AND 0 STAY THREE DIFFERENT ANSWERS. On create, ``clean_data`` drops a key whose
+    # value is ``None`` — so an unanswered months box writes no column and the row keeps NULL, which
+    # is the honest answer for an artisan who said "about thirty years" and nothing about months.
+    # ``0`` is not ``None``, survives that drop and stores 0. On PATCH the same three answers are kept
+    # apart by ``exclude_unset`` plus ``_CLEARABLE_COLUMNS``; see ``ArtisanUpdate``.
+    #
+    # THE VALUE STOPS AT THE API. It reaches no export surface — no workbook column, no CSV header,
+    # no `details.txt` line — and that is an owner decision recorded here so a reader wiring a client
+    # is not surprised by its absence: a months column in a ministry-facing header has its own blast
+    # radius, and the sibling repository made the same choice.
+    experienceMonths: int | None = Field(default=None, ge=0, le=11)
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
 
@@ -153,7 +189,19 @@ class ArtisanUpdate(APIModel):
     dos: str | None = None
     donts: str | None = None
     dateOfBirth: datetime | None = None
+    # See `ArtisanCreate` for both of these, and `_CLEARABLE_COLUMNS` in api/routes/artisans for why
+    # an explicit null on either one clears the stored value rather than being ignored: a joining
+    # date entered by mistake has to be retractable from the form that entered it.
+    craftStartDate: datetime | None = None
     experienceYears: int | None = Field(default=None, ge=0, le=90)
+    # See ``ArtisanCreate.experienceMonths`` for the bound and for why it is a second column. On this
+    # body the three answers are kept apart by two mechanisms working together, and both are needed:
+    # ``exclude_unset=True`` in the route means an ABSENT key never reaches ``clean_data``, so the
+    # stored value stands; ``"experienceMonths"`` in ``_CLEARABLE_COLUMNS`` means an explicit NULL
+    # survives ``clean_data``'s None-drop and blanks the column; and ``0`` is neither, so it stores 0.
+    # Without the clearable entry an explicit null would be silently discarded and the save would
+    # report 200 while changing nothing — "a field that cannot be cleared is a 200 that does nothing".
+    experienceMonths: int | None = Field(default=None, ge=0, le=11)
     craftId: str | None = None
     craftName: str | None = None
     workshopId: str | None = None
@@ -162,6 +210,26 @@ class ArtisanUpdate(APIModel):
     recordedTimezone: str | None = None
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
+    # ── THE VERSION THIS EDIT WAS COMPOSED AGAINST ──────────────────────────────────────────────
+    #
+    # OPTIONAL, AND OMITTED IS TODAY'S BEHAVIOUR EXACTLY. Every client shipped to date sends no
+    # precondition and is unrefusable by it; only a caller that opts in by SENDING the field can ever
+    # meet the 409. That is what makes this safe to deploy ahead of any client change.
+    #
+    # WHAT IT CLOSES, WHICH IS NOT SPECULATIVE IN THIS PRODUCT. `frontend/lib/offline.ts` types a
+    # queued write's method as `"POST" | "PATCH"`, and `components/forms/ArtisanForm.tsx` (with every
+    # other record form) calls `saveOrQueue` with `method: initial ? "PATCH" : "POST"` and a WHOLE
+    # create-shaped body. So a correction composed in a courtyard and drained hours later overwrites,
+    # field for field, whatever anybody else changed in between — silently. With this sent, the
+    # server answers 409 `record_changed` instead, carrying both timestamps.
+    #
+    # A QUESTION AND NOT A COLUMN: ``records.take_expected_updated_at`` pops it out of the body on the
+    # line after the clean, before ``guard_record_edit`` diffs the body into a ``RecordRevision`` and
+    # before ``merge_field_provenance`` stamps a contributor against every key it holds.
+    #
+    # See ``records.assert_expected_updated_at`` for the comparison, the one-second tolerance and
+    # which of the two possible mistakes that tolerance deliberately makes.
+    expectedUpdatedAt: datetime | None = None
 
     # Omit it to keep the stored one (which is how a record that predates the rule stays
     # editable); send one to replace it; you may not send null. See forbid_clearing_location.
@@ -215,6 +283,18 @@ class CraftCreate(APIModel):
 
 
 class CraftUpdate(APIModel):
+    # ── NO ``expectedUpdatedAt`` HERE, AND ITS ABSENCE IS A DECISION RATHER THAN AN OMISSION ─────
+    #
+    # The other five update schemas declare it. This one must not until ``routes/crafts.update_craft``
+    # calls ``take_expected_updated_at``, because the two halves only make sense together: the field
+    # would be accepted by the schema, survive ``clean_data`` unread, and be handed to Prisma as a
+    # column ``Craft`` has never had — a bare 500 on an edit that is currently a clean 422
+    # (``APIModel`` is ``extra="forbid"``, so a client sending it today is told so by name). A guard
+    # that is present and does nothing is bad; a guard that is present and breaks the save is worse.
+    #
+    # The route half is one import and two lines, and it belongs to whoever owns that file; see the
+    # handoff on this change. ``test_record_update_precondition`` pins BOTH halves of this state:
+    # that the five wired schemas accept the key, and that this one still refuses it.
     name: str | None = Field(default=None, min_length=1, max_length=180)
     localName: str | None = None
     category: str | None = None
@@ -226,8 +306,23 @@ class CraftUpdate(APIModel):
     extraMetadata: dict[str, Any] | None = None
 
 
+#: The kinds of workshop the database has. A frozenset rather than a list because it is only ever
+#: asked "is this one of them", and spelled once so the two validators below and the GET filter in
+#: api/routes/workshops cannot drift apart.
+#:
+#: DECLARED HERE AND CHECKED, rather than left to Prisma: `workshopType` reaches a Postgres enum
+#: column, so an unknown value is not merely stored wrong — Prisma refuses it and the route answers
+#: a bare 500, which reads to a client as "the server is broken" rather than "that is not a kind of
+#: workshop".
+WORKSHOP_TYPES = frozenset({"DESIGN_PROTOTYPE", "OTHER"})
+
+
 class WorkshopCreate(APIModel):
     title: str = Field(min_length=1, max_length=220)
+    #: Which kind of workshop this is. Defaults to OTHER, which is what every existing row implicitly
+    #: was. See WORKSHOP_TYPES above for why a value that is not one of them is a 422 here rather than
+    #: a 500 from Prisma.
+    workshopType: str = "OTHER"
     date: datetime | None = None
     startDate: datetime | None = None
     endDate: datetime | None = None
@@ -241,15 +336,49 @@ class WorkshopCreate(APIModel):
     recordedTimezone: str = "Asia/Kolkata"
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
+    # ── THE CREATE-IDEMPOTENCY KEY. THIS IS THE CANONICAL COPY OF THE ARGUMENT ───────────────────
+    #
+    # A queued create is POSTed, this server writes the row, and the answer is lost on the way back.
+    # The client learned nothing, so the entry is still in its queue and the next pass sends it
+    # again — and both outboxes' guards (`createdId` on the web, `PendingEntry.createdId` on Android)
+    # are records of a REPLY and cannot guard an answer that never arrived. With a key, the second
+    # landing is answered from the row the first one wrote. See `Workshop.clientKey` in schema.prisma
+    # and `records.client_key_replay`.
+    #
+    # OPTIONAL, AND ABSENT IS TODAY'S BEHAVIOUR EXACTLY: no key, no read, create the row, answer 201.
+    #
+    # ON THE CREATE SCHEMAS ONLY, AND THAT IS LOAD-BEARING. ``APIModel`` is ``extra="forbid"``, so a
+    # correction that carried a key would be refused as ``extra_forbidden`` — a 422 an outbox reads
+    # as a disagreement between builds and re-attempts, for ever, on a prepaid connection. It cannot
+    # happen while the field exists on no Update schema and the clients merge the key onto the create
+    # path only.
+    #
+    # ``max_length=200`` because a key is a v4 UUID (36 characters) and an unbounded string on a
+    # unique index is an index-size question nobody should have to ask later.
+    clientKey: str | None = Field(default=None, max_length=200)
 
     # Mandatory on create. See services/common.require_location for what that does and does not
     # mean — and note it is the ONLY half of the pair the clients cannot omit, because create is
     # the one moment the researcher is standing at the place.
     _location_required = model_validator(mode="after")(require_location)
 
+    @model_validator(mode="after")
+    def _known_workshop_type(self) -> "WorkshopCreate":
+        """Reject a kind the database does not have.
+
+        `workshopType` reaches a Postgres enum column, so an unknown value is not merely stored
+        wrong — Prisma refuses it and the route answers a bare 500, which reads to a client as "the
+        server is broken" rather than "that is not a kind of workshop".
+        """
+        if self.workshopType not in WORKSHOP_TYPES:
+            raise ValueError(f"workshopType must be one of {', '.join(sorted(WORKSHOP_TYPES))}")
+        return self
+
 
 class WorkshopUpdate(APIModel):
     title: str | None = Field(default=None, min_length=1, max_length=220)
+    #: Omit to leave the stored kind alone. See WorkshopCreate.
+    workshopType: str | None = None
     date: datetime | None = None
     startDate: datetime | None = None
     endDate: datetime | None = None
@@ -263,10 +392,20 @@ class WorkshopUpdate(APIModel):
     recordedTimezone: str | None = None
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
+    # The version this edit was composed against. Optional; omitted is today's behaviour exactly. See
+    # ``ArtisanUpdate.expectedUpdatedAt`` and ``records.assert_expected_updated_at``.
+    expectedUpdatedAt: datetime | None = None
 
     # Omit it to keep the stored one (which is how a record that predates the rule stays
     # editable); send one to replace it; you may not send null. See forbid_clearing_location.
     _location_kept = model_validator(mode="after")(forbid_clearing_location)
+
+    @model_validator(mode="after")
+    def _known_workshop_type(self) -> "WorkshopUpdate":
+        """Omitted keeps the stored kind; a value must be one the database has."""
+        if self.workshopType is not None and self.workshopType not in WORKSHOP_TYPES:
+            raise ValueError(f"workshopType must be one of {', '.join(sorted(WORKSHOP_TYPES))}")
+        return self
 
 
 class ProductCreate(APIModel):
@@ -278,14 +417,38 @@ class ProductCreate(APIModel):
     productType: str = "OTHER"
     timeTakenToCompleteProduct: str | None = None
     size: str | None = None
-    lengthInches: Decimal | None = None
-    breadthInches: Decimal | None = None
-    heightInches: Decimal | None = None
+    # ── NON-NEGATIVE, AND THE BOUND IS BOTH HALVES OR IT IS NEITHER ──────────────────────────────
+    #
+    # Every measurement and price on this model and on Tool took a negative from the box and stored
+    # it. A negative length is not a measurement, and the sibling repository's workshop registry
+    # declares the fields these are carried into as non-negative — so this product accepted a
+    # quantity that product would refuse on a row it filled in FROM here.
+    #
+    # THIS IS A BEHAVIOUR CHANGE ON PATCH AND NOT ONLY ON CREATE, and it is deliberate. The web forms
+    # post the WHOLE payload back on an edit (components/forms/ProductForm.tsx, ToolForm.tsx), so a
+    # row that already holds a negative will start 422-ing on any edit at all until the number is
+    # corrected — including an edit to a field beside it. The audit query that finds those rows is in
+    # the PR that added this bound, and it must be run before deploy:
+    #
+    #   SELECT 'ProductDocumentation' AS tbl, id FROM "ProductDocumentation"
+    #    WHERE "lengthInches" < 0 OR "breadthInches" < 0 OR "heightInches" < 0
+    #       OR "costOfMaking" < 0 OR "sellingPrice" < 0
+    #   UNION ALL
+    #   SELECT 'ToolDocumentation', id FROM "ToolDocumentation"
+    #    WHERE "height" < 0 OR "width" < 0 OR "lengthInches" < 0 OR "breadthInches" < 0
+    #       OR "heightInches" < 0 OR "thickness" < 0 OR "weight" < 0 OR "radius" < 0
+    #       OR "replacementCost" < 0;
+    #
+    # `min={0}` on the matching web inputs refuses the value in the box, by name, before a request is
+    # made; this refuses it for every client that is not one of ours.
+    lengthInches: Decimal | None = Field(default=None, ge=0)
+    breadthInches: Decimal | None = Field(default=None, ge=0)
+    heightInches: Decimal | None = Field(default=None, ge=0)
     measurementImageId: str | None = None
     measurementAnalysis: dict[str, Any] | None = None
     measurementAnalysisStatus: str | None = None
-    costOfMaking: Decimal | None = None
-    sellingPrice: Decimal | None = None
+    costOfMaking: Decimal | None = Field(default=None, ge=0)
+    sellingPrice: Decimal | None = Field(default=None, ge=0)
     marketDemand: str = "UNKNOWN"
     rawMaterialsUsed: str | None = None
     mainToolsUsed: str | None = None
@@ -299,6 +462,9 @@ class ProductCreate(APIModel):
     recordedTimezone: str = "Asia/Kolkata"
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
+    # The create-idempotency key. Optional; absent is today's behaviour exactly. See
+    # ``WorkshopCreate.clientKey``.
+    clientKey: str | None = Field(default=None, max_length=200)
 
     # Mandatory on create. See services/common.require_location for what that does and does not
     # mean — and note it is the ONLY half of the pair the clients cannot omit, because create is
@@ -315,14 +481,17 @@ class ProductUpdate(APIModel):
     productType: str | None = None
     timeTakenToCompleteProduct: str | None = None
     size: str | None = None
-    lengthInches: Decimal | None = None
-    breadthInches: Decimal | None = None
-    heightInches: Decimal | None = None
+    # ge=0 on the UPDATE too — see ``ProductCreate`` for the whole argument, including the audit
+    # query that must be run before this ships. Bounding create alone would leave the number
+    # correctable through a PATCH and therefore not bounded at all.
+    lengthInches: Decimal | None = Field(default=None, ge=0)
+    breadthInches: Decimal | None = Field(default=None, ge=0)
+    heightInches: Decimal | None = Field(default=None, ge=0)
     measurementImageId: str | None = None
     measurementAnalysis: dict[str, Any] | None = None
     measurementAnalysisStatus: str | None = None
-    costOfMaking: Decimal | None = None
-    sellingPrice: Decimal | None = None
+    costOfMaking: Decimal | None = Field(default=None, ge=0)
+    sellingPrice: Decimal | None = Field(default=None, ge=0)
     marketDemand: str | None = None
     rawMaterialsUsed: str | None = None
     mainToolsUsed: str | None = None
@@ -336,6 +505,9 @@ class ProductUpdate(APIModel):
     recordedTimezone: str | None = None
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
+    # The version this edit was composed against. Optional; omitted is today's behaviour exactly. See
+    # ``ArtisanUpdate.expectedUpdatedAt`` and ``records.assert_expected_updated_at``.
+    expectedUpdatedAt: datetime | None = None
 
     # Omit it to keep the stored one (which is how a record that predates the rule stays
     # editable); send one to replace it; you may not send null. See forbid_clearing_location.
@@ -363,6 +535,10 @@ class ProcessCreate(APIModel):
     recordedAt: datetime | None = None
     recordedTimezone: str = "Asia/Kolkata"
     extraMetadata: dict[str, Any] | None = None
+    # The create-idempotency key. Optional; absent is today's behaviour exactly. See
+    # ``WorkshopCreate.clientKey``. This is the one of the four whose replay has to think about
+    # CHILDREN — see ``routes/processes.create_process``.
+    clientKey: str | None = Field(default=None, max_length=200)
 
 
 class ProcessUpdate(APIModel):
@@ -376,6 +552,9 @@ class ProcessUpdate(APIModel):
     recordedAt: datetime | None = None
     recordedTimezone: str | None = None
     extraMetadata: dict[str, Any] | None = None
+    # The version this edit was composed against. Optional; omitted is today's behaviour exactly. See
+    # ``ArtisanUpdate.expectedUpdatedAt`` and ``records.assert_expected_updated_at``.
+    expectedUpdatedAt: datetime | None = None
 
 
 class ToolCreate(APIModel):
@@ -388,19 +567,29 @@ class ToolCreate(APIModel):
     processUsedIn: str | None = None
     material: str | None = None
     yearsInUse: int | None = Field(default=None, ge=0)
-    height: Decimal | None = None
-    width: Decimal | None = None
-    lengthInches: Decimal | None = None
-    breadthInches: Decimal | None = None
+    # ge=0 across the measurements and the price — see ``ProductCreate.lengthInches`` for the whole
+    # argument and for the pre-deploy audit query, which covers both tables.
+    height: Decimal | None = Field(default=None, ge=0)
+    width: Decimal | None = Field(default=None, ge=0)
+    lengthInches: Decimal | None = Field(default=None, ge=0)
+    breadthInches: Decimal | None = Field(default=None, ge=0)
+    # THE THIRD OF THE TRIPLE, AND THE ONLY HEIGHT ON THIS MODEL THAT RECORDS ITS UNIT. ``height``
+    # above is the old unit-less column: rows already hold values in it, nothing in the database can
+    # say what unit those are in, and it is kept rather than merged for exactly that reason. The
+    # grid-measurement panel returns an INCHES reading and must fill THIS box; until this column
+    # existed the only box it could reach was the unit-less one, which is how every grid-measured
+    # tool height in this repository came to be stored with no recoverable unit. See migration
+    # 20260913120100.
+    heightInches: Decimal | None = Field(default=None, ge=0)
     measurementImageId: str | None = None
     measurementAnalysis: dict[str, Any] | None = None
     measurementAnalysisStatus: str | None = None
-    thickness: Decimal | None = None
-    weight: Decimal | None = None
-    radius: Decimal | None = None
+    thickness: Decimal | None = Field(default=None, ge=0)
+    weight: Decimal | None = Field(default=None, ge=0)
+    radius: Decimal | None = Field(default=None, ge=0)
     maker: str = "UNKNOWN"
     traditionType: str = "UNKNOWN"
-    replacementCost: Decimal | None = None
+    replacementCost: Decimal | None = Field(default=None, ge=0)
     suggestionsForToolImprovement: str | None = None
     remarks: str | None = None
     artisanId: str | None = None
@@ -411,6 +600,9 @@ class ToolCreate(APIModel):
     recordedTimezone: str = "Asia/Kolkata"
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
+    # The create-idempotency key. Optional; absent is today's behaviour exactly. See
+    # ``WorkshopCreate.clientKey``.
+    clientKey: str | None = Field(default=None, max_length=200)
 
     # Mandatory on create. See services/common.require_location for what that does and does not
     # mean — and note it is the ONLY half of the pair the clients cannot omit, because create is
@@ -428,19 +620,24 @@ class ToolUpdate(APIModel):
     processUsedIn: str | None = None
     material: str | None = None
     yearsInUse: int | None = Field(default=None, ge=0)
-    height: Decimal | None = None
-    width: Decimal | None = None
-    lengthInches: Decimal | None = None
-    breadthInches: Decimal | None = None
+    # ge=0 on the UPDATE too — see ``ProductCreate.lengthInches``. Bounding create alone would leave
+    # the number correctable through a PATCH and therefore not bounded at all.
+    height: Decimal | None = Field(default=None, ge=0)
+    width: Decimal | None = Field(default=None, ge=0)
+    lengthInches: Decimal | None = Field(default=None, ge=0)
+    breadthInches: Decimal | None = Field(default=None, ge=0)
+    # See ``ToolCreate.heightInches``: this is the height that records its unit, and ``height`` above
+    # is the old unit-less column kept for what is already stored.
+    heightInches: Decimal | None = Field(default=None, ge=0)
     measurementImageId: str | None = None
     measurementAnalysis: dict[str, Any] | None = None
     measurementAnalysisStatus: str | None = None
-    thickness: Decimal | None = None
-    weight: Decimal | None = None
-    radius: Decimal | None = None
+    thickness: Decimal | None = Field(default=None, ge=0)
+    weight: Decimal | None = Field(default=None, ge=0)
+    radius: Decimal | None = Field(default=None, ge=0)
     maker: str | None = None
     traditionType: str | None = None
-    replacementCost: Decimal | None = None
+    replacementCost: Decimal | None = Field(default=None, ge=0)
     suggestionsForToolImprovement: str | None = None
     remarks: str | None = None
     artisanId: str | None = None
@@ -451,6 +648,9 @@ class ToolUpdate(APIModel):
     recordedTimezone: str | None = None
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
+    # The version this edit was composed against. Optional; omitted is today's behaviour exactly. See
+    # ``ArtisanUpdate.expectedUpdatedAt`` and ``records.assert_expected_updated_at``.
+    expectedUpdatedAt: datetime | None = None
 
     # Omit it to keep the stored one (which is how a record that predates the rule stays
     # editable); send one to replace it; you may not send null. See forbid_clearing_location.

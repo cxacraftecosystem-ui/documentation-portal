@@ -12,6 +12,11 @@ import {
   type SpeechRecognitionLike
 } from "@/components/dictation/onDeviceSpeech";
 import {
+  appendDictatedPhrase,
+  clampToColumn,
+  columnFullSentence
+} from "@/components/richtext/dictatedValue";
+import {
   appendStoredParagraph,
   decodeStoredRichText,
   encodeStoredRichText
@@ -72,6 +77,15 @@ const ARTISAN_FORM = read("components", "forms", "ArtisanForm.tsx");
 const PRODUCT_FORM = read("components", "forms", "ProductForm.tsx");
 const TOOL_FORM = read("components", "forms", "ToolForm.tsx");
 const PROCESS_FORM = read("components", "forms", "ProcessForm.tsx");
+const DICTATED_TEXTINPUT = read("components", "richtext", "DictatedTextInput.tsx");
+const DICTATED_VALUE = read("components", "richtext", "dictatedValue.ts");
+const UNAVAILABLE_NOTICE = read("components", "richtext", "DictationUnavailableNotice.tsx");
+const REQUIRED_MARK = read("components", "ui", "RequiredMark.tsx");
+const FORM_CONTROLS = read("components", "FormControls.tsx");
+const LOCATION_FIELDS = read("components", "forms", "LocationFields.tsx");
+const CRAFTS_PAGE = read("app", "(protected)", "crafts", "page.tsx");
+const WORKSHOPS_PAGE = read("app", "(protected)", "workshops", "page.tsx");
+const MEDIA_PAGE = read("app", "(protected)", "media", "page.tsx");
 
 /** Comments in these files DISCUSS the server door at length — that is the point of them. */
 function codeOnly(source: string): string {
@@ -89,7 +103,13 @@ function codeOnly(source: string): string {
 test("the on-device dictation path contains no transport of any kind", () => {
   for (const [name, source] of [
     ["onDeviceSpeech.ts", ON_DEVICE_SPEECH],
-    ["OnDeviceDictationButton.tsx", ON_DEVICE_BUTTON]
+    ["OnDeviceDictationButton.tsx", ON_DEVICE_BUTTON],
+    // The three files the record-page sweep added. They are exactly where a network primitive would
+    // be added first — a "just send the audio too" one-liner in the one-line box, in the shared
+    // value module, or in the notice that already knows whether the browser can dictate.
+    ["DictatedTextInput.tsx", DICTATED_TEXTINPUT],
+    ["dictatedValue.ts", DICTATED_VALUE],
+    ["DictationUnavailableNotice.tsx", UNAVAILABLE_NOTICE]
   ] as const) {
     const code = codeOnly(source);
     expect(code, `${name} must not fetch`).not.toMatch(/\bfetch\s*\(/);
@@ -115,6 +135,24 @@ test("the four record forms reach the microphone only through the on-device comp
     expect(source, `${name} must not build its own recogniser`).not.toMatch(/SpeechRecognition/);
     expect(source, `${name} must not record audio itself`).not.toMatch(/MediaRecorder|getUserMedia/);
   }
+});
+
+test("the three inline record pages reach the microphone only through the on-device components", () => {
+  // `/crafts`, `/workshops` and `/media` build their forms inline rather than through a form
+  // component, so they are not covered by the loop above — and all three now carry microphones.
+  for (const [name, source] of [
+    ["crafts", CRAFTS_PAGE],
+    ["workshops", WORKSHOPS_PAGE],
+    ["media", MEDIA_PAGE]
+  ] as const) {
+    expect(source, `${name} must not call the server transcriber`).not.toMatch(/transcribeMediaFile/);
+    expect(source, `${name} must not build its own recogniser`).not.toMatch(/SpeechRecognition/);
+    expect(source, `${name} must not record audio itself`).not.toMatch(/MediaRecorder|getUserMedia/);
+  }
+  // And the shared location card, which is mounted by six surfaces and now holds a microphone of its
+  // own — one box on six screens, so a transport added here would be added six times.
+  expect(LOCATION_FIELDS, "the location card must not call the server transcriber").not.toMatch(/transcribeMediaFile/);
+  expect(LOCATION_FIELDS, "nor build its own recogniser").not.toMatch(/SpeechRecognition/);
 });
 
 test("the editor hosts the on-device button and has no id-shaped prop to route it elsewhere", () => {
@@ -407,12 +445,99 @@ test("the language list is shared and remembered under one key", () => {
   );
 });
 
+/* ───────────────────────────────────────────────────────────────────────────
+ * 2b. The three rules every dictated box obeys — run, not read
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+test("the joiner rule is one function and it appends with exactly one space", () => {
+  expect(appendDictatedPhrase("", "the warp is sized")).toBe("the warp is sized");
+  expect(appendDictatedPhrase("The loom is set.", "The warp is sized.")).toBe("The loom is set. The warp is sized.");
+  // A researcher who typed a newline meant that newline: a space appended after it would push the
+  // dictated sentence off the line they put it on.
+  expect(appendDictatedPhrase("The loom is set.\n", "Then")).toBe("The loom is set.\nThen");
+  expect(appendDictatedPhrase("The loom is set. ", "Then")).toBe("The loom is set. Then");
+
+  // And it is the ONLY copy: the two inline ones it replaced must be gone. This assertion used to
+  // read the literal `const joiner = …` out of `DictatedTextArea`; it was pinning the RULE, and the
+  // rule has not changed, only its address — and it is now executed above rather than grepped.
+  expect(DICTATED_TEXTAREA, "the inline joiner moved to dictatedValue").not.toMatch(/const joiner =/);
+  expect(PROCESS_FORM, "and so did the process form's").not.toMatch(/const joiner =/);
+});
+
+test("the column ceiling is enforced in JS, because a DOM maxLength cannot see a state write", () => {
+  // A DOM `maxLength` bounds typing and pasting and has no opinion at all about a value written into
+  // React state, which is exactly what a committed phrase is. An over-long value 422s the WHOLE
+  // body and `saveOrQueue` will not bank a 4xx, so the rest of the form is gone with it.
+  expect(clampToColumn("abcdef", 3)).toBe("abc");
+  expect(clampToColumn("abcdef", undefined), "no declared ceiling means no invented one").toBe("abcdef");
+  // Said on screen, never silent: a box that quietly stops accepting words is indistinguishable
+  // from a microphone that stopped working, and the next move differs completely.
+  expect(columnFullSentence(2000)).toContain("2,000");
+});
+
 /* ────────────────────────────────────────────────────────────────────────────
  * 3. The sweep: which boxes got what
  * ──────────────────────────────────────────────────────────────────────────── */
 
 test("every qualifying record-form box has a control, and the skipped ones stay skipped", () => {
-  // Larger narrative boxes — editor with the on-device mic inside it.
+  /*
+    ONE ASSERTION PER DICTATED BOX, BY `name`, because `name` is the half that can go missing without
+    anything refusing. `DictatedTextInput.name` is optional — `ProcessForm` genuinely has no
+    `FormData` — so on every other surface a dropped attribute submits nothing at all: loud on
+    `/workshops` (`requiredText` throws), silent almost everywhere else.
+
+    THE WINDOW IS `\s+` AND NOT A CHARACTER BUDGET. The obvious form,
+    `<DictatedTextInput[\s\S]{0,400}?name="place"`, happily matches ACROSS a neighbouring control: the
+    regex starts at the first mount on the page and scans four hundred characters, which on these
+    forms is two boxes. `name` is the first attribute on every one of these mounts, so requiring it
+    to be adjacent is both tighter and true.
+  */
+  const dictatedInputs: Array<[string, string, string[]]> = [
+    ["ArtisanForm", ARTISAN_FORM, ["name", "localName", "newCraftName", "place"]],
+    [
+      "ProductForm",
+      PRODUCT_FORM,
+      ["productName", "localName", "craftName", "artisanName", "place", "timeTakenToCompleteProduct", "size"]
+    ],
+    [
+      "ToolForm",
+      TOOL_FORM,
+      ["toolkitName", "localName", "englishName", "craftName", "artisanName", "place", "processUsedIn", "material"]
+    ],
+    ["crafts", CRAFTS_PAGE, ["name", "localName", "category", "place"]],
+    ["workshops", WORKSHOPS_PAGE, ["title", "place"]],
+    ["media", MEDIA_PAGE, ["mediaTitle"]],
+    ["LocationFields", LOCATION_FIELDS, ["village"]]
+  ];
+  for (const [form, source, names] of dictatedInputs) {
+    for (const name of names) {
+      expect(source, `${form}.${name} must have a microphone AND submit under its own name`).toMatch(
+        new RegExp(`<DictatedTextInput\\s+name="${name}"`)
+      );
+    }
+  }
+  // ProcessForm is the exception that proves the rule: it builds its body from React state and never
+  // constructs a `FormData`, so its two dictated boxes carry an `id` (the focus ladder reaches them
+  // by `getElementById`) and deliberately NO `name`.
+  expect(PROCESS_FORM, "the process name is reachable by the refusal ladder").toMatch(
+    /<DictatedTextInput\s+id="process-name"/
+  );
+  expect(PROCESS_FORM, "and so is every step name").toMatch(/<DictatedTextInput\s+id=\{`step-name-\$\{step\.key\}`\}/);
+
+  // Multi-line but not narrative — microphone, no formatting.
+  expect(ARTISAN_FORM, "an address is spoken, never bolded").toMatch(/<DictatedTextArea[\s\S]{0,300}?name="address"/);
+  expect(CRAFTS_PAGE, "a craft description is dictated but never a document").toMatch(
+    /<DictatedTextArea[\s\S]{0,300}?name="description"/
+  );
+  expect(WORKSHOPS_PAGE).toMatch(/<DictatedTextArea[\s\S]{0,300}?name="description"/);
+  expect(MEDIA_PAGE, "the caption re-seeds on reset, so it is keyed").toMatch(/<DictatedTextArea\s+key=\{resetNonce\}/);
+  expect(PROCESS_FORM, "the step-notes rows get a mic each").toMatch(/<OnDeviceDictationButton/);
+  expect(PROCESS_FORM, "every note row is silent; the form says it once at the top").toMatch(
+    /explainWhenUnavailable=\{false\}/
+  );
+  expect(PROCESS_FORM, "no row elects itself to carry the sentence any more").not.toMatch(/index === 0/);
+
+  // Larger narrative boxes — editor with the on-device mic inside it, at the caret.
   for (const name of ["notes"]) expect(ARTISAN_FORM).toMatch(new RegExp(`<RichTextField[\\s\\S]{0,200}?name="${name}"`));
   for (const name of ["rawMaterialsUsed", "mainToolsUsed", "productFunctionUse", "remarks"]) {
     expect(PRODUCT_FORM, `${name} must have the editor`).toMatch(new RegExp(`<RichTextField[\\s\\S]{0,200}?name="${name}"`));
@@ -423,24 +548,170 @@ test("every qualifying record-form box has a control, and the skipped ones stay 
   for (const name of ["suggestionsForToolImprovement", "remarks"]) {
     expect(TOOL_FORM).toMatch(new RegExp(`<RichTextField[\\s\\S]{0,200}?name="${name}"`));
   }
-
-  // Multi-line but not narrative — microphone, no formatting.
-  expect(ARTISAN_FORM, "an address is spoken, never bolded").toMatch(/<DictatedTextArea[\s\S]{0,200}?name="address"/);
-  expect(PROCESS_FORM, "the step-notes rows get a mic each").toMatch(/<OnDeviceDictationButton/);
-  expect(PROCESS_FORM, "and the explanation is carried once, by the first row").toMatch(
-    /explainWhenUnavailable=\{index === 0\}/
+  // And the one that decides four notes are not one note, which sits in the same JSX block as the
+  // flag this sweep added and is one careless line away from being dropped.
+  expect(ARTISAN_FORM, 'Artisan.notes stays blank-line separated').toMatch(
+    /name="notes"[\s\S]{0,200}?join="paragraph"/
   );
 
-  // Deliberately untouched. Each of these is recorded in the report with its reason; the assertions
-  // are here so that "somebody adds a toolbar to the Aadhaar box" fails a test rather than a review.
+  // ── Deliberately untouched, each for a stated rule ────────────────────────────────────
   expect(ARTISAN_FORM, "dos/donts stay the numbered-list control").toMatch(/<DosDontsField/);
   expect(ARTISAN_FORM, "no editor on an identity number").not.toMatch(/<RichTextField[\s\S]{0,200}?name="aadhaarNumber"/);
-  expect(PROCESS_FORM, "step notes must NOT become a document — two platforms split that column").not.toMatch(
-    /<RichTextField/
+  expect(ARTISAN_FORM, "no microphone on an identity number").not.toMatch(
+    /<DictatedTextInput[\s\S]{0,300}?name="aadhaarNumber"/
   );
-  expect(TOOL_FORM, "processUsedIn is a single-line input here and stays one").not.toMatch(
+  expect(ARTISAN_FORM, "nor on the other one").not.toMatch(/<DictatedTextInput[\s\S]{0,300}?name="pehchanCardNumber"/);
+  expect(ARTISAN_FORM, "nor on a date").not.toMatch(/<DictatedTextInput[\s\S]{0,300}?name="dateOfBirth"/);
+  expect(ARTISAN_FORM, "nor on an email").not.toMatch(/<DictatedTextInput[\s\S]{0,300}?name="email"/);
+  for (const name of ["lengthInches", "breadthInches", "heightInches", "costOfMaking", "sellingPrice"]) {
+    expect(PRODUCT_FORM, `${name} is a number box`).not.toMatch(new RegExp(`<DictatedTextInput[\\s\\S]{0,300}?name="${name}"`));
+  }
+  for (const name of ["yearsInUse", "height", "width", "thickness", "weight", "radius", "replacementCost"]) {
+    expect(TOOL_FORM, `${name} is a number box`).not.toMatch(new RegExp(`<DictatedTextInput[\\s\\S]{0,300}?name="${name}"`));
+  }
+  for (const name of ["pincode", "latitude", "longitude", "altitude", "accuracy"]) {
+    expect(LOCATION_FIELDS, `${name} is digits`).not.toMatch(new RegExp(`<DictatedTextInput[\\s\\S]{0,300}?name="${name}"`));
+  }
+  expect(TOOL_FORM, "processUsedIn is single-line here and stays one").not.toMatch(
     /<RichTextField[\s\S]{0,200}?name="processUsedIn"/
   );
+});
+
+test("step notes stay several textareas and never become one document", () => {
+  // Two platforms split `ProcessStep.notes` on a blank line (`MultiNoteField` here, `MultiNoteInput`
+  // in Android's MainActivity.kt). A document in one of these rows comes back as one note holding
+  // JSON. The form now has exactly ONE editor and it is the WHOLE-PROCESS notes column, which nothing
+  // splits — the assertion has to tell the two columns apart rather than banning the component.
+  expect((PROCESS_FORM.match(/<RichTextField/g) ?? []).length, "exactly one editor on this form").toBe(1);
+  expect(PROCESS_FORM, "and it is the process column, not the step column").toMatch(
+    /<RichTextField[\s\S]{0,300}?name="notes"[\s\S]{0,300}?onValueChange=\{setNotes\}/
+  );
+  // It reports through `onValueChange` because this form never builds a `FormData` — and `notes` has
+  // to reach `signature`, or the guard cannot see the one box on this form that has no event at all.
+  //
+  // SLICED RATHER THAN WINDOWED. The first draft of this assertion was
+  // `/const signature = JSON\.stringify\(\{[\s\S]{0,600}?\n    notes,/`, and it went red the moment the
+  // working tree's line endings became CRLF: every newline inside the window costs two characters
+  // instead of one, the real distance is 640, and a passing test became a failing one with no source
+  // change at all. A character budget over a multi-line region is a measurement of formatting, not of
+  // the rule — so this reads the region and asks the question inside it.
+  const signatureBlock = PROCESS_FORM.slice(
+    PROCESS_FORM.indexOf("const signature = JSON.stringify({"),
+    PROCESS_FORM.indexOf("const [initialSignature]")
+  );
+  expect(signatureBlock, "the notes value joins the unsaved-changes signature").toMatch(/\n\s*notes,/);
+  const multiNote = PROCESS_FORM.slice(
+    PROCESS_FORM.indexOf("function MultiNoteInput"),
+    PROCESS_FORM.indexOf("export function ProcessForm")
+  );
+  expect(multiNote, "the step rows are still plain textareas").toMatch(/<textarea/);
+  expect(multiNote, "and carry no editor").not.toMatch(/RichTextField/);
+});
+
+test("every form that silences its microphones says it once instead", () => {
+  for (const [name, source] of [
+    ["ArtisanForm", ARTISAN_FORM],
+    ["ProductForm", PRODUCT_FORM],
+    ["ToolForm", TOOL_FORM],
+    ["ProcessForm", PROCESS_FORM],
+    ["crafts", CRAFTS_PAGE],
+    ["workshops", WORKSHOPS_PAGE],
+    ["media", MEDIA_PAGE]
+  ] as const) {
+    expect(source, `${name} passes explainWhenUnavailable={false}`).toMatch(/explainWhenUnavailable=\{false\}/);
+    expect(
+      (source.match(/<DictationUnavailableNotice/g) ?? []).length,
+      `${name} must say it EXACTLY once — zero is a silent nothing on Firefox, two is the noise the component exists to remove`
+    ).toBe(1);
+    expect(source, `${name} must never pass true`).not.toMatch(/explainWhenUnavailable=\{true\}/);
+  }
+  // LocationFields is mounted by six of those forms and carries no notice of its own, by design:
+  // the mounting form owns the sentence. Its box must therefore be silent.
+  expect(LOCATION_FIELDS).toMatch(/name="village"[\s\S]{0,300}?explainWhenUnavailable=\{false\}/);
+  expect(LOCATION_FIELDS).not.toMatch(/<DictationUnavailableNotice/);
+  // And the notice decides for itself rather than being told — `!== true`, so "not yet decided"
+  // draws nothing rather than being read as "the recogniser is present".
+  expect(UNAVAILABLE_NOTICE).toMatch(/if \(absent !== true\) return null;/);
+  expect(UNAVAILABLE_NOTICE).toMatch(/setAbsent\(!speechRecognitionConstructor\(\)\)/);
+});
+
+test("the zero-size mirrors are untouched by the dictation sweep", () => {
+  // A dictated control is never given a mirror and never put behind one: it renders a REAL visible
+  // input with the real `name`, `required` and `maxLength`, so there is nothing to mirror. The
+  // controls that DO have mirrors are the four on the not-dictated list, and the two rules never
+  // meet — a control needs a mirror because it is not a text box, and is dictatable because it is.
+  expect(FORM_CONTROLS, "Select's mirror is a real text input, never hidden").toMatch(
+    /type="text"[\s\S]{0,300}?tabIndex=\{-1\}[\s\S]{0,200}?opacity-0/
+  );
+  const dosDonts = read("components", "forms", "DosDontsField.tsx");
+  expect(dosDonts, "and DosDontsField's must be a textarea — an input strips CR/LF").toMatch(
+    /<textarea\s+name=\{name\}[\s\S]{0,300}?tabIndex=\{-1\}/
+  );
+  expect(RICH_TEXT_FIELD, "RichTextField's hidden input STAYS — seven call sites read it").toMatch(
+    /<input type="hidden" name=\{name\} value=\{submitValue\} \/>/
+  );
+  expect(RICH_TEXT_FIELD, "and onValueChange is additive, reporting the encoded string").toMatch(
+    /onValueChange\?\.\(encoded\)/
+  );
+  // `noValidate` is a ProcessForm-only exception. Anywhere else it would disarm the mirrors above.
+  for (const [name, source] of [
+    ["ArtisanForm", ARTISAN_FORM],
+    ["ProductForm", PRODUCT_FORM],
+    ["ToolForm", TOOL_FORM],
+    ["crafts", CRAFTS_PAGE],
+    ["workshops", WORKSHOPS_PAGE],
+    ["media", MEDIA_PAGE]
+  ] as const) {
+    expect(source, `${name} keeps the browser's own check`).not.toMatch(/\bnoValidate\b/);
+  }
+});
+
+test("the required asterisk has one owner, and one colour on screen at a time", () => {
+  /*
+    THE CENSUS IS THE CONSEQUENT, NOT THE CONDITION. Run as `required ? " *"` it finds five of the
+    seven sites: `ArtisanForm` tests `available` and `LocationFields` tests `stateRequired`, and both
+    are in files this sweep edits heavily. That miss is how a form ships with two colours of asterisk
+    on it while this test passes.
+  */
+  for (const rel of [
+    ["components", "forms", "AadhaarField.tsx"],
+    ["components", "forms", "ArtisanForm.tsx"],
+    ["components", "forms", "DosDontsField.tsx"],
+    ["components", "forms", "LocationFields.tsx"]
+  ]) {
+    expect(read(...rel), `${rel.join("/")} must not hand-write the mark`).not.toMatch(/\? " \*" : ""/);
+  }
+  expect(MEDIA_PAGE, "and it is not typed into a label string either").not.toMatch(/label="[^"]*\*"/);
+
+  /*
+    THE THREE THAT ARE NOT CONVERTED YET, AND THE RULE THAT KEEPS THE SCREEN COHERENT UNTIL THEY ARE.
+
+    `components/FormControls.tsx`, `components/review/ReviewEditPanel.tsx` and
+    `components/tasks/TaskPrimitives.tsx` still write `{required ? " *" : ""}` by hand; they were
+    outside the set of files this change could touch. While ANY of them remains, `RequiredMark` must
+    inherit its colour, because a red mark on Name and Place beside an ink one on Craft and Status —
+    the same artisan form, at the same time — reads as two different kinds of requirement, which is
+    a thing this product does not have.
+
+    When the last one is converted this assertion flips and TELLS you to give the component its red
+    (`text-error-600 dark:text-red-400`), which is the whole reason the argument for that colour is
+    written down in `components/ui/RequiredMark.tsx` rather than lost with this sweep.
+  */
+  const handWritten = [
+    ["components", "FormControls.tsx"],
+    ["components", "review", "ReviewEditPanel.tsx"],
+    ["components", "tasks", "TaskPrimitives.tsx"]
+  ].filter((rel) => /\? " \*" : ""/.test(read(...rel)));
+  if (handWritten.length > 0) {
+    expect(
+      REQUIRED_MARK,
+      `${handWritten.map((rel) => rel.join("/")).join(", ")} still draw the mark by hand, so the shared one must inherit`
+    ).toMatch(/text-inherit/);
+  } else {
+    expect(REQUIRED_MARK, "the last hand-written mark is gone — now give the component its red").toMatch(
+      /text-error-600 dark:text-red-400/
+    );
+  }
 });
 
 test("the mount components keep the contracts the forms depend on", () => {
@@ -452,14 +723,63 @@ test("the mount components keep the contracts the forms depend on", () => {
   expect(RICH_TEXT_FIELD, "the editor's live document is never fed back in as `value`").toMatch(
     /const \[initialValue\] = useState<unknown>\(\(\) => decodeStoredRichText\(defaultValue\)\)/
   );
+  // The encode rule still runs on everything submitted — it is now named first so the hidden input
+  // and the string handed to `onValueChange` can never be two different values.
   expect(RICH_TEXT_FIELD, "everything submitted goes through the encode rule").toMatch(
-    /setSubmitValue\(encodeStoredRichText\(doc, join\)\)/
+    /const encoded = encodeStoredRichText\(doc, join\);\s*\n\s*setSubmitValue\(encoded\);/
   );
   // The plain box is a real textarea with a real name, so spellcheck, FormData and `textValue` are
   // untouched — and its commit APPENDS with a space, or a paragraph dictated in five goes runs
   // together.
   expect(DICTATED_TEXTAREA).toMatch(/<textarea[\s\S]{0,300}?name=\{name\}/);
-  expect(DICTATED_TEXTAREA).toMatch(/const joiner = !value \|\| \/\\s\$\/\.test\(value\) \? "" : " ";/);
+
+  // The one-line box is caller-controlled, has no second mode, and clamps in JS.
+  expect(DICTATED_TEXTINPUT, "no internal state — one mode, not two").not.toMatch(/useState/);
+  expect(DICTATED_TEXTINPUT, "the ceiling is enforced in JS, not only by the attribute").toMatch(
+    /onChange\(clampToColumn\(next, maxLength\)\)/
+  );
+  expect(DICTATED_TEXTINPUT, "titleCased mounts the real component, never a copy of its hint").toMatch(
+    /\? TitleCasedInput\s*\n?\s*: TextInput/
+  );
+  // Both draw their own label, because `Field` is a `<label>` and the button under the box is a
+  // second control inside it: clicking "Dictate" would then also focus the box and, on a phone,
+  // throw the keyboard up over the interim readout the researcher is watching.
+  expect(DICTATED_TEXTINPUT, "it draws its own label, because Field is a <label>").toMatch(
+    /<label className="field-label" htmlFor=/
+  );
+  expect(DICTATED_TEXTAREA, "and so does the multi-line one").toMatch(/<label className="field-label" htmlFor=/);
+  expect(DICTATED_TEXTAREA, "which now takes required, so a mandatory box stays mandatory").toMatch(
+    /required=\{required\}/
+  );
+
+  // ProcessForm: the focus ladder reaches two boxes by id — a generated id would land on nothing —
+  // and the ladder is the ONLY refusal path, which is what `noValidate` guarantees. Ship both or
+  // neither: `required` without `noValidate` gives the submit button a browser bubble and the
+  // unsaved-changes dialog's Save button a red paragraph, for the same empty box.
+  expect(PROCESS_FORM).toMatch(/id="process-name"/);
+  expect(PROCESS_FORM).toMatch(/id=\{`step-name-\$\{step\.key\}`\}/);
+  expect(PROCESS_FORM, "one refusal path, for both save buttons").toMatch(/\bnoValidate\b/);
+  expect(PROCESS_FORM, "and the ladder it protects is still there").toMatch(
+    /document\.getElementById\(focusId\)\?\.focus\(\)/
+  );
+
+  // Every surface that clears in place clears its dictated state in the same block.
+  expect(MEDIA_PAGE).toMatch(/formElement\.reset\(\);[\s\S]{0,400}?setMediaTitle\(""\)/);
+  expect(MEDIA_PAGE).toMatch(/formElement\.reset\(\);[\s\S]{0,400}?setResetNonce\(/);
+  expect(CRAFTS_PAGE, "the craft form remounts on every reset, including the offline one").toMatch(
+    /key=\{`\$\{editing\?\.id \?\? "new"\}-\$\{formKey\}`\}/
+  );
+  expect(WORKSHOPS_PAGE, "and so does the workshop form — same key, same trap, same fix").toMatch(
+    /key=\{`\$\{editing\?\.id \?\? "new"\}-\$\{formKey\}`\}/
+  );
+  expect(ARTISAN_FORM, "discardEntry clears the four boxes that live outside the keyed form").toMatch(
+    /function discardEntry\(\)[\s\S]{0,800}?setNewCraftName\(""\)/
+  );
+  // A dictated village must arm the guard: typing bubbled an `input` event into the form's
+  // `onInput={markDirty}`, and a state write does not. This box had never called `onDirty` at all.
+  expect(LOCATION_FIELDS, "a dictated village arms the unsaved-changes guard").toMatch(
+    /name="village"[\s\S]{0,500}?onDirty\?\.\(\)/
+  );
 });
 
 /*
@@ -477,4 +797,31 @@ test("the mount components keep the contracts the forms depend on", () => {
  *  - that this spec and the Android lane's equivalent agree. They are asserted separately, in two
  *    languages, against two implementations of one rule, and only a human reading both keeps them
  *    in step. Nothing in either build fails when they drift.
+ *  - that this file is RUN. `frontend/package.json` now declares `test:unit`, but no workflow invokes
+ *    it: `.github/workflows/` holds android-build, deploy-backend, deploy-frontend and
+ *    keep-supabase-active. Until one of them runs `npm run test:unit`, every assertion here is a note
+ *    to whoever remembers to type the command — and a spec that is DELETED is as green as a spec
+ *    that passes.
+ *  - that the seven per-form DICTATION registers agree with the assertions above. The registers are
+ *    prose and this file is regex; only a human reading both keeps them in step. A box whose
+ *    microphone is removed leaves a register claiming it has one, and the register is the only thing
+ *    that distinguishes a decision from an oversight.
+ *  - that a REMOUNT actually clears a box. The `key=` assertions prove the key is WRITTEN, not that
+ *    React tears the component down — that needs a browser. The two bugs this commit fixes (the
+ *    crafts and workshops form keys) are both of that shape, and a regex is the weakest possible
+ *    guard on them.
+ *  - ANYTHING ON `/questionnaire`. That page was owned by another lane while this sweep ran and is
+ *    untouched here: its three header boxes, its per-answer microphones and the Builder's
+ *    add-question box (which needs a per-section nonce, or `formElement.reset()` leaves the prompt
+ *    in the box and the next press files the SAME question again) are all still to do. There are
+ *    deliberately NO assertions about that file above, because an assertion about work nobody has
+ *    done is a red spec, not a reminder — this paragraph is the reminder.
+ *  - that `MultiNoteField`'s note rows have a microphone. They DID NOT when this file was written —
+ *    that control lives in `components/FormControls.tsx`, which was outside this change — and they
+ *    do now: the record-parity sweep added the per-note button, and
+ *    `e2e/record-parity-fields-unit.spec.ts` is what holds it and its three arguments in place. This
+ *    bullet is kept rather than deleted because the gap it describes was real and the reasoning for
+ *    closing it is worth being able to find; what is NOT still true is the claim in its last
+ *    sentence, and `/questionnaire` remains the one mount site with no `DictationUnavailableNotice`
+ *    over it, which the record-parity spec asserts as a named gap rather than a rule.
  */

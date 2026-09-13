@@ -70,6 +70,27 @@ table can see who holds it. The columns stay (dropping them is neither safe nor 
 live account below Professor holds either), simply unread. Restoring the old behaviour is putting one
 clause back in each function.
 
+**`canManageQuestionnaire` DOES NOT OPEN THE WORKBOOK, AND THE TWO GATES ARE DIFFERENT KINDS OF
+PREDICATE.** This is the one asymmetry in this document most likely to be filed as a bug, so it is
+written down rather than left to be discovered:
+
+* `can_manage_questionnaire` (`deps.py:67-70`) is a **RANK FLOOR** — `has_rank(user, "PROFESSOR")
+  or user.canManageQuestionnaire`. It opens the section and question editor on `/questionnaire`:
+  adding one question, renaming one section, switching one question off. Each of those is a single,
+  visible, reversible act against a row the person is looking at.
+* `is_admin` (`deps.py:59-60`) is **SET MEMBERSHIP** over `{"MASTER_ADMIN", "ADMIN"}`. It is what
+  guards every questionnaire **workbook** route, because one spreadsheet re-states the WHOLE
+  instrument: a professor who downloaded the questionnaire, deleted the rows they were not
+  interested in and uploaded the file would retire every question they deleted, across twenty-two
+  sections, against interviews already recorded by forty researchers. Nothing is LOST — the
+  edit-after-answers rule sees to that — but the blast radius of one press is the difference.
+
+The consequence of a floor beside a set is that **any rank inserted between PROFESSOR (40) and ADMIN
+(50) gains the editor automatically and is refused the workbook automatically**, whatever it is
+called. That is deliberate. Changing it means widening the set literal in `is_admin`, which is a
+decision, and `backend/tests/test_permission_matrix.py` asserts both halves so that it has to be made
+on purpose.
+
 ---
 
 ## 2. The capability matrix
@@ -92,6 +113,9 @@ gate list; each row names the function in `deps.py` that decides it.
 | Create or edit a **craft** | `require_craft_manager` | ⬜ | ⬜ | ⬜ | ✅ | ✅ | ✅ |
 | Create or edit a **workshop** | `require_workshop_manager` | ⬜ | ⬜ | ⬜ | ✅ | ✅ | ✅ |
 | Edit the **questionnaire structure** | `require_questionnaire_manager` | grant | grant | grant | ✅ | ✅ | ✅ |
+| Create / rename / retire a **questionnaire** | `require_questionnaire_manager` | grant | grant | grant | ✅ | ✅ | ✅ |
+| **Assign a questionnaire to a workshop** | `require_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
+| **Set the default questionnaire** | `require_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
 | **Download the dataset** / Data Browser | `require_dataset_downloader` | grant | grant | grant | ✅ | ✅ | ✅ |
 | View the **user table**, promote / demote | `require_professor` | ⬜ | ⬜ | ⬜ | ✅ | ✅ | ✅ |
 | **Create** or **delete** a user account | `require_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
@@ -117,6 +141,16 @@ Two asymmetries in that table are deliberate and easy to misread:
 - **The review ladder reaches one tier further down than the edit ladder.** A Field Contributor may
   *review* a volunteer's record but may not *rewrite* it — reviewing is a judgement, editing is
   authorship, and `can_edit_others_record` narrows to Professor and above for exactly that reason.
+- **Building a questionnaire and choosing WHICH questionnaire are two different tiers.** Since
+  2026-09-13 there is more than one questionnaire, and the three new rows above split accordingly.
+  Creating, renaming, retiring an instrument and editing its sections and questions all stay at
+  `require_questionnaire_manager` — a Professor who can build the form must not lose the ability to
+  build it. Setting the **default** and binding one to a **workshop** are `require_admin`, because
+  neither is an edit to a form: the default is where every client that names no questionnaire lands
+  (including Android builds that predate the field, and offline payloads queued before them), and a
+  workshop binding decides which questions every researcher at that event is shown. The narrowing is
+  applied to exactly those two routes and `tests/test_permission_matrix.py` asserts it did not leak
+  onto `POST /questionnaire/sections`.
 
 ### 2.1 Create, edit, delete — as a decision tree
 
@@ -392,6 +426,8 @@ every one of these routes is reachable by typing the URL.
 | `/admin` | `isAdmin` | `require_admin` |
 | `/settings/api-keys` | `isAdmin` (key **values** are master-admin inside the page) | `require_admin` / `require_master_admin` |
 | `/settings/tasks` | `canAssignTasks` | `require_admin` |
+| `/admin/access-roster` | `canManageAccessRoster` | `require_admin` |
+| `/questionnaire/workbooks` | `isAdmin` | `require_admin` |
 | `/review` | `canReview` | `require_reviewer` |
 | `/data` | `canDownloadDataset` | `require_dataset_downloader` |
 | `/artisans/new`, `/products/new`, `/tools/new` | `canCreateRecords` | `require_record_creator` |
@@ -400,6 +436,14 @@ Anything unlisted is open to any signed-in user, which is the correct default fo
 Matching is by path segment and the **longest** rule wins, so `/artisans/new` can be stricter than
 `/artisans`. Admin-view is deliberately not consulted — it is a display preference, not a permission,
 and must never lock an admin out of a URL the API would serve.
+
+`/questionnaire/workbooks` is the one row where the longest-match rule is load-bearing rather than
+convenient. `/questionnaire` itself is **open to every signed-in user** — a crowdsource volunteer
+answering an interview is what the app is for — and is deliberately absent from this table. Only the
+workbook leaf is admin-gated, because uploading one spreadsheet re-states the whole instrument and
+everything absent from the file is removed by rule. Adding or editing ONE question stays at
+`require_questionnaire_manager`. See §1.1's note below for why those two gates are not the same
+KIND of predicate.
 
 `ROUTE_REDIRECTS` handles the different case where a page *has* an ordinary-user twin: a researcher
 opening `/workshop-access/manage` is sent to `/workshop-access/request`, because a padlock would be

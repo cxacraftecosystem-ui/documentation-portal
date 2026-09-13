@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 
+import { RequiredMark } from "@/components/ui/RequiredMark";
 import { apiFetch, buildQuery } from "@/lib/api";
 import type { AadhaarLookupResult, ArtisanIdentityMatch } from "@/lib/types";
 
@@ -271,7 +272,8 @@ export function AadhaarField({
   return (
     <div className="relative grid content-start gap-1">
       <label className="field-label" htmlFor={inputId}>
-        Aadhaar number{required ? " *" : ""}
+        Aadhaar number
+        <RequiredMark when={required} />
       </label>
       <input
         ref={inputRef}

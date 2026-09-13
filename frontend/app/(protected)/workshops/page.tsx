@@ -8,7 +8,7 @@ import { CollabDialog } from "@/components/CollabDialog";
 import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { FieldProvenance } from "@/components/FieldProvenance";
-import { Field, MultiNoteField, Select, TextArea, TextInput } from "@/components/FormControls";
+import { Field, MultiNoteField, Select } from "@/components/FormControls";
 import { DateRangeField } from "@/components/forms/DateRangeField";
 import { LocationFields, type LocationInitialValues } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
@@ -16,6 +16,9 @@ import { useEditDeepLink } from "@/components/hooks/useEditDeepLink";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { UploadProgress } from "@/components/media/UploadProgress";
 import { UploadTray } from "@/components/media/UploadTray";
+import { DictatedTextArea } from "@/components/richtext/DictatedTextArea";
+import { DictatedTextInput } from "@/components/richtext/DictatedTextInput";
+import { DictationUnavailableNotice } from "@/components/richtext/DictationUnavailableNotice";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { ResizableTh } from "@/components/ResizableTh";
@@ -74,6 +77,42 @@ const statusOptions: RecordStatus[] = ["DRAFT", "PENDING", "APPROVED", "REJECTED
 const MEDIA_SECTION = "workshop-media";
 const MEDIA_SECTION_LABEL = "Workshop media";
 
+/**
+ * WHAT KIND OF WORKSHOP A `Workshop` ROW RECORDS — the two tokens, and the words for them.
+ *
+ * A Design & Prototype Development Workshop and an ordinary documentation visit are both `Workshop`
+ * rows and, until migration 20260913120300, nothing told them apart. `OTHER` is the default and is
+ * what every row recorded before that column implicitly was.
+ *
+ * WHY THIS PRODUCT OFFERS A TOKEN IT HAS NO SCREEN FOR. There is no DesignWorkshop table in this
+ * repository and this control does not add one. The two products coordinate their record
+ * vocabularies on purpose — the same argument that pins `experienceYears` to 0..90 here because the
+ * sibling registry uses that bound — so a workshop recorded here that the sibling later adopts must
+ * be able to carry the same mark. **A column no client can set is a column that can never hold
+ * `DESIGN_PROTOTYPE`**: the wire half (schemas, the `GET /workshops?workshopType=` filter,
+ * `lib/types.ts`, Android's `ApiModels.kt`) shipped with the migration and this control is what
+ * makes it reachable.
+ *
+ * THE LABELS ARE THE SIBLING'S, VERBATIM (`Design & Prototype Development Workshop` / `Other
+ * workshop`, frontend/lib/types.ts:339-342 over there, and its Android
+ * `MainActivity.kt:5832`). The stored value is a Postgres enum and the label is a sentence:
+ * "DESIGN_PROTOTYPE" is not something to print at a researcher, and two products printing two
+ * different sentences for one enum value is how one decision comes to be described two ways.
+ *
+ * DECLARED HERE RATHER THAN IN `lib/types.ts`, which is where the sibling keeps its copy and where
+ * this one belongs: that file was outside this change's reach. Moving it is a one-line export and
+ * is named in the handoff — until then this page is the only consumer, so there is exactly one copy
+ * either way.
+ *
+ * THE ORDER IS DESIGN_PROTOTYPE FIRST AND `OTHER` DEFAULTED. A researcher on this screen is
+ * recording an ordinary visit far more often than not, so the DEFAULT is the honest one; the order
+ * is the sibling's, so the two pickers read the same way round.
+ */
+const WORKSHOP_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "DESIGN_PROTOTYPE", label: "Design & Prototype Development Workshop" },
+  { value: "OTHER", label: "Other workshop" }
+];
+
 export default function WorkshopsPage() {
   return (
     <UploadsProvider>
@@ -86,6 +125,44 @@ export default function WorkshopsPage() {
   );
 }
 
+/**
+ * ── DICTATION ON THE WORKSHOP FORM: WHICH BOXES HAVE A MICROPHONE, AND WHY THE REST DO NOT ─────
+ *
+ * DICTATED: Workshop title · Place · Description · (and Village, inside the location card, which owns
+ * its own decision).
+ *
+ * NOT DICTATED, one line each:
+ *
+ *  - **Workshop duration** — dates. A recogniser hands back "the fourth of March", and both readings
+ *    of an ambiguous spoken date are BOTH valid dates, so a mis-transcribed one is a defect nothing
+ *    reports.
+ *  - **Status, Workshop kind** — closed vocabularies, and below professor there is no status control
+ *    at all. "Workshop kind" is two options; there is no free text to speak and nothing a recogniser
+ *    could add but a mis-hearing.
+ *  - **Linked artisans, Crafts covered** — record pickers behind a themed multi-select.
+ *  - **Workshop media** — a file picker.
+ *
+ * **Notes** — `MultiNoteField` — is a free-prose box and now has a microphone PER ROW, exactly as
+ * `ProcessForm`'s `MultiNoteInput` does. It was the one gap on this form for as long as
+ * `components/FormControls.tsx` was outside the reach of the sweep that dictated everything else;
+ * the record-parity sweep closed it there, so every free-prose box on this screen has a microphone
+ * and the sentence below still speaks for all of them.
+ *
+ * `titleCased` ON TITLE AND PLACE. Both `Workshop.title` and `Workshop.place` are in the API's
+ * title-cased set (`backend/app/services/records.py:347-348`), so the box says what will actually be
+ * stored. The sibling application omits `titleCased` on both of these boxes while applying it to the
+ * same two columns on its questionnaire screen — it is inconsistent with itself, and the backend is
+ * the authority.
+ *
+ * THE FORM KEY IS A BUG FIX. See `resetForm`: `editing?.id ?? "new"` does not change between two
+ * consecutive NEW workshops, so the form was never rebuilt and the self-controlled description box
+ * would have carried the previous workshop's text into the next one.
+ *
+ * ONE SENTENCE FOR THE WHOLE FORM: every control passes `explainWhenUnavailable={false}` and
+ * `DictationUnavailableNotice` sits once at the top of the field grid. The sibling application ships
+ * this same screen with the flags and NO notice, which on Firefox is three microphones vanishing with
+ * nothing anywhere saying why. That line is not optional.
+ */
 function WorkshopsPageBody() {
   const confirm = useConfirm();
   const { user } = useAuth();
@@ -103,6 +180,17 @@ function WorkshopsPageBody() {
   const [applied, setApplied] = useState("");
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<Workshop | null>(null);
+  /*
+    THE TWO DICTATED ONE-LINE BOXES, AND THE KEY THAT CLEARS THE THIRD.
+
+    `DictatedTextInput` is controlled by its caller, so `title` and `place` live here and are seeded
+    by `resetForm`. The description is a `DictatedTextArea`, which owns its own value and re-seeds
+    only on REMOUNT — so `formKey` is what clears it. Both exist because `formElement.reset()` (in
+    `submit`) rewrites the DOM and tells React nothing: neither kind of box is reachable from it.
+  */
+  const [title, setTitle] = useState("");
+  const [place, setPlace] = useState("");
+  const [formKey, setFormKey] = useState(0);
   // Both link pickers are themed MultiSelectDropdowns, which are React state rather than form
   // controls, so the selections live here and are read straight out of state at submit time. They
   // are re-seeded in `resetForm` — the one place a different workshop is ever loaded into the form.
@@ -239,6 +327,17 @@ function WorkshopsPageBody() {
     setCraftIds(linkedCraftIds(next));
     setMediaFiles([]);
     setDirty(false);
+    // The controlled, dictated boxes. `""` and not `undefined` — a controlled input handed undefined
+    // switches to uncontrolled, React warns, and the box keeps the last record's text.
+    setTitle(next?.title ?? "");
+    setPlace(next?.place ?? "");
+    // ── AND THE FORM IS REMOUNTED, WHICH IS A BUG FIX AND NOT A TIDY-UP ─────────────────────
+    // The `<form>` was keyed `editing?.id ?? "new"` alone, so saving a NEW workshop did not change
+    // the key and the form was not rebuilt: `formElement.reset()` was the whole of the clearing, and
+    // that reaches uncontrolled DOM inputs and nothing else. The description box — now a
+    // `DictatedTextArea`, which owns its value — would have kept the workshop just saved. Identical
+    // trap and identical fix on `/crafts`; nobody had noticed it here either.
+    setFormKey((key) => key + 1);
   }
 
   // `/workshops?edit=<id>` loads that workshop into the form below; `/workshops?new=1` opens a blank
@@ -275,6 +374,21 @@ function WorkshopsPageBody() {
       const location = locationFromForm(form);
       const payload: Record<string, unknown> = {
         title,
+        /*
+          SENT ON BOTH CREATE AND UPDATE, AND NEVER OMITTED.
+
+          `WorkshopUpdate.workshopType` is `str | None = None` and the route dumps with
+          `exclude_unset=True`, so an omitted key means "leave the stored kind alone" — which sounds
+          like the safe default and is the wrong one HERE, because this picker is always on screen
+          holding a value the editor can see. Omitting it would mean a researcher who switched the
+          dropdown to "Other workshop" and pressed Update got a 200 and no change, with the picker
+          still reading Other until the page was reloaded.
+
+          `requiredText` and not `textValue`: the picker has no empty row, so a null here could only
+          mean the control failed to mount, and sending null would be a 422 from a non-nullable
+          create field rather than a silent miss.
+        */
+        workshopType: requiredText(form, "workshopType") || "OTHER",
         date: requiredText(form, "date"),
         startDate: requiredText(form, "startDate"),
         endDate: requiredText(form, "endDate"),
@@ -420,7 +534,7 @@ function WorkshopsPageBody() {
       {allowManage ? (
       <form
         ref={formRef}
-        key={editing?.id ?? "new"}
+        key={`${editing?.id ?? "new"}-${formKey}`}
         onSubmit={submit}
         onInput={() => setDirty(true)}
         onKeyDown={handleFormEnter}
@@ -439,15 +553,71 @@ function WorkshopsPageBody() {
           </div>
         ) : null}
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-          <Field label="Workshop title" required>
-            <TextInput name="title" required defaultValue={editing?.title ?? ""} />
-          </Field>
-          <Field label="Place" required>
-            <TextInput name="place" required defaultValue={editing?.place ?? ""} />
-          </Field>
+          {/*
+            THE ONE PLACE THIS FORM EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.
+            Every dictated box below passes `explainWhenUnavailable={false}`; without this line, on
+            Firefox they would simply vanish and nothing anywhere would say why. `md:col-span-2
+            lg:col-span-4` because this is a child of the four-column field grid.
+          */}
+          <DictationUnavailableNotice className="md:col-span-2 lg:col-span-4" />
+          {/* `name` IS LOAD-BEARING ON BOTH OF THESE. `submit` reads them with
+              `requiredText(form, "title")` and `requiredText(form, "place")` out of a `FormData`, so
+              a dropped attribute is a save that refuses with a message about an empty box that is
+              plainly not empty. `setDirty(true)` BY HAND because a dictated phrase is a React state
+              write and fires no native `input` event for the form's `onInput` to catch. */}
+          <DictatedTextInput
+            name="title"
+            label="Workshop title"
+            required
+            titleCased
+            explainWhenUnavailable={false}
+            value={title}
+            onChange={(next) => {
+              setTitle(next);
+              setDirty(true);
+            }}
+          />
+          <DictatedTextInput
+            name="place"
+            label="Place"
+            required
+            titleCased
+            explainWhenUnavailable={false}
+            value={place}
+            onChange={(next) => {
+              setPlace(next);
+              setDirty(true);
+            }}
+          />
           <div className="md:col-span-2">
             <DateRangeField start={editing?.startDate ?? editing?.date} end={editing?.endDate ?? editing?.date} />
           </div>
+          {/*
+            WHAT KIND OF WORKSHOP THIS IS — see `WORKSHOP_TYPE_OPTIONS` above for the two tokens, the
+            wording and why this product carries a kind it has no screen for.
+
+            `onChange={() => setDirty(true)}` BY HAND, like every other themed control on this form:
+            a `Select` renders a `<button>` and fires no native input event, so the form's
+            `onInput={markDirty}` never sees it and a workshop whose only edit was its KIND would
+            leave the page without the unsaved-changes guard saying a word.
+
+            NO PERMISSION BRANCH, unlike Status beside it. `WorkshopCreate`/`WorkshopUpdate` accept
+            this from anybody the route already lets write the workshop — there is no rank rule to
+            mirror, and inventing one here would be a frontend guard with no server behind it.
+          */}
+          <Field label="Workshop kind">
+            <Select
+              name="workshopType"
+              defaultValue={editing?.workshopType ?? "OTHER"}
+              onChange={() => setDirty(true)}
+            >
+              {WORKSHOP_TYPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
           <Field label="Status">
             {canSetStatus ? (
               <Select name="status" defaultValue={editing?.status ?? "APPROVED"} onChange={() => setDirty(true)}>
@@ -461,9 +631,13 @@ function WorkshopsPageBody() {
               </div>
             )}
           </Field>
-          <Field label="Description">
-            <TextArea name="description" defaultValue={editing?.description ?? ""} />
-          </Field>
+          <DictatedTextArea
+            name="description"
+            label="Description"
+            defaultValue={editing?.description ?? ""}
+            explainWhenUnavailable={false}
+            onDirty={() => setDirty(true)}
+          />
           <MultiNoteField defaultValue={editing?.notes ?? ""} />
           {/* Both link pickers use the same themed multi-select as every other one in the app; the
               selections are React state, not FormData (see the note on `artisanIds` above). */}

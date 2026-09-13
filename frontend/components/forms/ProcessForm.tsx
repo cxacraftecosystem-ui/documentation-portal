@@ -12,9 +12,12 @@ import { FieldProvenance } from "@/components/FieldProvenance";
 import { CarryContextBanner, carryScope, useCarryContext, type CarryScopeState } from "@/components/forms/CarryContextBanner";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { useRecordOffPage } from "@/components/forms/recordPickers";
-import { TitleCasedInput } from "@/components/forms/TitleCasedInput";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
 import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
+import { DictatedTextInput } from "@/components/richtext/DictatedTextInput";
+import { appendDictatedPhrase } from "@/components/richtext/dictatedValue";
+import { DictationUnavailableNotice } from "@/components/richtext/DictationUnavailableNotice";
+import { RichTextField } from "@/components/richtext/RichTextField";
 import { StatusBadge } from "@/components/StatusBadge";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import { apiFetch, listResource } from "@/lib/api";
@@ -57,6 +60,22 @@ export type ProcessRecord = {
   createdAt: string;
   createdById?: string;
   createdBy?: User;
+  /**
+   * Idempotency key for an offline create. WRITTEN BY THE OUTBOX, NEVER BY THIS FORM, and absent on
+   * every row nobody replayed.
+   *
+   * DECLARED HERE AND NOT IN `lib/types.ts` ONLY BECAUSE `ProcessRecord` ITSELF IS. The other three
+   * keyed records — `Workshop`, `ProductDocumentation`, `ToolDocumentation` — carry the same field
+   * beside their own declarations over there; this type is local to this file, so its copy is local
+   * too, and the canonical argument lives at `Workshop.clientKey`.
+   *
+   * IT IS ON THE RESPONSE SHAPE, NOT THE REQUEST. `saveOrQueue` merges the key into the body on a
+   * POST to one of `CLIENT_KEY_ENDPOINTS` (`lib/offline.ts`), so the form never mentions it — but
+   * the created record comes BACK carrying it, and `saveOrQueue<ProcessRecord>` below types that
+   * answer. Without this line a reader comparing the wire to the type would conclude the key is
+   * dropped on the way back, which is the sort of absence that gets "fixed" by removing the key.
+   */
+  clientKey?: string | null;
 };
 
 const STATUS_OPTIONS = ["DRAFT", "PENDING", "APPROVED", "REJECTED"];
@@ -224,21 +243,24 @@ function MultiNoteInput({ label, value, onChange }: { label: string; value: stri
             have to guess which note the phrase belongs in, and its only defensible guess (the last
             one) is wrong exactly when somebody is going back to fill in note two.
 
-            `explainWhenUnavailable` is on for the FIRST ROW ONLY. On Firefox the alternative is the
-            same three-line paragraph repeated once per note, and a paragraph repeated four times is
-            not honesty, it is noise that stops being read. One copy, carried by the first row, with
-            every other row silent.
+            `explainWhenUnavailable={false}` ON EVERY ROW. The first row used to carry the sentence,
+            which was right while these were the only microphones on the page. The process name, every
+            step name and the whole-process notes box each have one now, so "once per note group"
+            became once per STEP — the form says it exactly once at the top instead
+            (`DictationUnavailableNotice`, mounted beside the workshop picker). The sentence is not
+            gone; it moved.
 
-            The joiner is the same one `DictatedTextArea` uses, and for the same reason: the
-            recogniser stops and starts across a long answer, so a commit APPENDS, and without the
-            space a note dictated in three goes comes out as "…the warpis sized…".
+            The joiner is `appendDictatedPhrase`, shared with both dictated boxes rather than written
+            out here for a third time — same rule, one place, see `richtext/dictatedValue.ts`. The
+            reason has not changed: the recogniser stops and starts across a long answer, so a commit
+            APPENDS, and without the space a note dictated in three goes comes out as
+            "…the warpis sized…".
           */}
           <OnDeviceDictationButton
             fieldLabel={rows.length > 1 ? `${label}, note ${index + 1}` : label}
-            explainWhenUnavailable={index === 0}
+            explainWhenUnavailable={false}
             onCommit={(phrase) => {
-              const joiner = !note || /\s$/.test(note) ? "" : " ";
-              emit(rows.map((n, i) => (i === index ? `${note}${joiner}${phrase}` : n)));
+              emit(rows.map((n, i) => (i === index ? appendDictatedPhrase(note, phrase) : n)));
             }}
           />
         </div>
@@ -255,6 +277,40 @@ function MultiNoteInput({ label, value, onChange }: { label: string; value: stri
 // The process form (create + edit) — Android ProcessForm parity.
 // ---------------------------------------------------------------------------
 
+/**
+ * ── DICTATION ON THIS FORM: WHICH BOXES HAVE A MICROPHONE, AND WHY THE REST DO NOT ──────────────
+ *
+ * The rule: a free-text box HAS a microphone unless there is a reason it must not, and the reason is
+ * written down here so that a later reader can tell a decision from an oversight.
+ *
+ * DICTATED: Name of the process · What happens in this process (the narrative box, new here) · Name
+ * of the step, once per step · Additional context for this step, once per NOTE ROW per step.
+ *
+ * NOT DICTATED, one line each:
+ *
+ *  - **Workshop, Artisan, Product, Status** — record pickers and a closed vocabulary. The artisan is
+ *    the one that decides which product list appears, so it is chosen from a list and never typed.
+ *  - **Pre-processes available / Record additional information** — checkboxes. A recogniser answers a
+ *    yes/no question with a sentence.
+ *  - **Pre-process media, per-step media** — file pickers.
+ *
+ * ── TWO THINGS ON THIS FORM ARE UNLIKE EVERY OTHER FORM IN THE APP ─────────────────────────
+ *
+ * 1. NO `FormData`, EVER. `submit()` builds its body out of React state (see `payload`), so no child
+ *    here may rely on a hidden input or a `name=` attribute: `DictatedTextInput` is mounted WITHOUT
+ *    `name` on both boxes, and the notes editor reports its value through `onValueChange` rather than
+ *    through the hidden input every other form reads. A `name=`-only child on this form submits
+ *    nothing, silently.
+ *
+ * 2. THE UNSAVED-CHANGES GUARD IS A SIGNATURE DIFF, not an `onDirty` event. Any new value must join
+ *    `signature` or it is a box a researcher can fill in, navigate away from, and be told there was
+ *    nothing to lose. `notes` is in it for exactly that reason.
+ *
+ * And one that follows from the first: this `<form>` carries `noValidate`. The refusal ladder in
+ * `submit()` is the ONLY refusal path, because `UnsavedChangesDialog`'s Save button calls `submit()`
+ * directly and never goes through the browser's constraint validation. Shipping `required` without
+ * `noValidate` would give the two save buttons two different refusals for the same empty box.
+ */
 export function ProcessForm({
   initial,
   onDone,
@@ -275,9 +331,10 @@ export function ProcessForm({
   const [artisanId, setArtisanId] = useState(initial?.product?.artisanId ?? "");
   const [productId, setProductId] = useState(initial?.productId ?? "");
   const [preProcessAvailable, setPreProcessAvailable] = useState(initial?.preProcessAvailable ?? false);
-  // Android parity: the whole-process notes field has no input in the form; it is carried through
-  // unchanged on edit so nothing typed elsewhere is lost.
-  const notes = initial?.notes ?? "";
+  // Was carried through unchanged from `initial` because this form had no input for it — Android's
+  // ProcessForm still has none. It has one now (the narrative editor below), so this is live state
+  // rather than a constant, and it joins `signature` so the guard can see it change.
+  const [notes, setNotes] = useState(initial?.notes ?? "");
   // Status policy: professor+ defaults to APPROVED on create and may pick any status; below
   // professor the status is forced to PENDING (locked chip below) and the server enforces it too.
   const [status, setStatus] = useState<string>(initial?.status ?? (canPickStatus ? "APPROVED" : "PENDING"));
@@ -454,6 +511,11 @@ export function ProcessForm({
     productId: productId && productId === carriedProductId ? "" : productId,
     workshopId: workshop.touched ? workshop.workshopId : "",
     status,
+    // IN THE SIGNATURE, because this form's unsaved-changes guard is a DIFF of state rather than an
+    // `onDirty` event — so a box left out of it is a box a researcher can fill in, navigate away
+    // from, and be told there was nothing to lose. `RichTextField` reports its value through
+    // `onValueChange`, which lands in `notes`, which lands here.
+    notes,
     preProcessAvailable,
     pre: preFiles.length,
     steps: steps.map((step) => ({
@@ -727,6 +789,27 @@ export function ProcessForm({
   return (
     <form
       className="panel grid gap-4 p-5"
+      /*
+        THE ONLY `noValidate` IN THIS REPOSITORY, AND IT IS NOT A LICENCE TO COPY.
+
+        The two dictated boxes below carry `required`, which every other form in the app relies on
+        the browser to enforce. Here that would be a SECOND refusal mechanism: `submit()` already
+        refuses an empty name, sets `nameError`, and moves focus to the offending control by id
+        (`document.getElementById(focusId)?.focus()`). Without this attribute the submit button would
+        show a browser bubble before `submit()` ever ran — making `nameError` and the focus ladder
+        dead code for the empty case — while `UnsavedChangesDialog`'s Save button, which calls
+        `submit()` DIRECTLY, would still show the red paragraph. Two save buttons, two different
+        refusals, for the same empty box.
+
+        So the JS ladder is the single refusal path and `required` stays for what it still does: the
+        asterisk beside the label and `aria-required` for a screen reader.
+
+        DO NOT PUT THIS ON ANY OTHER FORM. Everywhere else `Select`'s zero-size mirror input exists
+        precisely so that native validation keeps working (`components/FormControls.tsx:198-213`);
+        `noValidate` would disarm every one of them at once. It is safe here only because this form
+        has no `name` attributes, no `FormData` and no mirrors at all.
+      */
+      noValidate
       onKeyDown={handleFormEnter}
       onSubmit={(event) => {
         event.preventDefault();
@@ -744,21 +827,51 @@ export function ProcessForm({
       {error ? <div className="rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-error-600">{error}</div> : null}
       <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
 
+      {/*
+        THE ONE PLACE THIS FORM EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.
+        Every dictated control below passes `explainWhenUnavailable={false}`, including the per-note
+        buttons inside `MultiNoteInput`, which used to elect their first row to carry the sentence.
+        That was right while the notes were the only microphones on the page; with a process name, a
+        notes editor, a step name per step and a note per row it would be one paragraph per step,
+        which is the noise the button's own prop documentation warns about.
+      */}
+      <DictationUnavailableNotice />
+
       {/* Android parity (ProcessForm): the workshop opens the form, because it is the context
           every other answer belongs to — not merely the first dropdown. */}
       <WorkshopSelect state={workshop} saving={saving} />
 
       <div>
-        <Field label="Name of the process" required>
-          {/* `name` is one of the API's title-cased columns, so the box says what will actually be
-              stored (Android parity — see components/forms/TitleCasedInput). */}
-          <TitleCasedInput
-            id="process-name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </Field>
-        {nameError ? <p className="mt-1 text-xs text-error-600">{nameError}</p> : null}
+        {/*
+          `name` is one of the API's title-cased columns (`backend/app/services/records.py:341`), so
+          the box says what will actually be stored; `titleCased` mounts that exact component inside
+          the dictated box rather than copying its hint.
+
+          NOT WRAPPED IN `Field` ANY MORE, and that is required rather than incidental: `Field` is a
+          `<label>`, and a `<label>` forwards a stray click to the first labelable control inside it —
+          so clicking "Dictate" would also focus the box and, on a phone, throw the keyboard up over
+          the interim readout the researcher is watching. The control writes its own `<label htmlFor>`
+          instead, and `id="process-name"` is passed EXPLICITLY because `submit()` reaches this box by
+          `document.getElementById` when it refuses an empty name. A generated id would make that
+          refusal a red paragraph nobody is taken to.
+
+          NO `name` ATTRIBUTE: this form builds its body from React state and never constructs a
+          `FormData`, so a submitted name would be read by nobody.
+        */}
+        <DictatedTextInput
+          id="process-name"
+          label="Name of the process"
+          required
+          titleCased
+          explainWhenUnavailable={false}
+          value={name}
+          aria-invalid={!!nameError}
+          /* `TitleCasedInput` MERGES an incoming `aria-describedby` with its own "Will be saved as …"
+             hint rather than replacing it, so the refusal and the hint are both announced. */
+          aria-describedby={nameError ? "process-name-error" : undefined}
+          onChange={(next) => setName(next)}
+        />
+        {nameError ? <p id="process-name-error" className="mt-1 text-xs text-error-600">{nameError}</p> : null}
       </div>
 
       <div>
@@ -843,6 +956,50 @@ export function ProcessForm({
         {productError ? <p className="mt-1 text-xs text-error-600">{productError}</p> : null}
       </div>
 
+      {/*
+        THE ONE LARGE NARRATIVE BOX ON THIS FORM, and the first web input this column has ever had.
+
+        `Process.notes` was carried through unchanged on edit because nothing here wrote it (the old
+        comment at this component's state block said so). It is a sequence described in the
+        researcher's own words, which is the definition of a larger box under the rule that decided
+        every other editor in this app, and it is the one field the sibling application surfaces here
+        that this one did not.
+
+        `onValueChange` and NOT the hidden input every other form reads: this form builds its request
+        body out of React state and never constructs a `FormData`, so `textValue(form, "notes")` has
+        nothing to read and a `name=`-only child would silently submit nothing. `defaultValue` is
+        seeded once from `initial` and the reported string is deliberately NOT fed back — see the note
+        on `initialValue` inside `RichTextField` for the caret that would throw to position zero on
+        every keystroke. `name="notes"` is kept anyway, because it is what the editor announces itself
+        as and costs nothing; it is `onValueChange` that carries the value.
+
+        NO `className`: the form's root grid is a SINGLE column (`panel grid gap-4 p-5`), so there is
+        nothing here for `md:col-span-2` to span. On the two-column record forms that prop is
+        load-bearing; here it would be cargo.
+
+        THE STORAGE COST IS THE SAME BOUNDED ONE THE OTHER SEVEN EDITORS ALREADY CARRY.
+        `encodeStoredRichText` writes PROSE for as long as the document is unformatted, so an
+        unformatted note is byte-identical to what a `<TextArea>` would have written; only a
+        deliberately formatted one becomes `{"blocks":…}`, which `record_fields.cell()` then prints
+        verbatim into a CSV. That trade was made for `Artisan.notes`, `Product.remarks` and five
+        others — see the header of `components/richtext/storedRichText.ts` — and this column joins
+        them rather than inventing a second answer.
+
+        IT IS THE WHOLE-PROCESS COLUMN AND NOT THE STEP COLUMN. `ProcessStep.notes` stays several
+        plain textareas inside `MultiNoteInput` above, because two platforms split THAT column on a
+        blank line and a document in one of its rows comes back as one note holding JSON. The two
+        columns are different and only one of them gets an editor.
+      */}
+      <RichTextField
+        name="notes"
+        label="What happens in this process"
+        defaultValue={initial?.notes ?? ""}
+        helper="The sequence in your own words."
+        onValueChange={setNotes}
+        // Said once at the top of this form by `DictationUnavailableNotice`.
+        explainWhenUnavailable={false}
+      />
+
       <label className="flex items-center gap-2 text-sm text-ink-900">
         <input
           type="checkbox"
@@ -891,15 +1048,28 @@ export function ProcessForm({
                 </button>
               </div>
               <div>
-                <Field label="Name of the step" required>
-                  <input
-                    className="field-input"
-                    id={`step-name-${step.key}`}
-                    value={step.name}
-                    onChange={(event) => updateStep(step.key, { name: event.target.value })}
-                  />
-                </Field>
-                {step.nameError ? <p className="mt-1 text-xs text-error-600">{step.nameError}</p> : null}
+                {/* A step's name is free prose ("beating the weft down", "second indigo dip") and it
+                    sits directly above the per-note microphones this card already carried, so leaving
+                    it as the one silent box in the card was the odd thing. Its id stays keyed on the
+                    step, because `submit()` focuses it by `document.getElementById` when it refuses an
+                    unnamed step. NOT title-cased: the nested `steps[].name` never passes through
+                    `clean_data`'s top-level key set (`records.py:357-371` iterates `data.items()`
+                    only), so a hint would promise a normalisation that does not happen. */}
+                <DictatedTextInput
+                  id={`step-name-${step.key}`}
+                  label="Name of the step"
+                  required
+                  explainWhenUnavailable={false}
+                  value={step.name}
+                  aria-invalid={!!step.nameError}
+                  aria-describedby={step.nameError ? `step-name-${step.key}-error` : undefined}
+                  onChange={(next) => updateStep(step.key, { name: next })}
+                />
+                {step.nameError ? (
+                  <p id={`step-name-${step.key}-error`} className="mt-1 text-xs text-error-600">
+                    {step.nameError}
+                  </p>
+                ) : null}
               </div>
               <SavedMediaList
                 items={step.existingMedia}

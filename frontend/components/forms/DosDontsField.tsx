@@ -3,6 +3,8 @@
 import { Plus, X } from "lucide-react";
 import { useRef, useState } from "react";
 
+import { RequiredMark } from "@/components/ui/RequiredMark";
+
 /** Android parity (MainActivity.kt splitNumbered): stored newline-joined string → editable rows. */
 function splitNumbered(value: string | null | undefined): string[] {
   const rows = (value ?? "")
@@ -78,7 +80,7 @@ export function DosDontsField({
     <div className="relative grid content-start gap-1.5">
       <span className="field-label">
         {label}
-        {required ? " *" : ""}
+        <RequiredMark when={required} />
       </span>
       {helper ? <p className="text-xs text-ink-muted">{helper}</p> : null}
       {items.map((item, index) => (

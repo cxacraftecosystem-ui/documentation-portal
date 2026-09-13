@@ -2,7 +2,10 @@
 
 import { Children, isValidElement, useMemo, useState, type ReactNode, type SelectHTMLAttributes } from "react";
 
+import { OnDeviceDictationButton } from "@/components/dictation/OnDeviceDictationButton";
+import { appendDictatedPhrase } from "@/components/richtext/dictatedValue";
 import { Dropdown, type DropdownOption } from "@/components/ui/Dropdown";
+import { RequiredMark } from "@/components/ui/RequiredMark";
 
 export function Field({
   label,
@@ -21,7 +24,19 @@ export function Field({
     <label className="grid min-w-0 gap-1">
       <span className="field-label">
         {label}
-        {required ? " *" : ""}
+        {/*
+          THE LAST OF THE SEVEN HAND-WRITTEN ASTERISKS, AND THE ONE THAT MATTERED MOST.
+
+          `Field` is the label wrapper nearly every box in this product goes through, so the
+          conditional string literal that used to sit on this line WAS most of the required marks on
+          screen. It is now `components/ui/RequiredMark.tsx`, which is what makes the mark's colour a
+          one-line decision instead of a seven-file hunt — see that file for why the colour could not
+          land until this call site, `review/ReviewEditPanel.tsx` and `tasks/TaskPrimitives.tsx` were
+          all converted in the same breath. Converting two of the three and shipping the red would
+          have put a red asterisk on Name and Place beside an ink one on Craft and Status, on the
+          same artisan form, at the same time.
+        */}
+        <RequiredMark when={required} />
       </span>
       {children}
     </label>
@@ -41,6 +56,41 @@ export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
  * textarea; they are submitted via FormData under a single hidden input (joined by a blank line), so
  * the existing single `notes` column/handlers are unchanged. Splits an existing note back on blank
  * lines for editing.
+ *
+ * ── THE MIRROR STAYS `type="hidden"`, AND IT IS THE ONE CONTROL IN THIS FILE THAT MAY ───────────
+ *
+ * `Select`'s mirror a hundred lines below is a zero-size `type="text"` on purpose: hidden inputs are
+ * exempt from constraint validation, so a `required` Select would never block a submit. This control
+ * takes no `required` and no call site marks a note group mandatory, so there is nothing to
+ * validate and nothing to exempt. Do not "make the two consistent" — they are consistent with the
+ * rule, which is about validation and not about markup.
+ *
+ * ── A MICROPHONE PER NOTE, AND NO FORMATTING TOOLBAR ────────────────────────────────────────────
+ *
+ * `ProcessForm`'s `MultiNoteInput` is the line-for-line precedent and this is deliberately the same
+ * control with the same three arguments, because these are the same column shape:
+ *
+ *  - **Per ROW rather than one for the group.** A single microphone over several textareas has to
+ *    guess which note the phrase belongs in, and its only defensible guess (the last one) is wrong
+ *    exactly when somebody is going back to fill in note two.
+ *  - **`appendDictatedPhrase`, never a local joiner.** The recogniser stops and starts across a long
+ *    answer, so a commit APPENDS to what is in the box; without the shared space rule a note
+ *    dictated in three goes comes out as "…the warpis sized…". That rule lives in
+ *    `components/richtext/dictatedValue.ts` and is shared with `DictatedTextInput`,
+ *    `DictatedTextArea` and `ProcessForm` — both of the first two already name this control in the
+ *    comment above their own commit.
+ *  - **`explainWhenUnavailable={false}` on every row.** A note group can be eight textareas tall, so
+ *    the default would draw eight copies of the Firefox "this browser cannot dictate" paragraph
+ *    inside one field, which is how a true sentence becomes wallpaper. The rule that comes with
+ *    that flag is that the SURROUNDING form must carry the sentence once: `/workshops` mounts
+ *    `DictationUnavailableNotice` at the top of its field grid. `/questionnaire` mounts this control
+ *    too and does NOT yet mount that notice — named here, and in the record-parity spec, rather than
+ *    left to look like a decision; that page belongs to another lane.
+ *
+ * NO RICH TEXT HERE, for the reason the joining is right above this comment: the rows are joined
+ * with a blank line and torn apart again on the way back in, by this control and by Android's
+ * `MultiNoteInput` in `MainActivity.kt`, against the same column. A document in one of these rows
+ * comes back as one note containing JSON.
  */
 export function MultiNoteField({
   name = "notes",
@@ -68,13 +118,33 @@ export function MultiNoteField({
       <input type="hidden" name={name} value={joined} />
       <div className="grid gap-2">
         {notes.map((note, index) => (
-          <div key={index} className="flex items-start gap-2">
+          /*
+            THE ROW WRAPS, AND THE BOX HAS A FLOOR. `flex-1` alone is `flex: 1 1 0%`, so a third
+            control in this row would have compressed the textarea towards nothing on a phone — the
+            microphone's own interim readout ("Listening… speak now.") refuses to shrink, and the
+            only thing left to take the space from is the box the researcher is dictating INTO.
+            `min-w-[16rem]` gives the box a floor and `flex-wrap` lets the controls drop to their own
+            line underneath instead, which is the phone layout and the one this control is used on.
+          */
+          <div key={index} className="flex flex-wrap items-start gap-2">
             <textarea
-              className="field-input min-h-16 flex-1"
+              className="field-input min-h-16 min-w-[16rem] flex-1"
               rows={2}
               value={note}
               placeholder={notes.length > 1 ? `Note ${index + 1}` : "Note"}
               onChange={(event) => setNotes((prev) => prev.map((n, j) => (j === index ? event.target.value : n)))}
+            />
+            {/*
+              BETWEEN THE BOX AND REMOVE, NOT AFTER IT. The tab order down a note row then reads
+              write · dictate · delete, so the destructive control stays last and a reader reaching
+              for the microphone with the keyboard never passes through it.
+            */}
+            <OnDeviceDictationButton
+              fieldLabel={notes.length > 1 ? `${label}, note ${index + 1}` : label}
+              explainWhenUnavailable={false}
+              onCommit={(phrase) =>
+                setNotes((prev) => prev.map((n, j) => (j === index ? appendDictatedPhrase(n, phrase) : n)))
+              }
             />
             {notes.length > 1 ? (
               <button

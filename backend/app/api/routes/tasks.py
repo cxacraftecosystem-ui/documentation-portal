@@ -7,12 +7,19 @@ N rows sharing a ``batchId``, so an admin manages "record tools for these 5 rese
 unit (``GET /tasks/batches``) while each person still owns, sees and reports progress on their own
 row. That is why there is no many-to-many join here: the row IS one person's to-do item.
 
-A task's SCOPE is five orthogonal dimensions (see ``app.schemas.tasks``):
-``workshopId`` x ``recordTypes[]`` x ``artisanIds[]`` x ``sectionIds[]`` x ``targetCount``.
+A task's SCOPE is six orthogonal dimensions (see ``app.schemas.tasks``):
+``workshopId`` x ``Workshop.questionnaireId`` x ``recordTypes[]`` x ``artisanIds[]`` x
+``sectionIds[]`` x ``targetCount``.
 Everything an admin needs to express falls out of combining them — ``recordTypes=[product]`` +
 ``artisanIds=[A,B,C]`` is "record products for artisans A, B and C"; ``sectionIds=[F]`` +
 ``artisanIds=[A,B]`` is "answer section F for artisans A and B". An empty scope (no record types
 AND no sections) is rejected on create: a task with no work in it is a bug, not an empty state.
+
+THE SIXTH DIMENSION IS NOT SET HERE, AND THAT IS THE POINT. ``Workshop.questionnaireId`` chooses the
+**instrument**. ``AssignedTask.sectionIds`` chooses **which parts of that instrument one person
+owns**. The first is a property of the event, the second a property of a workload. They are a set
+and a subset — the only defect possible is a subset that is not one, and ``resolve_scope`` now
+refuses it.
 
 PROGRESS IS REPORTED *AND* DERIVED
 ----------------------------------
@@ -52,6 +59,10 @@ from app.core.deps import (
 )
 from app.schemas.tasks import TaskBatchCreate, TaskCreate, TaskUpdate
 from app.services.pagination import normalize_pagination, page_payload
+from app.services.questionnaire_instruments import (
+    default_questionnaire_id,
+    require_questionnaire,
+)
 from app.services.records import clean_data, public_encode
 
 logger = logging.getLogger(__name__)
@@ -224,6 +235,40 @@ async def resolve_scope(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"Unknown sectionIds: {missing}",
             )
+
+    # WHICH INSTRUMENT THOSE SECTIONS HAVE TO COME FROM.
+    #
+    # `Workshop.questionnaireId` says which questionnaire is in use at a workshop; `sectionIds` says
+    # which parts of it one person owns. The second must be a subset of the first, and nothing but
+    # this check makes it one — `sectionIds` is a plain `String[]` column (schema.prisma), so
+    # Postgres will store an id from any instrument at all and the task would then scope to sections
+    # that are not on the form its assignee opens. The task would read as assigned, report progress
+    # against a denominator of zero, and be impossible to complete.
+    if sections:
+        instrument_ids = {section.questionnaireId for section in sections}
+        if len(instrument_ids) > 1:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "sectionIds must all belong to one questionnaire; these span "
+                    f"{len(instrument_ids)}."
+                ),
+            )
+        if workshop is not None:
+            # A workshop with no binding resolves to the default, the same way the capture form
+            # does — so the rule is the same rule the researcher's screen will obey, not a stricter
+            # one invented here.
+            expected = get_value(workshop, "questionnaireId") or await default_questionnaire_id()
+            wrong = sorted(s.code for s in sections if s.questionnaireId != expected)
+            if wrong:
+                instrument = await require_questionnaire(expected)
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        f"This workshop uses “{instrument.title}”. These sections belong to a "
+                        f"different questionnaire and cannot be assigned here: {wrong}."
+                    ),
+                )
 
     if require_work and not types and not sections:
         raise HTTPException(
@@ -412,6 +457,12 @@ def _record_key(task: Any, kind: str, artisan_key: tuple) -> tuple:
 
 
 def _section_key(task: Any, artisan_key: tuple) -> tuple:
+    # NO `questionnaireId` IN THIS KEY, AND NONE IS NEEDED. `sectionIds` are IDS, and an id already
+    # names exactly one instrument — two instruments' section "F" are two different ids, so two
+    # tasks scoped to them never share a signature and never share a cached count. Adding the
+    # instrument here would widen the key without changing a single grouping. Said out loud because
+    # the neighbouring code-keyed maps in routes/questionnaire.py DID have to change, and the next
+    # reader will arrive here looking for the same bug.
     return ("sections", task.assigneeId, task.workshopId, artisan_key, tuple(sorted(task.sectionIds)))
 
 
@@ -1005,9 +1056,21 @@ async def task_options(
             {"workshops": {"some": {"workshopId": workshopId}}},
         ]
     artisans = await db.artisan.find_many(where=artisan_where, order={"name": "asc"}, take=500)
+    # THE SECTIONS THIS DIALOG MAY OFFER. Narrowed to the chosen workshop's instrument, because
+    # `resolve_scope` will 422 any section from another one — and a dialog that offers a choice the
+    # save then refuses reads as a broken dialog, not as a rule. With no workshop chosen the list
+    # spans every instrument and each entry carries its instrument so the picker can say which.
+    section_where: dict[str, Any] = {"isActive": True}
+    if workshopId:
+        workshop_row = await db.workshop.find_unique(where={"id": workshopId})
+        section_where["questionnaireId"] = (
+            get_value(workshop_row, "questionnaireId") if workshop_row else None
+        ) or await default_questionnaire_id()
     sections = await db.questionnairesection.find_many(
-        where={"isActive": True}, order={"sortOrder": "asc"}
+        where=section_where, order={"sortOrder": "asc"}
     )
+    instruments = await db.questionnaire.find_many()
+    instrument_titles = {row.id: row.title for row in instruments}
 
     return {
         "recordTypes": [
@@ -1025,7 +1088,14 @@ async def task_options(
         ],
         "artisans": [{"id": a.id, "name": a.name, "place": a.place} for a in artisans],
         "sections": [
-            {"id": s.id, "code": s.code, "title": s.title, "sortOrder": s.sortOrder}
+            {
+                "id": s.id,
+                "code": s.code,
+                "title": s.title,
+                "sortOrder": s.sortOrder,
+                "questionnaireId": s.questionnaireId,
+                "questionnaireTitle": instrument_titles.get(s.questionnaireId),
+            }
             for s in sections
         ],
     }

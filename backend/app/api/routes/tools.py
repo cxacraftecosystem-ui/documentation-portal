@@ -19,8 +19,11 @@ from app.services.records import (
     add_date_range,
     apply_status_policy_create,
     apply_status_policy_update,
+    assert_expected_updated_at,
     attach_location,
     clean_data,
+    client_key_replay,
+    client_key_replay_after_violation,
     contains,
     count_and_page,
     decimal_to_string,
@@ -29,6 +32,7 @@ from app.services.records import (
     merge_field_provenance,
     require_record,
     resubmit_status,
+    take_expected_updated_at,
     viewable_where,
 )
 
@@ -47,6 +51,52 @@ RELATIONS = (
     Relation("artisanLinks", "toolartisan", "toolId", many=True, include={"artisan": True}),
 )
 INCLUDE = include_of(RELATIONS)
+
+# TOOLDOCUMENTATION'S OWN NULLABLE SCALARS — the names ``clean_data`` must let an explicit ``null``
+# through for on this model, so emptying a box on the tool form actually empties the column instead
+# of answering 200 and keeping the old value.
+#
+# PER-MODEL AND NOT GLOBAL, for the reason ``clean_data``'s ``clearable`` docstring gives: the global
+# set cannot know which table a payload is bound for. Derived from ``model ToolDocumentation`` in
+# prisma/schema.prisma, intersected with what ``ToolUpdate`` actually accepts. It OVERLAPS the
+# product list without being it — a tool has ``height``/``width``/``thickness``/``weight``/``radius``
+# beside the documented trio, and it has no ``size`` or ``costOfMaking`` — so the two must not be
+# shared.
+#
+# ``height`` AND ``heightInches`` ARE BOTH HERE AND THEY ARE TWO DIFFERENT COLUMNS. ``heightInches``
+# landed with migration 20260913120100 and is the only one of the two that records its unit; the bare
+# ``height`` is kept because rows already hold values in it and nothing in the database can say what
+# unit those are in. Both have to be clearable or a researcher who filled the wrong one of the pair
+# could never empty it again.
+#
+# Only valid because ``update_tool`` dumps with ``exclude_unset=True``; see the note at that call.
+#
+# DELIBERATELY ABSENT: ``craftName``/``place``/``artisanName``/``toolkitName`` (NOT NULL), the enums
+# ``maker``/``traditionType`` and ``status``/``recordedAt``/``recordedTimezone`` (NOT NULL with
+# defaults), ``artisanId``/``craftId``/``workshopId``/``locationId`` (already global), and the
+# measurement trio ``measurementImageId``/``measurementAnalysis``/``measurementAnalysisStatus``,
+# which ``services/media_queue`` owns and ``records.PROVENANCE_SKIP_FIELDS`` already classes as
+# system-managed. ``extraMetadata`` is left out because naming it would be inert:
+# ``merge_field_provenance`` rebuilds and reassigns that column further down this route.
+# ``clientKey`` is on no update schema at all — see the products route for why.
+_CLEARABLE_COLUMNS = (
+    "localName",
+    "englishName",
+    "processUsedIn",
+    "material",
+    "yearsInUse",
+    "height",
+    "width",
+    "lengthInches",
+    "breadthInches",
+    "heightInches",
+    "thickness",
+    "weight",
+    "radius",
+    "replacementCost",
+    "suggestionsForToolImprovement",
+    "remarks",
+)
 
 
 async def _assigned_artisans(tool_id: str) -> list[dict[str, Any]]:
@@ -131,6 +181,18 @@ async def create_tool(
     payload: ToolCreate,
     current_user: Any = Depends(require_record_creator),
 ) -> dict[str, Any]:
+    # ── THE IDEMPOTENT REPLAY, ABOVE EVERY WRITE AND EVERY GATE IN THIS ROUTE ────────────────────
+    #
+    # See ``products.create_product`` for the argument in full: a create whose answer was lost is
+    # sent again by the queue, and without this branch the second landing writes a second tool.
+    # Above the gates, never below — on a replay the row already exists, so re-asking can only turn a
+    # create that SUCCEEDED into a 403, and it keeps ``attach_location`` from minting a second
+    # ``Location`` row per replay.
+    replayed = await client_key_replay(
+        db.tooldocumentation, payload.clientKey, user_id=current_user.id, include=INCLUDE
+    )
+    if replayed is not None:
+        return public_encode(replayed)
     data = decimal_to_string(clean_data(payload.model_dump()))
     data = await attach_location(data)
     check = await enforce_workshop_submission(current_user, data.get("workshopId"))
@@ -140,7 +202,18 @@ async def create_tool(
     apply_status_policy_create(current_user, data)
     # After the status policy, so a late submission outranks the submitter's own approval rights.
     pin_pending_if_late(data, current_user, check=check)
-    created = await db.tooldocumentation.create(data=data, include=INCLUDE)
+    try:
+        created = await db.tooldocumentation.create(data=data, include=INCLUDE)
+    except Exception as exc:  # noqa: BLE001 - narrowed immediately by is_client_key_violation
+        # The race the pre-read cannot close: two drains of the same queue in flight at once, each
+        # finding no row and each planning an INSERT. Only the index can settle it. ``None`` means
+        # re-raise, and this does. A tool has no child writes, so there is nothing here to repair.
+        raced = await client_key_replay_after_violation(
+            db.tooldocumentation, payload.clientKey, exc, user_id=current_user.id, include=INCLUDE
+        )
+        if raced is None:
+            raise
+        return public_encode(raced)
     return public_encode(created)
 
 
@@ -158,7 +231,17 @@ async def update_tool(
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     tool = await require_record(db.tooldocumentation, tool_id)
-    data = decimal_to_string(clean_data(payload.model_dump(exclude_unset=True)))
+    # ``exclude_unset=True`` IS THE PRECONDITION OF ``clearable``, not a stylistic choice: it is what
+    # makes a present key mean "the caller sent this". Drop it and every optional the client left
+    # alone would arrive as ``None`` and be written as an explicit NULL over stored data.
+    data = decimal_to_string(
+        clean_data(payload.model_dump(exclude_unset=True), clearable=_CLEARABLE_COLUMNS)
+    )
+    # The precondition is a QUESTION, not a column — popped before anything reads ``data``, and
+    # checked above ``guard_record_edit`` because that call ends in a COMMITTED ``RecordRevision``
+    # row and this backend has no transaction to roll one back with.
+    expected_updated_at = take_expected_updated_at(data)
+    assert_expected_updated_at(tool, expected_updated_at)
     data = await attach_location(data)
     # Re-check workshop assignment + window if this edit moves the tool into/between workshops, so the
     # create-time guard can't be bypassed by PATCHing the workshop in afterwards.

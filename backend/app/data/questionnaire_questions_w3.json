@@ -1,0 +1,458 @@
+[
+  {
+    "code": "A",
+    "title": "ORIGIN, HISTORY, PLACE AND PERSONAL JOURNEY",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "What is the history and origin of the craft, including its beginnings, family/community association, and any stories, legends, myths or local memories connected with it?"
+      },
+      {
+        "sortOrder": 2,
+        "prompt": "How did you learn the craft, who taught you, and what has your personal journey in the craft been like?"
+      },
+      {
+        "sortOrder": 3,
+        "prompt": "How does the place/local environment influence the craft, including materials, design, technique, climate, water, local resources and working conditions?"
+      },
+      {
+        "sortOrder": 4,
+        "prompt": "What are the major changes you have seen in the craft during your lifetime—in materials, tools, techniques, designs, technology and markets?"
+      },
+      {
+        "sortOrder": 5,
+        "prompt": "What knowledge, skills or practices are being lost or disappearing, and why?"
+      }
+    ]
+  },
+  {
+    "code": "B",
+    "title": "FAMILY, COMMUNITY, GENDER AND KNOWLEDGE TRANSFER",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "Is the craft mainly a family craft, a community craft, or both? How is work distributed among family members, including the roles of men and women?"
+      },
+      {
+        "sortOrder": 2,
+        "prompt": "Are young people interested in continuing the craft? Why or why not? Does education, migration or other occupations affect their interest?"
+      },
+      {
+        "sortOrder": 3,
+        "prompt": "How do artisans help one another or work independently? Who do you usually collaborate with or seek help from?"
+      },
+      {
+        "sortOrder": 4,
+        "prompt": "How are people trained to teach or learn the craft, including family members, apprentices and outsiders attending workshops?"
+      }
+    ]
+  },
+  {
+    "code": "C",
+    "title": "MIGRATION, MOBILITY AND CHANGING LIVELIHOODS",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "Have artisans migrated for work or opportunities, and how has this mobility affected the continuity, practice or development of the craft?"
+      }
+    ]
+  },
+  {
+    "code": "D",
+    "title": "RAW MATERIALS, PROCUREMENT AND RESOURCE SECURITY",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "What are the main raw materials used, how do you identify good-quality material, and where do you obtain it?"
+      },
+      {
+        "sortOrder": 2,
+        "prompt": "What challenges do you face in obtaining good-quality materials, including availability, suppliers, cost and access?"
+      },
+      {
+        "sortOrder": 3,
+        "prompt": "Are materials available throughout the year? How does seasonal availability affect production?"
+      },
+      {
+        "sortOrder": 4,
+        "prompt": "How have the availability, quality or type of raw materials changed over time, and how have these changes affected the craft?"
+      },
+      {
+        "sortOrder": 5,
+        "prompt": "How do you process or prepare the raw material before use?"
+      }
+    ]
+  },
+  {
+    "code": "E",
+    "title": "PROCESS OF MAKING AND WORKFLOW",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "Please describe the complete process from raw material to finished product, including the stages that contribute most to quality."
+      },
+      {
+        "sortOrder": 2,
+        "prompt": "Which stages require the highest level of skill, precision or are hardest for beginners to learn, and why?"
+      },
+      {
+        "sortOrder": 3,
+        "prompt": "Which part of the work takes the most time or creates the greatest difficulty, and what change in the tool or process would make it easier, faster or safer?"
+      },
+      {
+        "sortOrder": 4,
+        "prompt": "Which stage causes the most wastage, and what happens to the waste generated there?"
+      },
+      {
+        "sortOrder": 5,
+        "prompt": "How do experienced artisans identify and correct mistakes during the making process?"
+      },
+      {
+        "sortOrder": 6,
+        "prompt": "Which stages should remain manual, and which could be mechanized without harming authenticity or craftsmanship?"
+      }
+    ]
+  },
+  {
+    "code": "F",
+    "title": "TOOLS, EQUIPMENT, ERGONOMICS AND TECHNOLOGICAL IMPROVEMENT",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "What are the major tools and equipment used, and which are traditional or modern?"
+      },
+      {
+        "sortOrder": 2,
+        "prompt": "Which tools or activities cause physical strain or injury, and how could tools be redesigned or improved to make work easier, safer, faster or more comfortable? Are there tools you wish existed?"
+      },
+      {
+        "sortOrder": 3,
+        "prompt": "What tool, training or technology support have you received from DCH/State institutions, and what additional support is needed?"
+      }
+    ]
+  },
+  {
+    "code": "G",
+    "title": "SCIENCE, INDIGENOUS KNOWLEDGE AND TECHNOLOGY",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "What traditional knowledge is essential for successfully making the craft, including measurements, proportions, calculations and traditional rules?"
+      },
+      {
+        "sortOrder": 2,
+        "prompt": "How do you judge material properties such as moisture, strength, flexibility, hardness and suitability, and what signs do you look for?"
+      },
+      {
+        "sortOrder": 3,
+        "prompt": "What techniques improve the durability or longevity of the finished product?"
+      },
+      {
+        "sortOrder": 4,
+        "prompt": "How do weather, moisture, humidity, temperature or seasons affect the craft?"
+      },
+      {
+        "sortOrder": 5,
+        "prompt": "How do artisans solve technical problems, what local innovations have they developed, and what modern technologies have influenced the craft?"
+      }
+    ]
+  },
+  {
+    "code": "H",
+    "title": "ECONOMICS, MARKET, SALES, PROFIT AND LIVELIHOOD",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "Where and how do you sell your products—locally, through fairs, middlemen, private buyers, shops, exhibitions or online?"
+      },
+      {
+        "sortOrder": 2,
+        "prompt": "How is the price decided, how much control do you have over pricing, and where do you feel the most value or income is lost?"
+      },
+      {
+        "sortOrder": 3,
+        "prompt": "What are the biggest costs of production, including raw materials, tools, labour, transport and other expenses?"
+      },
+      {
+        "sortOrder": 4,
+        "prompt": "How has the market changed recently in terms of demand, customer preferences, products and earnings?"
+      },
+      {
+        "sortOrder": 5,
+        "prompt": "Is craft income stable throughout the year? Which seasons have the highest sales, and do artisans take up other occupations?"
+      },
+      {
+        "sortOrder": 6,
+        "prompt": "What support would improve your income or livelihood the most?"
+      }
+    ]
+  },
+  {
+    "code": "I",
+    "title": "MARKETING, VALUE CHAINS AND DIGITAL COMMERCE",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "What role do middlemen, traders, shop owners and other intermediaries play, and what advantages or disadvantages do you experience?"
+      },
+      {
+        "sortOrder": 2,
+        "prompt": "How do customers learn about your products, how have their preferences changed, and how do you learn about demand for new products?"
+      },
+      {
+        "sortOrder": 3,
+        "prompt": "Do you use social media, WhatsApp, websites or e-commerce platforms? How comfortable are you using them, and what challenges do you face while selling online?"
+      },
+      {
+        "sortOrder": 4,
+        "prompt": "What has been your experience with DCH portals, exhibitions and sales channels, and how could they be improved?"
+      }
+    ]
+  },
+  {
+    "code": "J",
+    "title": "DIGITAL TECHNOLOGY, AI AND FUTURE PLATFORMS",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "What barriers make digital services difficult to use, such as language, confidence, internet access, time or complexity? What language and content format—reading, video, audio or voice—would you prefer?"
+      },
+      {
+        "sortOrder": 2,
+        "prompt": "What digital help would be most useful for your craft, and what should an online platform help you do first?"
+      },
+      {
+        "sortOrder": 3,
+        "prompt": "How could AI support your craft without replacing your creativity, traditional knowledge or decision-making?"
+      },
+      {
+        "sortOrder": 4,
+        "prompt": "What should technology or an AI-enabled system never replace or compromise?"
+      }
+    ]
+  },
+  {
+    "code": "K",
+    "title": "SUSTAINABILITY, ENVIRONMENT, POLLUTION AND WASTE",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "What types of waste are generated, how is it managed, and what can be reused or recycled?"
+      },
+      {
+        "sortOrder": 2,
+        "prompt": "Do smoke, dust, heat or other pollution affect your work or health? How are these impacts currently managed?"
+      }
+    ]
+  },
+  {
+    "code": "L",
+    "title": "RITUALS, BELIEFS AND INTANGIBLE HERITAGE",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "Are there rituals, deities, festivals, beliefs or taboos associated with beginning or carrying out the craft?"
+      },
+      {
+        "sortOrder": 2,
+        "prompt": "What religious or cultural meanings are associated with the designs, motifs or products?"
+      }
+    ]
+  },
+  {
+    "code": "M",
+    "title": "HEALTH, OCCUPATIONAL HAZARDS AND REASONS FOR LEAVING",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "What common health problems, pain, injuries or long-term difficulties are associated with the craft, and which activities cause the greatest physical strain?"
+      },
+      {
+        "sortOrder": 2,
+        "prompt": "What protective measures do artisans use, and what health or safety improvements are needed?"
+      }
+    ]
+  },
+  {
+    "code": "N",
+    "title": "TRAINING, SKILL DEVELOPMENT AND FUTURE",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "How are new artisans trained, how long does it take to become skilled, and which skills are most difficult to learn?"
+      },
+      {
+        "sortOrder": 2,
+        "prompt": "What formal training programmes are available, and what training is currently missing?"
+      },
+      {
+        "sortOrder": 3,
+        "prompt": "What has been your experience of DCH workshops or other institutional training, and what should be improved?"
+      },
+      {
+        "sortOrder": 4,
+        "prompt": "What must happen for the craft to survive and flourish in the future, and what one support system is most needed?"
+      }
+    ]
+  },
+  {
+    "code": "O",
+    "title": "STORYTELLING, VISITOR INTERACTION AND COMMUNICATION",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "Do visitors/customers face language barriers or difficulties understanding the labour, skill and stories behind the craft? What communication support would help?"
+      },
+      {
+        "sortOrder": 2,
+        "prompt": "What stories behind the products do customers often miss, and would brochures, videos, QR codes, audio or other storytelling tools help?"
+      }
+    ]
+  },
+  {
+    "code": "P",
+    "title": "DESIGNS, MOTIFS, INNOVATION AND RECOGNITION",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "What are the main motifs, patterns, forms or design types, and how are they learned or remembered?"
+      },
+      {
+        "sortOrder": 2,
+        "prompt": "How do new motifs and designs emerge, and how do customers, buyers, markets, exhibitions, designers or other outside influences affect them?"
+      },
+      {
+        "sortOrder": 3,
+        "prompt": "How do you balance tradition and new ideas? What support would help develop new products while preserving craft identity and authenticity?"
+      },
+      {
+        "sortOrder": 4,
+        "prompt": "What makes one artisan's work stand out from others in terms of skill, quality, design or authenticity?"
+      }
+    ]
+  },
+  {
+    "code": "Q",
+    "title": "PORTAL DEVELOPMENT, AI, NETWORKING AND GRIEVANCES",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "What should an ideal online platform help you do first, and what information should it provide on tools, materials, markets and training?"
+      },
+      {
+        "sortOrder": 2,
+        "prompt": "Would it be useful to connect with artisans from other regions? What kinds of connections would be most valuable?"
+      },
+      {
+        "sortOrder": 3,
+        "prompt": "How should the system communicate with DCH/agencies and handle complaints, suggestions, requests and feedback?"
+      },
+      {
+        "sortOrder": 4,
+        "prompt": "What features such as image search, voice, translation, local-language support or design suggestions would be most useful?"
+      },
+      {
+        "sortOrder": 5,
+        "prompt": "How should the system protect artisans' dignity, originality, ownership and control over their work?"
+      }
+    ]
+  },
+  {
+    "code": "R",
+    "title": "RESILIENCE AND SURVIVAL",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "What are the main struggles you have faced in continuing the craft, and what helped you persist?"
+      }
+    ]
+  },
+  {
+    "code": "S",
+    "title": "SCIENCE BEHIND THE CRAFT — PROBING QUESTIONS",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "How do you know when the material is properly dried, seasoned or ready, and what happens if it is too wet, too dry, old or poor quality?"
+      },
+      {
+        "sortOrder": 2,
+        "prompt": "Which stages require the greatest precision, and how do you judge thickness, balance, proportion, fit or symmetry?"
+      },
+      {
+        "sortOrder": 3,
+        "prompt": "What makes a finished piece strong, durable, smooth or long-lasting, and what causes cracking, bending, warping, loosening, breakage or other failures?"
+      },
+      {
+        "sortOrder": 4,
+        "prompt": "What sounds, touch, colours, smells or visual signs tell you that the material or process is in the right condition?"
+      },
+      {
+        "sortOrder": 5,
+        "prompt": "Where could scientific testing or technical support help without harming traditional knowledge or practice?"
+      }
+    ]
+  },
+  {
+    "code": "T",
+    "title": "GI TAG, CERTIFICATION AND AUTHENTICITY",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "Is the craft covered by a GI? If yes, what benefits has it provided in market value or recognition, and what challenges do you face in using those benefits?"
+      },
+      {
+        "sortOrder": 2,
+        "prompt": "How aware are artisans of GI registration and its requirements? If the craft is not GI-tagged, would greater awareness or registration be useful?"
+      },
+      {
+        "sortOrder": 3,
+        "prompt": "Do counterfeits or imitation products affect the market or recognition of your work? What additional certification, branding or traceability support would help?"
+      }
+    ]
+  },
+  {
+    "code": "U",
+    "title": "AWARDS, RECOGNITION AND INSTITUTIONAL SUPPORT",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "What awards, honours or recognition have you received, and which recognition has been most meaningful to you?"
+      },
+      {
+        "sortOrder": 2,
+        "prompt": "What role have government institutions, NGOs, universities, research institutions or other organisations played in supporting the craft, and what additional support is needed?"
+      }
+    ]
+  },
+  {
+    "code": "V",
+    "title": "NETWORK / ECOSYSTEM MAPPING — STRUCTURED FIELDS",
+    "questions": [
+      {
+        "sortOrder": 1,
+        "prompt": "Designers: List the designers you have connected or worked with, including name, place/organisation, nature of relationship and frequency of interaction."
+      },
+      {
+        "sortOrder": 2,
+        "prompt": "Material and tool suppliers: List the material dealers, collectors, clay suppliers/miners, block makers, toolmakers, kiln makers, glaze/pigment suppliers, mould makers and other regular suppliers."
+      },
+      {
+        "sortOrder": 3,
+        "prompt": "Market and buyer connections: List the middlemen, traders, shop owners, exhibition organisers, buyers, tourism centres and other market actors you regularly interact with."
+      },
+      {
+        "sortOrder": 4,
+        "prompt": "Digital connections: List the online platforms, social-media groups, WhatsApp groups/channels, websites and e-commerce platforms through which you communicate, promote or sell."
+      },
+      {
+        "sortOrder": 5,
+        "prompt": "Financial connections: Where relevant, list banks, SHGs, cooperatives, microfinance organisations or other financial sources used for craft-related activities."
+      },
+      {
+        "sortOrder": 6,
+        "prompt": "Institutional connections: List government departments, NGOs, GI bodies, training institutions, universities/research organisations and other institutions with which you have a working relationship."
+      }
+    ]
+  }
+]

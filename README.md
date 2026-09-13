@@ -309,13 +309,30 @@ worker:
 
 ## Questionnaire
 
-The questionnaire module is seeded from `2nd Workshop_Interview Questions.docx` into reusable questions. Run this after migrations:
+There are TWO questionnaires, and they stand side by side rather than replacing one another. A `Questionnaire` row is the container — one named instrument — and every section, question and interview belongs to exactly one of them:
+
+- **2nd Craft Toolkit Workshop** — 24 sections (`RESP`, `A`..`W`), seeded from `2nd Workshop_Interview Questions.docx` by `scripts/seed_questionnaire.py`.
+- **3rd Craft Toolkit Workshop** — 22 sections (`A`..`V`), 81 questions, seeded from `3rd workshop_Questionnaire_revised.docx` by `scripts/seed_questionnaire_w3.py`.
+
+Every one of the 22 new codes already exists in the older corpus and they mean different things (old `V` is "International Exposure and Overseas Travel", new `V` is "Network / Ecosystem Mapping"), so section codes are unique WITHIN an instrument and nowhere else. Nothing outside this README should identify a section by its code alone.
+
+Run both after migrations, in this order:
 
 ```powershell
 cd backend
 .\.venv\Scripts\Activate.ps1
 python scripts/seed_questionnaire.py
+python scripts/seed_questionnaire_w3.py
 ```
+
+**The 3rd instrument is seeded INACTIVE AS THE DEFAULT and bound to no workshop**, so seeding it changes nothing for anybody. Two deliberate admin acts switch it on, and they are separate on purpose:
+
+- `PUT /api/questionnaires/{id}/default` — where every client that names no questionnaire lands.
+- `PUT /api/workshops/{workshopId}/questionnaire` — which questionnaire is in use at one workshop.
+
+**Order matters, and getting it wrong is silent.** Do not make the 3rd instrument the default until the Android release that sends `questionnaireId` has actually rolled out AND every handset's offline outbox has drained. A build that predates the field sends nothing and resolves to the default at the moment the server sees the request — and a payload queued before the update replays whenever the handset next finds a network, which may be days later. Those interviews would file 2nd-workshop-shaped fieldwork onto the 3rd instrument's questions, with the answers landing on questions that exist, so nothing validates and nothing raises. "The release has rolled out" is not sufficient; "the queues are empty" is, and the Android sync screen reports pending entries.
+
+Binding a workshop is the safe switch and needs none of that waiting.
 
 Researchers can create questionnaire interviews, link one interview to many artisans, answer any subset of the questions, and edit questionnaire interviews. Admin users can delete questionnaire interviews.
 
@@ -448,6 +465,7 @@ cd backend
 python -m prisma migrate deploy --schema=prisma/schema.prisma
 python scripts/seed_admin.py
 python scripts/seed_questionnaire.py
+python scripts/seed_questionnaire_w3.py
 ```
 
 Clients still call the FastAPI backend. They should not write directly to Supabase REST because backend validation, review state, role checks, media metadata and JWT authorization live in the API.

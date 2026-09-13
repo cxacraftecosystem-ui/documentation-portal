@@ -36,8 +36,11 @@ from app.schemas.access import (
     WorkshopAssignmentUpdateIn,
     WorkshopGrantIn,
 )
-from app.schemas.records import WorkshopCreate, WorkshopUpdate
+from app.schemas.questionnaire import WorkshopQuestionnaireUpdate
+from app.schemas.records import WORKSHOP_TYPES, WorkshopCreate, WorkshopUpdate
+from app.services.questionnaire_instruments import require_questionnaire
 from app.services.access import guard_record_edit, record_revision
+from app.services.concurrency import gather_reads
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
     Relation,
@@ -45,14 +48,18 @@ from app.services.records import (
     add_date_range,
     apply_status_policy_create,
     apply_status_policy_update,
+    assert_expected_updated_at,
     attach_location,
     clean_data,
+    client_key_replay,
+    client_key_replay_after_violation,
     contains,
     count_and_page,
     hydrate_relations,
     merge_field_provenance,
     require_record,
     resubmit_status,
+    take_expected_updated_at,
     viewable_where,
 )
 from app.services.workshop_access import (
@@ -82,6 +89,11 @@ RELATIONS = (
     Relation("createdBy", "user", "createdById"),
     Relation("artisans", "workshopartisan", "workshopId", many=True, include={"artisan": True}),
     Relation("crafts", "workshopcraft", "workshopId", many=True, include={"craft": True}),
+    # The instrument in use at this workshop, hydrated like every other relation so a client can
+    # render "uses: 3rd Craft Toolkit Workshop" without a second round trip. Nullable — a workshop
+    # that has not chosen resolves to the default at read time, which is a question for the
+    # questionnaire routes rather than a value to invent here.
+    Relation("questionnaire", "questionnaire", "questionnaireId"),
 )
 
 # Every party to an assignment row, so a UI can render "granted by X / requested by Y / decided by Z"
@@ -166,6 +178,37 @@ async def replace_workshop_crafts(workshop_id: str, craft_ids: list[str]) -> Non
         )
 
 
+async def _repair_empty_rosters(
+    workshop_id: str, artisan_ids: list[str], craft_ids: list[str]
+) -> None:
+    """Write a replayed create's rosters ONLY where the stored workshop has none.
+
+    THE TRADE-OFF IS BETWEEN TWO SILENT FAILURES, and it exists because this backend has no
+    transactions. ``create_workshop`` commits the row and THEN writes the two rosters, so a create
+    that failed on ``replace_workshop_artisans`` leaves a workshop with an empty "Artisans attending"
+    — and once a ``clientKey`` is on that row, every later replay would answer 200 from it while the
+    roster stays gone and the outbox reports the entry as sent.
+
+    THE OTHER DIRECTION IS WORSE, WHICH IS WHY THIS IS CONDITIONAL RATHER THAN UNCONDITIONAL.
+    ``replace_workshop_artisans`` and ``replace_workshop_crafts`` are ``delete_many`` +
+    ``create_many``: re-running one on a POPULATED roster would wipe whatever the roster holds now
+    and reinstate whatever the queued entry believed a fortnight ago — destroying a roster edited
+    through PATCH in the meantime, silently, on a save the researcher did not make today.
+
+    So an empty roster is repaired and a populated one is never touched, EVEN IF THE PAYLOAD'S IDS
+    DIFFER. A difference means the roster was edited after the create; the edit is newer than the
+    queue entry and must win.
+    """
+    if artisan_ids:
+        existing_artisans = await db.workshopartisan.count(where={"workshopId": workshop_id})
+        if not existing_artisans:
+            await replace_workshop_artisans(workshop_id, artisan_ids)
+    if craft_ids:
+        existing_crafts = await db.workshopcraft.count(where={"workshopId": workshop_id})
+        if not existing_crafts:
+            await replace_workshop_crafts(workshop_id, craft_ids)
+
+
 def normalize_workshop_dates(data: dict[str, Any]) -> dict[str, Any]:
     if not data.get("date") and data.get("startDate"):
         data["date"] = data["startDate"]
@@ -181,6 +224,10 @@ async def list_workshops(
     current_user: Any = Depends(get_current_user),
     search: str | None = None,
     place: str | None = None,
+    # WHICH KIND. Omitted lists every workshop, which is what this endpoint has always done; a value
+    # narrows to that kind and is served by the ``[workshopType, startDate]`` index added with the
+    # column, so the filtered page reads straight off the index in the list's own order.
+    workshopType: str | None = None,
     dateFrom: datetime | None = None,
     dateTo: datetime | None = None,
     statusFilter: str | None = None,
@@ -202,6 +249,17 @@ async def list_workshops(
         where["OR"] = [{"title": contains(search)}, {"place": contains(search)}, {"description": contains(search)}]
     if place:
         where["place"] = contains(place)
+    if workshopType:
+        # The same 422 the create schema raises, repeated here because a query parameter does not
+        # pass through a pydantic model: an unknown kind would otherwise reach Prisma as an enum
+        # filter it refuses, and a bare 500 reads to a client as "the server is broken" rather than
+        # "that is not a kind of workshop".
+        if workshopType not in WORKSHOP_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"workshopType must be one of {', '.join(sorted(WORKSHOP_TYPES))}",
+            )
+        where["workshopType"] = workshopType
     if statusFilter:
         where["status"] = statusFilter
     if createdBy:
@@ -238,6 +296,24 @@ async def create_workshop(
     payload: WorkshopCreate,
     current_user: Any = Depends(require_workshop_manager),
 ) -> dict[str, Any]:
+    # ── THE IDEMPOTENT REPLAY, ABOVE EVERY WRITE IN THIS ROUTE ──────────────────────────────────
+    #
+    # A second landing duplicates TWO ROSTERS as well as the row: ``replace_workshop_artisans`` and
+    # ``replace_workshop_crafts`` run below, so a replayed create produced a second workshop with a
+    # second full copy of "Artisans attending" and "Crafts covered". Answering from the stored row
+    # writes neither — except where the stored row has an EMPTY roster, which is the one shape a
+    # create that committed and then failed leaves behind; see :func:`_repair_empty_rosters`.
+    #
+    # ABOVE THE GATES, NEVER BELOW: on a replay the row already exists, so re-asking can only turn a
+    # create that SUCCEEDED into a 403, and it keeps ``attach_location`` from minting a second,
+    # unreferenced ``Location`` row per replay.
+    replayed = await client_key_replay(db.workshop, payload.clientKey, user_id=current_user.id)
+    if replayed is not None:
+        await _repair_empty_rosters(
+            replayed.id, payload.artisanIds or [], payload.craftIds or []
+        )
+        await hydrate_relations([replayed], RELATIONS)
+        return public_encode(replayed)
     data = clean_data(payload.model_dump())
     artisan_ids = data.pop("artisanIds", [])
     craft_ids = data.pop("craftIds", [])
@@ -246,7 +322,29 @@ async def create_workshop(
     data["createdById"] = current_user.id
     merge_field_provenance(data, current_user, previous=None)
     apply_status_policy_create(current_user, data)
-    created = await db.workshop.create(data=data)
+    try:
+        created = await db.workshop.create(data=data)
+    except Exception as exc:  # noqa: BLE001 - narrowed immediately by is_client_key_violation
+        # ``client_key_replay`` above closes the ordinary case with one read. This closes the one it
+        # cannot: two passes of the same queue in flight at once (two browser tabs, a phone whose
+        # sync fired twice, a restored queue drained beside the original), each finding no row and
+        # each planning an INSERT. Only the index can settle that. ``None`` means re-raise, and this
+        # does.
+        #
+        # THE HANDLER WRAPS THE ROW WRITE ALONE, and that is deliberate: the unique index is on the
+        # workshop row, so a violation can only be raised by this statement, and the rosters below
+        # are unreachable from it. Wrapping the rosters too would catch a roster failure — which is
+        # NOT a clientKey violation, so it would be re-raised anyway — while making it read as though
+        # a replay could be answered from a half-written create. The winner's rosters are repaired
+        # only if they are empty, exactly as on the ordinary replay path.
+        raced = await client_key_replay_after_violation(
+            db.workshop, payload.clientKey, exc, user_id=current_user.id
+        )
+        if raced is None:
+            raise
+        await _repair_empty_rosters(raced.id, artisan_ids, craft_ids)
+        await hydrate_relations([raced], RELATIONS)
+        return public_encode(raced)
     if artisan_ids:
         await replace_workshop_artisans(created.id, artisan_ids)
     if craft_ids:
@@ -583,7 +681,25 @@ async def update_workshop(
     current_user: Any = Depends(require_workshop_manager),
 ) -> dict[str, Any]:
     workshop = await require_record(db.workshop, workshop_id)
+    # NO ``clearable`` TUPLE ON THIS ROUTE, AND ITS ABSENCE IS A NAMED DECISION RATHER THAN AN
+    # OVERSIGHT. ``Workshop``'s four nullable scalars — ``description``, ``notes``, ``startDate``,
+    # ``endDate`` — therefore remain a 200 that does nothing when a client sends an explicit null,
+    # mirroring the sibling repository exactly. Two of the four are the reason it is not a one-line
+    # fix: ``startDate``/``endDate`` pass through ``normalize_workshop_dates`` below, which has never
+    # been asked whether ``None`` is an instruction or an absence, and answering that changes what a
+    # date-less workshop means to the submission window. Owner call, separate change.
+    # ``test_record_patch_clearing`` names this route so the gap is a decision in the suite rather
+    # than an omission a reader has to notice.
     data = clean_data(payload.model_dump(exclude_unset=True))
+    # The precondition is a QUESTION, not a column — popped before anything reads ``data``.
+    #
+    # THIS ROUTE IS WHY THE ORDERING RULE NAMES ``record_revision`` AND NOT ONLY ``guard_record_edit``:
+    # an EDIT-level assignee takes the ``record_revision`` branch DIRECTLY a few lines below, without
+    # passing through the guard at all. A refusal raised after either would leave a permanent,
+    # undeletable ledger row claiming an edit that was then turned down, and there is no transaction
+    # here to roll it back with. So the check sits above the access resolution and above both.
+    expected_updated_at = take_expected_updated_at(data)
+    assert_expected_updated_at(workshop, expected_updated_at)
     artisan_ids = data.pop("artisanIds", None)
     craft_ids = data.pop("craftIds", None)
     data = normalize_workshop_dates(data)
@@ -847,6 +963,125 @@ async def revoke_workshop_assignment(
         },
     )
     return await _hydrate_assignment(row.id)
+
+
+#: Task statuses that still represent work somebody is expected to do. Restated here rather than
+#: imported from `routes/tasks.py` because importing a router module into another router module is
+#: how this package grows an import cycle; the set is three words and both copies are asserted by
+#: `tests/test_questionnaire_scope.py`.
+_LIVE_TASK_STATUSES = ["OPEN", "IN_PROGRESS"]
+
+_REBIND_NOTE = (
+    "Cancelled automatically: this workshop's questionnaire was changed and this task was scoped to "
+    "sections of the previous one. There is no honest mapping between the two instruments' sections "
+    "— the codes collide and the meanings do not — so the work has to be re-assigned deliberately."
+)
+
+
+async def _tasks_bound_to_outgoing_instrument(workshop_id: str, instrument_id: str) -> list[Any]:
+    """Open tasks at this workshop whose `sectionIds` name a section of `instrument_id`.
+
+    Two reads under one wave, intersected in Python. `sectionIds` is a plain `String[]` column
+    (schema.prisma), so there is no join to push this into: the ids have to be compared against the
+    instrument's sections here.
+    """
+    tasks, sections = await gather_reads(
+        db.assignedtask.find_many(
+            where={"workshopId": workshop_id, "status": {"in": _LIVE_TASK_STATUSES}}
+        ),
+        db.questionnairesection.find_many(where={"questionnaireId": instrument_id}),
+    )
+    section_ids = {section.id for section in sections}
+    return [task for task in tasks if section_ids & set(get_value(task, "sectionIds") or [])]
+
+
+async def _clear_task_sections(workshop_id: str, instrument_id: str) -> None:
+    """Strip the outgoing instrument's sections off this workshop's open tasks.
+
+    CLEARED, NEVER SILENTLY REMAPPED. There is no honest mapping from "section D of the 2nd
+    workshop's instrument" to any section of the 3rd's — the codes collide and the meanings do not
+    (old V is "International Exposure and Overseas Travel", new V is "Network / Ecosystem Mapping").
+    An emptied scope is visibly wrong; a guessed one is invisibly wrong.
+
+    AND A TASK LEFT WITH NOTHING IN IT IS CANCELLED, not left standing. `resolve_scope` refuses to
+    CREATE a task with no recordTypes and no sectionIds ("a task needs work in it",
+    tasks.py:228-235) and `_derived_target` contributes nothing for one, so a questionnaire-only
+    task whose sections were just stripped would report progress against a denominator of zero,
+    forever, while still appearing on its assignee's list. The reason is appended to `description`
+    rather than written to a new column, because the person who opens that task tomorrow reads the
+    description and nothing else.
+    """
+    outgoing = await db.questionnairesection.find_many(where={"questionnaireId": instrument_id})
+    outgoing_ids = {section.id for section in outgoing}
+    for task in await _tasks_bound_to_outgoing_instrument(workshop_id, instrument_id):
+        # Only the OUTGOING instrument's sections are stripped. A task that somehow holds sections
+        # of two instruments (which `resolve_scope` now refuses to create, but which a row written
+        # before this change may carry) keeps the ones that are not being unbound.
+        remaining = [
+            section_id
+            for section_id in (get_value(task, "sectionIds") or [])
+            if section_id not in outgoing_ids
+        ]
+        data: dict[str, Any] = {"sectionIds": {"set": remaining}}
+        if not remaining and not (get_value(task, "recordTypes") or []):
+            existing = (get_value(task, "description") or "").strip()
+            data["status"] = "CANCELLED"
+            data["description"] = f"{existing}\n\n{_REBIND_NOTE}".strip()
+        await db.assignedtask.update(where={"id": task.id}, data=data)
+
+
+@router.put("/{workshop_id}/questionnaire")
+async def set_workshop_questionnaire(
+    workshop_id: str,
+    payload: WorkshopQuestionnaireUpdate,
+    current_user: Any = Depends(require_admin),
+) -> dict[str, Any]:
+    """Admin/master-admin only: which questionnaire is in use at this workshop.
+
+    THIS AND `AssignedTask.sectionIds` ARE NOT TWO ANSWERS TO ONE QUESTION. This chooses the
+    INSTRUMENT; that array chooses WHICH PARTS OF IT one person owns. A set and a subset. The only
+    defect possible is a subset that is not one, which is why rebinding refuses while open tasks
+    still hold sections of the OUTGOING instrument: those tasks would silently become unachievable —
+    their sections would no longer be on any form the assignee can open — and the derived progress
+    count would go on measuring them against a denominator nobody can reach.
+
+    `questionnaireId: null` DETACHES, which resolves the workshop back to the default instrument
+    rather than leaving it without one. That is a real state and the migration's one-shot backfill
+    marker exists so a re-run of that file can never quietly undo it.
+
+    `require_admin`, one tier NARROWER than building the form itself (which stays at
+    `require_questionnaire_manager`). Binding is not an edit to a questionnaire; it decides which
+    questions every researcher at this event is shown.
+    """
+    workshop = await require_record(db.workshop, workshop_id)
+    target = payload.questionnaireId
+    if target:
+        instrument = await require_questionnaire(target)
+        if not instrument.isActive:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"“{instrument.title}” is retired and cannot be assigned to a workshop.",
+            )
+    current = get_value(workshop, "questionnaireId")
+    changing = bool(current) and current != target
+    if changing and not payload.reassignTasks:
+        blocked = await _tasks_bound_to_outgoing_instrument(workshop_id, current)
+        if blocked:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"{len(blocked)} open task(s) at this workshop are scoped to sections of the "
+                    f"current questionnaire. Clear or re-scope them first, or resend with "
+                    f"reassignTasks=true to clear their sectionIds."
+                ),
+            )
+    if changing and payload.reassignTasks:
+        await _clear_task_sections(workshop_id, current)
+    updated = await db.workshop.update(
+        where={"id": workshop_id}, data={"questionnaireId": target}
+    )
+    await hydrate_relations([updated], RELATIONS)
+    return public_encode(updated)
 
 
 @router.delete("/{workshop_id}", status_code=status.HTTP_204_NO_CONTENT)

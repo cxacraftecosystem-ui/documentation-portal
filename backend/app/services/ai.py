@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 import requests
-from fastapi import UploadFile
 
 from app.core.config import Settings
 from app.services import (
@@ -676,17 +675,26 @@ def _transcribe_sync(
     }
 
 
-async def transcribe_audio(
-    file: UploadFile, settings: Settings, *, user_id: str | None = None
-) -> dict[str, Any]:
-    content = await file.read()
-    return await transcribe_audio_bytes(
-        content,
-        file.filename or "recording.webm",
-        file.content_type or "audio/webm",
-        settings,
-        user_id=user_id,
-    )
+# ``transcribe_audio(file: UploadFile, ...)`` USED TO LIVE HERE AND IS GONE ON PURPOSE — A30-10.
+#
+# It was four lines, and the first of them was ``content = await file.read()``. ``read()`` with no
+# argument reads to EOF, so the 25 MB ceiling that ``POST /media/transcribe`` believed it was
+# enforcing was applied one line AFTER the whole body had been materialised in one contiguous
+# ``bytes`` in the process heap. On this deployment — a single-worker uvicorn on 1 GiB, MEASURED,
+# docs/SCALABILITY.md §5.1, with no supervisor to respawn a worker that overcommits because
+# ``--workers >1`` is what caused the outage ``app/worker.py`` describes — a body larger than the
+# free heap does not degrade one request, it takes every in-flight request on the box down with it.
+# The cheapest possible attempt was one signed-in account, one request, one large file.
+#
+# THE ROUTE NOW READS ITS OWN BYTES through ``app/services/uploads.read_upload_bounded`` and calls
+# ``transcribe_audio_bytes`` below (app/api/routes/media.py). This shim is DELETED rather than left
+# unused because an unbounded ``file.read()`` sitting in a services module with a friendly name is
+# an invitation: the next route that needs a transcript reaches for the one that takes an
+# ``UploadFile``, and the bound is gone again with nothing to notice it. ``*_bytes`` is now the only
+# door, and a caller holding an ``UploadFile`` has to decide a ceiling to get through it.
+#
+# The same argument applies verbatim to ``analyze_measurement_image``, deleted below for the same
+# reason; see the note above ``analyze_measurement_image_bytes``.
 
 
 def _transcribe_on_personal_key(
@@ -1087,15 +1095,12 @@ def _post_gemini_measurement(content: bytes, mime_type: str, settings: Settings,
     raise last_error or RuntimeError("All configured Gemini keys failed")
 
 
-async def analyze_measurement_image(file: UploadFile, settings: Settings, dimension: str | None = None) -> dict[str, Any]:
-    content = await file.read()
-    return await analyze_measurement_image_bytes(
-        content,
-        file.filename or "measurement.jpg",
-        file.content_type or "image/jpeg",
-        settings,
-        dimension,
-    )
+# ``analyze_measurement_image(file: UploadFile, ...)`` USED TO LIVE HERE AND IS GONE ON PURPOSE.
+# The second half of the A30-10 pair argued in full above ``transcribe_audio_bytes``: same
+# ``content = await file.read()``, same unbounded contiguous copy into a 1 GiB heap, same
+# invitation to the next caller if it were merely left unused. ``POST /media/analyze-measurement``
+# now reads through ``uploads.read_upload_bounded`` at an 8 MB ceiling and calls the ``*_bytes``
+# function below.
 
 
 async def analyze_measurement_image_bytes(

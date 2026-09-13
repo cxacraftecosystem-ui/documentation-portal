@@ -19,8 +19,11 @@ from app.services.records import (
     add_date_range,
     apply_status_policy_create,
     apply_status_policy_update,
+    assert_expected_updated_at,
     attach_location,
     clean_data,
+    client_key_replay,
+    client_key_replay_after_violation,
     contains,
     count_and_page,
     decimal_to_string,
@@ -29,6 +32,7 @@ from app.services.records import (
     merge_field_provenance,
     require_record,
     resubmit_status,
+    take_expected_updated_at,
     viewable_where,
 )
 
@@ -46,6 +50,42 @@ RELATIONS = (
     Relation("createdBy", "user", "createdById"),
 )
 INCLUDE = include_of(RELATIONS)
+
+# PRODUCTDOCUMENTATION'S OWN NULLABLE SCALARS — the names ``clean_data`` must let an explicit ``null``
+# through for on this model, so emptying a box on the product form actually empties the column
+# instead of answering 200 and keeping the old value.
+#
+# PER-MODEL AND NOT GLOBAL, for the reason ``clean_data``'s ``clearable`` docstring gives: the global
+# set cannot know which table a payload is bound for. Derived from ``model ProductDocumentation`` in
+# prisma/schema.prisma, intersected with what ``ProductUpdate`` actually accepts — do not copy this
+# tuple to Tool or Artisan, whose nullable columns are a different list.
+#
+# Only valid because ``update_product`` dumps with ``exclude_unset=True``; see the note at that call.
+#
+# DELIBERATELY ABSENT: ``craftName``/``place``/``artisanName``/``productName`` (NOT NULL), the two
+# enums ``productType``/``marketDemand`` and ``status``/``recordedAt``/``recordedTimezone`` (NOT NULL
+# with defaults), ``artisanId``/``craftId``/``workshopId``/``locationId`` (already global), and the
+# measurement trio ``measurementImageId``/``measurementAnalysis``/``measurementAnalysisStatus``,
+# which ``services/media_queue`` owns — ``records.PROVENANCE_SKIP_FIELDS`` already classes all three
+# as system-managed, and no client form sends them. ``extraMetadata`` is left out because naming it
+# would be inert: ``merge_field_provenance`` rebuilds and reassigns that column further down this
+# route, so a null could never reach Prisma anyway. ``clientKey`` is absent for a stronger reason
+# than any of those: it is on no update schema at all, because a correction carrying a key would be
+# refused by ``extra="forbid"`` and re-attempted by an outbox for ever.
+_CLEARABLE_COLUMNS = (
+    "localName",
+    "timeTakenToCompleteProduct",
+    "size",
+    "lengthInches",
+    "breadthInches",
+    "heightInches",
+    "costOfMaking",
+    "sellingPrice",
+    "rawMaterialsUsed",
+    "mainToolsUsed",
+    "productFunctionUse",
+    "remarks",
+)
 
 
 @router.get("")
@@ -138,6 +178,26 @@ async def create_product(
     payload: ProductCreate,
     current_user: Any = Depends(require_record_creator),
 ) -> dict[str, Any]:
+    # ── THE IDEMPOTENT REPLAY, ABOVE EVERY WRITE AND EVERY GATE IN THIS ROUTE ────────────────────
+    #
+    # A create whose answer was lost on the way back is still in the client's queue and is sent
+    # again; without this branch the second landing writes a SECOND product. Answering from the
+    # stored row makes the replay indistinguishable from the first landing, which is the whole point:
+    # a client that could tell them apart would have to decide what to do about it, and it has no
+    # information to decide with.
+    #
+    # ABOVE THE GATES, NEVER BELOW. On a replay the row already exists, so re-asking
+    # ``enforce_workshop_submission`` can only turn a create that SUCCEEDED into a 403 for a
+    # researcher whose workshop assignment was withdrawn in the meantime — and it keeps
+    # ``attach_location`` from minting a second, unreferenced ``Location`` row per replay.
+    #
+    # ``include=INCLUDE`` because the create below answers through the same include; the two
+    # responses have to be byte-comparable.
+    replayed = await client_key_replay(
+        db.productdocumentation, payload.clientKey, user_id=current_user.id, include=INCLUDE
+    )
+    if replayed is not None:
+        return public_encode(replayed)
     data = decimal_to_string(clean_data(payload.model_dump()))
     data = await attach_location(data)
     # Workshop entries: enforce assignment, then flag + pin a late submission for admin approval.
@@ -148,7 +208,25 @@ async def create_product(
     apply_status_policy_create(current_user, data)
     # After the status policy, so a late submission outranks the submitter's own approval rights.
     pin_pending_if_late(data, current_user, check=check)
-    created = await db.productdocumentation.create(data=data, include=INCLUDE)
+    try:
+        created = await db.productdocumentation.create(data=data, include=INCLUDE)
+    except Exception as exc:  # noqa: BLE001 - narrowed immediately by is_client_key_violation
+        # ``client_key_replay`` above closes the ordinary case with one read. This closes the one it
+        # cannot: two passes of the same queue in flight at once (two browser tabs, a phone whose sync
+        # fired twice, a restored queue drained beside the original), each finding no row and each
+        # planning an INSERT. Only the index can settle that. ``None`` means re-raise, and this does —
+        # swallowing an exception that is NOT a ``clientKey`` violation would report a failed create
+        # as a successful one. A product has no child writes, so there is nothing here to repair.
+        raced = await client_key_replay_after_violation(
+            db.productdocumentation,
+            payload.clientKey,
+            exc,
+            user_id=current_user.id,
+            include=INCLUDE,
+        )
+        if raced is None:
+            raise
+        return public_encode(raced)
     return public_encode(created)
 
 
@@ -166,7 +244,17 @@ async def update_product(
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     product = await require_record(db.productdocumentation, product_id)
-    data = decimal_to_string(clean_data(payload.model_dump(exclude_unset=True)))
+    # ``exclude_unset=True`` IS THE PRECONDITION OF ``clearable``, not a stylistic choice: it is what
+    # makes a present key mean "the caller sent this". Drop it and every optional the client left
+    # alone would arrive as ``None`` and be written as an explicit NULL over stored data.
+    data = decimal_to_string(
+        clean_data(payload.model_dump(exclude_unset=True), clearable=_CLEARABLE_COLUMNS)
+    )
+    # The precondition is a QUESTION, not a column — see ``update_artisan`` for why it is popped on
+    # the line after the clean, and ``records.assert_expected_updated_at`` for why the check sits
+    # above ``guard_record_edit`` rather than beside the write.
+    expected_updated_at = take_expected_updated_at(data)
+    assert_expected_updated_at(product, expected_updated_at)
     data = await attach_location(data)
     # Moving a record into (or to a different) workshop is a workshop submission too — re-check
     # assignment + window, so the create-time guard can't be bypassed by PATCHing the workshop in later.

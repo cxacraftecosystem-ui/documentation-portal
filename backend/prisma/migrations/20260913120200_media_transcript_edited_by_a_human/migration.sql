@@ -1,0 +1,55 @@
+-- Whether a stored transcript is still the machine's words, and who changed them if not.
+--
+-- =============================================================================================
+-- THE QUESTION THIS TABLE COULD NOT ANSWER
+-- =============================================================================================
+--
+-- `POST /media/{id}/transcript` -- the one route by which a human replaces machine text
+-- (backend/app/api/routes/media.py, `set_media_transcript`) -- wrote "transcriptText", set
+-- "transcriptStatus" to COMPLETED and cleared "transcriptError", and recorded neither that an edit
+-- had happened nor who made it. So a transcript a researcher had rewritten line by line and one
+-- that came straight off the provider were byte-indistinguishable to every reader: the consolidated
+-- interview page, the review panel, the media list and the handset.
+--
+-- =============================================================================================
+-- TWO COLUMNS, NOT A BOOLEAN, AND THE SECOND ONE IS NOT DECORATION
+-- =============================================================================================
+--
+-- "transcriptEditedAt" IS the flag -- NULL means "nothing on record", non-NULL means "a person did,
+-- and here is when". A `BOOLEAN DEFAULT false` was the smaller column and it is the wrong one: an
+-- edit is an act by a named person at a named moment, and a bare `true` cannot be argued with later.
+--
+-- "transcriptEditedById" is who. It is a bare id column with NO foreign key and NO relation, which
+-- is deliberate and is "MediaFile"."reviewedById"'s exact shape in the same model: this is an audit
+-- stamp, not a navigable edge. Adding a relation would oblige a back-relation on "User", and
+-- `onDelete` would then have to answer a question nobody wants answered -- a deleted account must
+-- not silently rewrite the provenance of a transcript into "nobody edited this". It may not.
+--
+-- =============================================================================================
+-- NULLABLE, NO BACKFILL, AND THE FALSE READING THAT WOULD HAVE BEEN
+-- =============================================================================================
+--
+-- Every existing row gets NULL and stays NULL, and NULL must be read as "NOT STATED" and NOT as
+-- "never edited". Some transcripts already in this repository HAVE been rewritten through that
+-- route -- it has existed all along -- and this column simply did not exist to record it.
+-- Backfilling `false` would write "the machine said this" onto text a person typed, which is
+-- precisely the assertion the flag is being added to stop being made silently. Both clients
+-- therefore render THREE states and not two: edited, not edited, and -- for rows stored before today
+-- -- nothing at all. `edited={!!media.transcriptEditedAt}` collapses those three into two at the
+-- last moment and is the one expression a reader of this column must not write.
+--
+-- THE QUEUE MUST NEVER CLEAR THE FLAG. `services/media_queue.py` writes "transcriptText" on every
+-- provider result; it does not touch either column added here, and it must not start. If a later
+-- refinement pass blanked "transcriptEditedAt", a researcher's corrections would be recorded as the
+-- machine's own words at the moment the machine overwrote them.
+--
+-- NO INDEX. Nothing filters on either column: both are read only as part of a media row already
+-- selected by id or by a link, so an index would be paid for on every transcription write and never
+-- chosen.
+--
+-- Rolling back:
+--   ALTER TABLE "MediaFile" DROP COLUMN "transcriptEditedById";
+--   ALTER TABLE "MediaFile" DROP COLUMN "transcriptEditedAt";
+
+ALTER TABLE "MediaFile" ADD COLUMN IF NOT EXISTS "transcriptEditedAt" TIMESTAMP(3);
+ALTER TABLE "MediaFile" ADD COLUMN IF NOT EXISTS "transcriptEditedById" TEXT;

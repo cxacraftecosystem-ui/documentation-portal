@@ -76,9 +76,33 @@ _ARTISAN_INCLUDE = {
 _PRODUCT_INCLUDE = {"workshop": True}
 _TOOL_INCLUDE = {"workshop": True}
 _PROCESS_INCLUDE = {"steps": True, "product": True}
+# ``questionnaire`` IS HYDRATED FOR THE FOLDER NAME, NOT FOR A FIELD ON details.txt.
+#
+# ``record_fields.interview_label`` names an interview after the artisans it covers, and since
+# 2026-09-13 it appends the INSTRUMENT in parentheses when - and only when - the ``questionnaire``
+# relation is actually loaded (record_fields.py:167). It has to: migration
+# ``20260913100000_questionnaire_instruments`` dropped the global unique on ``artisanSetKey``, so
+# the same artisan set sitting twice - once for the 2nd Craft Toolkit Workshop's instrument, once
+# for the 3rd - is now two legitimate rows, and a label built from the artisans ALONE returns the
+# identical string for both.
+#
+# Without this line the zip's folder for the second sitting was named by ``_uniq`` instead, as
+# "Kanhu Charan Sahu, Sanjukta Devi (2)". Nothing was overwritten - ``_uniq`` is doing its job - but
+# "(2)" is not a fact about the fieldwork. It tells a researcher unpacking a ministry deliverable
+# that there were two folders, not WHICH WORKSHOP each one holds, and the answers.txt inside them
+# both open with the same artisan names. The two sittings are years apart and section V does not
+# even mean the same thing in the two instruments ("International Exposure and Overseas Travel"
+# against "NETWORK / ECOSYSTEM MAPPING"), so a reader who guesses wrong reads one workshop's answers
+# as the other's.
+#
+# One extra relation on at most EXPORT_TAKE interview rows, for the one string that tells two
+# folders apart. The data browser resolves the same label (data_browser.py:1174) and the .xlsx
+# report prints it into a cell (data_browser.py:2691); this is the call site that turns it into a
+# DIRECTORY NAME somebody keeps on disk, which is the one that has to be legible a year later.
 _INTERVIEW_INCLUDE = {
     "artisans": {"include": {"artisan": True}},
     "responses": {"include": {"question": True}},
+    "questionnaire": True,
 }
 
 # A media row is filed under exactly ONE record folder, most specific relation first — the same
@@ -296,7 +320,19 @@ async def dataset_manifest(
     def emit_interview(prefix: str, interview: Any) -> None:
         placed_interviews.add(interview.id)
         # An interview is identified by the artisans it covers, not its internal title — the
-        # registry's title function, so the folder matches what the browser calls it.
+        # registry's title function, so the folder matches what the browser calls it. Since
+        # 2026-09-13 that label also carries the INSTRUMENT, which is what tells one artisan set's
+        # two sittings apart; ``_INTERVIEW_INCLUDE`` hydrates the relation it needs, and the long
+        # note there is the argument for the extra join.
+        #
+        # ``_uniq`` STAYS, AND IS NOT MADE REDUNDANT BY THE BETTER LABEL. It is the last line of
+        # defence for a collision the label cannot resolve at all: two sittings of the same artisan
+        # set on the SAME instrument (legal for an artisan-less interview, whose key is NULL and
+        # therefore exempt from ``@@unique([questionnaireId, artisanSetKey])``, and reachable for any
+        # interview while a stale key is waiting for ``scripts/reconcile_interview_set_keys``), or
+        # an instrument an admin has titled the same as another. Without it the second folder's
+        # answers.txt and every one of its clips would be written at paths the first already owns,
+        # and a client-side zip builder resolves that by overwriting.
         label = _seg(interview_label(interview), interview.id)
         base = _uniq(f"{prefix}/Questionnaires/{label}", used_dirs)
         answers = []

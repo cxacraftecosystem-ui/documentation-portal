@@ -5,13 +5,16 @@ import { Images, Upload } from "lucide-react";
 
 import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
-import { Field, TextArea, TextInput } from "@/components/FormControls";
+import { Field } from "@/components/FormControls";
 import { LocationFields } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { Markdown } from "@/components/Markdown";
 import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
 import { UploadProgress } from "@/components/media/UploadProgress";
 import { UploadTray } from "@/components/media/UploadTray";
+import { DictatedTextArea } from "@/components/richtext/DictatedTextArea";
+import { DictatedTextInput } from "@/components/richtext/DictatedTextInput";
+import { DictationUnavailableNotice } from "@/components/richtext/DictationUnavailableNotice";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { RowActions, rowAction } from "@/components/RowActions";
@@ -173,6 +176,27 @@ export default function MediaPage() {
   );
 }
 
+/**
+ * ── DICTATION ON THE MEDIA FORM: WHICH BOXES HAVE A MICROPHONE, AND WHY THE REST DO NOT ───────
+ *
+ * DICTATED: Media title / object name · Caption · (and Village, inside the location card, which owns
+ * its own decision).
+ *
+ * The title is the name of the object in the photograph — "Bagru indigo block, 4 inch" — spoken by
+ * somebody holding both the phone and the object, which is the clearest case for a microphone
+ * anywhere in the app. Neither box is title-cased: `mediaTitle` and `caption` are both absent from
+ * the API's title-cased set (`backend/app/services/records.py:339-354`), so a "Will be saved as …"
+ * hint would promise a normalisation that never happens.
+ *
+ * NOT DICTATED: **Capture media** (a file picker), **Linked record type** (a closed vocabulary behind
+ * a themed dropdown) and **Linked entry** (a record picker).
+ *
+ * THIS FORM CLEARS ITSELF IN PLACE, which is why the two boxes are wired the way they are — see the
+ * note beside `mediaTitle`/`resetNonce` below. It is the trap `DictatedTextInput`'s header is about.
+ *
+ * ONE SENTENCE FOR THE WHOLE FORM: both boxes pass `explainWhenUnavailable={false}` and
+ * `DictationUnavailableNotice` sits once, above them.
+ */
 function MediaPageBody() {
   const confirm = useConfirm();
   const { adminMode } = useAdminView();
@@ -180,6 +204,21 @@ function MediaPageBody() {
   const [data, setData] = useState<PageResult<MediaFile> | null>(null);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
+
+  /*
+    ── THIS FORM CALLS `formElement.reset()`, AND THAT IS WHY THESE TWO EXIST ──────────────────
+    `reset()` rewrites the DOM nodes and tells React NOTHING. A box whose value React is holding —
+    which is every dictated box, because dictation writes from outside the keyboard — is therefore
+    re-painted with the PREVIOUS upload's text on the next render, and the researcher's second
+    photograph arrives carrying the first one's caption.
+
+    TWO MECHANISMS BECAUSE THE TWO COMPONENTS HAVE TWO CONTRACTS. `DictatedTextInput` is controlled
+    by its caller, so the title lives here and is cleared in the same block as `reset()`.
+    `DictatedTextArea` owns its value and re-seeds on remount, so the caption is keyed on a nonce
+    that the same block bumps.
+  */
+  const [mediaTitle, setMediaTitle] = useState("");
+  const [resetNonce, setResetNonce] = useState(0);
 
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [linkedType, setLinkedType] = useState("");
@@ -285,6 +324,9 @@ function MediaPageBody() {
         return;
       }
       formElement.reset();
+      // The two dictated boxes, which `reset()` alone cannot clear. See the note beside their state.
+      setMediaTitle("");
+      setResetNonce((nonce) => nonce + 1);
       setSelectedFiles([]);
       setLinkedType("");
       setLinkedEntryId("");
@@ -338,11 +380,26 @@ function MediaPageBody() {
           title="Capture media"
           description="Images, videos, audio and files upload to the same repository backend. Audio is queued for transcription after upload."
         />
+        {/*
+          THE ONE PLACE THIS FORM EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.
+          Both dictated boxes below pass `explainWhenUnavailable={false}`, as does the location card's
+          village. ABOVE the controls it speaks for, like every other form: a sentence explaining why
+          something is missing is no use underneath the place it is missing from.
+        */}
+        <DictationUnavailableNotice />
         <div className="grid gap-3 md:grid-cols-2">
-          <Field label="Media title / object name">
-            <TextInput name="mediaTitle" placeholder="Names the uploaded object (optional)" />
-          </Field>
-          <Field label="Linked record type *">
+          <DictatedTextInput
+            name="mediaTitle"
+            label="Media title / object name"
+            placeholder="Names the uploaded object (optional)"
+            explainWhenUnavailable={false}
+            value={mediaTitle}
+            onChange={setMediaTitle}
+          />
+          {/* The asterisk leaves the label STRING and becomes `required`, so `RequiredMark` draws it.
+              Typed into the text it was the one required mark no shared primitive could reach, which
+              is exactly how a form ends up with two kinds of asterisk on it. */}
+          <Field label="Linked record type" required>
             <Dropdown
               value={linkedType}
               onChange={setLinkedType}
@@ -365,9 +422,16 @@ function MediaPageBody() {
             />
           </Field>
         ) : null}
-        <Field label="Caption">
-          <TextArea name="caption" />
-        </Field>
+        {/* KEYED ON THE RESET NONCE. `DictatedTextArea` owns its value and re-seeds only on remount,
+            and this form clears itself with `formElement.reset()` — which rewrites the DOM node and
+            tells React nothing. Without the key, the second photograph of the day arrives carrying
+            the first one's caption, on a real file, with nothing on screen saying so. */}
+        <DictatedTextArea
+          key={resetNonce}
+          name="caption"
+          label="Caption"
+          explainWhenUnavailable={false}
+        />
         <LocationFields />
         <UploadProgress progress={progress} sectionId={MEDIA_SECTION} label={MEDIA_SECTION_LABEL} />
         <div>

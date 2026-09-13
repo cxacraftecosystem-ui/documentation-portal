@@ -38,9 +38,14 @@ from app.services.records import media_url_owners, public_encode, viewable_where
 
 # How many statements ``consolidate_for_artisan`` issues, whatever the artisan's interview count.
 # Asserted by the route's ``meta.queryCount`` so the number is checkable from a live response rather
-# than trusted from a comment. Wave one: artisan, sections, questions, interviews. Wave two:
-# responses, media, participant links.
-QUERY_COUNT = 7
+# than trusted from a comment. Wave one: artisan, instruments, sections, questions, interviews.
+# Wave two: responses, media, participant links.
+#
+# EIGHT since 2026-09-13, not seven: the instrument list joined wave one. It is one more read in a
+# wave that already runs in parallel, so it costs no extra round trip in wall time, and it is what
+# lets a document whose answers span two instruments print WHICH instrument each group of sections
+# belongs to instead of stacking two "Section A" headings on top of one another.
+QUERY_COUNT = 8
 
 # A response is attributable to the subject alone.
 SOLE = "SOLE"
@@ -148,7 +153,10 @@ def _answer_key(text: str | None) -> str:
 
 
 async def consolidate_for_artisan(
-    artisan_id: str, current_user: Any, workshop_ids: list[str] | None = None
+    artisan_id: str,
+    current_user: Any,
+    workshop_ids: list[str] | None = None,
+    questionnaire_id: str | None = None,
 ) -> dict[str, Any] | None:
     """Build the consolidated questionnaire document for one artisan, or ``None`` if no such artisan.
 
@@ -171,6 +179,17 @@ async def consolidate_for_artisan(
     summary counts, the conflict flags and the sources panel all have to be computed over the narrowed
     set rather than filtered afterwards — a conflict between two workshops is not a conflict inside
     one of them, and post-filtering would leave the flag set with only one answer under it.
+
+    ``questionnaire_id`` NARROWS THE DOCUMENT TO ONE INSTRUMENT, and ``None`` — the default — MEANS
+    EVERY INSTRUMENT, grouped. That default is the opposite of the one every other questionnaire
+    route takes, and deliberately so: this document's meaning is "everything this artisan has ever
+    told us", so silently answering with half of it would be worse than useless. What it must NOT do
+    is interleave: an artisan interviewed at both workshops has two section "A"s that mean different
+    things ("PERSONAL DETAILS OF THE ARTISAN" and "ORIGIN, HISTORY, PLACE AND PERSONAL JOURNEY"),
+    and the old code→id maps — ``{s.code: s.id}`` — resolved "A" to whichever row came out of the
+    database last. Every such map below is now keyed by ``(questionnaireId, code)``, sections are
+    ordered by ``(instrument.sortOrder, section.sortOrder)``, and each section carries the title of
+    the instrument it belongs to.
     """
     # Not a query — it reads the caller's rank and returns a predicate — so it can be resolved before
     # the wave rather than costing a trip of its own.
@@ -181,6 +200,8 @@ async def consolidate_for_artisan(
     media_owners = await media_url_owners(current_user)
 
     interview_where: dict[str, Any] = {"artisans": {"some": {"artisanId": artisan_id}}}
+    if questionnaire_id:
+        interview_where["questionnaireId"] = questionnaire_id
     and_clauses: list[dict[str, Any]] = []
     if vis:
         and_clauses.append(vis)
@@ -192,14 +213,24 @@ async def consolidate_for_artisan(
     if and_clauses:
         interview_where = {"AND": [interview_where, *and_clauses]}
 
-    artisan, sections, questions, interviews = await gather_reads(
+    instrument_where: dict[str, Any] = {"id": questionnaire_id} if questionnaire_id else {}
+    section_where: dict[str, Any] = {"isActive": True}
+    question_where: dict[str, Any] = {}
+    if questionnaire_id:
+        section_where["questionnaireId"] = questionnaire_id
+        question_where["questionnaireId"] = questionnaire_id
+    artisan, instruments, sections, questions, interviews = await gather_reads(
         db.artisan.find_unique(where={"id": artisan_id}, include={"craft": True}),
-        db.questionnairesection.find_many(where={"isActive": True}, order={"sortOrder": "asc"}),
-        db.questionnairequestion.find_many(order=[{"sortOrder": "asc"}, {"createdAt": "asc"}]),
+        db.questionnaire.find_many(where=instrument_where),
+        db.questionnairesection.find_many(where=section_where, order={"sortOrder": "asc"}),
+        db.questionnairequestion.find_many(
+            where=question_where, order=[{"sortOrder": "asc"}, {"createdAt": "asc"}]
+        ),
         db.questionnaireinterview.find_many(where=interview_where, include={"workshop": True}),
     )
     if artisan is None:
         return None
+    instrument_by_id = {row.id: row for row in instruments}
 
     interview_ids = [row.id for row in interviews]
     if interview_ids:
@@ -238,6 +269,13 @@ async def consolidate_for_artisan(
         interview_meta[row.id] = {
             "id": row.id,
             "title": row.title,
+            # WHICH INSTRUMENT THIS SITTING WAS TAKEN ON. Carried on the meta because the clip
+            # resolution below keys by (instrument, code) and the only thing that knows a clip's
+            # instrument is the interview it hangs off.
+            "questionnaireId": get_value(row, "questionnaireId"),
+            "questionnaireTitle": get_value(
+                instrument_by_id.get(get_value(row, "questionnaireId")), "title"
+            ),
             "date": date,
             "dateBasis": basis,
             "status": row.status,
@@ -248,9 +286,16 @@ async def consolidate_for_artisan(
         }
 
     # --- Where the questionnaire's own order comes from ---------------------------------------
+    #
+    # KEYED BY (instrument, code), never by code alone. With two instruments both running A..V, a
+    # bare `{s.code: s.id}` resolves "A" to whichever row the database returned last — so a clip
+    # tagged `extraMetadata.sectionCode = "A"` on a 2nd-workshop interview would be filed under the
+    # THIRD workshop's section A, in a document a ministry reads, with nothing raising.
     section_by_id = {s.id: s for s in sections}
-    section_id_by_code = {s.code: s.id for s in sections}
-    section_id_by_norm_code = {_norm_code(s.code): s.id for s in sections if _norm_code(s.code)}
+    section_id_by_code = {(s.questionnaireId, s.code): s.id for s in sections}
+    section_id_by_norm_code = {
+        (s.questionnaireId, _norm_code(s.code)): s.id for s in sections if _norm_code(s.code)
+    }
     section_of_question = {q.id: q.sectionId for q in questions if q.sectionId}
     questions_by_section: dict[str, list[Any]] = {}
     for question in questions:
@@ -297,11 +342,15 @@ async def consolidate_for_artisan(
         extra = media.extraMetadata if isinstance(media.extraMetadata, dict) else {}
         question_id = extra.get("questionId")
         section_id = section_of_question.get(question_id) if question_id else None
+        # A CODE RESOLVES WITHIN THE CLIP'S OWN INSTRUMENT AND NOWHERE ELSE. `extraMetadata.
+        # sectionCode` and the filename token are both bare letters; without the instrument on the
+        # left of the key they land on whichever instrument the section map happened to keep.
+        instrument_key = meta["questionnaireId"]
         if section_id is None:
-            section_id = section_id_by_code.get(extra.get("sectionCode"))
+            section_id = section_id_by_code.get((instrument_key, extra.get("sectionCode")))
         if section_id is None:
             first_token = (media.originalFilename or "").split("_", 1)[0]
-            section_id = section_id_by_norm_code.get(_norm_code(first_token))
+            section_id = section_id_by_norm_code.get((instrument_key, _norm_code(first_token)))
 
         entry = {
             "kind": RECORDED,
@@ -344,7 +393,19 @@ async def consolidate_for_artisan(
 
     section_payloads: list[dict[str, Any]] = []
     answered_questions = conflicts = typed_total = recorded_total = 0
-    for section in sections:
+    # BY INSTRUMENT FIRST, THEN BY SECTION. An artisan interviewed at two workshops has two sets of
+    # answers, and a document that interleaves them under one "Section A" is worse than the four
+    # entries it replaces. The instrument's own `sortOrder` leads, so the 2nd workshop's account
+    # reads before the 3rd's, and its id breaks the tie so repeated loads never reshuffle.
+    ordered_sections = sorted(
+        sections,
+        key=lambda s: (
+            get_value(instrument_by_id.get(s.questionnaireId), "sortOrder") or 0,
+            s.questionnaireId or "",
+            s.sortOrder,
+        ),
+    )
+    for section in ordered_sections:
         question_payloads: list[dict[str, Any]] = []
         for question in questions_by_section.get(section.id, []):
             rows = answers_by_question.get(question.id, []) + recordings_by_question.get(
@@ -382,6 +443,14 @@ async def consolidate_for_artisan(
                 "code": section.code,
                 "title": section.title,
                 "sortOrder": section.sortOrder,
+                # The instrument, on every section, because a heading reading "A — Origin" is a
+                # claim nobody can check once two instruments are in play. It is also what the CSV
+                # row builder reads: the "Questionnaire" column comes from here and from nowhere
+                # else, which is what keeps the header and the row the same width.
+                "questionnaireId": section.questionnaireId,
+                "questionnaireTitle": get_value(
+                    instrument_by_id.get(section.questionnaireId), "title"
+                ),
                 "questions": question_payloads,
                 # Clips that name a section but not a question. They sit under the section heading
                 # because that is genuinely all the data says; pinning them to a question would be
@@ -427,11 +496,20 @@ async def consolidate_for_artisan(
     return public_encode(payload, current_user, media_urls=media_owners)
 
 
-# Column order matches how the document reads on screen — section, question, answer, then the
-# provenance that makes the answer citable. `ID` first is the CSV convention the /export downloads
-# already follow (services/csv_export): a data extract needs a stable key to join on.
+# Column order matches how the document reads on screen — instrument, section, question, answer,
+# then the provenance that makes the answer citable. `ID` first is the CSV convention the /export
+# downloads already follow (services/csv_export): a data extract needs a stable key to join on.
+#
+# THIS TUPLE AND `_csv_row` BELOW ARE TWO INDEPENDENT POSITIONAL LISTS WITH NO STRUCTURAL LINK.
+# Adding a header here without adding the matching value there shifts EVERY FIELD ONE COLUMN TO THE
+# RIGHT, silently, in a file people join on — and the only visible symptom is that "Section" now
+# contains a section code. `tests/test_questionnaire_consolidation.py` asserts the two are the same
+# width, on every row shape the flattener produces, for exactly that reason. Change them together.
 CSV_COLUMNS = (
     "Source ID",
+    # Added 2026-09-13 with the second instrument. Without it two rows reading "A / Origin" are
+    # indistinguishable in a spreadsheet while describing two different questionnaires.
+    "Questionnaire",
     "Section code",
     "Section",
     "Question",
@@ -456,11 +534,17 @@ CSV_COLUMNS = (
 
 
 def _csv_row(
-    section_code: str, section_title: str, prompt: str, conflict: bool, row: dict[str, Any]
+    questionnaire_title: str,
+    section_code: str,
+    section_title: str,
+    prompt: str,
+    conflict: bool,
+    row: dict[str, Any],
 ) -> list[Any]:
     date = row.get("interviewDate") or ""
     return [
         row.get("sourceId"),
+        questionnaire_title,
         section_code,
         section_title,
         prompt,
@@ -492,13 +576,24 @@ def consolidated_rows(payload: dict[str, Any]) -> list[list[Any]]:
     for section in payload.get("sections", []):
         code = section.get("code") or ""
         title = section.get("title") or ""
+        # The instrument comes off the SECTION, which is the only node in the document that knows
+        # it for certain. Carrying it down from here rather than looking it up per row is what
+        # keeps every row the same width as the header.
+        instrument = section.get("questionnaireTitle") or ""
         for question in section.get("questions", []):
             conflict = bool(question.get("conflict"))
             for answer in question.get("answers", []):
-                rows.append(_csv_row(code, title, question.get("prompt") or "", conflict, answer))
+                rows.append(
+                    _csv_row(instrument, code, title, question.get("prompt") or "", conflict, answer)
+                )
         for recording in section.get("recordings", []):
             # No question to name: the clip resolved to this section and no further.
-            rows.append(_csv_row(code, title, "(section recording)", False, recording))
+            rows.append(_csv_row(instrument, code, title, "(section recording)", False, recording))
     for recording in payload.get("unfiled", []):
-        rows.append(_csv_row("", "(unfiled)", "(section could not be determined)", False, recording))
+        # EMPTY, not "the last instrument seen". An unfiled clip resolved to no section at all, so
+        # naming an instrument for it would be inventing the very fact the row exists to report as
+        # missing.
+        rows.append(
+            _csv_row("", "", "(unfiled)", "(section could not be determined)", False, recording)
+        )
     return rows

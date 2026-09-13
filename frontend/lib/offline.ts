@@ -34,6 +34,16 @@
  * record whose media upload was interrupted, once per sync pass, for as long as the signal stayed
  * bad — the failure mode with the worst timing possible, since a bad signal is why the entry is here.
  *
+ * AND THE CASE `created` CANNOT REACH IS THE ONE `clientKey` EXISTS FOR. `created` is a record of a
+ * REPLY: the POST went out, the server wrote the row, and the answer came back. When the answer is
+ * lost on the way back — a connection that died in the seconds between commit and response, a
+ * captive portal, a tab closed — this browser learned nothing, the entry is still in the queue, and
+ * the next pass sends the identical body again. That makes a SECOND record, and no guard built out
+ * of what we were told can see it. `CLIENT_KEY_ENDPOINTS` and `mintClientKey` below close it from
+ * the other end: the key travels WITH the first POST, so the server can answer the second landing
+ * from the row the first one wrote (`records.client_key_replay`). Read `mintClientKey`'s own comment
+ * for why it is minted at the top of `saveOrQueue` and not inside `queue()`.
+ *
  * NOTHING IS EVER DELETED BECAUSE THE SERVER SAID 409. This module used to read a 409 as "the create
  * already landed and we simply lost the response", and drop the entry and its files as sent. No
  * endpoint in this API means that: a 409 from /artisans is a clashing Aadhaar, from /crafts a craft
@@ -50,6 +60,87 @@ import { uploadMediaBatch } from "@/lib/media";
 const DB_NAME = "field-repo-outbox";
 const DB_VERSION = 1;
 const STORE = "entries";
+
+/**
+ * THE FOUR CREATE ENDPOINTS THAT ACCEPT AN IDEMPOTENCY KEY — the whole list, and exact paths.
+ *
+ * Each of these has a unique `clientKey` column and a `client_key_replay` read in front of its POST
+ * handler (`backend/app/api/routes/{workshops,products,tools,processes}.py`). Sending a key anywhere
+ * else is not merely useless: every request model in that API is `extra="forbid"`, so an unexpected
+ * `clientKey` is a 422 — and a 422 is exactly the answer this outbox triages as PERMANENT, so the
+ * queued record would be marked failed and sat in front of the researcher as a defect.
+ *
+ * `/artisans` IS DELIBERATELY ABSENT. It has no such column: its create is already guarded by the
+ * Aadhaar unique index, which answers a replay with a 409 the researcher can act on, and adding a
+ * key there would be a schema change this list cannot make on its own.
+ *
+ * MATCHED EXACTLY, NOT BY PREFIX, and `endpointTakesClientKey` below is why that matters. Three live
+ * POST routes sit UNDER these paths — `/workshops/unmapped/map`, `/workshops/{id}/questionnaire` and
+ * the review edits — and a `startsWith` test would post a key into every one of them and collect a
+ * 422 apiece.
+ */
+export const CLIENT_KEY_ENDPOINTS: readonly string[] = ["/workshops", "/products", "/tools", "/processes"];
+
+/**
+ * Does this exact endpoint take a create-idempotency key?
+ *
+ * The query string is stripped because a caller may legitimately carry one (none does today) and the
+ * trailing slash because `/tools/` and `/tools` are the same route to FastAPI and would not be the
+ * same string here.
+ */
+export function endpointTakesClientKey(endpoint: string): boolean {
+  const path = endpoint.split("?")[0].replace(/\/+$/, "");
+  return CLIENT_KEY_ENDPOINTS.includes(path);
+}
+
+/**
+ * A fresh create-idempotency key.
+ *
+ * `crypto.randomUUID()` where the browser has it — 36 characters, comfortably inside the server's
+ * `max_length=200`, and random enough that two devices queueing at the same second cannot collide on
+ * a column with a UNIQUE index. The fallback is for the one environment that still matters here:
+ * `crypto.randomUUID` is unavailable on an INSECURE origin in several browsers, and a field laptop
+ * reaching the API over plain http on a local network is exactly the deployment this outbox was
+ * written for. A key that threw there would take the whole save down with it, which is worse than a
+ * slightly weaker key.
+ *
+ * ── WHERE IT IS CALLED, AND WHY THAT IS THE ENTIRE POINT ────────────────────────────────────────
+ *
+ * At the TOP of `saveOrQueue`, ABOVE the online `apiFetch`, so that ONE key is serialised into ONE
+ * payload string and both paths send that same string.
+ *
+ * Minting it inside `queue()` instead is the obvious-looking arrangement — the key is "for the
+ * outbox", so put it where the outbox entry is built — and it is worthless. The first POST would
+ * then go out UNKEYED; if its answer is lost, the entry queued behind it carries a key the server
+ * has never seen, the replay matches no row, and it creates a SECOND record. That duplicate is the
+ * precise failure `clientKey` was added to prevent, so a key minted inside `queue()` buys nothing at
+ * all while looking exactly like a fix.
+ */
+export function mintClientKey(): string {
+  const c = typeof globalThis !== "undefined" ? (globalThis.crypto as Crypto | undefined) : undefined;
+  if (c && typeof c.randomUUID === "function") return c.randomUUID();
+  return `k-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+}
+
+/**
+ * The body a save actually sends: the caller's, plus a key on a keyed CREATE and nothing otherwise.
+ *
+ * POST ONLY, AND THAT IS A HARD RULE RATHER THAN AN OPTIMISATION. The server declares `clientKey` on
+ * the CREATE schemas alone; every request model is `extra="forbid"`, so a key on a PATCH is
+ * `extra_forbidden` — a 422, which this outbox reads as permanent and would park in front of the
+ * researcher for ever. `WorkshopCreate.clientKey` carries that argument on the server side.
+ *
+ * A caller's own key wins, and nothing passes one today. The test is `"clientKey" in body` rather
+ * than truthiness, so a caller that deliberately sends `null` (meaning "no key, create a fresh row")
+ * is not silently overruled.
+ */
+function bodyWithClientKey(endpoint: string, method: "POST" | "PATCH", body: unknown): unknown {
+  if (method !== "POST") return body;
+  if (!endpointTakesClientKey(endpoint)) return body;
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return body;
+  if ("clientKey" in (body as Record<string, unknown>)) return body;
+  return { ...(body as Record<string, unknown>), clientKey: mintClientKey() };
+}
 
 /**
  * One media batch of a queued save: everything `uploadMediaBatch` will need on replay.
@@ -402,7 +493,15 @@ export async function saveOrQueue<T extends { id: string }>({
   /** Batches to persist WITH a queued save. Ignored when the save goes through online. */
   media?: OutboxMediaBatch[];
 }): Promise<SaveOutcome<T>> {
-  const payload = JSON.stringify(body);
+  /*
+    ONE PAYLOAD STRING, MINTED HERE, SENT BY BOTH PATHS.
+
+    The key has to be in the body BEFORE the online `apiFetch` below, not only in the one the outbox
+    banks — see `mintClientKey` for the duplicate that a key minted inside `queue()` fails to
+    prevent. Serialising once is also what guarantees the two can never diverge: there is one string,
+    and the request and the queued entry are the same bytes.
+  */
+  const payload = JSON.stringify(bodyWithClientKey(endpoint, method, body));
   const queue = async () => {
     await queueOffline({ label, endpoint, method, body: payload, media: (media ?? []).filter((batch) => batch.files.length) });
     return { queued: true } as const;

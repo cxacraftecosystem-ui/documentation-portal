@@ -142,6 +142,20 @@ _CAPTION_NAME = re.compile(
     re.IGNORECASE,
 )
 
+# A SECTION CODE ALONE IS AMBIGUOUS SINCE 2026-09-13, AND THAT IS ACCEPTED HERE ON PURPOSE.
+#
+# Two instruments now exist and both run sections coded A..V, so the bare letter these four patterns
+# capture no longer names one section in the database. Nothing below is changed to compensate, and
+# this is the argument rather than an oversight: the resolution path that MATTERS carries
+# `extraMetadata.sectionId` — an id, written by both clients at capture time — and these patterns
+# are only ever the FALLBACK for a clip that arrived without one. A caller that needs the section
+# for a clip whose interview is known should resolve (interview.questionnaireId, code) through
+# `services/questionnaire_consolidation`, which does exactly that; these regexes have no interview
+# in hand and cannot.
+#
+# Worth knowing before relying on the fallback at all: `RESP` is four characters and already fails
+# `[A-Za-z]{1,3}`, so the 2nd-workshop instrument's first section has never resolved this way.
+#
 # "Question audio: K1 What types of waste ..." — section letter then question number.
 _CAPTION_QUESTION = re.compile(r"^question\s+audio:\s*([A-Za-z]{1,3})\s*(\d+)\b", re.IGNORECASE)
 # "Section audio: D RAW MATERIALS, PROCUREMENT ..." — a recording covering a whole section.

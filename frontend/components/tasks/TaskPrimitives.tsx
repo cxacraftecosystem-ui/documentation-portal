@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 import { progressGap } from "@/components/tasks/scope";
+import { RequiredMark } from "@/components/ui/RequiredMark";
 import type { TaskArtisanRef, TaskSectionRef, TaskStatus, TaskUserBrief } from "@/components/tasks/types";
 import { formatDate } from "@/lib/format";
 import { roleLabel } from "@/lib/permissions";
@@ -58,7 +59,19 @@ export function FieldBlock({
     <div className="grid gap-1">
       <span id={id} className="field-label">
         {label}
-        {required ? " *" : ""}
+        {/*
+          The third and last of the hand-written asterisks — see `components/ui/RequiredMark.tsx`
+          for why all three had to be converted in one commit before the mark could be given its
+          red, and `e2e/record-form-dictation-unit.spec.ts` for the census that refuses to let a
+          fourth be written.
+
+          THIS IS `FieldBlock`, NOT `Field`, and the distinction is not cosmetic: this wrapper is a
+          `<div>` with `role="group"` because everything it labels contains a button, and a `<label>`
+          forwards a stray click to the first labelable control inside it (which slams a multi-select
+          shut after one pick) and folds every named descendant into the control's accessible name.
+          The mark renders identically in both; only the wrapper differs.
+        */}
+        <RequiredMark when={required} />
       </span>
       <div role="group" aria-labelledby={id}>
         {children}

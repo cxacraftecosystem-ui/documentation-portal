@@ -56,7 +56,9 @@ export function RichTextField({
    * columns is not decoration — it is what keeps the formatting controls on one line.
    */
   className,
-  onDirty
+  explainWhenUnavailable,
+  onDirty,
+  onValueChange
 }: {
   /** The FormData key the containing form already reads. Unchanged from the `<TextArea>` it replaces. */
   name: string;
@@ -80,6 +82,43 @@ export function RichTextField({
    * dictated into a field could navigate away and be told there was nothing to lose.
    */
   onDirty?: () => void;
+  /**
+   * Let the editor's dictation button draw its own "this browser cannot dictate" sentence, or not.
+   *
+   * FORWARDED, NOT DECIDED HERE. `OnDeviceDictationButton` says once, under itself, that the browser
+   * has no recogniser, which is right for a lone control and wrong for a form that mounts four of
+   * them: `ProductForm` would print the form-level notice PLUS one copy under each of its four
+   * rich-text boxes on Firefox. Every record form renders `DictationUnavailableNotice` once at the
+   * top and passes `false` to each control below it — this editor was the one control that could not
+   * be told.
+   *
+   * DEFAULTS TO UNDEFINED, which the button reads as its own default of true, so a caller that says
+   * nothing behaves exactly as it did before this prop existed.
+   */
+  explainWhenUnavailable?: boolean;
+  /**
+   * The encoded column value, reported on every change, for a form that does not submit through
+   * `FormData`.
+   *
+   * ADDITIVE AND OPTIONAL, and the hidden input below stays regardless: all seven existing call
+   * sites read their value with `textValue(form, name)` at submit time and must go on working
+   * untouched. Removing the hidden input to "simplify now that there is a callback" would make
+   * Artisan ×1, Product ×4 and Tool ×2 POST `null` for seven prose columns — which the API accepts
+   * happily, so nothing anywhere would refuse and the researcher's words would simply be gone.
+   *
+   * `ProcessForm` is the form that needs this — it builds its request body out of React state
+   * (`components/forms/ProcessForm.tsx:600-616`) and never constructs a `FormData` at all, so a
+   * hidden input is invisible to it and a `name=`-only child silently submits nothing.
+   *
+   * IT REPORTS THE ENCODED STRING, NOT THE DOCUMENT, which is the same value the hidden input
+   * carries and the same one the API stores. Handing back the document would make the caller
+   * responsible for `encodeStoredRichText` and its `join` argument, which is exactly the knowledge
+   * this component exists to hold in one place.
+   *
+   * The caller must NOT feed the reported string back in as `defaultValue` on the next render —
+   * read the note on `initialValue` below for the caret it would throw to position zero.
+   */
+  onValueChange?: (value: string) => void;
 }) {
   const reactId = useId();
   const labelId = `rtf-${reactId}-label`;
@@ -119,13 +158,21 @@ export function RichTextField({
       <RichTextEditor
         value={initialValue}
         onChange={(doc: StoredRichDoc | null) => {
-          setSubmitValue(encodeStoredRichText(doc, join));
+          // ORDER MATTERS AND IS NOT ARBITRARY: `setSubmitValue` first, so the hidden input and the
+          // reported string can never disagree; `onValueChange` before `onDirty`, so a guard that
+          // reads the reported value sees the new one rather than the previous render's.
+          const encoded = encodeStoredRichText(doc, join);
+          setSubmitValue(encoded);
+          onValueChange?.(encoded);
           onDirty?.();
         }}
         disabled={disabled}
         ariaLabelledBy={labelId}
         // Also the name the microphone reads out: "Dictate Remarks in English (India)".
         ariaLabel={label}
+        // Forwarded so a form that already says it once at the top can stop each editor saying it
+        // again — see the prop's own note on `RichTextEditor`.
+        explainWhenUnavailable={explainWhenUnavailable}
         maxLength={maxLength}
         listKind={listKind}
         {...(placeholder ? { placeholder } : {})}

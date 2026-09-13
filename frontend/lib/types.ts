@@ -182,8 +182,22 @@ export type Artisan = {
    * ago, so the sheet printed two permanently empty cells and nothing could record either fact.
    */
   dateOfBirth?: string | null;
+  /**
+   * The day this artisan took up the craft, ISO. The record sheet's experience figure is DERIVED
+   * from it server-side on every read; a stated number of years is right on the day it is typed and
+   * silently wrong from then on. Null on every row recorded before the column existed — no backfill
+   * invents one, because a date computed from `experienceYears` would be indistinguishable from a
+   * date somebody stated.
+   */
+  craftStartDate?: string | null;
   /** Years practising the craft. 0..90, matching the stage registry's own bounds. */
   experienceYears?: number | null;
+  /**
+   * The odd months on top of the years. 0..11 — a REMAINDER, never a total; twelve months is a year
+   * the field above already holds. Null and 0 are different answers and both are kept: an artisan
+   * who said "about thirty years" said nothing whatever about months. Reaches no export surface.
+   */
+  experienceMonths?: number | null;
   /** Does the artisan hold a PM Vishwakarma Pehchan card? Defaults to true on create. */
   pehchanCardAvailable?: boolean;
   /** Only ever set while `pehchanCardAvailable` is true — the API nulls it whenever the answer is No. */
@@ -240,6 +254,13 @@ export type ArtisanIdentityConflict = {
 export type Workshop = {
   id: string;
   title: string;
+  /**
+   * DESIGN_PROTOTYPE or OTHER. Every row recorded before this column reads OTHER, which is what it
+   * implicitly was, and `GET /workshops?workshopType=` narrows the list to one kind. The token names
+   * a thing this product does not model — it exists so a workshop recorded here and later adopted by
+   * the sibling product can carry the same mark.
+   */
+  workshopType?: string;
   date: string;
   startDate?: string | null;
   endDate?: string | null;
@@ -251,9 +272,28 @@ export type Workshop = {
   recordedAt?: string | null;
   recordedTimezone?: string | null;
   extraMetadata?: ExtraMetadata | null;
+  /**
+   * Which questionnaire is in use at this workshop, chosen once by an admin
+   * (`PUT /workshops/{id}/questionnaire`). `null` means "not chosen", which resolves to the default
+   * instrument at read time — it does NOT mean the workshop has no questionnaire.
+   */
+  questionnaireId?: string | null;
+  questionnaire?: Questionnaire | null;
   createdById?: string;
   createdBy?: User;
   createdAt: string;
+  /**
+   * Idempotency key for an offline create. WRITTEN BY THE OUTBOX, NEVER BY A FORM, and absent on
+   * every row nobody replayed.
+   *
+   * It composes with `createdId` in `lib/offline.ts` rather than replacing it: `createdId` is what
+   * this browser profile learned when an answer came BACK, and it cannot guard the case where the
+   * answer never arrived — which is the case this key exists for, and the only guard that survives a
+   * queue restored onto another device or drained after a sign-out. Send it on POST only: the
+   * server's update schemas do not declare it and every request body is `extra="forbid"`, so a key
+   * on a PATCH is a 422 an outbox would re-attempt for ever.
+   */
+  clientKey?: string | null;
 };
 
 /**
@@ -295,6 +335,19 @@ export type MediaFile = {
   transcriptSummary?: string | null;
   transcriptStatus?: string | null;
   transcriptError?: string | null;
+  /**
+   * WHEN A PERSON LAST REPLACED THE TRANSCRIPT ABOVE, and NULL MEANS "NOT STATED" — never "never
+   * edited". `POST /media/{id}/transcript` has been able to replace a transcript since long before
+   * these columns existed, so rows stored before migration 20260913120200 genuinely do not say.
+   *
+   * RENDER THREE STATES, NOT TWO. `edited={!!media.transcriptEditedAt}` collapses "not stated" into
+   * "not edited" and prints "the machine said this" over text a researcher may well have typed —
+   * which is the single assertion this column was added to stop being made silently. Pass
+   * `transcriptEditedAt ? true : undefined` and let the badge draw nothing for undefined.
+   */
+  transcriptEditedAt?: string | null;
+  /** Who made that edit. A bare id with no relation — an audit stamp, not a navigable edge. */
+  transcriptEditedById?: string | null;
   uploadedBy?: User | null;
   createdAt: string;
 };
@@ -334,6 +387,8 @@ export type ProductDocumentation = {
   createdById?: string;
   createdBy?: User;
   createdAt: string;
+  /** Idempotency key for an offline create. See `Workshop.clientKey`. */
+  clientKey?: string | null;
 };
 
 export type ToolDocumentation = {
@@ -351,6 +406,12 @@ export type ToolDocumentation = {
   width?: string | number | null;
   lengthInches?: string | number | null;
   breadthInches?: string | number | null;
+  /**
+   * The third of the triple, and the ONLY height column that records its unit. `height` above is the
+   * old unit-less one, kept for what is already stored — nothing in the database can say what unit
+   * those values are in, so they were never copied across. The measurement panel fills THIS one.
+   */
+  heightInches?: string | number | null;
   measurementImageId?: string | null;
   measurementAnalysis?: Record<string, unknown> | null;
   measurementAnalysisStatus?: string | null;
@@ -374,20 +435,111 @@ export type ToolDocumentation = {
   createdById?: string;
   createdBy?: User;
   createdAt: string;
+  /** Idempotency key for an offline create. See `Workshop.clientKey`. */
+  clientKey?: string | null;
+};
+
+/**
+ * ONE NAMED INSTRUMENT — the parent of every section, question and interview below.
+ *
+ * Two exist: the 2nd Craft Toolkit Workshop's (24 sections, RESP/A..W) and the 3rd's (22 sections,
+ * A..V). Their section CODES collide completely, so a section is only ever identified by its id or
+ * by `(questionnaireId, code)` — never by its code alone. Anything rendering "Section A" without
+ * saying which instrument it belongs to is making an unverifiable claim.
+ *
+ * `isDefault` is where every request that names no instrument lands, including Android builds that
+ * predate the field. It is an admin decision (`PUT /questionnaires/{id}/default`), never a client's.
+ */
+export type Questionnaire = {
+  id: string;
+  title: string;
+  description?: string | null;
+  isActive: boolean;
+  isDefault: boolean;
+  sortOrder: number;
+  sectionCount?: number;
+  questionCount?: number;
+  workshopCount?: number;
+  createdAt?: string;
 };
 
 export type QuestionnaireQuestion = {
   id: string;
+  questionnaireId: string;
   sectionId?: string | null;
   sectionCode: string;
   sectionTitle: string;
   prompt: string;
   sortOrder: number;
   isActive: boolean;
+  /**
+   * THE PRO-FORMA'S "Help text" COLUMN. Guidance an admin typed under a question in Excel —
+   * "count from the first year they worked unsupervised", "ask about the vat, not the colour".
+   *
+   * DECLARED HERE BECAUSE THE SERVER ALREADY SENDS IT, and a wire field that is not declared is a
+   * field this client cannot read without a cast. `backend/prisma/schema.prisma:1311` holds the
+   * column, `backend/app/schemas/questionnaire.py:94` accepts it on create, and the section payload
+   * returns it (`backend/app/api/routes/questionnaire.py:2441`). Until this line existed,
+   * `components/questionnaires/QuestionHelpText.tsx` bridged the gap with an intersection type whose
+   * own docstring said to delete it the moment the field landed; it has been deleted.
+   *
+   * OPTIONAL, AND THAT IS NOT LAZINESS. `apiFetch` casts a response body and validates no schema
+   * (`lib/api.ts`), so what arrives is whatever the deployment on the other end sends. This app is
+   * shipped as a browser page against a backend that is deployed separately, and a build opened
+   * against a server from before the migration receives an object with no such key. `helpText: string
+   * | null` would make the type claim something the wire cannot promise, and every reader would then
+   * be one `undefined` away from printing "undefined" under a question.
+   */
+  helpText?: string | null;
+  /**
+   * THE PRO-FORMA'S "Required" COLUMN — what the INSTRUMENT asks for, never what this form enforces.
+   *
+   * `RequiredByInstrument` (components/questionnaires/QuestionHelpText.tsx) prints a quiet word and
+   * deliberately NOT `components/ui/RequiredMark`'s asterisk, because /questionnaire does not block a
+   * save on it: a researcher in a courtyard with an artisan who will not answer question 54 must
+   * still be able to record the other eighty. Do not wire this into a `required` attribute.
+   *
+   * NOT NULL WITH A DEFAULT server-side (schema.prisma:1315) — "not stated" and "not required" are
+   * the same instruction to a researcher — so the only reason this is optional is the same
+   * older-deployment argument as `helpText` above, and `question.isRequired` being `undefined` reads
+   * as false at every call site, which is the right answer for a server that has never heard of it.
+   */
+  isRequired?: boolean;
+  /**
+   * WHEN THIS QUESTION STOPPED BEING ASKED BECAUSE ANSWERS ALREADY EXISTED. READ ONLY, ALWAYS.
+   *
+   * DISTINCT FROM `isActive`, WHICH HAS ANOTHER OWNER. `DELETE /questionnaire/questions/{id}`
+   * soft-deletes by writing `isActive = false` and nothing else, so `isActive` alone cannot tell "a
+   * professor switched this off last March" from "this was retired because answers exist". The
+   * workbook re-upload reads exactly that distinction: it REACTIVATES a question it finds named in an
+   * uploaded workbook and must never reactivate a retired one, or downloading a questionnaire and
+   * uploading it back unchanged resurrects every question anybody ever replaced, each standing next
+   * to its replacement (`backend/app/api/routes/questionnaire.py:2091-2109`).
+   *
+   * NOTHING IN THIS CLIENT MAY SEND IT. `QuestionnaireQuestionCreate` and `QuestionnaireQuestionUpdate`
+   * both omit it on purpose and `APIModel` is `extra="forbid"`, so a PATCH carrying `retiredAt` is
+   * refused with a 422 rather than ignored — see the paragraph at
+   * `backend/app/schemas/questionnaire.py:107-112`. It is declared here so the builder and the
+   * workbook report can SHOW a retirement, never so a form can set one.
+   */
+  retiredAt?: string | null;
+  /**
+   * The question that replaced this one when an answered question was reworded.
+   *
+   * A PLAIN ID STRING, not an embedded question: the column is a plain string server-side
+   * (schema.prisma:1335) precisely so that reading a question costs no join, and typing it as
+   * `QuestionnaireQuestion` here would invite a reader to dereference a field the wire never fills.
+   * The consolidated document walks this chain so a reworded question and its replacement print as
+   * one question rather than as two with the answers split between them.
+   *
+   * Send-side rules are `retiredAt`'s, for the same reason and out of the same paragraph.
+   */
+  supersededById?: string | null;
 };
 
 export type QuestionnaireSection = {
   id: string;
+  questionnaireId: string;
   code: string;
   title: string;
   sortOrder: number;
@@ -416,6 +568,13 @@ export type QuestionnaireInterview = {
   recordedTimezone?: string | null;
   workshopId?: string | null;
   workshop?: Workshop | null;
+  /**
+   * Which instrument this sitting was taken on. NOT NULL server-side and never changes: it is half
+   * of the one-interview-per-artisan-set uniqueness key, so the same artisans may sit once for each
+   * instrument and the two sittings do not fold into one another.
+   */
+  questionnaireId: string;
+  questionnaire?: Questionnaire | null;
   artisans?: Array<{ artisan: Artisan }>;
   responses?: QuestionnaireResponse[];
   media?: MediaFile[];

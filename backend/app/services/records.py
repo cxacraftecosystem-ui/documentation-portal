@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, NamedTuple
 
@@ -106,6 +106,50 @@ def derive_age(date_of_birth: Any, *, on: datetime | None = None) -> int | None:
     # a few days around their birthday, which is exactly the kind of wrongness nobody checks.
     years = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
     return years if 0 <= years <= 130 else None
+
+
+def derive_experience_years(craft_start: Any, *, on: datetime | None = None) -> int | None:
+    """Whole years between ``craft_start`` and today. None when there is no usable date.
+
+    THE SIBLING OF :func:`derive_age`, DELIBERATELY IDENTICAL IN SHAPE. ``Artisan.craftStartDate``
+    is the date an artisan began practising the craft, and ``Artisan.experienceYears`` is the older
+    column that holds a number somebody stated instead. The number is right on the day it is
+    written and wrong from then on -- the schema comment on ``experienceYears`` says so in terms,
+    "an artisan documented in 2024 with 30 years reads 30 in 2030" -- and it is printed by
+    ``record_fields``' "Experience (years)" row into the data browser card, the /data/report
+    workbook, ``details.txt`` inside the dataset zip and both /export CSVs, so that decay prints in
+    files a ministry reader opens. A date does not decay.
+
+    WHY IT IS A SEPARATE FUNCTION AND NOT :func:`derive_age` WITH A WIDER BAND. The band is the
+    whole difference and it is load-bearing: ``ArtisanCreate.experienceYears`` declares
+    ``ge=0, le=90`` (schemas/records.py) to match the sibling repository's registry exactly, so a
+    number outside that range is not a value this system can carry. Returning ``None`` for an
+    out-of-band date means the cell stays blank and the stated column behind it still gets its turn,
+    rather than an export printing a figure no schema in either product would accept.
+
+    Returns None rather than 0 for a missing, unparseable, future or out-of-band date, on
+    :func:`derive_age`'s reasoning: a blank box and "practising for zero years" are different
+    statements. Note the difference from the age band, which starts at 0 for a real reason -- a
+    newborn has an age and nobody has negative experience. Zero years here IS reachable and IS
+    kept: an apprentice who started this month is a real answer, which is why every reader of this
+    value tests ``is not None`` rather than truthiness.
+
+    ``on`` exists for the reason it exists on :func:`derive_age` -- a derivation tested against
+    ``now()`` passes in March and fails in September.
+    """
+    if not craft_start:
+        return None
+    if isinstance(craft_start, str):
+        try:
+            craft_start = datetime.fromisoformat(craft_start.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    started = getattr(craft_start, "date", lambda: craft_start)()
+    today = (on or datetime.now(UTC)).date()
+    # The anniversary-not-yet-reached correction, spelled out rather than divided, for the reason
+    # written out in `derive_age`: `(today - started).days // 365` drifts a day every four years.
+    years = today.year - started.year - ((today.month, today.day) < (started.month, started.day))
+    return years if 0 <= years <= 90 else None
 
 
 def mask_identity_number(value: Any) -> Any:
@@ -277,8 +321,14 @@ def jsonify_metadata(data: dict[str, Any], *fields: str) -> dict[str, Any]:
 # unlinking a silent no-op — the save returned 200, the form showed "Unlinked", and the old link
 # survived in the database. These keys therefore survive the clean with their explicit ``None``.
 #
-# Only relation FKs belong here. Scalar fields keep the old behaviour, because blanking those is
-# governed by the field-clearing guard in ``deps.assert_can_contribute_fields`` instead.
+# Only relation FKs belong here.
+#
+# PER-MODEL NULLABLE SCALARS GO THROUGH THE ``clearable`` ARGUMENT INSTEAD — see :func:`clean_data`.
+# That is what makes retracting a phone number, an email, an address or a note possible at all; the
+# claim that used to stand here, that blanking a scalar is "governed by the field-clearing guard in
+# ``deps.assert_can_contribute_fields``", described a governance that could NOT FIRE, because the
+# ``None`` was already gone by the time the guard ran. Every nullable scalar on every record model
+# was, until that argument existed, a 200 that did nothing.
 CLEARABLE_KEYS = frozenset(
     {
         "workshopId",
@@ -354,9 +404,14 @@ TITLE_CASE_FIELDS = frozenset(
 )
 
 
-def clean_data(data: dict[str, Any], *, title_case: bool = True) -> dict[str, Any]:
-    """Drop keys whose value is ``None``, keeping the deliberate nulls in :data:`CLEARABLE_KEYS`, and
-    title-case the name-like fields in :data:`TITLE_CASE_FIELDS`.
+def clean_data(
+    data: dict[str, Any],
+    *,
+    title_case: bool = True,
+    clearable: Sequence[str] | frozenset[str] = (),
+) -> dict[str, Any]:
+    """Drop keys whose value is ``None``, keeping the deliberate nulls in :data:`CLEARABLE_KEYS` plus
+    ``clearable``, and title-case the name-like fields in :data:`TITLE_CASE_FIELDS`.
 
     Casing happens HERE, at the very top of every write path, so the normalised value is what every
     later step sees: the craft lookup that matches on an exact name, the ``RecordRevision`` diff, the
@@ -364,10 +419,32 @@ def clean_data(data: dict[str, Any], *, title_case: bool = True) -> dict[str, An
 
     Pass ``title_case=False`` from a route whose payload happens to reuse one of those column names
     for prose rather than a name — a generated task title, say — where sentence casing is correct.
+
+    ── ``clearable``: THE MODEL'S OWN NULLABLE SCALARS, AND WHY IT IS PER CALL ──────────────────────
+    A FIELD THAT CANNOT BE CLEARED IS A 200 THAT DOES NOTHING, which is the worst answer an API can
+    give: the form shows the box empty, the save reports success, and the old value is still in the
+    database. The case with no workaround at all is retracting personal information a subject has
+    asked to have removed — a phone number, an email address, a home address, a note about them —
+    because there is no "" to send instead when the column is a nullable ``String?`` and the client
+    means NULL.
+
+    It is an argument rather than more names in :data:`CLEARABLE_KEYS` because that set is global and
+    this one is not: ``email`` is nullable on one model and NOT NULL on others, so a global entry
+    would trade one silent no-op for a constraint violation elsewhere. And because CREATE paths dump
+    every unset optional as ``None``, a global entry would also start writing explicit NULLs for
+    boxes the researcher merely left blank. An UPDATE route dumping with ``exclude_unset=True`` has
+    neither problem: a key is present only because the caller sent it, and the caller sent this
+    model.
+
+    So the rule for a caller is: pass the nullable scalar columns of the model THIS payload updates,
+    and pass them only from a route that dumps with ``exclude_unset=True``.
+
+    IT CAN ONLY ADD. The union below means a per-model tuple can never SUBTRACT a name from the
+    global set — which is why ``routes/processes.update_process`` has to refuse ``{"productId":
+    null}`` by hand: the column is NOT NULL on Process and the name is global.
     """
-    cleaned = {
-        key: value for key, value in data.items() if value is not None or key in CLEARABLE_KEYS
-    }
+    allowed = CLEARABLE_KEYS | frozenset(clearable) if clearable else CLEARABLE_KEYS
+    cleaned = {key: value for key, value in data.items() if value is not None or key in allowed}
     return title_case_fields(cleaned, TITLE_CASE_FIELDS) if title_case else cleaned
 
 
@@ -761,6 +838,246 @@ async def count_and_page(
     return total, items
 
 
+# --- The create-idempotency key, and the replay it makes indistinguishable from a first landing ---
+#
+# WHAT THIS IS FOR, IN ONE PARAGRAPH. A queued create is POSTed, the row is written, and the answer
+# is lost on the way back — a tunnel, a captive portal, the process killed while the request was in
+# flight. The client learned nothing, so the entry is still queued and the next pass sends it again.
+# Both outboxes guard the case they can SEE (`frontend/lib/offline.ts`'s `createdId`, Android's
+# `PendingEntry.createdId`), and neither can guard an answer that never arrived, because both are
+# records of a reply. The web outbox names the missing piece by name in `persistProgress`: *"a few
+# milliseconds of IndexedDB is as small as that window gets without idempotency keys on the API."*
+#
+# THE TEMPLATE IS `media.complete_media_upload`, DELIBERATELY. That route has answered a replayed
+# `objectKey` with the already-created row since the retry incident, and its comment states the
+# contract this follows: a row already present for this key IS this same upload — return it instead
+# of failing with a 500 on the unique index.
+#
+# THE CALLER MUST NOT BE ABLE TO TELL A REPLAY FROM A FIRST LANDING, and that is the whole point
+# rather than a nicety. A client that could tell would have to decide what to do about it, and the
+# only information it has is that its own queue is older than it thought — which is not a fact about
+# the record and not a fact a researcher can act on. So the replay returns through the SAME
+# `status_code=201` handler, encoded by the same encoder over the same `INCLUDE`, and the response is
+# byte-comparable with the one the first request produced. There is no `replayed: true`.
+#
+# WHAT A REPLAY CANNOT DO IS ANSWER FOR CHILDREN THAT WERE NEVER WRITTEN. This backend has no
+# transaction idiom at all, so a workshop can commit its row and then fail on its rosters, and a
+# process can commit its row and then fail on its steps. The four create routes therefore repair
+# EMPTY children on the replay path and never touch populated ones; see `routes/workshops` and
+# `routes/processes` for the two halves of that rule and for why an unconditional re-run would be
+# worse than the duplicate this key exists to prevent.
+
+#: The wire name of the create-idempotency key, spelled ONCE so the four schemas, the four routes and
+#: the violation sniffer below cannot drift apart. A rename that misses one of them is a create that
+#: writes the column and a replay that never finds it — a guard that is present and does nothing.
+CLIENT_KEY_FIELD = "clientKey"
+
+
+def is_client_key_violation(error: Exception) -> bool:
+    """Was this write refused by the ``clientKey`` unique index?
+
+    Shaped exactly like ``artisans._violated_identity_field`` and for its reason: Prisma raises a
+    generic error whose TEXT names the constraint, and the alternative — treating every exception
+    from a create as a possible replay — would answer 201 with somebody else's row for a failure
+    that has nothing to do with idempotency. Both tests have to pass: a unique violation on some
+    OTHER column of the same table (``Craft.name``, a future one) must go on raising.
+    """
+    text = str(error)
+    return "unique" in text.lower() and CLIENT_KEY_FIELD in text
+
+
+async def client_key_replay(
+    delegate: Any,
+    client_key: str | None,
+    *,
+    user_id: str,
+    include: dict[str, Any] | None = None,
+) -> Any | None:
+    """The row an earlier create with this ``clientKey`` already made, or ``None`` for a first landing.
+
+    ``None`` FOR AN ABSENT KEY IS THE WIRE CONTRACT AND IS CHECKED FIRST. A create that sends no key
+    — every fielded APK, every cached web bundle, every script — takes exactly the path it took
+    before this function existed, and pays not even a read for it. An empty string is treated as
+    absent, for the reason the outboxes give about a stored ``""``: an empty string is not an
+    identity, and a row carrying one has no proof of anything.
+
+    THE REPLAY IS HONOURED ONLY FOR THE ROW'S OWN CREATOR, and anyone else gets a 403 — the rule
+    ``complete_media_upload`` applies to ``uploadedById``, ported. A key is a v4 UUID and therefore
+    unguessable, so this is not really a defence against an attacker; it is a defence against
+    ANSWERING WITH THE WRONG PERSON'S RECORD if one ever collides or is copied between accounts, and
+    a 403 is the honest answer to "your key is taken" — 201 would hand over a stranger's fieldwork
+    and 409 would invite a retry that can only fetch the same answer.
+
+    CALL IT BEFORE THE WRITE GATES, NEVER AFTER. The gates (``enforce_workshop_submission``,
+    ``stamp_workshop_submission``) are about whether this caller may create the row, and on a replay
+    the row already exists — so re-asking can only turn a create that SUCCEEDED into a 403 for a
+    researcher whose workshop assignment was withdrawn in the meantime. It also keeps
+    ``attach_location`` from minting a second, unreferenced ``Location`` row per replay.
+    """
+    if not client_key:
+        return None
+    kwargs: dict[str, Any] = {"where": {CLIENT_KEY_FIELD: client_key}}
+    if include:
+        kwargs["include"] = include
+    existing = await delegate.find_unique(**kwargs)
+    if existing is None:
+        return None
+    if getattr(existing, "createdById", None) != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="That record belongs to another account.",
+        )
+    return existing
+
+
+async def client_key_replay_after_violation(
+    delegate: Any,
+    client_key: str | None,
+    error: Exception,
+    *,
+    user_id: str,
+    include: dict[str, Any] | None = None,
+) -> Any | None:
+    """The row that WON a race this create just lost on the ``clientKey`` index — or ``None``.
+
+    :func:`client_key_replay` above closes the ordinary case with one read. This closes the one it
+    cannot: two passes of the same queue in flight at once (two browser tabs, a phone whose sync
+    fired twice, a restored queue drained beside the original), each finding no row and each planning
+    an INSERT. Only the index can settle that, which is the argument
+    ``artisans._guard_identity_conflicts`` makes about its own pre-check — "the write is still
+    wrapped in its own handler, because two researchers can submit the same artisan in the same
+    instant and only the index can settle that race."
+
+    ``None`` MEANS RE-RAISE, and the caller must. An exception that is not a ``clientKey`` violation
+    is somebody else's problem arriving through this door, and swallowing it would report a failed
+    create as a successful one.
+
+    THERE IS NO TRANSACTION TO ABORT HERE, AND THAT IS WORTH STATING RATHER THAN ASSUMING. The
+    sibling repository wraps its workshop create and its two rosters in ``db.tx()`` and therefore has
+    to place this handler OUTSIDE the ``async with`` — a unique violation aborts a Postgres
+    transaction, so the re-read would fail with "current transaction is aborted" and a 201 would
+    arrive as a 500 naming nothing. This backend has no transaction idiom at all (zero ``db.tx()``
+    call sites), so the re-read on the module delegate is the only path and it simply works. IF A
+    TRANSACTION IS EVER INTRODUCED AROUND ONE OF THESE CREATES, this handler must move outside it and
+    must keep reading through the module client.
+    """
+    if not client_key or not is_client_key_violation(error):
+        return None
+    return await client_key_replay(delegate, client_key, user_id=user_id, include=include)
+
+
+# --- The correction precondition: an edit that says what it was composed against -----------------
+#
+# WHAT THIS CLOSES. A queued correction replays a WHOLE create-shaped body through the record's PATCH
+# route with no precondition of any kind, so it overwrites, field for field, anything anybody else
+# changed while it sat in the queue — and nobody is told. That is not speculative here:
+# `frontend/lib/offline.ts` types the queued method as `"POST" | "PATCH"`, and every record form
+# (`components/forms/ArtisanForm.tsx`, `ToolForm.tsx`, `ProductForm.tsx`, `ProcessForm.tsx`, the
+# workshops and crafts pages) calls `saveOrQueue` with `method: initial ? "PATCH" : "POST"` and a
+# whole create-shaped body. Android's outbox is create-only, so that half of the hazard does not
+# exist and must not be invented.
+#
+# ── WHY A TIMESTAMP AND NOT A VERSION COUNTER ────────────────────────────────────────────────────
+#
+#   1. `updatedAt` ALREADY EXISTS ON ALL SIX MODELS AND IS ALREADY IN EVERY RESPONSE. `public_encode`
+#      is `jsonable_encoder` over the row, so every client that has ever read a record has been
+#      handed this value. A counter is another migration, six more columns, and a bump every one of
+#      the six update routes must remember for ever — and a counter one writer forgets is a guard
+#      that silently stops guarding, which is strictly worse than one that guards coarsely.
+#   2. THE WINDOW HERE IS HOURS, NOT MILLISECONDS. This is a correction composed in a courtyard and
+#      drained on the bus home. Two edits to one artisan inside the same SECOND, one of them from a
+#      queue, is not the case this exists for.
+#   3. IT IS A NARROWING AND NOT A PROMISE, and is documented as one. Where this cannot tell two
+#      writes apart, the behaviour is what it is today: last write wins. Nothing regresses; some
+#      things stop being silent.
+
+#: The wire name of the precondition, spelled once for the update schemas and the update routes.
+EXPECTED_UPDATED_AT_FIELD = "expectedUpdatedAt"
+
+#: How far apart a caller's ``expectedUpdatedAt`` and the stored ``updatedAt`` may be and still be
+#: called the same moment.
+#:
+#: A SECOND, AND THE SIZE IS CHOSEN BY WHICH MISTAKE IT MAKES. Too tight and a TRUE match is reported
+#: as a conflict — a researcher's queued correction parked behind a comparison they cannot see,
+#: cannot fix and did not cause, on a handset with no signal. Too loose and a competing write inside
+#: the tolerance passes unnoticed, which is precisely today's behaviour and therefore not a
+#: regression. One of those two failures costs somebody their fieldwork and the other costs nothing
+#: that is not already being lost, so the tolerance is deliberately generous.
+#:
+#: WHAT THE PRECISION ACTUALLY IS, so the next reader can re-derive the number instead of trusting
+#: it. Prisma maps ``DateTime`` to Postgres ``timestamp(3)``, so the stored value carries
+#: milliseconds. A browser round-tripping the value through ``Date`` also lands on milliseconds; a
+#: handset through ``java.time.Instant`` keeps everything it was given. So the honest floor is a
+#: millisecond and a second is three orders of margin — bought because the ONLY thing that margin
+#: costs is a guarantee this function never claimed to make.
+EXPECTED_UPDATED_AT_TOLERANCE = timedelta(seconds=1)
+
+
+def take_expected_updated_at(data: dict[str, Any]) -> datetime | None:
+    """Pop the precondition out of a PATCH body, because it is a QUESTION and not a column.
+
+    POPPED AT THE TOP OF THE ROUTE, beside ``clean_data``, rather than left for the guard to remove
+    later: everything between here and the write reads ``data`` — ``guard_record_edit`` diffs it into
+    a ``RecordRevision``, ``merge_field_provenance`` stamps a contributor against every key it holds,
+    and Prisma is finally handed it as columns. A field that survived into any one of those would be
+    an audit entry for an edit nobody made, a provenance stamp on a field that does not exist, or a
+    500 naming a column this table has never had.
+    """
+    value = data.pop(EXPECTED_UPDATED_AT_FIELD, None)
+    return value if isinstance(value, datetime) else None
+
+
+def assert_expected_updated_at(record: Any, expected: datetime | None) -> None:
+    """Refuse an edit composed against a version of this record that is no longer the current one.
+
+    ``None`` PASSES, AND THAT IS THE WHOLE COMPATIBILITY STORY. Every client shipped to date sends no
+    precondition; every one of them goes on behaving exactly as it does now, unrefusable by this
+    function. Only a caller that opts in by SENDING the field can ever meet the 409 — which is why no
+    fielded APK and no cached web bundle can be refused by this change.
+
+    CALL IT BEFORE ``guard_record_edit`` — ABOVE IT, NOT AFTER, AND NOT INSIDE ANYTHING. The sibling
+    repository says "inside the transaction and before any write in it"; this backend has no
+    transactions, which makes the ordering MORE important rather than less. ``guard_record_edit``
+    ends in ``record_revision``, which COMMITS a ledger row asserting a change (services/access.py),
+    and ``workshops.update_workshop`` calls ``record_revision`` directly as well. A refusal raised
+    after either would leave a permanent, undeletable claim in ``RecordRevision`` about an edit that
+    was then turned down — and there is no rollback here to take it back. So this is called on the
+    line after ``take_expected_updated_at``, above every gate and every write.
+
+    THE COMPARISON IS ``abs(difference) <= tolerance`` AND NOT AN EQUALITY. See
+    :data:`EXPECTED_UPDATED_AT_TOLERANCE` for the size and for which of the two possible mistakes it
+    deliberately makes. A NAIVE datetime from the caller is read as UTC rather than refused: every
+    value this can be compared against was produced by this API, which encodes UTC, and 422-ing a
+    correction over a missing "Z" would lose fieldwork to punctuation.
+    """
+    if expected is None:
+        return
+    stored = getattr(record, "updatedAt", None)
+    if not isinstance(stored, datetime):
+        # Nothing to compare against — a row this old has no claim to make, and inventing a refusal
+        # from an absent value would park a correction over the server's own gap.
+        return
+    if expected.tzinfo is None:
+        expected = expected.replace(tzinfo=UTC)
+    if stored.tzinfo is None:
+        stored = stored.replace(tzinfo=UTC)
+    if abs(stored - expected) <= EXPECTED_UPDATED_AT_TOLERANCE:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "record_changed",
+            # TERSE, AND WRITTEN TO BE QUOTED. A client embeds this ``message`` verbatim between its
+            # own clauses, so it has to read as one self-contained sentence in the middle of a
+            # paragraph — not as a heading, and not as an instruction that competes with the remedy
+            # the client's own sentence gives.
+            "message": "Someone else changed this record after this edit was composed.",
+            "expectedUpdatedAt": expected.isoformat(),
+            "currentUpdatedAt": stored.isoformat(),
+        },
+    )
+
+
 # Fields that are infrastructural / system-managed and should not be attributed to a contributor.
 PROVENANCE_SKIP_FIELDS = {
     "extraMetadata",
@@ -777,6 +1094,14 @@ PROVENANCE_SKIP_FIELDS = {
     "measurementAnalysis",
     "measurementAnalysisStatus",
     "measurementImageId",
+    # THE CREATE-IDEMPOTENCY KEY, WHICH IS BOOKKEEPING ABOUT A SEND AND NOT A FIELD ANYBODY FILLED
+    # IN. It reaches ``data`` on the four create routes that accept it, so without this entry
+    # ``merge_field_provenance`` would write a ``{by, byName, at}`` stamp against it — and the web
+    # client's "Field contributions" panel (components/FieldProvenance.tsx) builds its rows from
+    # whatever keys that object holds, so every replayable record would list a row attributing a v4
+    # UUID to the researcher, as though they had typed it. It would also be copied forward into
+    # ``extraMetadata`` on every later edit, so it accumulates rather than being trivially removable.
+    CLIENT_KEY_FIELD,
 }
 
 

@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 
 import { Field, Select, TextInput } from "@/components/FormControls";
+import { DictatedTextInput } from "@/components/richtext/DictatedTextInput";
+import { RequiredMark } from "@/components/ui/RequiredMark";
 import { apiFetch } from "@/lib/api";
 import type { AddressReference } from "@/lib/types";
 
@@ -1645,7 +1647,7 @@ export function LocationFields({
         <div>
           <h3 id={headingId} className="font-display font-bold text-lg text-ink-900">
             Location of {subjectLabel}
-            {stateRequired ? " *" : ""}
+            <RequiredMark when={stateRequired} />
           </h3>
           <p className="mt-1 text-sm text-ink-500">
             Where {subjectLabel} is. This is what the map, the exports and the research dataset use.{" "}
@@ -1824,14 +1826,58 @@ export function LocationFields({
               </p>
             ) : null}
           </Field>
-          <Field label="Village or place">
-            <TextInput
-              name="village"
-              value={village}
-              placeholder="Bagru"
-              onChange={(event) => setVillage(event.target.value)}
-            />
-          </Field>
+          {/*
+            THE ONE BOX IN THIS CARD THAT TAKES A MICROPHONE.
+
+            A village name is a free proper noun, often in a script the researcher's keyboard makes
+            hard work of, typed while standing in the place it names. Everything else in this card is
+            excluded by rule and each exclusion is a fact rather than a preference: `state` and
+            `district` are closed lists, `pincode` is six digits, and the coordinate boxes are decimal
+            degrees — a recogniser spells digits out and punctuates what it hears, so a microphone on
+            any of them reliably produces a value the field then refuses.
+
+            NO `Field` WRAPPER, AND THAT IS REQUIRED RATHER THAN INCIDENTAL. `DictatedTextInput`
+            writes its own `<label className="field-label" htmlFor>` precisely because it contains a
+            second control (see that file's header), so a `Field` around it draws a SECOND visible
+            label with the identical words directly above the control's own — and a screen reader
+            announces "Village or place, Village or place, edit". This card is mounted by the artisan,
+            product, tool, workshop, media and questionnaire forms, so this is one box on six screens.
+
+            `titleCased`: `village` IS one of the API's title-cased columns
+            (`backend/app/services/records.py:350`) and `attach_location` funnels the whole location
+            dict through `clean_data` on the way in (`records.py:435`), so "bagru" really is stored as
+            "Bagru". The comment at `records.py:331-333` says why the list has it: village is free text
+            with no vocabulary behind it, so this is the ONLY normalisation it gets, and two spellings
+            would otherwise be two villages in every group-by. The box therefore has to say so — and
+            the sibling application's claim that `village` is NOT in that set
+            (`designer:components/forms/LocationFields.tsx:2025`) is simply wrong against both
+            backends.
+
+            `onDirty?.()` BY HAND, AND IT IS NEW. The old `<TextInput>` never called it and only
+            appeared to work: typing bubbled a native `input` event up to the surrounding form's
+            `onInput={markDirty}`. A dictated phrase is a React state write and fires no such event,
+            so without this line a researcher who only ever SPOKE the village would be told there was
+            nothing to lose on the way out. `claimField` is deliberately NOT called — that register is
+            about the three boxes the map auto-fill writes into and offers to undo (state, district,
+            pincode), and the village is not one of them.
+
+            `explainWhenUnavailable={false}` — every form that mounts this card renders
+            `DictationUnavailableNotice` once, and a grey paragraph repeated per card is a paragraph
+            nobody reads. This file mounts NO notice of its own, by design: the mounting form owns the
+            sentence, and a card that said it too would say it twice on all six screens.
+          */}
+          <DictatedTextInput
+            name="village"
+            label="Village or place"
+            titleCased
+            value={village}
+            placeholder="Bagru"
+            explainWhenUnavailable={false}
+            onChange={(next) => {
+              setVillage(next);
+              onDirty?.();
+            }}
+          />
           <Field label="Pincode">
             <input
               ref={pincodeRef}

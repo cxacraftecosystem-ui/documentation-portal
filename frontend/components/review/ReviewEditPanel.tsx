@@ -10,6 +10,7 @@ import {
   type ReviewField
 } from "@/components/review/reviewEditFields";
 import { readableError } from "@/components/review/reviewErrors";
+import { RequiredMark } from "@/components/ui/RequiredMark";
 
 /**
  * Fix a pending record's field values from inside the review queue, instead of bouncing it back to
@@ -127,7 +128,19 @@ export function ReviewEditPanel({
       <label key={field.key} className="grid gap-1">
         <span className="field-label">
           {field.label}
-          {field.required ? " *" : ""}
+          {/*
+            THE SHARED ASTERISK, not the conditional string literal that used to sit here — see
+            `components/ui/RequiredMark.tsx`. This panel is one of the three call sites that were
+            outside the dictation sweep's reach and therefore held the mark's colour hostage for
+            every form in the product: convert two of three and ship the red, and the artisan form
+            carries two colours of required mark at once.
+
+            IT IS A DIFFERENT RED FROM THE ONE BESIDE IT, AND THAT IS THE POINT. `changed` is
+            `text-purple-700` because it reports a fact about this editing session (you altered this
+            box) while the asterisk reports a fact about the record (this column cannot be empty).
+            Painting them the same colour would merge a transient state into a standing rule.
+          */}
+          <RequiredMark when={field.required} />
           {dirty ? <span className="ml-1.5 font-semibold normal-case text-purple-700">changed</span> : null}
         </span>
         {field.multiline ? (

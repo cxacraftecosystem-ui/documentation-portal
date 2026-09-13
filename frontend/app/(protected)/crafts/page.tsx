@@ -8,13 +8,15 @@ import { CollabDialog } from "@/components/CollabDialog";
 import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { FieldProvenance } from "@/components/FieldProvenance";
-import { Field, TextArea, TextInput } from "@/components/FormControls";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { useEditDeepLink } from "@/components/hooks/useEditDeepLink";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { UploadProgress } from "@/components/media/UploadProgress";
 import { UploadTray } from "@/components/media/UploadTray";
+import { DictatedTextArea } from "@/components/richtext/DictatedTextArea";
+import { DictatedTextInput } from "@/components/richtext/DictatedTextInput";
+import { DictationUnavailableNotice } from "@/components/richtext/DictationUnavailableNotice";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { ResizableTh } from "@/components/ResizableTh";
@@ -50,6 +52,36 @@ export default function CraftsPage() {
   );
 }
 
+/**
+ * ── DICTATION ON THE CRAFT FORM: WHICH BOXES HAVE A MICROPHONE, AND WHY THE REST DO NOT ────────
+ *
+ * DICTATED: Craft name · Local name · Category · Place · Description.
+ *
+ * NOT DICTATED: **Workshop** (a record picker behind a themed dropdown — nothing free to speak) and
+ * **Craft media** (a file picker).
+ *
+ * CATEGORY IS THE JUDGEMENT CALL ON THIS FORM, and it is dictated only because of what it is TODAY:
+ * free prose with no vocabulary endpoint behind it and nothing validating it. It is not title-cased,
+ * because it is absent from the API's title-cased set (`backend/app/services/records.py:339-354`) and
+ * a hint would promise a normalisation that never happens. The day this becomes a dropdown it leaves
+ * this list, like every other closed vocabulary.
+ *
+ * THE SEARCH BOX IS NOT PART OF THIS FORM AND GETS NOTHING. It is not an answer being stored; it
+ * re-runs a query on every keystroke, so a microphone there would fire a debounced fetch per phrase.
+ * If searching by voice is wanted it belongs in `SearchInput` once, for every list screen.
+ *
+ * `titleCased` ON NAME AND PLACE IS NEW HERE. `Craft.name` and `Craft.place` both go through
+ * `clean_data` on write (`records.py:341`, `:348`), so a researcher who typed "bagru block printing"
+ * saved and watched the record silently become something else — the exact defect `TitleCasedInput`
+ * was written for, on the one record form that had never been given it. Description is a
+ * `DictatedTextArea` and deliberately NOT a `RichTextField`: pointing an editor here would make
+ * `Craft.description` another `String?` column capable of holding `{"blocks":…}`, which
+ * `record_fields.cell()` prints verbatim into a CSV. That is a storage decision across three
+ * languages and it belongs with the other seven prose columns or nowhere.
+ *
+ * ONE SENTENCE FOR THE WHOLE FORM: every control passes `explainWhenUnavailable={false}` and
+ * `DictationUnavailableNotice` sits once at the top of the field grid.
+ */
 function CraftsPageBody() {
   const confirm = useConfirm();
   const { user } = useAuth();
@@ -61,6 +93,20 @@ function CraftsPageBody() {
   const [applied, setApplied] = useState("");
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<Craft | null>(null);
+  /*
+    THE FOUR DICTATED ONE-LINE BOXES, AND THE KEY THAT CLEARS THE FIFTH.
+
+    `DictatedTextInput` is controlled by its caller — it has one mode, for the reason written out in
+    that file — so the four names below live here and are seeded by `resetForm`. The description is a
+    `DictatedTextArea`, which owns its own value and re-seeds only on REMOUNT, so it is `formKey` that
+    clears it. Both mechanisms exist because `formElement.reset()` rewrites the DOM and tells React
+    nothing: neither kind of box is reachable from it.
+  */
+  const [name, setName] = useState("");
+  const [localName, setLocalName] = useState("");
+  const [category, setCategory] = useState("");
+  const [place, setPlace] = useState("");
+  const [formKey, setFormKey] = useState(0);
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [collabId, setCollabId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -134,6 +180,23 @@ function CraftsPageBody() {
     setEditing(next);
     setMediaFiles([]);
     setDirty(false);
+    // The four dictated boxes are page state, so they are seeded here rather than by a `defaultValue`
+    // the remount below would re-read. `next` is the record being loaded, or null for a blank form.
+    setName(next?.name ?? "");
+    setLocalName(next?.localName ?? "");
+    setCategory(next?.category ?? "");
+    setPlace(next?.place ?? "");
+    // ── AND THE FORM IS REMOUNTED, WHICH IS A BUG FIX AND NOT A TIDY-UP ─────────────────────
+    // The `<form>` was keyed `editing?.id ?? "new"` alone, so creating a craft did not change the key
+    // and the form was NOT rebuilt: `formElement.reset()` on the saved branch of `submit` was the
+    // whole of the clearing, and that reaches uncontrolled DOM inputs and nothing else. The
+    // description box — now a `DictatedTextArea`, which owns its value — would paint empty while
+    // still holding the saved text, and one keystroke would bring the previous description back into
+    // the next craft. The QUEUED branch is worse: it calls `resetForm(null)` and never calls
+    // `formElement.reset()` at all, and offline is the path nobody tests.
+    // Bumping a counter into the key is the instrument `ArtisanForm` uses (`formKey`) for the same
+    // reason: remounting is what clears the state living inside the field components.
+    setFormKey((key) => key + 1);
   }
 
   // `/crafts?edit=<id>` loads that craft into the form below; `/crafts?new=1` opens a blank one.
@@ -273,7 +336,7 @@ function CraftsPageBody() {
       {allowManage ? (
       <form
         ref={formRef}
-        key={editing?.id ?? "new"}
+        key={`${editing?.id ?? "new"}-${formKey}`}
         onSubmit={submit}
         onInput={() => setDirty(true)}
         onKeyDown={handleFormEnter}
@@ -292,22 +355,77 @@ function CraftsPageBody() {
         ) : null}
         {/* The workshop leads every other dropdown: it is the context the record belongs to. */}
         <WorkshopSelect state={workshop} onDirty={() => setDirty(true)} saving={saving} />
-        <Field label="Craft name" required>
-          <TextInput name="name" required defaultValue={editing?.name ?? ""} />
-        </Field>
-        <Field label="Local name">
-          <TextInput name="localName" defaultValue={editing?.localName ?? ""} />
-        </Field>
-        <Field label="Category">
-          <TextInput name="category" defaultValue={editing?.category ?? ""} />
-        </Field>
-        <Field label="Place">
-          <TextInput name="place" defaultValue={editing?.place ?? ""} />
-        </Field>
+        {/*
+          THE ONE PLACE THIS FORM EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.
+          Every dictated box below passes `explainWhenUnavailable={false}`, because on Firefox the
+          same honest paragraph printed five times down one form is a block of grey text nobody reads.
+
+          `md:col-span-2 lg:col-span-4` because THIS form's root element IS the field grid: without
+          the span the sentence would be one cell of four and would wrap to five lines beside the
+          workshop picker.
+        */}
+        <DictationUnavailableNotice className="md:col-span-2 lg:col-span-4" />
+        {/* `setDirty(true)` BY HAND in every `onChange`: the form's `onInput` catches typing, but a
+            dictated phrase is a React state write and fires no native `input` event, so a researcher
+            who only ever spoke would be told there was nothing to lose on the way out. */}
+        <DictatedTextInput
+          name="name"
+          label="Craft name"
+          required
+          titleCased
+          explainWhenUnavailable={false}
+          value={name}
+          onChange={(next) => {
+            setName(next);
+            setDirty(true);
+          }}
+        />
+        {/* NOT title-cased: `localName` is Devanagari or Gujarati, where capitalising means nothing. */}
+        <DictatedTextInput
+          name="localName"
+          label="Local name"
+          explainWhenUnavailable={false}
+          value={localName}
+          onChange={(next) => {
+            setLocalName(next);
+            setDirty(true);
+          }}
+        />
+        {/* Dictated ONLY because it is free prose today — no vocabulary endpoint, nothing validating
+            it. Not title-cased: absent from `records.py:339-354`. See the register above. */}
+        <DictatedTextInput
+          name="category"
+          label="Category"
+          explainWhenUnavailable={false}
+          value={category}
+          onChange={(next) => {
+            setCategory(next);
+            setDirty(true);
+          }}
+        />
+        <DictatedTextInput
+          name="place"
+          label="Place"
+          titleCased
+          explainWhenUnavailable={false}
+          value={place}
+          onChange={(next) => {
+            setPlace(next);
+            setDirty(true);
+          }}
+        />
+        {/* THE WRAPPER `<div>` STAYS, and it is not decoration. `DictatedTextArea`'s `className` prop
+            lands on its `<textarea>`, not on its wrapper, so passing `md:col-span-2 lg:col-span-4`
+            to the component compiles, renders, and silently leaves the box one cell wide in a
+            four-column grid. The span has to be on an element that IS the grid item. */}
         <div className="md:col-span-2 lg:col-span-4">
-          <Field label="Description">
-            <TextArea name="description" defaultValue={editing?.description ?? ""} />
-          </Field>
+          <DictatedTextArea
+            name="description"
+            label="Description"
+            defaultValue={editing?.description ?? ""}
+            explainWhenUnavailable={false}
+            onDirty={() => setDirty(true)}
+          />
         </div>
         <div className="md:col-span-2 lg:col-span-4">
           <MediaCaptureField

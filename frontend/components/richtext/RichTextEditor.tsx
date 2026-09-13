@@ -1120,6 +1120,25 @@ export type RichTextEditorProps = {
   /** The id of the element naming this editor — the `field-label` span, on a record form. */
   ariaLabelledBy?: string;
   ariaLabel?: string;
+  /**
+   * Let the dictation button below draw its own "this browser cannot dictate" sentence, or not.
+   *
+   * FORWARDED, NOT DECIDED HERE. Every record form now renders `DictationUnavailableNotice` once at
+   * the top and passes `false` to each control below it. This editor was the one control that could
+   * not be told, so on a browser with no recogniser (Firefox, today) `ProductForm` printed the
+   * form-level paragraph PLUS one copy under each of its four rich-text boxes — five copies of one
+   * sentence down one form, which is how a true sentence becomes wallpaper.
+   *
+   * DEFAULTS TO UNDEFINED, which the button reads as its own default of true, so a caller that says
+   * nothing behaves exactly as it did before this prop existed.
+   *
+   * IT IS NOT AN ID AND IT SELECTS NOTHING. The dictation button here is unconditional and there is
+   * only one of it — see `e2e/record-form-dictation-unit.spec.ts`, "the editor hosts the on-device
+   * button and has no id-shaped prop to route it elsewhere", which asserts that this editor has no
+   * id-shaped prop and imports exactly one dictation module. This is a boolean about a SENTENCE, not
+   * a route.
+   */
+  explainWhenUnavailable?: boolean;
   placeholder?: string;
   /** An advisory character ceiling, shown beside the live count — see the note on it below. */
   maxLength?: number;
@@ -1164,6 +1183,7 @@ export function RichTextEditor({
   disabled,
   ariaLabelledBy,
   ariaLabel,
+  explainWhenUnavailable,
   placeholder = "Write here. Select text to format it, or type “## ” for a heading and “1. ” for a numbered list.",
   maxLength,
   listKind,
@@ -2935,7 +2955,7 @@ export function RichTextEditor({
           becomes a file or a request — see `components/dictation/OnDeviceDictationButton.tsx` for
           why a record form gets no server transcription rung.
         */}
-        {!disabled ? <OnDeviceDictationButton fieldLabel={ariaLabel ?? "this field"} onCommit={commitDictated} /> : null}
+        {!disabled ? <OnDeviceDictationButton fieldLabel={ariaLabel ?? "this field"} explainWhenUnavailable={explainWhenUnavailable} onCommit={commitDictated} /> : null}
         <button
           type="button"
           className="inline-flex items-center gap-1.5 text-xs font-medium text-purple-700 transition hover:text-purple-800"
