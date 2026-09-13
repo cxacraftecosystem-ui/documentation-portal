@@ -167,6 +167,10 @@ import com.fieldrepository.app.data.apiErrorMessage
 import com.fieldrepository.app.data.apiFailure
 import com.fieldrepository.app.data.occurrenceDate
 import com.fieldrepository.app.ui.AccessRosterScreen
+import com.fieldrepository.app.ui.WorkshopWindowState
+import com.fieldrepository.app.ui.formatWorkshopDay
+import com.fieldrepository.app.ui.workshopWindowNotice
+import com.fieldrepository.app.ui.workshopWindowState
 import com.fieldrepository.app.ui.ApiKeysScreen
 import com.fieldrepository.app.ui.MyAiKeysScreen
 import com.fieldrepository.app.ui.AppPreferences
@@ -197,6 +201,10 @@ import com.fieldrepository.app.ui.MapScreen
 // The shared prose box behind every record form: an optional on-device microphone and an optional
 // rich-text editor, both defaulting to off. See `ui/RecordProseField.kt` and `ui/RecordProseText.kt`.
 import com.fieldrepository.app.ui.RecordProseField
+// The record forms do not decide dictation at the call site any more: they ask this table, which
+// `RecordProseTest` and `RecordDictationParityTest` both read. See `ui/RecordDictationFields.kt`.
+import com.fieldrepository.app.ui.RecordFormKind
+import com.fieldrepository.app.ui.recordDictationFor
 import com.fieldrepository.app.ui.WorkshopScopeSelect
 import com.fieldrepository.app.ui.rememberWorkshopScope
 import com.fieldrepository.app.ui.ProvideAppPreferences
@@ -3847,13 +3855,26 @@ private fun WorkshopField(state: WorkshopPickerState, saving: Boolean = false) {
     val selected = state.workshops.firstOrNull { it.id == state.selectedId }
     val check = state.check
     val blocked = check != null && !check.canSubmit
-    // Prefer the server's verdict; fall back to the workshop's own dates when there is no answer.
-    val late = if (check != null) {
-        check.outOfWindow || check.isOver
+    // THREE states, not two. The old expression here was `check.outOfWindow || check.isOver`, which
+    // collapsed a TWO-SIDED flag to one bit and then printed the after-the-end half of it for both
+    // halves — so a workshop that had not STARTED was announced as ENDED, which is the sentence a
+    // researcher read at 00:55 IST on a workshop's opening morning. The rules, the strings and the
+    // whole argument now live in ui/WorkshopOptions.kt, where WorkshopWindowTest can hold them at a
+    // named instant; the web twin is frontend/components/forms/WorkshopSelect.tsx.
+    val windowState = if (state.selectedId.isBlank()) {
+        WorkshopWindowState.IN_WINDOW
     } else {
-        state.selectedId.isNotBlank() && workshopEndedLocally(selected)
+        workshopWindowState(check, selected)
     }
-    val endLabel = formatIsoDate(check?.endDate ?: selected?.endDate ?: selected?.date)
+    val notice = workshopWindowNotice(
+        state = windowState,
+        // The pre-flight carries no startDate — keeping the wire stable was the point — so the start
+        // day comes from the loaded workshop row, and stays null when that row is not in the list.
+        startLabel = formatWorkshopDay(selected?.startDate ?: selected?.date),
+        endLabel = formatWorkshopDay(check?.endDate ?: selected?.endDate ?: selected?.date),
+        // No answer means we cannot promise the submission escapes review, so we do not.
+        needsAdminApproval = check?.needsAdminApproval ?: true
+    )
 
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         WorkshopDropdown(
@@ -3867,18 +3888,8 @@ private fun WorkshopField(state: WorkshopPickerState, saving: Boolean = false) {
                 color = MaterialTheme.colorScheme.error,
                 fontSize = 12.sp
             )
-        } else if (late) {
-            Text(
-                (if (endLabel == null) "This workshop has already ended." else "This workshop ended on $endLabel.") +
-                    " " +
-                    if (check == null || check.needsAdminApproval) {
-                        "Saving now counts as a late submission and needs an admin's approval."
-                    } else {
-                        "Saving now is recorded as a late submission."
-                    },
-                color = Coral,
-                fontSize = 12.sp
-            )
+        } else if (notice != null) {
+            Text(notice, color = Coral, fontSize = 12.sp)
         }
     }
 
@@ -3950,15 +3961,13 @@ private fun LateSubmissionDialog(
     )
 }
 
-/**
- * Local "has this workshop ended?", used only when the pre-flight answer is unavailable. Mirrors the
- * backend rule (and the web's `endedLocally`): the whole of the end day is still in-window.
- */
-private fun workshopEndedLocally(workshop: WorkshopDetailDto?): Boolean {
-    val raw = workshop?.endDate ?: workshop?.date ?: workshop?.startDate ?: return false
-    val end = parseIsoToLocalDate(raw) ?: return false
-    return LocalDate.now(ZoneId.systemDefault()).isAfter(end)
-}
+// `workshopEndedLocally` used to live here. It answered only TWO of the three states a record form
+// has to tell apart, and it counted its days in `ZoneId.systemDefault()` — a phone left on airport
+// time would have been told its workshop ended a day early. Both rulings moved to
+// `ui/WorkshopOptions.kt::workshopWindowState`, where `WorkshopWindowTest` can hold them at a named
+// instant and where the web's `workshopWindowState` is a line-for-line twin. Do not reintroduce a
+// second copy of this judgement: two surfaces answering one question about one workshop differently
+// is this product family's most repeated defect class.
 
 /**
  * The workshop dropdown itself. Styling and behaviour are [DropdownField]'s; only the option labels
@@ -5227,21 +5236,26 @@ private fun CraftForm(
             workshop.isDirty() || media.uris.isNotEmpty() || media.measurementUri != null
     )
 
+    // Which boxes on this form carry a microphone is DATA, not a pattern — see
+    // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
+    // the browser's own form from drifting apart.
+    val dictates = recordDictationFor(RecordFormKind.CRAFT)
     RecordCard(title = if (isEdit) "Edit craft" else "Add craft") {
         RegisterUnsavedGuard(dirty = dirty) { submit() }
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
         WorkshopField(state = workshop, saving = saving)
-        RequiredInput("Craft name", name, nameError, nameFocus, titleCased = true) { name = it }
-        TextInput("Local name", localName) { localName = it }
-        TextInput("Category", category) { category = it }
-        TextInput("Place", place, titleCased = true) { place = it }
+        RequiredInput("Craft name", name, nameError, nameFocus, titleCased = true, dictate = dictates("name")) { name = it }
+        TextInput("Local name", localName, dictate = dictates("localName")) { localName = it }
+        TextInput("Category", category, dictate = dictates("category")) { category = it }
+        TextInput("Place", place, titleCased = true, dictate = dictates("place")) { place = it }
         // `Craft.description` is the craft's narrative — the paragraph a reader of the repository
-        // actually reads — so it takes both controls. The single-line boxes above take neither: that
-        // is the user's own "only the larger text boxes" rule, and `ui/RecordProseText.kt` carries
-        // the enumeration of what was given a control and what was deliberately skipped.
-        TextInput("Description", description, minLines = 3, dictate = true, rich = true) { description = it }
+        // actually reads — so it takes both controls. The four boxes above now take the microphone
+        // too (2026-09-13) and still take no editor: that is the formatting half of the user's
+        // "only the larger text boxes" rule, which is the half that survived. `ui/RecordProseText.kt`
+        // carries the enumeration; `ui/RecordDictationFields.kt` carries the microphone table.
+        TextInput("Description", description, minLines = 3, dictate = dictates("description"), rich = true) { description = it }
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "craft", recordId = editing!!.id, onError = onError)
         }
@@ -5558,6 +5572,10 @@ private fun ArtisanForm(
             workshop.isDirty() || media.uris.isNotEmpty() || media.measurementUri != null
     )
 
+    // Which boxes on this form carry a microphone is DATA, not a pattern — see
+    // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
+    // the browser's own form from drifting apart.
+    val dictates = recordDictationFor(RecordFormKind.ARTISAN)
     RecordCard(title = if (isEdit) "Edit artisan" else "Add artisan") {
         RegisterUnsavedGuard(dirty = dirty) { submit() }
         if (adminView && editing != null) {
@@ -5566,8 +5584,8 @@ private fun ArtisanForm(
         // Above the workshop picker, so what was filled in is read before any of the fields it filled.
         CarryPrefillBanner(state = carry, onChange = { clearCarriedContext() })
         WorkshopField(state = workshop, saving = saving)
-        RequiredInput("Name", name, nameError, nameFocus, titleCased = true) { name = it }
-        TextInput("Local name", localName) { localName = it }
+        RequiredInput("Name", name, nameError, nameFocus, titleCased = true, dictate = dictates("name")) { name = it }
+        TextInput("Local name", localName, dictate = dictates("localName")) { localName = it }
         DropdownField(
             label = "Craft *",
             // `craftOptions`: this artisan's own craft is always offered, even when its name sorts
@@ -5588,18 +5606,35 @@ private fun ArtisanForm(
             }
         )
         craftListCut?.let { Text(it, color = Muted, fontSize = 12.sp) }
-        OutlinedTextField(
+        /*
+         * THIS BOX MOVED ONTO THE SHARED CONTROL SO IT COULD HAVE A MICROPHONE — 2026-09-13.
+         *
+         * `Artisan.craftName` is the free-text escape hatch beside the craft dropdown: it is what a
+         * researcher fills in when the craft they are looking at is not in the repository yet, which
+         * is the moment they are furthest from a keyboard and closest to the person telling them
+         * what it is called. Leaving it as a bare `OutlinedTextField` here is how one client ends up
+         * quieter than the other over a box neither of them thought about.
+         *
+         * THE BROWSER LANDED THE SAME BOX IN THE SAME WAVE, and it is worth knowing how the two
+         * are matched: the browser names its input `newCraftName` and posts it as the API column
+         * `craftName`, which is the name used here and the name the parity test compares on — see
+         * `RecordDictationParityTest.WEB_BOX_TO_COLUMN` for why the form key is not the column.
+         *
+         * NOTHING ELSE ABOUT IT CHANGES. The placeholder still says WHEN this is the box to fill in
+         * — web parity, and the whole point of a field that is only sometimes the right one — and
+         * the error and the focus target still land exactly where `validateRequired` sends them,
+         * now through `errorText` and `focusRequester` rather than through a second hand-rolled box.
+         */
+        RecordProseField(
+            label = "Or new craft name",
             value = newCraftName,
             onValueChange = { newCraftName = it },
-            label = { Text("Or new craft name") },
-            // Web parity (components/forms/ArtisanForm.tsx): the box says WHEN it is the one to fill
-            // in, which is the whole point of a field that is only sometimes the right one.
-            placeholder = { Text("Used when no existing craft is selected") },
-            isError = craftError != null,
-            supportingText = craftError?.let { msg -> { Text(msg) } },
-            modifier = Modifier.fillMaxWidth().focusRequester(craftFocus)
+            placeholder = "Used when no existing craft is selected",
+            dictate = dictates("craftName"),
+            errorText = craftError,
+            focusRequester = craftFocus,
         )
-        RequiredInput("Place", place, placeError, placeFocus, titleCased = true) { place = it }
+        RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
         DropdownField(
             label = "Gender",
             options = genderOptions.map { it to it },
@@ -5648,8 +5683,8 @@ private fun ArtisanForm(
          * exactly right for it: an address is the worst thing on a phone keyboard and the easiest
          * thing to say out loud.
          */
-        TextInput("Address", address, minLines = 2, dictate = true) { address = it }
-        MultiNoteInput(value = notes) { notes = it }
+        TextInput("Address", address, minLines = 2, dictate = dictates("address")) { address = it }
+        MultiNoteInput(value = notes, dictate = dictates("notes")) { notes = it }
         // Identity — the same grouped block, in the same position (after notes, before Do's/Don'ts),
         // as the web form's `role="group"` panel. The heading is what makes the dependency between
         // "holds a card" and "card number" legible instead of reading as three unrelated boxes.
@@ -5846,13 +5881,17 @@ private fun WorkshopForm(
         WorkshopMappingCard(repository = repository, onError = onError)
     }
 
+    // Which boxes on this form carry a microphone is DATA, not a pattern — see
+    // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
+    // the browser's own form from drifting apart.
+    val dictates = recordDictationFor(RecordFormKind.WORKSHOP)
     RecordCard(title = if (isEdit) "Edit workshop" else "Add workshop") {
         RegisterUnsavedGuard(dirty = dirty) { submit() }
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
-        RequiredInput("Workshop title", title, titleError, titleFocus, titleCased = true) { title = it }
-        RequiredInput("Place", place, placeError, placeFocus, titleCased = true) { place = it }
+        RequiredInput("Workshop title", title, titleError, titleFocus, titleCased = true, dictate = dictates("title")) { title = it }
+        RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
         // Web parity (components/forms/DateRangeField): the two dates are one answer — how long the
         // workshop ran — and they are labelled as one before being split into start and end.
         Text("Workshop duration", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
@@ -5870,8 +5909,8 @@ private fun WorkshopForm(
         StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
         // `Workshop.description` — the narrative of what happened at the workshop, and the field a
         // reader of the record is actually looking for. Both controls.
-        TextInput("Description", description, minLines = 3, dictate = true, rich = true) { description = it }
-        MultiNoteInput(value = notes) { notes = it }
+        TextInput("Description", description, minLines = 3, dictate = dictates("description"), rich = true) { description = it }
+        MultiNoteInput(value = notes, dictate = dictates("notes")) { notes = it }
         ArtisanMultiSelectField(
             label = "Linked artisans",
             artisans = artisans,
@@ -6120,6 +6159,10 @@ private fun ProductForm(
         productSig() != initialSig || workshop.isDirty() || media.uris.isNotEmpty() || media.measurementUri != null
     )
 
+    // Which boxes on this form carry a microphone is DATA, not a pattern — see
+    // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
+    // the browser's own form from drifting apart.
+    val dictates = recordDictationFor(RecordFormKind.PRODUCT)
     RecordCard(title = if (isEdit) "Edit product" else "Add product") {
         RegisterUnsavedGuard(dirty = dirty) { submit() }
         if (adminView && editing != null) {
@@ -6128,8 +6171,8 @@ private fun ProductForm(
         // Above the workshop picker, so what was filled in is read before any of the fields it filled.
         CarryPrefillBanner(state = carry, onChange = { clearCarriedContext() })
         WorkshopField(state = workshop, saving = saving)
-        RequiredInput("Product name", productName, productNameError, productNameFocus, titleCased = true) { productName = it }
-        TextInput("Local name", localName) { localName = it }
+        RequiredInput("Product name", productName, productNameError, productNameFocus, titleCased = true, dictate = dictates("productName")) { productName = it }
+        TextInput("Local name", localName, dictate = dictates("localName")) { localName = it }
         DropdownField("Product type", productTypeOptions.map { it to it }, productType, includeNone = false) { productType = it }
         DropdownField(
             // `craftOptions`, not `crafts`: the placeholder below is also what the control falls
@@ -6154,7 +6197,7 @@ private fun ProductForm(
             }
         }
         craftListCut?.let { Text(it, color = Muted, fontSize = 12.sp) }
-        RequiredInput("Craft name", craftName, craftNameError, craftNameFocus, titleCased = true) { craftName = it }
+        RequiredInput("Craft name", craftName, craftNameError, craftNameFocus, titleCased = true, dictate = dictates("craftName")) { craftName = it }
         // Task 6: the artisan dropdown is gated on a linked craft and only lists that craft's
         // artisans. Filtered from `picker.options` — the startup page PLUS the craft's server-side
         // roster PLUS this record's own artisan — because filtering the startup page alone gives the
@@ -6202,15 +6245,15 @@ private fun ProductForm(
         // two sentences about one control.
         val artisanCutNote = if (craftId.isBlank()) artisanListCut else picker.craftRosterCut
         artisanCutNote?.let { Text(it, color = Muted, fontSize = 12.sp) }
-        RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus, titleCased = true) { artisanName = it }
-        RequiredInput("Place", place, placeError, placeFocus, titleCased = true) { place = it }
-        TextInput("Time taken to complete", timeTaken) { timeTaken = it }
-        TextInput("Size", size) { size = it }
+        RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus, titleCased = true, dictate = dictates("artisanName")) { artisanName = it }
+        RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
+        TextInput("Time taken to complete", timeTaken, dictate = dictates("timeTakenToCompleteProduct")) { timeTaken = it }
+        TextInput("Size", size, dictate = dictates("size")) { size = it }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length, keyboardType = KeyboardType.Decimal) { length = it } }
-            Box(modifier = Modifier.weight(1f)) { TextInput("Breadth (inches)", breadth, keyboardType = KeyboardType.Decimal) { breadth = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length, keyboardType = KeyboardType.Decimal, dictate = dictates("lengthInches")) { length = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Breadth (inches)", breadth, keyboardType = KeyboardType.Decimal, dictate = dictates("breadthInches")) { breadth = it } }
         }
-        TextInput("Height (inches)", height, keyboardType = KeyboardType.Decimal) { height = it }
+        TextInput("Height (inches)", height, keyboardType = KeyboardType.Decimal, dictate = dictates("heightInches")) { height = it }
         GridMeasurementSection(
             repository = repository,
             media = media,
@@ -6219,8 +6262,8 @@ private fun ProductForm(
             onHeight = { height = numToText(it) }
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Box(modifier = Modifier.weight(1f)) { TextInput("Cost of making", costOfMaking, keyboardType = KeyboardType.Decimal) { costOfMaking = it } }
-            Box(modifier = Modifier.weight(1f)) { TextInput("Selling price", sellingPrice, keyboardType = KeyboardType.Decimal) { sellingPrice = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Cost of making", costOfMaking, keyboardType = KeyboardType.Decimal, dictate = dictates("costOfMaking")) { costOfMaking = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Selling price", sellingPrice, keyboardType = KeyboardType.Decimal, dictate = dictates("sellingPrice")) { sellingPrice = it } }
         }
         DropdownField("Market demand", marketDemandOptions.map { it to it }, marketDemand, includeNone = false) { marketDemand = it }
         /*
@@ -6231,10 +6274,10 @@ private fun ProductForm(
          * several materials with a note against each. That is a list — and a list is the formatting
          * a researcher is most likely to want here and the one the browser will render back to them.
          */
-        TextInput("Raw materials used", rawMaterials, minLines = 2, dictate = true, rich = true) { rawMaterials = it }
-        TextInput("Main tools used", mainTools, minLines = 2, dictate = true, rich = true) { mainTools = it }
-        TextInput("Function or use", functionUse, minLines = 2, dictate = true, rich = true) { functionUse = it }
-        TextInput("Remarks", remarks, minLines = 3, dictate = true, rich = true) { remarks = it }
+        TextInput("Raw materials used", rawMaterials, minLines = 2, dictate = dictates("rawMaterialsUsed"), rich = true) { rawMaterials = it }
+        TextInput("Main tools used", mainTools, minLines = 2, dictate = dictates("mainToolsUsed"), rich = true) { mainTools = it }
+        TextInput("Function or use", functionUse, minLines = 2, dictate = dictates("productFunctionUse"), rich = true) { functionUse = it }
+        TextInput("Remarks", remarks, minLines = 3, dictate = dictates("remarks"), rich = true) { remarks = it }
         StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "product", recordId = editing!!.id, onError = onError)
@@ -6488,6 +6531,10 @@ private fun ToolForm(
             media.uris.isNotEmpty() || media.measurementUri != null || stages.uris.isNotEmpty()
     )
 
+    // Which boxes on this form carry a microphone is DATA, not a pattern — see
+    // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
+    // the browser's own form from drifting apart.
+    val dictates = recordDictationFor(RecordFormKind.TOOL)
     RecordCard(title = if (isEdit) "Edit tool" else "Add tool") {
         RegisterUnsavedGuard(dirty = dirty) { submit() }
         if (adminView && editing != null) {
@@ -6496,9 +6543,9 @@ private fun ToolForm(
         // Above the workshop picker, so what was filled in is read before any of the fields it filled.
         CarryPrefillBanner(state = carry, onChange = { clearCarriedContext() })
         WorkshopField(state = workshop, saving = saving)
-        RequiredInput("Toolkit name", toolkitName, toolkitNameError, toolkitNameFocus, titleCased = true) { toolkitName = it }
-        TextInput("Local name", localName) { localName = it }
-        TextInput("English name", englishName, titleCased = true) { englishName = it }
+        RequiredInput("Toolkit name", toolkitName, toolkitNameError, toolkitNameFocus, titleCased = true, dictate = dictates("toolkitName")) { toolkitName = it }
+        TextInput("Local name", localName, dictate = dictates("localName")) { localName = it }
+        TextInput("English name", englishName, titleCased = true, dictate = dictates("englishName")) { englishName = it }
         DropdownField(
             // `craftOptions`, not `crafts`: the placeholder below is also what the control falls
             // back to when the selected id matches no entry, so on the raw page it doubled as
@@ -6522,7 +6569,7 @@ private fun ToolForm(
             }
         }
         craftListCut?.let { Text(it, color = Muted, fontSize = 12.sp) }
-        RequiredInput("Craft name", craftName, craftNameError, craftNameFocus, titleCased = true) { craftName = it }
+        RequiredInput("Craft name", craftName, craftNameError, craftNameFocus, titleCased = true, dictate = dictates("craftName")) { craftName = it }
         // Task 6: the artisan dropdown is gated on a linked craft and only lists that craft's
         // artisans. Filtered from `picker.options` — the startup page PLUS the craft's server-side
         // roster PLUS this record's own artisan — because filtering the startup page alone gives the
@@ -6570,24 +6617,24 @@ private fun ToolForm(
         // two sentences about one control.
         val artisanCutNote = if (craftId.isBlank()) artisanListCut else picker.craftRosterCut
         artisanCutNote?.let { Text(it, color = Muted, fontSize = 12.sp) }
-        RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus, titleCased = true) { artisanName = it }
-        RequiredInput("Place", place, placeError, placeFocus, titleCased = true) { place = it }
-        TextInput("Process used in", processUsedIn) { processUsedIn = it }
-        TextInput("Material", material) { material = it }
-        TextInput("Years in use", yearsInUse, keyboardType = KeyboardType.Number) { yearsInUse = it }
+        RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus, titleCased = true, dictate = dictates("artisanName")) { artisanName = it }
+        RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
+        TextInput("Process used in", processUsedIn, dictate = dictates("processUsedIn")) { processUsedIn = it }
+        TextInput("Material", material, dictate = dictates("material")) { material = it }
+        TextInput("Years in use", yearsInUse, keyboardType = KeyboardType.Number, dictate = dictates("yearsInUse")) { yearsInUse = it }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Box(modifier = Modifier.weight(1f)) { TextInput("Height", height, keyboardType = KeyboardType.Decimal) { height = it } }
-            Box(modifier = Modifier.weight(1f)) { TextInput("Width", width, keyboardType = KeyboardType.Decimal) { width = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Height", height, keyboardType = KeyboardType.Decimal, dictate = dictates("height")) { height = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Width", width, keyboardType = KeyboardType.Decimal, dictate = dictates("width")) { width = it } }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length, keyboardType = KeyboardType.Decimal) { length = it } }
-            Box(modifier = Modifier.weight(1f)) { TextInput("Breadth (inches)", breadth, keyboardType = KeyboardType.Decimal) { breadth = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length, keyboardType = KeyboardType.Decimal, dictate = dictates("lengthInches")) { length = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Breadth (inches)", breadth, keyboardType = KeyboardType.Decimal, dictate = dictates("breadthInches")) { breadth = it } }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Box(modifier = Modifier.weight(1f)) { TextInput("Thickness", thickness, keyboardType = KeyboardType.Decimal) { thickness = it } }
-            Box(modifier = Modifier.weight(1f)) { TextInput("Weight", weight, keyboardType = KeyboardType.Decimal) { weight = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Thickness", thickness, keyboardType = KeyboardType.Decimal, dictate = dictates("thickness")) { thickness = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Weight", weight, keyboardType = KeyboardType.Decimal, dictate = dictates("weight")) { weight = it } }
         }
-        TextInput("Radius", radius, keyboardType = KeyboardType.Decimal) { radius = it }
+        TextInput("Radius", radius, keyboardType = KeyboardType.Decimal, dictate = dictates("radius")) { radius = it }
         GridMeasurementSection(
             repository = repository,
             media = media,
@@ -6597,12 +6644,15 @@ private fun ToolForm(
         )
         DropdownField("Maker", makerOptions.map { it to it }, maker, includeNone = false) { maker = it }
         DropdownField("Tradition type", traditionOptions.map { it to it }, traditionType, includeNone = false) { traditionType = it }
-        TextInput("Replacement cost", replacementCost, keyboardType = KeyboardType.Decimal) { replacementCost = it }
-        // The tool form's two narrative columns. `processUsedIn` above stays single-line and plain —
-        // it is single-line on the web form too, and widening it here would put the two platforms out
-        // of step over a field neither of them treats as prose.
-        TextInput("Suggestions for improvement", suggestions, minLines = 2, dictate = true, rich = true) { suggestions = it }
-        TextInput("Remarks", remarks, minLines = 3, dictate = true, rich = true) { remarks = it }
+        TextInput("Replacement cost", replacementCost, keyboardType = KeyboardType.Decimal, dictate = dictates("replacementCost")) { replacementCost = it }
+        // The tool form's two narrative columns. `processUsedIn` above stays single-line and takes
+        // no editor — it is single-line on the web form too, and `components/forms/ToolForm.tsx`'s
+        // own test pins it that way — but it NOW TAKES THE MICROPHONE (2026-09-13), on both
+        // clients: the browser draws it as a dictated single-line input in the same wave. Widening
+        // it to a DOCUMENT on either client would still put the two platforms out of step over a
+        // field neither treats as prose, so the editor stays off it and only the microphone lands.
+        TextInput("Suggestions for improvement", suggestions, minLines = 2, dictate = dictates("suggestionsForToolImprovement"), rich = true) { suggestions = it }
+        TextInput("Remarks", remarks, minLines = 3, dictate = dictates("remarks"), rich = true) { remarks = it }
         StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
         ToolStagesSection(stages = stages, onMessage = onError, onError = onError)
         if (isEdit) {
@@ -7057,6 +7107,10 @@ private fun ProcessForm(
             preMedia.uris.isNotEmpty() || steps.any { it.media.uris.isNotEmpty() }
     )
 
+    // Which boxes on this form carry a microphone is DATA, not a pattern — see
+    // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
+    // the browser's own form from drifting apart.
+    val dictates = recordDictationFor(RecordFormKind.PROCESS)
     RecordCard(title = if (isEdit) "Edit process" else "Document process") {
         RegisterUnsavedGuard(dirty = dirty) { submit() }
         if (adminView && editing != null) {
@@ -7070,7 +7124,7 @@ private fun ProcessForm(
         // Above the workshop picker, so what was filled in is read before any of the fields it filled.
         CarryPrefillBanner(state = carry, onChange = { clearCarriedContext() })
         WorkshopField(state = workshop, saving = saving)
-        RequiredInput("Name of the process", name, nameError, nameFocus, titleCased = true) { name = it }
+        RequiredInput("Name of the process", name, nameError, nameFocus, titleCased = true, dictate = dictates("name")) { name = it }
         DropdownField(
             label = "Artisan *",
             // `artisanOptions`: the loaded page PLUS this record's own artisan when the page does not
@@ -7184,7 +7238,7 @@ private fun ProcessForm(
                         Text("Step ${index + 1} · ${step.stepTypeLabel()}", color = Body, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                         TextButton(onClick = { steps.removeAt(index) }) { Text("Remove") }
                     }
-                    RequiredInput("Name of the step", step.name, step.nameError, step.nameFocus) { step.name = it }
+                    RequiredInput("Name of the step", step.name, step.nameError, step.nameFocus, dictate = dictates("stepName")) { step.name = it }
                     if (step.existingMedia.isNotEmpty()) {
                         Text("Already attached:", color = Muted, fontSize = 11.sp)
                         step.existingMedia.forEach { saved ->
@@ -7214,7 +7268,7 @@ private fun ProcessForm(
                                 Text("Record additional information", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
                             }
                             if (step.recordAdditional) {
-                                MultiNoteInput(label = "Additional context for this step", value = step.notes, resetKey = step.key) { step.notes = it }
+                                MultiNoteInput(label = "Additional context for this step", value = step.notes, resetKey = step.key, dictate = dictates("stepNotes")) { step.notes = it }
                             }
                         },
                         onMessage = onError,
@@ -8247,12 +8301,15 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
              * an administrator reads and nowhere else, so a formatting toolbar would buy a heading
              * nobody will ever see and would cost every one of them a line of explanatory copy under
              * the box. Size alone was never the rule; "would formatting be read by anyone" is.
+             *
+             * THE DEFAULT HAS SINCE FLIPPED (2026-09-13), so these five no longer say `dictate`
+             * at all — this comment is the record of the decision, not the argument beside it.
              */
-            TextInput("What do you like most?", likeMost, minLines = 2, dictate = true) { likeMost = it }
-            TextInput("What should we improve?", improve, minLines = 2, dictate = true) { improve = it }
-            TextInput("Any bugs or issues you hit?", bugs, minLines = 2, dictate = true) { bugs = it }
-            TextInput("Features you'd like to see", featureRequests, minLines = 2, dictate = true) { featureRequests = it }
-            TextInput("Anything else (general comments)", comment, minLines = 3, dictate = true) { comment = it }
+            TextInput("What do you like most?", likeMost, minLines = 2) { likeMost = it }
+            TextInput("What should we improve?", improve, minLines = 2) { improve = it }
+            TextInput("Any bugs or issues you hit?", bugs, minLines = 2) { bugs = it }
+            TextInput("Features you'd like to see", featureRequests, minLines = 2) { featureRequests = it }
+            TextInput("Anything else (general comments)", comment, minLines = 3) { comment = it }
 
             val anyProvided = rating > 0 || easeOfUse > 0 || reliability > 0 || performance > 0 ||
                 design > 0 || features > 0 || recommend > 0 ||
@@ -9239,7 +9296,7 @@ private fun PendingReviewRow(
                     // The reviewer's note back to the field. Dictation only: it is read once, as a
                     // message, and never rendered as a document — and the reviewer is usually
                     // dictating a correction while looking at the record rather than composing.
-                    TextInput("What needs to change?", reviseNote, minLines = 2, dictate = true) { reviseNote = it }
+                    TextInput("What needs to change?", reviseNote, minLines = 2) { reviseNote = it }
                     Button(
                         enabled = !busy && reviseNote.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(),
@@ -10142,6 +10199,10 @@ private fun AndroidMediaForm(
         loadingEntries = false
     }
 
+    // Which boxes on this form carry a microphone is DATA, not a pattern — see
+    // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
+    // the browser's own form from drifting apart.
+    val dictates = recordDictationFor(RecordFormKind.MEDIA)
     RecordCard(title = "Capture media") {
         // "transcription", not "Whisper transcription": the backend now runs a provider chain
         // (ElevenLabs → Deepgram → Whisper), so naming one of them tells the researcher something
@@ -10210,7 +10271,7 @@ private fun AndroidMediaForm(
         if (recording) {
             RecordingIndicator(getAmplitude = { runCatching { recorder?.maxAmplitude ?: 0 }.getOrDefault(0) })
         }
-        TextInput("Media title / object name", mediaTitle) { mediaTitle = it }
+        TextInput("Media title / object name", mediaTitle, dictate = dictates("mediaTitle")) { mediaTitle = it }
         DropdownField(
             label = "Linked record type *",
             options = mediaLinkModes.map { it.name to it.label },
@@ -10234,7 +10295,7 @@ private fun AndroidMediaForm(
         // A media caption. Dictation only — a caption is one sentence describing a photograph, and
         // it is shown as a single run beside the thumbnail, where a heading or a bullet has nowhere
         // to go.
-        TextInput("Caption", caption, minLines = 2, dictate = true) { caption = it }
+        TextInput("Caption", caption, minLines = 2, dictate = dictates("caption")) { caption = it }
         // Web parity (app/(protected)/media/page.tsx): the GPS block closes the form, after the
         // caption — it describes the upload rather than being one of the things being described.
         LocationAddressEditor(
@@ -10860,11 +10921,18 @@ private fun QuestionnaireForm(
         // Above the workshop picker, so what was filled in is read before any of the fields it filled.
         CarryPrefillBanner(state = carry, onChange = { clearCarriedContext() })
         WorkshopField(state = workshop, saving = saveState == SaveState.SAVING)
-        RequiredInput("Interview title", title, titleError, titleFocus, titleCased = true) { title = it }
+        // NO MICROPHONE HERE, AND IT IS THE SAME DECISION AS THE ONE AT `MultiNoteInput` BELOW.
+        // The questionnaire screens are out of the record-form dictation work by decision (see
+        // `MainActivity.kt:11154-11180` for the argument in full) and the browser's own interview
+        // form has no microphone on this box either, so flipping `TextInput`'s default must not
+        // quietly opt this screen in. The sibling application took the opposite decision on
+        // 2026-08-28; taking it here is a questionnaire-workstream change, not a side effect.
+        RequiredInput("Interview title", title, titleError, titleFocus, titleCased = true, dictate = false) { title = it }
         // Web parity (app/(protected)/questionnaire/page.tsx): title → place → language → status →
         // the artisans this interview is about. There is deliberately NO date field: the server
         // derives interviewDate from recordedAt, which is when the interview was actually captured.
-        TextInput("Place", place, titleCased = true) { place = it }
+        // Same decision as the title above.
+        TextInput("Place", place, titleCased = true, dictate = false) { place = it }
         // Language of the interview: Hindi primary, then English + the major scheduled Indian
         // languages. Any pre-existing free-text value is preserved as an extra option.
         val languageOptions = remember(language) {
@@ -11018,7 +11086,7 @@ private fun QuestionnaireForm(
                                     // its own audio capture beside it, and a second, differently
                                     // shaped one in the answer box is the confusion that decision
                                     // exists to prevent. It is skipped, not missed.
-                                    TextInput("Answer", answers[question.id]?.value.orEmpty(), minLines = 3) { value ->
+                                    TextInput("Answer", answers[question.id]?.value.orEmpty(), minLines = 3, dictate = false) { value ->
                                         answers[question.id]?.let { state -> state.value = value }
                                         lastEditedSectionId = section.id
                                     }
@@ -11102,6 +11170,18 @@ private fun QuestionnaireForm(
          * So this one argument is what keeps the shared control's new default off a screen it was
          * told to leave alone. Removing it does not "enable a feature here"; it opts this screen into
          * a decision nobody has taken.
+         *
+         * THE DEFAULT FLIPPED ON 2026-09-13 AND THIS OPT-OUT SURVIVED IT, which is the only reason
+         * it is still worth reading. Three more boxes on this screen now say `dictate` false for
+         * the same reason — the interview title (:10925), the place (:10930) and the per-question
+         * answer (:11084) — because a default is not a decision and this screen has not had one
+         * taken about it. Two more in the builder (:11476, :11518) say it for a different reason: a
+         * section code is not prose. The sibling application DID take the interview decision
+         * (`designer MainActivity.kt:16388` records the reversal and the owner's words) and its
+         * questionnaire notes now dictate. If that decision is taken here, it is taken on all four
+         * interview boxes at once, in the questionnaire workstream, with the web's own interview
+         * form moving in the same commit — `RecordDictationParityTest` does not cover this screen,
+         * so nothing else would catch it.
          */
         MultiNoteInput(value = notes, dictate = false) { notes = it }
         fun submit() {
@@ -11392,7 +11472,13 @@ private fun QuestionnaireBuilder(
 
     RecordCard(title = "Questionnaire builder") {
         Text("Master admin controls for adding, editing, removing, moving sections, and moving questions between sections. Tap a section to expand and edit it.", color = Muted, fontSize = 12.sp)
-        TextInput("New section code", newCode) { newCode = it }
+        // A SECTION CODE IS NOT PROSE. It is one to three letters that a regex in
+        // `backend/app/services/media_naming.py` matches (`_CAPTION_SECTION` at :148 and
+        // `_FILE_SECTION` at :156, both `[A-Za-z]{1,3}`) and that every media filename is built
+        // from; a recogniser hands back "ay" for "A" and "bee" for "B". Same call at the
+        // per-section "Code" box below. The sibling application agrees — `designer
+        // MainActivity.kt:16763` carries the identical opt-out.
+        TextInput("New section code", newCode, dictate = false) { newCode = it }
         TextInput("New section title", newTitle) { newTitle = it }
         Button(
             onClick = {
@@ -11432,7 +11518,9 @@ private fun QuestionnaireBuilder(
                         var code by remember(section.id, section.code) { mutableStateOf(section.code) }
                         var sectionTitle by remember(section.id, section.title) { mutableStateOf(section.title) }
                         var newPrompt by remember(section.id) { mutableStateOf("") }
-                        TextInput("Code", code) { code = it }
+                        // A section code is not prose — the same argument, and the same regexes,
+                        // as "New section code" above (:11476).
+                        TextInput("Code", code, dictate = false) { code = it }
                         TextInput("Title", sectionTitle) { sectionTitle = it }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                             OutlinedButton(
@@ -12213,7 +12301,7 @@ private fun WorkshopAccessScreen(
                 ?.let { Text(it, color = Muted, fontSize = 11.sp) }
             // A note to whoever grants the access. Dictation only: it is read once, by a person, in
             // a request list — there is nothing here for formatting to survive into.
-            TextInput("Why do you need access? (optional)", note, minLines = 2, dictate = true) { note = it }
+            TextInput("Why do you need access? (optional)", note, minLines = 2) { note = it }
             Button(
                 enabled = !busy && selected.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth(),
@@ -13082,11 +13170,23 @@ private fun TitleCaseHint(value: String) {
  * no two record screens can drift apart in what dictation means, and so that the rule "nothing here
  * uploads a clip" is checkable by reading one file rather than twenty call sites.
  *
- * **BOTH DEFAULT TO OFF, AND THAT IS THE USER'S OWN RULE.** *"Only the larger text boxes need to
- * have the rich text features."* Almost every call site below is a single-line box for a name, a
- * code, a phone number, a price or a date: a formatting toolbar over a two-word village name can
- * only get in the way, and a microphone beside a money box returns words where the column wants
- * digits.
+ * **[dictate] NOW DEFAULTS TO ON; [rich] STILL DEFAULTS TO OFF, AND THE ASYMMETRY IS THE POINT.**
+ * The original rule — *"only the larger text boxes need to have the rich text features"* — was
+ * always two rules wearing one sentence, and only the formatting half survives it. A formatting
+ * toolbar CHANGES WHAT LANDS IN THE COLUMN (`recordStoredFromDoc` writes `{"blocks":…}` the moment
+ * anything is marked up) and is read by four exports that cannot yet flatten it, so it stays
+ * opt-in and stays on the narrative boxes only. A microphone changes nothing about the stored
+ * value: it types the same characters a thumb would, into the same box, and the researcher watches
+ * it happen. On the form where it is wrong — a price, a measurement, an Aadhaar number — it is
+ * wrong because the box wants digits, not because the box is small.
+ *
+ * SO THE RECORD FORMS DO NOT PASS A LITERAL HERE AT ALL. They ask `ui/RecordDictationFields.kt`
+ * (`dictate = dictates("sellingPrice")`), which holds the classification and its written reasons
+ * as data that `RecordProseTest` and `RecordDictationParityTest` both read. The default of TRUE is
+ * what covers the screens OUTSIDE the seven record forms — feedback, the review queue, the entry
+ * comment box — where there is no table and every box is prose. A box on one of those screens that
+ * is NOT prose must turn it off and say why on the line above it; there are five such boxes after
+ * this commit and they are all on the questionnaire screens.
  *
  * **AND [dictate] NEVER UPLOADS.** It is the handset's own recogniser — the same one behind the
  * keyboard's microphone key — and nothing else. `POST /media/transcribe` exists in this backend and
@@ -13100,8 +13200,14 @@ private fun TextInput(
     minLines: Int = 1,
     titleCased: Boolean = false,
     keyboardType: KeyboardType = KeyboardType.Text,
-    /** Draw the on-device microphone. On-device rungs only — nothing here posts a clip anywhere. */
-    dictate: Boolean = false,
+    /**
+     * Draw the on-device microphone. On-device rungs only — nothing here posts a clip anywhere.
+     *
+     * **Defaults to TRUE.** The seven record forms never rely on that default — they ask
+     * `recordDictationFor(kind)` — so the default governs only the screens outside them. See the
+     * block comment above before turning it off, and say why at the call site.
+     */
+    dictate: Boolean = true,
     /** Draw the rich-text editor instead of a plain box. **Larger narrative boxes only.** */
     rich: Boolean = false,
     /** Re-seed the rich editor when a form loads a different record into the same composition. */
@@ -13156,6 +13262,18 @@ private fun joinNumbered(items: List<String>): String =
  * a `FocusRequester` the form drives on a validation failure. Threading those through
  * `RecordProseField` would widen it for exactly one caller. If somebody later decides these points
  * are worth dictating, widen the shared control rather than hand-rolling a second microphone here.
+ *
+ * RE-AFFIRMED 2026-09-13, WHEN THE DEFAULT FLIPPED. The sweep that gave every other record box a
+ * microphone did not give this one, and the reason has not changed: the row's box carries three
+ * behaviours the shared control does not have — an `onValueChange` that splits a pasted newline
+ * into new bullets, an `isError` on the first row, and a `FocusRequester` the form drives on a
+ * validation failure — and a mic on one of several rows needs a per-row partial overlay and a
+ * rows-locked flag to avoid writing note three's stream into the row that slid up when note two was
+ * removed. The sibling repository built exactly that (`designer ui/NumberedPointsField.kt`, where
+ * `numberedRowsAfterEdit` is a unit-tested pure function at :82 and `rowsLocked` its guard at :86)
+ * and it is the shape to copy if this is ever revisited. `dos` and `donts` are classified as NOT
+ * dictated in `ui/RecordDictationFields.kt` with that reason, on both clients, so the two stay in
+ * step until somebody changes both.
  */
 @Composable
 private fun NumberedListInput(
@@ -13251,13 +13369,18 @@ private fun MultiNoteInput(
     value: String,
     resetKey: Any? = null,
     /**
-     * Draw a microphone on each row. **On by default, and there is exactly one caller that says no.**
+     * Draw a microphone on each row. **On by default, and the record forms now ask the table.**
      *
-     * Defaulted ON, unlike every other dictation flag in this app, because every record form that
-     * uses this control wants it and defaulting off would mean four call sites all saying yes — and
-     * the fifth silently missing out the day somebody adds one. The opt-OUT exists for the
+     * This was the FIRST control in the app to default a dictation flag on, months before
+     * `TextInput` did: every record form that uses it wants it, and defaulting off would have meant
+     * four call sites all saying yes with a fifth silently missing out the day somebody added one.
+     * `TextInput` and `RequiredInput` have since followed, so this is no longer the exception.
+     *
+     * The record forms pass `dictates("notes")` / `dictates("stepNotes")` rather than the default,
+     * so the classification is readable from one place. The opt-OUT still exists for the
      * questionnaire interview form, which is out of this work's scope by decision and whose
-     * behaviour must not change; see the comment at that call site.
+     * behaviour must not change; see the comment at that call site (`MainActivity.kt:11154-11180`,
+     * the call itself at :11181).
      */
     dictate: Boolean = true,
     onValueChange: (String) -> Unit,
@@ -13314,7 +13437,35 @@ private fun NumberedListDisplay(label: String, value: String?) {
     }
 }
 
-/** A mandatory text field: shows a trailing asterisk and an inline error when left empty. */
+/**
+ * A mandatory text field: shows a trailing asterisk and an inline error when left empty.
+ *
+ * ── THIS FORWARDS TO `RecordProseField` NOW, AND THAT IS THE WHOLE POINT OF THIS WORK ─────────
+ *
+ * It used to draw its own bare `OutlinedTextField`, and the consequence was that not one required
+ * box in this application could be dictated — not an artisan's name, not a place, not a product
+ * name, not a toolkit name, not the name of a process or of a step. Those are the boxes with the
+ * MOST typing friction on the whole form, and they were the only ones with no microphone.
+ *
+ * The reason was mechanical rather than considered: `RecordProseField` had nowhere to put an error
+ * message or a focus target, and `RecordDictationButton` is private to that file. Both parameters
+ * now exist (`ui/RecordProseField.kt`, `errorText` and `focusRequester`), so a required box and an
+ * optional one are one control and cannot diverge in padding, label placement, keyboard type or —
+ * the half that always drifts — the wording of a dictation refusal.
+ *
+ * ── [dictate] DEFAULTS TO TRUE, WHICH IS A CLAIM ABOUT THE CALL SITES ─────────────────────
+ *
+ * All sixteen of them are free prose or a proper noun: names, places, titles, a step's name, an
+ * interview title. Not one is a date, a number, a dropdown or a regulated identity field. On the
+ * seven record forms the fifteen boxes do not use the default at all — they pass
+ * `dictates("column")` — and the sixteenth, the questionnaire’s interview title, opts out
+ * explicitly with its reason. So nothing here relies on the default today; it is true so that the
+ * NEXT required box added to a record form is dictated unless somebody writes down why not.
+ *
+ * `titleCased` and [dictate] COMPOSE, and the order matters: `RecordProseField` appends the
+ * committed text and then this caller's `onValueChange` runs, so a dictated name reaches
+ * `TitleCaseHint` exactly as a typed one does.
+ */
 @Composable
 private fun RequiredInput(
     label: String,
@@ -13323,22 +13474,23 @@ private fun RequiredInput(
     focusRequester: FocusRequester,
     minLines: Int = 1,
     titleCased: Boolean = false,
+    /** See the note above before turning this off — and say why at the call site. */
+    dictate: Boolean = true,
     onValueChange: (String) -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        OutlinedTextField(
-            value = value,
-            onValueChange = onValueChange,
-            label = { Text("$label *") },
-            isError = error != null,
-            supportingText = error?.let { msg -> { Text(msg) } },
-            minLines = minLines,
-            modifier = Modifier
-                .fillMaxWidth()
-                .focusRequester(focusRequester)
-        )
-        if (titleCased) TitleCaseHint(value)
-    }
+    RecordProseField(
+        // The asterisk stays in the LABEL rather than becoming a parameter of the shared component:
+        // it is this function's whole visible contract, and pushing it down would put a
+        // required-ness concept into a control that has no idea whether a value is required.
+        label = "$label *",
+        value = value,
+        onValueChange = onValueChange,
+        minLines = minLines,
+        dictate = dictate,
+        errorText = error,
+        focusRequester = focusRequester,
+        below = { if (titleCased) TitleCaseHint(value) },
+    )
 }
 
 /** One required field's validation hooks: whether it is blank, how to flag it, and where to focus. */

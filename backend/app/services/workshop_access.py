@@ -36,8 +36,15 @@ demoted for having asked. On a RESTRICTED workshop only a GRANTED row confers ac
 Assignments carry no date guard of their own: an admin may assign somebody long AFTER a workshop
 ended, and that is precisely how post-workshop access is granted.
 
-**Late submission.** A workshop is over once the whole of its ``endDate`` day has passed. A submission
-made outside ``[startDate, endDate]`` is still accepted, but it is
+**Late submission.** A workshop's window is a range of CALENDAR DAYS in India Standard Time, and it
+is INCLUSIVE at both ends: the whole of the ``startDate`` day and the whole of the ``endDate`` day are
+in-window. There are therefore THREE states, not two — not started / in window / over — and the two
+booleans on the wire spell all three: ``isOver`` is the after-the-end half on its own, ``outOfWindow``
+is the union of both halves, so ``outOfWindow and not isOver`` is exactly "has not started yet". See
+:meth:`WorkshopSubmissionCheck.notYetStarted`, and :func:`describe_workshop_submission` for why the
+comparison is made in IST days rather than UTC instants.
+
+A submission made outside that window — early or late — is still accepted, but it is
 
   1. stamped into the record's ``extraMetadata.workshopSubmission`` as ``needsAdminApproval``, and
   2. FORCED to ``PENDING`` regardless of the submitter's own status rights, so a professor or above
@@ -51,7 +58,7 @@ Nothing here fires when a record carries no ``workshopId``: an omitted workshop 
 always has.
 """
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -59,6 +66,33 @@ from prisma.errors import UniqueViolationError
 
 from app.core.db import db
 from app.core.deps import get_value, is_admin
+
+# ---------------------------------------------------------------------------------------------
+# The timezone a workshop's days are counted in.
+#
+# WHY THIS EXISTS AT ALL. A workshop's startDate/endDate are not instants, they are DAYS somebody
+# typed on a form in India: "14 Sept to 23 Sept". This product is IST-native — every record carries
+# ``recordedTimezone String @default("Asia/Kolkata")`` (backend/prisma/schema.prisma) and the public
+# census already dates itself in IST for exactly this reason (app/api/routes/public.py:55-63:
+# "a UTC calendar date would put the ledger a day behind for five and a half hours out of every
+# twenty-four"). The window has to be judged on the same clock the workshop was typed on, or the
+# answer is wrong for a fixed 5h30m slice of every single day.
+#
+# THE DEFECT THIS PREVENTS. Before this constant, ``describe_workshop_submission`` compared
+# ``datetime.now(UTC)`` against the stored startDate directly. Production row: startDate
+# 2026-09-14 00:00:00, endDate 2026-09-23 23:59:59.999, meaning the IST days 14–23 Sept. At 00:55 IST
+# on the 14th the UTC instant is 2026-09-13T19:25Z, which is BEFORE startDate, so the owner opening a
+# form inside a running workshop was told the workshop was not on. Every workshop read as "not
+# started" for the first 5h30m of each IST day and stayed "in window" for the last 5h30m of the day
+# AFTER it ended. Pinned as a regression in backend/tests/test_workshop_window.py.
+#
+# A FIXED OFFSET, not ``ZoneInfo("Asia/Kolkata")`` — the same trade, for the same two reasons, as
+# app/api/routes/public.py:61-64: India has observed one offset with no daylight saving since 1945,
+# and ``zoneinfo`` needs a system tz database that a Windows dev box does not ship. ``app_settings``
+# and the record schemas hold the IANA name for the places that need a real zone; this needs a day
+# boundary, and the boundary is +05:30.
+WORKSHOP_TIMEZONE = "Asia/Kolkata"
+WORKSHOP_TZ = timezone(timedelta(hours=5, minutes=30))
 
 
 def _as_utc(value: Any) -> datetime | None:
@@ -70,6 +104,30 @@ def _as_utc(value: Any) -> datetime | None:
 def _iso(value: Any) -> str | None:
     dt = _as_utc(value)
     return dt.isoformat() if dt else None
+
+
+def _boundary_day(value: Any) -> date | None:
+    """The calendar day a workshop's startDate/endDate column NAMES.
+
+    Read off the stored wall clock rather than converted into any zone, because the column is a DAY
+    wearing a datetime's clothes: the forms write the day at 00:00:00 (start) and at 23:59:59.999
+    (end), and whichever offset the writer's client stamped on it, the DATE PART is the day the
+    researcher typed. 2026-09-23T23:59:59.999+00:00 and 2026-09-23T23:59:59.999+05:30 are both
+    "the 23rd" and must not become the 24th.
+
+    Converting to IST first would do exactly that — ``2026-09-23T23:59:59.999Z`` in IST is
+    2026-09-24 05:29 — which is the same one-day skew that makes the web client print "This workshop
+    ended on 24 Sept" for a workshop whose last day is the 23rd (frontend/lib/format.ts::formatDate
+    renders the instant in the browser's zone). Android already reads the day this way, via
+    ``OffsetDateTime.parse(value).toLocalDate()`` in MainActivity.kt::parseIsoToLocalDate.
+    """
+    dt = _as_utc(value)
+    return dt.date() if dt else None
+
+
+def workshop_local_day(moment: datetime) -> date:
+    """The IST calendar day ``moment`` falls on — the "today" a workshop window is judged against."""
+    return moment.astimezone(WORKSHOP_TZ).date()
 
 
 # ------------------------------------------------------------------ access levels and statuses
@@ -277,6 +335,30 @@ class WorkshopSubmissionCheck:
     canEdit: bool = False
 
     @property
+    def notYetStarted(self) -> bool:
+        """The BEFORE half of ``outOfWindow`` — this workshop has not opened yet.
+
+        Deliberately DERIVED rather than sent as a thirteenth key. ``isOver`` is already the AFTER
+        half on its own and ``outOfWindow`` is already the union of both halves, so the two booleans
+        every client has consumed since this endpoint shipped ALREADY spell all three states:
+
+            outOfWindow && isOver   -> over
+            outOfWindow && !isOver  -> not started yet
+            !outOfWindow            -> in window
+
+        The wire therefore does not change, and neither ``frontend/lib/types.ts`` nor
+        ``android/.../data/ApiModels.kt`` needs a hand edit to keep in step — which matters, because
+        a three-file DTO edit that only lands in two files is how a client ends up reading a missing
+        boolean as ``false`` and showing the wrong sentence anyway.
+
+        THE DEFECT THIS NAMES: ``frontend/components/forms/WorkshopSelect.tsx:287`` collapsed the
+        pair back to one bit (``check.outOfWindow || check.isOver``) and then printed "This workshop
+        ended on <date>" for it, so a workshop that had not STARTED was announced as ENDED. Android
+        did the same at ``MainActivity.kt:3856``. Both now branch on this distinction.
+        """
+        return self.outOfWindow and not self.isOver
+
+    @property
     def metadata(self) -> dict[str, Any]:
         """The ``extraMetadata`` fragment to stamp on the record; empty when there is nothing to say."""
         if not self.workshopId or self.unrestricted:
@@ -332,12 +414,37 @@ async def describe_workshop_submission(
     workshop = await db.workshop.find_unique(where={"id": workshop_id})
     if workshop is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workshop not found")
-    start = _as_utc(workshop.startDate or workshop.date)
-    end = _as_utc(workshop.endDate or workshop.date)
-    # Inclusive window: the whole of the end day counts as in-window.
-    window_end = end + timedelta(days=1) if end else None
-    is_over = bool(window_end and now >= window_end)
-    out_of_window = bool(start and window_end and (now < start or now >= window_end))
+    # ---------------------------------------------------------------------------------------
+    # THE WINDOW, IN DAYS, ON THE CLOCK THE WORKSHOP WAS TYPED ON.
+    #
+    # Three whole-day comparisons, not instant arithmetic. The previous shape was
+    #
+    #     window_end = end + timedelta(days=1)
+    #     is_over    = now >= window_end
+    #     out_of_window = start and window_end and (now < start or now >= window_end)
+    #
+    # and it was wrong twice over. It compared a UTC ``now`` against a stored day (see
+    # WORKSHOP_TZ above: 00:55 IST on the first morning of a workshop is 19:25Z on the day BEFORE
+    # it, so ``now < start`` fired and a running workshop reported as out of window for the first
+    # 5h30m of every IST day); and ``+ timedelta(days=1)`` only happened to make the end day
+    # inclusive because endDate is stored at 23:59:59.999 — a row stored at midnight would have
+    # dropped its last day. Naming the day directly makes the inclusive rule true by construction
+    # for both shapes, which is what the module docstring has always claimed.
+    #
+    # Dateless workshops stay in-window, exactly as before: a workshop with no dates recorded is
+    # not a workshop anyone can be late to, and flagging one would pin real fieldwork to PENDING
+    # over a blank column.
+    # ---------------------------------------------------------------------------------------
+    today = workshop_local_day(now)
+    start_day = _boundary_day(workshop.startDate or workshop.date)
+    end_day = _boundary_day(workshop.endDate or workshop.date)
+    is_over = bool(end_day and today > end_day)
+    not_started = bool(start_day and today < start_day)
+    # The union, and the ONLY thing that drives the approval gate. ``is_over`` is folded in rather
+    # than ANDed with a start date, because the old expression left a workshop that recorded an
+    # endDate but no startDate reading isOver=true / outOfWindow=false — over, yet not late — which
+    # silently waived the approval gate for exactly the records it exists to catch.
+    out_of_window = is_over or not_started
     admin = is_admin(user)
     access = await resolve_workshop_access(user, workshop_id)
     return WorkshopSubmissionCheck(

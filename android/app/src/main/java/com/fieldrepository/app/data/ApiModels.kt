@@ -394,6 +394,18 @@ data class MediaFileDto(
     val transcriptStatus: String? = null,
     val transcriptText: String? = null,
     val transcriptError: String? = null,
+    /**
+     * WHEN A PERSON LAST REPLACED THE TRANSCRIPT, and NULL MEANS "NOT STATED" — never "never
+     * edited". `POST /media/{id}/transcript` has been able to replace a transcript since long before
+     * this column existed, so rows stored before it genuinely do not say.
+     *
+     * RENDER THREE STATES AND NOT TWO: edited, not edited, and silent. Collapsing the third into
+     * "not edited" prints "the machine said this" over text a researcher may well have typed, which
+     * is the single assertion this column was added to stop being made silently.
+     */
+    val transcriptEditedAt: String? = null,
+    /** Who made that edit. A bare id with no relation — an audit stamp, not a navigable edge. */
+    val transcriptEditedById: String? = null,
     val uploadedBy: UserDto? = null,
     val createdAt: String? = null,
     val linkedRecordType: String? = null,
@@ -486,6 +498,22 @@ data class CraftCreateRequest(
 @Serializable
 data class WorkshopCreateRequest(
     val title: String,
+    /**
+     * DESIGN_PROTOTYPE or OTHER — which kind of workshop this is.
+     *
+     * `String? = null` AND NOT `String = "OTHER"`, which is the sharp part. This same class is the
+     * PATCH body (`FieldRepositoryApi.updateWorkshop` takes it), `ApiClient.json` has
+     * `explicitNulls = false`, so a null is DROPPED from the payload — and an omitted key on a PATCH
+     * means "leave the stored kind alone". A non-null default would make every correction re-assert
+     * OTHER and quietly demote a workshop somebody had marked DESIGN_PROTOTYPE on the web.
+     *
+     * It is also the rule every field added to a `*CreateRequest` follows, for a second reason:
+     * `offlineJson` (FieldRepository.kt) decodes a queued body with neither `coerceInputValues` nor
+     * `explicitNulls = false`, so a non-null-with-default field turns an explicit `null` in a
+     * fortnight-old `queue.json` into a `SerializationException` that parks the entry as a permanent
+     * failure the researcher reads as "the server refused this" about a record the server never saw.
+     */
+    val workshopType: String? = null,
     val date: String,
     val startDate: String? = null,
     val endDate: String? = null,
@@ -497,7 +525,48 @@ data class WorkshopCreateRequest(
     val status: String = "PENDING",
     val recordedAt: String? = null,
     val recordedTimezone: String = "Asia/Kolkata",
-    val location: LocationRequest? = null
+    val location: LocationRequest? = null,
+    /**
+     * ── THE CREATE-IDEMPOTENCY KEY. THIS IS THE CANONICAL COPY OF THE KDOC ────────────────────
+     *
+     * A queued create is POSTed, the server writes the row, and the answer is lost on the way back —
+     * a tunnel, a captive portal, the OS killing the process mid-request. This handset learned
+     * nothing, so the entry is still in `queue.json` and the next sync sends it again. With a key on
+     * the body, the second landing is answered from the row the first one wrote; without one it
+     * becomes a second government record of the same fieldwork, under one researcher's name, in a
+     * register nobody reconciles.
+     *
+     * [PendingEntry.createdId] CANNOT CLOSE THIS AND SAYS SO. It is a record of a REPLY — "non-null
+     * means the record IS on the server" — so it is empty in exactly the case this key exists for.
+     * It is also a fact one queue file holds about its own send: a queue restored onto a second
+     * handset, or drained after a sign-out and back in, has no such record and this key still works.
+     *
+     * IT IS MINTED AT QUEUE TIME AND MERGED ONTO THE BODY AT REPLAY, never stored inside
+     * `payloadJson` — that string is the form's own serialisation of what the user saved, and a key
+     * is bookkeeping about the SEND rather than something the user saved.
+     *
+     * THREE CONSEQUENCES OF THE `String? = null`, AND THE SECOND IS THE SHARP ONE.
+     *  1. AN OLDER BUILD'S ENTRY REPLAYS UNCHANGED. Null copies as null and `explicitNulls = false`
+     *     drops the key, so the body is byte-identical to what this app has always sent.
+     *  2. A CORRECTION SENDS NOTHING, WHICH IS THE SHARP ONE. This same class is the PATCH body —
+     *     `FieldRepositoryApi.updateWorkshop` takes it — and the server's UPDATE schemas do not
+     *     declare `clientKey`. Every request model is `extra="forbid"`, so a correction carrying a
+     *     key would be `extra_forbidden`: a 422 the queue reads as a disagreement between builds and
+     *     re-attempts once per app run, for ever, on a prepaid connection. It cannot happen, because
+     *     the key is never written into a correction's payload and a null is dropped — but it is the
+     *     reason this field must never gain a non-null default.
+     *  3. A FORTNIGHT-OLD QUEUE STILL DECODES. `offlineJson` (FieldRepository.kt) has neither
+     *     `coerceInputValues` nor `explicitNulls = false`, so a non-null-with-default field would
+     *     turn an explicit `null` in an old `queue.json` into a `SerializationException` — recorded
+     *     as a permanent failure on an entry the server never saw.
+     *
+     * THE DEPLOY ORDER THIS DEPENDS ON. The backend ships first and independently
+     * (`.github/workflows/deploy-backend.yml`, on push to main); no APK carrying this field exists
+     * until the next tagged release. A key sent to a server whose schema does not declare it is a 422
+     * on the WHOLE save, and a 4xx is not re-queued — the refused save loses the record. Never cut an
+     * APK carrying `clientKey` or `workshopType` before the backend that declares them is live.
+     */
+    val clientKey: String? = null
 )
 
 @Serializable
@@ -530,8 +599,29 @@ data class ArtisanCreateRequest(
      * Sent as `yyyy-MM-dd`; the API accepts a bare date.
      */
     val dateOfBirth: String? = null,
+    /**
+     * THE DAY THIS ARTISAN BEGAN PRACTISING, and the feeder the record sheet's experience figure is
+     * derived from. Sent as `yyyy-MM-dd`; the API accepts a bare date.
+     *
+     * Same argument [dateOfBirth] makes, one column later: a stated NUMBER of years is right on the
+     * day it is typed and silently wrong from then on, and the sheet that prints it is read years
+     * after the visit. [experienceYears] below is still collected and still read — an artisan who
+     * says "about thirty years" and cannot name a year must stay recordable — but where a date
+     * exists the server derives from it in preference.
+     */
+    val craftStartDate: String? = null,
     /** Years practising the craft. 0..90, the same bound the sibling repository uses. */
     val experienceYears: Int? = null,
+    /**
+     * The odd months on top of those years, 0..11 — a REMAINDER and never a total; twelve months is
+     * a year the field above already holds. Bounded by the server AND by
+     * `CHECK ("experienceMonths" BETWEEN 0 AND 11)` on the column.
+     *
+     * `Int? = null` and not `Int = 0`: absent and zero are different answers, and an artisan asked
+     * only about years said nothing whatever about months. It also has to be nullable for the reason
+     * every field on this class does — see [clientKey] on the create requests below.
+     */
+    val experienceMonths: Int? = null,
     val pehchanCardAvailable: Boolean? = null,
     val pehchanCardNumber: String? = null,
     // Newline-separated, numbered Do's (positive prompt) and Don'ts (negative prompt). Required on the
@@ -574,7 +664,9 @@ data class ProductCreateRequest(
     val status: String = "PENDING",
     val recordedAt: String? = null,
     val recordedTimezone: String = "Asia/Kolkata",
-    val location: LocationRequest? = null
+    val location: LocationRequest? = null,
+    /** The create-idempotency key. See [WorkshopCreateRequest.clientKey] for the whole argument. */
+    val clientKey: String? = null
 )
 
 @Serializable
@@ -592,6 +684,14 @@ data class ToolCreateRequest(
     val width: Double? = null,
     val lengthInches: Double? = null,
     val breadthInches: Double? = null,
+    /**
+     * The measured height IN INCHES — the third of the triple, and the only height on this model
+     * that records its unit. [height] above is the old unit-less column, kept for what is already
+     * stored; nothing in the database can say what unit those values are in, which is exactly why
+     * they were never copied across. The grid-measurement panel returns an inches reading and must
+     * fill THIS field: until the column existed the only box it could reach was the unit-less one.
+     */
+    val heightInches: Double? = null,
     val thickness: Double? = null,
     val weight: Double? = null,
     val radius: Double? = null,
@@ -606,7 +706,9 @@ data class ToolCreateRequest(
     val status: String = "PENDING",
     val recordedAt: String? = null,
     val recordedTimezone: String = "Asia/Kolkata",
-    val location: LocationRequest? = null
+    val location: LocationRequest? = null,
+    /** The create-idempotency key. See [WorkshopCreateRequest.clientKey] for the whole argument. */
+    val clientKey: String? = null
 )
 
 @Serializable
@@ -706,9 +808,39 @@ data class AddressDistrictsDto(
     val byState: Map<String, List<String>> = emptyMap()
 )
 
+/**
+ * ONE NAMED INSTRUMENT. Two exist — the 2nd Craft Toolkit Workshop's (24 sections, RESP/A..W) and
+ * the 3rd's (22 sections, A..V) — and their section CODES collide completely, so a section is only
+ * ever identified by its id or by (questionnaireId, code), never by its code alone.
+ *
+ * `isDefault` is where every request that names no instrument lands, which INCLUDES every build of
+ * this app that shipped before 2026-09-13 and every payload sitting in an outbox written by one.
+ */
+@Serializable
+data class QuestionnaireDto(
+    val id: String,
+    val title: String,
+    val description: String? = null,
+    val isActive: Boolean = true,
+    val isDefault: Boolean = false,
+    val sortOrder: Int = 1,
+    val sectionCount: Int = 0,
+    val questionCount: Int = 0,
+    // Present for parity with frontend/lib/types.ts `Questionnaire`. ignoreUnknownKeys means a field
+    // missing HERE is silently never seen, so the two files are diffed field by field and kept equal
+    // even where this client has no screen for the value yet.
+    val workshopCount: Int = 0,
+    val createdAt: String? = null
+)
+
 @Serializable
 data class QuestionnaireQuestionDto(
     val id: String,
+    /**
+     * NULLABLE WITH A DEFAULT even though the server always sends it, so a handset running this
+     * build against an older backend still decodes the list instead of failing all of it.
+     */
+    val questionnaireId: String? = null,
     val sectionId: String? = null,
     val sectionCode: String,
     val sectionTitle: String,
@@ -720,6 +852,8 @@ data class QuestionnaireQuestionDto(
 @Serializable
 data class QuestionnaireSectionDto(
     val id: String,
+    /** See [QuestionnaireQuestionDto.questionnaireId] for why this is nullable. */
+    val questionnaireId: String? = null,
     val code: String,
     val title: String,
     val sortOrder: Int,
@@ -729,6 +863,13 @@ data class QuestionnaireSectionDto(
 
 @Serializable
 data class QuestionnaireSectionCreateRequest(
+    /**
+     * WHICH INSTRUMENT the new section joins. Optional on the wire: the server resolves the default
+     * when it is absent, which is what keeps an un-updated builder working the day the backend
+     * deploys. This build always sends it, because the builder screen knows which instrument it is
+     * showing and adding a section to a different one is the exact mistake the field prevents.
+     */
+    val questionnaireId: String? = null,
     val code: String,
     val title: String,
     val sortOrder: Int? = null,
@@ -782,6 +923,14 @@ data class QuestionnaireResponseRequest(
  * field on either client — the server derives it from `recordedAt` (see the questionnaire route's
  * `derive_interview_date`), which is the moment the interview was actually captured rather than a
  * date a researcher retypes (and mistypes) at the end of a long session. Do not re-add it.
+ *
+ * `questionnaireId` IS DIFFERENT AND IS SENT. It says which instrument the researcher was looking
+ * at, and it is written when the interview is QUEUED rather than resolved when it is sent — an
+ * outbox entry may replay days later, and by then the server-side default may have moved. When it
+ * is absent (an older build, or an older queued payload) the server resolves it: the workshop's
+ * bound instrument, else the default. NEVER default it to a hard-coded id on this side; the handset
+ * does not know which instrument was current when the researcher sat down, and a guess is exactly
+ * the silent mis-filing the container model exists to prevent.
  */
 @Serializable
 data class QuestionnaireInterviewCreateRequest(
@@ -794,6 +943,8 @@ data class QuestionnaireInterviewCreateRequest(
     val responses: List<QuestionnaireResponseRequest> = emptyList(),
     // The workshop this interview was conducted at (see [CraftCreateRequest.workshopId]).
     val workshopId: String? = null,
+    // Which instrument this sitting is on. See the note above this class.
+    val questionnaireId: String? = null,
     val recordedAt: String? = null,
     val recordedTimezone: String = "Asia/Kolkata",
     val location: LocationRequest? = null
@@ -852,7 +1003,11 @@ data class ArtisanDetailDto(
     // researcher what is stored before they change it.
     val aadhaarNumber: String? = null,
     val dateOfBirth: String? = null,
+    /** The day this artisan began practising. See [ArtisanCreateRequest.craftStartDate]. */
+    val craftStartDate: String? = null,
     val experienceYears: Int? = null,
+    /** The odd months on top of the years, 0..11. See [ArtisanCreateRequest.experienceMonths]. */
+    val experienceMonths: Int? = null,
     val pehchanCardAvailable: Boolean = true,
     val pehchanCardNumber: String? = null,
     val dos: String? = null,
@@ -944,6 +1099,12 @@ data class ToolDetailDto(
     val width: String? = null,
     val lengthInches: String? = null,
     val breadthInches: String? = null,
+    /**
+     * The measured height in inches — see [ToolCreateRequest.heightInches] for why it is a separate
+     * column from [height], which is the old unit-less one. `String?` like its siblings above: these
+     * are Decimal columns and they arrive as JSON strings.
+     */
+    val heightInches: String? = null,
     val thickness: String? = null,
     val weight: String? = null,
     val radius: String? = null,
@@ -980,6 +1141,14 @@ data class WorkshopCraftLinkDto(
 data class WorkshopDetailDto(
     val id: String,
     val title: String = "",
+    /**
+     * DESIGN_PROTOTYPE or OTHER. A RESPONSE DTO MAY TAKE A NON-NULL DEFAULT where a create request
+     * may not: this class is decoded by `ApiClient.json`, which sets `coerceInputValues = true`, so
+     * a server null lands on the default instead of throwing — and it is never decoded by
+     * `offlineJson`, which is the decoder that lacks that flag. Every row recorded before the column
+     * reads OTHER, which is what it implicitly was.
+     */
+    val workshopType: String = "OTHER",
     val place: String = "",
     val description: String? = null,
     val notes: String? = null,
@@ -993,6 +1162,15 @@ data class WorkshopDetailDto(
     val createdById: String? = null,
     val createdAt: String? = null,
     val createdBy: UserDto? = null,
+    /**
+     * WHICH QUESTIONNAIRE IS IN USE AT THIS WORKSHOP, chosen once by an admin. `null` means "not
+     * chosen", which resolves to the DEFAULT instrument at read time — it does not mean the workshop
+     * has no questionnaire. The capture form reads this to open on the right instrument without
+     * asking the researcher to choose again.
+     */
+    val questionnaireId: String? = null,
+    /** The instrument row itself, hydrated by the server alongside the id above. */
+    val questionnaire: QuestionnaireDto? = null,
     val extraMetadata: JsonObject? = null
 )
 
@@ -1055,6 +1233,10 @@ data class QuestionnaireInterviewDetailDto(
     val responses: List<InterviewResponseDto> = emptyList(),
     // The workshop this interview was conducted at (see [CraftDto.workshopId]).
     val workshopId: String? = null,
+    // Which instrument this sitting was taken on, and the instrument row itself when the server
+    // hydrated it. Never changes after the create: the API has no field to change it with.
+    val questionnaireId: String? = null,
+    val questionnaire: QuestionnaireDto? = null,
     val location: LocationDto? = null,
     val createdById: String? = null,
     val createdAt: String? = null,
@@ -1088,7 +1270,17 @@ data class ProcessCreateRequest(
     // The workshop this process was documented at (see [CraftCreateRequest.workshopId]).
     val workshopId: String? = null,
     val recordedAt: String? = null,
-    val recordedTimezone: String = "Asia/Kolkata"
+    val recordedTimezone: String = "Asia/Kolkata",
+    /**
+     * The create-idempotency key. See [WorkshopCreateRequest.clientKey] for the whole argument.
+     *
+     * PROCESS IS THE ONE OF THE FOUR WHOSE REPLAY HAS TO THINK ABOUT CHILDREN. Steps are written
+     * after the row, and a create body carries no step ids — so a replay that re-ran the step sync
+     * would mint fresh ids for every step and orphan every media file linked to the old ones. The
+     * server answers a replay from the stored row and writes steps only where it has none; nothing
+     * on this side changes, but that is why sending the same key twice is safe.
+     */
+    val clientKey: String? = null
 )
 
 @Serializable
@@ -1161,6 +1353,12 @@ data class QuestionnaireInterviewUpdateRequest(
 
 @Serializable
 data class CompletionMatrixDto(
+    /**
+     * WHICH INSTRUMENT THIS MATRIX IS ABOUT. Two instruments run overlapping section codes, so a
+     * grid headed "A", "B", "C" is an unlabelled claim without this. Absent on an older backend.
+     */
+    val questionnaireId: String? = null,
+    val questionnaireTitle: String? = null,
     val sections: List<CompletionSectionDto> = emptyList(),
     val artisans: List<CompletionArtisanDto> = emptyList(),
     val cells: List<CompletionCellDto> = emptyList(),
@@ -1585,13 +1783,27 @@ data class TaskSectionDto(
  * having actually produced. The two answer different questions and the gap between them is the whole
  * point of the accountability view, so neither ever overwrites the other. [derivedCount] is null when
  * the count could not be run, and [percentComplete] is null for an open-ended task (no target).
+ *
+ * THE REVIEW STATE. An assignee's "mark done" now lands on `SUBMITTED`, and only an admin's approval
+ * moves it to `DONE` (backend/app/api/routes/tasks.py:1689 rewrites the assignee's `DONE` rather than
+ * refusing it, precisely so a field build older than this one is not bricked out where nobody can fix
+ * it). Every field below that describes that state is READ FROM THE SERVER rather than re-derived:
+ * see `taskStatusLabel` in ui/TaskAdminScreen.kt for what happens when one of them is missing.
  */
 @Serializable
 data class TaskDto(
     val id: String,
     val title: String = "",
     val description: String? = null,
-    // OPEN | IN_PROGRESS | DONE | CANCELLED
+    // OPEN | IN_PROGRESS | SUBMITTED | DONE | CANCELLED.
+    //
+    // SUBMITTED IS NEW AND IT IS NOT A VARIANT OF DONE. It means "the researcher says this is
+    // finished and nobody with authority has agreed yet". Anything here that tests for finished work
+    // by asking `status == "DONE"` keeps the right answer; anything that tests for UNFINISHED work by
+    // asking `status != "DONE"` also keeps the right answer. What silently broke on the day SUBMITTED
+    // landed was every `when (status)` whose `else ->` branch existed to mean OPEN — a submitted task
+    // rendered as "Open" and a researcher was told to redo work they had already handed in. Grep for
+    // the branch before adding a sixth state; `ignoreUnknownKeys` will not warn you.
     val status: String = "OPEN",
     val dueAt: String? = null,
     val completedAt: String? = null,
@@ -1607,7 +1819,56 @@ data class TaskDto(
     val isOverdue: Boolean = false,
     val derivedCount: Int? = null,
     val derivedTarget: Int? = null,
+    /**
+     * How [derivedCount] was arrived at, keyed by the server. Carries `unlinkedSections` when
+     * sections were answered on an interview with no artisan attached — those answers cannot raise
+     * the (artisan, section) pair count, so without this the difference between "nobody has started"
+     * and "the interviews were never linked to anybody" is an unexplained, permanently stuck 0%.
+     */
     val derivedBreakdown: Map<String, Int> = emptyMap(),
+
+    // ── The review state, said in the server's words ──────────────────────────────────────────
+    //
+    // ALL SEVEN COME FROM THE SERVER AND NONE IS RE-DERIVED HERE. There is no codegen between the
+    // backend and this file, so the only thing keeping an Android pill and a web pill saying the
+    // same sentence about the same row is that both print a string the server sent. The moment this
+    // client builds its own "Under review" the two can drift, and nobody finds out, because a
+    // researcher only ever looks at one of the two screens.
+
+    /** "To do" / "In progress" / "Under review" / "Approved" / "Cancelled" — render THIS. Blank on a
+     *  server older than the review state, which is the signal `taskStatusLabel` falls back on. */
+    val statusLabel: String = "",
+    /**
+     * `status == "SUBMITTED"`. NULLABLE ON PURPOSE, and the nullability is the whole safety net: a
+     * non-null `false` default would make an older server's silence indistinguishable from "this is
+     * not awaiting review", and a submitted task would offer the assignee a "Mark done" button that
+     * re-submits work already in the queue. Null means UNKNOWN, and `taskAwaitingReview()` answers it
+     * from [status], which every server sends.
+     */
+    val isAwaitingReview: Boolean? = null,
+    /**
+     * OPEN, IN_PROGRESS or SUBMITTED — "still on my screen, by anybody's doing". FILTER ON THIS, not
+     * on `status != "DONE"`, which also keeps CANCELLED. Nullable for the same reason as
+     * [isAwaitingReview] and for a worse consequence: a `false` default would empty the assignee's
+     * task list against an older server, and an empty to-do list looks exactly like a finished one.
+     */
+    val isOutstanding: Boolean? = null,
+    /**
+     * THE NUMBER A PROGRESS BAR IS DRAWN FROM. Null is MEANINGFUL — it means "this task has nothing
+     * measurable in it, render the state pill and NO BAR". A bar at 0% on a task with no countable
+     * scope reads as "this person has produced nothing", which is a different and defamatory claim.
+     */
+    val effectivePercent: Int? = null,
+    /** "status" | "derived" | "reported" | null — what [effectivePercent] was computed from, so the
+     *  bar can be captioned honestly instead of implying every figure was measured. */
+    val progressSource: String? = null,
+    /** The caption for that bar, already worded: "6 of 24 artisan sections recorded". */
+    val progressLabel: String? = null,
+    /** The honest counter-number to [percentComplete]: the same fraction, measured rather than typed. */
+    val derivedPercent: Int? = null,
+    /** The roster size the derived denominator was built from — how many artisans are actually in scope. */
+    val derivedArtisanCount: Int? = null,
+
     val batchId: String? = null,
     val assigneeId: String? = null,
     val assignee: UserDto? = null,
@@ -1627,6 +1888,19 @@ data class TaskDto(
 /**
  * What an ASSIGNEE may change: where the task stands, and how much of it is done. Scope, due date and
  * reassignment stay with whoever handed the work out — sending anything else is a 403.
+ *
+ * `DONE` IS NO LONGER THE ASSIGNEE'S TO WRITE, AND SENDING IT IS STILL CORRECT. An assignee's `DONE`
+ * is REWRITTEN to `SUBMITTED` server-side (tasks.py:1689) and the response carries
+ * `status: "SUBMITTED"`, so the row never lands where an old build thought it did but the old build
+ * is never lied to about it either. This client sends `SUBMITTED` explicitly anyway — the round trip
+ * then says the same word in both directions, and a reader of a network log is not left deducing a
+ * rewrite. Two statuses here are 403s for an assignee and must never be offered: `CANCELLED`
+ * (withdrawal belongs to whoever handed the work out) and any status at all on a task already
+ * `DONE` (undoing somebody else's approval).
+ *
+ * The same body is what an ADMIN's approve / send-back writes — see `FieldRepository.reviewTask`.
+ * One endpoint, one body, two very different acts; the difference is made visible in the UI before
+ * the press, because the row it writes is identical afterwards.
  */
 @Serializable
 data class TaskUpdateBody(
@@ -1717,10 +1991,23 @@ data class TaskBatchAssigneeDto(
     val taskId: String,
     val user: TaskUserDto? = null,
     val status: String = "OPEN",
+    /** The server's wording for [status]; blank on a server older than the review state. */
+    val statusLabel: String = "",
+    /** Null = unknown, not "no". See [TaskDto.isAwaitingReview] for why this is not a plain Boolean. */
+    val isAwaitingReview: Boolean? = null,
     val progressCount: Int = 0,
     val derivedCount: Int? = null,
     /** Null for an open-ended task (no target) that is neither DONE nor CANCELLED. */
     val percentComplete: Int? = null,
+    /** The bar number; null means "nothing measurable here", NOT zero. */
+    val effectivePercent: Int? = null,
+    /**
+     * ON A SUBMITTED ROW THIS IS WHEN THE WORK WAS HANDED IN, not when it was approved — the server
+     * stamps it at the first declaration that the work is finished and deliberately does NOT
+     * re-stamp it on approval, so `completedAt > dueAt` stays a fact about the person who did the
+     * work rather than about how fast their reviewer got round to it. Nothing on the wire records
+     * the moment of approval; do not caption this "approved on".
+     */
     val completedAt: String? = null
 )
 
@@ -1752,13 +2039,29 @@ data class TaskBatchDto(
     val sections: List<TaskSectionDto> = emptyList(),
     val targetCount: Int? = null,
     val assigneeCount: Int = 0,
-    /** OPEN / IN_PROGRESS / DONE / CANCELLED -> how many of the batch's rows are in that state. */
+    /**
+     * OPEN / IN_PROGRESS / SUBMITTED / DONE / CANCELLED -> how many of the batch's rows are in that
+     * state. All five keys are ALWAYS present (the server builds the map from a fixed key list), so
+     * `statusCounts["SUBMITTED"]` is safe on a batch nobody has submitted in — but keep the `?: 0`,
+     * because an older server's map has only four.
+     */
     val statusCounts: Map<String, Int> = emptyMap(),
+    /** APPROVED rows only. Submissions are counted by [awaitingReviewCount] and are NOT folded in. */
     val doneCount: Int = 0,
+    /** OPEN + IN_PROGRESS — waiting on the ASSIGNEE. Excludes submissions, which wait on the reviewer. */
     val openCount: Int = 0,
+    /** Handed in, nobody has agreed yet — the reviewer's queue for this batch. */
+    val awaitingReviewCount: Int = 0,
+    /** OPEN + IN_PROGRESS + SUBMITTED: how many of these rows are still on somebody's screen. */
+    val outstandingCount: Int = 0,
     val overdueCount: Int = 0,
     val reportedTotal: Int = 0,
     val derivedTotal: Int? = null,
+    /**
+     * APPROVED-ONLY when the batch has no target count. Draw the awaiting slice from
+     * [awaitingReviewCount] beside this rather than adding it in: a batch reading "5 of 5 done"
+     * while nobody has looked at any of it is the exact illusion the review state exists to remove.
+     */
     val percentComplete: Int = 0,
     val assignees: List<TaskBatchAssigneeDto> = emptyList()
 )
@@ -1778,8 +2081,18 @@ data class TaskBatchResultDto(
 data class TaskProgressAssigneeDto(
     val user: TaskUserDto? = null,
     val taskCount: Int = 0,
+    /** All five statuses, always present. See [TaskBatchDto.statusCounts]. */
     val statusCounts: Map<String, Int> = emptyMap(),
+    /** OPEN + IN_PROGRESS. What THIS PERSON still owes — the number the board sorts on. */
     val openCount: Int = 0,
+    /**
+     * What THE READER owes this person: rows they have handed in and nobody has decided on. Kept out
+     * of [openCount] deliberately, so "who is behind" does not chase somebody whose only outstanding
+     * work is sitting in the admin's own queue.
+     */
+    val awaitingReviewCount: Int = 0,
+    /** [openCount] + [awaitingReviewCount] — everything not yet approved or withdrawn. */
+    val outstandingCount: Int = 0,
     val overdueCount: Int = 0,
     /** Sum of the quotas they were given; null when none of their tasks carries one. */
     val targetTotal: Int? = null,
@@ -1801,11 +2114,78 @@ data class TaskProgressReportDto(
     val workshopTitle: String? = null,
     val assigneeCount: Int = 0,
     val taskCount: Int = 0,
+    /** APPROVED. Not "the researcher says so" — a second person agreed. */
     val doneCount: Int = 0,
+    /** OPEN + IN_PROGRESS across everybody. */
     val openCount: Int = 0,
+    /**
+     * THE READER'S OWN QUEUE. Every one of these is a researcher waiting on a decision from whoever
+     * is looking at this board — the one number on an accountability screen that is about the person
+     * reading it rather than about the people on it, which is why it gets its own tile.
+     */
+    val awaitingReviewCount: Int = 0,
+    val outstandingCount: Int = 0,
     val overdueCount: Int = 0,
     val truncated: Boolean = false,
     val assignees: List<TaskProgressAssigneeDto> = emptyList()
+)
+
+/**
+ * `GET /tasks/summary` — MY workload in one object, for the full-width card at the top of the
+ * assignee's screen. Always about the caller: there is no `assigneeId` to point it at anybody else.
+ *
+ * WHY THIS IS NOT COMPUTED FROM THE TASK LIST THIS SCREEN ALREADY HAS. That list is PAGED. A card
+ * reading "4 remaining" counted from a page of twenty is wrong for anybody holding twenty-one tasks,
+ * and wrong in the one direction that matters — it UNDER-reports outstanding work, which is the
+ * single number the card exists to make impossible to miss. The server scans the caller's whole
+ * (bounded) list and says [truncated] when it could not reach the end.
+ *
+ * WHY IT IS NOT `GET /tasks/progress`. That route is admin-only and rolls up everybody. A researcher
+ * cannot call it and must not be able to: handing them the board so they can read their own line off
+ * it would hand them everyone else's line too.
+ *
+ * Pass `workshopId` unless a lifetime bar is genuinely what is wanted — a researcher on their fourth
+ * trip does not want this trip's progress diluted by three finished ones.
+ */
+@Serializable
+data class TaskSummaryDto(
+    val assignee: TaskUserDto? = null,
+    val workshopId: String? = null,
+    val taskCount: Int = 0,
+    /** All five statuses, always present. */
+    val statusCounts: Map<String, Int> = emptyMap(),
+    /**
+     * OPEN + IN_PROGRESS — WHAT IS STILL ON YOU, and the number the card leads with. SUBMITTED is
+     * deliberately not in it: telling somebody who has handed everything in that they still have
+     * four tasks remaining is telling them to do the work twice.
+     */
+    val remainingCount: Int = 0,
+    /** Handed in, not yet agreed. Still on the screen, but visibly not "to do". */
+    val awaitingReviewCount: Int = 0,
+    /** [remainingCount] + [awaitingReviewCount] — how many cards the assignee will actually see. */
+    val outstandingCount: Int = 0,
+    val approvedCount: Int = 0,
+    val cancelledCount: Int = 0,
+    val overdueCount: Int = 0,
+    /** Due inside the server's "soon" window and NOT already overdue. */
+    val dueSoonCount: Int = 0,
+    /**
+     * The next deadline still ahead. EXCLUDES anything already overdue — a card whose "next due" is
+     * a date in the past reports the same emergency twice under two headings while hiding the real
+     * next deadline behind it. Null when nothing is scheduled.
+     */
+    val nextDueAt: String? = null,
+    val percentComplete: Int = 0,
+    /**
+     * How many of the figures behind [percentComplete] were MEASURED from the repository rather than
+     * inferred from a status or read off a typed-in number. A card claiming progress happens
+     * automatically has to be able to say how much of it actually did.
+     */
+    val measuredCount: Int = 0,
+    /** True when the caller holds too many tasks for the derived counts to be run at all. */
+    val derivationSkipped: Boolean = false,
+    /** True when the scan window was hit, so these numbers are a floor rather than a total. */
+    val truncated: Boolean = false
 )
 
 // ---------------------------------------------------------------------------

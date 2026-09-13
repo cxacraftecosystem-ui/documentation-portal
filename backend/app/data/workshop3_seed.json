@@ -1,0 +1,468 @@
+{
+  "_source": "Extracted 2026-09-14 from three PDFs supplied by the owner: 'Writeup of each tradition for 3rd workshop .pdf', '3rd workshop_Task  allocation.pdf', and the artisans' details sheet. EXPECTED ARRIVAL DETAILS are deliberately omitted on the owner's instruction — they are logistics, not a record field, and the Artisan model has nowhere truthful to put them.",
+  "_naming": "Every person's name here is Title Case with no salutation. The sheet carried 'Sh ' / 'Sh. ' prefixes on four terracotta artisans and two ALL-CAPS entries; both are normalised at source. Note that services/records.clean_data ALSO title-cases name/craftName/place/village/district/state on the way in (records.py:389), so casing is enforced twice — but salutation stripping happens ONLY here.",
+  "workshop": {
+    "id": "cmtydcwle0007u1we4h4p4538",
+    "title": "Shristi O Anusandhan 3rd Toolkit Workshop for Mud Craft Tradition",
+    "startDate": "2026-09-14",
+    "endDate": "2026-09-23",
+    "note": "ALREADY EXISTS in production, verified by direct query. Attach to this id; never create a second."
+  },
+  "crafts": [
+    {
+      "name": "Bishnupur Terracotta Craft",
+      "place": "Bishnupur, Bankura, West Bengal",
+      "category": "Terracotta",
+      "description": "One of the most celebrated traditional clay crafts of West Bengal, associated with the terracotta temples built under the Malla kings in the 17th and 18th centuries. Stone being scarce in the region, artisans used locally available clay to create detailed architectural panels depicting scenes from Hindu mythology, epics such as the Ramayana and Mahabharata, royal life, social activities, animals and floral motifs. Over generations the artisans of Bishnupur have carried the tradition into decorative sculptures, religious figures and artistic objects, narrating historical and social stories through terracotta."
+    },
+    {
+      "name": "Jaipur Blue Pottery",
+      "place": "Jaipur, Rajasthan",
+      "category": "Pottery",
+      "description": "A distinctive craft of Rajasthan known for blue and turquoise designs under a glossy glazed finish. Unlike conventional pottery it does not primarily use clay, resting instead on a quartz-based technique. Its origins are Persian and Central Asian, reaching India through cultural exchange during the Mughal period, and it was later promoted under the royal patronage of Jaipur's rulers with revival efforts through the 19th and 20th centuries. Artisans produce decorative and functional objects carrying floral, geometric and nature-inspired motifs."
+    },
+    {
+      "name": "Nizamabad Black Pottery",
+      "place": "Nizamabad, Azamgarh, Uttar Pradesh",
+      "category": "Pottery",
+      "description": "A traditional pottery form from Nizamabad town in Azamgarh district, distinguished by its black surface and intricate silver-like engraved patterns, which set it apart from other pottery traditions of India. The tradition is believed to have developed several centuries ago among local artisan communities and has passed down through generations. It holds a Geographical Indication (GI) tag in recognition of its artistic value."
+    },
+    {
+      "name": "Kutch Lippan Mud-and-Mirror Work",
+      "place": "Kutch, Gujarat",
+      "category": "Mud Work",
+      "description": "A traditional mud-relief and mirror decoration craft practised by artisan communities of the Kutch region. 'Lippan' refers to the process of applying mud or clay to surfaces for decorative purposes; traditionally it ornamented the interiors of Bhunga houses, the circular traditional homes of Kutch, where the designs carried both aesthetic beauty and cultural identity. Geometric patterns, floral motifs and embedded mirrors express the region's visual language, and artisans have since adapted the work from architectural decoration into contemporary home decor while preserving its traditional essence."
+    },
+    {
+      "name": "Ghurni Clay Doll Craft",
+      "place": "Ghurni, Krishnanagar, Nadia, West Bengal",
+      "category": "Clay Modelling",
+      "description": "One of India's most renowned traditional clay modelling traditions, known worldwide for exceptional realism, detailed expressions and lifelike representation of human figures, animals and social characters. Associated with the patronage of Maharaja Krishna Chandra during the 18th century, artisans created realistic miniature representations of rural life, occupations and cultural events. Its uniqueness lies in the attention given to facial expression, body posture, costume and minute detail, making it an important example of Bengal's sculptural heritage."
+    }
+  ],
+  "artisans": [
+    {
+      "sl": 1,
+      "name": "Nayanaben Rajendrabhai Bamaniya",
+      "craft": "Kutch Lippan Mud-and-Mirror Work",
+      "phone": "8320086476",
+      "address": "Bhuva Thimbi, Sutrapada, Gir Somnath, Gujarat",
+      "pehchan": "WRBHC412457",
+      "village": "Bhuva Thimbi",
+      "district": "Gir Somnath",
+      "state": "Gujarat"
+    },
+    {
+      "sl": 2,
+      "name": "Priya Jethwa",
+      "craft": "Kutch Lippan Mud-and-Mirror Work",
+      "phone": "9824875474",
+      "address": "Dada Vadi, Kushal Nagar, Anjar, Kutch",
+      "pehchan": "WRBHC596718",
+      "village": "Dada Vadi",
+      "district": "Kutch",
+      "state": "Gujarat"
+    },
+    {
+      "sl": 3,
+      "name": "Monika Viral Thakkar",
+      "craft": "Kutch Lippan Mud-and-Mirror Work",
+      "phone": "9016406855",
+      "address": "Gayatri Mandir Road, Ram Rahim Society, Bhuj, Kutch",
+      "pehchan": "WRBHC545551",
+      "village": "Bhuj",
+      "district": "Kutch",
+      "state": "Gujarat"
+    },
+    {
+      "sl": 4,
+      "name": "Sohit Kumar Prajapati",
+      "craft": "Nizamabad Black Pottery",
+      "phone": "9455003617",
+      "phone_alt": "9140723536",
+      "address": "Nizamabad, Uttar Pradesh",
+      "pehchan": "CRVNC633211",
+      "village": "Nizamabad",
+      "district": "Azamgarh",
+      "state": "Uttar Pradesh",
+      "note": "The sheet lists two numbers, 9455003617 and 9140723536. Artisan.phone is one column, so the first is stored and the second is recorded in notes rather than dropped."
+    },
+    {
+      "sl": 5,
+      "name": "Vikash Prajapati",
+      "craft": "Nizamabad Black Pottery",
+      "phone": "9305935153",
+      "address": "Nizamabad, Uttar Pradesh",
+      "pehchan": "CRVNC1187843",
+      "village": "Nizamabad",
+      "district": "Azamgarh",
+      "state": "Uttar Pradesh"
+    },
+    {
+      "sl": 6,
+      "name": "Vivek Prajapati",
+      "craft": "Nizamabad Black Pottery",
+      "phone": "6306564808",
+      "address": "Nizamabad, Uttar Pradesh",
+      "pehchan": "CRVNC1552221",
+      "village": "Nizamabad",
+      "district": "Azamgarh",
+      "state": "Uttar Pradesh"
+    },
+    {
+      "sl": 7,
+      "name": "Nand Kishor Kumawat",
+      "craft": "Jaipur Blue Pottery",
+      "phone": "9116059480",
+      "address": "Jaipur, Rajasthan 303338",
+      "pehchan": "NR08JAI000034",
+      "village": "Jaipur",
+      "district": "Jaipur",
+      "state": "Rajasthan",
+      "pincode": "303338"
+    },
+    {
+      "sl": 8,
+      "name": "Manisha Verma",
+      "craft": "Jaipur Blue Pottery",
+      "phone": "9982807740",
+      "address": "Jaipur, Rajasthan 302034",
+      "pehchan": "NR08JAI000010",
+      "village": "Jaipur",
+      "district": "Jaipur",
+      "state": "Rajasthan",
+      "pincode": "302034",
+      "note": "Written ALL CAPS on the sheet; normalised to Title Case."
+    },
+    {
+      "sl": 9,
+      "name": "Reena Prajapati",
+      "craft": "Jaipur Blue Pottery",
+      "phone": "7737904171",
+      "address": "Kumharon Ki Dhani, Hatoj, near Mangalam City, Jaipur 302012",
+      "pehchan": "NRJPC587564",
+      "village": "Hatoj",
+      "district": "Jaipur",
+      "state": "Rajasthan",
+      "pincode": "302012",
+      "note": "Written ALL CAPS on the sheet; normalised to Title Case. The sheet gives the craft as 'Blue POTTERY AND CLAY OB.' — blue pottery is taken as primary and the second tradition is recorded in notes rather than guessed at. The card number is printed with a space ('NRJPC 587564'); stored without it."
+    },
+    {
+      "sl": 10,
+      "name": "Dipankar Kundu",
+      "craft": "Bishnupur Terracotta Craft",
+      "phone": "9775105481",
+      "address": "Jogpur Road, Ranaghat, Nadia, West Bengal",
+      "pehchan": "ERBRC998602",
+      "village": "Ranaghat",
+      "district": "Nadia",
+      "state": "West Bengal",
+      "note": "Salutation 'Sh' removed. The sheet says only 'Terracotta'; this artisan works in Nadia, not Bishnupur. The craft link records the TRADITION and the artisan's own place is stored separately, so this is not a contradiction — but a researcher should confirm whether Nadia terracotta wants its own craft record."
+    },
+    {
+      "sl": 11,
+      "name": "Biplab Pal",
+      "craft": "Bishnupur Terracotta Craft",
+      "phone": "9332521038",
+      "address": "Gate Road, Krishnanagar, Nadia 741101",
+      "pehchan": "ERBRC02061",
+      "village": "Krishnanagar",
+      "district": "Nadia",
+      "state": "West Bengal",
+      "pincode": "741101",
+      "note": "Salutation 'Sh.' removed. Terracotta artisan from Nadia rather than Bishnupur — see sl. 10."
+    },
+    {
+      "sl": 12,
+      "name": "Santu Roy",
+      "craft": "Bishnupur Terracotta Craft",
+      "phone": "6291432125",
+      "address": "Krishnanagar, Nadia 741102",
+      "pehchan": "ER19BRD000100",
+      "village": "Krishnanagar",
+      "district": "Nadia",
+      "state": "West Bengal",
+      "pincode": "741102",
+      "note": "Salutation 'Sh.' removed. Terracotta artisan from Nadia rather than Bishnupur — see sl. 10."
+    },
+    {
+      "sl": 13,
+      "name": "Dhiren Chandra Pal",
+      "craft": "Bishnupur Terracotta Craft",
+      "phone": "8001460725",
+      "address": "Joypur, Bankura, West Bengal 722138",
+      "pehchan": "ER19BRD000099",
+      "village": "Joypur",
+      "district": "Bankura",
+      "state": "West Bengal",
+      "pincode": "722138",
+      "note": "Salutation 'Sh.' removed. Bankura, so this is the one terracotta artisan whose district matches the Bishnupur tradition."
+    },
+    {
+      "sl": 14,
+      "name": "Satyajit Pal",
+      "craft": "Ghurni Clay Doll Craft",
+      "phone": "9609496259",
+      "address": "66 Jagobandhu Asram, Jagatbandhu Ghat Lane, Ghurni, Krishnanagar, Nadia 741103",
+      "pehchan": "ERBRC1027736",
+      "village": "Ghurni",
+      "district": "Nadia",
+      "state": "West Bengal",
+      "pincode": "741103",
+      "note": "Card number printed with a space ('ERBRC 1027736'); stored without it."
+    },
+    {
+      "sl": 15,
+      "name": "Shibu Biswas",
+      "craft": "Ghurni Clay Doll Craft",
+      "phone": "7407557667",
+      "address": "Janglitala Lane, Sandhya Tanti Para, Ghurni, Krishnanagar, Nadia 741103",
+      "pehchan": "ERBRC1026619",
+      "village": "Ghurni",
+      "district": "Nadia",
+      "state": "West Bengal",
+      "pincode": "741103",
+      "note": "The sheet writes the craft as 'Clay doll'; same tradition as sl. 14. Card number printed with a space; stored without it."
+    }
+  ],
+  "core_team_work": [
+    "Artisan details put in the app",
+    "All process documentation",
+    "TA details from artisans, designers and experts",
+    "Consent form from artisans, designers and experts",
+    "Collection of raw material, tools and products",
+    "Tool documentation",
+    "Expert and designer handling"
+  ],
+  "task_allocation": [
+    {
+      "pdf_name": "Subham Mandal",
+      "db_name": "Subham Mondal",
+      "email": "subham.mondal795@gmail.com",
+      "sections": [
+        "D",
+        "M",
+        "N"
+      ],
+      "title": "Questionnaire sections D, M, N",
+      "recordTypes": [
+        "questionnaire"
+      ]
+    },
+    {
+      "pdf_name": "Diganta Panda",
+      "db_name": "DIGANTA PANDA",
+      "email": "digantaiit747@gmail.com",
+      "sections": [
+        "I",
+        "J",
+        "K"
+      ],
+      "title": "Questionnaire sections I, J, K",
+      "recordTypes": [
+        "questionnaire"
+      ]
+    },
+    {
+      "pdf_name": "Nandini Talukder",
+      "db_name": "Nandini Talukder",
+      "email": "nandinitalukder.rbu@gmail.com",
+      "sections": [
+        "C",
+        "P",
+        "V"
+      ],
+      "title": "Questionnaire sections C, P, V",
+      "recordTypes": [
+        "questionnaire"
+      ]
+    },
+    {
+      "pdf_name": "Manojit",
+      "db_name": "G. Manojit Rao",
+      "email": "gmanojitr@gmail.com",
+      "sections": [],
+      "title": "Terracotta process documentation",
+      "recordTypes": [
+        "process"
+      ]
+    },
+    {
+      "pdf_name": "Meenakshi",
+      "db_name": "Meenakshi Samanta",
+      "email": "meenakshisamanta244@gmail.com",
+      "sections": [
+        "A",
+        "B"
+      ],
+      "title": "Questionnaire sections A, B",
+      "recordTypes": [
+        "questionnaire"
+      ]
+    },
+    {
+      "pdf_name": "Manas Ranjan Nayak",
+      "db_name": "Manash Ranjan Nayak",
+      "email": "manashn381@gmail.com",
+      "sections": [],
+      "title": "Put artisan details through the portal",
+      "recordTypes": [
+        "artisan"
+      ]
+    },
+    {
+      "pdf_name": "Tania Bera",
+      "db_name": "Tania Bera",
+      "email": "beratania89@gmail.com",
+      "sections": [
+        "G",
+        "H"
+      ],
+      "title": "Questionnaire sections G, H, and inauguration handling",
+      "recordTypes": [
+        "questionnaire"
+      ]
+    },
+    {
+      "pdf_name": "Debajyoti Swain Acharya",
+      "db_name": "Debajyoti Acharya",
+      "email": "debajyotiacharya2019@gmail.com",
+      "sections": [],
+      "title": "Artisan details, consent forms and Lippan printing process documentation",
+      "recordTypes": [
+        "artisan",
+        "process"
+      ]
+    },
+    {
+      "pdf_name": "Sayoni Mondal",
+      "db_name": "Sayoni Mondal",
+      "email": "pikaimondal36@gmail.com",
+      "sections": [],
+      "title": "Artisan details first, consent forms, collection of raw materials, tools and products, and Blue Pottery process documentation",
+      "recordTypes": [
+        "artisan",
+        "process",
+        "tool"
+      ]
+    },
+    {
+      "pdf_name": "Madhur S Pradhan",
+      "db_name": "Madhur Singh Pradhan",
+      "email": "madhur.spradhan@gmail.com",
+      "sections": [],
+      "title": "Black Pottery process documentation, and expert and designer handling",
+      "recordTypes": [
+        "process"
+      ]
+    },
+    {
+      "pdf_name": "Ankit Kumar",
+      "db_name": "Ankit Kumar",
+      "email": "ankits1802@gmail.com",
+      "sections": [],
+      "title": "3rd workshop database creation, questionnaire update and app handling",
+      "recordTypes": [],
+      "ambiguity": "TWO accounts are named Ankit Kumar: MASTER_ADMIN ankits1802@gmail.com and RESEARCHER ankitkumar18022004@gmail.com. The task is database and app work, so the MASTER_ADMIN account is taken. CONFIRM."
+    },
+    {
+      "pdf_name": "Rishi",
+      "db_name": "Rishikant Mallick",
+      "email": "rishikantmallick14@gmail.com",
+      "sections": [],
+      "title": "Product documentation through the field repository app",
+      "recordTypes": [
+        "product"
+      ],
+      "ambiguity": "'Rishi' matched to Rishikant Mallick on the first name alone. No other account begins with Rishi. CONFIRM."
+    },
+    {
+      "pdf_name": "Arindam",
+      "db_name": "Arindom Aich",
+      "email": "arindomaich2@gmail.com",
+      "sections": [],
+      "title": "Product documentation through the field repository app",
+      "recordTypes": [
+        "product"
+      ],
+      "ambiguity": "Spelt 'Arindam' on the sheet, 'Arindom Aich' in the account. Only one such account exists. CONFIRM."
+    },
+    {
+      "pdf_name": "Bikramjit Das",
+      "db_name": "Bikramjit Das",
+      "email": "das63394@gmail.com",
+      "sections": [],
+      "title": "Clay doll process documentation in full, and questionnaire",
+      "recordTypes": [
+        "process",
+        "questionnaire"
+      ]
+    },
+    {
+      "pdf_name": "Ranabir",
+      "db_name": "Ranabir Chakraborty",
+      "email": "ranabir2ku763@gmail.com",
+      "sections": [],
+      "title": "Food, and collection of TA details from artisans, designers and experts",
+      "recordTypes": []
+    },
+    {
+      "pdf_name": "Jishan",
+      "db_name": "Jishan Aich",
+      "email": "aichjishan30@gmail.com",
+      "sections": [
+        "E",
+        "Q",
+        "U"
+      ],
+      "title": "Questionnaire sections E, Q, U",
+      "recordTypes": [
+        "questionnaire"
+      ]
+    },
+    {
+      "pdf_name": "Subhodip",
+      "db_name": "Suvadeep Acharya",
+      "email": "asuvadeep@gmail.com",
+      "sections": [
+        "L",
+        "R"
+      ],
+      "title": "Questionnaire sections L, R",
+      "recordTypes": [
+        "questionnaire"
+      ],
+      "note": "The sheet writes 'Subhodip'; the owner confirmed on 2026-09-14 that this is Suvadeep Acharya (asuvadeep@gmail.com). An earlier guess of 'Souradip Pathak' was WRONG and is recorded here so nobody re-derives it from the spelling."
+    },
+    {
+      "pdf_name": "Jahir",
+      "db_name": "Jahir Alam",
+      "email": "jahiralam241@gmail.com",
+      "sections": [
+        "O",
+        "S",
+        "T"
+      ],
+      "title": "Questionnaire sections O, S, T",
+      "recordTypes": [
+        "questionnaire"
+      ]
+    },
+    {
+      "pdf_name": "Ankur",
+      "db_name": "Ankur Kumar das",
+      "email": "ankur090197@gmail.com",
+      "sections": [
+        "F"
+      ],
+      "title": "Tool documentation, questionnaire section F, certificates, ID cards and all banners",
+      "recordTypes": [
+        "tool",
+        "questionnaire"
+      ]
+    }
+  ],
+  "_section_coverage": "A B C D E F G H I J K L M N O P Q R S T U V — all 22 sections of the 3rd-workshop instrument are assigned exactly once across nine people.",
+  "_unassigned_accounts": "Accounts with no row on the sheet, left untouched: Priyadarshi Patnaik (ADMIN), Bhaskar Bhowmick (PROFESSOR), Deepika N C, Dawg, Souradip Pathak, Ankit Kumar (RESEARCHER), Repository Admin.",
+  "_account_name_casing": "Two existing accounts are not Title Case — 'DIGANTA PANDA' and 'Ankur Kumar das'. Renaming a User row is out of scope for a seed of workshop records and is listed here for a separate decision."
+}

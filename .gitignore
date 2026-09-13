@@ -63,3 +63,25 @@ TRANSCRIPTION_SERVICE.md
 # script re-fetches with --fetch. The GENERATED assets under frontend/public/boundaries and
 # android/.../res/raw ARE committed; these inputs are not.
 .boundary-cache/
+
+# ─── ANDROID SIGNING MATERIAL — NEVER COMMIT ANY OF THIS ───────────────────────────────────
+#
+# Added 2026-09-13, at the moment this repository acquired a release key of its own. Until then
+# the published APK was signed with the Android DEBUG key (verified on the live v1.1.20 artefact:
+# `CN=Android Debug, O=Android, C=US`), which is auto-generated per machine — so there was no
+# signing material to protect and no rule to state.
+#
+# There is now, and the consequence of committing it is absolute rather than embarrassing: an
+# Android app can NEVER change its signing certificate. Every handset refuses an update signed by
+# a different key. A leaked key cannot be rotated away from — it can only be used by somebody else
+# to publish an app the fleet will accept as genuine.
+#
+# The canonical copy lives in the GitHub Actions secrets (base64) and in whatever the institution
+# uses for long-term custody. The working copy below is a convenience for a local release build
+# and is not the source of truth.
+*.p12
+*.jks
+*.keystore
+fieldrepo-release.*
+keystore.properties
+KEYSTORE-CUSTODY.md

@@ -1,0 +1,1689 @@
+name: Publish Android release
+
+# THE ONE WAY A SIGNED BUILD REACHES A HANDSET. Everything below exists so that "cut a release" is a
+# tag push and not a person on a laptop with a browser open, because a person on a laptop is exactly
+# how the current fielded build came to be signed with the Android debug key.
+#
+# ─── WHAT IT REPLACES, WHICH IS NOT NOTHING ───────────────────────────────────────────────────
+# The fleet-update backend already exists and already works: `AppRelease` in
+# backend/prisma/schema.prisma, `POST /api/app/release` (Depends(require_master_admin)),
+# `GET /api/app/release/latest`, `GET /api/app/download`, with the web surfaces
+# frontend/components/settings/GetTheAppPanel.tsx and
+# frontend/components/settings/PublishAppUpdatePanel.tsx. Today a master admin picks an APK off
+# their own disk in that panel and uploads it. Nothing in that path knows which key signed the file,
+# which API base is compiled into it, which commit it came from, or whether its version is high
+# enough to reach anybody. This workflow is the same two API calls the panel makes, with those four
+# questions answered before the bytes move. NOTHING IN THE BACKEND CHANGES.
+#
+# ─── WHY THIS IS A STANDALONE WORKFLOW AND NOT A FOURTH STAGE ─────────────────────────────────
+# The existing chain is deploy-backend.yml (`push: branches: [main]`) → deploy-frontend.yml →
+# android-build.yml, each hop a `workflow_run`. This workflow cannot join it and nothing may chain
+# off it, for reasons that are properties of GitHub rather than preferences:
+#   • A TAG PUSH STARTS NOTHING IN THAT CHAIN. A tag push is a `push` event with
+#     `ref: refs/tags/<tag>`, and a `branches:` filter matches only `refs/heads/*`, so
+#     deploy-backend.yml never starts — silence, not a red X. Both `workflow_run` hops also carry
+#     `branches: [main]`, which filters on the UPSTREAM run's head branch, and a run whose head is a
+#     tag has no branch to match. A release could not be reached from that chain even by accident.
+#   • Publishing must not be a side effect of merging to main. android-build.yml says it out loud
+#     ("Nothing here can reach a phone") and that stays true: it builds DEBUG variants only, and
+#     this change does not touch it. This file is the deliberate act, and it is the only one that
+#     holds the signing key.
+#   • `push: tags:` runs the workflow file AS OF THE TAGGED COMMIT — unlike `workflow_run`
+#     workflows, which are read from the default branch. MERGE THIS FILE TO MAIN BEFORE CUTTING THE
+#     TAG, or the tag will not contain it and the release will simply not happen.
+#
+# ─── WHAT IT DOES, IN ORDER ───────────────────────────────────────────────────────────────────
+#   read the version out of the tree → prove the API is ours → build and sign the release APK on the
+#   runner → prove the signer → prove the artefact is this product and points at production →
+#   upload the bytes to object storage → POST /api/app/release → prove the world can see it.
+#
+# THE APK IS BUILT HERE, NOT UPLOADED FROM A DESK, and that is the single most important line in
+# this file. `android/local.properties` is gitignored (.gitignore, "Android / Gradle" block) so it
+# does not exist on a runner, and the release build therefore gets the production API base
+# hard-coded in android/app/build.gradle.kts. A developer's copy of that file can say
+# `apiBaseUrl=http://10.0.2.2:8000/api/`, and an APK built over it installs, opens and reaches
+# nothing at all — with no server-side symptom for anyone to notice. The same file is where
+# `debugSignRelease=true` lives. None of those states can exist here, and the assertions below check
+# for them anyway, because "cannot happen" is what the debug-signed fleet build looked like too.
+#
+# ─── SECRETS THIS WORKFLOW NEEDS (set outside it, in repository settings) ──────────────────────
+#   ANDROID_RELEASE_KEYSTORE_BASE64    base64 of fieldrepo-release.p12
+#   ANDROID_RELEASE_KEYSTORE_PASSWORD  store password
+#   ANDROID_RELEASE_KEY_ALIAS          key alias inside the store (fieldrepo-release)
+#   ANDROID_RELEASE_KEY_PASSWORD       OPTIONAL — absent means "same as the store password", which is
+#                                      what this project's key uses. An absent secret renders as an
+#                                      empty env var, and android/app/build.gradle.kts treats empty
+#                                      as unset (`takeIf { it.isNotEmpty() }`) and falls back to the
+#                                      store password. Absence is safe by construction.
+#   ANDROID_RELEASE_CERT_SHA256        expected signer fingerprint, lower-case hex, colons optional
+#   APP_PUBLISH_EMAIL / APP_PUBLISH_PASSWORD   a MASTER_ADMIN account; POST /api/app/release is
+#                                      `Depends(require_master_admin)` and refuses anything less
+#
+# NOT CONFIGURED IS A FAILURE, never a skip. deploy-frontend.yml is this repository's register of
+# what a silent skip costs — its gate job explains at length why an absent secret there makes stage 2
+# report success over a deploy that did not happen, and that pattern is deliberately NOT copied here:
+# a release is irreversible and a publish that quietly did nothing is indistinguishable from one that
+# worked. Every secret above is checked for PRESENCE (a boolean, never a value) in the gate step,
+# which FAILS the run.
+#
+# ─── THE SIX GUARDS, AND THE FAILURE EACH ONE CLOSES ──────────────────────────────────────────
+#   1. The tag must name the version this tree builds          (step: "GUARD 1 …")
+#   2. The signer must be the expected key, and there must BE one (step: "GUARD 2 …")
+#   3. The API must be THIS product's, not the sibling's       (step: "GUARD 3 …")
+#   4. The new versionCode must be ABOVE the published one     (step: "GUARD 4 …")
+#   5. The upload must fit the one upload path that exists here (step: "GUARD 5 …")
+#   6. It must PROVE it published                              (step: "GUARD 6 …")
+# Each carries its reason at the step. Do not delete one without reading it.
+#
+# ─── WHAT IS DELIBERATELY NOT HERE ────────────────────────────────────────────────────────────
+#   • NO GitHub Release, and therefore `permissions: contents: read`. The sibling repository cuts one
+#     and attaches the APK; that needs `contents: write` on the one workflow that holds the signing
+#     key, and it creates a SECOND distribution channel that keeps serving an old build for ever
+#     while `latest` moves on. `GET /api/app/download` is the single address this product publishes,
+#     and the run artifact below keeps the exact bytes for support questions without handing anyone
+#     a permanent install link. Add one deliberately if it is wanted; do not add it as a habit.
+#   • NO MULTIPART UPLOAD. See GUARD 5: the live v1.1.20 APK is 26,097,941 bytes, which is 40 MB
+#     under the single-PUT ceiling, and an upload path that has never run is not a safety net.
+#   • NO R8 MAPPING ARTIFACT. android/app/build.gradle.kts leaves `isMinifyEnabled` off on release
+#     and says why, so there is no mapping.txt to keep. When R8 is turned on, add the upload in the
+#     same change — an obfuscated field crash with no mapping cannot be read at all.
+#
+# ─── WHAT THIS WORKFLOW STILL CANNOT TELL YOU ─────────────────────────────────────────────────
+# A GitHub runner has no device and no emulator, and no instrumented test runs anywhere in this
+# repository. A green run here means "correctly built, correctly signed, correctly published" and
+# NOT "verified on hardware". The first release-key build is also the first build the fleet cannot
+# install over the top of (see docs/RELEASING.md), so it must be installed and taken through sign-in
+# and one offline sync on a real handset before anybody is asked to uninstall anything. That is a
+# human step and this file cannot do it for you; the step summary says so on every run.
+
+on:
+  push:
+    tags:
+      # The tag IS the release request. `v*` and not `v*.*.*` on purpose: a malformed tag should
+      # reach GUARD 1 and be told exactly what is wrong with it, rather than matching nothing and
+      # leaving somebody wondering why their push did nothing at all. Silence is the worst answer.
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Do everything EXCEPT POST /api/app/release. Leave ticked to exercise the pipeline."
+        type: boolean
+        # DEFAULTS TO TRUE, deliberately asymmetric with the tag trigger. A hand-started run is
+        # somebody testing the pipeline nine times out of ten, and the tenth is a re-run of a publish
+        # that failed. Getting the default the wrong way round means an experiment publishes a
+        # release; getting it this way round means a real publish needs one extra click. A dry run
+        # still builds, signs, verifies, logs in, checks the version ceiling and UPLOADS THE BYTES —
+        # the only thing it omits is the release record.
+        default: true
+
+permissions:
+  # READ ONLY. This workflow creates no GitHub Release, no comment and no deployment (see "WHAT IS
+  # DELIBERATELY NOT HERE" above), so it asks for nothing that could do any of those. It is the one
+  # workflow in this repository that holds the signing key; its GitHub token should be able to do as
+  # little as possible. If a Release step is ever added, raise this to `contents: write` in the same
+  # commit and say why here.
+  contents: read
+
+concurrency:
+  group: publish-android
+  # FALSE. Two runs of this workflow mutate something that outlives the runner: an object in storage
+  # and a row in the AppRelease table. Cancelling one mid-flight can leave an uploaded APK with no
+  # release row (harmless) or, worse, cancel the proof step after the row was written — a publish
+  # nobody verified. Queue them.
+  cancel-in-progress: false
+
+env:
+  # ─── THE API BASE, AND WHY IT IS WRITTEN HERE ONCE ──────────────────────────────────────────
+  # THIS PRODUCT'S API. `d2b34i3e92al6i.cloudfront.net` is the CloudFront distribution in front of
+  # this repository's EC2 backend — docs/CDN.md's first table is the register, and
+  # docs/ENVIRONMENT.md carries the same value for `NEXT_PUBLIC_API_URL` and for the Android
+  # `apiBaseUrl`. It appears in this file exactly once, and everything else derives from it.
+  API_BASE: https://d2b34i3e92al6i.cloudfront.net
+  # THE DESIGN PROTOTYPE WORKSHOP'S CloudFront distribution — ANOTHER PRODUCT'S API. Not ours. Never
+  # fetched from. It is named only so the built artefact can be grepped for its ABSENCE, and because
+  # the two ids are one glance apart: that sibling repository was forked from this one, so it has the
+  # same auth, the same `/api/app/release` route and its own master admins. Publishing this app's APK
+  # against it would SUCCEED and would push this app over another product's app.
+  SIBLING_API_HOST: d3ekigkotd1xa2.cloudfront.net
+  # The production API base the release APK must have compiled in. This is the fallback in
+  # android/app/build.gradle.kts that applies when there is no local.properties — i.e. exactly what a
+  # runner gets, and what the artefact is grepped for below. Keep the trailing `/api/`: that is the
+  # literal in the BuildConfig field, and a prefix match would pass on a truncated one.
+  EXPECTED_APK_API_BASE: https://d2b34i3e92al6i.cloudfront.net/api/
+  # AGP's default output for the release build type. THE FILENAME IS ITSELF THE SIGNED/UNSIGNED
+  # SIGNAL: android/app/build.gradle.kts creates the signing config only when a real key resolved, and
+  # with no signing config AGP writes `app-release-unsigned.apk` in this same directory instead. Both
+  # names are pinned so the absence of the second is an assertion and not an assumption.
+  APK: app/build/outputs/apk/release/app-release.apk
+  UNSIGNED_APK: app/build/outputs/apk/release/app-release-unsigned.apk
+  # Must track android/app/build.gradle.kts (compileSdk/targetSdk 35, AGP 8.7.3) and the value
+  # android-build.yml already installs. This is also where `apksigner` and `aapt2` live on the
+  # runner, which GUARD 2 and the version assertion need.
+  BUILD_TOOLS_VERSION: "35.0.0"
+  # 64 MiB. The presign → single PUT path is only valid below this: frontend/lib/media.ts switches to
+  # an S3 multipart upload above `MULTIPART_THRESHOLD = 64 * 1024 * 1024`, and the Android client's
+  # own threshold matches. That flow is NOT implemented here (see GUARD 5), so this is a refusal
+  # boundary and not a branch. (media.ts branches on `size > threshold`, so a file of exactly 64 MiB
+  # still goes as one PUT there; this workflow is one byte more conservative, which is the safe
+  # direction — the boundary case has never been measured against S3 from here.)
+  SINGLE_PUT_LIMIT_BYTES: "67108864"
+  # A FLOOR AS WELL AS A CEILING, AND THE FLOOR IS KEYED TO THE RELEASE BUILD, NOT THE PUBLISHED ONE.
+  # Two measurements, because they differ by more than anyone expects and keying the floor to the
+  # wrong one would make it fire on a correct build:
+  #
+  #     `:app:assembleRelease` on this tree, 2026-09-14   18,138,730 bytes
+  #     the live published v1.1.20, off /api/app/download 26,097,941 bytes
+  #
+  # The published artefact is BIGGER because it is a DEBUG build (see the header): debug carries
+  # `debugImplementation("androidx.compose.ui:ui-tooling")` and the debug instrumentation that release
+  # does not. Both figures are `stat -c%s` on real files, not estimates.
+  #
+  # 8 MiB is under half the release figure — far enough below that ordinary shrinkage cannot reach it,
+  # far enough above that no truncated or zero-byte output can pass. PRESENCE IS NOT A MEASUREMENT: a
+  # Gradle daemon that dies mid-package leaves an output FILE behind, and a script that checks only
+  # for the file reports success over nothing.
+  MIN_APK_BYTES: "8388608"
+  # The application id. A wrong one is not a bad release, it is a DIFFERENT APP: Android keys installs
+  # and signatures by package name, so it would install alongside the real app rather than updating
+  # it, and the OTA updater would never offer it.
+  EXPECTED_APPLICATION_ID: com.fieldrepository.app
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # Everything Gradle-shaped is relative to `android/`, exactly as in android-build.yml.
+        # NOTE for the upload steps below: actions/upload-artifact does NOT honour this, so its
+        # `path:` values are repo-root relative.
+        working-directory: android
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # No `ref:` override here, unlike android-build.yml. That file builds a `workflow_run`
+          # commit, where the default ref (tip of main) may have moved past what was deployed. This
+          # workflow's default ref IS the thing being released — the tagged commit on a tag push, the
+          # dispatched ref on a manual run — so overriding it could only make it wrong.
+          fetch-depth: 1
+          # NO `fetch-tags: true`, deliberately. On a TAG PUSH it makes checkout construct two
+          # refspecs that collide —
+          #     fatal: Cannot fetch both <sha> and refs/tags/vX.Y.Z to refs/tags/vX.Y.Z
+          # — which fails the very FIRST step and skips the entire publish. GUARD 4 fetches the tag
+          # object itself, where a failure to get it is survivable.
+
+      - name: Resolve the run mode, and refuse to publish something no tag names
+        id: mode
+        # THIS STEP DECIDES WHETHER ANYTHING GETS PUBLISHED, so it is the second thing that runs.
+        #
+        # GITHUB_REF_NAME is the tag on a tag push and the BRANCH on a workflow_dispatch started from
+        # a branch. `github.ref_type` is what tells them apart. A dispatch started from a tag ref
+        # (which GitHub allows) is a first-class case and gets the full GUARD 1 comparison.
+        #
+        # A dispatch from a BRANCH has no tag, so GUARD 1 has nothing to compare against — and a guard
+        # that cannot run must never be a guard that silently passes. Such a run is allowed as a dry
+        # run (it exercises everything up to the release call, which is the point of having a dry run
+        # at all) and REFUSED outright as a publish. The version in that case could only come from the
+        # tree, which is exactly the ambiguity GUARD 1 exists to remove.
+        run: |
+          set -euo pipefail
+          event="${{ github.event_name }}"
+          ref_type="${{ github.ref_type }}"
+          ref_name="${GITHUB_REF_NAME}"
+          # `inputs.dry_run` renders empty on a tag push and true/false on a dispatch. A tag push is
+          # never a dry run: pushing a release tag is the request to publish.
+          requested_dry="${{ inputs.dry_run }}"
+
+          if [ "$event" = "workflow_dispatch" ]; then
+            dry_run="${requested_dry:-true}"
+          else
+            dry_run="false"
+          fi
+
+          # ─── DRY_RUN IS A TWO-VALUE ENUM, AND A THIRD VALUE MUST DIE HERE ───────────────
+          # Everything downstream branches on `env.DRY_RUN == 'false'` (the publish, GUARD 6, the
+          # did-it-actually-publish trap) or on `== 'true'` (the dry-run notice). Those are mutually
+          # exclusive conditions with NO THIRD BRANCH, so a DRY_RUN that is neither literal skips all
+          # of them, the job concludes `success`, and the step summary announces "**PUBLISH**" over a
+          # run that published nothing — a green tick arrived at by falling OPEN.
+          #
+          # Nothing can put a third value in here today: the branch above writes only the literal
+          # `false`, GitHub validates a `type: boolean` input, and `${requested_dry:-true}` covers the
+          # empty render. This is defence in depth, and it is here because asserting the enum ONCE
+          # where it is decided is cheaper than trusting nine separate `if:` expressions to keep
+          # agreeing about it for ever.
+          case "$dry_run" in
+            true|false) ;;
+            *)
+              echo "::error title=Android publish refused: unreadable mode::dry_run resolved to '${dry_run}', which is neither 'true' nor 'false'. Every step below compares against one of those two literals, so a third value would SKIP the publish, SKIP the proof, SKIP the dry-run notice, and still report success."
+              exit 1
+              ;;
+          esac
+
+          tag=""
+          if [ "$ref_type" = "tag" ]; then
+            tag="$ref_name"
+          fi
+
+          if [ -z "$tag" ] && [ "$dry_run" = "false" ]; then
+            echo "::error title=Android publish refused: no tag::This run was started from ${ref_type} '${ref_name}', so there is no tag to check the built version against and GUARD 1 cannot run."
+            echo "::error::Publishing is refused rather than trusting android/app/build.gradle.kts on its own — a version nobody named in a tag is a version nobody can look up afterwards."
+            echo "::error::Either push the release tag (git tag -a vX.Y.Z && git push origin vX.Y.Z), or re-run this workflow from the tag ref, or leave dry_run ticked."
+            exit 1
+          fi
+
+          {
+            echo "DRY_RUN=${dry_run}"
+            echo "RELEASE_TAG=${tag}"
+          } >> "$GITHUB_ENV"
+
+          if [ "$dry_run" = "true" ]; then
+            echo "MODE: DRY RUN — everything except POST /api/app/release. Nothing will be published."
+          else
+            echo "MODE: PUBLISH — tag '${tag}'."
+          fi
+
+      - name: Gate — every secret this run needs is present
+        # PRESENCE ONLY. Not one of these values enters the log, here or anywhere below: the booleans
+        # are computed in the `env:` block, where `secrets` is readable, and the shell only ever sees
+        # "true" or "false". A `secrets.*` reference cannot appear in a step-level `if:` at all, which
+        # is why this is a step and not a condition.
+        #
+        # AND IT FAILS, IT DOES NOT SKIP. deploy-frontend.yml's gate deliberately skips when
+        # `VERCEL_TOKEN` is absent and argues for it — "a red X that everyone knows to ignore is worse
+        # than no X at all" — and that argument does not carry here. A web deploy that did not happen
+        # is re-runnable and visible on the site; a release is a row that cannot be un-published and a
+        # version code that can never be reused. The conclusion of a run is the only part anyone reads
+        # at a glance, so on this path the conclusion has to be honest.
+        #
+        # ANDROID_RELEASE_KEY_PASSWORD is deliberately NOT required — see the header. Absent means
+        # "same as the store password", which is what this project's key uses.
+        env:
+          HAVE_KEYSTORE: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 != '' }}
+          HAVE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD != '' }}
+          HAVE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS != '' }}
+          HAVE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD != '' }}
+          HAVE_CERT_SHA256: ${{ secrets.ANDROID_RELEASE_CERT_SHA256 != '' }}
+          HAVE_PUBLISH_EMAIL: ${{ secrets.APP_PUBLISH_EMAIL != '' }}
+          HAVE_PUBLISH_PASSWORD: ${{ secrets.APP_PUBLISH_PASSWORD != '' }}
+        run: |
+          set -euo pipefail
+          missing=""
+          for pair in \
+            "ANDROID_RELEASE_KEYSTORE_BASE64:${HAVE_KEYSTORE}" \
+            "ANDROID_RELEASE_KEYSTORE_PASSWORD:${HAVE_KEYSTORE_PASSWORD}" \
+            "ANDROID_RELEASE_KEY_ALIAS:${HAVE_KEY_ALIAS}" \
+            "ANDROID_RELEASE_CERT_SHA256:${HAVE_CERT_SHA256}" \
+            "APP_PUBLISH_EMAIL:${HAVE_PUBLISH_EMAIL}" \
+            "APP_PUBLISH_PASSWORD:${HAVE_PUBLISH_PASSWORD}"; do
+            name="${pair%%:*}"
+            present="${pair##*:}"
+            echo "${name}: ${present}"
+            if [ "$present" != "true" ]; then
+              missing="${missing} ${name}"
+            fi
+          done
+          echo "ANDROID_RELEASE_KEY_PASSWORD: ${HAVE_KEY_PASSWORD} (optional — absent means 'same as the store password')"
+
+          if [ -n "$missing" ]; then
+            echo "::error title=Android publish is not configured::Missing repository secrets:${missing}. This run FAILS rather than reporting success over a release nobody made."
+            echo "::error::Set them in Settings → Secrets and variables → Actions; docs/RELEASING.md says where each value comes from. APP_PUBLISH_EMAIL must name a MASTER_ADMIN account, because POST /api/app/release is Depends(require_master_admin)."
+            echo "::error::The signing key is required even for a dry run: an unsigned APK proves nothing about the pipeline."
+            exit 1
+          fi
+
+      - name: GUARD 1 — the tag must name the version this tree builds
+        id: version
+        # ─── THE FAILURE THIS CLOSES ───────────────────────────────────────────────────────────
+        # Tagging v1.1.21 over a tree whose `appVersionName` is still "1.1.20" builds 1.1.20 and
+        # publishes it under the name 1.1.21. The website then offers "1.1.21", the release row says
+        # 1.1.21, and every handset that installs it reports 1.1.20 — because the version is COMPILED
+        # IN, and nothing downstream can correct it. Worse, the derived versionCode is then 1,001,020
+        # and not 1,001,021, which is the number every device compares and which is ALREADY PUBLISHED.
+        # So the comparison happens BEFORE the build, not after it.
+        #
+        # ─── WHY THE VERSION IS READ, NOT PASSED IN ────────────────────────────────────────────
+        # android/app/build.gradle.kts holds the single source of truth:
+        #     val appVersionName = "1.1.20"
+        # and DERIVES versionCode as major*1_000_000 + minor*1_000 + patch. There is no way to
+        # override either from outside — no Gradle property, no env var — so the tag cannot change
+        # what is built. It can only agree or disagree with it, and disagreement has to be fatal.
+        #
+        # ─── THE versionCode ARITHMETIC IS REPRODUCED IN THREE PLACES, ON PURPOSE ──────────────
+        # Here, in android/app/build.gradle.kts, and server-side in
+        # backend/app/api/routes/app_release.py (`_derive_version_code`), which RE-DERIVES it from the
+        # version name and overrides whatever the client sent. This step therefore validates the name
+        # against the SERVER's rules (three parts, `str.isdigit()` on each, each <= 999) rather than
+        # against the looser thing bash would accept: outside them the server returns None and keeps
+        # the client's number instead, and the two definitions of the number every device compares
+        # diverge silently. `10#` forces base 10 — without it bash reads a zero-padded part like `010`
+        # as octal and quietly means eight.
+        run: |
+          set -euo pipefail
+          gradle_file="app/build.gradle.kts"
+
+          # Exactly one declaration, or the parse itself is the bug. A file with two (or none, after a
+          # refactor moves the constant) must not be read by taking the first match — that is how a
+          # check keeps passing while measuring the wrong line.
+          declarations="$(grep -c '^val appVersionName = "' "$gradle_file" || true)"
+          if [ "$declarations" != "1" ]; then
+            echo "::error::Expected exactly one 'val appVersionName = \"…\"' line in android/${gradle_file}; found ${declarations}."
+            echo "::error::That line is the only source of both the version name and the derived versionCode. Fix this parse to match the file — do not guess the version."
+            exit 1
+          fi
+          tree_version="$(sed -n 's/^val appVersionName = "\([^"]*\)".*/\1/p' "$gradle_file")"
+          if [ -z "$tree_version" ]; then
+            echo "::error::Parsed an EMPTY version out of android/${gradle_file}. An empty version would compare equal to an empty tag and publish nothing recognisable, so it is a failure of its own."
+            exit 1
+          fi
+          echo "android/${gradle_file} builds version: ${tree_version}"
+
+          if [ -n "${RELEASE_TAG}" ]; then
+            case "${RELEASE_TAG}" in
+              v*) tag_version="${RELEASE_TAG#v}" ;;
+              *)
+                echo "::error::Tag '${RELEASE_TAG}' does not start with 'v'. The trigger is 'v*' and the convention is v<MAJOR>.<MINOR>.<PATCH>, e.g. v1.1.21."
+                exit 1
+                ;;
+            esac
+            if [ "$tag_version" != "$tree_version" ]; then
+              echo "::error::Tag ${RELEASE_TAG} means version ${tag_version}, but android/${gradle_file} builds ${tree_version}. Refusing to build."
+              echo "::error::The version is COMPILED IN and cannot be corrected downstream: publishing this would put '${tag_version}' on the website over an APK that reports '${tree_version}', with a versionCode derived from ${tree_version} — which is the number devices compare, and which may already be published."
+              echo "::error::Fix by bumping 'val appVersionName' to ${tag_version} and re-tagging that commit (the tag must point at the bump, not at its parent)."
+              exit 1
+            fi
+            echo "Tag ${RELEASE_TAG} agrees with the tree."
+          else
+            echo "::notice::No tag on this run (dry run from ${{ github.ref_type }} '${GITHUB_REF_NAME}'), so GUARD 1's comparison did not run. Version taken from the tree: ${tree_version}."
+          fi
+
+          # Validate against the SERVER's rules, then derive.
+          IFS='.' read -r major minor patch extra <<< "$tree_version"
+          if [ -n "${extra:-}" ] || [ -z "${major:-}" ] || [ -z "${minor:-}" ] || [ -z "${patch:-}" ]; then
+            echo "::error::Version '${tree_version}' is not three dot-separated parts. backend/app/api/routes/app_release.py:_derive_version_code returns None for anything else, and the server then TRUSTS the client's version code instead of deriving it — two definitions of the number every device compares."
+            exit 1
+          fi
+          for part in "$major" "$minor" "$patch"; do
+            case "$part" in
+              ''|*[!0-9]*)
+                echo "::error::Version part '${part}' in '${tree_version}' is not a plain number. The server requires str.isdigit() on all three parts."
+                exit 1
+                ;;
+            esac
+            if [ "$((10#$part))" -gt 999 ]; then
+              echo "::error::Version part '${part}' exceeds 999, which the server rejects outright (the 1,000-wide buckets in the versionCode formula would collide). The documented scheme runs each part 0→100 before rolling the next one forward."
+              exit 1
+            fi
+          done
+          version_code=$(( (10#$major) * 1000000 + (10#$minor) * 1000 + (10#$patch) ))
+
+          echo "Derived versionCode: ${version_code} (major*1000000 + minor*1000 + patch)"
+          {
+            echo "VERSION_NAME=${tree_version}"
+            echo "VERSION_CODE=${version_code}"
+          } >> "$GITHUB_ENV"
+
+      - name: GUARD 3 — the API must be THIS product's
+        id: api_identity
+        # ─── THE FAILURE THIS CLOSES ───────────────────────────────────────────────────────────
+        # There are two CloudFront distributions in this account whose ids differ by a glance: ours
+        # (`d2b34i3e92al6i`) and the Design Prototype Workshop's (`d3ekigkotd1xa2`). That product was
+        # FORKED FROM THIS ONE, so it has the same auth, the same `/api/app/release`, the same
+        # `/api/media/presign` and its own master admins. Publishing this app's APK against it would
+        # SUCCEED and would push this app to another product's users, with no error anywhere to
+        # notice.
+        #
+        # ─── THE TEST, MEASURED FROM THIS MACHINE ON 2026-09-14, NOT ASSUMED ───────────────────
+        # Two probes, because one of them says "an API is here" and the other says "and it is ours":
+        #
+        #     GET https://d2b34i3e92al6i.cloudfront.net/api/access-roster   -> 401   (ours)
+        #     GET https://d3ekigkotd1xa2.cloudfront.net/api/access-roster   -> 404   (the sibling)
+        #     GET https://d2b34i3e92al6i.cloudfront.net/api/design-workshops -> 404  (ours)
+        #
+        # `/api/access-roster` exists only here — the sibling's equivalent router is mounted at
+        # `/api/access` — and it is `Depends(require_admin)`, so it answers 401 unauthenticated. That
+        # needs no credentials, so it runs FIRST, before anything is built and before anything logs
+        # in: an unauthenticated request that distinguishes the two distributions is worth more than
+        # an authenticated one that does not. A 200 would be as wrong as a 404 — it would mean the
+        # roster route stopped requiring authentication, which is a security finding and not a green
+        # light to publish.
+        #
+        # `/api/design-workshops` is the mirror: it is the sibling's flagship route and it does not
+        # exist here. Checking for its ABSENCE catches the case where `/api/access-roster` starts
+        # existing on both (a future merge, a shared library) and the positive probe stops
+        # discriminating on its own.
+        #
+        # Placed before the build so a misconfigured base fails in seconds rather than after a full
+        # Gradle run. API_BASE is a literal in this file and nothing between here and the publish can
+        # change it, so checking it early loses nothing.
+        run: |
+          set -euo pipefail
+          # `|| true` on the CAPTURE ONLY, and it is not a swallowed error: under `set -e` a transport
+          # failure would abort this step before the `000)` arm could run, which would leave that arm
+          # as dead code and replace its specific message with a bare non-zero exit. Every arm below
+          # still decides, and four of the five exit 1.
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "${API_BASE}/api/access-roster" || true)"
+          code="${code:-000}"
+          echo "GET ${API_BASE}/api/access-roster -> ${code}"
+          case "$code" in
+            401)
+              echo "401 as expected: the route exists and requires an admin bearer token, which is this product's API."
+              ;;
+            404)
+              echo "::error::${API_BASE} answered 404 for /api/access-roster. THAT ROUTE DOES NOT EXIST ON THE SIBLING PRODUCT'S DISTRIBUTION (${SIBLING_API_HOST}), which mounts its roster at /api/access — this is almost certainly the wrong CloudFront distribution."
+              echo "::error::Publishing there would succeed and would push this app over ANOTHER PRODUCT'S app. Refusing. docs/CDN.md's first table is the register of which distribution is which."
+              exit 1
+              ;;
+            200)
+              echo "::error::${API_BASE} answered 200 for /api/access-roster with no Authorization header. On this product that route is Depends(require_admin), so either this is not our API or the route has lost its guard."
+              echo "::error::Do not publish until that is understood: an unauthenticated access roster is a data-exposure finding, not a CI nuisance."
+              exit 1
+              ;;
+            000)
+              echo "::error::No HTTP response at all from ${API_BASE} (curl reported 000 — DNS, TLS or timeout). Nothing has been built or published."
+              exit 1
+              ;;
+            *)
+              echo "::error::${API_BASE} answered ${code} for /api/access-roster, which is neither the expected 401 nor the sibling's 404. Do not guess: find out what is in front of this hostname before publishing."
+              exit 1
+              ;;
+          esac
+
+          # THE MIRROR. The sibling's flagship route must NOT exist here.
+          sibling_route="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "${API_BASE}/api/design-workshops" || true)"
+          sibling_route="${sibling_route:-000}"
+          echo "GET ${API_BASE}/api/design-workshops -> ${sibling_route} (expected 404 — that route belongs to the sibling product)"
+          if [ "$sibling_route" != "404" ]; then
+            echo "::error::${API_BASE} answered ${sibling_route} for /api/design-workshops, a route this backend does not define (backend/app/api/router.py mounts no design_workshops router). A 401 here means this hostname is in front of the DESIGN PROTOTYPE WORKSHOP's API, not ours."
+            echo "::error::Refusing. Both probes have to agree before a signing key is decoded or an APK is uploaded anywhere."
+            exit 1
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          # 17 is not a free choice: android/app/build.gradle.kts pins
+          # sourceCompatibility/targetCompatibility to VERSION_17 and kotlinOptions.jvmTarget to "17".
+          # AGP 8.7.3 rejects a lower JDK, and a higher one changes the default bytecode target, so
+          # this must track that file. Same value as android-build.yml, for the added reason that a
+          # release built on a different JDK from the one the debug pipeline tests is a variable
+          # nobody wants on the publish path.
+          java-version: "17"
+          # Caches ~/.gradle/caches and the wrapper distribution (Gradle 8.9, ~130 MB), keyed on the
+          # gradle files. Without it every run re-downloads the whole AndroidX/Compose graph.
+          distribution: temurin
+          cache: gradle
+
+      - name: Make the Gradle wrapper executable
+        # The wrapper is committed with mode 100644 (it was added from Windows), so the runner cannot
+        # exec it as-is. Cheaper than rewriting the file mode in git. Same line as android-build.yml.
+        run: chmod +x gradlew
+
+      - name: Ensure the required Android SDK packages are installed
+        # ubuntu-latest ships an Android SDK, but which platform/build-tools versions are preinstalled
+        # drifts with the runner image. compileSdk/targetSdk are 35 and AGP 8.7.3 wants build-tools
+        # 35.x, so install them explicitly rather than betting on the image. Both are no-ops when
+        # already present.
+        #
+        # RELEASE-SPECIFIC REASON THIS STEP MATTERS MORE HERE THAN IN android-build.yml: build-tools
+        # is also what puts `apksigner` and `aapt2` on the box, at
+        # $ANDROID_HOME/build-tools/${BUILD_TOOLS_VERSION}/. GUARD 2 cannot prove the signer without
+        # the first, and the version assertion reads the packaged manifest with the second. Their
+        # presence is therefore asserted rather than assumed: a missing tool must not turn into a
+        # skipped check on the one path that ships bytes.
+        run: |
+          set -euo pipefail
+          sdk_root="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          sdkmanager="${sdk_root}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$sdkmanager" "platforms;android-35" "build-tools;${BUILD_TOOLS_VERSION}" > /dev/null
+          tools="${sdk_root}/build-tools/${BUILD_TOOLS_VERSION}"
+          for tool in apksigner aapt2; do
+            if [ ! -x "${tools}/${tool}" ]; then
+              echo "::error::${tools}/${tool} is missing after installing build-tools;${BUILD_TOOLS_VERSION}."
+              echo "::error::Without apksigner the signer cannot be proved, and this workflow must not publish an APK whose signature it has not read. Fix the SDK install rather than skipping the check."
+              exit 1
+            fi
+          done
+          echo "ANDROID_BUILD_TOOLS=${tools}" >> "$GITHUB_ENV"
+
+      # ─── DO NOT WRITE android/local.properties HERE. EVER. ─────────────────────────────────────
+      # It is gitignored, so it does not exist on a runner, and its absence is what makes this a
+      # publishable build. Two consequences, both intended, and android-build.yml states the same
+      # rule for the same reason:
+      #   • sdk.dir falls back to $ANDROID_HOME, which the runner sets.
+      #   • buildConfigField DEFAULT_API_BASE_URL falls back to the production CloudFront URL
+      #     hard-coded in android/app/build.gradle.kts — i.e. the CI APK points at PRODUCTION.
+      # A developer's copy of that file can carry `apiBaseUrl=http://10.0.2.2:8000/api/`, whose
+      # release BuildConfig reaches nothing on a handset, and `debugSignRelease=true`, which signs the
+      # release variant with the debug keystore. The signing key therefore arrives through the
+      # ANDROID_RELEASE_* ENVIRONMENT VARIABLES below, which build.gradle.kts reads as an alternative
+      # to the properties file — writing the key into a local.properties would reintroduce every
+      # hazard above to save nothing.
+
+      - name: Materialise the release keystore outside the workspace
+        # ─── WHY OUTSIDE THE WORKSPACE ─────────────────────────────────────────────────────────
+        # $RUNNER_TEMP is not under $GITHUB_WORKSPACE, so the key cannot be picked up by a build that
+        # globs the tree, cannot be swept into an uploaded artifact by a careless `path:`, and cannot
+        # end up in a `git status` or a diff. It is also deleted by the always()-conditioned cleanup
+        # step at the end of this job, and again by the runner when the job ends.
+        #
+        # THE PASSWORD NEVER TOUCHES A COMMAND LINE. `printf` is a bash BUILTIN, so no separate
+        # process is spawned and nothing appears in `ps`; the base64 goes into `base64 -d` through a
+        # pipe. Whitespace is stripped first because a secret pasted from a terminal usually arrives
+        # wrapped at 76 columns, and stripping is cheaper than diagnosing.
+        #
+        # ─── AND WHY THE MAGIC BYTES ARE CHECKED ───────────────────────────────────────────────
+        # A truncated, double-encoded or BOM-prefixed secret decodes to something that is not a
+        # keystore. build.gradle.kts would then see the FILE PRESENT and the password set, decide the
+        # key is usable... and the failure would surface as a Gradle signing error deep in the build,
+        # or — in the half-configured cases — as a build that SUCCEEDS and produces an unsigned APK.
+        # This project's store is a PKCS#12 (`fieldrepo-release.p12`), which is DER-encoded and starts
+        # with 0x30; a JKS starts with the magic 0xFEEDFEED. Both are accepted because the format is
+        # not the thing being asserted — "this decoded to a keystore at all" is.
+        #
+        # The alias is NOT passed to keytool for a pre-flight listing, deliberately: keytool has
+        # `-storepass:env` but no `-alias:env`, so it would put a secret on a visible command line to
+        # check something GUARD 2 proves properly from the finished artefact anyway.
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          keystore="${RUNNER_TEMP}/release-signing-key.p12"
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > "$keystore"
+          chmod 600 "$keystore"
+
+          bytes="$(stat -c%s "$keystore")"
+          if [ "$bytes" -lt 512 ]; then
+            echo "::error::The decoded keystore is only ${bytes} bytes, which is too small to be a keystore. ANDROID_RELEASE_KEYSTORE_BASE64 is truncated, or is not base64 of the .p12."
+            exit 1
+          fi
+          magic="$(head -c 4 "$keystore" | od -An -tx1 | tr -d ' \n')"
+          case "$magic" in
+            30*)       kind="PKCS#12 (DER)" ;;
+            feedfeed*) kind="JKS" ;;
+            *)
+              echo "::error::The decoded keystore does not start with a keystore magic number (PKCS#12 0x30 or JKS 0xFEEDFEED). The secret is probably double-encoded, wrapped in quotes, or carries a BOM."
+              echo "::error::Left unchecked this produces a signing failure deep in the Gradle build, or — if the file merely looks present — a release APK that is UNSIGNED and installs nowhere."
+              exit 1
+              ;;
+          esac
+          echo "Keystore decoded: ${bytes} bytes, format ${kind}. Its contents are never printed."
+          echo "RELEASE_KEYSTORE_PATH=${keystore}" >> "$GITHUB_ENV"
+
+      - name: Assemble the signed release APK
+        id: assemble
+        # ─── WHAT IS DIFFERENT ABOUT THIS TASK ─────────────────────────────────────────────────
+        # android-build.yml only ever runs DEBUG tasks, so a green run there asserts nothing about
+        # this variant. This is the first and only place in this repository where the shipped bytes
+        # are built.
+        #
+        # ─── THE FOUR ENV VARS, AND THE ABSOLUTE PATH ──────────────────────────────────────────
+        # android/app/build.gradle.kts reads each of these from local.properties OR from the
+        # environment (`signingProperty`), trims them, and treats empty as unset. So:
+        #   • ANDROID_RELEASE_KEY_PASSWORD may legitimately be empty — it then falls back to the store
+        #     password, which is what this project's key uses. The secret does not exist, on purpose.
+        #   • The keystore path must be ABSOLUTE. A relative path is resolved with rootProject.file(),
+        #     i.e. against `android/` — not the repo root, not the CWD — which is a confusing way to
+        #     arrive at "the key is not usable". $RUNNER_TEMP is absolute.
+        #
+        # A CONFIGURED REAL KEY WINS OVER `debugSignRelease`, by design and in that order. CI sets
+        # neither that flag nor a local.properties, and build.gradle.kts additionally THROWS if the
+        # flag is somehow set on a runner — so only the real key is in play here, and the assertion
+        # step below still checks, because "only" is a claim about a file somebody may edit.
+        #
+        # The output is teed to a log because the assertions below read it: the UNSIGNED lifecycle
+        # line, the half-configured warning and the debug-keystore line are the ONLY trace those
+        # states leave, and all three leave the build SUCCEEDING. `pipefail` is what keeps `tee` from
+        # swallowing a Gradle failure. The log is not uploaded — nobody reads a build log on a green
+        # run, which is exactly why the grep has to happen here, in the job, every time.
+        env:
+          ANDROID_RELEASE_KEYSTORE: ${{ env.RELEASE_KEYSTORE_PATH }}
+          ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          ./gradlew :app:assembleRelease --console=plain --stacktrace 2>&1 \
+            | tee "${RUNNER_TEMP}/assemble-release.log"
+
+      - name: Assert the build produced a SIGNED artefact and said nothing to the contrary
+        # ─── UNSIGNED IS A VALID, NEAR-SILENT OUTCOME. THAT IS THE POINT OF THIS STEP. ─────────
+        # `hasReleaseSigningKey` in android/app/build.gradle.kts needs four things to line up: the
+        # keystore path resolved, the file present, the password set, the alias set. Miss any ONE and
+        # the build still SUCCEEDS; the only trace is a lifecycle line among hundreds —
+        #     release: UNSIGNED — no release key configured and debugSignRelease is off.
+        #     The APK will build and will not install.
+        # — and the half-configured case is only a `logger.warn`. Green Gradle, publishable-looking
+        # file, an APK that installs nowhere. So four signals are checked:
+        #   (1) the expected filename EXISTS,
+        #   (2) the unsigned filename DOES NOT — AGP's default output with no signing config is
+        #       `app-release-unsigned.apk` in the same directory, so its absence is a real check,
+        #   (3) the build log carries neither the UNSIGNED line nor the signing warning,
+        #   (4) the build log does NOT say the release variant was signed with the DEBUG keystore.
+        #       That third outcome produces a signed, entirely plausible `app-release.apk`, so checks
+        #       (1) to (3) all pass over it — and it is not hypothetical here: it is how the currently
+        #       fielded v1.1.20 came to carry `CN=Android Debug, O=Android, C=US`.
+        # GUARD 2 then proves the signature cryptographically. This step exists because it names WHICH
+        # of the four inputs went missing, which a fingerprint mismatch cannot tell you.
+        run: |
+          set -euo pipefail
+          log="${RUNNER_TEMP}/assemble-release.log"
+
+          if [ -f "$UNSIGNED_APK" ]; then
+            echo "::error::${UNSIGNED_APK} exists. AGP writes that name when there is NO signing config, which means build.gradle.kts did not consider the release key usable."
+            echo "::error::An unsigned APK installs on nothing and must never be published. Check that ANDROID_RELEASE_KEYSTORE_BASE64, ANDROID_RELEASE_KEYSTORE_PASSWORD and ANDROID_RELEASE_KEY_ALIAS are all set, and that the alias exists in that store."
+            exit 1
+          fi
+          if [ ! -f "$APK" ]; then
+            echo "::error::${APK} was not produced by :app:assembleRelease, and neither was the unsigned name. The build reported success, so something changed about the output path or the variant — read the assemble step's log above."
+            exit 1
+          fi
+
+          if grep -q "release: UNSIGNED" "$log"; then
+            echo "::error::The Gradle log says 'release: UNSIGNED — no release key configured'. The build SUCCEEDED and the APK cannot be installed by anyone."
+            echo "::error::This is the failure mode this workflow exists to make loud: it is one lifecycle line among hundreds and it never fails a build."
+            exit 1
+          fi
+          if grep -q "release signing: .*is not usable" "$log"; then
+            echo "::error::The Gradle log carries the half-configured signing warning: a keystore path was set but the key was not usable (the log line itself says which of file-present / password-set / alias-set failed)."
+            exit 1
+          fi
+          # ─── THE DEBUG-KEYSTORE BRANCH: THE ONLY OUTCOME HERE THAT LOOKS ENTIRELY FINE ───────
+          # FATAL, unlike the advisory below it, because the two answer different questions. A missing
+          # POSITIVE line can be a reworded string. This line is emitted ONLY when the release key did
+          # not resolve and `debugSignRelease=true` was set anyway, which is a fact about the build and
+          # not about anybody's wording. build.gradle.kts now THROWS on that combination when
+          # GITHUB_ACTIONS or CI is set, so this grep should be unreachable on a runner — it stays
+          # because that throw lives in a file somebody may edit, and this one does not.
+          if grep -q "release: signing with the DEBUG keystore" "$log"; then
+            echo "::error::The Gradle log says the release variant was signed with the DEBUG KEYSTORE. That APK is signed and it installs, and it must never be published: the debug keystore ships with every Android SDK, so anybody can sign an update for it. That is exactly how the fielded v1.1.20 ended up with CN=Android Debug."
+            echo "::error::On a runner this can only mean the release key did not resolve AND the CI refusal in build.gradle.kts was removed. Check ANDROID_RELEASE_KEYSTORE_BASE64, ANDROID_RELEASE_KEYSTORE_PASSWORD and ANDROID_RELEASE_KEY_ALIAS."
+            exit 1
+          fi
+
+          # ─── THE POSITIVE ASSERTION, AND THE STRING IT HAS TO MATCH ───────────────────────
+          # Taken verbatim from android/app/build.gradle.kts, which logs:
+          #     release: signing with the RELEASE key (<store>.p12, alias <alias>). This APK is distributable.
+          # Matched only as far as "the RELEASE key": the store filename and the alias follow it on
+          # that same line, and neither of those belongs in an assertion.
+          if ! grep -q "release: signing with the RELEASE key" "$log"; then
+            # Advisory, and deliberately NOT fatal on its own: the positive lifecycle line is a string
+            # in build.gradle.kts that a refactor may reword, and GUARD 2 proves the same thing from
+            # the artefact itself with a cryptographic check that cannot be reworded. Failing here
+            # would be failing on the wording of a log message, which is permanent noise on a publish
+            # path — and a pipeline that cries wolf on every correct run stops being read. The three
+            # FATAL greps above carry the load. If this notice appears on a run GUARD 2 passes, the
+            # string was reworded and THIS grep is what needs updating.
+            echo "::notice::The expected 'release: signing with the RELEASE key' lifecycle line was not found in the build log. GUARD 2 is the authority on whether this APK is signed correctly; if that passes, this line has probably just been reworded in build.gradle.kts — update the grep."
+          fi
+          echo "Artefact present under the signed name: ${APK} ($(stat -c%s "$APK") bytes)."
+
+      - name: GUARD 2 — the signer must be the expected key, and there must BE one
+        id: signer
+        # ─── THE FAILURE THIS CLOSES, AND WHY IT IS THE WORST ONE HERE ─────────────────────────
+        # THIS KEY CAN NEVER BE ROTATED. Android identifies an app by (package name, signing
+        # certificate): an APK signed with any other key is refused as an update by every device that
+        # already has the app, for ever, with no way back except uninstalling — which takes the user's
+        # local outbox with it (android/app/src/main/java/com/fieldrepository/app/data/Offline.kt
+        # keeps the unsent queue under filesDir). This repository is already paying that cost ONCE, to
+        # get off the debug key; it must never pay it twice by accident. So a wrong key must not
+        # merely warn: it must be impossible to publish.
+        #
+        # AND "SIGNED AT ALL" IS THE OTHER HALF. With no key the release build is silently unsigned
+        # (see the step above); apksigner exits non-zero on such a file, which is the cryptographic
+        # version of the same check and the one that cannot be fooled by a filename.
+        #
+        # ─── WHAT IS PRINTED, AND WHAT IS NOT ──────────────────────────────────────────────────
+        # The expected fingerprint arrives as a secret and is NEVER printed — not even on a mismatch.
+        # The fingerprint READ FROM THE ARTEFACT is printed only when it disagrees, because that value
+        # is a public certificate digest and because "which key did I actually sign with" is the only
+        # question worth answering at that moment. On the happy path neither is shown: the answer is a
+        # boolean, and a boolean is what gets logged.
+        #
+        # Comparison is done on a lower-cased, colon-stripped, whitespace-stripped form of both sides.
+        # apksigner prints lower-case hex with no separators, but a secret is typed by a human, and
+        # refusing a correct key because somebody pasted the colons would be a false refusal on the
+        # publish path — which is how checks get deleted.
+        env:
+          EXPECTED_CERT_SHA256: ${{ secrets.ANDROID_RELEASE_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/apksigner.txt"
+
+          if ! "${ANDROID_BUILD_TOOLS}/apksigner" verify --verbose --print-certs "$APK" > "$out" 2>&1; then
+            echo "::error::apksigner refused ${APK}. Either it is UNSIGNED (the silent outcome of a missing release key) or its signature does not verify."
+            echo "::error::apksigner said:"
+            sed 's/^/    /' "$out"
+            exit 1
+          fi
+
+          # Exactly one signer. Two would mean a second certificate got into the signing config, and
+          # "one of the signers is right" is not the property devices check.
+          digest_lines="$(grep -c 'certificate SHA-256 digest:' "$out" || true)"
+          if [ "$digest_lines" != "1" ]; then
+            echo "::error::apksigner reported ${digest_lines} certificate SHA-256 digests for this APK; expected exactly 1."
+            echo "::error::Do not loosen this to 'at least one'. An APK carrying an extra signer is a different identity to Android and cannot be reasoned about from a fingerprint match on one of them."
+            sed 's/^/    /' "$out"
+            exit 1
+          fi
+
+          actual="$(sed -n 's/.*certificate SHA-256 digest: *//p' "$out" | tr -d ' :\r\n' | tr 'A-F' 'a-f')"
+          expected="$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d ' :\r\n' | tr 'A-F' 'a-f')"
+          if [ -z "$actual" ]; then
+            echo "::error::Could not parse a certificate SHA-256 out of apksigner's output. Read it below and fix the parse — an unparsed fingerprint must never be treated as a match."
+            sed 's/^/    /' "$out"
+            exit 1
+          fi
+          if [ ${#expected} -ne 64 ]; then
+            echo "::error::ANDROID_RELEASE_CERT_SHA256 is ${#expected} characters after stripping colons and spaces; a SHA-256 is 64 hex characters. The value itself is not printed."
+            echo "::error::An unusable expected value must fail here rather than compare unequal further down, where it would look exactly like a wrong signing key."
+            exit 1
+          fi
+          # THE DEBUG KEY, BY NAME. The fingerprint below is the one read off the LIVE v1.1.20 with
+          # `apksigner verify --print-certs`, and it is not a secret — it is in every copy of that APK.
+          # Naming it turns the most likely wrong answer into a sentence a reader understands instead
+          # of two hex strings they have to compare by eye.
+          debug_fingerprint="691257a01e834122645488888798d6816479490e22b379692c83d98c09232c74"
+          if [ "$actual" = "$debug_fingerprint" ]; then
+            echo "::error::THE RELEASE APK IS SIGNED WITH THE ANDROID DEBUG KEY (CN=Android Debug, O=Android, C=US) — the same key the fielded v1.1.20 carries. That key ships inside every Android SDK on earth, so anybody can publish an update this app would accept as genuine. Refusing to publish."
+            echo "::error::The release key did not reach the build. Check ANDROID_RELEASE_KEYSTORE_BASE64, ANDROID_RELEASE_KEYSTORE_PASSWORD and ANDROID_RELEASE_KEY_ALIAS, and read the assemble step's log for the 'release: UNSIGNED' or 'DEBUG keystore' lifecycle line."
+            exit 1
+          fi
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::THE RELEASE APK IS SIGNED WITH THE WRONG KEY. Refusing to publish."
+            echo "::error::Signer read from the artefact: ${actual}"
+            echo "::error::(The expected value is a repository secret and is not printed.) This key cannot be rotated: an APK signed with anything else is refused as an update by every device that already has the app, for ever."
+            echo "::error::Check ANDROID_RELEASE_KEYSTORE_BASE64 and ANDROID_RELEASE_KEY_ALIAS — a store holding more than one key will happily sign with the wrong alias."
+            exit 1
+          fi
+          echo "Signer fingerprint matches ANDROID_RELEASE_CERT_SHA256 (neither value printed)."
+
+          # v1/v2/v3 are all enabled in build.gradle.kts. A v1-only APK still verifies, so apksigner's
+          # exit code does not cover this — and v2/v3 are what modern Android actually validates on
+          # install. MEASURED on the live v1.1.20, which verifies under v2 ONLY (v1 false, v3 false):
+          # that is what AGP's debug signing produces at minSdk 26, so this grep is written to accept
+          # either scheme rather than pinning v3 and failing on a correct build. `v[23] scheme` will
+          # not match the "v3.1 scheme" line, which is a separate, legitimately-false row.
+          if ! grep -qE 'Verified using v[23] scheme[^:]*: true' "$out"; then
+            echo "::error::apksigner did not report a v2 or v3 signature scheme as verified, though build.gradle.kts enables both."
+            echo "::error::If the tooling has merely reworded this line, update the grep — do not delete the check: a v1-only APK is what an old signing path produces, and modern Android validates v2/v3."
+            sed 's/^/    /' "$out"
+            exit 1
+          fi
+          grep -E '^(Verifies|Verified using|Number of signers)' "$out" | sed 's/^/    /'
+
+      - name: Assert the APK carries the tagged version and this app's identity
+        # THE VERSION IS READ OUT OF THE PACKAGED MANIFEST, not out of the build file it came from and
+        # not out of the sidecar. `aapt2 dump badging` reads the binary manifest inside the APK that is
+        # about to be uploaded, which is the only copy any device will ever see. GUARD 1 compared the
+        # tag with the SOURCE; this compares the tag with the ARTEFACT, and they are different
+        # assertions: a stale incremental build, a cached variant, or a property arriving from
+        # somewhere unexpected all live in the gap between them.
+        #
+        # output-metadata.json is cross-checked as well, because it is what a human reads when they go
+        # looking, and a sidecar that disagrees with its own APK is worth knowing about.
+        #
+        # THE PACKAGE NAME MATTERS AS MUCH AS THE VERSION. Android keys installs and update
+        # eligibility by (package, signature). A wrong applicationId is not a bad release, it is a
+        # second app that installs alongside the real one and that the OTA updater never offers.
+        run: |
+          set -euo pipefail
+          # THE OUTPUT GOES TO A FILE FIRST, AND `sed` IS NOT IN A PIPELINE WITH aapt2, for a reason
+          # that has nothing to do with tidiness. Under `set -o pipefail`,
+          # `aapt2 dump badging … | head -n 1` fails the whole step on a PERFECTLY GOOD APK: `head`
+          # exits after one line, `aapt2` is killed by SIGPIPE, and pipefail reports 141 for the
+          # pipeline even though `head` succeeded. A guard that goes red on correct input is a guard
+          # somebody deletes.
+          badging_all="${RUNNER_TEMP}/badging.txt"
+          "${ANDROID_BUILD_TOOLS}/aapt2" dump badging "$APK" > "$badging_all"
+          badging="$(sed -n '1p' "$badging_all")"
+          apk_package="$(printf '%s' "$badging" | sed -n "s/.*package: name='\([^']*\)'.*/\1/p")"
+          apk_version_code="$(printf '%s' "$badging" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
+          apk_version_name="$(printf '%s' "$badging" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")"
+          echo "APK manifest: package=${apk_package} versionCode=${apk_version_code} versionName=${apk_version_name}"
+
+          if [ -z "$apk_package" ] || [ -z "$apk_version_code" ] || [ -z "$apk_version_name" ]; then
+            echo "::error::Could not parse package/versionCode/versionName out of 'aapt2 dump badging'. An unparsed value must not be treated as a match — fix the parse."
+            echo "    ${badging}"
+            exit 1
+          fi
+          if [ "$apk_package" != "$EXPECTED_APPLICATION_ID" ]; then
+            echo "::error::The APK's package is '${apk_package}', expected '${EXPECTED_APPLICATION_ID}'. That is a DIFFERENT APP to Android: it would install beside the real one instead of updating it, and the in-app updater would never offer it."
+            exit 1
+          fi
+          if [ "$apk_version_name" != "$VERSION_NAME" ] || [ "$apk_version_code" != "$VERSION_CODE" ]; then
+            echo "::error::The built APK says ${apk_version_name} (code ${apk_version_code}) but this run is publishing ${VERSION_NAME} (code ${VERSION_CODE})."
+            echo "::error::GUARD 1 checked the tag against the SOURCE; this checks it against the ARTEFACT. A mismatch here means the bytes are not the version this run believes it built — a stale incremental output is the usual cause. Re-run with a clean build; do not publish."
+            exit 1
+          fi
+
+          metadata="app/build/outputs/apk/release/output-metadata.json"
+          if [ -f "$metadata" ]; then
+            meta_code="$(jq -r '.elements[0].versionCode // empty' "$metadata")"
+            meta_name="$(jq -r '.elements[0].versionName // empty' "$metadata")"
+            if [ "$meta_code" != "$VERSION_CODE" ] || [ "$meta_name" != "$VERSION_NAME" ]; then
+              echo "::error::output-metadata.json says ${meta_name}/${meta_code} while the APK manifest says ${apk_version_name}/${apk_version_code}. These are written by the same build, so a disagreement means one of them is left over from an earlier one."
+              exit 1
+            fi
+            echo "output-metadata.json agrees with the manifest."
+          else
+            echo "::notice::No output-metadata.json beside the APK. Not fatal — the manifest read above is the authority — but AGP normally writes it, so the output layout may have changed."
+          fi
+
+      - name: Assert the APK points at THIS product's API and not at a laptop
+        # ─── THE FAILURE THIS CLOSES: THE LOCALHOST RELEASE ────────────────────────────────────
+        # DEFAULT_API_BASE_URL is a compiled-in build constant taken from `apiBaseUrl` in
+        # local.properties, falling back to the production CloudFront URL. A developer's copy of that
+        # file legitimately says `http://10.0.2.2:8000/api/` (the emulator's host alias, documented in
+        # docs/ENVIRONMENT.md) or a LAN address, and the release BuildConfig on such a tree carries it.
+        # Such an APK installs, opens, and reaches nothing — every request fails, the user sees a
+        # broken app, and there is no server-side symptom for anyone to notice. A runner has no
+        # local.properties so it cannot happen here; this asserts it anyway, because that is precisely
+        # the kind of "cannot happen" that put a debug-signed build on the fleet.
+        #
+        # Grepping the ARTEFACT rather than trusting the input that produced it is the same idiom
+        # deploy-frontend.yml uses when it greps the built bundle for the API host: the artefact IS
+        # the user-visible symptom.
+        #
+        # ─── WHY THIS ENUMERATES API BASES INSTEAD OF BLACKLISTING HOSTNAMES ───────────────────
+        # THE OBVIOUS CHECK IS WRONG AND WAS MEASURED TO BE WRONG BEFORE THIS SHIPPED. Grepping the
+        # artefact for `://localhost` — the sibling repository's needle, chosen there because the bare
+        # word `localhost` appears legitimately in
+        # `android/app/src/main/res/xml/network_security_config.xml` (lines 32-34 list `10.0.2.2`,
+        # `127.0.0.1` and `localhost` as cleartext-permitted development domains, and that resource
+        # ships inside the APK) — MATCHES A PERFECTLY CORRECT BUILD OF THIS APP. Run against a real
+        # `:app:assembleRelease` output on 2026-09-14 it hit `classes4.dex`, in OkHttp's own string
+        # pool, between `http2HeadersList` and `httpCode`:
+        #
+        #     http://localhost/
+        #
+        # That is an OkHttp internal placeholder, it is in every build that links OkHttp, and a guard
+        # keyed to it would have gone red on every correct release. A check that fails on the happy
+        # path is a check somebody deletes, which is worse than not having written it.
+        #
+        # ─── WHAT IS ACTUALLY BEING ASSERTED ───────────────────────────────────────────────────
+        # The failure is a WRONG `DEFAULT_API_BASE_URL`, and that value has a shape:
+        # docs/ENVIRONMENT.md records that `apiBaseUrl` — unlike the web's `NEXT_PUBLIC_API_URL` —
+        # DOES carry the trailing `/api/`. So instead of guessing which hosts are wrong, this
+        # enumerates every URL in the artefact that ends in `/api/` and requires the set to be exactly
+        # one: ours, over HTTPS. Two consequences, both better than a blacklist:
+        #   • ANY cleartext `/api/` base fails — a laptop, the emulator alias, a LAN address, a host
+        #     nobody has thought of yet. Production is HTTPS and `network_security_config.xml` refuses
+        #     cleartext to anything but the three development domains, so a cleartext API base is
+        #     wrong by construction.
+        #   • ANY other HTTPS `/api/` base fails, which subsumes the sibling-host check rather than
+        #     depending on somebody remembering to add the next sibling to a list.
+        # Measured on the same real release APK: exactly one match,
+        # `https://d2b34i3e92al6i.cloudfront.net/api/`, and OkHttp's placeholder matches neither
+        # pattern because it has no `/api/`.
+        #
+        # ─── NO ABI ASSERTION, AND THAT ABSENCE IS DELIBERATE ──────────────────────────────────
+        # The sibling repository asserts an exact two-ABI set because it packages tens of megabytes of
+        # native ML models and carries a `releaseAllAbis` escape hatch that must never reach a release.
+        # THIS app has neither: android/app/build.gradle.kts sets no `abiFilters` and no such flag, and
+        # both the live v1.1.20 and a local release build were read with `zipfile` — each carries
+        # exactly four `lib/` entries, one `libandroidx.graphics.path.so` per ABI, about 20 KB in
+        # total. There is no failure here to close, and a guard asserting today's ABI set would only
+        # ever fire on a future deliberate change.
+        run: |
+          set -euo pipefail
+
+          # THE ARCHIVE IS UNPACKED TO ONE FILE AND GREPPED SEVERAL TIMES, RATHER THAN PIPED SEVERAL
+          # TIMES, and that is a correctness fix and not an optimisation. Under `set -o pipefail`,
+          # `unzip -p "$APK" | grep -aqF needle` fails the step WHEN THE NEEDLE IS FOUND: `grep -q`
+          # exits at the first match, `unzip` is killed by SIGPIPE, and pipefail reports 141 for a
+          # pipeline whose last command succeeded. That turns the happy path red.
+          bytes_file="${RUNNER_TEMP}/apk-bytes"
+          unzip -p "$APK" > "$bytes_file"
+
+          # `-a` because the archive mixes dex and native binaries with text; `-F` because a host is a
+          # literal and not a pattern. The needle is searched for, never printed as a match.
+          if ! grep -aqF "$EXPECTED_APK_API_BASE" "$bytes_file"; then
+            echo "::error::The release APK does not contain the production API base '${EXPECTED_APK_API_BASE}'."
+            echo "::error::That string is the compiled-in DEFAULT_API_BASE_URL. Its absence means the build took an apiBaseUrl from somewhere else — a local.properties on the runner (there must not be one), or a changed fallback in android/app/build.gradle.kts."
+            echo "::error::An APK that points anywhere else reaches nothing on a handset, and it cannot be corrected after publishing."
+            exit 1
+          fi
+
+          # `|| true` on the CAPTURE only: grep exits 1 when it finds nothing, and finding nothing is
+          # the PASS here. Every line that comes out is then decided on.
+          cleartext="${RUNNER_TEMP}/apk-cleartext-api.txt"
+          grep -aoE 'http://[A-Za-z0-9._~:-]+/api/' "$bytes_file" | sort -u > "$cleartext" || true
+          if [ -s "$cleartext" ]; then
+            echo "::error::The release APK contains a CLEARTEXT API base. This is the localhost release: it installs, opens and reaches nothing, and on a handset it would also send the bearer token in plain text."
+            echo "::error::Cause: an 'apiBaseUrl' pointing at a laptop, an emulator host or a LAN address reached the build. There must be no android/local.properties on a runner."
+            sed 's/^/    found: /' "$cleartext"
+            exit 1
+          fi
+
+          secure="${RUNNER_TEMP}/apk-secure-api.txt"
+          grep -aoE 'https://[A-Za-z0-9._~:-]+/api/' "$bytes_file" | sort -u > "$secure" || true
+          echo "HTTPS API bases compiled into this APK:"
+          sed 's/^/    /' "$secure"
+          expected_only="$(printf '%s\n' "$EXPECTED_APK_API_BASE")"
+          if [ "$(cat "$secure")" != "$expected_only" ]; then
+            echo "::error::The release APK carries an API base other than '${EXPECTED_APK_API_BASE}' (listed above). Exactly one is expected."
+            echo "::error::If ${SIBLING_API_HOST} is among them, this build points this product's users at the DESIGN PROTOTYPE WORKSHOP's backend — a product forked from this one, whose API would answer and whose data is not ours."
+            exit 1
+          fi
+          rm -f "$bytes_file" "$cleartext" "$secure"
+          echo "Exactly one API base, and it is the production one. No cleartext base; no sibling host."
+
+      - name: GUARD 5 — the APK must fit the single-PUT upload path
+        id: size
+        # ─── THE FAILURE THIS CLOSES ───────────────────────────────────────────────────────────
+        # This workflow uploads the APK as ONE presigned PUT. That path is only valid below 64 MiB:
+        # above it frontend/lib/media.ts switches to an S3 multipart upload (create → presign parts →
+        # PUT each part → complete), and the Android client's MULTIPART_THRESHOLD matches. THE
+        # MULTIPART FLOW IS NOT IMPLEMENTED HERE AND MUST NOT BE IMPROVISED AT 03:00 ON A RELEASE
+        # NIGHT: a partially uploaded object with a completed release row pointing at it is a broken
+        # download for every user, published and irreversible.
+        #
+        # THE HEADROOM IS REAL, WHICH IS WHY REFUSING IS AN HONEST ANSWER RATHER THAN A GAP. A real
+        # `:app:assembleRelease` on this tree measures 18,138,730 bytes — 46 MB under the limit. (The
+        # published v1.1.20 is larger, 26,097,941 bytes, because it is a DEBUG build; the release
+        # variant drops `debugImplementation("androidx.compose.ui:ui-tooling")` and the debug
+        # instrumentation.) The sibling repository, whose APK carries bundled ML models and a 37 MB
+        # speech engine, crossed the line and had to build the multipart path; nothing in this app's
+        # dependency set is on that trajectory. When this one does approach the ceiling, the notice
+        # below fires first, with a release or two still to spare.
+        #
+        # THE FLOOR IS THE OTHER HALF. A build that dies mid-package leaves an output FILE behind, and
+        # a script that checks only for the file reports success while nothing was built. Presence is
+        # not a measurement. Size is.
+        run: |
+          set -euo pipefail
+          bytes="$(stat -c%s "$APK")"
+          headroom=$(( SINGLE_PUT_LIMIT_BYTES - bytes ))
+          echo "${APK}: ${bytes} bytes (single-PUT limit ${SINGLE_PUT_LIMIT_BYTES}, headroom ${headroom})"
+
+          if [ "$bytes" -lt "$MIN_APK_BYTES" ]; then
+            echo "::error::The release APK is ${bytes} bytes, below the ${MIN_APK_BYTES}-byte floor. A real :app:assembleRelease on this tree measured 18,138,730 bytes (the published v1.1.20 is 26,097,941, but that is a DEBUG build — see the MIN_APK_BYTES comment)."
+            echo "::error::A file this small is a truncated or empty output, not a release. Do not publish it — read the assemble step's log and find out why the build stopped."
+            exit 1
+          fi
+          if [ "$bytes" -ge "$SINGLE_PUT_LIMIT_BYTES" ]; then
+            echo "::error::The release APK is ${bytes} bytes, at or above the ${SINGLE_PUT_LIMIT_BYTES}-byte (64 MiB) single-PUT limit."
+            echo "::error::THE MULTIPART UPLOAD FLOW IS REQUIRED AND IS NOT IMPLEMENTED IN THIS WORKFLOW. The backend already serves it — POST /api/media/multipart/create, /presign-parts, /complete, /abort in backend/app/api/routes/media.py — and frontend/lib/media.ts's uploadInParts is the reference implementation. Build it deliberately, in its own change, with the abort path wired to every failure."
+            echo "::error::Do NOT raise this limit to get past this message. A single PUT of an over-size object produces a truncated file in the bucket with a published release row pointing at it, which is a broken download for every user and cannot be taken back."
+            exit 1
+          fi
+          if [ "$headroom" -lt 8388608 ]; then
+            echo "::notice title=Approaching the single-PUT ceiling::Only ${headroom} bytes of headroom under the 64 MiB limit. The multipart flow named in this step will be needed within a release or two; build it before it is urgent."
+          fi
+          echo "APK_BYTES=${bytes}" >> "$GITHUB_ENV"
+
+      - name: Sign in to the API as the publishing master admin
+        id: login
+        # ─── SECRET HYGIENE, WHICH IS THE WHOLE REASON THIS STEP LOOKS LIKE THIS ───────────────
+        # 1. THE PASSWORD IS NEVER ON A COMMAND LINE. `jq -n` builds the body from `env.*`, so the
+        #    value is not in jq's argv (`--arg password "$PASSWORD"` would put it there, visible to
+        #    anything that can read /proc on the runner), and the JSON goes to curl through a pipe with
+        #    `--data-binary @-`. jq also does the quoting, so a password containing a quote or a
+        #    backslash cannot corrupt the request.
+        # 2. THE BEARER TOKEN IS NEVER ON A COMMAND LINE EITHER. It goes into a curl CONFIG FILE
+        #    (`header = "Authorization: Bearer …"`, mode 600, under $RUNNER_TEMP) which every later
+        #    call reads with `--config`. `-H "Authorization: Bearer $token"` would put a live
+        #    master-admin credential in argv, and one `set -x` or one error message that echoes the
+        #    command would put it in the log for ever. GitHub masks registered secrets; it does not
+        #    mask a token this workflow minted itself.
+        # 3. WHAT GETS PRINTED IS A LENGTH. "present, N characters" is enough to tell "the login
+        #    worked" from "the login returned a body with no token in it", and no more than that.
+        # The config file is deleted by the always()-conditioned cleanup step at the end of the job.
+        #
+        # THE ROLE IS CHECKED HERE, BEFORE ANYTHING IS UPLOADED. POST /api/app/release is
+        # `Depends(require_master_admin)`; discovering that after a 26 MB upload wastes the upload and
+        # leaves an orphaned object, and the 403 arrives at the one step where an error is easiest to
+        # misread as "the release call is broken".
+        #
+        # `.accessToken`, camelCase, is what this API returns — backend/app/api/routes/auth.py's login
+        # handler returns {"accessToken", "tokenType", "user"}. `.access_token` is accepted as a
+        # fallback so a future normalisation of the response cannot break this in either direction.
+        env:
+          APP_PUBLISH_EMAIL: ${{ secrets.APP_PUBLISH_EMAIL }}
+          APP_PUBLISH_PASSWORD: ${{ secrets.APP_PUBLISH_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          body="${RUNNER_TEMP}/login.json"
+          auth="${RUNNER_TEMP}/curl-auth.cfg"
+
+          code="$(jq -nc '{email: env.APP_PUBLISH_EMAIL, password: env.APP_PUBLISH_PASSWORD}' \
+            | curl -sS --max-time 60 -o "$body" -w '%{http_code}' \
+                -X POST "${API_BASE}/api/auth/login" \
+                -H 'content-type: application/json' \
+                --data-binary @-)"
+
+          if [ "$code" != "200" ]; then
+            echo "::error::POST /api/auth/login answered ${code}. Nothing has been published."
+            case "$code" in
+              401) echo "::error::401 is 'Invalid email or password' — the API deliberately gives one answer for an unknown address and a wrong password. Check APP_PUBLISH_EMAIL and APP_PUBLISH_PASSWORD." ;;
+              403) echo "::error::403 means the credential is right but the account is not admitted (pending approval, or off the access roster). Publishing needs a MASTER_ADMIN." ;;
+              422) echo "::error::422 is a schema rejection: the login body must be {email, password}. Neither value is printed." ;;
+            esac
+            # The refusal text is what is wanted here, and it carries no credential.
+            jq -r '.detail // empty' "$body" 2>/dev/null | sed 's/^/    detail: /' || true
+            exit 1
+          fi
+
+          token="$(jq -r '.accessToken // .access_token // empty' "$body")"
+          if [ -z "$token" ]; then
+            echo "::error::The login returned 200 but no token under .accessToken or .access_token. A 200 with an empty token is exactly the 'cheerful false pass' that would make every later call anonymous and every guard below meaningless."
+            exit 1
+          fi
+          role="$(jq -r '.user.role // "unknown"' "$body")"
+          echo "Signed in: token present, ${#token} characters. Account role: ${role}."
+          if [ "$role" != "MASTER_ADMIN" ]; then
+            echo "::error::This account's role is '${role}'. POST /api/app/release is master-admin only (Depends(require_master_admin)), so publishing would fail with a 403 after the APK had already been uploaded."
+            echo "::error::Failing now, while nothing has been changed. Point APP_PUBLISH_EMAIL at a MASTER_ADMIN account."
+            exit 1
+          fi
+
+          printf 'header = "Authorization: Bearer %s"\n' "$token" > "$auth"
+          chmod 600 "$auth"
+          rm -f "$body"
+          echo "CURL_AUTH=${auth}" >> "$GITHUB_ENV"
+
+      - name: GUARD 4 — the new versionCode must be ABOVE the published one
+        id: ceiling
+        # ─── THE FAILURE THIS CLOSES, AND IT IS THE QUIETEST ONE IN THIS FILE ─────────────────
+        # A release at or below the published versionCode is ACCEPTED by the API. It returns 201, the
+        # row is written, the workflow goes green — and it reaches nobody: `_latest_release()` in
+        # backend/app/api/routes/app_release.py orders by versionCode descending, so the older row is
+        # simply never "latest", and every device's update check goes on comparing against the higher
+        # number. The phone's side of that comparison is strict:
+        # android/app/src/main/java/com/fieldrepository/app/MainActivity.kt offers an update only when
+        # `latest.versionCode > installedVersionCode` AND the release carries a non-blank url.
+        #
+        # THIS IS NOT A THEORETICAL CEILING TODAY. `GET /api/app/download` already answers a redirect,
+        # because v1.1.20 is published — versionCode 1,001,020, read out of the live APK with
+        # `aapt2 dump badging`. A release cut from the tree as it stands would derive the SAME code and
+        # be refused here, correctly. The first release through this pipeline has to bump
+        # `val appVersionName` in android/app/build.gradle.kts first; docs/RELEASING.md says so.
+        #
+        # The devices compare the CODE, not the name, which is why this compares codes: 1.2.0
+        # (1,002,000) beats 1.1.99 (1,001,099) but 1.1.9 (1,001,009) does not, and no amount of reading
+        # the version names tells you that.
+        #
+        # ─── WHY AN EMPTY BODY IS FINE ─────────────────────────────────────────────────────────
+        # `GET /api/app/release/latest` returns `{}` — a 200 with an empty object — when nothing has
+        # been published. Treating "nothing published" as an error would block the one release that
+        # certainly cannot be too low.
+        #
+        # ─── WHAT MUST NOT BE TREATED AS "NOTHING PUBLISHED" ──────────────────────────────────
+        # A 401 or 403. That route is `Depends(get_current_user)` and answers 401 unauthenticated
+        # (measured, 2026-09-14), so an auth failure produces a body with no versionCode in it —
+        # indistinguishable from "nothing published" to a naive parse, and it would wave through a
+        # release that is too low. It is called out as its own failure.
+        run: |
+          set -euo pipefail
+          latest="${RUNNER_TEMP}/latest-before.json"
+          code="$(curl -sS --max-time 30 --config "$CURL_AUTH" -o "$latest" -w '%{http_code}' \
+            "${API_BASE}/api/app/release/latest")"
+          echo "GET /api/app/release/latest -> ${code}"
+
+          published=""
+          case "$code" in
+            200)
+              published="$(jq -r '.versionCode // empty' "$latest")"
+              ;;
+            404)
+              echo "404 — no release row at all. Nothing is published yet."
+              ;;
+            401|403)
+              echo "::error::/api/app/release/latest answered ${code}: the bearer token was refused. This is NOT 'nothing is published yet'."
+              echo "::error::Treating an auth failure as an empty release list would wave through a release at or below the published version — which is accepted, looks successful and reaches nobody. Refusing."
+              exit 1
+              ;;
+            *)
+              echo "::error::/api/app/release/latest answered ${code}, which this workflow cannot interpret. The version ceiling is unknown, so publishing is refused."
+              exit 1
+              ;;
+          esac
+
+          if [ -z "$published" ]; then
+            echo "Nothing is published yet, so there is no versionCode to beat. Publishing ${VERSION_NAME} (code ${VERSION_CODE}) as the first release."
+            echo "PUBLISHED_BEFORE=none" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          case "$published" in
+            ''|*[!0-9]*)
+              echo "::error::The published versionCode read back as '${published}', which is not a number. Refusing to compare against a value this workflow does not understand."
+              exit 1
+              ;;
+          esac
+
+          published_name="$(jq -r '.versionName // "?"' "$latest")"
+          echo "Currently published: ${published_name} (code ${published})."
+
+          # ── STRICTLY ABOVE. NO REPUBLISH ESCAPE HATCH, AND THAT IS A DECISION ─────────────────
+          # The sibling repository allows an EQUAL code through when the annotated tag's message
+          # carries a `[republish]` marker, because it once had to reissue a broken first release with
+          # nothing user-visible to bump. That hatch is deliberately NOT copied here, for a reason
+          # specific to this repository: the first release through this pipeline is a SIGNING KEY
+          # CHANGE, which every installed handset must accept by uninstalling and reinstalling
+          # (docs/RELEASING.md). During that window "the same version, different bytes" is the single
+          # most dangerous thing that could be published — half the fleet would be on one artefact and
+          # half on another, both reporting the same versionCode, with no way to tell them apart.
+          # If a reissue is ever genuinely needed, bump the patch number. It costs nothing.
+          if [ "$VERSION_CODE" -le "$published" ]; then
+            if [ "$VERSION_CODE" -eq "$published" ]; then
+              echo "::error::Version ${VERSION_NAME} is ALREADY published at this exact code (${published}). Re-publishing the same code is refused outright here: a handset already on ${published} would never be offered it (the updater compares codes), so the only outcome is two different artefacts in the field claiming to be the same build."
+            fi
+            echo "::error::Version ${VERSION_NAME} derives versionCode ${VERSION_CODE}, which is NOT ABOVE the published ${published} (${published_name}). Refusing to publish."
+            echo "::error::This is the quiet failure: the API would ACCEPT this release and return 201, this run would go green, and not one device would ever be offered it — 'latest' is the highest versionCode, and that would still be ${published}."
+            echo "::error::Bump 'val appVersionName' in android/app/build.gradle.kts above ${published_name} and tag THAT commit. Remember devices compare the CODE: major*1000000 + minor*1000 + patch."
+            exit 1
+          fi
+          echo "${VERSION_CODE} > ${published}: this release will be the latest."
+          echo "PUBLISHED_BEFORE=${published}" >> "$GITHUB_ENV"
+
+      - name: Upload the APK to object storage (presign, then one PUT)
+        id: upload
+        # ─── THE SAME CALL THE WEB PUBLISHER MAKES ─────────────────────────────────────────────
+        # POST /api/media/presign returns {uploadUrl, method, objectKey, bucket, headers, publicUrl}
+        # and then the bytes go to `uploadUrl` with exactly the headers it returned. The request body
+        # is {filename, mimeType, mediaType, sizeBytes}: an .apk is
+        # `application/vnd.android.package-archive`, which is the type
+        # backend/app/api/routes/app_release.py sends on the download redirect too. `mediaType` is a
+        # plain string on the schema and is not read by the presign handler, so DOCUMENT is chosen
+        # because it is a real value of the MediaType enum rather than because anything depends on it.
+        # The schema is `extra="forbid"` (APIModel in backend/app/schemas/common.py), so an extra
+        # field is a 422 rather than something politely ignored — send these four and no more.
+        #
+        # NO /media/complete CALL, and that is deliberate rather than an omission. `/media/complete`
+        # would create a MediaFile row, i.e. put a 26 MB binary into the researchers' media lists.
+        # frontend/lib/media.ts's `uploadStorageObject` exists for exactly this reason and says so in
+        # its own comment: "An Android APK is the one thing that is legitimately just an object: the
+        # release is recorded against /app/release by object key."
+        #
+        # ─── THE PRESIGNED URL IS A CREDENTIAL, SO IT GOES IN A CONFIG FILE TOO ────────────────
+        # It carries X-Amz-Signature and is a time-limited write grant to the bucket. Putting it in
+        # argv (`curl "$uploadUrl"`) exposes it to anything that can read /proc, and one accidental
+        # `set -x` puts it in the log. So the URL and the headers are written into a mode-600 curl
+        # config under $RUNNER_TEMP and passed with `--config`; nothing is printed but a redacted
+        # object key.
+        #
+        # NO RETRY. The presigned signature window is short, and the web client's own answer to a
+        # failed PUT is a FRESH presign, not a repeat of a stale one (see `uploadWhole`, which
+        # re-presigns on every attempt). If this step fails, re-run the workflow: a re-run does the
+        # whole thing again from a clean state, which is the behaviour you want on a publish path.
+        run: |
+          set -euo pipefail
+          umask 077
+          presign="${RUNNER_TEMP}/presign.json"
+          put_cfg="${RUNNER_TEMP}/curl-put.cfg"
+          put_out="${RUNNER_TEMP}/put-response.txt"
+
+          code="$(jq -nc --arg name "field-repository-v${VERSION_NAME}.apk" --argjson size "$APK_BYTES" \
+                '{filename: $name,
+                  mimeType: "application/vnd.android.package-archive",
+                  mediaType: "DOCUMENT",
+                  sizeBytes: $size}' \
+            | curl -sS --max-time 60 --config "$CURL_AUTH" -o "$presign" -w '%{http_code}' \
+                -X POST "${API_BASE}/api/media/presign" \
+                -H 'content-type: application/json' \
+                --data-binary @-)"
+          if [ "$code" != "200" ]; then
+            echo "::error::POST /api/media/presign answered ${code}. Nothing has been uploaded and nothing published."
+            jq -r '.detail // empty' "$presign" 2>/dev/null | sed 's/^/    detail: /' || true
+            exit 1
+          fi
+
+          object_key="$(jq -r '.objectKey // empty' "$presign")"
+          bucket="$(jq -r '.bucket // empty' "$presign")"
+          public_url="$(jq -r '.publicUrl // empty' "$presign")"
+          upload_url="$(jq -r '.uploadUrl // empty' "$presign")"
+          if [ -z "$object_key" ] || [ -z "$upload_url" ]; then
+            echo "::error::The presign response is missing objectKey or uploadUrl. A 200 without them is not a usable upload target."
+            exit 1
+          fi
+          # ─── THE OBJECT KEY IS NOT PRINTED WHOLE ────────────────────────────────────────
+          # `make_object_key` in backend/app/services/s3.py builds
+          #     media/<uploader user id>/<uuid4 hex>/<safe filename>
+          # and `_assert_owns_object` in backend/app/api/routes/media.py relies on that shape. The
+          # second segment is a real user id, and an Actions log is readable by everyone with repo
+          # read access — so it is masked. The uuid segment is kept deliberately: it is unguessable,
+          # it identifies nobody, and it is the part an operator needs in order to find an orphaned
+          # upload in the bucket after a failed run. The rewrite is a WHITELIST: a key whose shape is
+          # not the one above prints as a character count and nothing else, rather than falling
+          # through to the raw value the moment somebody changes the format.
+          case "$object_key" in
+            media/*/*/*)
+              object_key_safe="media/<uploader-id-redacted>/${object_key#media/*/}"
+              ;;
+            *)
+              object_key_safe="<an object key of ${#object_key} characters, in an unrecognised shape, so no part of it is printed>"
+              ;;
+          esac
+          echo "Presigned an upload target: objectKey=${object_key_safe} bucket=${bucket} (the signed URL is a write credential and is not printed; the uploader id is redacted out of the key)."
+
+          # `url =` and `header =` in a config file, so neither the signed URL nor the content type
+          # ever reaches argv. The headers come FROM the response because the signature covers them:
+          # sending a different Content-Type than the one presigned is refused by S3.
+          {
+            printf 'url = "%s"\n' "$upload_url"
+            jq -r '.headers | to_entries[] | "header = \"\(.key): \(.value)\""' "$presign"
+          } > "$put_cfg"
+          chmod 600 "$put_cfg"
+
+          # 15 minutes: 26 MB from a runner is seconds, but a slow link must fail with a timeout
+          # rather than hang a publish job until the 6-hour job limit.
+          code="$(curl -sS --max-time 900 --config "$put_cfg" --request PUT \
+            --upload-file "$APK" -o "$put_out" -w '%{http_code}')"
+          echo "PUT (presigned) -> ${code}"
+          case "$code" in
+            200|201|204) ;;
+            *)
+              echo "::error::The APK upload answered ${code}; the bytes are not in object storage. Nothing has been published."
+              # ─── ONLY <Code> AND <Message>. NEVER THE RAW BODY. ──────────────────────
+              # Printing S3's refusal verbatim is a credential leak on the one refusal it is most
+              # likely to hand back here. A `SignatureDoesNotMatch` body echoes the request straight
+              # back: <AWSAccessKeyId> holds the real access key id, and <StringToSign>,
+              # <SignatureProvidedByS3> and a <CanonicalRequest> carrying the whole X-Amz-Credential
+              # all sit well inside the first kilobyte. NONE of those is a registered repository
+              # secret, so GitHub's log masking does not touch them. The comment block above this step
+              # spends eight lines keeping the presigned URL out of argv and out of the log; printing
+              # S3's echo of it would undo every one of them in a single line.
+              #
+              # <Code> and <Message> are the entire diagnostic value of that body, and neither ever
+              # carries a key, a signature or a string-to-sign. The extraction is a WHITELIST and not a
+              # redaction: a body that does not have the expected shape prints nothing at all.
+              #
+              # TWO SEPARATE sed PASSES, and this is not a style choice: sed applies every `-e` to the
+              # SAME pattern space in order, so a single invocation with both substitutions rewrites
+              # the line to `code=...` on the first expression and the second then finds no <Message>
+              # to match. S3 puts both elements on one line.
+              #
+              # Written to a file and read back with the `read` builtin rather than piped into `head`:
+              # a pipe whose reader exits first hands the writer SIGPIPE, which under `pipefail` is
+              # exit 141 — a false failure, on the error path, which is the worst place to have one.
+              #
+              # EACH sed IS FOLLOWED BY A BARE `echo`, AND THAT IS THE WHOLE CORRECTNESS OF THIS
+              # BLOCK. An S3 error body is XML on ONE line with NO TRAILING NEWLINE, and GNU sed
+              # preserves that: its output is unterminated too. Without the `echo`, the second sed's
+              # `message=…` is appended to the SAME line as the first's `code=…`, and the resulting
+              # single unterminated line is then invisible to `while read` — which sets `line` but
+              # returns non-zero, so the loop body never runs for it. Both variables stay empty, and
+              # the step prints "S3's refusal carried no <Code>/<Message> pair" over a body that
+              # carried both. MEASURED on a real S3 <Error> document with no trailing newline, not
+              # reasoned about: that is exactly what happened. The `|| [ -n "$line" ]` on the read is
+              # the same defence from the other end, kept as belt and braces.
+              s3_bits="${RUNNER_TEMP}/s3-error-fields.txt"
+              : > "$s3_bits"
+              { sed -n 's:.*<Code>\([^<]*\)</Code>.*:code=\1:p' "$put_out" || true; echo; } >> "$s3_bits"
+              { sed -n 's:.*<Message>\([^<]*\)</Message>.*:message=\1:p' "$put_out" || true; echo; } >> "$s3_bits"
+              s3_code=""
+              s3_message=""
+              while IFS= read -r line || [ -n "$line" ]; do
+                case "$line" in
+                  code=*)
+                    if [ -z "$s3_code" ]; then s3_code="${line#code=}"; fi
+                    ;;
+                  message=*)
+                    if [ -z "$s3_message" ]; then s3_message="${line#message=}"; fi
+                    ;;
+                esac
+              done < "$s3_bits"
+              rm -f "$s3_bits"
+              if [ -n "$s3_code" ] || [ -n "$s3_message" ]; then
+                echo "::error::S3 said: ${s3_code:-<no Code element>} — ${s3_message:-<no Message element>}"
+              else
+                echo "::error::S3's refusal carried no <Code>/<Message> pair, and the raw body is deliberately NOT printed: the body of a signature error echoes the access key id and the string-to-sign, and neither of those is masked in this log. Reproduce the presign locally to read it."
+              fi
+              echo "::error::A 403 here is usually an expired signature (re-run: a re-run presigns afresh) or a Content-Type that differs from the one presigned."
+              exit 1
+              ;;
+          esac
+          echo "Uploaded ${APK_BYTES} bytes."
+          # OBJECT_KEY itself is still exported — the POST body needs the real value, and writing to
+          # $GITHUB_ENV does not echo it into the log. OBJECT_KEY_SAFE travels beside it so that every
+          # LATER step wanting to name the key in a log line or in the step summary has a printable
+          # form to hand, and nobody has to re-derive the redaction in three places.
+          {
+            echo "OBJECT_KEY=${object_key}"
+            echo "OBJECT_KEY_SAFE=${object_key_safe}"
+            echo "PUBLIC_URL=${public_url}"
+          } >> "$GITHUB_ENV"
+          rm -f "$put_cfg"
+
+      - name: Publish the release
+        id: publish
+        if: ${{ env.DRY_RUN == 'false' }}
+        # THE ONE IRREVERSIBLE CALL IN THIS WORKFLOW, and the only step a dry run skips.
+        #
+        # Body: {versionCode, versionName, objectKey, url, notes} — exactly what
+        # frontend/components/settings/PublishAppUpdatePanel.tsx sends, and exactly what
+        # `AppReleasePublishRequest` in backend/app/schemas/app_release.py accepts. That schema is
+        # `extra="forbid"`, so ANY additional field is a 422. In particular there is NO `sizeBytes`
+        # field on this API — the sibling product's schema has one and this one does not, and sending
+        # it would fail the publish after a successful upload. Do not add a field here without adding
+        # it to the schema in the same change.
+        #
+        # `versionCode` is REQUIRED by the schema (`ge=1`) even though the server RE-DERIVES it from
+        # the version name and overrides what was sent — and that derivation returns None for a name
+        # that is not three plain numbers, in which case the server falls back to the client's number.
+        # So the value sent here is not decoration: it is the fallback, and GUARD 1 is what makes it
+        # the same number the APK carries.
+        #
+        # `url` is sent because a release with no downloadable URL is a push that silently does
+        # nothing: MainActivity only offers the update when `!latest.url.isNullOrBlank()`. The server
+        # derives it from the object key when it is absent (`payload.url or
+        # public_url_for_key(payload.objectKey)`), so this is belt and braces, and it is what the
+        # browser publisher sends too.
+        #
+        # The notes carry the tag, the commit and the run id, so that six months later "where did this
+        # build come from" has an answer that does not depend on anybody remembering.
+        #
+        # `${PUBLIC_URL:-}` BELOW, AND NOT `$PUBLIC_URL`. The upload step always writes PUBLIC_URL to
+        # $GITHUB_ENV, so it is normally set — but `publicUrl` is optional on `PresignResponse`, so the
+        # value may legitimately be EMPTY, and this step runs under `set -u`. The sibling repository
+        # recorded exactly this failure once: "PUBLIC_URL: unbound variable" AFTER a successful
+        # multi-megabyte upload, leaving the object in storage with no release row pointing at it.
+        # Harmless, and a wasted run, and there is no reason to carry that risk into the one
+        # irreversible call in this file. Empty is sent as `null`, which the server answers by deriving
+        # the URL from the object key — which is `_durable_url`'s whole job.
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/publish.json"
+          notes="Published by ${{ github.workflow }} from tag ${RELEASE_TAG} (commit ${{ github.sha }}, run ${{ github.run_id }})."
+
+          code="$(jq -nc \
+                --arg versionName "$VERSION_NAME" \
+                --argjson versionCode "$VERSION_CODE" \
+                --arg objectKey "$OBJECT_KEY" \
+                --arg url "${PUBLIC_URL:-}" \
+                --arg notes "$notes" \
+                '{versionCode: $versionCode,
+                  versionName: $versionName,
+                  objectKey: $objectKey,
+                  url: (if $url == "" then null else $url end),
+                  notes: $notes}' \
+            | curl -sS --max-time 60 --config "$CURL_AUTH" -o "$out" -w '%{http_code}' \
+                -X POST "${API_BASE}/api/app/release" \
+                -H 'content-type: application/json' \
+                --data-binary @-)"
+          echo "POST /api/app/release -> ${code}"
+          if [ "$code" != "201" ]; then
+            echo "::error::POST /api/app/release answered ${code} instead of 201. NOTHING IS PUBLISHED — the APK is sitting in object storage under ${OBJECT_KEY_SAFE:-<key not recorded>} with no release row pointing at it (harmless, and a re-run uploads it again)."
+            case "$code" in
+              403) echo "::error::403 means the account is not a MASTER_ADMIN. That is checked at login, so this would mean the role changed mid-run." ;;
+              422) echo "::error::422 is a schema rejection. The body is exactly {versionCode, versionName, objectKey, url, notes} and AppReleasePublishRequest forbids extra fields — check whether it has gained or lost one." ;;
+            esac
+            jq -r '.detail // empty' "$out" 2>/dev/null | sed 's/^/    detail: /' || true
+            exit 1
+          fi
+
+          server_code="$(jq -r '.versionCode // empty' "$out")"
+          server_name="$(jq -r '.versionName // empty' "$out")"
+          echo "Server recorded: ${server_name} (code ${server_code})."
+          if [ "$server_code" != "$VERSION_CODE" ] || [ "$server_name" != "$VERSION_NAME" ]; then
+            echo "::error::The server stored ${server_name}/${server_code} but this run built ${VERSION_NAME}/${VERSION_CODE}. The server re-derives the version code from the name (_derive_version_code), so a disagreement means the two derivations have drifted apart."
+            echo "::error::A release row is now live carrying a version this run did not build. Read it at GET /api/app/release/latest and decide deliberately; do not just re-run."
+            exit 1
+          fi
+
+      - name: Dry run — say plainly that nothing was published
+        if: ${{ env.DRY_RUN == 'true' }}
+        # A dry run that ends with a green tick and no explanation is how somebody concludes a release
+        # went out. This step is the whole reason the dry-run mode is safe to offer: it names, in the
+        # log and in the summary, exactly what did NOT happen.
+        run: |
+          set -euo pipefail
+          echo "::notice title=DRY RUN — nothing was published::Built, signed, verified and uploaded ${VERSION_NAME} (code ${VERSION_CODE}) as ${OBJECT_KEY_SAFE:-<key not recorded>}, then STOPPED. POST /api/app/release was not called, GET /api/app/download still answers whatever it answered before, and no device will be offered anything."
+          echo "The uploaded object is orphaned by design: no release row and no MediaFile row points at it, so it is invisible to the product and costs only storage."
+          echo "To publish for real: push the tag v${VERSION_NAME}, or re-run this workflow from that tag with dry_run unticked."
+
+      - name: GUARD 6 — prove the release is actually published
+        id: proof
+        if: ${{ env.DRY_RUN == 'false' }}
+        # ─── GRADE WHAT THE WORLD RECEIVES, NOT THE CALL YOU JUST MADE ────────────────────────
+        # A 201 from /app/release proves a row was written. It does not prove that "latest" is now
+        # this build, that the object key in that row points at real bytes, or that the download
+        # resolves. Two independent checks, because they fail differently — and their ORDER here is
+        # the opposite of the obvious one, for a reason specific to this repository:
+        #
+        #   • `GET /api/app/release/latest` MUST REPORT THIS VERSION, and this is the AUTHORITATIVE
+        #     check. "Latest" is the highest versionCode, so this is the assertion that the row is the
+        #     one devices will actually compare against, and it is the direct counterpart to GUARD 4.
+        #     It is POLLED rather than asked once: the row is written synchronously, but there is a
+        #     CloudFront distribution in front of the API and a poll is honest about that where a
+        #     fixed sleep is either too short and flaky or too long and slow.
+        #
+        #   • `GET /api/app/download` must answer a REDIRECT. It is the address the website's button
+        #     and every phone use, and it is UNAUTHENTICATED on purpose (a browser cannot attach a
+        #     bearer token to a plain link), which is what makes it a check on what a VISITOR gets
+        #     rather than on what this workflow can see. The route returns 307 today
+        #     (RedirectResponse with HTTP_307_TEMPORARY_REDIRECT), so any redirect code is accepted
+        #     rather than pinning 302 and failing on a correct API. It must also not answer 503, which
+        #     is what the route returns when it HAS a release row but cannot locate the object — a
+        #     published release with no bytes behind it.
+        #
+        # WHY THE DOWNLOAD CHECK IS THE WEAKER ONE HERE, STATED PLAINLY SO NOBODY REORDERS THEM. This
+        # product ALREADY has a published release: /api/app/download answered 307 before this run and
+        # will answer 307 after it whatever happens, because v1.1.20 is sitting there. In the sibling
+        # repository that endpoint answered 404 until its first publish, so a redirect was itself
+        # proof; here it is not, and a GUARD 6 that only polled for a redirect would pass over a
+        # publish that never landed. The version comparison is what actually proves anything.
+        #
+        # A CACHING NOTE THAT IS A LIVE RISK, NOT A HYPOTHETICAL.
+        # backend/app/api/routes/app_release.py sets `Cache-Control: no-store, max-age=0` on the
+        # REDIRECT only. The 404 and the 503 arms raise HTTPException and carry no such header, so an
+        # intermediary is free to cache either. docs/CDN.md records that this distribution caches
+        # nothing, which is why this is survivable today — but if that ever changes, THIS STEP is
+        # where it will surface, as a false "production is broken" failure on a correct release. The
+        # fix then is to set the header on those two arms, not to soften this guard.
+        #
+        # THE REDIRECT TARGET IS NEVER PRINTED. It is a presigned GET URL — a credential, however
+        # short-lived — so `-o /dev/null` and `%{http_code}` are all this step takes, and `-L` is
+        # deliberately absent: following it would fetch 26 MB to learn nothing.
+        run: |
+          set -euo pipefail
+          latest="${RUNNER_TEMP}/latest-after.json"
+          seen_code=""
+          seen_name=""
+          confirmed=""
+          for attempt in $(seq 1 20); do
+            # `|| true` on the CAPTURE, and it is the difference between a retry loop and one attempt
+            # with extra steps. Under `set -e` a single transient DNS failure, TLS reset or timeout
+            # anywhere in these twenty attempts would abort the step instead of counting as an
+            # attempt — and the whole premise of polling is that early attempts may not succeed. Every
+            # arm below still decides, and the loop still fails the job if it never confirms.
+            code="$(curl -sS --max-time 30 --config "$CURL_AUTH" -o "$latest" -w '%{http_code}' \
+              "${API_BASE}/api/app/release/latest" || true)"
+            code="${code:-000}"
+            if [ "$code" = "200" ]; then
+              seen_code="$(jq -r '.versionCode // empty' "$latest")"
+              seen_name="$(jq -r '.versionName // empty' "$latest")"
+              if [ "$seen_code" = "$VERSION_CODE" ] && [ "$seen_name" = "$VERSION_NAME" ]; then
+                confirmed="yes"
+                echo "attempt ${attempt}: latest is ${seen_name} (code ${seen_code}) — this run's release."
+                break
+              fi
+              echo "attempt ${attempt}: latest is ${seen_name:-?} (code ${seen_code:-?}), waiting for ${VERSION_NAME} (code ${VERSION_CODE})."
+            else
+              echo "attempt ${attempt}: GET /api/app/release/latest answered ${code}."
+            fi
+            sleep 6
+          done
+
+          if [ -z "$confirmed" ]; then
+            echo "::error::POST /api/app/release returned 201, but GET /api/app/release/latest never reported ${VERSION_NAME} (code ${VERSION_CODE}). The last thing it said was ${seen_name:-<nothing>} (code ${seen_code:-<nothing>})."
+            echo "::error::'Latest' is the HIGHEST versionCode, so a higher release than this one is published and THIS BUILD WILL REACH NOBODY — exactly the outcome GUARD 4 exists to prevent, arrived at from the other direction (a concurrent publish, or a row created by hand in the web panel)."
+            echo "::error::A row cannot be un-published. Publishing a corrected release with a HIGHER version is the way forward."
+            exit 1
+          fi
+
+          url_length="$(jq -r '(.url // "") | length' "$latest")"
+          echo "The published release's url field is ${url_length} characters long (the value is not printed — it addresses the object)."
+          if [ "$url_length" = "0" ]; then
+            echo "::error::The published release carries an EMPTY url. MainActivity only offers the update when the release has a non-blank URL, so this release would sit there and reach nobody."
+            exit 1
+          fi
+
+          # THE VISITOR'S VIEW. Unauthenticated, because that is what a browser link is.
+          download="$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' "${API_BASE}/api/app/download" || true)"
+          download="${download:-000}"
+          echo "GET /api/app/download (unauthenticated) -> ${download}"
+          case "$download" in
+            301|302|303|307|308)
+              echo "The download address resolves to a redirect, which is what the website button and every phone follow."
+              ;;
+            503)
+              echo "::error::/api/app/download answered 503. The release row exists but its objectKey does not resolve in object storage — the release points at nothing. THE DOWNLOAD BUTTON ON THE WEBSITE IS BROKEN RIGHT NOW."
+              echo "::error::The upload and the release row disagree. Fix the live site first, then find out why: the object key this run uploaded is ${OBJECT_KEY_SAFE:-<key not recorded>}."
+              exit 1
+              ;;
+            404)
+              echo "::error::/api/app/download answered 404 — no release row is visible to the resolver at all, moments after release/latest reported one. That is a cache or a replica serving stale state."
+              exit 1
+              ;;
+            *)
+              echo "::error::/api/app/download answered ${download}, which is neither a redirect nor a failure this workflow recognises. Do not assume the download works — check it in a browser before telling anybody the release is out."
+              exit 1
+              ;;
+          esac
+          echo "Published and verified: ${VERSION_NAME} (code ${VERSION_CODE}) is latest, and /api/app/download resolves."
+
+      - name: A publish run must have actually published
+        id: publish_trap
+        # ─── THE THIRD BRANCH THAT DOES NOT EXIST, CAUGHT FROM THE OUTSIDE ────────────
+        # The mode step at the top of this job refuses a DRY_RUN that is neither 'true' nor 'false',
+        # so on today's tree this step cannot fire. It exists anyway, because the two defences fail
+        # differently and only one of them is inside the file being edited: the mode step asserts the
+        # VALUE it computed, and this asserts the OUTCOME of the steps that consumed it. Somebody
+        # adding a second condition to the publish step's `if:`, or an expression evaluating false for
+        # a reason nobody predicted, produces a SKIPPED publish on a non-dry run — and A SKIPPED STEP
+        # IS A GREEN STEP. The only part of a run anybody reads at a glance is its conclusion, so a
+        # run that did not publish must not be able to end green while the summary calls it a publish.
+        #
+        # NO `always()`, and that is the whole reason this step is not noise. A bare `if:` carries an
+        # implicit `success()`, so this is skipped the moment anything above it failed: a real failure
+        # in GUARD 2 or GUARD 4 has already failed the job and printed why, and a second red step
+        # restating it would bury the actual error. This only ever speaks when every step above it
+        # passed AND the publish still did not happen.
+        if: ${{ env.DRY_RUN != 'true' }}
+        run: |
+          set -euo pipefail
+          publish="${{ steps.publish.outcome }}"
+          proof="${{ steps.proof.outcome }}"
+          if [ "$publish" = "success" ] && [ "$proof" = "success" ]; then
+            echo "POST /api/app/release and GUARD 6 both ran and both passed: this run really did publish ${VERSION_NAME:-?} (code ${VERSION_CODE:-?})."
+            exit 0
+          fi
+          echo "::error title=This run did not publish, and it is not a dry run::DRY_RUN='${DRY_RUN:-unset}', yet POST /api/app/release was '${publish}' and GUARD 6 was '${proof}'. Nothing above this step failed, so without this check the run would have concluded success and the summary would have called it a PUBLISH."
+          echo "::error::NOTHING REACHED A HANDSET. Start at the mode step at the top of this job: DRY_RUN must be exactly 'true' or 'false', and every downstream 'if:' compares against those two literals. A skipped step is a green step, which is why the conclusion cannot be trusted to notice this on its own."
+          exit 1
+
+      - name: Upload the published APK as a run artifact
+        if: ${{ always() && steps.size.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          # THE EXACT BYTES THAT WENT OUT, kept for as long as artifacts are kept. Not a convenience:
+          # the release-signed APK is what a support question ("which build is this user on, and what
+          # is in it?") has to be answered against, and object storage holds it under a
+          # machine-generated key while this holds it under the version. During the signing-key
+          # migration it is also the file somebody hands to a researcher whose handset has to be
+          # wiped and reinstalled by hand.
+          #
+          # `path:` is repo-root relative — actions/upload-artifact does not honour
+          # `defaults.run.working-directory`.
+          name: app-release-${{ env.VERSION_NAME }}-${{ github.sha }}
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Shred the credentials this job wrote to disk
+        if: ${{ always() }}
+        # RUN FROM RUNNER_TEMP, NOT FROM `android/`. The job's default working directory is `android`,
+        # which does not exist when checkout itself failed — and a cleanup step that cannot start is a
+        # cleanup step that did not happen ("An error occurred trying to start process '/usr/bin/bash'
+        # … No such file or directory"). The paths below are all absolute under RUNNER_TEMP, so this
+        # never needed the repository anyway.
+        working-directory: ${{ runner.temp }}
+        # ALWAYS, INCLUDING ON FAILURE, which is the only version of this step worth having: a job
+        # that dies between decoding the keystore and finishing is exactly when files get left behind.
+        # The runner is ephemeral and $RUNNER_TEMP goes with it, so this is belt and braces — but the
+        # keystore is the one secret in this project that CANNOT BE ROTATED, and a self-hosted runner,
+        # or a future change of runner, is not the moment to discover that this file outlived its job.
+        # `shred` overwrites before unlinking; the `|| rm -f` fallback keeps a missing `shred` from
+        # turning cleanup into a failure that masks the real one.
+        #
+        # The curl config files hold a live master-admin bearer token and a presigned write URL, which
+        # is why they are in this list and not only the keystore.
+        run: |
+          set -euo pipefail
+          for f in \
+            "${RUNNER_TEMP}/release-signing-key.p12" \
+            "${RUNNER_TEMP}/curl-auth.cfg" \
+            "${RUNNER_TEMP}/curl-put.cfg" \
+            "${RUNNER_TEMP}/login.json" \
+            "${RUNNER_TEMP}/presign.json"; do
+            if [ -e "$f" ]; then
+              shred -u "$f" 2>/dev/null || rm -f "$f"
+              echo "removed $(basename "$f")"
+            fi
+          done
+          echo "No credential file remains in RUNNER_TEMP, which is the intended end state."
+
+      - name: Summarise
+        if: ${{ always() }}
+        # Same reason as the shred step above: the default `android` working directory does not exist
+        # if checkout failed, and a summary that cannot start is the one a reader most needs.
+        working-directory: ${{ runner.temp }}
+        # The step summary is not the guard — nobody reads a summary on a green run, which is why
+        # every check above fails the job instead of writing a note. It is here for the person who
+        # opens this run six months later and needs to know what it did.
+        run: |
+          set -euo pipefail
+          {
+            echo "### Publish Android release"
+            echo ""
+            # THREE-WAY, not `if true / else PUBLISH`. This step is `always()`, so it also runs on a
+            # job that died before the mode step wrote DRY_RUN at all — and a two-way form would read
+            # an unset variable as "not a dry run" and head the summary **PUBLISH**, which is the one
+            # word a reader takes at face value. An unknown mode has to say so.
+            case "${DRY_RUN:-unset}" in
+              true)
+                echo "**DRY RUN — nothing was published.** The release record was not created."
+                ;;
+              false)
+                echo "**PUBLISH** — tag \`${RELEASE_TAG:-none}\`"
+                ;;
+              *)
+                echo "**MODE UNKNOWN (\`DRY_RUN=${DRY_RUN:-unset}\`).** This run did not get as far as"
+                echo "deciding what it was, or the mode step refused it. Nothing below may be read as a"
+                echo "publish."
+                ;;
+            esac
+            echo ""
+            echo "| what | value |"
+            echo "|---|---|"
+            echo "| version | \`${VERSION_NAME:-?}\` (code \`${VERSION_CODE:-?}\`) |"
+            echo "| previously published | \`${PUBLISHED_BEFORE:-not reached}\` |"
+            echo "| APK size | \`${APK_BYTES:-?}\` bytes |"
+            echo "| object key | \`${OBJECT_KEY_SAFE:-not uploaded}\` |"
+            echo ""
+            echo "| step | result |"
+            echo "|---|---|"
+            echo "| GUARD 1 tag == built version | ${{ steps.version.outcome }} |"
+            echo "| GUARD 3 API is this product's | ${{ steps.api_identity.outcome }} |"
+            echo "| assembleRelease | ${{ steps.assemble.outcome }} |"
+            echo "| GUARD 2 signer fingerprint | ${{ steps.signer.outcome }} |"
+            echo "| GUARD 5 size within the single-PUT path | ${{ steps.size.outcome }} |"
+            echo "| login (MASTER_ADMIN) | ${{ steps.login.outcome }} |"
+            echo "| GUARD 4 versionCode above published | ${{ steps.ceiling.outcome }} |"
+            echo "| upload (presign + PUT) | ${{ steps.upload.outcome }} |"
+            echo "| POST /api/app/release | ${{ steps.publish.outcome }} |"
+            echo "| GUARD 6 published and resolvable | ${{ steps.proof.outcome }} |"
+            echo "| the publish actually happened | ${{ steps.publish_trap.outcome }} |"
+            echo ""
+            echo "**Still not verified by this run:** no device and no emulator exists on a GitHub"
+            echo "runner, and this repository runs no instrumented tests anywhere. A green run above"
+            echo "means built, signed and published — not working. If this is the first build off the"
+            echo "release key, it is also the first the fleet cannot install over the top of: read"
+            echo "\`docs/RELEASING.md\` before asking anyone to uninstall anything, because an"
+            echo "uninstall deletes the unsent outbox."
+          } >> "$GITHUB_STEP_SUMMARY"

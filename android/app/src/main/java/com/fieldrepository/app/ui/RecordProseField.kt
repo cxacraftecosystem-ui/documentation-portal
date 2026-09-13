@@ -38,6 +38,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -564,15 +566,20 @@ internal fun RecordDictationButton(
 /**
  * ONE PROSE BOX ON A RECORD FORM, with either control, both, or neither.
  *
- * ── THE TWO FLAGS ARE OPT-IN AND DEFAULT TO OFF, WHICH IS NOT LAZINESS ────────────────────────
+ * ── `rich` IS STILL OPT-IN. `dictate` IS NO LONGER DECIDED HERE ──────────────────────────────
  *
- * `MainActivity`'s `TextInput` forwards to this composable from ~200 call sites, almost all of them
- * single-line boxes for a name, a code, a phone number, a price or a date. A microphone beside a
- * money box is noise — nobody dictates "one thousand two hundred and fifty rupees fifty paise" into
- * a costing sheet, and the recogniser returns words where the column wants digits — and a formatting
- * toolbar over a two-word village name is a control that can only get in the way. So the default for
- * both is off and each larger box asks for what it wants, by name, at its own call site. That is the
- * user's own rule: *"only the larger text boxes need to have the rich text features."*
+ * This composable's own `dictate` default stays FALSE and must stay false: its non-record callers
+ * — `ui/TaskAdminScreen.kt:873` is the only one — reach it directly and ask for a microphone by
+ * name. What changed on 2026-09-13 is the layer ABOVE: `MainActivity.TextInput` and
+ * `MainActivity.RequiredInput` now default `dictate` to TRUE, and the seven record forms do not
+ * pass a literal at all — they ask `ui/RecordDictationFields.kt`, which holds the classification
+ * as data so that "which boxes have a microphone" is a set a test can read rather than a pattern
+ * a later author has to infer from whichever call site they copied.
+ *
+ * `rich` is untouched by that work and stays off by default. That half of the user's rule —
+ * *"only the larger text boxes need to have the rich text features."* — was never in question: a
+ * formatting toolbar over a two-word village name can only get in the way, and unlike a
+ * microphone it changes what lands in the column (see `recordStoredFromDoc`).
  *
  * ── WHY THE ERROR SENTENCE IS DRAWN HERE AND NOT HANDED UP ────────────────────────────────────
  *
@@ -611,6 +618,44 @@ fun RecordProseField(
     resetKey: Any? = null,
     /** Drawn under the box, above any dictation sentence. The form's own help for this field. */
     help: String? = null,
+    /**
+     * A VALIDATION REFUSAL for this field, or null. Non-null also paints the box in the error colour.
+     *
+     * ── WHY THIS EXISTS ────────────────────────────────────────────────────────────
+     *
+     * The boxes with the MOST typing friction on a record form are the REQUIRED ones — an
+     * artisan's name, a product name, a toolkit name, the name of a process, a step's name — and
+     * until now they were the only boxes on the whole form that could not have a microphone.
+     * `RequiredInput` drew its own bare `OutlinedTextField` (`MainActivity.kt`, where the
+     * rewritten function now stands at :13463) for one reason and one reason only: this component
+     * had nowhere to put an error message or a focus target, and `RecordDictationButton` is
+     * private to this file.
+     *
+     * The two ways out were a second dictation control in `MainActivity.kt` — a second copy of the
+     * partial/commit/refusal machinery, and the half that always drifts is the refusal wording —
+     * or these two parameters. `TextInput` has forwarded here since dictation landed precisely so
+     * that the plain and enriched paths cannot diverge in padding, label placement or keyboard
+     * type; `RequiredInput` now does the same, and required and optional boxes stay one control.
+     *
+     * NULL IS NOT "VALID", IT IS "NOTHING TO SAY". This component performs no validation of its
+     * own and must not start: the form owns the rule, this draws the answer.
+     *
+     * DRAWN AS `supportingText` AND NOT AS A `Text` UNDERNEATH, so the message is part of the
+     * field's own semantics node and TalkBack reads it WITH the box rather than as a stray
+     * paragraph after it. That is also why it is not folded into [help], which is muted 11sp
+     * guidance and carries no error semantics at all.
+     */
+    errorText: String? = null,
+    /**
+     * Where a form's "you missed this one" focus call lands.
+     *
+     * Attached to the plain box only. The rich editor manages its own focus across a document and
+     * a toolbar, and pointing a caller's `FocusRequester` into it would put the caret somewhere
+     * the caller cannot reason about — so a rich box that is also required keeps the form's error
+     * message and loses only the jump, which is the safe half to lose. No record form today is
+     * both required and rich, so nothing currently pays that price.
+     */
+    focusRequester: FocusRequester? = null,
     /** Drawn under the box — `TitleCaseHint` and friends, so a caller keeps its existing extras. */
     below: @Composable () -> Unit = {},
 ) {
@@ -710,6 +755,12 @@ fun RecordProseField(
                 // middle of a stream is overwritten by the next partial, so the alternative is a box
                 // that silently discards typing — which reads as a broken keyboard.
                 readOnly = spoken.isNotBlank(),
+                // The form's refusal, drawn where Material draws one and in the colour a reader
+                // already associates with it. Before this parameter existed `RequiredInput` drew
+                // its own box to get these two lines, which is why no required field in this app
+                // could be dictated.
+                isError = errorText != null,
+                supportingText = errorText?.let { message -> { Text(message) } },
                 minLines = minLines,
                 keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
                 trailingIcon = if (!showMic) null else {
@@ -730,7 +781,11 @@ fun RecordProseField(
                         )
                     }
                 },
-                modifier = Modifier.fillMaxWidth()
+                // The caller's focus target, where there is one. `.let` rather than a nullable
+                // modifier expression so a box with no requester carries no extra node at all.
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .let { base -> focusRequester?.let { base.focusRequester(it) } ?: base }
             )
             help?.let { Text(it, color = MaterialTheme.field.muted, fontSize = 11.sp) }
         }

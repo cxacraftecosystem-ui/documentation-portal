@@ -60,6 +60,7 @@ flowchart TD
 |---|---|
 | [ENVIRONMENT.md](ENVIRONMENT.md) | Every environment variable, per service: required? default? secret? what breaks without it? |
 | [CI.md](CI.md) | What happens on a push to `main`, in what order, and why the order is a dependency |
+| [RELEASING.md](RELEASING.md) | How an Android build reaches the fleet: the tag-driven signed pipeline, what each guard refuses, how to check a signer by hand, and the one-off uninstall that moving off the debug key costs every handset |
 | [DEPLOYMENT_VERCEL.md](DEPLOYMENT_VERCEL.md) | The web deploy, and the two traps that ship a green pipeline over a broken site |
 | [CDN.md](CDN.md) | CloudFront caching, the origin timeout that has already broken this system, and the invalidation runbook |
 | [DOCKER.md](DOCKER.md) | Running the whole stack in containers |

@@ -632,7 +632,15 @@ export type RecordRevision = {
   createdAt: string;
 };
 
-export type TaskStatus = "OPEN" | "IN_PROGRESS" | "DONE" | "CANCELLED";
+/**
+ * The bare stored row's status. Kept in step with `components/tasks/types.ts` — which is the union
+ * the task screens actually render — because one of these two unions describing four states and the
+ * other five is how a `status` read through `AssignedTask` quietly loses the review state.
+ *
+ * `SUBMITTED` is the assignee's "finished" awaiting an admin's agreement; `DONE` now means somebody
+ * with authority agreed. The wording for both is served (`statusLabel`), never mapped here.
+ */
+export type TaskStatus = "OPEN" | "IN_PROGRESS" | "SUBMITTED" | "DONE" | "CANCELLED";
 
 export type AssignedTask = {
   id: string;

@@ -23,9 +23,20 @@ export const RECORD_TYPE_LABELS: Record<string, [string, string]> = {
   media: ["media file", "media files"]
 };
 
+/**
+ * The status filter chips' wording on the assignee's own screen.
+ *
+ * SUBMITTED HAD TO BE ADDED THE MOMENT `TaskStatus` GAINED IT — this is a `Record<TaskStatus, …>`
+ * and `tsc` refuses it incomplete, which is the whole reason the union was widened rather than the
+ * field loosened to `string`. "Under review" is the SERVER's word for this state
+ * (`STATUS_LABELS`, backend/app/api/routes/tasks.py:129) and is repeated here rather than invented:
+ * a chip that filtered to SUBMITTED under any other name would disagree with the pill on every card
+ * it revealed.
+ */
 export const STATUS_LABEL: Record<TaskStatus, string> = {
   OPEN: "Open",
   IN_PROGRESS: "In progress",
+  SUBMITTED: "Under review",
   DONE: "Done",
   CANCELLED: "Cancelled"
 };

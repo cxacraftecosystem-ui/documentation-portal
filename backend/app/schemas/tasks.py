@@ -75,12 +75,16 @@ class TaskBatchCreate(TaskScope):
 
 class TaskUpdate(TaskScope):
     """Patch payload. Who may send which field is decided on the route: the assignee may only move
-    ``status`` (never to CANCELLED) and report ``progressCount``; the creator/admin may change
-    everything, scope included."""
+    ``status`` (never to CANCELLED, never to DONE) and report ``progressCount``; the creator/admin
+    may change everything, scope included."""
 
     title: str | None = Field(default=None, min_length=1, max_length=MAX_TITLE_LENGTH)
     description: str | None = None
-    # OPEN | IN_PROGRESS | DONE | CANCELLED — validated on the route (CANCELLED is creator/admin only).
+    # OPEN | IN_PROGRESS | SUBMITTED | DONE | CANCELLED — validated on the route, which also decides
+    # who may write which: CANCELLED is creator/admin only, and DONE is the APPROVAL. An assignee
+    # sending "DONE" is rewritten to "SUBMITTED" (routes/tasks.py, the assignee branch of
+    # `update_task`) rather than refused, so field builds that predate the review state keep working
+    # instead of 422-ing "Mark done" in somebody's hand halfway through a workshop.
     status: str | None = None
     dueAt: datetime | None = None
     assigneeId: str | None = None

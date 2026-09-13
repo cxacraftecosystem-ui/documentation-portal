@@ -433,11 +433,25 @@ interface FieldRepositoryApi {
     @POST("tools")
     suspend fun createTool(@Body body: ToolCreateRequest): CreatedRecordDto
 
+    /**
+     * Every instrument, in picker order (sortOrder asc). `isDefault` says which one a request that
+     * names none would land on.
+     */
+    @GET("questionnaires")
+    suspend fun questionnaires(@Query("activeOnly") activeOnly: Boolean = true): List<QuestionnaireDto>
+
+    // questionnaireId is OPTIONAL on both of these and absent means the DEFAULT instrument - which
+    // is exactly what every build of this app that predates 2026-09-13 sends, and what it must keep
+    // getting.
     @GET("questionnaire/questions")
-    suspend fun questionnaireQuestions(): List<QuestionnaireQuestionDto>
+    suspend fun questionnaireQuestions(
+        @Query("questionnaireId") questionnaireId: String? = null
+    ): List<QuestionnaireQuestionDto>
 
     @GET("questionnaire/sections")
-    suspend fun questionnaireSections(): List<QuestionnaireSectionDto>
+    suspend fun questionnaireSections(
+        @Query("questionnaireId") questionnaireId: String? = null
+    ): List<QuestionnaireSectionDto>
 
     @POST("questionnaire/sections")
     suspend fun createQuestionnaireSection(@Body body: QuestionnaireSectionCreateRequest): QuestionnaireSectionDto
@@ -492,7 +506,11 @@ interface FieldRepositoryApi {
         @Query("artisanId") artisanId: String? = null,
         // The shared workshop scope: comma-joined ids plus the reserved "none". Absent = every
         // workshop, which is why it is nullable rather than defaulted to a string.
-        @Query("workshopIds") workshopIds: String? = null
+        @Query("workshopIds") workshopIds: String? = null,
+        // WHICH INSTRUMENT the matrix is about. Absent = the default one. The matrix's columns are
+        // ONE instrument's sections, so a screen showing the other instrument's form beside an
+        // unscoped matrix is showing two different questionnaires under one set of letters.
+        @Query("questionnaireId") questionnaireId: String? = null
     ): CompletionMatrixDto
 
     @PUT("questionnaire/completion")
@@ -504,7 +522,11 @@ interface FieldRepositoryApi {
     @GET("questionnaire/artisans/{id}/consolidated")
     suspend fun consolidatedQuestionnaire(
         @Path("id") artisanId: String,
-        @Query("workshopIds") workshopIds: String? = null
+        @Query("workshopIds") workshopIds: String? = null,
+        // ABSENT MEANS EVERY INSTRUMENT here, grouped and labelled - the opposite default from every
+        // other questionnaire call, and deliberately so: this document's meaning is "everything this
+        // artisan has ever told us", and narrowing it by default would silently drop half an account.
+        @Query("questionnaireId") questionnaireId: String? = null
     ): ConsolidatedQuestionnaireDto
 
     // --- Cross-researcher data access (Sharing) ---
@@ -611,8 +633,22 @@ interface FieldRepositoryApi {
         @Query("assigneeId") assigneeId: String? = null,
         @Query("batchId") batchId: String? = null,
         // false skips the data-backed counts (derivedCount comes back null) when only the list is needed.
-        @Query("withDerived") withDerived: Boolean? = null
+        @Query("withDerived") withDerived: Boolean? = null,
+        // "STILL ON MY SCREEN" — OPEN, IN_PROGRESS *and* SUBMITTED. Not a convenience: `status` takes
+        // ONE value and this question is three, so the only alternative is fetching everything and
+        // dropping rows client-side — which is wrong in a way that hides itself, because the page is
+        // twenty rows deep and a researcher with twenty-one tasks would silently lose outstanding
+        // work off the end of it. Sending this WITH `status` is a 422 rather than a guess at which
+        // one was meant.
+        @Query("outstanding") outstanding: Boolean? = null
     ): PageResponse<TaskDto>
+
+    // MY workload in one object — the full-width card at the top of the assignee's screen. Any
+    // authenticated caller, always about themselves; `tasks/progress` is the admin's board and is
+    // not a substitute. Declared server-side BEFORE `/{task_id}` so "summary" is not swallowed as
+    // the id of a task somebody happened to name that.
+    @GET("tasks/summary")
+    suspend fun taskSummary(@Query("workshopId") workshopId: String? = null): TaskSummaryDto
 
     @GET("tasks/{id}")
     suspend fun task(@Path("id") id: String): TaskDto

@@ -405,7 +405,8 @@ class FieldRepository(
         workshopId: String? = null,
         assigneeId: String? = null,
         batchId: String? = null,
-        pageSize: Int = 100
+        pageSize: Int = 100,
+        outstanding: Boolean = false
     ): List<TaskDto> =
         api.tasks(
             view = view,
@@ -413,15 +414,56 @@ class FieldRepository(
             workshopId = workshopId?.blankToNull(),
             pageSize = pageSize,
             assigneeId = assigneeId?.blankToNull(),
-            batchId = batchId?.blankToNull()
+            batchId = batchId?.blankToNull(),
+            // Sending BOTH is a 422 server-side, on purpose — either precedence would be a guess and
+            // a caller asking for `status=DONE&outstanding=true` has a bug that a quiet answer hides.
+            // Suppressed rather than forwarded here so an explicit status always wins locally too,
+            // and the caller sees the list they asked for instead of an error they did not.
+            outstanding = if (outstanding && status.isNullOrBlank()) true else null
         ).items
+
+    /**
+     * MY workload in one object — what the full-width progress card at the top of the task screen is
+     * drawn from. Always about the signed-in caller.
+     *
+     * NEVER COMPUTE THIS FROM [tasks]. That call is paged (100 by default, but paged all the same),
+     * so a card counted from it under-reports outstanding work for anyone holding more than a page —
+     * and under-reporting outstanding work is the one failure the card exists to prevent. This scans
+     * the caller's whole bounded list server-side and reports `truncated` when it could not finish.
+     */
+    suspend fun taskSummary(workshopId: String? = null): TaskSummaryDto =
+        api.taskSummary(workshopId?.blankToNull())
 
     /** One task, enriched exactly like a list item. Visible to the assignee, the creator and admins. */
     suspend fun task(taskId: String): TaskDto = api.task(taskId)
 
-    /** Assignee-side update: move the status and/or report how much is done. */
+    /**
+     * Assignee-side update: move the status and/or report how much is done.
+     *
+     * An assignee may write OPEN, IN_PROGRESS and SUBMITTED only. `CANCELLED` is a 403 (withdrawal
+     * belongs to whoever handed the work out) and so is ANY status on a task already `DONE` — that
+     * would be the person whose work was approved quietly erasing the approval, which is what would
+     * make the whole review step decorative. Neither is offered by the UI, and both are worth knowing
+     * about here because the 403 body is what a caller will actually see if one slips through.
+     */
     suspend fun updateTaskProgress(taskId: String, status: String? = null, progressCount: Int? = null): TaskDto =
         api.updateTask(taskId, TaskUpdateBody(status = status, progressCount = progressCount))
+
+    /**
+     * AN ADMIN DECIDING ABOUT SOMEBODY ELSE'S WORK — approve a submission, send it back, or reopen
+     * an approval.
+     *
+     * SAME ENDPOINT AND SAME BODY AS [updateTaskProgress], AND A SEPARATE FUNCTION ANYWAY. The two
+     * are not the same act. An assignee moving their own task is a REPORT by the person who did the
+     * work; an admin moving it is a DECLARATION ABOUT SOMEBODY ELSE, made by a person who did not do
+     * it and possibly while they are still doing it. The row afterwards is byte-identical — the
+     * server writes `status` and `completedAt` either way and records nothing about who pressed what
+     * — so the ONLY place that distinction can be made at all is in the client, before the press,
+     * and a shared function name is how it quietly stops being made. The call sites read
+     * differently on purpose.
+     */
+    suspend fun reviewTask(taskId: String, status: String): TaskDto =
+        api.updateTask(taskId, TaskUpdateBody(status = status))
 
     // --- Task administration (admin) ---
 
@@ -1384,9 +1426,16 @@ class FieldRepository(
 
     suspend fun updateTool(id: String, body: ToolCreateRequest): ToolDetailDto = api.updateTool(id, body)
 
-    suspend fun questionnaireQuestions(): List<QuestionnaireQuestionDto> = api.questionnaireQuestions()
+    /** Every instrument the picker may offer. `isDefault` names the one an unscoped call lands on. */
+    suspend fun questionnaires(): List<QuestionnaireDto> = api.questionnaires()
 
-    suspend fun questionnaireSections(): List<QuestionnaireSectionDto> = api.questionnaireSections()
+    // questionnaireId is LAST and defaulted on both, so no existing call site has to change and an
+    // un-updated screen keeps getting the default instrument exactly as it did before.
+    suspend fun questionnaireQuestions(questionnaireId: String? = null): List<QuestionnaireQuestionDto> =
+        api.questionnaireQuestions(questionnaireId?.blankToNull())
+
+    suspend fun questionnaireSections(questionnaireId: String? = null): List<QuestionnaireSectionDto> =
+        api.questionnaireSections(questionnaireId?.blankToNull())
 
     suspend fun createQuestionnaireSection(body: QuestionnaireSectionCreateRequest): QuestionnaireSectionDto =
         api.createQuestionnaireSection(body)
@@ -1431,9 +1480,14 @@ class FieldRepository(
      */
     suspend fun completionMatrix(
         artisanId: String? = null,
-        workshopIds: List<String>? = null
+        workshopIds: List<String>? = null,
+        questionnaireId: String? = null
     ): CompletionMatrixDto =
-        api.completionMatrix(artisanId?.blankToNull(), workshopIds.toQueryCsv())
+        api.completionMatrix(
+            artisanId?.blankToNull(),
+            workshopIds.toQueryCsv(),
+            questionnaireId?.blankToNull()
+        )
 
     /** Admin-only: set ([status] = COMPLETED/NEEDS_REVIEW/NEEDS_REDO) or clear ([status] = null) one cell. */
     suspend fun setCompletionCell(artisanId: String, sectionId: String, status: String?) =
@@ -1450,9 +1504,14 @@ class FieldRepository(
      */
     suspend fun consolidatedQuestionnaire(
         artisanId: String,
-        workshopIds: List<String>? = null
+        workshopIds: List<String>? = null,
+        questionnaireId: String? = null
     ): ConsolidatedQuestionnaireDto =
-        api.consolidatedQuestionnaire(artisanId, workshopIds.toQueryCsv())
+        api.consolidatedQuestionnaire(
+            artisanId,
+            workshopIds.toQueryCsv(),
+            questionnaireId?.blankToNull()
+        )
 
     /**
      * Upload a captured/selected file as a single streamed object. The bytes are streamed straight
@@ -2304,6 +2363,22 @@ class FieldRepository(
         "tool" -> CreatedRecord(api.createTool(offlineJson.decodeFromString<ToolCreateRequest>(entry.payloadJson)).id)
         "workshop" -> CreatedRecord(api.createWorkshop(offlineJson.decodeFromString<WorkshopCreateRequest>(entry.payloadJson)).id)
         "craft" -> CreatedRecord(api.createCraft(offlineJson.decodeFromString<CraftCreateRequest>(entry.payloadJson)).id)
+        // THE OUTBOX REPLAYS WHAT WAS CAPTURED, NOT WHAT IS CURRENT - and this branch reads as if
+        // it needs no attention, which is exactly why both halves are written down here.
+        //
+        // 1. A payload queued by THIS build already carries questionnaireId: the capture form sets it
+        //    on the request object before that object is serialised into entry.payloadJson, so an
+        //    interview taken today and replayed next week still files on the instrument the
+        //    researcher was actually looking at. Nobody may "helpfully" strip it on the way out.
+        // 2. A payload queued by an OLDER build carries NOTHING, and must not be guessed at. Do not
+        //    patch a default in here: the handset does not know which instrument was current when the
+        //    researcher sat down, and a guess is precisely the silent mis-filing the container model
+        //    exists to prevent. The server resolves an absent field (the workshop's bound instrument,
+        //    else the default), which is the only honest answer available at this point.
+        //
+        //    That resolution happens AT REPLAY TIME, so an admin must not flip the default until
+        //    every handset's outbox has drained - "the release has rolled out" is not sufficient,
+        //    "the queues are empty" is. The sync screen already reports pending entries.
         "questionnaire" -> CreatedRecord(
             api.createQuestionnaireInterview(
                 offlineJson.decodeFromString<QuestionnaireInterviewCreateRequest>(entry.payloadJson)

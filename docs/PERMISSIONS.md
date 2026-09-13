@@ -122,7 +122,11 @@ gate list; each row names the function in `deps.py` that decides it.
 | **Delete** any record | `assert_can_delete` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
 | Delete **media you uploaded** | route-local | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Grant / decide **workshop access** | `require_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
-| Assign **tasks** to other users | `require_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
+| Assign **tasks** to users below your tier | `require_admin` + `assert_assignable` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
+| Assign a **task to yourself** | `assert_assignable` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
+| Mark your own task **finished** (lands on `SUBMITTED`) | `update_task` assignee branch | own² | own² | own² | own² | own² | own² |
+| **Approve** a submitted task (`SUBMITTED` → `DONE`) | `update_task` manager test | creator³ | creator³ | creator³ | creator³ | ✅ | ✅ |
+| **Override** anyone's task status (mark done / reopen) | `update_task` manager test | creator³ | creator³ | creator³ | creator³ | ✅ | ✅ |
 | Rank the **transcription providers** | `require_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
 | Read / set **API key values** | `require_master_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ✅ |
 | Repository **app settings** | `require_master_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ✅ |
@@ -132,7 +136,20 @@ gate list; each row names the function in `deps.py` that decides it.
 them, via `can_edit_others_record`. On a peer's or a superior's record they are refused like anyone
 else. "grant" = refused by rank, allowed if the matching `can*` column is set.
 
-Two asymmetries in that table are deliberate and easy to misread:
+² "own" = the assignee may move their OWN task between OPEN, IN_PROGRESS and `SUBMITTED` and report
+`progressCount`. They may **not** write `DONE` — a request for it is rewritten to `SUBMITTED` — and
+once a task IS `DONE` they may not move its status at all, because by then it carries somebody
+else's decision. CANCELLED is excluded from all of it: withdrawing an assignment is the creator's or
+the master admin's (`delete_task_batch`), never the assignee's.
+
+³ "creator" = whoever created the task passes `update_task`'s manager test (`createdById == me OR
+is_admin(me)`) whatever their rank, so a demoted admin keeps approving and reopening the rows they
+handed out. Approving and overriding are the SAME code path: an admin marking a never-submitted task
+`DONE` and an admin approving a `SUBMITTED` one write the identical field. An admin who assigned work
+to themselves goes down the manager branch too, so their own "Mark done" lands directly on `DONE` —
+a second click by the same person with the same authority would be theatre, not review.
+
+Several asymmetries in that table are deliberate and easy to misread:
 
 - **An admin cannot edit another admin's record.** `can_edit_others_record` composes
   `has_rank(PROFESSOR)` **and** `can_review_record`, and `can_review_record` requires *strictly*
@@ -141,6 +158,50 @@ Two asymmetries in that table are deliberate and easy to misread:
 - **The review ladder reaches one tier further down than the edit ladder.** A Field Contributor may
   *review* a volunteer's record but may not *rewrite* it — reviewing is a judgement, editing is
   authorship, and `can_edit_others_record` narrows to Professor and above for exactly that reason.
+- **An admin may assign a task to themselves; nobody below them may.** Until 2026-09-14
+  `assert_assignable` refused every self-assignment, master admin included, and the refusal read
+  "You cannot assign a task to yourself". Both creation routes are `require_admin`, so the only
+  accounts that could ever reach that clause on a create were the two it turned away — the rule
+  protected nobody and only stopped an administrator recording their own workload on the board they
+  hold everybody else to. It is now lifted for ADMIN and MASTER_ADMIN and kept for everyone else,
+  and "everyone else" is genuinely reachable: a demoted admin still manages the tasks they created
+  (`update_task`'s manager test is `createdById == me OR is_admin(me)`) and can still send
+  `PATCH /tasks/{id} {"assigneeId": <their own id>}` through the same helper. The visible
+  consequence is that the accountability rollup now contains rows whose "assigned by" and "assigned
+  to" are the same person, and that is deliberate: `GET /tasks/progress` excludes nobody, so an
+  admin's own overdue task is counted in the overdue total exactly like everybody else's.
+- **Finishing a task and approving one are two acts by two people, since 2026-09-14.** An assignee's
+  "Mark done" writes `SUBMITTED`, not `DONE`; `DONE` is what a manager writes when they agree the
+  work happened. The row stays on the assignee's list while it waits (`isOutstanding`) wearing the
+  label "Under review" (`statusLabel`) rather than disappearing, because the owner's "for it to not
+  pop up next time" is a statement about what happens *after* approval. Three consequences are easy
+  to get wrong and are pinned by `tests/test_task_review.py`:
+  - **`SUBMITTED` is deliberately NOT in `LIVE_STATUSES`.** That set is what `is_overdue` reads. Put
+    the review state in it and work handed in on the 1st and approved on the 12th flips to overdue on
+    the 8th — the board would publish the *reviewer's* backlog as the *researcher's* lateness. The
+    new `OUTSTANDING_STATUSES` carries the "still on their screen" meaning instead, and every counter
+    now names which of the two it meant.
+  - **An assignee sending `"DONE"` is rewritten, not refused.** Android updates over the air and
+    researchers are offline for days; a 422 would brick "Mark done" on every build older than this
+    change, out where nobody can fix it. The response carries `status: "SUBMITTED"` back, so even an
+    old client is never left believing its word landed.
+  - **`completedAt` is stamped on submission and never re-stamped on approval.** It therefore still
+    means "when the work was finished", and `completedAt > dueAt` stays a fact about the person who
+    did the work. No column was added; the cost, stated rather than discovered later, is that the
+    moment of *approval* is recorded nowhere (`updatedAt` is bumped by every write and cannot answer
+    it).
+- **Marking a task done and overriding one are the same endpoint and different acts.** There is no
+  separate override route and no `overriddenById` column: an admin PATCHing another person's task to
+  DONE writes exactly what that person's own "Mark done" writes — `status` and `completedAt`, nothing
+  more. Every claim about *who* performed a completion is therefore unsupported by the data, which
+  is why the accountability board's override control says so on screen rather than showing an
+  "overridden by" line it cannot honour after a reload. The one number it does move is
+  `progressCount`: `update_task` fills a quota to its target when the task is finished, so an
+  override on a "0 of 10" row silently makes it read "10 of 10", and the confirmation states both
+  figures before the press. Since the review state that fill happens at the SUBMISSION rather than at
+  the approval, because the submission is the claim and this field is the claim's number — an
+  approver comparing "says 10" against "the repository found 2" needs both present at the moment they
+  are asked to decide.
 - **Building a questionnaire and choosing WHICH questionnaire are two different tiers.** Since
   2026-09-13 there is more than one questionnaire, and the three new rows above split accordingly.
   Creating, renaming, retiring an instrument and editing its sections and questions all stay at

@@ -35,11 +35,37 @@ serial round trips those counts are de-duplicated by scope signature and run con
 small semaphore, and a page larger than :data:`DERIVED_TASK_LIMIT` skips derivation entirely
 (``derivedCount: null``) rather than hammering the connection pool — which this deployment has
 already had to be rescued from once, see ``app.core.db``.
+
+FINISHING IS A CLAIM; APPROVAL IS A DECISION
+--------------------------------------------
+An assignee moving a task to "done" lands on :data:`SUBMITTED`, never on ``DONE``. ``DONE`` is what
+an ADMIN, a MASTER_ADMIN or the task's creator writes when they agree the work happened, and until
+one of them does the task stays on the assignee's screen wearing a different pill ("Under review",
+:data:`STATUS_LABELS`) instead of quietly vanishing. That split exists because the whole point of
+this module is the gap between what somebody says they did and what the repository can see, and a
+status the doer sets alone cannot close that gap — it only records that they think it is closed.
+
+WHICH SET A REVIEW STATE BELONGS IN, AND WHY IT IS NOT :data:`LIVE_STATUSES`. ``LIVE_STATUSES``
+drives ``is_overdue``. Put ``SUBMITTED`` in it and a researcher who submitted a week before the due
+date starts reading as LATE the moment an admin is slow to look — the board would blame the assignee
+for the reviewer's backlog, which is precisely the accusation this board must never make by
+accident. So ``LIVE_STATUSES`` keeps its old meaning ("work the ASSIGNEE still owes") and the new
+:data:`OUTSTANDING_STATUSES` carries the other one ("still on the assignee's screen, by anybody's
+doing"). Every counter now names which of the two it meant.
+
+NO NEW TIMESTAMP COLUMN, AND THE ARGUMENT FOR THAT. ``completedAt`` is stamped when the work is
+FIRST declared finished — the assignee's submission, or an admin's direct mark where there was no
+submission — and approval does NOT re-stamp it. So ``completedAt`` still means what its name always
+meant, "when the work was finished", and ``completedAt > dueAt`` stays a statement about the person
+who did the work rather than a blend of their lateness and the reviewer's. The price is that the
+moment of APPROVAL is not recorded anywhere (``updatedAt`` is bumped by every write and cannot
+answer it) — the same honest limit as "an override leaves no trace of who performed it", stated here
+so no screen claims otherwise.
 """
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -63,15 +89,52 @@ from app.services.questionnaire_instruments import (
     default_questionnaire_id,
     require_questionnaire,
 )
+from app.services.record_filters import artisan_workshop_clause
 from app.services.records import clean_data, public_encode
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
-TASK_STATUSES = {"OPEN", "IN_PROGRESS", "DONE", "CANCELLED"}
-# Statuses that still represent outstanding work — the "open"/"overdue" counters on the rollups.
+# The assignee's "I have finished" — a CLAIM awaiting a decision, not the decision. Named for the
+# act that provably happened (somebody submitted it) rather than for a reviewer who may not exist
+# yet: "IN_REVIEW" would assert that a person is looking at it, which the row cannot support, and
+# "DONE_PENDING_REVIEW" would put the substring DONE into a value that is emphatically not done —
+# one careless `"DONE" in task.status` and an unapproved task counts as finished repository-wide.
+# The word the OWNER uses ("under review") is the assignee-facing LABEL, see STATUS_LABELS.
+SUBMITTED = "SUBMITTED"
+
+TASK_STATUSES = {"OPEN", "IN_PROGRESS", SUBMITTED, "DONE", "CANCELLED"}
+# Fixed key order for every statusCounts map on the wire. A dict built with `.get(status, 0) + 1`
+# grows keys on demand, so a batch nobody has submitted in would ship a map with no SUBMITTED key at
+# all and a client reading `counts.SUBMITTED` would fault on the happy path.
+STATUS_COUNT_KEYS = ("OPEN", "IN_PROGRESS", SUBMITTED, "DONE", "CANCELLED")
+
+# WORK THE ASSIGNEE STILL OWES. Unchanged on purpose: this is the set `is_overdue` consults, and
+# SUBMITTED must stay out of it. A task handed in on the 1st and approved on the 12th would
+# otherwise flip to overdue on the 8th and put the reviewer's delay on the researcher's record.
 LIVE_STATUSES = {"OPEN", "IN_PROGRESS"}
+# WORK THE REVIEWER OWES — the admin's approval queue.
+REVIEW_STATUSES = {SUBMITTED}
+# STILL ON THE ASSIGNEE'S SCREEN, by anybody's doing. The owner's "for it to not pop up next time"
+# read backwards is the requirement: it MUST go on popping up until somebody approves it. This is
+# the set the assignee's list and summary card count, and the set `includeFinished=false` keeps —
+# "unfinished" and "not yet approved" are the same thing to everyone except the overdue clock.
+OUTSTANDING_STATUSES = LIVE_STATUSES | REVIEW_STATUSES
+
+# ONE VOCABULARY FOR THREE CLIENTS. There is no API codegen here: web `lib/types.ts` and Android
+# `ApiModels.kt` are hand-written, and Kotlin's `ignoreUnknownKeys` makes a missed field silent. If
+# each client invented its own pill wording, an assignee on Android and the same assignee on the web
+# would be told different things about the same row. The server says it once.
+STATUS_LABELS = {
+    "OPEN": "To do",
+    "IN_PROGRESS": "In progress",
+    SUBMITTED: "Under review",
+    # "Approved", not "Done": after this change DONE is specifically the state a second person
+    # agreed to, and that agreement is the only new information the pill has to carry.
+    "DONE": "Approved",
+    "CANCELLED": "Cancelled",
+}
 
 INCLUDE = {"assignee": True, "createdBy": True, "workshop": True}
 
@@ -101,6 +164,10 @@ DERIVED_CONCURRENCY = 8
 # batch, with per-member detail" in one call), so the window has to be explicitly bounded.
 ROLLUP_SCAN_LIMIT = 2000
 
+# "Due soon" on the assignee's summary card. Two days is one fieldwork day plus the evening to
+# notice — short enough to mean something, long enough that a warning is still actionable.
+DUE_SOON_HOURS = 48
+
 
 # ---------------------------------------------------------------------------------------------
 # Validation helpers
@@ -123,16 +190,50 @@ def assert_status_value(value: str) -> None:
 
 
 async def assert_assignable(assigner: Any, assignee_id: str) -> Any:
-    """The assignee must exist and rank strictly below the assigner — except the master admin,
-    who may assign work to anyone but themselves."""
+    """The assignee must exist and rank strictly below the assigner — except the master admin, who
+    may assign work to anyone, and an ADMIN or MASTER_ADMIN assigning to THEMSELVES, which is
+    allowed outright (see the argument at the self-assignment clause below)."""
     assignee = await db.user.find_unique(where={"id": assignee_id})
     if not assignee:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignee not found")
     if assignee.id == get_value(assigner, "id"):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="You cannot assign a task to yourself",
-        )
+        # SELF-ASSIGNMENT — REFUSED FOR EVERYONE UNTIL 2026-09-14, NOW ALLOWED FOR ADMINS.
+        #
+        # WHY THE BAN EXISTED AT ALL. The tier rule below cannot express "yourself": role_rank(me)
+        # >= role_rank(me) is true by definition, so without this clause a self-assignment fell
+        # through and was refused with "You can only assign tasks to users below your own tier" —
+        # a sentence that is nonsense said to somebody about themselves, and one that would have
+        # read to a master admin as a tier problem they had no way to fix. Catching the case here
+        # bought one honest error message. That is the whole of what it ever bought.
+        #
+        # WHY LIFTING IT FOR ADMIN AND MASTER_ADMIN IS SAFE, AND WHY IT IS NOT A WIDENING. Both
+        # creation routes are Depends(require_admin) — create_task (:766) and create_task_batch
+        # (:790) — so the ONLY accounts that can reach this clause while creating a task are
+        # already ADMIN or MASTER_ADMIN. The clause therefore never protected a lower tier from
+        # anything; it only stopped an administrator recording their own workload on the same board
+        # they hold everybody else to, which is exactly the thing the owner asked for.
+        #
+        # THE 422 IS KEPT FOR EVERYONE ELSE, AND IT IS REACHABLE. update_task's manager test is
+        # `task.createdById == current_user.id or is_admin(current_user)` (:1188), so a demoted
+        # admin still manages the tasks they created and can still send
+        # PATCH /tasks/{id} {"assigneeId": "<their own id>"} through this helper (:1191). For them
+        # nothing changes: they may hand their old task to somebody below them, and they may not
+        # quietly move it onto themselves now that they are no longer entitled to assign work.
+        #
+        # THE COST, STATED RATHER THAN DISCOVERED LATER. The accountability board now contains rows
+        # whose "assigned by" and "assigned to" are the same person: GET /tasks/progress groups by
+        # assignee and excludes nobody, so a self-assigning admin appears in their own rollup beside
+        # the people they assigned, and one row is returned by BOTH view=created and view=assigned.
+        # That is the honest rendering of "I owe this work too" and must not be filtered out —
+        # hiding an admin's own overdue task from the overdue count is the failure this board exists
+        # to prevent, merely committed by the person running it.
+        if not is_admin(assigner):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="You cannot assign a task to yourself",
+            )
+        # Return BEFORE the tier rule, which would otherwise refuse what was just allowed.
+        return assignee
     if not is_master_admin(assigner) and role_rank(assignee) >= role_rank(assigner):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -397,16 +498,41 @@ async def _count_records(
     return 0
 
 
+async def _count_workshop_artisans(workshop_id: str) -> int:
+    """How many artisans a workshop actually has — the denominator for "sections for EVERYONE".
+
+    Uses the shared ``artisan_workshop_clause`` rather than a bare ``workshopId ==`` test,
+    because an artisan reaches a workshop three ways (the column, the WorkshopArtisan roster, and
+    having sat in an interview taken there) and this repository's single most repeated defect is a
+    scope that reads those three one way on one screen and another way on the next. The View Data
+    completion matrix counts its rows with this exact predicate (the ``artisan_workshop_clause``
+    call in routes/questionnaire.py), so "12 artisans" on the matrix and "of 12 artisans" on a task
+    cannot disagree.
+    """
+    return await db.artisan.count(where=artisan_workshop_clause([workshop_id], False))
+
+
 async def _count_sections(
     assignee_id: str, workshop_id: str | None, artisan_ids: list[str], section_ids: list[str]
-) -> int:
-    """Questionnaire coverage this assignee has actually produced.
+) -> tuple[int, int, int]:
+    """Questionnaire coverage this assignee has actually produced, in all three readings at once:
+    ``(pairs, sections, unlinked)``.
 
-    The unit deliberately follows how the task was scoped, so the number stays comparable to a
-    target:
-      - artisans named -> distinct (artisan, section) PAIRS answered; target = artisans x sections
-      - "all artisans" -> distinct SECTIONS answered; target = sections (there is no honest
-        denominator for "everyone", so counting pairs would be a percentage of nothing)
+      - ``pairs``    - distinct (artisan, section) ANSWERED pairs. The unit that grows as the same
+                       sections are covered for more and more artisans.
+      - ``sections`` - distinct sections answered at all, for anybody. Saturates at the section
+                       count after the FIRST artisan.
+      - ``unlinked`` - sections whose only answers sit on an interview with no artisan attached, so
+                       they can contribute to ``sections`` but never to ``pairs``.
+
+    ALL THREE ARE RETURNED AND THE CALLER PICKS, because the honest unit depends on which
+    denominator actually exists - see ``_section_target``. This used to return one number, chosen
+    here, with the argument that "all artisans" has no honest denominator so pairs would be a
+    percentage of nothing. That argument was right about a task with no workshop and wrong about
+    the normal case: a workshop HAS a roster, so ``sections x roster`` is a real denominator and
+    the pair count is the thing that climbs as the researcher works through the artisans. Deciding
+    it here meant the caller could not use the roster it had already counted.
+
     Only non-empty answers written BY this assignee count: a section somebody else filled in is
     their progress, not this person's.
     """
@@ -424,31 +550,78 @@ async def _count_sections(
     scope = set(artisan_ids)
     pairs: set[tuple[str, str]] = set()
     plain_sections: set[str] = set()
+    unlinked: set[str] = set()
     for response in responses:
         if is_empty_value(response.answerText):
             continue
         section_id = get_value(response.question, "sectionId")
         if not section_id or section_id not in section_ids:
             continue
-        if not scope:
-            plain_sections.add(section_id)
+        plain_sections.add(section_id)
+        links = get_value(response.interview, "artisans") or []
+        if not links:
+            # An answer that names no artisan cannot say any artisan's section is covered. Counted
+            # separately rather than dropped, so a task sitting at 0% because its interviews were
+            # never linked to anybody can SAY that, instead of looking like work never done - the
+            # same shortfall the completion matrix reports as ``unassignedInterviews``.
+            unlinked.add(section_id)
             continue
-        for link in get_value(response.interview, "artisans") or []:
-            if link.artisanId in scope:
+        for link in links:
+            if not scope or link.artisanId in scope:
                 pairs.add((link.artisanId, section_id))
-    return len(pairs) if scope else len(plain_sections)
+    return len(pairs), len(plain_sections), len(unlinked)
 
 
-def _derived_target(task: Any) -> int | None:
+def _section_target(task: Any, roster: int | None = None) -> int:
+    """The denominator for the questionnaire half of a task, and the unit it is counted in.
+
+      - artisans NAMED                              -> sections x named artisans (PAIRS)
+      - "every artisan", workshop roster known      -> sections x roster         (PAIRS)
+      - "every artisan", no workshop / empty roster -> sections                  (SECTIONS)
+
+    THE MIDDLE ROW IS THE OWNER'S ACTUAL REQUEST. "Sections covered for all artisans should progress
+    automatically as they record for more and more artisans": under the old denominator it could
+    not, and not because derivation was missing - because the target was ``len(sections)`` while the
+    count was "sections answered for ANYBODY", so a researcher who finished both sections for ONE
+    artisan out of forty read 2 of 2, 100%, done. Every subsequent artisan moved the bar by zero.
+
+    THE DENOMINATOR CAN GROW, SO THE PERCENTAGE CAN FALL. Adding an artisan to the workshop adds
+    ``len(sections)`` to the target, and a task showing 100% drops the moment the roster does. That
+    is the correct reading of "for all artisans" - more artisans IS more work - and it is why the
+    roster is counted live rather than frozen onto the row at assignment time, where it would go
+    stale the first time somebody was added and never be noticed again.
+    """
+    sections = len(task.sectionIds or [])
+    if not sections:
+        return 0
+    named = len(task.artisanIds or [])
+    if named:
+        return sections * named
+    if roster and roster > 0:
+        return sections * roster
+    return sections
+
+
+def _derived_target(task: Any, roster: int | None = None) -> int | None:
     """The denominator ``derivedCount`` should be read against, or ``None`` when the scope has no
-    honest one (record types with no ``targetCount`` means "as many as apply")."""
+    honest one (record types with no ``targetCount`` means "as many as apply").
+
+    ``roster`` defaults to None so this stays a PURE function, usable as the fallback in
+    ``serialize_task`` when derivation did not run; ``derive_progress`` passes the live roster it
+    has already counted. With ``roster=None`` it returns exactly what it always returned.
+
+    A MIXED TASK WITH AN OPEN-ENDED RECORD HALF STILL RETURNS None, deliberately. "Record products
+    (as many as apply) + sections C and D" has an honest denominator for one half and none for the
+    other; adding them would present ``sections_done / sections_target`` as though it described the
+    whole task. The section half stays visible on ``derivedBreakdown``, which is where a UI should
+    read it - it is the single PERCENTAGE that has to stay silent, not the numbers behind it.
+    """
     total = 0
     if task.recordTypes:
         if not task.targetCount:
             return None
         total += task.targetCount
-    if task.sectionIds:
-        total += len(task.sectionIds) * max(1, len(task.artisanIds or []))
+    total += _section_target(task, roster)
     return total or None
 
 
@@ -464,6 +637,24 @@ def _section_key(task: Any, artisan_key: tuple) -> tuple:
     # the neighbouring code-keyed maps in routes/questionnaire.py DID have to change, and the next
     # reader will arrive here looking for the same bug.
     return ("sections", task.assigneeId, task.workshopId, artisan_key, tuple(sorted(task.sectionIds)))
+
+
+def _roster_key(task: Any) -> tuple:
+    """One COUNT per WORKSHOP on the page, shared by every task that needs it.
+
+    The roster is a property of the workshop alone - not of the assignee, the sections or the
+    record types - so a batch handed to eight researchers at one workshop asks for it ONCE. That is
+    the whole cost of the automatic "for all artisans" denominator: one extra count per distinct
+    workshop, not one per task, which keeps this inside the budget the module docstring sets.
+    """
+    return ("roster", task.workshopId)
+
+
+def _needs_roster(task: Any) -> bool:
+    """A questionnaire task scoped to EVERY artisan at a known workshop - the only shape whose
+    denominator has to be looked up. Named artisans carry their own denominator, and a task with no
+    workshop has no roster to ask about."""
+    return bool(task.sectionIds) and not (task.artisanIds or []) and bool(task.workshopId)
 
 
 async def derive_progress(tasks: list[Any]) -> dict[str, dict[str, Any]]:
@@ -486,20 +677,24 @@ async def derive_progress(tasks: list[Any]) -> dict[str, dict[str, Any]]:
                 jobs[_record_key(task, kind, artisan_key)] = None
         if task.sectionIds:
             jobs[_section_key(task, artisan_key)] = None
+            if _needs_roster(task):
+                jobs[_roster_key(task)] = None
     if not jobs:
         return {}
 
     semaphore = asyncio.Semaphore(DERIVED_CONCURRENCY)
 
-    async def run(key: tuple) -> int:
+    async def run(key: tuple) -> Any:
         async with semaphore:
             if key[0] == "record":
                 return await _count_records(key[1], key[2], key[3], list(key[4]))
+            if key[0] == "roster":
+                return await _count_workshop_artisans(key[1])
             return await _count_sections(key[1], key[2], list(key[3]), list(key[4]))
 
     keys = list(jobs)
     results = await asyncio.gather(*(run(key) for key in keys), return_exceptions=True)
-    counts: dict[tuple, int | None] = {}
+    counts: dict[tuple, Any] = {}
     for key, result in zip(keys, results, strict=True):
         if isinstance(result, BaseException):
             logger.warning("Derived task progress failed for %s: %s", key, result)
@@ -511,7 +706,19 @@ async def derive_progress(tasks: list[Any]) -> dict[str, dict[str, Any]]:
     for task in tasks:
         artisan_key = tuple(sorted(task.artisanIds or []))
         breakdown: dict[str, int] = {}
-        total: int | None = 0
+        roster: int | None = None
+
+        # A TASK WITH NO MEASURABLE SCOPE DERIVES None, NEVER 0 - AND THAT USED TO DEPEND ON ITS
+        # NEIGHBOURS. "Food + collect TA details" has no recordTypes and no sectionIds, so it
+        # contributes no job; the early return above then gave it `derivedCount: null` when it was
+        # ALONE on the page, but this loop fell straight through to `total = 0` and shipped
+        # `derivedCount: 0` the moment any OTHER task on the same page had a scope. Same row, two
+        # different answers, decided by pagination - and the 0 reads on screen as "this person has
+        # produced nothing", which is a specific accusation about a task the database cannot
+        # measure at all. Seeded from the scope instead, so the answer is a property of the row.
+        measurable = bool(task.recordTypes) or bool(task.sectionIds)
+        total: int | None = 0 if measurable else None
+
         for kind in task.recordTypes or []:
             if kind not in RECORD_TYPES:
                 continue
@@ -524,16 +731,35 @@ async def derive_progress(tasks: list[Any]) -> dict[str, dict[str, Any]]:
                 total += value
         if task.sectionIds:
             value = counts.get(_section_key(task, artisan_key))
-            if value is None:
+            if _needs_roster(task):
+                roster = counts.get(_roster_key(task))
+            if not isinstance(value, tuple):
                 total = None
             else:
-                breakdown["sections"] = value
+                pairs, plain, unlinked = value
+                # WHICH UNIT, decided here because only here are both the coverage numbers and the
+                # roster in hand. Pairs whenever a real denominator of artisans exists (named, or
+                # the workshop's own roster); bare sections only when there is nothing to divide by,
+                # which is the pre-existing behaviour kept for workshop-less tasks rather than
+                # replaced. `_section_target` makes exactly the same choice, and the two MUST agree
+                # or the numerator and denominator are counting different things.
+                uses_pairs = bool(task.artisanIds) or bool(roster and roster > 0)
+                covered = pairs if uses_pairs else plain
+                breakdown["sections"] = covered
+                if uses_pairs and unlinked:
+                    # Answers that name no artisan. They cannot raise `pairs`, so without this the
+                    # difference between "nobody has started" and "the interviews were never linked
+                    # to an artisan" is invisible on a stuck 0%.
+                    breakdown["unlinkedSections"] = unlinked
                 if total is not None:
-                    total += value
+                    total += covered
         derived[task.id] = {
             "derivedCount": total,
-            "derivedTarget": _derived_target(task),
+            "derivedTarget": _derived_target(task, roster),
             "derivedBreakdown": breakdown,
+            # The roster this task's denominator was built from, echoed so a UI can say "6 of 24
+            # (2 sections x 12 artisans)" rather than presenting a number nobody can reconstruct.
+            "derivedArtisanCount": roster,
         }
     return derived
 
@@ -545,9 +771,15 @@ async def derive_progress(tasks: list[Any]) -> dict[str, dict[str, Any]]:
 
 def progress_percent(task: Any) -> int | None:
     """Self-reported completion, 0-100. ``None`` when the task is open-ended (no ``targetCount``)
-    and unfinished — inventing a number there would be a lie the accountability view then acts on."""
+    and unfinished — inventing a number there would be a lie the accountability view then acts on.
+
+    SUBMITTED reads 100 here for the same reason DONE does: this function is the REPORTED half of
+    the pair, and a submission is precisely a report that the work is finished. Whether it actually
+    is finished is ``derivedPercent``'s question, and the two sitting side by side at "100% claimed,
+    25% found" is the single most useful thing an approver can be shown.
+    """
     task_status = get_value(task, "status")
-    if task_status == "DONE":
+    if task_status in {"DONE", SUBMITTED}:
         return 100
     if task_status == "CANCELLED":
         return 0
@@ -556,6 +788,92 @@ def progress_percent(task: Any) -> int | None:
         reported = min(get_value(task, "progressCount") or 0, target)
         return min(100, round(100 * reported / target))
     return None
+
+
+def derived_percent(numbers: dict[str, Any]) -> int | None:
+    """Data-backed completion, 0-100, or ``None`` when either half of the fraction is unknown."""
+    count = numbers.get("derivedCount")
+    target = numbers.get("derivedTarget")
+    if count is None or not target:
+        return None
+    return min(100, round(100 * min(count, target) / target))
+
+
+def _progress_unit(task: Any, numbers: dict[str, Any]) -> str:
+    """The noun the derived numbers are counted in, so a label can say what it is measuring."""
+    breakdown = numbers.get("derivedBreakdown") or {}
+    has_sections = "sections" in breakdown
+    kinds = [key for key in breakdown if key in RECORD_TYPES]
+    if has_sections and not kinds:
+        # Pairs or bare sections — `_section_target` made this choice and the label must echo it,
+        # or "6 of 24 sections" reads as a questionnaire with 24 sections in it.
+        per_artisan = bool(task.artisanIds) or bool(numbers.get("derivedArtisanCount"))
+        return "artisan sections" if per_artisan else "sections"
+    if kinds and not has_sections:
+        if len(kinds) == 1:
+            return RECORD_TYPE_LABELS[kinds[0]][1]
+        return "records"
+    return "items"
+
+
+def effective_progress(task: Any, numbers: dict[str, Any]) -> dict[str, Any]:
+    """THE ONE NUMBER A PROGRESS BAR SHOULD BE DRAWN FROM, plus where it came from and what to
+    write under it.
+
+    ``percentComplete`` stays exactly what it was (self-reported) because the accountability board
+    already renders it against ``derivedCount`` and silently changing its meaning would rewrite that
+    comparison into a comparison of a thing with itself. This is additive: three new fields that say
+    which measure is authoritative for THIS row, so the assignee's card and the admin's board do not
+    each have to re-derive the precedence and drift apart.
+
+    PRECEDENCE, and the argument for each step:
+      1. DONE -> 100. Somebody with authority agreed. Nothing measured outranks that.
+      2. CANCELLED -> 0. The work was withdrawn; it is not 100% of anything.
+      3. A DERIVED fraction, whenever both halves are known. This is the owner's "should progress
+         automatically as they record for more and more artisans" - no number typed by anyone.
+      4. Otherwise the REPORTED fraction, when a quota exists to divide by.
+      5. SUBMITTED with nothing measurable -> 100. The assignee declares it finished and the
+         database has no way to contradict them; showing their handed-in task at 0% would be the
+         system calling them a liar on no evidence.
+      6. Otherwise None. "Food + collect TA details" has no measurable scope and no quota, and a bar
+         at 0% would read as "nothing done" rather than "nothing countable". The UI MUST render the
+         state pill here and no bar - a fake 0% is the defect this branch exists to prevent.
+    """
+    task_status = get_value(task, "status")
+    if task_status == "DONE":
+        return {"percent": 100, "source": "status", "label": STATUS_LABELS["DONE"]}
+    if task_status == "CANCELLED":
+        return {"percent": 0, "source": "status", "label": "Withdrawn"}
+
+    count = numbers.get("derivedCount")
+    target = numbers.get("derivedTarget")
+    percent = derived_percent(numbers)
+    if percent is not None:
+        return {
+            "percent": percent,
+            "source": "derived",
+            "label": f"{count} of {target} {_progress_unit(task, numbers)} recorded",
+        }
+    if count is not None and count > 0 and not target:
+        # Open-ended and moving: a count with no honest denominator. No percentage, but the number
+        # itself is real and hiding it would waste the only measurement there is.
+        return {
+            "percent": None,
+            "source": "derived",
+            "label": f"{count} {_progress_unit(task, numbers)} recorded",
+        }
+
+    quota = get_value(task, "targetCount")
+    if quota:
+        reported = min(get_value(task, "progressCount") or 0, quota)
+        return {
+            "percent": min(100, round(100 * reported / quota)),
+            "source": "reported",
+            "label": f"{reported} of {quota} reported",
+        }
+    if task_status == SUBMITTED:
+        return {"percent": 100, "source": "status", "label": "Handed in, awaiting approval"}
+    return {"percent": None, "source": None, "label": "No measurable target"}
 
 
 def is_overdue(task: Any) -> bool:
@@ -650,6 +968,29 @@ def serialize_task(
     payload["derivedCount"] = numbers.get("derivedCount")
     payload["derivedTarget"] = numbers.get("derivedTarget", _derived_target(task))
     payload["derivedBreakdown"] = numbers.get("derivedBreakdown", {})
+    payload["derivedArtisanCount"] = numbers.get("derivedArtisanCount")
+    payload["derivedPercent"] = derived_percent(
+        {
+            "derivedCount": payload["derivedCount"],
+            "derivedTarget": payload["derivedTarget"],
+        }
+    )
+
+    # THE REVIEW STATE, SAID IN WORDS AND IN BOOLEANS. Three hand-written clients read this payload
+    # and none of them is generated from it, so every one of them comparing `status == "SUBMITTED"`
+    # for itself is three chances to miss the new value in silence — on Android especially, where
+    # `ignoreUnknownKeys` turns a miss into a wrong screen rather than a crash.
+    task_status = get_value(task, "status")
+    payload["statusLabel"] = STATUS_LABELS.get(task_status, task_status)
+    payload["isAwaitingReview"] = task_status == SUBMITTED
+    # "Still on my list" — the owner's "it should keep popping up until it is approved", as one
+    # boolean the client filters on instead of re-deriving the status set.
+    payload["isOutstanding"] = task_status in OUTSTANDING_STATUSES
+
+    effective = effective_progress(task, numbers)
+    payload["effectivePercent"] = effective["percent"]
+    payload["progressSource"] = effective["source"]
+    payload["progressLabel"] = effective["label"]
     return payload
 
 
@@ -667,7 +1008,7 @@ def batch_summary(tasks: list[Any], serialized: list[dict[str, Any]]) -> dict[st
     """
     head = tasks[0]
     head_payload = serialized[0]
-    counts = dict.fromkeys(("OPEN", "IN_PROGRESS", "DONE", "CANCELLED"), 0)
+    counts = dict.fromkeys(STATUS_COUNT_KEYS, 0)
     for task in tasks:
         counts[task.status] = counts.get(task.status, 0) + 1
 
@@ -679,6 +1020,10 @@ def batch_summary(tasks: list[Any], serialized: list[dict[str, Any]]) -> dict[st
         numerator = sum(min(task.progressCount or 0, target) for task in tasks)
     else:
         denominator = len(tasks)
+        # APPROVED ONLY. A submission is a request, not a completion, and counting it here would
+        # make a batch read "5 of 5 done" while nobody had looked at any of it — which is the exact
+        # illusion the review state was added to remove. What the submissions deserve is their own
+        # number beside this one, so a UI can draw the awaiting slice rather than absorb it.
         numerator = counts["DONE"]
 
     derived_values = [item.get("derivedCount") for item in serialized]
@@ -704,6 +1049,10 @@ def batch_summary(tasks: list[Any], serialized: list[dict[str, Any]]) -> dict[st
         "statusCounts": counts,
         "doneCount": counts["DONE"],
         "openCount": counts["OPEN"] + counts["IN_PROGRESS"],
+        # Waiting on the REVIEWER, not on the assignee. Kept out of `openCount` so the admin's
+        # "who is behind" ordering does not chase people who have already handed their work in.
+        "awaitingReviewCount": counts[SUBMITTED],
+        "outstandingCount": sum(counts[key] for key in OUTSTANDING_STATUSES),
         "overdueCount": sum(1 for item in serialized if item.get("isOverdue")),
         "reportedTotal": sum(task.progressCount or 0 for task in tasks),
         "derivedTotal": sum(known) if known else None,
@@ -713,9 +1062,15 @@ def batch_summary(tasks: list[Any], serialized: list[dict[str, Any]]) -> dict[st
                 "taskId": task.id,
                 "user": user_brief(get_value(task, "assignee")),
                 "status": task.status,
+                "statusLabel": item.get("statusLabel"),
+                "isAwaitingReview": item.get("isAwaitingReview"),
                 "progressCount": task.progressCount or 0,
                 "derivedCount": item.get("derivedCount"),
                 "percentComplete": item.get("percentComplete"),
+                "effectivePercent": item.get("effectivePercent"),
+                # On a SUBMITTED row this is WHEN IT WAS HANDED IN; on a DONE row it is when the
+                # work was finished, which for an approved task is still the submission. It is
+                # not re-stamped — see the module docstring on why no second column was added.
                 "completedAt": public_encode(task.completedAt),
             }
             for task, item in zip(tasks, serialized, strict=True)
@@ -820,6 +1175,7 @@ async def list_tasks(
     current_user: Any = Depends(get_current_user),
     view: str = Query("assigned"),
     statusFilter: str | None = Query(None, alias="status"),
+    outstanding: bool = Query(False),
     workshopId: str | None = Query(None),
     assigneeId: str | None = Query(None),
     batchId: str | None = Query(None),
@@ -833,6 +1189,13 @@ async def list_tasks(
     Every item carries its resolved workshop title, artisan names and section codes/titles plus
     both the reported and the derived progress, so a task board renders from this one call. Pass
     ``withDerived=false`` to skip the data-backed counts when only the list itself is needed.
+
+    ``outstanding=true`` IS NOT A CONVENIENCE. It is the only correct way to ask for "the tasks
+    still on my screen", because that is THREE statuses now (OPEN, IN_PROGRESS and SUBMITTED) and
+    ``status`` takes one. Filtering the three out of an unfiltered page in the client is wrong in a
+    way that hides itself: the page is twenty rows deep, so a researcher with twenty-one tasks gets
+    a list that silently omits outstanding work — and under-reporting outstanding work is the single
+    failure this whole feature exists to prevent.
     """
     if view not in VIEWS:
         raise HTTPException(
@@ -850,9 +1213,18 @@ async def list_tasks(
             where["createdById"] = current_user.id
         if assigneeId:
             where["assigneeId"] = assigneeId
+    if statusFilter and outstanding:
+        # Refused rather than silently resolved. Either order of precedence would be a guess, and
+        # a caller asking `status=DONE&outstanding=true` has a bug a quiet answer would hide.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Pass either status or outstanding=true, not both",
+        )
     if statusFilter:
         assert_status_value(statusFilter)
         where["status"] = statusFilter
+    elif outstanding:
+        where["status"] = {"in": sorted(OUTSTANDING_STATUSES)}
     if workshopId:
         where["workshopId"] = workshopId
     if batchId:
@@ -966,7 +1338,9 @@ async def task_progress(
     if assigneeId:
         where["assigneeId"] = assigneeId
     if not includeFinished:
-        where["status"] = {"in": sorted(LIVE_STATUSES)}
+        # OUTSTANDING, not LIVE. "Hide the finished ones" must not hide the ones waiting on the
+        # admin reading this very screen — a submitted task is the opposite of finished business.
+        where["status"] = {"in": sorted(OUTSTANDING_STATUSES)}
 
     rows = await db.assignedtask.find_many(
         where=where, include=INCLUDE, take=ROLLUP_SCAN_LIMIT, order={"createdAt": "desc"}
@@ -980,7 +1354,7 @@ async def task_progress(
     assignees: list[dict[str, Any]] = []
     for tasks in by_user.values():
         items = [serialized[task.id] for task in tasks]
-        counts = dict.fromkeys(("OPEN", "IN_PROGRESS", "DONE", "CANCELLED"), 0)
+        counts = dict.fromkeys(STATUS_COUNT_KEYS, 0)
         for task in tasks:
             counts[task.status] = counts.get(task.status, 0) + 1
         target_total = sum(task.targetCount or 0 for task in tasks)
@@ -1002,6 +1376,8 @@ async def task_progress(
                 "taskCount": len(tasks),
                 "statusCounts": counts,
                 "openCount": counts["OPEN"] + counts["IN_PROGRESS"],
+                "awaitingReviewCount": counts[SUBMITTED],
+                "outstandingCount": sum(counts[key] for key in OUTSTANDING_STATUSES),
                 "overdueCount": sum(1 for item in items if item.get("isOverdue")),
                 "targetTotal": target_total or None,
                 "reportedTotal": reported_total,
@@ -1022,6 +1398,10 @@ async def task_progress(
         "taskCount": len(rows),
         "doneCount": sum(1 for task in rows if task.status == "DONE"),
         "openCount": sum(1 for task in rows if task.status in LIVE_STATUSES),
+        # THE ADMIN'S OWN QUEUE. Every one of these is a researcher waiting on a decision from
+        # whoever is looking at this board, which is the one number on it that is about the reader.
+        "awaitingReviewCount": sum(1 for task in rows if task.status in REVIEW_STATUSES),
+        "outstandingCount": sum(1 for task in rows if task.status in OUTSTANDING_STATUSES),
         "overdueCount": sum(1 for item in serialized.values() if item.get("isOverdue")),
         # True when the scan window was hit, so the UI can say "narrow this down" instead of
         # quietly presenting a partial rollup as the whole truth.
@@ -1101,6 +1481,112 @@ async def task_options(
     }
 
 
+@router.get("/summary")
+async def my_task_summary(
+    current_user: Any = Depends(get_current_user),
+    workshopId: str | None = Query(None),
+) -> dict[str, Any]:
+    """MY workload in one object — what the full-width card at the top of the assignee's screen is
+    drawn from. Always about the caller; there is no ``assigneeId`` to point it elsewhere.
+
+    WHY THIS IS NOT A FIELD ON ``GET /tasks?view=assigned``. That endpoint is PAGED. A card saying
+    "4 tasks remaining" computed from a page of twenty is wrong for anyone with twenty-one tasks,
+    and wrong in the direction that matters: it under-reports outstanding work, which is the one
+    number the card exists to make impossible to miss. This scans the caller's whole (bounded) list
+    and says ``truncated`` when it could not.
+
+    WHY IT IS NOT ``GET /tasks/progress``. That route is ``require_admin`` and rolls up EVERYBODY.
+    A researcher cannot call it and must not be able to — their own summary is not an accountability
+    board, and handing them one to read their own line off would hand them everyone else's too.
+
+    THE BUDGET. One ``find_many`` plus whatever ``derive_progress`` needs, and ``derive_progress``
+    already declines above :data:`DERIVED_TASK_LIMIT` rows (``derivedCount: null``), which this
+    reports as ``derivationSkipped`` instead of silently showing a self-reported bar labelled as
+    measured. No per-task round trips are added here.
+    """
+    where: dict[str, Any] = {"assigneeId": current_user.id}
+    if workshopId:
+        where["workshopId"] = workshopId
+    rows = await db.assignedtask.find_many(
+        where=where, take=ROLLUP_SCAN_LIMIT, order=[{"dueAt": "asc"}, {"createdAt": "desc"}]
+    )
+    derived = await derive_progress(rows)
+
+    now = datetime.now(UTC)
+    soon = now + timedelta(hours=DUE_SOON_HOURS)
+    counts = dict.fromkeys(STATUS_COUNT_KEYS, 0)
+    percents: list[int] = []
+    measured = 0
+    overdue = 0
+    due_soon = 0
+    next_due: datetime | None = None
+
+    for task in rows:
+        counts[task.status] = counts.get(task.status, 0) + 1
+        if task.status == "CANCELLED":
+            # A withdrawn assignment is not work. Leaving it in the denominator would let an admin
+            # tidying up their own mis-assignments quietly drag somebody's bar down.
+            continue
+
+        numbers = derived.get(task.id) or {}
+        effective = effective_progress(task, numbers)
+        if effective["percent"] is None:
+            # UNMEASURABLE, NOT ZERO — but a card that averages percentages needs a number for
+            # every task or the bar silently describes a subset. The status is the honest stand-in:
+            # handed in or approved reads 100, anything else reads 0. `measuredCount` says how many
+            # of the figures behind the bar were actually counted from the repository, so the card
+            # can caption it instead of implying the whole thing was derived.
+            percents.append(100 if task.status in {"DONE", SUBMITTED} else 0)
+        else:
+            percents.append(effective["percent"])
+            if effective["source"] == "derived":
+                measured += 1
+
+        if is_overdue(task):
+            overdue += 1
+            continue
+        if task.status not in OUTSTANDING_STATUSES or not task.dueAt:
+            continue
+        # DUE SOON AND NEXT DUE ARE BOTH ABOUT WORK THAT IS STILL COMING. An already-overdue task is
+        # counted once, by `overdueCount`, and deliberately kept out of `nextDueAt` — a card whose
+        # "next due" is a date in the past is reporting the same emergency twice under two headings
+        # while hiding the genuine next deadline behind it.
+        due = task.dueAt if task.dueAt.tzinfo else task.dueAt.replace(tzinfo=UTC)
+        if due <= soon:
+            due_soon += 1
+        if next_due is None or due < next_due:
+            next_due = due
+
+    return {
+        "assignee": user_brief(current_user),
+        "workshopId": workshopId,
+        "taskCount": len(rows),
+        "statusCounts": counts,
+        # REMAINING = what is still on YOU. The number the card leads with, and the reason
+        # SUBMITTED is not in it: a researcher who has handed everything in has nothing left to do,
+        # and telling them they still have four tasks would be telling them to redo them.
+        "remainingCount": counts["OPEN"] + counts["IN_PROGRESS"],
+        # AWAITING REVIEW = handed in, not yet agreed. Still on the screen (the owner's "it should
+        # not disappear until approved") but visibly not "to do".
+        "awaitingReviewCount": counts[SUBMITTED],
+        # Everything that has not been approved yet — remaining + awaiting review. This is the count
+        # of cards the assignee will actually see in their list.
+        "outstandingCount": sum(counts[key] for key in OUTSTANDING_STATUSES),
+        "approvedCount": counts["DONE"],
+        "cancelledCount": counts["CANCELLED"],
+        "overdueCount": overdue,
+        "dueSoonCount": due_soon,
+        "nextDueAt": public_encode(next_due),
+        "percentComplete": round(sum(percents) / len(percents)) if percents else 0,
+        # How many of the tasks behind that percentage were MEASURED from the repository rather
+        # than inferred from a status or a typed figure. A card claiming automatic progress has to
+        # be able to say how much of it was automatic.
+        "measuredCount": measured,
+        "derivationSkipped": len(rows) > DERIVED_TASK_LIMIT,
+        "truncated": len(rows) >= ROLLUP_SCAN_LIMIT,
+    }
+
+
 @router.get("/{task_id}")
 async def get_task(task_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     """One task, enriched exactly like a list item. Visible to the assignee, the creator and admins."""
@@ -1129,8 +1615,14 @@ async def update_task(
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     """The creator or an admin may edit everything (scope, CANCELLED, reassignment included); the
-    assignee may only move the status between OPEN, IN_PROGRESS and DONE, and report
-    ``progressCount``."""
+    assignee may only move the status between OPEN, IN_PROGRESS and SUBMITTED, and report
+    ``progressCount``.
+
+    ``DONE`` IS NOT THE ASSIGNEE'S TO WRITE. Their "Mark done" lands on :data:`SUBMITTED`; the
+    manager test below is what turns that into ``DONE``. The admin override is untouched by this —
+    it goes down the manager branch exactly as it did, which is why marking somebody else's task
+    done still works in one PATCH with no new route and no new permission.
+    """
     task = await require_task(task_id)
     data = payload.model_dump(exclude_unset=True)
     # Explicit nulls only make sense for the nullable/clearable columns (description, dueAt,
@@ -1169,6 +1661,32 @@ async def update_task(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only the task creator or an admin can cancel a task",
             )
+        if task.status == "DONE" and new_status is not None:
+            # AN APPROVAL IS SOMEBODY ELSE'S DECISION AND THE ASSIGNEE MAY NOT UNDO IT. Before the
+            # review state this was harmless — DONE was the assignee's own declaration, so letting
+            # them take it back was letting them correct themselves. Now DONE means "an admin
+            # agreed", and without this clause the person whose work was approved could PATCH it
+            # straight back to IN_PROGRESS and erase the approval (`completedAt` cleared with it),
+            # which makes the whole approval step decorative. Reopening is the manager's, the same
+            # way approving is.
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the task creator or an admin can reopen an approved task",
+            )
+        if new_status == "DONE":
+            # THE OWNER'S RULE: "the admin/master admin need to approve the work as done when the
+            # researcher has marked it as done". Rewritten rather than REFUSED, for two reasons.
+            #
+            # 1. THE FIELD APP IN PEOPLE'S HANDS ALREADY SENDS "DONE". Android updates over the air
+            #    and researchers are offline for days; a 422 would brick "Mark done" on every build
+            #    older than the one shipping with this change, out where nobody can fix it. A
+            #    rewrite makes those builds correct by default — they send their old word, the row
+            #    lands in review, and the response hands back `status: "SUBMITTED"` so even an old
+            #    client is not lied to about where the task ended up.
+            # 2. THERE IS NOTHING AMBIGUOUS TO ASK ABOUT. An assignee sending DONE means exactly
+            #    "I have finished this". The only thing they were never entitled to is the second
+            #    half of that sentence — that somebody with authority agrees.
+            new_status = data["status"] = SUBMITTED
     else:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -1202,11 +1720,20 @@ async def update_task(
         data["progressCount"] = min(reported, target) if target else reported
 
     if new_status is not None:
-        if new_status == "DONE":
-            if task.status != "DONE":
+        if new_status in {SUBMITTED, "DONE"}:
+            if task.status not in {SUBMITTED, "DONE"}:
+                # STAMPED AT THE FIRST DECLARATION THAT THE WORK IS FINISHED, and deliberately NOT
+                # re-stamped when an admin later approves it. `completedAt` therefore keeps meaning
+                # "when the work was finished", so `completedAt > dueAt` stays a fact about the
+                # person who did it. Move the stamp to approval instead and a researcher who handed
+                # in three days early is recorded as late whenever the reviewer is slow — the board
+                # would be publishing the reviewer's backlog as the researcher's lateness.
                 data["completedAt"] = datetime.now(UTC)
             # Finishing a quota task means the quota was met; without this the rollups would go on
-            # showing "DONE — 0 of 10" for everyone who never touched the progress field.
+            # showing "0 of 10" for everyone who never touched the progress field. Applies on the
+            # SUBMIT, not on the approval, because the submission is the claim and this field is
+            # the claim's number — an approver comparing it against `derivedCount` needs it already
+            # filled in at the moment they are asked to decide.
             if target and "progressCount" not in data and (task.progressCount or 0) < target:
                 data["progressCount"] = target
         else:

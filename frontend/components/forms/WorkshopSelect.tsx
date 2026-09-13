@@ -6,7 +6,6 @@ import { Field } from "@/components/FormControls";
 import { LateSubmissionDialog } from "@/components/LateSubmissionDialog";
 import { ComboBox } from "@/components/ui/Dropdown";
 import { apiFetch, listResource } from "@/lib/api";
-import { formatDate } from "@/lib/format";
 import type { Workshop, WorkshopSubmissionCheck } from "@/lib/types";
 
 /**
@@ -17,14 +16,16 @@ import type { Workshop, WorkshopSubmissionCheck } from "@/lib/types";
  *
  * 1. **Assignment.** Once a workshop has assignments only those researchers (and admins) may file
  *    records against it — the API answers 403. This warns at select time instead.
- * 2. **The window.** A record filed after the workshop ended is accepted but pinned to PENDING and
- *    flagged `needsAdminApproval`, so only an admin can approve it. `confirmSubmission()` surfaces
- *    that as <LateSubmissionDialog> and the save proceeds only on confirm.
+ * 2. **The window.** A record filed OUTSIDE the workshop's run of days — before it opens as well as
+ *    after it closes — is accepted but pinned to PENDING and flagged `needsAdminApproval`, so only
+ *    an admin can approve it. `confirmSubmission()` surfaces that as <LateSubmissionDialog> and the
+ *    save proceeds only on confirm. There are three states here and not two; see the block comment
+ *    above `workshopWindowState` for the sentence that saying otherwise put on screen.
  *
  * Both facts come from `GET /workshops/{id}/submission-check`, which never 403s — it only reports.
- * When that endpoint is missing or fails we degrade to a purely local "this workshop looks like it
- * ended" hint and NEVER block the save: a researcher in the field must not lose work to a flaky
- * pre-flight request.
+ * When that endpoint is missing or fails we degrade to a purely local reading of the workshop's own
+ * dates and NEVER block the save: a researcher in the field must not lose work to a flaky pre-flight
+ * request.
  *
  * The selected id lives in React state and is read from `state.workshopId` at submit time — there is
  * deliberately no `name`/FormData mirror, so there is exactly one source of truth for it.
@@ -57,21 +58,161 @@ export function sortWorkshopsByOccurrence(workshops: Workshop[]): Workshop[] {
  */
 function workshopOptionLabel(workshop: Workshop): string {
   const title = workshop.title?.trim() || "Untitled workshop";
-  const when = formatDate(workshopOccurrenceDate(workshop) || null);
+  // `formatWorkshopDay`, not `formatDate`: the occurrence date is a workshop DAY, and rendering the
+  // stored instant in the browser's zone is what put a workshop's own label a day off its window —
+  // the same one-day skew that printed "ended on 24 Sept" for a workshop whose last day is the 23rd.
+  const when = formatWorkshopDay(workshopOccurrenceDate(workshop) || null);
   return when === "-" ? title : `${title} · ${when}`;
 }
 
+/* ------------------------------------------------------------------------------------------------
+ * THE WINDOW: THREE STATES, COUNTED IN IST DAYS.
+ *
+ * WHAT THIS REPLACED, AND WHY IT IS WORTH THIS MUCH FILE. On 14 Sept 2026 at 00:55 IST the owner
+ * opened a form for a workshop running 14–23 Sept and read:
+ *
+ *     "This workshop ended on 24 Sept 2026. Saving now is recorded as a late submission."
+ *
+ * Three sentences' worth of wrong, from three separate causes, all of which live here now:
+ *
+ *  1. `late = check.outOfWindow || check.isOver` (this file, previously line 287) collapsed a
+ *     TWO-SIDED flag to one bit and then printed the after-the-end half of it. `outOfWindow` is
+ *     true before the start as well as after the end — see
+ *     `backend/app/services/workshop_access.py::describe_workshop_submission` — so a workshop that
+ *     had not opened was announced as ENDED. There was no copy for "not started" at all.
+ *  2. The backend judged the window in UTC against days typed in IST, so every workshop read as
+ *     not-started for the first 5h30m of each IST day. Fixed server-side (`WORKSHOP_TZ` there); the
+ *     local fallback below had the same skew via `Date.now() >= end + 24h` and is fixed here.
+ *  3. `formatDate` renders an instant in the BROWSER's zone, so an endDate stored as
+ *     2026-09-23T23:59:59.999Z printed as 24 Sept on an IST laptop — a date the workshop does not
+ *     contain. `formatWorkshopDay` below renders the day the column NAMES instead.
+ *
+ * The state is derived with NO new wire field. `isOver` is already the after-the-end half on its
+ * own and `outOfWindow` is already the union, so the two booleans this endpoint has always returned
+ * spell all three states between them. That keeps `lib/types.ts` and Android's `ApiModels.kt` — two
+ * hand-maintained mirrors of one dict — untouched, and a client that missed a DTO edit would have
+ * read a new discriminator as `false` and printed the old wrong sentence anyway.
+ *
+ * These are exported plain functions, not inline JSX expressions, for the same reason as
+ * `components/forms/recordPickers`: reproducing the defect on screen needs a workshop whose window
+ * straddles the hour you happen to run the app, so the ruling is lifted somewhere
+ * `e2e/workshop-window-unit.spec.ts` can stand in front of it at a named instant. The Kotlin twin is
+ * `android/app/src/main/java/com/fieldrepository/app/ui/WorkshopOptions.kt`, tested by
+ * `WorkshopWindowTest.kt`; if you change a rule here and that suite still passes, you have just made
+ * the two clients disagree about one workshop.
+ * ---------------------------------------------------------------------------------------------- */
+
+/** India Standard Time, in minutes. One offset, no daylight saving since 1945. */
+const IST_OFFSET_MINUTES = 330;
+
+export type WorkshopWindowState = "NOT_STARTED" | "IN_WINDOW" | "ENDED";
+
 /**
- * Local fallback for "has this workshop ended?", used only when the pre-flight endpoint is
- * unavailable. Mirrors the backend rule: the whole of the end day is still in-window.
+ * The calendar day a workshop's `startDate` / `endDate` NAMES, as "YYYY-MM-DD".
+ *
+ * Read off the stored wall clock rather than converted into any zone, because the column is a day
+ * wearing a datetime's clothes: the forms write the start at 00:00:00 and the end at 23:59:59.999,
+ * and whichever offset the writer's client stamped on it, the date part is the day the researcher
+ * typed. "2026-09-23T23:59:59.999+00:00" and "...+05:30" are both the 23rd. This is the same read
+ * Android makes with `OffsetDateTime.parse(value).toLocalDate()`, and the same one the server makes
+ * in `_boundary_day`.
  */
-function endedLocally(workshop: Workshop | undefined): boolean {
-  if (!workshop) return false;
-  const raw = workshop.endDate ?? workshop.date ?? workshop.startDate;
-  if (!raw) return false;
-  const end = new Date(raw);
-  if (Number.isNaN(end.getTime())) return false;
-  return Date.now() >= end.getTime() + 24 * 60 * 60 * 1000;
+export function workshopDayKey(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const stamped = /^(\d{4}-\d{2}-\d{2})/.exec(raw.trim());
+  if (stamped) return stamped[1];
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
+}
+
+/** The IST calendar day an instant falls on — the "today" a workshop window is judged against. */
+export function istDayKey(now: number = Date.now()): string {
+  return new Date(now + IST_OFFSET_MINUTES * 60_000).toISOString().slice(0, 10);
+}
+
+/**
+ * "23 Sept 2026" for a workshop boundary column — the day it names, never the instant.
+ *
+ * Same options as `lib/format.ts::formatDate` so the label reads identically to every other date in
+ * the app, plus a pinned `timeZone` so the rendering cannot walk a day in either direction. Routing
+ * through `formatDate` is what printed "24 Sept" for a workshop whose last day is the 23rd.
+ */
+export function formatWorkshopDay(raw: string | null | undefined): string {
+  const key = workshopDayKey(raw);
+  if (!key) return "-";
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC"
+  }).format(new Date(`${key}T00:00:00Z`));
+}
+
+/**
+ * Which of the three states the current pick is in.
+ *
+ * The server's verdict wins when there is one. When the pre-flight is unavailable — not deployed,
+ * offline, a transient 5xx — we fall back to the workshop's own dates, judged the same way the
+ * server judges them: whole IST calendar days, inclusive at both ends. A researcher in a courtyard
+ * with no signal is exactly who reads this sentence, and they must not be told their workshop ended
+ * because the sun has not yet risen on its last day in UTC.
+ */
+export function workshopWindowState(
+  check: Pick<WorkshopSubmissionCheck, "outOfWindow" | "isOver"> | null,
+  workshop: Workshop | undefined,
+  now: number = Date.now()
+): WorkshopWindowState {
+  if (check) {
+    if (check.isOver) return "ENDED";
+    return check.outOfWindow ? "NOT_STARTED" : "IN_WINDOW";
+  }
+  if (!workshop) return "IN_WINDOW";
+  const today = istDayKey(now);
+  const endKey = workshopDayKey(workshop.endDate ?? workshop.date ?? workshop.startDate);
+  if (endKey && today > endKey) return "ENDED";
+  const startKey = workshopDayKey(workshop.startDate ?? workshop.date);
+  // No dates recorded at all is not evidence of anything, and never a reason to warn.
+  if (startKey && today < startKey) return "NOT_STARTED";
+  return "IN_WINDOW";
+}
+
+/**
+ * The inline sentence for a pick that is outside its window, or null when it is inside one.
+ *
+ * Each state gets copy that is TRUE of it. The date half degrades to a dateless form when the day
+ * is unknown — the pre-flight carries no `startDate`, so a workshop that has scrolled off the loaded
+ * page can leave `startLabel` at "-" — because "This workshop has not started yet" is still worth
+ * saying, and inventing a date would not be.
+ *
+ * `needsAdminApproval` is the server's answer; pass `true` when there is no server answer, which is
+ * the wording that promises the most and is therefore the safe one to be wrong about.
+ */
+export function workshopWindowNotice({
+  state,
+  startLabel,
+  endLabel,
+  needsAdminApproval
+}: {
+  state: WorkshopWindowState;
+  startLabel: string;
+  endLabel: string;
+  needsAdminApproval: boolean;
+}): string | null {
+  if (state === "IN_WINDOW") return null;
+  if (state === "NOT_STARTED") {
+    const when = startLabel === "-" ? "This workshop has not started yet." : `This workshop starts on ${startLabel}.`;
+    return `${when} ${
+      needsAdminApproval
+        ? "Saving now counts as an early submission and needs an admin's approval."
+        : "Saving now is recorded as an early submission."
+    }`;
+  }
+  const when = endLabel === "-" ? "This workshop has already ended." : `This workshop ended on ${endLabel}.`;
+  return `${when} ${
+    needsAdminApproval
+      ? "Saving now counts as a late submission and needs an admin's approval."
+      : "Saving now is recorded as a late submission."
+  }`;
 }
 
 export type WorkshopSelection = {
@@ -283,9 +424,18 @@ export function WorkshopSelect({
 
   const selected = workshops.find((workshop) => workshop.id === workshopId);
   const blocked = Boolean(check && !check.canSubmit);
-  // Prefer the server's verdict; fall back to local dates when the pre-flight is unavailable.
-  const late = check ? check.outOfWindow || check.isOver : Boolean(workshopId) && endedLocally(selected);
-  const endLabel = formatDate(check?.endDate ?? selected?.endDate ?? selected?.date ?? null);
+  // Three states, not two. See the block comment above `workshopWindowState` for the sentence this
+  // replaced and the two defects that produced it.
+  const windowState = workshopId ? workshopWindowState(check, selected) : "IN_WINDOW";
+  const notice = workshopWindowNotice({
+    state: windowState,
+    // The pre-flight deliberately carries no startDate (the wire did not change), so the start day
+    // comes from the loaded workshop row; "-" when that row is off the page, which the copy handles.
+    startLabel: formatWorkshopDay(selected?.startDate ?? selected?.date ?? null),
+    endLabel: formatWorkshopDay(check?.endDate ?? selected?.endDate ?? selected?.date ?? null),
+    // No answer means we cannot promise the submission escapes review, so we do not.
+    needsAdminApproval: check ? check.needsAdminApproval : true
+  });
 
   return (
     // Search keystrokes stop here instead of bubbling to the form's `onInput` dirty tracker (see the
@@ -308,18 +458,15 @@ export function WorkshopSelect({
           another workshop.
         </p>
       ) : null}
-      {late && !blocked ? (
-        <p className="text-xs font-medium text-amber-800">
-          {endLabel === "-" ? "This workshop has already ended." : `This workshop ended on ${endLabel}.`}{" "}
-          {check?.needsAdminApproval || !check
-            ? "Saving now counts as a late submission and needs an admin's approval."
-            : "Saving now is recorded as a late submission."}
-        </p>
-      ) : null}
+      {notice && !blocked ? <p className="text-xs font-medium text-amber-800">{notice}</p> : null}
       <LateSubmissionDialog
         open={dialog.open}
         workshopTitle={dialog.check?.title ?? selected?.title}
-        endDate={dialog.check?.endDate ?? selected?.endDate ?? selected?.date}
+        // The DAY, not the instant. <LateSubmissionDialog> renders this through `lib/format.ts`'s
+        // `formatDate`, which resolves an instant in the browser's zone — that is what turned an
+        // endDate stored as 2026-09-23T23:59:59.999Z into "24 Sept 2026", a date the workshop does
+        // not contain. Handing it the bare day key ("2026-09-23") is the day the column names.
+        endDate={workshopDayKey(dialog.check?.endDate ?? selected?.endDate ?? selected?.date)}
         needsAdminApproval={Boolean(dialog.check?.needsAdminApproval)}
         saving={saving}
         onConfirm={dialog.confirm}

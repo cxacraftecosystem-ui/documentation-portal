@@ -30,9 +30,24 @@ import { cn } from "@/lib/utils";
  * an admin needs to see the two side by side, because a task marked done with nothing behind it is
  * exactly the failure this board is meant to catch.
  *
+ * AND SINCE 2026-09-14 IT IS ALSO THE APPROVAL QUEUE. A researcher's "Mark done" now lands the task
+ * on SUBMITTED and it stays on their list until somebody here agrees — so `awaitingReviewCount` is
+ * work that is waiting on the person reading this page, not on the person named on the row. It is
+ * badged on the tab below for one reason: a queue that is only visible after you have chosen the
+ * right tab and expanded the right person is a queue that goes unworked, and the researcher whose
+ * task is sitting in it has no way of telling that from being ignored.
+ *
  * ASSIGNING is admin work, so this route is admin chrome (ADMIN_CHROME_ROUTES) and AppShell hides
  * it while admin view is off, offering /tasks instead. /tasks itself is never chrome: everybody can
  * be an assignee. The `isAdmin` guard below mirrors `require_admin` and the toggle never widens it.
+ *
+ * `permitted` now does two jobs, and they are deliberately the SAME predicate rather than two. It
+ * gates the page (mirroring `require_admin` on every endpoint this screen calls) and it gates the
+ * accountability board's per-task override (mirroring `update_task`'s `is_admin(current_user)`
+ * manager test, backend/app/api/routes/tasks.py:1188). Passing it down explicitly rather than
+ * letting the board assume "if I am mounted, the viewer is an admin" is what keeps the control's
+ * own gate readable at the call site — and what keeps it correct if this board is ever mounted on a
+ * less guarded screen.
  */
 
 type TabKey = "assign" | "progress" | "batches";
@@ -159,7 +174,7 @@ export default function TaskAssignmentBoardPage() {
   const header = (
     <PageHeader
       title="Task assignment"
-      description="Hand documentation work to the people below you, then watch what they report against what the repository can actually find."
+      description="Hand documentation work to the people below you, watch what they report against what the repository can actually find, and approve it when they hand it in."
       icon={<ClipboardCheck className="h-5 w-5" aria-hidden />}
       actions={
         <Link href="/tasks" className="field-button-secondary">
@@ -264,6 +279,24 @@ export default function TaskAssignmentBoardPage() {
             >
               {entry.label}
               {count !== undefined ? <span className={cn("ml-2 text-xs", active ? "text-white/80" : "text-ink-500")}>{count}</span> : null}
+              {/*
+                THE APPROVAL QUEUE, ON THE TAB. A second badge rather than a bigger first one: the
+                count already there is how many PEOPLE have work, and adding approvals into it would
+                make one number out of two unrelated things. It carries a word ("to approve") as well
+                as a colour, because a bare coloured pill is a signal a colour-blind reader, a
+                greyscale print and forced-colours mode all lose at once — and on the active tab the
+                purple ground is gone, so the tint alone could not have carried it there either.
+              */}
+              {entry.key === "progress" && (report?.awaitingReviewCount ?? 0) > 0 ? (
+                <span
+                  className={cn(
+                    "ml-2 rounded-full px-2 py-0.5 text-xs font-semibold",
+                    active ? "bg-white/20 text-white" : "border border-purple-200 bg-purple-50 text-purple-700"
+                  )}
+                >
+                  {report?.awaitingReviewCount} to approve
+                </span>
+              ) : null}
             </button>
           );
         })}
@@ -279,7 +312,19 @@ export default function TaskAssignmentBoardPage() {
         />
       ) : null}
 
-      {tab === "progress" ? <AccountabilityBoard report={report} loading={reportLoading} error={reportError} /> : null}
+      {tab === "progress" ? (
+        <AccountabilityBoard
+          report={report}
+          loading={reportLoading}
+          error={reportError}
+          canOverride={permitted}
+          // An override moves this person's status counts, the page's five headline tiles AND the
+          // batch rollups on the third tab, so the whole page is re-read rather than the one row
+          // patched in place — a board that showed a task as done beside a "Finished" tile that
+          // still said 3 would be worse than the reload it saved.
+          onOverridden={refreshAll}
+        />
+      ) : null}
 
       {tab === "batches" ? (
         <BatchList

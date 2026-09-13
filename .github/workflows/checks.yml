@@ -1,0 +1,612 @@
+name: Checks
+
+# ─── WHAT THIS EXISTS TO STOP ────────────────────────────────────────────────────────────
+# Until this file landed, NOTHING IN THIS REPOSITORY RAN A TEST. Not on a pull request, not on a
+# push, not anywhere. The other workflows are NAMED here rather than counted, because a count is the
+# one fact in a header that a new file falsifies silently and nobody re-reads:
+#   • deploy-backend.yml   — `push: main`. Deploys. Runs no test.
+#   • deploy-frontend.yml  — `workflow_run` after the backend. Deploys. Runs no test.
+#   • android-build.yml    — the only one with a `pull_request` trigger, and it is path-filtered to
+#                            `android/**` (android-build.yml:31-33). It compiles Kotlin, runs the
+#                            Android unit tests and builds a DEBUG apk. Nothing it produces can
+#                            reach a handset.
+#   • keep-supabase-active.yml — a nightly cron that pings Postgres so the free tier does not idle
+#                            out. It asserts nothing about the code.
+#   • backup-db.yml        — a scheduled `pg_dump` to S3. Also asserts nothing about the code.
+# So on 2026-09-14 this repository held 1023 backend test cases, 104 web unit specs and 8 Kotlin test
+# files, all of them green, and a pull request could break any of them and still show a clean list of
+# checks. Every guard anybody has written here ran only when a human remembered to type the command.
+#
+# ─── THE DRIFT THIS CATCHES IS NOT HYPOTHETICAL ──────────────────────────────────────────
+# This repository states the same rule on three surfaces, and three copies of a rule is a rule that
+# drifts. The tests that pin them together are the ones nothing was running:
+#   • android/app/src/test/java/com/fieldrepository/app/ui/WalkthroughStepsTest.kt:385 declares
+#     `WEB_GUIDE_PATH = "frontend/components/guide/steps.ts"` and READS THAT FILE OUT OF THE WEB
+#     TREE (the `..`-prefixed walk at :520-528), asserting that the Kotlin walkthrough and the web
+#     walkthrough declare the same steps, in the same order, with the same cautions.
+#   • RecordPickersTest.kt and AccessRosterTest.kt name `frontend/components/forms/recordPickers.ts`
+#     and `frontend/lib/accessRoster.ts` as their twins in their own headers: "Change one, change
+#     both."
+# READ THAT WITH android-build.yml:31-33 AND THE HOLE IS OBVIOUS: a frontend-only pull request does
+# not match `android/**`, so the one test that would notice the web half moving away from the Kotlin
+# half is the one test that does not run. THIS FILE DOES NOT CLOSE THAT HOLE — see "WHAT IS
+# DELIBERATELY NOT HERE" below — it writes it down with a file and a line so the next person can.
+#
+# ─── THIS WORKFLOW RUNS. IT DOES NOT, BY ITSELF, GATE ANYTHING ───────────────────────────
+# Nothing in `.github/` can prove a job BLOCKS a merge or a deploy: required status checks live in
+# the repository's branch-protection settings, not in a workflow file. Read a green Checks tick as
+# "the guards were asked", not as "main is protected".
+#
+# Two specific things it does NOT do, stated because a green tick read as more than it is costs more
+# than no tick at all:
+#   1. It does not block a merge unless `Backend tests`, `Web typecheck, lint and unit specs` and
+#      `Docs check` are named as required checks on `main` (Settings → Branches → branch protection).
+#      Those names are stable on purpose; renaming a job silently un-requires it.
+#   2. It does not block a DEPLOY. deploy-backend.yml fires on its own `push: main` trigger and one
+#      workflow cannot `needs:` a job in another, so on main this workflow and the deploy chain start
+#      together and the deploy usually wins — an rsync starts faster than a minute of pytest. The
+#      sibling repository closed that race from the other end (a `wait-for-checks` job inside each
+#      deploy stage that polls for the Checks run at the exact SHA and refuses to hand over until
+#      these three jobs are green). That is the right fix and it is NOT done here, because
+#      deploy-backend.yml and deploy-frontend.yml belong to another workstream today. docs/CI.md §5
+#      carries it as a named, open gap rather than as a sentence in a workflow nobody re-reads.
+#
+# ─── WHY NO `paths:` FILTER ──────────────────────────────────────────────────────────────
+# Deliberate, and it is the specific mistake this file exists to not repeat. The sibling repository's
+# checks.yml puts it in one sentence — "A path filter is how android-build.yml ended up unreachable
+# from a backend PR … a filter would buy a few minutes and cost the property that makes this
+# workflow worth having — that EVERY pull request runs it. Do not add one." — and this repository is
+# the one where that cost is already being paid: android-build.yml:31-33 IS that filter, and the
+# paragraph above names the test it makes unreachable. The three jobs below are cheap (measured on a
+# laptop 2026-09-14: 65 s of pytest, 8 s of Playwright, under a second of docs check) and
+# independent of each other. DO NOT ADD ONE.
+#
+# ─── WHY THE `uses:` LINES ARE TAGS AND NOT COMMIT SHAS ──────────────────────────────────
+# `actions/checkout@v4` is a MUTABLE tag: whoever controls that repository can move it, and the next
+# run then executes different code with no diff to review. The sibling repository pins every action
+# to a SHA for exactly that reason — and it can, because it carries a `.github/dependabot.yml` whose
+# github-actions ecosystem bumps them weekly. THIS REPOSITORY HAS NO dependabot.yml (checked
+# 2026-09-14: `.github/` holds `workflows/` and nothing else), and a hand-pinned SHA with nothing to
+# refresh it is a pin that silently rots — you lose the fixes in v4.x and gain no signal that you
+# have. So this file matches the five workflows beside it, all of which use `@v4`. THE UPGRADE IS ONE
+# FILE: add `.github/dependabot.yml` with the github-actions ecosystem at `directory: "/"`, then pin
+# every `uses:` in every workflow in one commit. Do it there, for all six files at once, not here for
+# one.
+#
+# ─── WHAT IS DELIBERATELY NOT HERE ───────────────────────────────────────────────────────
+# • NO ANDROID JOB. android-build.yml already compiles Kotlin and runs `:app:testDebugUnitTest` on a
+#   pull request, and a second Gradle job would spend five more minutes to learn the same thing. What
+#   is missing is not a job, it is two lines in somebody else's file: `frontend/**` added to
+#   android-build.yml:32-34, without which the cross-surface parity tests named above cannot see the
+#   change that breaks them. That is an android-workstream edit; docs/CI.md §5 asks for it by name.
+# • NO RUFF. `ruff>=0.4.0` is in the dev extra and `[tool.ruff]` in backend/pyproject.toml sets only
+#   `line-length` and `target-version` — there is no rule selection, so `ruff check` runs its small
+#   default set and nothing anybody chose. Wiring a linter into CI before the rule set exists gates
+#   on an accident. Choose the rules in pyproject first (the sibling repository's `[tool.ruff.lint]`
+#   is the worked example, dated per-file baseline included), then add the step.
+# • NO PLAYWRIGHT E2E, NO BACKEND INTEGRATION. Both need a running app, a database, and credentials.
+#   That is a genuinely larger piece of work than these three jobs, and pretending otherwise by
+#   half-wiring it is how a suite ends up "running" against nothing. docs/CI.md §5 keeps it listed.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Safe to cancel, unlike the deploy workflows: nothing outside the runner is mutated here, and a
+  # superseded commit's result is noise. Keyed per pull request (or per branch on a push) so two open
+  # pull requests never cancel each other.
+  group: checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════════════════════
+  # 1 · The backend suite
+  # ═══════════════════════════════════════════════════════════════════════════════════════
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    # ─── THE ENVIRONMENT, AND WHY THESE VALUES LOOK LIKE THAT ────────────────────────────
+    # THERE IS NO DATABASE IN THIS JOB AND THERE MUST NOT BE ONE. These six values exist only
+    # because `app.core.config.Settings` declares them as REQUIRED fields with no default —
+    # DATABASE_URL (backend/app/core/config.py:78), JWT_SECRET (:101), AWS_ACCESS_KEY_ID and
+    # AWS_SECRET_ACCESS_KEY (:167-168), AWS_S3_BUCKET (:170), MASTER_ADMIN_EMAIL (:187) — and their
+    # only other source is `backend/.env` (config.py:314-319), which is gitignored and therefore
+    # ABSENT on a runner. With them unset `Settings()` refuses to build, and a plain `pytest` here
+    # would not fail some tests: it would fail to COLLECT, because nearly every module reaches
+    # `app.core.config` through an import. The suite would be red for a reason that has nothing to do
+    # with the code under test, on every run, forever.
+    #
+    # EVERY VALUE IS CHOSEN TO BE UNUSABLE. The DSN names `ci.invalid` — RFC 2606 reserves `.invalid`
+    # precisely so it can never resolve — so even a test that tried to connect could not reach
+    # anything, let alone a real database. The secret is obviously not a secret, the AWS credentials
+    # are obviously not credentials, the admin address is `.invalid` too. A placeholder that could be
+    # mistaken for a real value is how a real value ends up here later.
+    #
+    # THAT NOTHING CONNECTS IS MEASURED, NOT ASSUMED. The whole suite was run on 2026-09-14 with
+    # exactly this environment and that unresolvable DSN: 1021 passed, 2 failed, ZERO skipped, 65 s.
+    # A suite that opened a connection could not do that — it would hang on DNS or error out, not
+    # pass. Zero skipped matters in its own right: unlike the sibling repository, this suite has NO
+    # database-gated modules that take themselves out (backend/tests/conftest.py is ten lines and
+    # does nothing but extend `sys.path`), so "what runs here" is the whole suite, and a green tick
+    # cannot be hiding a population of tests that quietly opted out.
+    #
+    # DO NOT "improve" any of these into something real, and DO NOT add a Postgres service container.
+    # A database here would promote the suite from "cannot touch data" to "runs against whatever CI
+    # happens to have", which is a different suite with different failure modes, unreviewed.
+    env:
+      PYTHONUTF8: "1"
+      DATABASE_URL: "postgresql://ci:ci@ci.invalid:5432/no_such_database"
+      JWT_SECRET: "ci-placeholder-not-a-secret-0123456789abcdef"
+      AWS_ACCESS_KEY_ID: "ci-placeholder"
+      AWS_SECRET_ACCESS_KEY: "ci-placeholder"
+      AWS_S3_BUCKET: "ci-placeholder"
+      MASTER_ADMIN_EMAIL: "ci@example.invalid"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        # v5, while every other action here is v4: there is no setup-python anywhere else in this
+        # repository to match, so this takes the current major rather than importing an old one for
+        # the sake of a column of identical version numbers.
+        uses: actions/setup-python@v5
+        with:
+          # 3.12 because that is what production runs: deploy-backend.yml:262 builds the box's venv
+          # with `python3.12 -m venv .venv`. A suite that passes on a version production does not
+          # have is a weaker statement than it looks. backend/pyproject.toml allows >= 3.11.
+          #
+          # AND THE VERSION IS NOT COSMETIC HERE — it is measured. On the 3.14 laptop this was
+          # written from, `import pydub` fails outright (`No module named 'pyaudioop'`), because PEP
+          # 594 removed `audioop` from the standard library in 3.13 and pydub imports it. That turns
+          # backend/app/api/routes/data_browser.py:3059 into a 503 before the size checks below it
+          # ever run, so two tests in test_manifest_stream.py fail on a laptop and pass on a 3.12
+          # runner. See the expected-failure list in the suite step: it is the one place where "which
+          # interpreter" changes the answer, and it is written down there rather than rediscovered by
+          # whoever next reads a red log.
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install the backend and its test extras
+        # `[dev]`, not a bare install: pytest lives there, with ruff and httpx (pyproject.toml:38-42).
+        #
+        # ─── WHAT THIS INSTALL DOES NOT GUARANTEE, AND YOU SHOULD KNOW IT BEFORE READING A RED LOG ──
+        # THERE IS NO LOCK FILE IN THIS BACKEND. Every dependency is a `>=` range
+        # (pyproject.toml:6-34), so this step resolves whatever the index offers on the day it runs,
+        # and CI, the EC2 box and a developer's venv can each end up with a different set. That is not
+        # theoretical: the two expected failures in test_public_census.py are A LIBRARY UPGRADE, not
+        # a code change — FastAPI now keeps a lazy `_IncludedRouter` object in `APIRouter.routes`
+        # instead of flattening the included routes into it, so `route.path` raises AttributeError and
+        # a test written against the old shape fails. Measured against fastapi 0.141.1. Nobody edited
+        # a route; the floor moved under it. THE FIX IS A LOCK, compiled the way the sibling
+        # repository compiles `backend/requirements.lock` (pip-compile in a 3.12 container, with
+        # `--extra dev`) and installed here instead of this line. It is a backend-workstream change,
+        # not a CI one, so this file says so rather than quietly pinning something on its own.
+        #
+        # ─── pytest-asyncio IS NOT INSTALLED, AND THAT IS CORRECT ────────────────────────
+        # pyproject.toml:85 sets `asyncio_mode = "auto"`, which is pytest-asyncio's option, and
+        # pytest-asyncio is in NO extra. So this runner will print, once:
+        #     PytestConfigWarning: Unknown config option: asyncio_mode
+        # That warning is expected and harmless, and the reason is worth knowing before somebody
+        # "fixes" it: the only async module in the suite, tests/test_user_ai_keys.py, sets
+        # `pytestmark = pytest.mark.anyio` with its own `anyio_backend` fixture, so ANYIO's pytest
+        # plugin runs those thirteen tests — and anyio is already installed, transitively, by
+        # starlette. MEASURED 2026-09-14 with the plugin forced off (`-p no:asyncio`): that module is
+        # 18 passed, and the whole suite is 1021 passed / 2 failed, identical to a run with it on.
+        # Nothing is silently skipped. (And do not read a missing async runner as "they pass anyway":
+        # probed on this same pytest, an async test with no plugin to run it FAILS loudly with "async
+        # def functions are not natively supported" — it does not quietly go green.)
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Generate the Prisma client
+        # `from prisma import Prisma` in app/core/db.py resolves against code that `prisma generate`
+        # writes into the installed package; without this step every module that reaches app.core.db
+        # fails to import and the suite cannot collect. It talks to the schema and to the engine
+        # download, NOT to a database — no migration runs and nothing connects.
+        run: python -m prisma generate --schema prisma/schema.prisma
+
+      - name: Run the suite
+        # THE WHOLE SUITE, not a hand-written selection. A `-k` expression is a list that goes stale
+        # the day somebody adds a file, and the guards this workflow exists for are exactly the kind
+        # nobody remembers to add to a list.
+        #
+        # ─── THE FOUR KNOWN FAILURES, AND WHY THIS IS A LIST AND NOT A NUMBER ────────────
+        # THIS TREE DOES NOT START GREEN. Four tests were already failing before any of today's work,
+        # and a job that is red on day one is a job somebody disables — so they are named, one at a
+        # time, with what is actually wrong with each. Not `|| true`, not `--deselect`, not a count:
+        #
+        #   tests/test_public_census.py::test_the_census_is_mounted_at_the_public_path_the_cdn_rule_would_be_scoped_to
+        #   tests/test_public_census.py::test_the_census_asks_for_no_token
+        #       Both read `api_router.routes` expecting the flattened route objects FastAPI used to
+        #       put there (test_public_census.py:163 and :174). Current FastAPI stores one lazy
+        #       `_IncludedRouter` per `include_router` call instead, and it has no `.path`, so the
+        #       first raises AttributeError and the second's `next(...)` raises StopIteration. THE
+        #       ROUTE ITSELF IS FINE — the same file's HTTP-level tests pass, including the one
+        #       proving the census answers 200 with no token. What is stale is how these two reach
+        #       for it. Fix: ask the app (`app.routes`), or walk `_IncludedRouter.original_router`.
+        #
+        #   tests/test_manifest_stream.py::test_the_declared_size_refuses_before_a_byte_moves
+        #   tests/test_manifest_stream.py::test_the_real_length_refuses_what_the_column_lied_about
+        #       INTERPRETER-DEPENDENT, AND THEY ARE EXPECTED TO PASS ON THIS RUNNER. Both assert a
+        #       413 from the audio-conversion download and get a 503, because data_browser.py:3059
+        #       does `import pydub` and answers 503 when that fails — and on Python 3.13+ it always
+        #       fails, PEP 594 having removed the `audioop` module pydub imports. This job pins 3.12,
+        #       where `audioop` still exists. MEASURED 2026-09-14 on the 3.14 laptop: the suite is
+        #       1019 passed / 4 failed, and with a stub `audioop` on PYTHONPATH — changing nothing
+        #       else — test_manifest_stream.py is 11 passed and the suite is 1021 passed / 2 failed.
+        #       THE FIRST GREEN RUN OF THIS JOB SHOULD DELETE THESE TWO LINES. They are here only
+        #       because that prediction was made on a laptop and not on a runner, and a day-one red
+        #       over a correct prediction is the exact failure mode this whole block exists to avoid.
+        #
+        # WHY A LIST OF NODE IDS RATHER THAN "expect 4 failures": a count cannot tell one failure from
+        # another. Fix the census pair, break two others, and the count still reads 4 — green, over a
+        # regression. This list GOES RED THE MOMENT A FIFTH TEST FAILS, or a different one does. It
+        # goes red on a collection ERROR too, because an ERROR line is a failure it has not licensed.
+        #
+        # WHY A LIST RATHER THAN `--deselect`: a deselected test never runs, so the day somebody fixes
+        # it nothing notices, and the day it starts failing for a SECOND, unrelated reason nothing
+        # notices either. These four run. Their tracebacks are in the log. They are simply not fatal,
+        # and exactly which four is re-checked on every single run.
+        #
+        # THE LIST MAY ONLY SHRINK. An expected failure that stops failing prints a ::warning naming
+        # the line to delete, and says so in the run summary — deliberately not a hard failure,
+        # because "your tree got better" must never be the thing that turns a pull request red, and
+        # because the two pydub entries above are expected to trip exactly that warning on the first
+        # run. Deleting a line here is a one-line, reviewable diff. ADDING one is the thing to argue
+        # about in review.
+        #
+        # `-rf` and no `-q`: the failure summary at the foot is the one thing a reader scrolling to
+        # the bottom of a red log came for, and it is what this gate parses. `--durations=15` because
+        # a suite getting slow is the other thing nobody notices until it is minutes.
+        #
+        # MEASURED on this tree, not estimated, 2026-09-14 (laptop, Python 3.14.7): 1019 passed, 4
+        # failed, 0 skipped, 54 s; with the 3.12 behaviour simulated, 1021 passed, 2 failed, 65 s.
+        # Those are a snapshot of a healthy run, NOT a target — totals move the day anybody adds a
+        # test, and reconciling a CI log against a number typed into a comment is how people learn to
+        # argue with the log. The FLOOR below is the only number this step enforces.
+        run: |
+          set -uo pipefail
+
+          cat > expected-failures.txt <<'LIST'
+          tests/test_public_census.py::test_the_census_is_mounted_at_the_public_path_the_cdn_rule_would_be_scoped_to
+          tests/test_public_census.py::test_the_census_asks_for_no_token
+          tests/test_manifest_stream.py::test_the_declared_size_refuses_before_a_byte_moves
+          tests/test_manifest_stream.py::test_the_real_length_refuses_what_the_column_lied_about
+          LIST
+
+          status=0
+          if ! python -m pytest -rf --durations=15 | tee pytest-output.log; then
+            status=1
+          fi
+
+          # Node ids only: `FAILED tests/x.py::y - AssertionError: ...` becomes `tests/x.py::y`.
+          # ERROR lines are collected too — a module that cannot import is a failure nothing licensed.
+          grep -E '^(FAILED|ERROR) ' pytest-output.log \
+            | sed -E 's/^(FAILED|ERROR)[[:space:]]+//; s/[[:space:]]+-[[:space:]].*$//' \
+            | sort -u > actual-failures.txt
+
+          # ── A FLOOR, NOT A TARGET ────────────────────────────────────────────────────
+          # pytest reports success just as cheerfully over four tests as over a thousand, so a broken
+          # `testpaths`, a bad working directory, or a collection that quietly lost most of the suite
+          # would leave this step green while asserting almost nothing. 1019 passed on the day this
+          # landed; 900 is far enough below that ordinary deletion never reaches it and far enough
+          # above zero that losing a directory does. A MISSING summary line reads as 0 and goes red,
+          # which is the right answer when pytest died before it could count anything.
+          summary=$(grep -E '^=+ .*(passed|failed|error).*=+$' pytest-output.log | tail -n 1)
+          passed=$(printf '%s\n' "$summary" | sed -nE 's/.*[^0-9]([0-9]+) passed.*/\1/p')
+          echo "pytest summary line: ${summary:-<none>}"
+          if [ "${passed:-0}" -lt 900 ]; then
+            echo "::error::pytest reported only ${passed:-0} passing tests, far below the 1019 measured when this job landed. The suite did not really run — look for collection errors, a wrong testpaths, or a wrong working directory. A green tick here would be meaningless."
+            exit 1
+          fi
+
+          # ── ANY FAILURE THIS LIST DOES NOT NAME IS A RED RUN ─────────────────────────
+          # `-x` so a node id must match a WHOLE line: without it a shorter name could license a
+          # longer, different one. grep's status is read rather than swallowed — 1 means "nothing
+          # unexpected", which is the good case, and 2 or more means grep itself failed, which must
+          # never be read as success.
+          unexpected=$(grep -vxFf expected-failures.txt actual-failures.txt)
+          rc=$?
+          if [ "$rc" -ge 2 ]; then
+            echo "::error::could not compare the expected-failure list against this run (grep exited $rc). Failing rather than guessing."
+            exit 1
+          fi
+
+          # ── AN EXPECTED FAILURE THAT PASSED IS NEWS, NOT AN ERROR ────────────────────
+          # `${GITHUB_STEP_SUMMARY:-/dev/null}` here and below, rather than the bare variable: this
+          # whole block is written to be runnable outside Actions — it is how it was verified, and it
+          # is how the next person will debug it — and under `set -u` an unset GITHUB_STEP_SUMMARY
+          # aborts the script three lines before it would have said what was wrong. Found by running
+          # it locally with a synthetic log.
+          while IFS= read -r nodeid; do
+            [ -n "$nodeid" ] || continue
+            if ! grep -qxF "$nodeid" actual-failures.txt; then
+              echo "::warning::${nodeid} no longer fails. Delete its line from expected-failures.txt in .github/workflows/checks.yml — that list may only shrink, and an entry describing nothing is how it rots."
+              printf '%s\n' "- :tada: \`${nodeid}\` no longer fails — delete its line from the expected-failure list in \`.github/workflows/checks.yml\`." >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            fi
+          done < expected-failures.txt
+
+          if [ -n "$unexpected" ]; then
+            {
+              echo "### Backend tests: unexpected failures"
+              echo ""
+              echo "Not on the known-failure list in \`.github/workflows/checks.yml\`:"
+              echo ""
+              printf '%s\n' "$unexpected" | sed 's/^/- `/; s/$/`/'
+            } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            printf '%s\n' "$unexpected" | while IFS= read -r nodeid; do
+              echo "::error::${nodeid} failed, and it is not one of the four known pre-existing failures. That is a regression, not the baseline."
+            done
+            exit 1
+          fi
+
+          # Every failure was licensed by name. pytest's own non-zero status is deliberately NOT
+          # propagated here — translating it is the entire job of the list above, and the two
+          # branches before this one (the floor, and the unexpected-failure check) are what make
+          # doing so safe rather than a dressed-up `|| true`.
+          if [ "$status" -ne 0 ]; then
+            echo "Only the known pre-existing failures fired; the comment on this step says what each one is and how to fix it."
+          fi
+          exit 0
+
+  # ═══════════════════════════════════════════════════════════════════════════════════════
+  # 2 · The web checks
+  # ═══════════════════════════════════════════════════════════════════════════════════════
+  web:
+    name: Web typecheck, lint and unit specs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # 22 to match deploy-frontend.yml:196, which matches Vercel's current build image. A
+          # typecheck that passes on a different major from the one that builds production is not the
+          # check anybody thinks it is.
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        # `npm ci` only. NO `npx playwright install`: MEASURED 2026-09-14 with
+        # PLAYWRIGHT_BROWSERS_PATH pointed at an empty directory, `npm run test:unit` is 104 passed
+        # in 1.7 s. Not one of the eight `*-unit.spec.ts` files asks for the `page` fixture (checked:
+        # zero matches for `page.goto`, `page.route` or a `{ page }` parameter across all eight), and
+        # Playwright launches a browser lazily, so it is never asked to. Downloading Chromium would
+        # add about a minute to every run of this job to serve nothing. If a spec ever does need one,
+        # the failure says exactly that ("Executable doesn't exist… run npx playwright install"),
+        # which is a better signpost than a browser sitting there letting a screen-driving spec time
+        # out against a server that is not running.
+        #
+        # `npm ci` and not `npm install`, so the lockfile decides what is installed rather than the
+        # index. Verified in sync on the way in: `npm ci --dry-run` from frontend/ exits 0.
+        run: npm ci
+
+      - name: Typecheck
+        # `next build` also fails on a type error, but only during the deploy — i.e. AFTER the backend
+        # has already shipped and the live site is pointed at it (docs/CI.md §1 explains why the
+        # backend goes first). Running it here moves the answer to before the merge. Measured
+        # 2026-09-14 from frontend/: exit 0.
+        #
+        # `npx tsc --noEmit` rather than `npm run typecheck`, which is literally the same command
+        # (frontend/package.json:10): this way the log of the step says what the step ran.
+        run: npx tsc --noEmit
+
+      - name: Lint
+        # `npm run lint` — the repository's own script (frontend/package.json:9), deliberately,
+        # rather than a longer invocation typed into this file. If CI runs a stricter command than
+        # the one a contributor runs locally, the contributor's green is a lie and they find out here,
+        # which is the wrong place to find out.
+        #
+        # ON `--max-warnings=0`, WHICH IS NOT HERE AND ARGUABLY SHOULD BE: measured 2026-09-14, this
+        # tree is already clean under it — `npx eslint . --max-warnings=0` from frontend/ exits 0 —
+        # so adopting it would cost nothing today and would stop the slow accumulation of warnings
+        # nobody fails on, which are exactly the accessibility and hook findings worth reading. IT
+        # BELONGS IN package.json's `lint` SCRIPT, not on this line, for the reason in the paragraph
+        # above: one command, one answer, everywhere.
+        #
+        # (This step prints one line from jsx-ast-utils about a JSXEmptyExpression prop it could not
+        # resolve. That is the plugin talking about itself, not a finding; eslint exits 0.)
+        run: npm run lint
+
+      - name: Unit specs
+        # ONLY the specs that need no dev server and no database. The rest of frontend/e2e/ signs in
+        # against a real API and drives real records — frontend/playwright.config.ts says so in its
+        # header and deliberately starts no server of its own — and standing that up on a runner is a
+        # much larger job and a separate decision. docs/CI.md §5 keeps it on the list rather than
+        # pretending it is done.
+        #
+        # The selection lives in frontend/package.json:12 (`playwright test ".*-unit\.spec\.ts"`), and
+        # package.json cannot hold a comment, so the rule is written here: the `-unit` suffix is this
+        # repository's convention for a spec that exercises a pure function rather than a screen.
+        # ALL EIGHT FILES CARRYING THE SUFFIX HONOUR IT TODAY — unlike the sibling repository, which
+        # has to exclude two of its own by name — so there is no exclusion list here, and the
+        # measurement above (104 passed with no browser binaries anywhere on disk) is the proof that
+        # there is nothing to exclude.
+        #
+        # WHAT DECIDES WHETHER A NEW FAILURE MEANS "this spec is misnamed": a failure inside
+        # `page.goto` — connection refused, or a navigation timeout where something answers :3000 but
+        # does not serve — means the spec wants a dev server and does not belong in this pattern. A
+        # failing `expect(source).toContain(…)` does NOT: those are source-inspection assertions about
+        # a symbol a component is supposed to have, no dev server would change the answer, and
+        # excluding one would be silencing the check rather than scoping it.
+        run: npm run test:unit
+
+  # ═══════════════════════════════════════════════════════════════════════════════════════
+  # 3 · The documentation check
+  # ═══════════════════════════════════════════════════════════════════════════════════════
+  #
+  # ─── THE DECISION THIS JOB IS, AND THE ARGUMENT FOR IT ───────────────────────────────────
+  # `node docs/tools/check-docs.mjs` REPORTS FOUR PROBLEMS ON THE TREE THIS JOB LANDED WITH, and
+  # exits 1. There were two honest options: fix the four first and gate hard, or run it and be
+  # precise about which failures are licensed. This job does the second, and here is the argument.
+  #
+  # NOT ONE OF THE FOUR IS THIS WORKSTREAM'S TO FIX, and that is not an excuse, it is the whole point
+  # — a gate whose green depends on edits to four documents owned by other people arrives red, stays
+  # red through no fault of the pull requests it blocks, and is switched off within the week. This
+  # repository already has that failure mode written down in its own history: android-build.yml:125-139
+  # carries `continue-on-error: true` on Android Lint with the honest reason beside it, that one
+  # pre-existing manifest error means a hard gate "would fail 100% of runs from day one and train
+  # everyone to ignore red".
+  #
+  # WHAT THIS DOES BETTER THAN THAT PRECEDENT, because `continue-on-error` is not good enough: a
+  # `continue-on-error` cannot shrink, it licenses EVERY failure including the ones nobody has seen
+  # yet, and nothing ever tells you it could be removed. The gate below names the four, one line
+  # each, and fails on anything else. It is a ratchet that can only turn down: fix a document, delete
+  # a line, and that problem can never come back silently. Nobody can add a fifth without editing
+  # this file in a diff somebody reviews.
+  #
+  # SO THIS IS NOT `|| true`, AND THE DIFFERENCE IS THE POINT. `|| true` licenses the failures you
+  # have not seen yet. A named list licenses the four you have, and only while they are exactly those
+  # four.
+  #
+  # THE RECOMMENDATION, WRITTEN DOWN SO IT IS NOT LOST: all four are small, and this ratchet should be
+  # at zero within a week. `docs/REPO_FACTS.md is out of date` is one command
+  # (`node docs/tools/check-docs.mjs --write`) and it is the most valuable of the four, because that
+  # generated file is badly stale — it still says the backend suite is 14 files and 260 cases (it is
+  # 54 and 1023), still says there are no Android tests (there are eight files), and still tells the
+  # reader that neither suite is a CI gate, which this workflow has just made false. The two missing
+  # "How this document is kept true" sections are a paragraph each, and the broken link in
+  # docs/README.md is a path. Delete each line below as its problem goes.
+  docs:
+    name: Docs check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        # Full history is NOT needed, but a real git checkout is: check-docs shells out to
+        # `git ls-files` to decide which paths a document is allowed to name.
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verify the documentation set
+        # No `npm ci` anywhere: the script imports nothing outside node: builtins (child_process, fs,
+        # path, url), deliberately, so it runs from a bare checkout. Nothing in package.json is needed
+        # and installing it would only make this job slower.
+        #
+        # MEASURED 2026-09-14 from the repository root: 413 repository paths resolved, 48 line
+        # citations checked, 163 relative links resolved, 45 mermaid blocks linted, then
+        # `4 problem(s), 9 warning(s) elsewhere.` and exit 1. THE FOUR IS THE FACT; the rest of those
+        # numbers are not — re-running the same command an hour later gave 441 paths, 51 citations,
+        # 170 links and 46 mermaid blocks, because other workstreams keep adding documents. That is
+        # why the floor below is 200 and not "the number measured today". The nine warnings are
+        # findings in
+        # documents the script itself knows belong to another workstream (its own OWNED_ELSEWHERE
+        # list, docs/tools/check-docs.mjs:43-52); they are reported and do not affect its exit code,
+        # so they are not this gate's business either.
+        #
+        # WHEN THIS GOES RED, the usual cause is not prose at all — it is
+        # `docs/REPO_FACTS.md is out of date`, because that file is GENERATED from the repository
+        # (model counts, endpoint counts, per-surface test counts) and any change to a route, a Prisma
+        # model or the number of test files moves it. The fix is one command, and it produces a
+        # reviewable diff rather than a number somebody retyped:
+        #     node docs/tools/check-docs.mjs --write
+        run: |
+          set -uo pipefail
+
+          # Substrings, not whole lines: each names one problem tightly enough that no other line can
+          # match it, and loosely enough that the em dash and the exact wording after it can change
+          # without this list quietly licensing something else. ASCII only, deliberately — a fixed
+          # string with a typographic dash in it is a gate that depends on the runner's locale.
+          cat > known-doc-problems.txt <<'LIST'
+          docs/REPO_FACTS.md is out of date
+          DATASET_API.md: no "How this document is kept true" section
+          DESIGN-claude.md: no "How this document is kept true" section
+          docs/README.md: broken link
+          LIST
+
+          # `2>&1` IS LOAD-BEARING AND WAS FOUND THE HARD WAY. check-docs.mjs:548 prints its FAIL
+          # lines with `console.error`, i.e. to STDERR, while every `ok`/`warn` line and the closing
+          # tally go to stdout. Without the redirect this log holds the tally and none of the
+          # failures, `doc-problems.txt` comes out EMPTY, and the gate below would have licensed
+          # everything by finding nothing to object to. Measured on the first local run of this exact
+          # block: four problems on screen, zero in the file.
+          status=0
+          if ! node docs/tools/check-docs.mjs 2>&1 | tee docs-check.log; then
+            status=1
+          fi
+
+          grep -E '^FAIL' docs-check.log > doc-problems.txt
+          rc=$?
+          if [ "$rc" -ge 2 ]; then
+            echo "::error::could not read the docs-check output (grep exited $rc). Failing rather than guessing."
+            exit 1
+          fi
+
+          # ── THE CHECK MUST HAVE CHECKED SOMETHING ────────────────────────────────────
+          # check-docs exits 0 just as cheerfully over a docs/ directory it failed to read as over a
+          # clean one. Between 413 and 441 paths were resolved on the day this landed — the number
+          # moves whenever anybody adds a document — so this is a FLOOR, not a target: 200 survives
+          # ordinary deletion and still catches a run that inspected nothing.
+          paths=$(sed -nE 's/.*[^0-9]([0-9]+) repository paths resolved.*/\1/p' docs-check.log | tail -n 1)
+          echo "check-docs resolved ${paths:-0} repository paths"
+          if [ "${paths:-0}" -lt 200 ]; then
+            echo "::error::check-docs resolved only ${paths:-0} repository paths, far below the 400-odd measured when this job landed. It did not inspect the documentation set, so a green tick here would be meaningless."
+            exit 1
+          fi
+
+          # A non-zero exit with no FAIL line at all means the script itself broke — a syntax error,
+          # a missing git, an unhandled exception. That must never be read as "no problems found".
+          if [ "$status" -ne 0 ] && [ ! -s doc-problems.txt ]; then
+            echo "::error::check-docs exited non-zero without printing a single FAIL line, so it crashed rather than found problems. Read the log above."
+            exit 1
+          fi
+
+          unexpected=$(grep -vFf known-doc-problems.txt doc-problems.txt)
+          rc=$?
+          if [ "$rc" -ge 2 ]; then
+            echo "::error::could not compare the known-problem list against this run (grep exited $rc). Failing rather than guessing."
+            exit 1
+          fi
+
+          # A known problem that stopped being reported is the ratchet turning. Loud, and not fatal.
+          while IFS= read -r known; do
+            [ -n "$known" ] || continue
+            if ! grep -qF "$known" doc-problems.txt; then
+              echo "::warning::the documentation problem '${known}' is fixed. Delete its line from known-doc-problems.txt in .github/workflows/checks.yml — that list may only shrink."
+              printf '%s\n' "- :tada: fixed: \`${known}\` — delete its line from the known-problem list in \`.github/workflows/checks.yml\`." >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            fi
+          done < known-doc-problems.txt
+
+          if [ -n "$unexpected" ]; then
+            {
+              echo "### Docs check: new problems"
+              echo ""
+              echo "Not on the known-problem list in \`.github/workflows/checks.yml\`:"
+              echo ""
+              printf '%s\n' "$unexpected" | sed 's/^/- /'
+              echo ""
+              echo "If one of them is \`docs/REPO_FACTS.md is out of date\`, run \`node docs/tools/check-docs.mjs --write\` and commit the result."
+            } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            echo "::error::check-docs reported a problem that is not one of the four known pre-existing ones. See the run summary; fix it, or argue for it in review before adding it to the list in this workflow."
+            exit 1
+          fi
+
+          if [ "$status" -ne 0 ]; then
+            echo "Only the known pre-existing documentation problems were reported; the comment on this job says what each one is and who fixes it."
+          fi
+          exit 0

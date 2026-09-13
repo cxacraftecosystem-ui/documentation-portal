@@ -1,5 +1,12 @@
 package com.fieldrepository.app.ui
 
+import com.fieldrepository.app.data.ArtisanCreateRequest
+import com.fieldrepository.app.data.CraftCreateRequest
+import com.fieldrepository.app.data.ProcessCreateRequest
+import com.fieldrepository.app.data.ProcessStepRequest
+import com.fieldrepository.app.data.ProductCreateRequest
+import com.fieldrepository.app.data.ToolCreateRequest
+import com.fieldrepository.app.data.WorkshopCreateRequest
 import com.fieldrepository.app.ui.richtext.Align
 import com.fieldrepository.app.ui.richtext.BlockKind
 import com.fieldrepository.app.ui.richtext.Mark
@@ -7,6 +14,7 @@ import com.fieldrepository.app.ui.richtext.RichBlock
 import com.fieldrepository.app.ui.richtext.RichDoc
 import com.fieldrepository.app.ui.richtext.RichSpan
 import com.fieldrepository.app.ui.richtext.richTextOpsSelfCheck
+import java.lang.reflect.Modifier
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -428,5 +436,360 @@ class RecordProseTest {
         )
         // A stale or unknown tag is shown as itself rather than as a blank control.
         assertEquals("xx-XX", recordDictationLabel("xx-XX"))
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════════════════
+    //  WHICH BOXES CARRY A MICROPHONE — THE TABLE, NOT THE SCREEN
+    // ═══════════════════════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Every record surface's two totals, pinned as literal integers.
+     *
+     * Pinned rather than derived, for the same reason `DesignerProfileScreenTest:86-106` pins
+     * twenty-four: a coverage assertion that compares a table against itself passes on the day a
+     * column is dropped from BOTH halves. A number somebody has to edit is a number somebody has to
+     * think about, and the edit shows up in a diff as an intention rather than as a side effect.
+     */
+    private val RECORD_FORM_TOTALS: Map<RecordFormKind, Pair<Int, Int>> = mapOf(
+        RecordFormKind.CRAFT to (5 to 1),
+        // 2026-09-14: 13 → 15. `craftStartDate` and `experienceMonths` reached the wire with the
+        // record-parity work; both are excluded, so no dictated total moves anywhere below.
+        RecordFormKind.ARTISAN to (6 to 15),
+        // 2026-09-14: 6 → 7 for `workshopType`.
+        RecordFormKind.WORKSHOP to (4 to 7),
+        RecordFormKind.PRODUCT to (11 to 11),
+        // 2026-09-14: 15 → 16 for `heightInches`, the third of the tool's inch triple.
+        RecordFormKind.TOOL to (10 to 16),
+        RecordFormKind.PROCESS to (3 to 8),
+        RecordFormKind.MEDIA to (2 to 2),
+        RecordFormKind.LOCATION to (1 to 12),
+    )
+
+    /**
+     * T1 — the two tables cover every surface, agree with each other, and still add up.
+     *
+     * The failure this closes is not a crash. `recordDictates` fails closed, so a column that is in
+     * neither table simply has no microphone — which looks exactly like a column somebody decided
+     * should not have one. The only difference between an omission and a decision is written down
+     * in `RECORD_NOT_DICTATED`, and this is what makes the writing compulsory.
+     *
+     * The enum arm matters as much as the totals: a new `RecordFormKind` with no map entry would
+     * make `recordDictationFor` return a lookup that answers false to everything, and a whole new
+     * record form would ship mute with nothing anywhere reporting it.
+     */
+    @Test
+    fun `every record column on every form is classified, and none of them twice`() {
+        for (kind in RecordFormKind.values()) {
+            val dictated = RECORD_DICTATED[kind]
+            val notDictated = RECORD_NOT_DICTATED[kind]
+            assertTrue(
+                "$kind has no entry in RECORD_DICTATED. A surface with no table answers false to " +
+                    "every column, so the whole form would ship without a microphone and nothing " +
+                    "would report it",
+                dictated != null,
+            )
+            assertTrue(
+                "$kind has no entry in RECORD_NOT_DICTATED. Even a surface where everything is " +
+                    "dictated has to say so, because an absent map is indistinguishable from a map " +
+                    "nobody has written yet",
+                notDictated != null,
+            )
+            val both = dictated!!.intersect(notDictated!!.keys)
+            assertEquals(
+                "$kind.$both is listed as dictated AND as not dictated — `recordDictates` would " +
+                    "answer yes and the written reason would say no, so the screen and its own " +
+                    "explanation would disagree",
+                emptySet<String>(),
+                both,
+            )
+            val (expectedDictated, expectedNotDictated) = RECORD_FORM_TOTALS.getValue(kind)
+            assertEquals(
+                "$kind's dictated set changed size. That is allowed — but the browser has to move " +
+                    "with it (see RecordDictationParityTest.WEB_NOT_YET) and this number has to be " +
+                    "edited on purpose",
+                expectedDictated,
+                dictated.size,
+            )
+            assertEquals(
+                "$kind's excluded set changed size. Every exclusion carries a written argument; if " +
+                    "one was added, the argument is what a reviewer reads, and if one was removed a " +
+                    "box just gained a microphone",
+                expectedNotDictated,
+                notDictated.size,
+            )
+            assertEquals(
+                "$kind's two tables overlap or a column is spelled two ways",
+                expectedDictated + expectedNotDictated,
+                (dictated + notDictated.keys).size,
+            )
+        }
+    }
+
+    /**
+     * The columns a form actually sends, read off its own `*CreateRequest` rather than listed again.
+     *
+     * Reflection, not a second list: a list copied into a test is a third place to forget. The
+     * filter is by SHAPE and not by name, so a future Kotlin or serialization compiler's extra
+     * synthetic field is filtered too — a synthetic field is never something a researcher types
+     * into. The same defence `DesignerProfileScreenTest:77-80` documents.
+     */
+    private fun wireColumns(type: Class<*>): Set<String> = type.declaredFields
+        .filter { !it.isSynthetic && !Modifier.isStatic(it.modifiers) && !it.name.contains('$') }
+        .map { it.name }
+        .toSet()
+
+    /**
+     * Wire fields that are not boxes, on any form, and why each one is not.
+     *
+     * `id`          — the server's, never typed.
+     * `recordedAt`  — stamped by the save (`MainActivity.kt` writes `Instant.now()` in every
+     *                 record form's `submit`); neither client draws a control for it.
+     * `recordedTimezone` — a constant on the request.
+     * `location`    — the nested address card, classified as `RecordFormKind.LOCATION` in its own right.
+     * `steps`       — the nested step rows, folded in below under the `step` prefix.
+     * `clientKey`   — the create-idempotency key on WORKSHOP, PRODUCT, TOOL and PROCESS. By its own
+     *                 KDoc (`data/ApiModels.kt`, `WorkshopCreateRequest.clientKey`) it is minted at
+     *                 QUEUE time and merged onto the body at replay, deliberately never written into
+     *                 `payloadJson`, "because that string is the form's own serialisation of what the
+     *                 user saved and a key is bookkeeping about the SEND". No record form constructs
+     *                 one: the four `*CreateRequest(…)` literals in `MainActivity.kt` do not pass it.
+     *
+     * ── WHY `clientKey` IS HERE AND NOT FOUR TIMES IN `RECORD_NOT_DICTATED` ───────────────────────
+     *
+     * The line this set draws is "not a box ON ANY FORM", and it is the line `recordedAt` already
+     * sits on — stamped by the save, identical on every surface, drawn by neither client. `clientKey`
+     * is the same shape: one meaning, four forms, no control anywhere, and not part of what the user
+     * saved at all. The per-form table is for a SURFACE'S OWN questionnaire — including the several
+     * columns there that have no control yet — and putting `clientKey` in it would do two bad things.
+     * It would write one argument into four places that then drift, so that a later change to the
+     * outbox has four comments to find instead of this one; and it would tell a reader of
+     * `RECORD_NOT_DICTATED[WORKSHOP]` to go and look for a box on the workshop form that has never
+     * existed, which is the precise confusion the table's own header says it exists to prevent.
+     *
+     * THIS DOES NOT WEAKEN THE ASSERTION, and the difference is worth being exact about. A name in
+     * this set is exempted from classification, so the set is the one place in these tests where a
+     * wrong entry hides a column — which is why every name in it carries its argument above and why
+     * the argument has to be "no form draws it". A column that IS a box on some form cannot be added
+     * here without that sentence being visibly false to anyone reading the form, and the four names
+     * that were here before this one have held that property since they were written.
+     */
+    private val WIRE_PLUMBING =
+        setOf("id", "recordedAt", "recordedTimezone", "location", "steps", "clientKey")
+
+    /** `ProcessStepRequest.name` is `stepName` here, because `name` on this surface is the process's. */
+    private fun stepKey(field: String) =
+        if (field.startsWith("step")) field else "step" + field.replaceFirstChar { it.uppercase() }
+
+    // The media upload is multipart form-data and has no create-request: these are the four form
+    // keys, read off `MainActivity.kt`'s capture card and `app/(protected)/media/page.tsx:343,369`.
+    private val MEDIA_COLUMNS = setOf("mediaTitle", "linkedRecordType", "linkedRecordId", "caption")
+
+    // `LocationRequest` is the wire shape and NOT the form shape: it spells the browser's
+    // `locationAddress` box as `address`, and it carries `extraMetadata` — the legacy stated-address
+    // blob, resent verbatim so an unknown value round-trips rather than being dropped (see the
+    // `LocationRequest.extraMetadata` KDoc in `data/ApiModels.kt`). Neither is a box, so this list
+    // is written out rather than reflected.
+    private val LOCATION_COLUMNS = setOf(
+        "state", "district", "village", "pincode",
+        "latitude", "longitude", "altitude", "accuracy",
+        "placeName", "locationAddress", "capturedAt",
+        "subjectLatitude", "subjectLongitude",
+    )
+
+    private fun assertEveryColumnClassified(kind: RecordFormKind, columns: Set<String>) {
+        val classified = RECORD_DICTATED.getValue(kind) + RECORD_NOT_DICTATED.getValue(kind).keys
+        assertEquals(
+            "the dictation tables and $kind's payload have drifted apart: unclassified = " +
+                "${columns - classified}, classified but not a column = ${classified - columns}. " +
+                "A column in neither table is an omission nobody can tell from a decision.",
+            columns,
+            classified,
+        )
+    }
+
+    /**
+     * T1b — the tables are checked against the PAYLOAD, not only against each other.
+     *
+     * T1 above proves the two tables are consistent; it cannot prove they describe the form. This
+     * one does, by reflecting over the request DTOs the forms actually post. It is the assertion
+     * that found `Workshop.date`, `ProcessStep.stepType`, `ProcessStep.sortOrder`,
+     * `Location.subjectLatitude` and `Location.subjectLongitude` unclassified when it was written —
+     * five wire columns nobody had decided about, four of which have no control on either client.
+     *
+     * The field app has no per-form state class (form state is loose `var … by remember` inside each
+     * composable), so the honest source is the request DTO. `MEDIA` and `LOCATION` are the two
+     * surfaces where the wire shape is NOT the form shape, and both say so above their lists.
+     */
+    @Test
+    fun `every wire column the payload carries is classified`() {
+        assertEveryColumnClassified(
+            RecordFormKind.CRAFT,
+            wireColumns(CraftCreateRequest::class.java) - WIRE_PLUMBING,
+        )
+        assertEveryColumnClassified(
+            RecordFormKind.ARTISAN,
+            wireColumns(ArtisanCreateRequest::class.java) - WIRE_PLUMBING,
+        )
+        assertEveryColumnClassified(
+            RecordFormKind.WORKSHOP,
+            wireColumns(WorkshopCreateRequest::class.java) - WIRE_PLUMBING,
+        )
+        assertEveryColumnClassified(
+            RecordFormKind.PRODUCT,
+            wireColumns(ProductCreateRequest::class.java) - WIRE_PLUMBING,
+        )
+        assertEveryColumnClassified(
+            RecordFormKind.TOOL,
+            wireColumns(ToolCreateRequest::class.java) - WIRE_PLUMBING,
+        )
+        assertEveryColumnClassified(
+            RecordFormKind.PROCESS,
+            (wireColumns(ProcessCreateRequest::class.java) - WIRE_PLUMBING) +
+                (wireColumns(ProcessStepRequest::class.java) - WIRE_PLUMBING).map { stepKey(it) } +
+                // The one UI-only key on this form: a selector that narrows the product list and is
+                // never sent. It is on the screen, so it has to be classified.
+                setOf("artisanId"),
+        )
+        assertEveryColumnClassified(RecordFormKind.MEDIA, MEDIA_COLUMNS)
+        assertEveryColumnClassified(RecordFormKind.LOCATION, LOCATION_COLUMNS)
+    }
+
+    /**
+     * T2 — an exclusion without an argument is not an exclusion, it is an omission with a comment.
+     *
+     * Fails on the plausible wrong implementation rather than only on a broken one: an empty string,
+     * or the column name restated, would satisfy any "is it classified" check while classifying
+     * nothing. Sixty characters is roughly one clause; a full stop is what stops a label from
+     * passing as a sentence.
+     */
+    @Test
+    fun `every box without a microphone says why, in a sentence`() {
+        for ((kind, reasons) in RECORD_NOT_DICTATED) {
+            for ((column, reason) in reasons) {
+                val trimmed = reason.trim()
+                assertTrue(
+                    "`$kind.$column`'s exclusion carries no argument, only \"$reason\"",
+                    trimmed.length >= 60,
+                )
+                assertTrue(
+                    "`$kind.$column`'s reason is not a sentence — it does not end in a full stop: " +
+                        "\"$reason\"",
+                    trimmed.endsWith("."),
+                )
+                assertFalse(
+                    "`$kind.$column`'s reason is the column name restated, which explains nothing",
+                    trimmed.equals(column, ignoreCase = true),
+                )
+            }
+        }
+    }
+
+    /**
+     * T3 — the closed vocabularies, the calendars, the measurements and the identity numbers.
+     *
+     * Named one by one, and deliberately not derived from anything, so that a later sweep deciding
+     * to "light up every remaining box" has to argue with a test rather than with a comment. These
+     * are the columns where a microphone is not merely useless but harmful: a recogniser hands back
+     * words where the column wants digits, and the box's own filter then discards them silently, so
+     * the researcher's spoken answer is lost with no error anywhere.
+     */
+    @Test
+    fun `the closed vocabularies, the calendars, the measurements and the identity numbers are excluded by name`() {
+        val mustBeExcluded = mapOf(
+            RecordFormKind.ARTISAN to listOf(
+                "dateOfBirth", "experienceYears", "phone", "email", "aadhaarNumber",
+                "pehchanCardAvailable", "pehchanCardNumber", "dos", "donts", "gender",
+                "craftId", "status",
+                // 2026-09-14, with the two record-parity columns. Named HERE and not merely
+                // classified, because these two are the ones a sweep is most likely to get wrong:
+                // the handset has no control for either yet, so whoever finally draws them meets an
+                // empty box and a free choice, and a date picker and a 0..11 picker are the two
+                // controls a microphone can be bolted to without looking absurd. This is where they
+                // are told not to.
+                "craftStartDate", "experienceMonths",
+            ),
+            RecordFormKind.PRODUCT to listOf(
+                "lengthInches", "breadthInches", "heightInches", "costOfMaking", "sellingPrice",
+                "productType", "marketDemand",
+            ),
+            RecordFormKind.TOOL to listOf(
+                "yearsInUse", "height", "width", "lengthInches", "breadthInches", "thickness",
+                "weight", "radius", "replacementCost", "maker", "traditionType",
+                // 2026-09-14. `heightInches` joins the two dimensions it is measured with; the
+                // unit-less `height` two names along is the box it will eventually take over from.
+                "heightInches",
+            ),
+            RecordFormKind.WORKSHOP to listOf("startDate", "endDate", "date", "workshopType"),
+            RecordFormKind.PROCESS to listOf(
+                "preProcessAvailable", "artisanId", "productId", "notes", "stepType", "stepSortOrder",
+            ),
+            RecordFormKind.LOCATION to listOf(
+                "state", "district", "pincode", "latitude", "longitude", "placeName",
+                "locationAddress", "subjectLatitude", "subjectLongitude",
+            ),
+        )
+        for ((kind, columns) in mustBeExcluded) {
+            for (column in columns) {
+                assertFalse(
+                    "`$kind.$column` has gained a microphone. It is a closed vocabulary, a calendar, " +
+                        "a measurement, a price or a regulated identity number, and a recogniser " +
+                        "answers all five with words the column cannot hold",
+                    recordDictates(kind, column),
+                )
+                assertTrue(
+                    "`$kind.$column` is no longer in RECORD_NOT_DICTATED, so the argument against " +
+                        "dictating it has been deleted rather than answered",
+                    RECORD_NOT_DICTATED.getValue(kind).containsKey(column),
+                )
+            }
+        }
+    }
+
+    /**
+     * T4 — the cross-check between two rules written a day apart.
+     *
+     * `RequiredInput` defaults `dictate` to true, and that default is only defensible while every
+     * required box on a record form is free prose or a proper noun. This asserts exactly that, one
+     * box at a time — and simultaneously that `dos` and `donts`, which are ALSO required, are not
+     * in the dictated set, because they are drawn by `NumberedListInput` and not by `RequiredInput`.
+     * If a required identity field ever appears, this test is what says so before the default does.
+     */
+    @Test
+    fun `the required prose boxes dictate and the required list boxes do not`() {
+        assertTrue(recordDictates(RecordFormKind.CRAFT, "name"))
+        assertTrue(recordDictates(RecordFormKind.ARTISAN, "name"))
+        assertTrue(recordDictates(RecordFormKind.ARTISAN, "place"))
+        assertTrue(recordDictates(RecordFormKind.WORKSHOP, "title"))
+        assertTrue(recordDictates(RecordFormKind.WORKSHOP, "place"))
+        assertTrue(recordDictates(RecordFormKind.PRODUCT, "productName"))
+        assertTrue(recordDictates(RecordFormKind.PRODUCT, "craftName"))
+        assertTrue(recordDictates(RecordFormKind.PRODUCT, "artisanName"))
+        assertTrue(recordDictates(RecordFormKind.TOOL, "toolkitName"))
+        assertTrue(recordDictates(RecordFormKind.TOOL, "craftName"))
+        assertTrue(recordDictates(RecordFormKind.PROCESS, "name"))
+        assertTrue(recordDictates(RecordFormKind.PROCESS, "stepName"))
+
+        assertFalse(
+            "`dos` is required and is still not dictated, and the reason is the CONTROL rather than " +
+                "the content: `NumberedListInput`'s whole interaction is one row per point",
+            recordDictates(RecordFormKind.ARTISAN, "dos"),
+        )
+        assertFalse(recordDictates(RecordFormKind.ARTISAN, "donts"))
+    }
+
+    /**
+     * T5 — an unclassified column gets no microphone rather than a crash.
+     *
+     * The silent false is only acceptable because `RecordDictationParityTest`'s unknown-literal arm
+     * turns every `dictates("colourway")` that reaches this function into a red build on a laptop.
+     * DELETE THAT TEST AND THIS BECOMES THE BUG IT GUARDS: a typo — `dictates("localname")` —
+     * compiles, runs, returns false, and leaves a box mute for ever while looking exactly like a box
+     * somebody decided not to dictate.
+     */
+    @Test
+    fun `recordDictates fails closed on a column nobody has classified`() {
+        assertFalse(recordDictates(RecordFormKind.PRODUCT, "colourway"))
+        assertFalse(recordDictates(RecordFormKind.ARTISAN, "localname"))
+        assertFalse(recordDictates(RecordFormKind.CRAFT, ""))
     }
 }
