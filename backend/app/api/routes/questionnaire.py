@@ -436,10 +436,27 @@ async def list_questions(
     sectionCode: str | None = None,
     activeOnly: bool = True,
     questionnaireId: str | None = None,
+    workshopId: str | None = None,
 ) -> list[dict[str, Any]]:
-    """One instrument's questions, flattened. ``questionnaireId`` omitted means the default one —
-    which is what every client sent before 2026-09-13 and what they keep getting."""
-    qid = await resolve_questionnaire_id(questionnaireId)
+    """One instrument's questions, flattened. ``questionnaireId`` omitted means the workshop's bound
+    instrument, and failing that the default — which is what every client sent before 2026-09-13 and
+    what they keep getting.
+
+    WHY ``workshopId`` IS HERE AND WHAT IT FIXES. ``resolve_questionnaire_id`` is a three-step rule —
+    explicit id, then the workshop's bound instrument, then the default — and this handler used to
+    call it with only the first step, so the second was unreachable from a read. Binding an
+    instrument to a workshop (``PUT /workshops/{id}/questionnaire``) therefore changed what
+    ``POST /interviews`` FILED (it passes the workshop, :851) and changed nothing about what a
+    researcher SAW. That split is the worst arrangement available: on 2026-09-14 the 3rd Craft
+    Toolkit Workshop was bound, and this endpoint went on serving the 2nd instrument's 24 sections —
+    RESP, A..W, whose V is "International Exposure and Overseas Travel" where the 3rd's is
+    "Network / Ecosystem Mapping". A researcher would have answered one instrument's questions and
+    had them stored under the other's.
+
+    An absent ``workshopId`` still resolves to the default, so every client written before
+    2026-09-13 keeps the behaviour it has always had.
+    """
+    qid = await resolve_questionnaire_id(questionnaireId, workshopId)
     sections = await section_payloads(qid, activeOnly)
     flattened = [
         question
@@ -455,8 +472,25 @@ async def list_sections(
     _: Any = Depends(get_current_user),
     activeOnly: bool = True,
     questionnaireId: str | None = None,
+    workshopId: str | None = None,
 ) -> list[dict[str, Any]]:
-    qid = await resolve_questionnaire_id(questionnaireId)
+    """One instrument's sections, each carrying its questions.
+
+    WHY ``workshopId`` IS HERE AND WHAT IT FIXES. ``resolve_questionnaire_id`` is a three-step rule —
+    explicit id, then the workshop's bound instrument, then the default — and this handler used to
+    call it with only the first step, so the second was unreachable from a read. Binding an
+    instrument to a workshop (``PUT /workshops/{id}/questionnaire``) therefore changed what
+    ``POST /interviews`` FILED (it passes the workshop, :851) and changed nothing about what a
+    researcher SAW. That split is the worst arrangement available: on 2026-09-14 the 3rd Craft
+    Toolkit Workshop was bound, and this endpoint went on serving the 2nd instrument's 24 sections —
+    RESP, A..W, whose V is "International Exposure and Overseas Travel" where the 3rd's is
+    "Network / Ecosystem Mapping". A researcher would have answered one instrument's questions and
+    had them stored under the other's.
+
+    An absent ``workshopId`` still resolves to the default, so every client written before
+    2026-09-13 keeps the behaviour it has always had.
+    """
+    qid = await resolve_questionnaire_id(questionnaireId, workshopId)
     return await section_payloads(qid, activeOnly)
 
 
@@ -937,6 +971,7 @@ async def create_interview(
 async def interview_for_artisan_set(
     artisanIds: list[str] = Query(default=[]),
     questionnaireId: str | None = None,
+    workshopId: str | None = None,
     _: Any = Depends(get_current_user),
 ) -> dict[str, Any] | None:
     """The single canonical interview for an EXACT set of artisans ON ONE INSTRUMENT, or ``null``.
@@ -954,7 +989,13 @@ async def interview_for_artisan_set(
     set_key = artisan_set_key(artisanIds)
     if not set_key:
         return None
-    qid = await resolve_questionnaire_id(questionnaireId)
+    # ``workshopId`` IS PASSED HERE FOR THE REASON THE DOCSTRING ABOVE ALREADY GIVES. It says the two
+    # "have to agree or the page offers to join an entry the create would not fold into" — and until
+    # 2026-09-14 they did not: ``create_interview`` resolves with the workshop (:851) and this
+    # resolved without it, so on a workshop with a bound instrument the lookup asked about the
+    # DEFAULT instrument's sittings while the create filed into the workshop's. The stated invariant
+    # was already written down; only the argument was missing.
+    qid = await resolve_questionnaire_id(questionnaireId, workshopId)
     interview = await db.questionnaireinterview.find_first(
         where={"questionnaireId": qid, "artisanSetKey": set_key}
     )
