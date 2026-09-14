@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Download } from "lucide-react";
 
 import { API_BASE, getToken } from "@/lib/api";
+import { saveBlobToDevice } from "@/lib/saveToDevice";
 
 export function DownloadCsvButton({
   path,
@@ -27,12 +28,7 @@ export function DownloadCsvButton({
       });
       if (!response.ok) throw new Error(`Unable to export CSV (HTTP ${response.status})`);
       const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = filename;
-      anchor.click();
-      window.URL.revokeObjectURL(url);
+      saveBlobToDevice(blob, filename);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to export CSV";
       setError(message);

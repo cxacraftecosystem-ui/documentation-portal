@@ -37,6 +37,7 @@ import { saveOrQueue } from "@/lib/offline";
 import { hasRank } from "@/lib/permissions";
 import type { Artisan, Craft, ProductDocumentation, RecordStatus } from "@/lib/types";
 import { marketDemandOptions, productTypes } from "@/lib/types";
+import { TraceFromCapture } from "@/components/trace/TraceFromCapture";
 
 /** Dropdown label for a linked artisan: always "Name · Place" (name alone if no place), never ids. */
 function artisanOptionLabel(artisan: Artisan) {
@@ -994,6 +995,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           title="Product media"
           description="Attach or capture product images, videos, audio notes, and documents. Image EXIF is retained and summarized in remarks."
         />
+        <TraceFromCapture files={mediaFiles} onFilesChange={setMediaFiles} />
         <LocationFields initial={initialLocation} onDirty={markDirty} />
         {uploadProgress ? <UploadProgress progress={uploadProgress} /> : null}
         <div className="flex justify-end gap-2">

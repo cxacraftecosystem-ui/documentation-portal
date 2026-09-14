@@ -12,6 +12,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { SearchableMultiSelect, type SelectOption } from "@/components/ui/SearchableSelect";
 import { apiFetch, listResource } from "@/lib/api";
 import { runPerPerson, type BatchOutcome, type BatchTarget } from "@/lib/sharingBatch";
+import { saveBlobToDevice } from "@/lib/saveToDevice";
 import type {
   Artisan,
   DataAccessGrant,
@@ -746,12 +747,7 @@ export default function SharingPage() {
         );
       }
       const blob = await zip.generateAsync({ type: "blob" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `data-${ownerLabel.replace(/[^A-Za-z0-9]+/g, "_")}.zip`;
-      a.click();
-      URL.revokeObjectURL(url);
+      saveBlobToDevice(blob, `data-${ownerLabel.replace(/[^A-Za-z0-9]+/g, "_")}.zip`);
     }, "Download ready.");
     // Said AFTER `act`, which writes its own success message last. A partial archive that presents
     // itself as complete is worse than a failed one, because nobody goes back for the rest.

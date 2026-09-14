@@ -66,6 +66,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Timeline
+import com.fieldrepository.app.ui.trace.TracePanel
 import com.fieldrepository.app.ui.parseFieldDate
 import com.fieldrepository.app.ui.FieldDateField
 import com.fieldrepository.app.ui.FieldIslandNav
@@ -4627,6 +4628,41 @@ private fun MediaCaptureSection(
         if (recording) {
             RecordingIndicator(getAmplitude = { runCatching { recorder?.maxAmplitude ?: 0 }.getOrDefault(0) })
         }
+        /*
+         * THE OFFLINE TRACER, on the most recently attached photograph.
+         *
+         * ONE PANEL, ON THE LAST IMAGE — not one panel per image, which is what a literal reading of
+         * "offer it for the images" would build. A record with five photographs would then show five
+         * identical collapsed panels stacked down the screen, and the researcher's next press is a
+         * choice between things that look the same. The web client decides this the same way and in
+         * one place (`components/trace/TraceFromCapture.tsx`, which argues it), so the two clients
+         * offer the same thing on the same record rather than disagreeing about how many tracers a
+         * form has.
+         *
+         * Re-tracing an older attachment is not lost — that is reached from the record's existing
+         * media, where the image already has a URL. This mount is the just-captured case.
+         *
+         * ATTACHING IS ONE LINE, AND THAT IS THE POINT. `media.uris` IS the ordinary upload door:
+         * `stagedDeferred` gives eager pre-upload, `stagedFailed` gives retry at save, and
+         * `uploadAttachments` drains it. So a traced SVG added here gets queueing, retry and the
+         * offline store for free, because it is not a special kind of file. A panel that uploaded
+         * its own output would be a second upload path to keep working offline, in an app whose
+         * whole point is working offline.
+         */
+        media.uris
+            .lastOrNull { context.contentResolver.getType(it)?.startsWith("image/") == true }
+            ?.let { photograph ->
+                TracePanel(
+                    photograph = photograph,
+                    // The panel prints one sentence from this and claims nothing else. Null: the
+                    // derived file is ADDED to the attachments and replaces nothing.
+                    currentFileName = null,
+                    enabled = true,
+                    onAttach = { derived -> if (derived !in media.uris) media.uris = media.uris + derived },
+                    onMessage = onMessage,
+                    onError = onError,
+                )
+            }
         beforeLocation?.invoke()
         LocationAddressEditor(
             repository = repository,

@@ -15,6 +15,7 @@
  */
 
 import { API_BASE, ApiError, apiFetch, assertApiConfigured, describeApiDetail, getToken } from "@/lib/api";
+import { saveBlobToDevice } from "@/lib/saveToDevice";
 
 export type QWorkbookProblem = {
   sheet: string | null;
@@ -196,10 +197,5 @@ export function reuploadQuestionnaire(id: string, file: File, options?: { title?
  * the other file.
  */
 export function saveWorkbook(file: QWorkbookFile) {
-  const url = window.URL.createObjectURL(file.blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = file.fileName;
-  anchor.click();
-  window.URL.revokeObjectURL(url);
+  saveBlobToDevice(file.blob, file.fileName);
 }

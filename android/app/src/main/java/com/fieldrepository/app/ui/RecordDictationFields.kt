@@ -175,6 +175,8 @@ val RECORD_NOT_DICTATED: Map<RecordFormKind, Map<String, String>> = mapOf(
         "lengthInches" to "A decimal measurement. Recognisers spell digits out in words and this box's numeric keyboard and parse discard that silently, so a spoken answer reads as no answer.",
         "breadthInches" to "A decimal measurement, and a measurement is the one thing on this form a machine also writes — a dictated word here would sit beside a grid-measured number claiming equal authority.",
         "heightInches" to "A decimal measurement, excluded for the reason the other two dimensions are: spoken digits arrive as words and are dropped without a word to the researcher.",
+        // Added 2026-09-14 with the measurement-provenance work, which put this column on the wire.
+        "measurementMethods" to "NOT A BOX ON ANY CLIENT, and it could not be one: it records HOW the three dimensions beside it were obtained, and it is written only by the two machine routes at the moment somebody accepts a proposal. A person cannot speak a claim about a measurement they did not make with a machine, and a dictated one would be exactly the false provenance the whole key exists to prevent — see `data/MeasurementMarkers.kt`.",
         "costOfMaking" to "Money. Nobody dictates \"one thousand two hundred and fifty rupees fifty paise\" into a costing sheet, and the column wants a number.",
         "sellingPrice" to "Money, and the same argument as the cost of making it is compared against.",
         "marketDemand" to "Five fixed options behind a dropdown; the answer is picked, not spoken.",
@@ -191,6 +193,8 @@ val RECORD_NOT_DICTATED: Map<RecordFormKind, Map<String, String>> = mapOf(
         "breadthInches" to "A decimal measurement that the grid-measurement route also writes, and the same argument as the length beside it.",
         // Added 2026-09-14: the third of the inch triple reached the wire without being classified.
         "heightInches" to "A decimal measurement, the third of the inch triple, and the same argument as the length and breadth above it. The box exists on this client as of 2026-09-14 — before that there was none, and the grid panel wrote its inches reading into the unit-less `height` above, losing the one fact that made the number usable.",
+        // Added 2026-09-14 with the measurement-provenance work, alongside the product form's entry.
+        "measurementMethods" to "NOT A BOX ON ANY CLIENT, and the same argument the product form's entry makes: it records HOW the inch triple was obtained, it is written only where a machine route's proposal is accepted, and a spoken claim about a measurement nobody made with a machine is precisely the false provenance the key exists to prevent. It describes the three inch columns only, never the unit-less `height` above.",
         "thickness" to "A decimal measurement; spoken digits arrive as words and this box drops them silently.",
         "weight" to "A decimal measurement; spoken digits arrive as words and this box drops them silently.",
         "radius" to "A decimal measurement; spoken digits arrive as words and this box drops them silently.",

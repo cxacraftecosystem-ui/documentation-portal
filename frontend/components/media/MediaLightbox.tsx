@@ -210,7 +210,18 @@ async function saveToDevice(url: string, name: string) {
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
-    URL.revokeObjectURL(objectUrl);
+    // ⚠ REVOKED ON A LATER TASK, NEVER ON THE LINE AFTER `click()`.
+    //
+    // `anchor.click()` only SCHEDULES the download; the browser reads the object URL afterwards, and
+    // revoking it synchronously is a race against that read. Chrome usually wins it, which is what
+    // makes this so easy to ship — and Safari usually loses, downloading NOTHING AT ALL with no
+    // error anywhere: no rejected promise, no console entry, nothing for the `catch` below to reach.
+    // The researcher presses Save and the file simply does not arrive.
+    //
+    // A zero-delay timeout is enough because it only has to land after the current task, by which
+    // point the download has been handed to the browser. Still revoked, so the blob is not leaked
+    // for the life of the document — which is what dropping the call entirely would cost.
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
   } catch {
     const anchor = document.createElement("a");
     anchor.href = url;

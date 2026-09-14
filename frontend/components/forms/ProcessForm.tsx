@@ -27,6 +27,7 @@ import { saveOrQueue } from "@/lib/offline";
 import { hasRank } from "@/lib/permissions";
 import type { Artisan, ExtraMetadata, MediaFile, ProductDocumentation, RecordStatus, User, Workshop } from "@/lib/types";
 import { useConfirm } from "@/components/dialogs";
+import { TraceFromCapture } from "@/components/trace/TraceFromCapture";
 
 // ---------------------------------------------------------------------------
 // Types for the /processes endpoints (hydrated detail: media on the process =
@@ -1024,6 +1025,7 @@ export function ProcessForm({
             title="Attach media"
             description="Photos, video, audio and files link to this record automatically. Audio is queued for transcription after upload."
           />
+          <TraceFromCapture files={preFiles} onFilesChange={setPreFiles} />
           {preMediaError ? <p className="text-xs text-error-600">{preMediaError}</p> : null}
         </div>
       ) : null}

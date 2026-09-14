@@ -35,6 +35,7 @@ import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, type Batch
 import { saveOrQueue } from "@/lib/offline";
 import { hasRank } from "@/lib/permissions";
 import type { AadhaarLookupResult, Artisan, ArtisanIdentityConflict, ArtisanIdentityMatch, Craft, RecordStatus } from "@/lib/types";
+import { TraceFromCapture } from "@/components/trace/TraceFromCapture";
 
 // Android parity (MainActivity.kt genderOptions).
 const genderOptions = ["Male", "Female", "Transgender", "Other"];
@@ -1124,6 +1125,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           title="Artisan media"
           description="Attach or capture artisan images, audio introductions, videos, and documents. Image EXIF is retained and summarized in notes."
         />
+        <TraceFromCapture files={mediaFiles} onFilesChange={setMediaFiles} />
         {/*
           `statedPlace` is the free-text box the researchers used while there was no district column
           — "Bagru, Jaipur, Rajasthan", "Rudraprayag, Dehradun" — and it is passed READ ONLY, so the

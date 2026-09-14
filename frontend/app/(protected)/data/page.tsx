@@ -43,6 +43,7 @@ import { DataSearchPanel } from "@/components/data/DataSearchPanel";
 import { API_BASE, apiFetch, buildQuery, getToken, listResource } from "@/lib/api";
 import { bytes, formatDateTime } from "@/lib/format";
 import { canDownloadDataset } from "@/lib/permissions";
+import { saveBlobToDevice } from "@/lib/saveToDevice";
 import type {
   Artisan,
   Craft,
@@ -346,12 +347,7 @@ function DataTablesPanel({
       });
       if (!response.ok) throw new Error(`Report download failed (HTTP ${response.status})`);
       const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = reportFilename(folderName);
-      anchor.click();
-      URL.revokeObjectURL(url);
+      saveBlobToDevice(blob, reportFilename(folderName));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to download the report");
     } finally {
@@ -781,12 +777,7 @@ function BrowseByTypePanel() {
         );
       }
       const blob = await zip.generateAsync({ type: "blob" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = "field-repository-dataset.zip";
-      anchor.click();
-      URL.revokeObjectURL(url);
+      saveBlobToDevice(blob, "field-repository-dataset.zip");
       // A capped export that presents itself as complete is the worst outcome here — the researcher
       // archives it and never learns what is missing — so the server's flag is surfaced verbatim.
       const capNote = manifest.truncated
@@ -1391,12 +1382,7 @@ export default function DataBrowserPage() {
           phase: "zipping"
         });
       });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = zipFilename(selectedPath);
-      anchor.click();
-      URL.revokeObjectURL(url);
+      saveBlobToDevice(blob, zipFilename(selectedPath));
       setFailures(failed);
       const truncatedNote = manifest.truncated
         ? " Note: the listing hit the server cap — this folder holds more files than were included; download narrower subfolders for a complete archive."
