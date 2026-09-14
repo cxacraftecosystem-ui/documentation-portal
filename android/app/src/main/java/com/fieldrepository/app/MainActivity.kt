@@ -4649,20 +4649,23 @@ private fun MediaCaptureSection(
          * its own output would be a second upload path to keep working offline, in an app whose
          * whole point is working offline.
          */
-        media.uris
-            .lastOrNull { context.contentResolver.getType(it)?.startsWith("image/") == true }
-            ?.let { photograph ->
-                TracePanel(
-                    photograph = photograph,
-                    // The panel prints one sentence from this and claims nothing else. Null: the
-                    // derived file is ADDED to the attachments and replaces nothing.
-                    currentFileName = null,
-                    enabled = true,
-                    onAttach = { derived -> if (derived !in media.uris) media.uris = media.uris + derived },
-                    onMessage = onMessage,
-                    onError = onError,
-                )
-            }
+        TracePanel(
+            // ⚠ NOT `?.let { }`. This mount hid the card behind the presence of a photograph until
+            // 2026-09-14, so a tool or product form that had not been photographed yet showed no
+            // tracer at all — and it was reported, correctly, as the feature missing from those
+            // pages. The card is how somebody LEARNS the tool exists, which is most useful before
+            // the photograph is taken, not after. `photograph` is nullable for exactly this and the
+            // panel has an empty state that names the picker above; see its KDoc.
+            photograph = media.uris
+                .lastOrNull { context.contentResolver.getType(it)?.startsWith("image/") == true },
+            // The panel prints one sentence from this and claims nothing else. Null: the derived
+            // file is ADDED to the attachments and replaces nothing.
+            currentFileName = null,
+            enabled = true,
+            onAttach = { derived -> if (derived !in media.uris) media.uris = media.uris + derived },
+            onMessage = onMessage,
+            onError = onError,
+        )
         beforeLocation?.invoke()
         LocationAddressEditor(
             repository = repository,

@@ -360,6 +360,18 @@ internal fun traceCardSummary(
  * what a field may hold, and the moment it knew about an upload it would be a second upload path.
  *
  * @param photograph the image to trace, as a `content://` Uri the host already holds and has read
+ *   access to — or NULL when the host has nothing chosen yet.
+ *
+ *   ⚠ NULL IS A STATE AND NOT AN ERROR, and this parameter was non-null until 2026-09-14. The host
+ *   mounted the card with `?.let { }`, so a form with no photograph on it yet rendered NO CARD AT
+ *   ALL — and a researcher opening a tool or a product form reported the tracer missing from those
+ *   pages. It was not missing; it was unfindable, which for a feature is the same thing.
+ *
+ *   The collapsed card never reads this: it is a title, a description and a disclosure header, and
+ *   it is worth showing whether or not a photograph exists, because that is how somebody learns the
+ *   tool is there. Only the OPEN half needs an image, and with none it says so and names the picker
+ *   rather than drawing a second one. Web `TracePanel` takes the same value for the same reason —
+ *   see its `image` prop, which documents this in the same words.
  *   permission for. Read twice for pixels and never written.
  * @param currentFileName the name of whatever is already attached where this drawing would go, or null.
  *   Used for exactly one sentence — [tracePanelReplaceWarning] — because only the host can know whether
@@ -377,7 +389,7 @@ internal fun traceCardSummary(
  */
 @Composable
 fun TracePanel(
-    photograph: Uri,
+    photograph: Uri?,
     currentFileName: String?,
     enabled: Boolean,
     onAttach: (Uri) -> Unit,
@@ -470,6 +482,19 @@ fun TracePanel(
                 )
             }
         }
+        return
+    }
+
+    if (photograph == null) {
+        /*
+          OPENED WITH NOTHING TO TRACE. The card is worth showing on a form that has taken no
+          photograph yet — that is how the tool is discovered — so opening it has to have an honest
+          answer rather than a blank panel or a dead button.
+          NO SECOND PICKER HERE, deliberately. This form already has one, directly above; a chooser
+          in this card would be a second way in with its own state to keep, and the one thing worse
+          than a hidden feature is two of it. So it points at the picker that exists.
+        */
+        TraceEmptyState(enabled = enabled, modifier = modifier, onClose = { open = false })
         return
     }
 
@@ -1995,6 +2020,55 @@ private fun TraceRowTail(control: TraceControl, inactive: String?) {
             fontSize = 11.sp,
             lineHeight = 16.sp,
             fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+/**
+ * The open card when the form holds no photograph yet.
+ *
+ * WHY THERE IS A STATE HERE AT ALL rather than a card that hides or a header that will not open.
+ * A tool or product form can be opened long before anything is photographed, and the tracer is worth
+ * knowing about at that moment — it is part of deciding whether to photograph the sketch flat on a
+ * table or propped against a wall. A card that appears only once an image exists is a card nobody
+ * discovers, which is exactly how this was reported: "missing from the tools and products pages".
+ *
+ * AND WHY IT DOES NOT OFFER A PICKER. The form already has one, immediately above this card. A
+ * second chooser here would be a second way in, with its own selection to keep in step with the
+ * attachment list, and two entry points that can disagree about which photograph is "the" one. So
+ * this names the control that exists rather than growing a rival to it. The web panel answers the
+ * same state the same way, deliberately — see its `image` prop.
+ */
+@Composable
+private fun TraceEmptyState(
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    onClose: () -> Unit,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.field.surface100, RoundedCornerShape(10.dp))
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        TracePanelDisclosureHeader(
+            icon = Icons.Filled.Gesture,
+            title = TRACE_CARD_TITLE,
+            expanded = true,
+            toggleEnabled = enabled,
+            expandAction = TRACE_EXPAND_ACTION,
+            collapseAction = TRACE_COLLAPSE_ACTION,
+            onToggle = onClose,
+        )
+        Text(
+            "Add a photograph above and this will turn the pencil in it into vector line work — the " +
+                "same drawing, as lines that print at any size without going blocky. The result is " +
+                "added as a separate file; the photograph itself is never changed. It runs on this " +
+                "device and needs no connection.",
+            color = MaterialTheme.field.muted,
+            fontSize = 11.sp,
+            lineHeight = 16.sp,
         )
     }
 }

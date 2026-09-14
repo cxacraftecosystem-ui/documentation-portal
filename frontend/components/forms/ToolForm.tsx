@@ -37,7 +37,6 @@ import { saveOrQueue } from "@/lib/offline";
 import { hasRank } from "@/lib/permissions";
 import type { Artisan, Craft, RecordStatus, ToolDocumentation } from "@/lib/types";
 import { makerOptions, traditionOptions } from "@/lib/types";
-import { TraceFromCapture } from "@/components/trace/TraceFromCapture";
 
 /** Dropdown label for a linked artisan: always "Name · Place" (name alone if no place), never ids. */
 function artisanOptionLabel(artisan: Artisan) {
@@ -1133,7 +1132,6 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
           title="Tool media"
           description="Attach or capture tool images, videos, audio notes, and documents. Image EXIF is retained and summarized in remarks."
         />
-        <TraceFromCapture files={mediaFiles} onFilesChange={setMediaFiles} />
         <LocationFields initial={initialLocation} onDirty={markDirty} />
         {uploadProgress ? <UploadProgress progress={uploadProgress} /> : null}
         <div className="flex justify-end gap-2">

@@ -36,11 +36,22 @@ import { TracePanel } from "@/components/trace/TracePanel";
  * kind of file. A panel that uploaded its own output would be a second upload path to keep working
  * offline, in a product whose whole point is working offline.
  *
- * ── RENDERS NOTHING WHEN THERE IS NOTHING TO TRACE ────────────────────────────────────────────
+ * ── IT RENDERS EVEN WITH NO IMAGE, AND THE FIRST VERSION OF THIS FILE GOT THAT WRONG ──────────
  *
- * No image attached means no panel, rather than a disabled one. A disabled control invites the
- * question "why can't I press this", and the answer — "attach a photograph first" — is already
- * obvious from the empty capture field directly above it.
+ * This wrapper used to `return null` when no image was attached. The reasoning was that a disabled
+ * control invites "why can't I press this", and the answer is obvious from the empty capture field
+ * above it. IT IS NOT OBVIOUS, because there is nothing there to be obvious ABOUT: a researcher
+ * opening a tool or a product form saw no tracer at all and reported the feature missing from those
+ * pages. A control nobody can find has not been shipped.
+ *
+ * `TracePanel` was built for this and says so at {@link TracePanelProps.image}: "`null` IS A STATE
+ * AND NOT AN ERROR: the host has nothing chosen yet. The panel says where the one picker is rather
+ * than drawing a second one." Its collapsed trigger is a self-contained card — title, description,
+ * chevron — that needs no image; the image is only read when the panel is OPENED. So the honest
+ * thing is to hand it the null and let it explain itself, which is what it already knows how to do.
+ *
+ * The panel is therefore present on every form that can take a photograph, whether or not one has
+ * been taken yet — which is the whole of the requirement.
  */
 export function TraceFromCapture({
   files,
@@ -65,16 +76,17 @@ export function TraceFromCapture({
     return null;
   }, [files]);
 
-  if (!image) return null;
-
   return (
     <TracePanel
       image={image}
-      imageName={image.name}
+      imageName={image?.name}
       disabled={disabled}
       onAttach={(file) => {
         onFilesChange([...files, file]);
       }}
+      // `disabled` is the HOST's answer to "may this form be edited at all", never this component's
+      // answer to "is there a photograph". The panel handles the second itself; overloading the
+      // first with it is how the card disappears again under a different name.
     />
   );
 }

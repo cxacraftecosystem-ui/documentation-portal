@@ -14,6 +14,7 @@ import {
 } from "@/lib/media";
 import { useEagerStaging } from "@/lib/uploads";
 import type { MediaType } from "@/lib/types";
+import { TraceFromCapture } from "@/components/trace/TraceFromCapture";
 
 const imageAccept = "image/*,.jpg,.jpeg,.png,.gif,.webp,.heic,.heif,.tif,.tiff,.bmp,.avif";
 const audioAccept = "audio/*,.mp3,.wav,.m4a,.aac,.ogg,.oga,.opus,.webm,.flac,.amr";
@@ -288,6 +289,23 @@ export function MediaCaptureField({
           </div>
         </div>
       ) : null}
+      {/*
+        THE TRACER, MOUNTED HERE RATHER THAN IN EACH FORM, AND THAT IS THE WHOLE POINT.
+
+        It was first wired form by form — artisan, process, product, tool — which covered four of the
+        NINE places this component is used and silently missed the rest: the crafts page, the media
+        page, the workshops page, the process form's per-step field and the tool form's stage field.
+        "Wherever an image can be uploaded" is a property of THIS component, so it belongs on this
+        component; a list maintained in five other files is a list that is already wrong.
+
+        `imageAllowed` is the gate that already exists here, so the audio-only questionnaire field
+        (`allowedTypes={["AUDIO"]}`) does not grow a tracer it could never use — without anybody
+        having to remember that it is the exception.
+
+        The handset reached the same arrangement for the same reason: one mount inside
+        `MediaCaptureSection`, not one per screen.
+      */}
+      {imageAllowed ? <TraceFromCapture files={files} onFilesChange={onFilesChange} /> : null}
       {activePreview ? <MediaLightbox item={activePreview} onClose={() => setActivePreview(null)} /> : null}
     </section>
   );
