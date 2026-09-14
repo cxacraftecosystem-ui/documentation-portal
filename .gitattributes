@@ -50,3 +50,26 @@
 # The Gradle wrapper must stay LF or it will not execute on a POSIX runner.
 gradlew         text eol=lf
 *.sh            text eol=lf
+
+# ─── THE VENDORED TRACE ENGINE STAYS LF EVERYWHERE ─────────────────────────────────────────
+#
+# Both engines are identified by a SHA-256 per file — `frontend/lib/trace/UPSTREAM-MANIFEST.txt`
+# and `android/UPSTREAM-MANIFEST-KOTLIN.txt` — and those digests are taken over RAW BYTES. Under
+# `* text=auto` above, a Windows checkout rewrites the newlines on the way out, so every digest
+# mismatches on every Windows machine while the files are in fact correct. A drift check that
+# cries drift on a clean tree is a drift check nobody reads.
+#
+# MEASURED, 2026-09-14, which is why both lines are here and not just the first: the designer
+# portal pins only `frontend/lib/trace/**`, so its TypeScript manifest verifies on Windows and its
+# KOTLIN one cannot — 103 of 108 files mismatch there on line endings alone. That gap is what this
+# second line closes, and it is worth back-porting.
+#
+# `docs/fixtures/` is included because :core-pipeline's ParityTest reads those three JSON files as
+# the shared ground truth between the Kotlin and the TypeScript; they are hashed in the Kotlin
+# manifest too.
+frontend/lib/trace/**   text eol=lf
+android/core-imaging/** text eol=lf
+android/core-vector/**  text eol=lf
+android/core-pipeline/** text eol=lf
+android/core-export/**  text eol=lf
+docs/fixtures/**        text eol=lf

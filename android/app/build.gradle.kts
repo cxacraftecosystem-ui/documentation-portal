@@ -314,6 +314,21 @@ dependencies {
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
+    /*
+     * THE VENDORED TRACE ENGINE. See the block in settings.gradle.kts for what these four are and
+     * why they are Kotlin/JVM rather than Android library modules.
+     *
+     * ALL FOUR ARE NAMED THOUGH ONE WOULD COMPILE. `:core-pipeline` declares `api(...)` on the
+     * other three, so `implementation(project(":core-pipeline"))` alone would already put every
+     * symbol on the compile classpath. They are listed anyway because this file is where somebody
+     * looks to find out what :app is built from, and a transitive dependency that only appears in
+     * another module's build script is a dependency nobody reads.
+     */
+    implementation(project(":core-imaging"))
+    implementation(project(":core-vector"))
+    implementation(project(":core-pipeline"))
+    implementation(project(":core-export"))
+
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.compose.material3:material3")

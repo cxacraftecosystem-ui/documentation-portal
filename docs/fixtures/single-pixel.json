@@ -1,0 +1,146 @@
+{
+  "format": "offline-tracer/parity-fixture@1",
+  "id": "single-pixel",
+  "notes": "A 1x1 image. Every stage must return a well-formed result rather than dividing by zero, and both engines must degenerate the same way.",
+  "floatTolerance": 0.0001,
+  "image": {
+    "width": 1,
+    "height": 1,
+    "pixels": [
+      4284514464
+    ]
+  },
+  "stages": [
+    {
+      "type": "grayf",
+      "id": "color.toGray",
+      "width": 1,
+      "height": 1,
+      "data": [
+        0.478745
+      ]
+    },
+    {
+      "type": "grayf",
+      "id": "convolve.gaussianBlur:2",
+      "width": 1,
+      "height": 1,
+      "data": [
+        0.478745
+      ]
+    },
+    {
+      "type": "grayf",
+      "id": "convolve.gradients.magnitude",
+      "width": 1,
+      "height": 1,
+      "data": [
+        0
+      ]
+    },
+    {
+      "type": "scalar",
+      "id": "threshold.otsu",
+      "value": 0.001961
+    },
+    {
+      "type": "scalar",
+      "id": "threshold.median",
+      "value": 0.478745
+    },
+    {
+      "type": "mask",
+      "id": "threshold.fixed.inverted",
+      "width": 1,
+      "height": 1,
+      "runs": [
+        0,
+        1
+      ]
+    },
+    {
+      "type": "grayf",
+      "id": "contrast.clahe",
+      "width": 1,
+      "height": 1,
+      "data": [
+        0.478431
+      ]
+    },
+    {
+      "type": "grayf",
+      "id": "denoise.bilateral",
+      "width": 1,
+      "height": 1,
+      "data": [
+        0.478745
+      ]
+    },
+    {
+      "type": "mask",
+      "id": "morphology.close:2",
+      "width": 1,
+      "height": 1,
+      "runs": [
+        1
+      ]
+    },
+    {
+      "type": "mask",
+      "id": "thinning.zhangSuen",
+      "width": 1,
+      "height": 1,
+      "runs": [
+        0,
+        1
+      ]
+    },
+    {
+      "type": "grayf",
+      "id": "distance.euclidean",
+      "width": 1,
+      "height": 1,
+      "data": [
+        0
+      ]
+    },
+    {
+      "type": "ints",
+      "id": "components.label.count",
+      "data": [
+        1
+      ]
+    },
+    {
+      "type": "ints",
+      "id": "contourTrace.pointCounts",
+      "data": [
+        1
+      ]
+    },
+    {
+      "type": "ints",
+      "id": "skeletonTrace.pointCounts",
+      "data": [
+        1
+      ]
+    },
+    {
+      "type": "grayf",
+      "id": "resample.up:3x3",
+      "width": 3,
+      "height": 3,
+      "data": [
+        0.478745,
+        0.478745,
+        0.478745,
+        0.478745,
+        0.478745,
+        0.478745,
+        0.478745,
+        0.478745,
+        0.478745
+      ]
+    }
+  ]
+}

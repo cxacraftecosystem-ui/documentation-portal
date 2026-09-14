@@ -1,0 +1,200 @@
+# UPSTREAM-MANIFEST-KOTLIN.txt - SHA-256 of every file vendored from the Offline-Tracer Kotlin
+# engine, as taken from F:/Offline-Tracer/android on 2026-08-27.
+#
+# Sibling of frontend/lib/trace/UPSTREAM-MANIFEST.txt and deliberately in its format, because the
+# two record the SAME ENGINE vendored twice and the pair only means something if they are
+# comparable. Two files answer two questions about that engine:
+#
+#   frontend/lib/trace/UPSTREAM-MANIFEST.txt    has the vendored TypeScript the WEB runs drifted?
+#   android/UPSTREAM-MANIFEST-KOTLIN.txt (this) has the vendored KOTLIN the HANDSET runs drifted?
+#
+# There was a third, ANDROID-BUNDLE-MANIFEST.txt, asking whether the shipped JavaScript asset was
+# built from that TypeScript. The handset ran the engine as that bundle; it now runs the Kotlin
+# below, and the asset, the build script and that manifest are deleted. Neither file above can
+# check the two vendorings against EACH OTHER - a SHA-256 of params.ts says nothing about a
+# Params.kt - so what does is :core-pipeline's own ParityTest, which replays the shared fixtures
+# under docs/fixtures/ through the Kotlin and asserts the TypeScript's numbers.
+#
+# Paths are relative to the REPOSITORY ROOT, not to this file's directory - three of the entries
+# live outside android/. Regenerate the comparison from the repository root with:
+#
+#   python - <<'EOF'
+#   import hashlib, os
+#   for m in ("core-imaging", "core-vector", "core-pipeline", "core-export"):
+#       for dp, _, ns in os.walk(os.path.join("F:/Offline-Tracer/android", m, "src")):
+#           for n in sorted(ns):
+#               p = os.path.join(dp, n)
+#               print(hashlib.sha256(open(p, "rb").read()).hexdigest(), p.replace(chr(92), "/"))
+#   EOF
+#
+# Any line that differs is a file upstream has moved on from, or one this copy has edited.
+#
+# ── WHAT WAS TAKEN ───────────────────────────────────────────────────────────────────────────────
+#
+#   core-imaging    40 files  12,874 lines   pixels, 5 edge engines, morphology, thinning, DT, matting
+#   core-vector     20 files   7,593 lines   contour + skeleton tracing, simplify, Bezier, stroke outline
+#   core-pipeline   22 files  10,317 lines   the parameter tree, presets, stage list, Pipeline.run
+#   core-export     19 files   3,595 lines   SVG, PDF, EPS, DXF, PNG, TIFF, BMP writers
+#
+# 101 Kotlin files: 54 under src/main and 47 unit tests under src/test. EVERY ONE OF THE 101 IS
+# BYTE-FOR-BYTE UPSTREAM - the digests below were verified equal to the digests of the upstream
+# files on the day this was written, not merely copied from a `cp` that was assumed to work.
+#
+# Upstream's fifth module, :core-native, was NOT taken. settings.gradle.kts says why.
+#
+# ── THE FOUR FILES THAT ARE *NOT* VERBATIM ────────────────────────────────────────────────────────
+#
+# The four build.gradle.kts differ from upstream, on purpose, and each one carries a comment at the
+# top of itself saying exactly how and why: `jvmToolchain(17)` became an explicit `jvmTarget` (this
+# machine has one JDK and it is 21), and Kotlin incremental compilation is switched off (with it on,
+# the first compile failed three times in four with "Could not close incremental caches"). They are
+# listed below with BOTH digests, so a reader can tell a deliberate deviation from a drift:
+#
+#   vendored here                                                     upstream
+#   0db115fab6b9d701c7110fec87260ad15240b831e40f846144a5f00e9f76255e  acb71a637f8c709f6867f7027c5c795ae5358467d8ecce2d6c75d34bdfd8b959
+#   3b0bff3bfe98ff558c78a0e4e19209ec59498ed6b354389dc0b1da2fae74b8b2  44b8ea6750429d4c9ec090c8d6d7e9b855b89936e8ff0670d00d567da076b126
+#   06644fec78b281a34b8025b70eb9734e96c459d0f0fabdb29fe0f00634100e3d  6c72ec9520a9191bb41d47c5f1f2bbaf93560c741dde04e265db84f17a5a9e77
+#   450f2d3c44e5dc44015ee99fa0f9c7b72cac75b9f82d363311701973066357fe  658659276d1f01698a948c5d9ddecc82e9a60741a47f841aa36357de06868d47
+#
+# ── LINE ENDINGS, WHICH WILL BITE SOMEONE ────────────────────────────────────────────────────────
+#
+# THESE ARE RAW DIGESTS OF THE BYTES ON DISK, exactly as UPSTREAM-MANIFEST.txt takes them, and
+# 96 of the 101 sources are LF while FIVE are wholly CRLF upstream:
+#
+#   core-imaging/src/test/java/com/offlinetracer/imaging/ClassifyTest.kt      330 lines, all CRLF
+#   core-vector/src/main/java/com/offlinetracer/vector/Simplify.kt            460 lines, all CRLF
+#   core-pipeline/src/main/java/com/offlinetracer/pipeline/Stages.kt        1,236 lines, all CRLF
+#   core-pipeline/src/test/java/com/offlinetracer/pipeline/PipelineTest.kt    722 lines, all CRLF
+#   core-pipeline/src/test/java/com/offlinetracer/pipeline/StagesTest.kt      656 lines, all CRLF
+#
+# That is upstream's inconsistency, not this copy's, and it was preserved rather than tidied because
+# the house rule for vendored code is verbatim - a normalising pass would make five of these digests
+# disagree with upstream forever and buy nothing a compiler cares about.
+#
+# THE CONSEQUENCE: .gitattributes here opens with `* text=auto`, so git normalises these to LF in
+# the index and hands them back in the platform's native ending on checkout. On a machine with
+# core.autocrlf=true - which is the setting on the machine this was vendored on - a fresh checkout
+# therefore reproduces NEITHER this list nor upstream's bytes. If that ever starts costing time, the
+# remedy this repository has already used once is `frontend/lib/trace/** text eol=lf`: pin the
+# vendored tree to LF and regenerate this file. It is not done here because it would silently
+# rewrite those five files and make "verbatim" untrue on the very day it was written down. Compare
+# against F:/Offline-Tracer/android, not against a fresh clone.
+#
+# ── THE PARITY FIXTURES ──────────────────────────────────────────────────────────────────────────
+#
+# The last three entries are not engine source. core-pipeline's ParityTest replays fixtures
+# generated by the TypeScript engine (web/tests/parity.test.ts upstream) and asserts the Kotlin
+# produces the same numbers; it finds them by walking up from the module directory looking for
+# docs/fixtures, and it FAILS - loudly, with the absolute path it searched from - when they are
+# absent. Vendoring the modules without them would have left `:core-pipeline:test` broken in a way
+# that reads as a Kotlin defect. They are generated upstream and reviewed as a diff; nothing on this
+# side creates them.
+#
+57c7d6679c263440c89176c6667af4deed5cc528434fcff99efea09120fb2fd5 android/core-export/src/main/java/com/offlinetracer/export/BmpEncoder.kt
+84a69a9420e11f431e166801d3dad964bd5911d58d4d90b0c869b63c791e3bbd android/core-export/src/main/java/com/offlinetracer/export/DxfWriter.kt
+305cfb9be03ad718cc0d418dce7eba5b3d8a91e9faf8122430586557dd0271a0 android/core-export/src/main/java/com/offlinetracer/export/EpsWriter.kt
+53e463421911c3077c02b88dca0483c71ff1ff2dfef23fdd09261bb15e539837 android/core-export/src/main/java/com/offlinetracer/export/ExportFormat.kt
+9adb6a483ea85a1c9c655e75e70c7512a5f940e9acbff4235fddd6b9c0394a59 android/core-export/src/main/java/com/offlinetracer/export/Exporter.kt
+c79bc53dbe93def7176d52f2004fd8b50f6b2370360aeb5bbdc4e78e8bb3b354 android/core-export/src/main/java/com/offlinetracer/export/PdfWriter.kt
+d41f62dcd831dc6f0cedad9bec807c6473ad86f6645c12e67c958671bb71c923 android/core-export/src/main/java/com/offlinetracer/export/PngEncoder.kt
+da2b697d193e613f7c7e9fd2999c93455713d1a6b11b7917ea8b9f69b79ea645 android/core-export/src/main/java/com/offlinetracer/export/SvgExport.kt
+491fa21759691fa7b8acb5174b2ee77a272f72cf0792c3a119e2646e8dc32ab5 android/core-export/src/main/java/com/offlinetracer/export/TiffEncoder.kt
+bd7bc554ce7ae17b37095e140cfb80af08afd498924ee96a3d0ef4136cb0de8a android/core-export/src/test/java/com/offlinetracer/export/BmpEncoderTest.kt
+a96de7f33eb8c223e93083d2cf024a06a70f3a751710ac6c7d39862a79ee3a86 android/core-export/src/test/java/com/offlinetracer/export/DxfWriterTest.kt
+99002b6e150f0bc9575293edae4cccc3ffc91c7770075fd4f803226c36252f25 android/core-export/src/test/java/com/offlinetracer/export/EpsWriterTest.kt
+a9a3f3e319e31f9c51e2e5347025adfda2893edf80d4fedb2785adc5217ae7c9 android/core-export/src/test/java/com/offlinetracer/export/ExportFormatDeliveryTest.kt
+bd34f2363f81cd5b10935d6e5b6bf1887cacab5daf1dea04f73e18d3876bab02 android/core-export/src/test/java/com/offlinetracer/export/ExporterTest.kt
+81dec73d350677621a1e68024215adf2364899f8a76530ca709e5ce1eb3e691e android/core-export/src/test/java/com/offlinetracer/export/Fixtures.kt
+08d9cbabb71e27e449f9c085e8680010a43ee86d92a44f5f7e2dfccfd909306c android/core-export/src/test/java/com/offlinetracer/export/PdfWriterTest.kt
+16b76d289828251590af5d4120dcc92e46e9e4c75139eaa49bb6de311b0ec98b android/core-export/src/test/java/com/offlinetracer/export/PngEncoderTest.kt
+8e60ba06874fa41229c7d82b229e053dd8ab0a9f46e0d07fa4ca645dde81d150 android/core-export/src/test/java/com/offlinetracer/export/SvgExportTest.kt
+7ce76ba444a288e86ff22c42c49bd87ea00bfb8114ffef8365927d16668fda1e android/core-export/src/test/java/com/offlinetracer/export/TiffEncoderTest.kt
+6bedc57e5751f62e2e087afe473dc842577060a56cbe371015bdb57e47e5a760 android/core-imaging/src/main/java/com/offlinetracer/imaging/Accel.kt
+95fa016897d8504ff7cbbc0006f8053b6c6db6a5a9b7931167dae022be64b496 android/core-imaging/src/main/java/com/offlinetracer/imaging/Buffers.kt
+013d49ba5d2a887f5aafc1b06e52bb9440b0dd1cb0e9defe47d6041b2464d715 android/core-imaging/src/main/java/com/offlinetracer/imaging/Classify.kt
+4386edef89d885c7f1ae0facb16d1c53e293f0a4a1aa69a34344c33710849bc3 android/core-imaging/src/main/java/com/offlinetracer/imaging/Color.kt
+bc8c51d80eb5bfa2fd68677e2d8f4f7f8a82cd01c1c2a776a1955f437d8b8599 android/core-imaging/src/main/java/com/offlinetracer/imaging/Components.kt
+dcea49a269742927bf37f459b36b6fd974a9a8681e4b85d18d02af9ebd076f7c android/core-imaging/src/main/java/com/offlinetracer/imaging/Contrast.kt
+4fae5e65430f7365dd5ac10a6f4285622edcded1bb7d65c6e21eaaa6d61b5341 android/core-imaging/src/main/java/com/offlinetracer/imaging/Convolve.kt
+68545a0d9787a72e902d8cb5f9a7b3500ee7521ec5d53a39f0fb6ddd755095b5 android/core-imaging/src/main/java/com/offlinetracer/imaging/Denoise.kt
+1a3bd2f186ff5a107ea94111b43301ddbcbd5a2d2e2202c491afa8ef9e22114f android/core-imaging/src/main/java/com/offlinetracer/imaging/Distance.kt
+55cb38356a88370f5d5745134a2d8b026095c242c8448a24e35acb528a209640 android/core-imaging/src/main/java/com/offlinetracer/imaging/EdgeCanny.kt
+98594fa945462507a54b93725fc45316899f42cad2be37b34a4bd722572d720b android/core-imaging/src/main/java/com/offlinetracer/imaging/EdgeDog.kt
+0075527411d225e7f5a2a6bfd219f9fa559afca67b65fe72f96c756c64ff81d2 android/core-imaging/src/main/java/com/offlinetracer/imaging/EdgeFlow.kt
+9bc9b92e17fd203704bed8efe4a13c17697de72152a534774f788768e5a2ad6e android/core-imaging/src/main/java/com/offlinetracer/imaging/EdgeLog.kt
+b26eb82f069e98fc8e58fdcb9c78aa2fa4198c06ef83677e74b886175e7b76c0 android/core-imaging/src/main/java/com/offlinetracer/imaging/EdgeModel.kt
+a7c8570cf3bf1accdbd92b1fab8df074b36ae179a6fd755a4972d37ff41ebaa2 android/core-imaging/src/main/java/com/offlinetracer/imaging/Fft.kt
+defa380be1daa3e6f36e899fde4c1c46e7db798017d256e90201cfd0547de424 android/core-imaging/src/main/java/com/offlinetracer/imaging/Geometry.kt
+433790101d3f2f8c0693304e22d108dea4cc1b4c7ef535c0a85e1146728f93f1 android/core-imaging/src/main/java/com/offlinetracer/imaging/Matte.kt
+bfc00edb9b54ca39838c9a90e06d9151e2261dcfa10534ab7c7f27e24cbdfac6 android/core-imaging/src/main/java/com/offlinetracer/imaging/Morphology.kt
+39bfe3d0b71ee5c589e306d6aa24d8ff87f63a92386d18e42e1652d809ae1e5b android/core-imaging/src/main/java/com/offlinetracer/imaging/Parallel.kt
+e1db087693d09d8d967da24d73ad794ca1e41c6733bf1041dc627cf800b7bf45 android/core-imaging/src/main/java/com/offlinetracer/imaging/Resample.kt
+0fa98a021ba7e003f8f830bdd8060a774a3d71b2706dad359958f59bec500654 android/core-imaging/src/main/java/com/offlinetracer/imaging/Thinning.kt
+2db815367e5018489d91428052873ec84fa09cb7cde2bb4f948b172960f4ed3a android/core-imaging/src/main/java/com/offlinetracer/imaging/Threshold.kt
+750e4559330b36f4674c6751b3352eb33518d78a71fbde8c0c4633b3b8c9c755 android/core-imaging/src/main/java/com/offlinetracer/imaging/Tiling.kt
+a5906d6f6436697e476305dff27556de9267a7dafff70223438218d55eb80045 android/core-imaging/src/test/java/com/offlinetracer/imaging/ClassifyTest.kt
+a0e22d83bf7548120ace0ce392f6824e51e28cfd7986f21175d6a59b3252762d android/core-imaging/src/test/java/com/offlinetracer/imaging/ColorTest.kt
+fe66d70c0ad25b87868adc5edc04e4742ab21e0a8559d0664cc5e66ca78019a5 android/core-imaging/src/test/java/com/offlinetracer/imaging/ComponentsTest.kt
+b861daf050776b68385dc8aa0dc72cf9fd14f621c09dfc4145baad8f688621c3 android/core-imaging/src/test/java/com/offlinetracer/imaging/ContrastTest.kt
+3097c0112912fe4170fe16eb312d523983415382843e04c0fc581e27a101e55f android/core-imaging/src/test/java/com/offlinetracer/imaging/ConvolveTest.kt
+3c6ae212bb29b1e6b5119ef633266be2fe5aca683e1d0cf9c7d10990001cee79 android/core-imaging/src/test/java/com/offlinetracer/imaging/DenoiseTest.kt
+48a4333db4c1a92d587bc5274d81fd66490caf6c0c0f66327a09395f22df689f android/core-imaging/src/test/java/com/offlinetracer/imaging/DistanceTest.kt
+4136c8118f167b5972962ae9caec6501c7c8f9b85ecf26f21f888e5e057b7c0d android/core-imaging/src/test/java/com/offlinetracer/imaging/EdgeTest.kt
+44994cb98724ad25a251b37ab5a6ae7772652df91d065399b92b962d02c63ed9 android/core-imaging/src/test/java/com/offlinetracer/imaging/FftTest.kt
+8688d34264cf72dcb982330b23d295daf05ae8842250ec3f2a8b5700a9a2c759 android/core-imaging/src/test/java/com/offlinetracer/imaging/GeometryTest.kt
+a22b8f7df645ab18836a3dfaf829e1a57bc0649a1623247b39b89f33048ed280 android/core-imaging/src/test/java/com/offlinetracer/imaging/MatteTest.kt
+0e953c5e6caa45ba816ab4275c59c38849189000bd33c15caba762c8e8ce58a1 android/core-imaging/src/test/java/com/offlinetracer/imaging/MorphologyTest.kt
+a3c894dba6cbfb3425c579fe4cd0f8e31e19945c8d86d728bb1356a0f2fc5fd8 android/core-imaging/src/test/java/com/offlinetracer/imaging/ParallelBitIdentityTest.kt
+2f6d540883e3f7709527ebd5b4ad78fc3ef5d0b3d9154ba114acc0fc571c505e android/core-imaging/src/test/java/com/offlinetracer/imaging/ParallelTest.kt
+b38273a6fef7a987807e4458ea3f469b4b825964c5dc33205f70c46e86dd3500 android/core-imaging/src/test/java/com/offlinetracer/imaging/ResampleTest.kt
+f14f3886d5f2e18115fd48e2590d65ca5787d0ca82e54c698c719e458816c7a6 android/core-imaging/src/test/java/com/offlinetracer/imaging/ThinningTest.kt
+da85553857c0f5e2ac28393b12ac07af0dc13c407847a49c2e409bde00a7ba82 android/core-imaging/src/test/java/com/offlinetracer/imaging/ThresholdTest.kt
+a9c2da9d3aa3f3676d2b097b41238a97585ba1f9fa67e71973e8286add3a00ad android/core-pipeline/src/main/java/com/offlinetracer/pipeline/Batch.kt
+dc08b54cc2fb6f3e4a8a146a0adbaa1f2d7eca618a3325615f9478fc16a0c8ce android/core-pipeline/src/main/java/com/offlinetracer/pipeline/Params.kt
+d9292a0482d3dfd6e20f3c6169c680842f6144f09bc81a51cf26339953c9d5fd android/core-pipeline/src/main/java/com/offlinetracer/pipeline/Pipeline.kt
+7707dd1ed6c1ad37c85cfe0f742b3f061f719c2c4f0d91ce5f973ccf2006aba1 android/core-pipeline/src/main/java/com/offlinetracer/pipeline/Preview.kt
+9b31de383255a11ab3ec94dd2fdec99ab4d9bb783fdd6a639e10ff823b10c26d android/core-pipeline/src/main/java/com/offlinetracer/pipeline/Project.kt
+1dd2b014133b15e60f44f17ce4b7dfbb9bb613ca9e61da9046d0bf242d985f57 android/core-pipeline/src/main/java/com/offlinetracer/pipeline/Stages.kt
+6207c9b11a81d47fa8b921149ca6e28b84cbb284c89f44ca8e95684683ad9cf8 android/core-pipeline/src/main/java/com/offlinetracer/pipeline/Styles.kt
+63b317537a07c7bbeede5b6304226472d5d2fbe4d824b89719b894153505e81b android/core-pipeline/src/main/java/com/offlinetracer/pipeline/Subject.kt
+aeabe717260074f2d4fef641cd292d9044716b263997de490145b32f8ef0842a android/core-pipeline/src/main/java/com/offlinetracer/pipeline/Subjects.kt
+cedf045ac40a7b377bf80c611c08f09a8874c46e1a63228411307307be457047 android/core-pipeline/src/main/java/com/offlinetracer/pipeline/TilingPlan.kt
+45296d67072220f28ff2440c24d83ef955a840ead8f19e2da6e2ca0bb8a43242 android/core-pipeline/src/test/java/com/offlinetracer/pipeline/BatchTest.kt
+1929edbbd9b11d5b804e398f09e00f8b730f61ac0f9cbed3dd1c1c8d7f930c7f android/core-pipeline/src/test/java/com/offlinetracer/pipeline/EdgeModelTest.kt
+e33776d92980f4484ad5ab2ca026cb544e24ddb3ebb6387b527bf693c16cbbd7 android/core-pipeline/src/test/java/com/offlinetracer/pipeline/ParamsTest.kt
+303179e43527c4c28a53f942793a9f2a9bd2f3c5aaafbeebf65f00e0ec5530e8 android/core-pipeline/src/test/java/com/offlinetracer/pipeline/ParityTest.kt
+fdfcbfc65915e3d4bea09c7664fec1b22a90ac243434b1747b30942b19f646cb android/core-pipeline/src/test/java/com/offlinetracer/pipeline/PipelineTest.kt
+f14836bd22de171296387c184e186ccbc81fe445a1cd4ad556f628b7da3932b7 android/core-pipeline/src/test/java/com/offlinetracer/pipeline/PreviewTest.kt
+0b026f272a1bf01506e7064f8f6d42be033b7a0c954183372ee0fae0b251a588 android/core-pipeline/src/test/java/com/offlinetracer/pipeline/ProjectTest.kt
+697e889a69e9316f559fd3f0dff9831d12a1c99e4dd2ea801571e213179314d5 android/core-pipeline/src/test/java/com/offlinetracer/pipeline/StagesTest.kt
+a69208110e010210904ebc3d58b5d09c170432d785e2300debf198c59fac79de android/core-pipeline/src/test/java/com/offlinetracer/pipeline/StylesTest.kt
+a5934d5357b6e8b7912ed63599c263de18c446ec7a93297425c05dcef2bb1e4e android/core-pipeline/src/test/java/com/offlinetracer/pipeline/SubjectTest.kt
+053d3ccf44fe0e29761405e0414a6b2905d353f9911523af1d6267800f71dac3 android/core-pipeline/src/test/java/com/offlinetracer/pipeline/SubjectsTest.kt
+bfec37f5c549262b1322dcebdf7a320533dc682f1a2d98ce23a0d8b23739678d android/core-pipeline/src/test/java/com/offlinetracer/pipeline/TilingPlanTest.kt
+03dfd08f2cc1d6c2100d641cc12088b1facdf01cfaf4aff7a43fde70fcf40659 android/core-vector/src/main/java/com/offlinetracer/vector/BezierFit.kt
+ba575aa0250a3333397792791e7ef7b3de0da2807bd755836ee74060b5c424b3 android/core-vector/src/main/java/com/offlinetracer/vector/Boolean2D.kt
+9d53876e968bd93b9df99a8985a72a1f04a1aeddc04d76495158bf2e850e4c3e android/core-vector/src/main/java/com/offlinetracer/vector/ContourTrace.kt
+ad6f120453300b591d1254e8da90318df49d0e746895daba1fe40fa36ec7dc7e android/core-vector/src/main/java/com/offlinetracer/vector/Path.kt
+f893117b8f61cede3b9ddbebef891ca7aa0b31d00c3bc5ab52d4d94689b5ad67 android/core-vector/src/main/java/com/offlinetracer/vector/Raster.kt
+56a858098d4d029ba149e2bea248694866e5dd034e7cafb41b12db4b3f0a359d android/core-vector/src/main/java/com/offlinetracer/vector/Simplify.kt
+182992a51a2a57ec14fa7ef6501e5b2c1fa4abf71cc579db1f644814d5c7244b android/core-vector/src/main/java/com/offlinetracer/vector/SkeletonTrace.kt
+31283a4c0307e6777b6b052ee2c2dd3e78a170b39b5db82f03462a4b1471786e android/core-vector/src/main/java/com/offlinetracer/vector/Smooth.kt
+427c650e26f065d0350215269512d76bcb9a0e31e0ab80762f22f4005499f64f android/core-vector/src/main/java/com/offlinetracer/vector/StrokeStyle.kt
+d124bb1e3f04dfba481d99dd19763648d28370d78c48f2eb00dc9d86f43079cd android/core-vector/src/main/java/com/offlinetracer/vector/SvgPathData.kt
+aa9acc830d943dd641b7919055c90d6cf450336affef8c95e12923f841363b73 android/core-vector/src/main/java/com/offlinetracer/vector/SvgWriter.kt
+7657c6f9f1d849d858391655e532a56a2cc09f18a905bdae56012c27de60eb5d android/core-vector/src/main/java/com/offlinetracer/vector/Vectorize.kt
+b912ac6a54547179f0b06dab8bf6be0ca0be2302561450b8171659c5c9be4888 android/core-vector/src/test/java/com/offlinetracer/vector/BezierFitTest.kt
+3176bd079a92a5dceddee3fdfcd15c895e3ab63211d61e740d337ba0d23c88e9 android/core-vector/src/test/java/com/offlinetracer/vector/Boolean2DTest.kt
+989760a31b9e9be34b491775a70936bff984dc4d6f1c8a7b3e8d314fb6ad6ad4 android/core-vector/src/test/java/com/offlinetracer/vector/PathTest.kt
+4162aa29d2cc2f9c05684ffbb167d15f2e4b4a639d337a03417001eedf2a6dd2 android/core-vector/src/test/java/com/offlinetracer/vector/RasterTest.kt
+f73e917372897ae5c59932b60bbef9a4d29d570fcee4025f30ff9aac3db8faa3 android/core-vector/src/test/java/com/offlinetracer/vector/SimplifyTest.kt
+7ef00434989c1dfef1308b499cf1285a73f7872214b1e72cfd95a826f7a910be android/core-vector/src/test/java/com/offlinetracer/vector/SvgPathDataTest.kt
+bcbcffb6e001d77d3bd11702454a2378561e27a9cb9d142039b3be7d73221a0b android/core-vector/src/test/java/com/offlinetracer/vector/SvgWriterTest.kt
+08187831a85986ea8f7374f33383d9c63afb97ce3b64d527afcdc9fd62c36b1b android/core-vector/src/test/java/com/offlinetracer/vector/VectorizeTest.kt
+0db115fab6b9d701c7110fec87260ad15240b831e40f846144a5f00e9f76255e android/core-imaging/build.gradle.kts
+3b0bff3bfe98ff558c78a0e4e19209ec59498ed6b354389dc0b1da2fae74b8b2 android/core-vector/build.gradle.kts
+06644fec78b281a34b8025b70eb9734e96c459d0f0fabdb29fe0f00634100e3d android/core-pipeline/build.gradle.kts
+450f2d3c44e5dc44015ee99fa0f9c7b72cac75b9f82d363311701973066357fe android/core-export/build.gradle.kts
+31d8ac496d09701c00adb4228b3aaf4cdd8b280362e8ca0a5dec6353d523b700 docs/fixtures/gradient-blob.json
+0c0af2ef0007878bdc5928d2149642bbf4a11f0190a666c772f6dcdf83ddcd99 docs/fixtures/single-pixel.json
+b4be0d9861b6a72a01a94042a30f1ca68229062a056f924e9dfb03fe817230b5 docs/fixtures/step-edge.json

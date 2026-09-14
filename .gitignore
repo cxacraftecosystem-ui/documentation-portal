@@ -54,6 +54,12 @@ android/.kotlin/
 android/.idea/
 android/app/build/
 android/build/
+# The vendored trace engine's four modules build here too. Written as a glob rather than four more
+# literal lines because the set is not fixed: a fifth module (`:core-native`, deliberately not
+# vendered today — see android/VENDORED-FROM-DESIGNER.md) would otherwise leak 40-odd class files
+# into `git status` the first time anybody ran its tests, which is exactly how this rule came to be
+# needed at all.
+android/*/build/
 local.properties
 
 # Local-only transcription implementation reference (do not commit)
