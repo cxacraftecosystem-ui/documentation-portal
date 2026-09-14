@@ -85,6 +85,8 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 
 /**
  * "Measure a dimension from a photograph" ON A RECORD FORM — the on-device, offline, re-derivable
@@ -659,14 +661,49 @@ internal fun RecordMeasureField(
     onPropose: (column: String, text: String, technique: String?) -> Unit,
 ) {
     val targets = remember(dimensions) { measurableDimensions(dimensions) }
+    // No measurable column on this record type means there is genuinely nothing this card could do.
     if (targets.isEmpty()) return
-    if (photos.isEmpty()) return
+
+    /*
+      ⚠ THERE IS NO `if (photos.isEmpty()) return` HERE ANY MORE, AND ITS REMOVAL IS THE WHOLE FIX.
+      It stood here until 2026-09-14 and it made this feature unreachable in the way that matters:
+      `photos` is the record's ATTACHMENT BATCH, so the offline measurer stayed invisible until a
+      photograph had already been attached to the record — while `GridMeasurementSection`, directly
+      below, carries its own camera button and was therefore the ONLY measuring route a researcher
+      could see. That route posts the photograph to a vision model and prints "Analyzing…".
+      So the honest description of the old behaviour is not "the offline tool was hidden". It is
+      THE PRODUCT DEFAULTED TO THE AI, by hiding the alternative until after the researcher had
+      already committed to a different flow. Reported exactly that way, twice, before it was found.
+      The web has never had this gate: `RecordPhotoMeasure` draws its collapsed card whatever the
+      record holds and carries its own `capture="environment"` input. This card now does both too.
+    */
 
     var expanded by remember { mutableStateOf(false) }
     // Seeded inside `remember` rather than during composition: writing snapshot state while composing
     // is how a composable comes to recompose itself forever.
     val config = remember { MeasureConfig().also { it.seed() } }
-    val index = config.photoIndex.coerceIn(0, photos.size - 1)
+
+    /*
+      ITS OWN PHOTOGRAPH, so this card does not depend on the record already carrying one.
+      `picked` is a photograph chosen FOR MEASURING and is deliberately NOT added to the record's
+      attachments: a researcher measuring a chisel against a ruler has taken a working shot, not a
+      documentation photograph, and filing it as one would put a picture of a ruler in the archive
+      under the tool's name. The web draws the same distinction — `RecordPhotoMeasure` reports its
+      photo through `onPhotoChange` and the form decides, rather than attaching it itself.
+      The record's own attachments are still offered, and come FIRST, because the commonest case is
+      measuring something already photographed for the record.
+    */
+    var picked by remember { mutableStateOf<Uri?>(null) }
+    val sources = remember(photos, picked) { (photos + listOfNotNull(picked)).distinct() }
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            picked = uri
+            // Point the panel at what was just chosen rather than leaving it on an older frame.
+            config.photoIndex = (photos + uri).distinct().indexOf(uri)
+            expanded = true
+        }
+    }
+    val index = if (sources.isEmpty()) 0 else config.photoIndex.coerceIn(0, sources.size - 1)
 
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         HorizontalDivider()
@@ -686,13 +723,21 @@ internal fun RecordMeasureField(
                     lineHeight = 16.sp,
                 )
             }
-            TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Close" else "Open") }
+            TextButton(
+                onClick = { if (sources.isEmpty()) pickImage.launch("image/*") else expanded = !expanded },
+                enabled = enabled,
+            ) {
+                // "Choose a photo" rather than a disabled "Open": with nothing to measure yet, the
+                // useful press is the one that gets a photograph, and offering it here is what stops
+                // the grid panel below being the only door.
+                Text(if (sources.isEmpty()) "Choose a photo" else if (expanded) "Close" else "Open")
+            }
         }
-        if (expanded) {
+        if (expanded && sources.isNotEmpty()) {
             MeasurePanelOpen(
                 config = config,
-                photo = photos[index],
-                photoCount = photos.size,
+                photo = sources[index],
+                photoCount = sources.size,
                 photoIndex = index,
                 targets = targets,
                 current = current,

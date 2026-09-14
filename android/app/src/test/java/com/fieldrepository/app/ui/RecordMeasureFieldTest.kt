@@ -13,6 +13,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Locale
+import org.junit.Assert.assertFalse
 
 /**
  * WHERE A DETERMINISTIC MEASUREMENT MAY LAND ON A RECORD FORM, and — harder — where it may not.
@@ -362,5 +363,91 @@ class RecordMeasureFieldTest {
         assertEquals("Photo 3 of 3", recordPhotoLabel(2, 3))
         // One photograph gets no "of 1": the chooser is not even drawn, and the count would be noise.
         assertEquals("Photo 1", recordPhotoLabel(0, 1))
+    }
+}
+
+/**
+ * THE OFFLINE MEASURER MUST NOT HIDE ITSELF, AND THIS IS A SOURCE TEST BECAUSE THE DEFECT WAS ONE
+ * LINE OF CONTROL FLOW RATHER THAN A WRONG ANSWER.
+ *
+ * ── WHAT HAPPENED, WHICH IS WORSE THAN "A CARD DID NOT SHOW" ──────────────────────────────────
+ *
+ * `RecordMeasureField` opened with `if (photos.isEmpty()) return`. `photos` is the record's
+ * ATTACHMENT BATCH, so the on-device measurer stayed invisible until a photograph had already been
+ * attached to the record — while `GridMeasurementSection`, rendered directly beneath it, carries its
+ * own camera button and was therefore the ONLY measuring route a researcher could see. That route
+ * uploads the photograph to a vision model and prints "Analyzing…".
+ *
+ * So the product did not merely hide a feature. IT DEFAULTED TO THE MODEL, by hiding the
+ * reproducible, offline, free alternative until after the researcher had committed to the other
+ * flow. It was reported in exactly those words — "it is still defaulting to the ai version… it says
+ * analyzing, and does not show up with the offline measurement tool" — and reported more than once
+ * before the line was found, because every claim that the feature was "present and unconditional"
+ * was checked against the CALL SITE, which is unconditional, rather than against the composable's
+ * own first two statements.
+ *
+ * ── WHY IT IS ASSERTED BY READING THE SOURCE ──────────────────────────────────────────────────
+ *
+ * There is no Compose test host in this module — no `createComposeRule`, no Robolectric — so no test
+ * here can render the card and look for it. The property is therefore asserted where it lives: the
+ * early return must not come back, and the card must keep a way to obtain a photograph of its own.
+ * A source test is a poor instrument and it is the one that would have caught this.
+ */
+class RecordMeasureFieldVisibilityTest {
+
+    private fun source(): String {
+        val path = java.io.File("src/main/java/com/fieldrepository/app/ui/RecordMeasureField.kt")
+        assertTrue("cannot find RecordMeasureField.kt from ${java.io.File(".").absolutePath}", path.exists())
+        return path.readText()
+    }
+
+    private fun body(): String {
+        val s = source()
+        val start = s.indexOf("internal fun RecordMeasureField(")
+        assertTrue("RecordMeasureField declaration not found", start >= 0)
+        // As far as the next top-level declaration, which is enough to hold the guards.
+        val end = s.indexOf("\n@Composable", start + 1).let { if (it < 0) s.length else it }
+        // COMMENTS STRIPPED BEFORE MATCHING, and the stripping is load-bearing. The first version
+        // of this test failed on the very comment that explains why the guard was removed — because
+        // that comment quotes the guard. A test that forbids a STRING forbids the explanation too,
+        // and the file then ends up with the rule enforced and the reason deleted.
+        return s.substring(start, end)
+            .replace(Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), " ")
+            .lines()
+            .joinToString(" ") { line -> line.substringBefore("//") }
+    }
+
+    @Test
+    fun `the card does not hide itself when the record carries no photograph`() {
+        assertFalse(
+            "RecordMeasureField returns early on an empty photo batch again. That does not just hide " +
+                "the card — it leaves GridMeasurementSection, which has its own camera button and " +
+                "uploads to a vision model, as the only measuring route the researcher can see. The " +
+                "product then defaults to the model by concealing the offline alternative.",
+            Regex("""if\s*\(\s*photos\.isEmpty\(\)\s*\)\s*return""").containsMatchIn(body()),
+        )
+    }
+
+    @Test
+    fun `the card can obtain a photograph without one being attached to the record first`() {
+        val text = body()
+        assertTrue(
+            "RecordMeasureField no longer has a picker of its own. Without one it is only usable on a " +
+                "record that already carries a photograph, which is the state that made the model the " +
+                "default. The web equivalent (RecordPhotoMeasure) carries its own capture input for " +
+                "the same reason.",
+            text.contains("rememberLauncherForActivityResult") && text.contains("GetContent()"),
+        )
+    }
+
+    @Test
+    fun `a record type with no measurable column is still allowed to draw nothing`() {
+        // The OTHER early return is correct and must survive: with no measurable dimension there is
+        // genuinely nothing this card could propose a number into, and drawing it would offer a tool with
+        // no destination. Pinned so that "remove the early return" is never read as "remove both".
+        assertTrue(
+            "the targets guard is gone; the card would now draw on record types with no dimension to fill",
+            Regex("""if\s*\(\s*targets\.isEmpty\(\)\s*\)\s*return""").containsMatchIn(body()),
+        )
     }
 }
