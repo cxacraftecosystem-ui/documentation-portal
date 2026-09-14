@@ -28,8 +28,14 @@ const TIERS = [
     adds: "Crafts, workshops, the questionnaire builder, promotions, full dataset download."
   },
   {
+    // ⚠ "TASK ASSIGNMENT" ALONE UNDERSTATED THIS TIER AFTER 2026-09-14, and understating a tier on
+    // this diagram is the same defect as overstating one: the ladder is what a reader uses to work
+    // out who they need. Approving is now a power only this rung and the creator hold — an
+    // assignee's "Mark done" lands on SUBMITTED and only `is_manager` (the task's creator, or an
+    // admin) can write DONE, `backend/app/api/routes/tasks.py:1645`. It is listed beside assignment
+    // rather than as its own line because it is the second half of one job.
     role: "Admin",
-    adds: "Settings hub, task assignment, workshop access grants, accounts."
+    adds: "Settings hub, task assignment and approval, workshop access grants, accounts."
   },
   {
     role: "Master Admin",

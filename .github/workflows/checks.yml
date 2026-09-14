@@ -480,14 +480,21 @@ jobs:
   # have not seen yet. A named list licenses the four you have, and only while they are exactly those
   # four.
   #
-  # THE RECOMMENDATION, WRITTEN DOWN SO IT IS NOT LOST: all four are small, and this ratchet should be
-  # at zero within a week. `docs/REPO_FACTS.md is out of date` is one command
-  # (`node docs/tools/check-docs.mjs --write`) and it is the most valuable of the four, because that
-  # generated file is badly stale — it still says the backend suite is 14 files and 260 cases (it is
-  # 54 and 1023), still says there are no Android tests (there are eight files), and still tells the
-  # reader that neither suite is a CI gate, which this workflow has just made false. The two missing
-  # "How this document is kept true" sections are a paragraph each, and the broken link in
-  # docs/README.md is a path. Delete each line below as its problem goes.
+  # THE RATCHET IS AT ZERO, AND THE EMPTY LIST BELOW IS THE POINT RATHER THAN AN OVERSIGHT. All four
+  # problems this job was born licensing were fixed on 2026-09-14 and their lines deleted, in the
+  # order the recommendation asked for: REPO_FACTS.md regenerated (`node docs/tools/check-docs.mjs
+  # --write` — it had been claiming 14 backend test files and 260 cases against a real 56 files and
+  # 832 `def test_`; no Android tests against eight files; and that neither suite gated CI, which
+  # this workflow had already made false); "How this document is kept true" sections for
+  # DATASET_API.md and DESIGN-claude.md; and docs/README.md's link to `../DESIGN-claude.md`
+  # repointed after that file moved into docs/ — which also turned up the fact that DATASET_API.md
+  # had never been in the documentation index at all.
+  #
+  # SO THE GATE IS NOW A REAL ONE: with nothing licensed, the first FAIL line of any kind fails this
+  # job. KEEP IT THAT WAY. Adding a line back is not forbidden, but it is the thing to argue about in
+  # review — it licenses a problem for everybody, and the nine warnings this run still prints are
+  # already the cheaper mechanism for a document somebody else owns (check-docs.mjs's own
+  # OWNED_ELSEWHERE set, docs/tools/check-docs.mjs:43-52).
   docs:
     name: Docs check
     runs-on: ubuntu-latest
@@ -508,16 +515,16 @@ jobs:
         # path, url), deliberately, so it runs from a bare checkout. Nothing in package.json is needed
         # and installing it would only make this job slower.
         #
-        # MEASURED 2026-09-14 from the repository root: 413 repository paths resolved, 48 line
-        # citations checked, 163 relative links resolved, 45 mermaid blocks linted, then
-        # `4 problem(s), 9 warning(s) elsewhere.` and exit 1. THE FOUR IS THE FACT; the rest of those
-        # numbers are not — re-running the same command an hour later gave 441 paths, 51 citations,
-        # 170 links and 46 mermaid blocks, because other workstreams keep adding documents. That is
-        # why the floor below is 200 and not "the number measured today". The nine warnings are
-        # findings in
-        # documents the script itself knows belong to another workstream (its own OWNED_ELSEWHERE
-        # list, docs/tools/check-docs.mjs:43-52); they are reported and do not affect its exit code,
-        # so they are not this gate's business either.
+        # MEASURED 2026-09-14 from the repository root, AFTER the four licensed problems were fixed:
+        # 463 repository paths resolved, 59 line citations checked, 175 relative links resolved, 46
+        # mermaid blocks linted, then `docs check passed (9 warning(s) in documents owned
+        # elsewhere).` and exit 0. THE EXIT 0 IS THE FACT; none of those counts are — the same
+        # command an hour earlier gave 413 paths, 48 citations, 163 links and 45 mermaid blocks,
+        # because other workstreams keep adding documents. That is why the floor below is 200 and not
+        # "the number measured today". The nine warnings are findings in documents the script itself
+        # knows belong to another workstream (its own OWNED_ELSEWHERE list,
+        # docs/tools/check-docs.mjs:43-52); they are reported and do not affect its exit code, so
+        # they are not this gate's business either.
         #
         # WHEN THIS GOES RED, the usual cause is not prose at all — it is
         # `docs/REPO_FACTS.md is out of date`, because that file is GENERATED from the repository
@@ -533,10 +540,6 @@ jobs:
           # without this list quietly licensing something else. ASCII only, deliberately — a fixed
           # string with a typographic dash in it is a gate that depends on the runner's locale.
           cat > known-doc-problems.txt <<'LIST'
-          docs/REPO_FACTS.md is out of date
-          DATASET_API.md: no "How this document is kept true" section
-          DESIGN-claude.md: no "How this document is kept true" section
-          docs/README.md: broken link
           LIST
 
           # `2>&1` IS LOAD-BEARING AND WAS FOUND THE HARD WAY. check-docs.mjs:548 prints its FAIL
@@ -602,7 +605,7 @@ jobs:
               echo ""
               echo "If one of them is \`docs/REPO_FACTS.md is out of date\`, run \`node docs/tools/check-docs.mjs --write\` and commit the result."
             } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
-            echo "::error::check-docs reported a problem that is not one of the four known pre-existing ones. See the run summary; fix it, or argue for it in review before adding it to the list in this workflow."
+            echo "::error::check-docs reported a documentation problem that is not on the known-problem list — which is currently EMPTY, so this is simply a new problem. See the run summary; fix it, or argue for it in review before adding it to the list in this workflow."
             exit 1
           fi
 

@@ -587,3 +587,26 @@ When photography is used (rare — mostly testimonials), avatars crop to perfect
 - Form validation states beyond `{component.text-input-focused}` are not extracted — error / success states would need a sign-up or feedback flow to confirm.
 - The actual Claude product surface (claude.ai chat interface) shares some tokens with the marketing site but adds many product-specific components (chat bubbles, message tools, file upload chips, conversation history sidebar) that are out of scope for this marketing-surface document.
 - The "agent" / "computer use" demo cards on certain pages display animated Claude controlling a browser — the static screenshot doesn't fully capture the animation chrome.
+
+## How this document is kept true
+
+**This document is the exception in `docs/`, and the distinction matters more than the section
+itself: every other document here describes THIS repository, and is kept true by reading it. This one
+describes SOMEBODY ELSE'S WEBSITE.** It is an observation of anthropic.com made by eye at a point in
+time — so no check in this repository can verify it, no test can fail when it rots, and it will rot
+without anything going red. Read it as a dated snapshot, never as a specification.
+
+| Claim class | Kept true by |
+|---|---|
+| Every colour, type scale, spacing and radius token | **Re-observation only.** Open the site and measure; they are not derived from anything in this checkout and nothing here breaks when they change. |
+| That this interface *borrows* a token | The borrowing is real and is code: `frontend/tailwind.config.ts` and `frontend/app/globals.css` are the authority for what this product actually renders. **Where the two disagree, this file is the one that is wrong.** |
+| The typography split (§Typography) | Same two files. The licensing constraint under **Known Gaps** is the reason the substitutes, not the originals, are what ship. |
+| §Known Gaps | Honest at the time of extraction and deliberately not maintained. Treat every entry as still open unless you have just checked it yourself. |
+
+**Review triggers:** none that this repository can detect. The realistic trigger is a visible
+redesign of the source site, or a change to `frontend/tailwind.config.ts` that makes a token here
+describe something this product no longer does.
+
+**Known unverified:** all of it, in the strict sense — there is no automated check behind a single
+claim on this page. That is not a defect to be fixed by adding one; a check that opened a third-party
+website would be a flaky gate measuring something nobody in this repository controls.

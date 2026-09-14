@@ -204,18 +204,27 @@ upgrade**. `backend/` has no lock file — every dependency is a `>=` range — 
 whatever the index offers that day. A green branch can turn red overnight with no commit behind it.
 Compiling a `requirements.lock` for `backend/` is on the §5 list.
 
-**Docs — four problems:** `docs/REPO_FACTS.md is out of date`, two documents with no
-"How this document is kept true" section (`DATASET_API.md`, `DESIGN-claude.md`), and one broken link
-in `docs/README.md`. None of them belongs to the change that added the workflow, and a gate whose
-green depends on edits to four documents owned by other people arrives red and gets switched off in a
-week.
+**Docs — none. The list is empty, and that is the state to defend.** It began at four:
+`docs/REPO_FACTS.md is out of date`, two documents with no "How this document is kept true" section
+(`DATASET_API.md`, `DESIGN-claude.md`), and one broken link in `docs/README.md`. None of them
+belonged to the change that added the workflow, and the reasoning for licensing them rather than
+blocking on them still holds for the next such case: a gate whose green depends on edits to four
+documents owned by other people arrives red and gets switched off in a week.
 
-**The recommendation, so it is not lost: fix all four and empty that list.** They are small. The
-REPO_FACTS one is a single command — `node docs/tools/check-docs.mjs --write` — and it is the most
-valuable of the four, because that generated file is badly stale: it still reports the backend suite
-as 14 files and 260 cases (it is 54 files and over 1000 cases), still says there are no Android tests
-(there are eight test files), and still tells the reader that neither suite is a CI gate, which this
-workflow has just made false.
+**All four were fixed on 2026-09-14 and their lines deleted.** REPO_FACTS.md was regenerated with
+`node docs/tools/check-docs.mjs --write`, which was indeed the most valuable of the four — that
+generated file had been reporting the backend suite as 14 files and 260 cases against a real 56 files
+and 832 `def test_`, claiming there were no Android tests when there are eight test files, and
+telling the reader that neither suite is a CI gate, which this workflow had already made false. The
+two missing sections were written; `docs/README.md`'s link to `../DESIGN-claude.md` was repointed
+after that document moved into `docs/`, which also turned up the fact that `DATASET_API.md` had never
+been in the documentation index at all.
+
+**So `Docs check` is now an ordinary gate: the first `FAIL` line of any kind fails the job.** Adding
+a line back to the licensed list is not forbidden, but it is the thing to argue about in review —
+for a document that genuinely belongs to another workstream the cheaper mechanism already exists and
+is not this list, it is `OWNED_ELSEWHERE` in `docs/tools/check-docs.mjs` (§6), where a finding
+becomes a warning that everybody can still see.
 
 **Both lists may only shrink, and that is enforced asymmetrically on purpose.** A *new* failure is an
 error and fails the job. A listed failure that starts passing is a `::warning` and a line in the run
@@ -472,9 +481,10 @@ because a `.env` that is quietly pointed at a real database is a much worse way 
 **`Docs check` is red and I did not touch a document.** Read the `FAIL` lines in the log. The usual
 one is `docs/REPO_FACTS.md is out of date`, which is not about prose at all: that file is *generated*
 from the repository, so adding a route, a Prisma model or a test file moves it. Run
-`node docs/tools/check-docs.mjs --write` and commit the diff. (That exact problem is on the licensed
-list today, so it will not fail the job until somebody regenerates the file once and deletes the
-line — after which it becomes a real gate. Doing that is step 6 of §3.)
+`node docs/tools/check-docs.mjs --write` and commit the diff. (It **is** a real gate now: that
+problem was licensed when this workflow landed and is not any more, so it fails the job like any
+other. The diff it produces is reviewable — a generated file changing is a fact about the tree, not a
+number somebody retyped.)
 
 **`Docs check` is red on a document somebody else added.** Correct behaviour, and the point of the
 list: a new document with no "How this document is kept true" section is a new problem, not a

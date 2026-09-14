@@ -276,3 +276,60 @@ test("the masthead marks and the wrappers that hide them are gated at md togethe
   // the row — 640px and 641px and nowhere else, which is why it was measured rather than reasoned.
   expect(code).not.toContain("contents sm:flex");
 });
+
+/**
+ * ── THE FIFTH SILENT FAILURE: A MARK THAT RENDERS PERFECTLY IN THE WRONG PLACE ──────────────────
+ *
+ * The four failures this file opens with are all about a mark that is MISSING, WRONG or UNANNOUNCED.
+ * The one below is the opposite and is why it went unnoticed for two weeks: both marks loaded, both
+ * linked correctly, both announced themselves, and they sat at the ends of a 1152px content column
+ * instead of in the screen's margins. Nothing renders differently at 1280px in a headless browser
+ * than it does at 1920px unless something measures it, so a viewport-dependent misplacement is
+ * invisible to every check in this repository — including a screenshot taken at the default size.
+ *
+ * WHAT MAKES IT CHECKABLE WITHOUT A BROWSER is that the whole defect was two Tailwind classes on one
+ * element, and the whole fix is their absence plus a matching cap one element down. Those are
+ * source facts. The arithmetic is `HeroLanding.tsx`'s own: `mx-auto max-w-6xl` on a 1920px screen
+ * leaves (1920 − 1152) / 2 = 384px of flat purple down each side, and a mark held inside the cap
+ * lands at x = 408 — against the copy column, with the margin it was asked to occupy left empty.
+ *
+ * AND IT HAS COME BACK ONCE ALREADY, from the other side: the comment this file's subject used to
+ * carry argued the cap was a deliberate port decision, complete with a reason. It was the defect.
+ * A test is what tells the next reader which of those two a class is.
+ */
+test("the masthead is full bleed and the hero grid is capped to match it", () => {
+  const code = codeOnly(LANDING);
+
+  const header = code.match(/<header\s[\s\S]*?>/);
+  expect(header, "the hero masthead is no longer a <header> — re-derive this assertion").not.toBeNull();
+  const masthead = header ? header[0] : "";
+
+  // THE TWO CLASSES THAT WERE THE DEFECT. `w-full` with no cap and no centring is what puts a mark
+  // in the viewport's corner; either one of these coming back pulls both marks back inside the
+  // content column, where the owner reported them on 2026-09-14.
+  expect(masthead).toContain("w-full");
+  expect(/\bmx-auto\b/.test(masthead), "the masthead is centred again — it must be full bleed").toBe(false);
+  expect(/\bmax-w-/.test(masthead), "the masthead is capped again — it must be full bleed").toBe(false);
+
+  // THE OTHER HALF, WHICH IS NOT OPTIONAL. An uncapped bar over a `max-w-6xl` grid is the same
+  // misalignment seen from the other side, and an uncapped GRID is two islands of copy with a
+  // thousand pixels of purple between them past 2000px. The header and the grid move together or
+  // neither does — the sentence the old comment got right while defending the wrong conclusion.
+  const capped = code.match(/className="([^"]*max-w-\[120rem\][^"]*)"/);
+  expect(capped, "the hero grid lost its 120rem cap — an uncapped bar needs a capped grid").not.toBeNull();
+  const grid = capped ? capped[1] : "";
+
+  // ONE GUTTER LADDER, ON BOTH, OR THE MARKS STOP BEING THE BOUNDARY THE HERO LINES UP ON. The DC
+  // mark's left edge and the headline's left edge are the same number only while these agree.
+  for (const [name, classes] of [["masthead", masthead], ["hero grid", grid]] as const) {
+    expect(classes).toContain("px-6");
+    expect(classes, name + " lost its md:px-10 — the two elements must share one gutter").toContain("md:px-10");
+    // `sm:px-10` — which is what the sibling repository uses — would widen this gutter across
+    // 640…767px, a band where the marks are still `hidden`. Existing content moving to make room
+    // for ornament that is not on screen is exactly what the marks' "NOTHING RENDERS AND NOTHING
+    // MOVES" clause forbids, and `md` is the first width at which a mark actually renders.
+    expect(classes, name + " steps its gutter up at sm, below the width any mark renders at").not.toContain(
+      "sm:px-10"
+    );
+  }
+});

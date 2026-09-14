@@ -8,10 +8,21 @@ import { useHeroReducedMotion } from "@/components/hero/useHeroMotion";
 
 const STEPS = [
   {
+    // "OR THE WEB" IS LOAD-BEARING IN BOTH HALVES OF THIS SENTENCE and it is the half that was
+    // hardest to keep true: the browser gained its own offline outbox (`lib/offline.ts`) and this
+    // step already claimed it, while `HeroFAQ`'s "Does it work offline?" was still answering that
+    // only the phone could. They now agree, and they must go on agreeing — this page states the
+    // claim and that answer is where a reader goes to check it.
+    //
+    // DICTATION, ADDED 2026-09-14. Deliberately "free-text box" and not "every box": the set is a
+    // table with a written reason per exclusion (`android/.../ui/RecordDictationFields.kt`), and
+    // dates, numbers, money, closed pickers and the two identity numbers are outside it. The
+    // FAQ's "Can a researcher speak instead of type?" carries the full list and the privacy
+    // guarantee; this line is the one-clause version and must not outrun it.
     icon: Mic,
     title: "Capture in the field",
     copy:
-      "Record interviews, photograph products and tools, and log GPS positions on the Android app or the web — with or without a signal. Nothing waits for connectivity."
+      "Record interviews, photograph products and tools, and log GPS positions on the Android app or the web — with or without a signal. Free-text boxes take dictation, so a note can be spoken. Nothing waits for connectivity."
   },
   {
     icon: Languages,
@@ -20,10 +31,16 @@ const STEPS = [
       "Every recording moves through a three-provider speech-to-text chain with automatic failover, then arrives as clean English text linked to its artisan, craft, and workshop."
   },
   {
+    // THE THIRD SENTENCE IS ABOUT TASKS, NOT RECORDS, and the two are separate ladders — see
+    // `backend/app/api/routes/tasks.py`'s "FINISHING IS A CLAIM; APPROVAL IS A DECISION". An
+    // assignee's "Mark done" lands on SUBMITTED and the row stays on their board until the creator
+    // or an admin writes DONE. Worth one clause here because this step is where a reader forms
+    // their model of who closes what, and until 2026-09-14 the answer for a task was "the person
+    // who did it, alone".
     icon: ClipboardCheck,
     title: "Review & approve up the ladder",
     copy:
-      "Reviewers approve, reject, or send work back for revision with comments. Each tier reviews the tiers below it, so quality climbs the same ladder as access."
+      "Reviewers approve, reject, or send work back for revision with comments. Each tier reviews the tiers below it, so quality climbs the same ladder as access. Assigned tasks are handed in for approval rather than closed by the person who did them."
   },
   {
     icon: FolderDown,

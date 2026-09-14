@@ -67,7 +67,22 @@ const RECORD_TYPES = [
   { icon: Package, title: "Product", copy: "What is made: materials, dimensions, pricing, imagery." },
   { icon: GitBranch, title: "Process", copy: "How it is made, step by ordered step, with media per step." },
   { icon: Wrench, title: "Tool", copy: "The toolkit, and which artisans use each tool." },
-  { icon: ClipboardList, title: "Questionnaire", copy: "Structured interviews, recorded and auto-transcribed." },
+  // ⚠ "THE QUESTIONNAIRE" WAS SINGULAR IN THE DATABASE UNTIL 2026-09-13 AND THIS LINE STILL READ AS
+  // THOUGH IT WERE. `QuestionnaireSection` carried `code @unique` and a global `@@unique([sortOrder])`,
+  // so the schema could hold exactly one instrument; a `Questionnaire` container now owns the
+  // sections, questions and sittings, the uniques are composite, and `Workshop.questionnaireId` is
+  // what binds one to a workshop (`PUT /workshops/{id}/questionnaire`, admin only). The clause below
+  // is deliberately about what a RESEARCHER sees rather than about how it is filed, because for two
+  // days those were different answers: the write bound the instrument and the three read paths still
+  // resolved the default, so the capture page showed one instrument's questions and stored the
+  // answers against the other — see `5ad8c6a`. `resolve_questionnaire_id` is now called with the
+  // workshop on every read, and a request that names no workshop still lands on the default, which
+  // is what keeps every handset built before that date working.
+  {
+    icon: ClipboardList,
+    title: "Questionnaire",
+    copy: "Structured interviews, recorded and auto-transcribed — each workshop can run its own."
+  },
   { icon: Images, title: "Miscellaneous Media", copy: "Audio, video and photographs that belong to no one record." },
   { icon: UsersRound, title: "Workshop", copy: "Field expeditions: assignments, date windows, approvals." }
 ];
@@ -252,13 +267,53 @@ const DC_HANDICRAFTS = {
  * row overflowing the viewport. The gaps live inside the two groups instead, where a hidden mark
  * makes them vanish along with it.
  *
- * ⚠ THIS HEADER IS CAPPED AT `max-w-6xl` AND THE SIBLING'S IS FULL-BLEED, so the marks sit at the
+ * ⚠ THIS HEADER IS FULL-BLEED, AND THE PARAGRAPH THAT STOOD HERE ARGUED THE OPPOSITE. It read:
+ * "THIS HEADER IS CAPPED AT `max-w-6xl` AND THE SIBLING'S IS FULL-BLEED, so the marks sit at the
  * ends of a 1152px row rather than in the screen's literal corners on a wide monitor. That is the
- * one structural difference this port chose deliberately rather than by omission: going full-bleed
- * there also meant re-capping the hero grid below at `max-w-[120rem]`, because an uncapped bar over
- * a capped grid pulls the copy into two islands with a thousand pixels of purple between them on an
- * ultra-wide screen. That is a restyle of this page's hero nobody asked for. If the literal corners
- * are ever wanted, the header and the grid below it move together or neither does.
+ * one structural difference this port chose deliberately rather than by omission … If the literal
+ * corners are ever wanted, the header and the grid below it move together or neither does." It is
+ * quoted rather than deleted because its LAST sentence was right and is the whole of this fix,
+ * while the cap it defended was the DEFECT and not a decision. On 2026-09-14 the owner reported it
+ * as one: "the logos on the top are supposed to go into the margin on the left and the right where
+ * there is no text or anything at all, currently it is encroaching into the main text area, it was
+ * correctly implemented in the designer application."
+ *
+ * THE ARITHMETIC THE SIBLING ALREADY WROTE DOWN IS EXACTLY WHAT THAT COMPLAINT DESCRIBES
+ * (`designer-portal/frontend/components/hero/HeroLanding.tsx:688`): `mx-auto max-w-6xl` on a 1920px
+ * screen leaves (1920 − 1152) / 2 = 384px of flat purple down each side, and a mark held inside
+ * that cap lands at x = 408, hard against the copy column below it, while the 384px of margin it
+ * was asked to occupy stays empty. So both classes are gone from this row — and the grid below
+ * moved WITH it, exactly as the quoted sentence required: `max-w-[120rem]` there is what stops an
+ * uncapped bar over a capped grid pulling the copy into two islands on an ultra-wide screen. Those
+ * two elements are the whole of the change. Nothing below the hero band is touched; every section
+ * under it keeps its own `max-w-6xl`, and `HeroFAQ`'s narrower `max-w-3xl` stays narrower.
+ *
+ * MEASURED RATHER THAN REASONED, in Chromium against this build and the pre-change one. At 1280,
+ * 1536, 1680 and 1920 the DC mark's left edge and the headline's left edge are both 40, and the
+ * seal's right edge and the transcript card's right edge are the same number (1240 / 1496 / 1640 /
+ * 1880) — so the corner marks ARE the masthead's outer boundary and the hero content lines up on
+ * them. Before the change, at 1920, the seal sat at 1463.8…1512 with 408px of empty purple to its
+ * right and the DC mark at 408…490.4 with 384px to its left: the complaint, in numbers. Past about
+ * 2000px the cap binds and the grid centres inside 1920 while the bar stays full width (at 2200 the
+ * marks are at 40 and 2160, the headline at 180) — the one width band where the two disagree, and
+ * the trade the cap exists to make. `scrollWidth === clientWidth` at every width tested; nothing
+ * here uses `100vw`, which is the classic way to gain a second scrollbar at right angles to the
+ * first.
+ *
+ * ⚠ THE GUTTER STEPS UP AT `md` HERE AND AT `sm` IN THE SIBLING (`:745` and `:805` there), AND THAT
+ * DIFFERENCE IS THIS FILE'S OWN "NOTHING MOVES" CLAUSE RATHER THAN AN OVERSIGHT. `sm:px-10` would
+ * widen this row from 24px of padding to 40px across 640…767px — a band in which the marks are
+ * still `hidden`, so every box in the row would move to make room for ornament that is not on
+ * screen, which is exactly what the "NOTHING RENDERS AND NOTHING MOVES" paragraph above forbids.
+ * And it would not stop at cosmetic: re-run under `data-larger-text="true"`, where every length in
+ * this row is rem-based, and `px-10` is 45px a side rather than 27px — 90px of a 640px viewport
+ * against 54px, i.e. 549px left for a row the measurement above records as needing about 550px.
+ * That is the 640/641px wrap that paragraph was written about, reintroduced by the padding instead
+ * of by the marks. `md` (768px) is the first width at which a mark actually renders, so from there
+ * up this row is identical to the sibling's, and below it every measured box — header, wordmark,
+ * button, headline, card — is byte-identical to the pre-change page at 320, 360, 390, 414, 639,
+ * 640, 641, 700 and 767px, in normal type and in larger text. Do not "align" this to `sm` without
+ * re-running both.
  *
  * ── SIZES, AND WHY THE HEIGHTS ARE NOT EQUAL ───────────────────────────────────────────────────
  *
@@ -532,12 +587,13 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
           />
         </motion.div>
 
-        {/* Top bar: the two institutional marks in the corners, the wordmark, and sign in. The
-            marks' own header above carries every measurement behind this row — why they are in the
-            flow rather than overlaid, why the two groups are `contents md:flex`, why there is no
-            `gap` and no `min-w-0`, and why this header stays capped at `max-w-6xl` while the
-            sibling repository's is full-bleed. */}
-        <header className="relative z-10 mx-auto flex w-full max-w-6xl items-center justify-between px-6 pt-6">
+        {/* Top bar: the two institutional marks in the SCREEN'S corners, the wordmark, and sign in.
+            FULL-BLEED — no `mx-auto`, no `max-w-*` — because a masthead is a bar, and a mark is only
+            in the corner if nothing centres it first. The marks' own header above carries every
+            measurement behind this row: why they are in the flow rather than overlaid, why the two
+            groups are `contents md:flex`, why there is no `gap` and no `min-w-0`, why the gutter
+            steps up at `md` rather than `sm`, and what the cap that used to be here did wrong. */}
+        <header className="relative z-10 flex w-full items-center justify-between px-6 pt-6 md:px-10">
           <div className="contents md:flex md:items-center md:gap-4 lg:gap-6">
             {/* Top-LEFT corner: the DC Handicrafts mark, in its own colours, on the cream plate its
                 red wordmark needs to survive this purple. See DC_HANDICRAFTS above for the pixel
@@ -595,7 +651,18 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
 
         <motion.div
           style={{ y: yContent, opacity: fade }}
-          className="mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center px-6 pb-24 pt-16"
+          // CAPPED AT `max-w-[120rem]` (1920px) RATHER THAN UNCAPPED, and it moves with the bar above
+          // by requirement rather than by taste — see the masthead header's "THIS HEADER IS
+          // FULL-BLEED" paragraph, which quotes the sentence that made the pairing a rule. An
+          // uncapped bar over a `max-w-6xl` grid is the misalignment the owner reported from the
+          // other side; an uncapped GRID is two islands of copy with a thousand pixels of purple
+          // between them past 2000px. 1920 binds on neither of the widths that matter, so up to
+          // about 2000px this grid and the header are the same box: the DC mark's left edge and the
+          // headline's left edge are one number, the seal's right edge and the transcript card's
+          // right edge are another, and the corner marks are the boundary the hero lines up on.
+          // `md:px-10` matches the row above at every width where a mark renders, and leaves the
+          // sub-`md` layout untouched — the same clause, for the same reason.
+          className="mx-auto flex w-full max-w-[120rem] flex-1 flex-col justify-center px-6 pb-24 pt-16 md:px-10"
         >
           <div className="grid items-center gap-14 lg:grid-cols-[1.05fr_0.95fr] lg:gap-10">
             {/* Copy */}

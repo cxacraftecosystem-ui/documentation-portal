@@ -74,10 +74,11 @@ flowchart TD
 | [QA_AUDIT.md](QA_AUDIT.md) | What is tested, what is not, the open failure modes, and the regressions that were documented as working while broken |
 | [AI_FEATURES.md](AI_FEATURES.md) | Background removal, layer separation, vectorisation: providers, costs, and how to turn one on |
 | [REPO_FACTS.md](REPO_FACTS.md) | **Generated.** Model and enum counts, the API surface, the role ladder, test counts, code volume |
+| [DATASET_API.md](DATASET_API.md) | The bearer-token bulk export: how to authenticate, what datasets exist, the filters, and what the identity-number scope costs |
+| [DESIGN-claude.md](DESIGN-claude.md) | **Observed, not generated.** The visual design system this interface borrows from, extracted from anthropic.com |
 
 Also in the repository, outside `docs/`: [`../README.md`](../README.md) (orientation and local
-setup), [`../backend/DEPLOY_AWS.md`](../backend/DEPLOY_AWS.md) (the EC2/S3/CloudFront runbook),
-[`../DESIGN-claude.md`](../DESIGN-claude.md) (the visual design system).
+setup) and [`../backend/DEPLOY_AWS.md`](../backend/DEPLOY_AWS.md) (the EC2/S3/CloudFront runbook).
 
 ---
 

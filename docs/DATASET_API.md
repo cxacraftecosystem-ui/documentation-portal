@@ -279,3 +279,23 @@ Bytes come **straight from S3**, never through the API — the web box is a sing
 | `422` | `.csv` on a dataset the field registry does not describe (`media`) |
 
 Tests: `backend/tests/test_dataset_api.py`.
+
+## How this document is kept true
+
+| Claim class | Kept true by |
+|---|---|
+| §1 the token exchange, its lifetime and its scopes | `backend/app/api/routes/datasets.py`, and `backend/app/core/security.py` for the token itself. |
+| §2 the dataset names, and §4 the filters each accepts | `backend/app/api/routes/datasets.py` — the registry it builds is the only list; the `404` body quotes it back, so a reader who trusts the error message cannot be misled by a stale table here. |
+| §3 the `.ndjson` / `.csv` shapes | Same file, plus `backend/app/services/xlsx_report.py` for the field registry `.csv` depends on — a dataset absent from that registry is the `422` in §8. |
+| §5 identity numbers | `backend/app/core/deps.py` for the master-admin gate, and [SECURITY.md](SECURITY.md) for why the gate is where it is rather than at export time. |
+| §6 media bytes | `backend/app/services/s3.py` and [MEDIA_PIPELINE.md](MEDIA_PIPELINE.md). |
+| §8 the status table | `backend/tests/test_dataset_api.py` asserts each row. A status this table claims and that file does not cover is an unverified claim. |
+
+**Review triggers:** any change to `backend/app/api/routes/datasets.py`, a new dataset, a new filter,
+or a change to which role may read identity numbers.
+
+**Known unverified:** §7's first bullet claims streaming keeps an export inside CloudFront's origin
+read timeout. The streaming and the batch size are code and are checked above; **the timeout is a
+console setting this repository cannot read**, so the margin between them is asserted, not measured.
+[CDN.md](CDN.md) records the value as configured — confirm it there, or in the console, before
+relying on the claim for a dataset materially larger than the ones in the test suite.
