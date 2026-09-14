@@ -10,6 +10,7 @@ from prisma import Json
 from app.core.db import db
 from app.services.artisan_identity import mask_aadhaar
 from app.services.concurrency import gather_reads
+from app.services.measurement_provenance import MARKER_BODY_KEY, method_stamps
 from app.services.text_format import title_case_fields
 
 # Keys that must never leave the API, no matter how deeply nested inside an embedded relation
@@ -1102,6 +1103,19 @@ PROVENANCE_SKIP_FIELDS = {
     # UUID to the researcher, as though they had typed it. It would also be copied forward into
     # ``extraMetadata`` on every later edit, so it accumulates rather than being trivially removable.
     CLIENT_KEY_FIELD,
+    # The per-dimension method markers a client sends alongside the numbers. Skipped for the same
+    # reason as the three measurement keys above it, and then some: it is not a field anybody filled
+    # in, it is a hint about HOW they filled in three other fields. Attributed as a field of its own
+    # it would put a researcher's name against a dictionary they never saw, and the "Field
+    # contributions" panel would list it as a row.
+    #
+    # BELT AND BRACES, SAID OUT LOUD SO NOBODY QUOTES IT AS EVIDENCE: ``merge_field_provenance``
+    # POPS this key off ``new_data`` before the loop that reads this set, so lifting the entry out
+    # changes nothing any behavioural test can observe today. It is the defence for a future caller
+    # that merges provenance without popping first — exactly the kind of guard that gets deleted as
+    # dead weight by somebody who checked only whether a test went red.
+    # ``services/measurement_provenance`` holds the whole argument.
+    MARKER_BODY_KEY,
 }
 
 
@@ -1111,11 +1125,38 @@ def merge_field_provenance(new_data: dict[str, Any], user: Any, previous: Any | 
     On create (``previous`` is ``None``) every non-empty field is attributed to ``user``. On update
     only fields whose value actually changes are re-attributed; unchanged fields keep the original
     contributor carried over from the previous record. This mutates ``new_data`` in place.
+
+    **A DIMENSION ALSO RECORDS HOW IT WAS MEASURED, AND THAT IS WHY THIS FUNCTION STOPPED LYING.**
+    ``lengthInches`` / ``breadthInches`` / ``heightInches`` are printed as documented dimensions by
+    ``record_fields`` and read by somebody costing a production run, and three different processes
+    write them: a tape reading somebody typed, ``photoMeasure``'s arithmetic, and a vision model's
+    estimate off a grid-sheet photograph. Until the marker below existed this function stamped all
+    three with the ``{by, byName, at}`` of whoever pressed Save — so a model's guess that had
+    auto-filled the form was stored asserting that a named human had measured it. The method now sits
+    BESIDE the name rather than replacing it, because the true sentence is *a vision model estimated
+    this, and R. Menon accepted it into the record at that moment*, and stripping the name would
+    delete the most useful fact on the row. ``services/measurement_provenance`` holds the whole
+    argument.
     """
     from app.core.deps import get_value, is_empty_value, values_match
 
     incoming_extra = new_data.get("extraMetadata")
     base_extra: dict[str, Any] = dict(incoming_extra) if isinstance(incoming_extra, dict) else {}
+
+    # POPPED, NOT READ. ``measurementMethods`` is not a column on either documentation table, and
+    # ``clean_data`` only drops keys whose value is None — so a marker that is actually sent survives
+    # all the way into ``db.productdocumentation.create(data=data)`` and is a 500 on the save, not a
+    # validation error the researcher could act on. This pop is the only thing removing it.
+    #
+    # ``fields=new_data.keys()`` narrows the stamps to the dimensions THIS save is writing: a marker
+    # naming a column the body does not carry describes nothing that is happening here.
+    #
+    # Note what ``method_stamps`` returns for a dimension that IS being written with no marker for
+    # it: ``{"method": "UNRECORDED"}``, deliberately, and not nothing. An old web build or an
+    # installed handset editing a dimension therefore writes an explicit UNRECORDED, which is honest,
+    # is distinguishable from a machine reading, and is never the false human claim. A burst of them
+    # after this ships is the fleet degrading correctly, not a bug.
+    stamps = method_stamps(new_data.pop(MARKER_BODY_KEY, None), fields=new_data.keys())
 
     provenance: dict[str, Any] = {}
     if previous is not None:
@@ -1134,7 +1175,19 @@ def merge_field_provenance(new_data: dict[str, Any], user: Any, previous: Any | 
             continue
         previous_value = get_value(previous, field) if previous is not None else None
         if previous is None or is_empty_value(previous_value) or not values_match(previous_value, value):
-            provenance[field] = stamp
+            # INSIDE THIS LOOP AND NOWHERE ELSE. The loop only fires for a field whose value actually
+            # changed, which is the guard against the worst way this feature can go wrong: both web
+            # forms re-send every dimension on every save, so a client that blanket-sent
+            # ``{"method": "TYPED"}`` for every box would otherwise launder every accepted
+            # vision-model measurement on the record into an apparent human one the next time
+            # somebody fixed a typo in ``remarks``. An untouched dimension keeps the stamp it already
+            # had, method included.
+            #
+            # ``stamp | stamps.get(...)`` and not the reverse, so the method joins ``{by, byName,
+            # at}`` instead of replacing them. The merge also gives every field its OWN dict — this
+            # line used to assign the one shared ``stamp`` object to every changed field, which meant
+            # any later per-field edit of the provenance blob silently edited all of them.
+            provenance[field] = stamp | stamps.get(field, {})
 
     if provenance:
         base_extra["fieldProvenance"] = provenance

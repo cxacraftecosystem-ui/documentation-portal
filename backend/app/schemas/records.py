@@ -16,6 +16,11 @@ from app.services.artisan_identity import (
     validate_aadhaar,
     validate_pehchan,
 )
+from app.services.measurement_provenance import (
+    DIMENSION_FIELDS,
+    MARKER_BODY_KEY,
+    marker_body_problems,
+)
 
 # The two regulated identity numbers on Artisan, and the only two columns a caller can be shown a
 # MASK of. Both are masked identically on the way out (``records.mask_identity_number``), so both
@@ -408,6 +413,84 @@ class WorkshopUpdate(APIModel):
         return self
 
 
+# ─────────────────────────────────────────────────────────────────────────────────────────────────
+# HOW EACH DOCUMENTED DIMENSION WAS MEASURED — the one key on these four bodies that is not a column
+# ─────────────────────────────────────────────────────────────────────────────────────────────────
+#
+# ``measurementMethods`` is a per-dimension hint about HOW ``lengthInches`` / ``breadthInches`` /
+# ``heightInches`` came to be known: typed off a tape, computed from marks a person placed on a
+# photograph, or estimated by a vision model. It names no column on either documentation table;
+# ``records.merge_field_provenance`` pops it and merges it into the ``{by, byName, at}`` stamp beside
+# each dimension, so the row ends up saying *a vision model estimated this, and R. Menon accepted it
+# into the record at that moment* instead of asserting that R. Menon measured it.
+# ``services/measurement_provenance`` holds the entire argument and the shape.
+#
+# WHY THIS DECLARATION EXISTS AT ALL, AND WHY IT COULD NOT COME FIRST. ``APIModel`` is
+# ``ConfigDict(extra="forbid")``, so until these four lines exist a client sending the marker has its
+# ENTIRE save rejected with a 422 naming a key the researcher has never heard of — and neither client
+# queue retries a 4xx, so the work is thrown away rather than retried. This declaration is what makes
+# the key sendable, which is also exactly why it must not land BEFORE
+# ``access.REVISION_SKIP_FIELDS`` gains the same key: a sendable marker with no skip entry makes
+# ``guard_record_edit`` append a RecordRevision nobody made on every save that carries one, into an
+# append-only audit table that landing the skip entry afterwards cannot un-write.
+#
+# THE KEY IS OMITTED WHEN THERE IS NOTHING TO SAY, AND NEVER SENT AS ``null``. Absent is legal and
+# means UNRECORDED; it never means TYPED. An explicit ``null`` is what breaks against a server
+# deployed before this field existed — ``extra="forbid"`` makes it a 422 on the whole save — and the
+# web deploys to Vercel while this API deploys to EC2, so a newer web build meeting an older API is
+# the ordinary case rather than the unlucky one.
+#
+# WHY ``dict[str, dict[str, Any]]`` AND NOT A PYDANTIC MODEL PER MARKER. The outer shape is pinned by
+# the annotation — an object keyed by dimension name whose values are objects — because those two
+# failures deserve pydantic's own precise 422 pointing at the offending key, and it costs nothing. A
+# marker MODEL is refused for a different reason than convenience: an ``extra="forbid"`` sub-model
+# would 422 a client echoing a marker that a NEWER server added a key to, mid-deploy, which is a
+# version skew that breaks saves for a reason no researcher can act on. So the marker's key set stays
+# open and its VALUES are closed by ``marker_body_problems`` below — each one either lands in the
+# stamp or is refused by name.
+
+
+def validate_measurement_methods(model):
+    """Refuse a marker body that describes something this request is not saying. 422, by name.
+
+    Attached to all four record schemas below — not just the Update pair, because a client that
+    implemented its half against ``ProductUpdate`` alone would find every product CREATE refused.
+
+    ``present_fields`` is computed off the SAME model instance, so "is there a value for this
+    dimension in this request" is answered by the request itself. It reads non-null rather than
+    ``model_fields_set`` on purpose: a dimension sent as an explicit ``null`` is being CLEARED (see
+    ``routes/products._CLEARABLE_COLUMNS``, which exists to let that through), and a method
+    describing a cleared measurement describes nothing. That covers create (where every unset
+    optional is None) and update (where ``exclude_unset`` has not run yet) with one rule.
+
+    Deliberately NOT checked here: whether the value actually CHANGED. A schema cannot see the stored
+    row, and the anti-laundering rule that declines to re-stamp an unchanged dimension already lives
+    in ``merge_field_provenance``'s changed-fields loop, where the stored row is in scope.
+
+    WHY A REFUSAL RATHER THAN THE SILENT DEGRADE THE SAVE PATH USES. ``provenance_of_marker`` turns
+    anything unreadable into UNRECORDED and must keep doing so — a record edit must not fail over a
+    provenance hint. But at the boundary the alternative to a refusal is not a safe default, it is a
+    silent lie of omission: a researcher presses Accept on a vision-model reading, the client sends a
+    typo in the method name, and the row is stored indistinguishable from one saved by a client that
+    never implemented any of this, with nobody told. See ``marker_body_problems`` for the full
+    two-layer argument and for why no NEW refusal may be added to it once a client has shipped.
+    """
+    markers = getattr(model, MARKER_BODY_KEY, None)
+    if markers is None:
+        # Sending nothing is legal and means UNRECORDED — it must never mean TYPED. See
+        # ``measurement_provenance.method_stamps``, which writes the explicit UNRECORDED.
+        return model
+    problems = marker_body_problems(
+        markers,
+        present_fields={
+            field for field in DIMENSION_FIELDS if getattr(model, field, None) is not None
+        },
+    )
+    if problems:
+        raise ValueError(" ".join(problems))
+    return model
+
+
 class ProductCreate(APIModel):
     craftName: str = Field(min_length=1, max_length=180)
     place: str = Field(min_length=1, max_length=180)
@@ -444,6 +527,12 @@ class ProductCreate(APIModel):
     lengthInches: Decimal | None = Field(default=None, ge=0)
     breadthInches: Decimal | None = Field(default=None, ge=0)
     heightInches: Decimal | None = Field(default=None, ge=0)
+    # HOW each of the three dimensions above was measured. Not a column: popped by
+    # ``records.merge_field_provenance`` and merged into that dimension's provenance stamp. Omitting
+    # it is legal and means UNRECORDED; it never means TYPED, and it is never sent as null.
+    # Validated by ``validate_measurement_methods`` above — see it for what is refused and why a
+    # refusal rather than a silent drop.
+    measurementMethods: dict[str, dict[str, Any]] | None = None
     measurementImageId: str | None = None
     measurementAnalysis: dict[str, Any] | None = None
     measurementAnalysisStatus: str | None = None
@@ -470,6 +559,10 @@ class ProductCreate(APIModel):
     # mean — and note it is the ONLY half of the pair the clients cannot omit, because create is
     # the one moment the researcher is standing at the place.
     _location_required = model_validator(mode="after")(require_location)
+    # The marker validator, attached on each of the four bodies that carries the key. Four separate
+    # lines and not one shared base, because a base class would also hand the key to every OTHER
+    # record schema in this file — an artisan has no dimensions to state a method for.
+    _measurement_methods = model_validator(mode="after")(validate_measurement_methods)
 
 
 class ProductUpdate(APIModel):
@@ -487,6 +580,12 @@ class ProductUpdate(APIModel):
     lengthInches: Decimal | None = Field(default=None, ge=0)
     breadthInches: Decimal | None = Field(default=None, ge=0)
     heightInches: Decimal | None = Field(default=None, ge=0)
+    # HOW each of the three dimensions above was measured. Not a column: popped by
+    # ``records.merge_field_provenance`` and merged into that dimension's provenance stamp. Omitting
+    # it is legal and means UNRECORDED; it never means TYPED, and it is never sent as null.
+    # Validated by ``validate_measurement_methods`` above — see it for what is refused and why a
+    # refusal rather than a silent drop.
+    measurementMethods: dict[str, dict[str, Any]] | None = None
     measurementImageId: str | None = None
     measurementAnalysis: dict[str, Any] | None = None
     measurementAnalysisStatus: str | None = None
@@ -512,6 +611,10 @@ class ProductUpdate(APIModel):
     # Omit it to keep the stored one (which is how a record that predates the rule stays
     # editable); send one to replace it; you may not send null. See forbid_clearing_location.
     _location_kept = model_validator(mode="after")(forbid_clearing_location)
+    # The marker validator, attached on each of the four bodies that carries the key. Four separate
+    # lines and not one shared base, because a base class would also hand the key to every OTHER
+    # record schema in this file — an artisan has no dimensions to state a method for.
+    _measurement_methods = model_validator(mode="after")(validate_measurement_methods)
 
 
 class ProcessStepInput(APIModel):
@@ -581,6 +684,12 @@ class ToolCreate(APIModel):
     # tool height in this repository came to be stored with no recoverable unit. See migration
     # 20260913120100.
     heightInches: Decimal | None = Field(default=None, ge=0)
+    # HOW each of the three dimensions above was measured. Not a column: popped by
+    # ``records.merge_field_provenance`` and merged into that dimension's provenance stamp. Omitting
+    # it is legal and means UNRECORDED; it never means TYPED, and it is never sent as null.
+    # Validated by ``validate_measurement_methods`` above — see it for what is refused and why a
+    # refusal rather than a silent drop.
+    measurementMethods: dict[str, dict[str, Any]] | None = None
     measurementImageId: str | None = None
     measurementAnalysis: dict[str, Any] | None = None
     measurementAnalysisStatus: str | None = None
@@ -608,6 +717,10 @@ class ToolCreate(APIModel):
     # mean — and note it is the ONLY half of the pair the clients cannot omit, because create is
     # the one moment the researcher is standing at the place.
     _location_required = model_validator(mode="after")(require_location)
+    # The marker validator, attached on each of the four bodies that carries the key. Four separate
+    # lines and not one shared base, because a base class would also hand the key to every OTHER
+    # record schema in this file — an artisan has no dimensions to state a method for.
+    _measurement_methods = model_validator(mode="after")(validate_measurement_methods)
 
 
 class ToolUpdate(APIModel):
@@ -629,6 +742,12 @@ class ToolUpdate(APIModel):
     # See ``ToolCreate.heightInches``: this is the height that records its unit, and ``height`` above
     # is the old unit-less column kept for what is already stored.
     heightInches: Decimal | None = Field(default=None, ge=0)
+    # HOW each of the three dimensions above was measured. Not a column: popped by
+    # ``records.merge_field_provenance`` and merged into that dimension's provenance stamp. Omitting
+    # it is legal and means UNRECORDED; it never means TYPED, and it is never sent as null.
+    # Validated by ``validate_measurement_methods`` above — see it for what is refused and why a
+    # refusal rather than a silent drop.
+    measurementMethods: dict[str, dict[str, Any]] | None = None
     measurementImageId: str | None = None
     measurementAnalysis: dict[str, Any] | None = None
     measurementAnalysisStatus: str | None = None
@@ -655,6 +774,10 @@ class ToolUpdate(APIModel):
     # Omit it to keep the stored one (which is how a record that predates the rule stays
     # editable); send one to replace it; you may not send null. See forbid_clearing_location.
     _location_kept = model_validator(mode="after")(forbid_clearing_location)
+    # The marker validator, attached on each of the four bodies that carries the key. Four separate
+    # lines and not one shared base, because a base class would also hand the key to every OTHER
+    # record schema in this file — an artisan has no dimensions to state a method for.
+    _measurement_methods = model_validator(mode="after")(validate_measurement_methods)
 
 
 class ToolArtisanAssign(APIModel):

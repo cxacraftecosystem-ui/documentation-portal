@@ -84,6 +84,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.LocalContentColor
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.encodeToString
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -148,6 +149,9 @@ import com.fieldrepository.app.data.DashboardStatsMine
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.GoogleAuthClient
 import com.fieldrepository.app.data.LocationRequest
+import com.fieldrepository.app.data.MeasurementMarkers
+import com.fieldrepository.app.data.geometryMarker
+import com.fieldrepository.app.data.visionMarker
 import com.fieldrepository.app.data.ProductCreateRequest
 import com.fieldrepository.app.data.QuestionnaireInterviewCreateRequest
 import com.fieldrepository.app.data.QuestionnaireInterviewDetailDto
@@ -188,6 +192,9 @@ import com.fieldrepository.app.ui.CarryPrefillState
 import com.fieldrepository.app.ui.CarryScope
 import com.fieldrepository.app.ui.CarryScopeState
 import com.fieldrepository.app.ui.carryScope
+import com.fieldrepository.app.ui.PRODUCT_MEASURE_DIMENSIONS
+import com.fieldrepository.app.ui.RecordMeasureField
+import com.fieldrepository.app.ui.TOOL_MEASURE_DIMENSIONS
 import com.fieldrepository.app.ui.craftChangeClearsArtisan
 import com.fieldrepository.app.ui.listCutNotice
 import com.fieldrepository.app.ui.rememberArtisanPicker
@@ -3473,8 +3480,14 @@ private fun GridMeasurementSection(
     repository: FieldRepository,
     media: MediaCaptureState,
     includeHeight: Boolean = true,
-    onLengthBreadth: (length: Double?, breadth: Double?) -> Unit,
-    onHeight: (Double) -> Unit
+    /**
+     * The server's own method marker rides with the numbers, and the host passes it STRAIGHT to
+     * `markers.accept(...)`. Nullable because a server predating the marker, and every failure path,
+     * sends none — `visionMarker` keeps its bare `{"method": "VISION_MODEL"}` fallback for exactly
+     * that, so a missing marker still records that a MODEL produced the number.
+     */
+    onLengthBreadth: (length: Double?, breadth: Double?, marker: JsonObject?) -> Unit,
+    onHeight: (value: Double, marker: JsonObject?) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -3504,8 +3517,12 @@ private fun GridMeasurementSection(
         scope.launch {
             if (group == "lengthBreadth") {
                 runCatching { repository.analyzeMeasurementLengthBreadth(context, uri) }
-                    .onSuccess { (length, breadth) ->
-                        onLengthBreadth(length, breadth)
+                    .onSuccess { reading ->
+                        val length = reading.lengthInches
+                        val breadth = reading.breadthInches
+                        // The server's marker, RELAYED rather than rebuilt — see visionMarker's KDoc.
+                        // Rebuilding it here would lose the confidence, the only number on the stamp.
+                        onLengthBreadth(length, breadth, reading.marker)
                         val parts = buildList {
                             if (length != null && length > 0) add("L ${"%.2f".format(length)}\"")
                             if (breadth != null && breadth > 0) add("B ${"%.2f".format(breadth)}\"")
@@ -3516,9 +3533,10 @@ private fun GridMeasurementSection(
                     .onFailure { status = status + (group to "Analysis failed — enter it manually") }
             } else {
                 runCatching { repository.analyzeMeasurement(context, uri, "height") }
-                    .onSuccess { value ->
+                    .onSuccess { reading ->
+                        val value = reading.valueInches
                         if (value != null && value > 0.0) {
-                            onHeight(value)
+                            onHeight(value, reading.marker)
                             status = status + (group to "Measured ${"%.2f".format(value)} in — field filled")
                         } else {
                             status = status + (group to "Couldn't read a value — enter it manually")
@@ -6003,6 +6021,16 @@ private fun ProductForm(
     var length by remember(editing) { mutableStateOf(numToText(editing?.lengthInches)) }
     var breadth by remember(editing) { mutableStateOf(numToText(editing?.breadthInches)) }
     var height by remember(editing) { mutableStateOf(numToText(editing?.heightInches)) }
+    /*
+     * HOW THE THREE BOXES ABOVE WERE MEASURED, for the ones somebody accepted a proposal into.
+     *
+     * KEYED ON `editing` LIKE THE BOXES THEMSELVES, and that matters on the correction path: opening a
+     * different record reloads the numbers, and a ledger that outlived them would go on claiming a
+     * geometry for a value it has never seen. The stored dimensions it loads with are UNMARKED, which
+     * is right — this form cannot know how a number already in the database came to be, and the server
+     * reads an absent marker as UNRECORDED rather than as TYPED.
+     */
+    val markers = remember(editing) { MeasurementMarkers() }
     var costOfMaking by remember(editing) { mutableStateOf(numToText(editing?.costOfMaking)) }
     var sellingPrice by remember(editing) { mutableStateOf(numToText(editing?.sellingPrice)) }
     var rawMaterials by remember(editing) { mutableStateOf(editing?.rawMaterialsUsed ?: "") }
@@ -6087,6 +6115,23 @@ private fun ProductForm(
                 lengthInches = length.toDoubleOrNull(),
                 breadthInches = breadth.toDoubleOrNull(),
                 heightInches = height.toDoubleOrNull(),
+                /*
+                 * HOW THOSE THREE WERE MEASURED — read from the boxes AS THEY STAND AT SAVE, which is
+                 * the whole anti-staleness rule and the reason this is computed here rather than kept
+                 * as a field somebody has to remember to clear. A dimension typed over since it was
+                 * accepted no longer matches the accepted text and is dropped; so is a cleared one, and
+                 * so is one the microphone dictated into. Null when nothing survives, and
+                 * `explicitNulls = false` then drops the key from the request entirely.
+                 *
+                 * AND THIS IS ALSO THE OFFLINE PATH. `body` is what `offlineFormJson.encodeToString`
+                 * serialises into the outbox below, and `syncOutbox` decodes the same type back out, so
+                 * a record saved in a courtyard keeps its provenance instead of arriving a fortnight
+                 * later indistinguishable from a hand-typed one. There is no second body to keep in
+                 * step — which is exactly why there must not be one.
+                 */
+                measurementMethods = markers.body(
+                    mapOf("lengthInches" to length, "breadthInches" to breadth, "heightInches" to height)
+                ),
                 costOfMaking = costOfMaking.toDoubleOrNull(),
                 sellingPrice = sellingPrice.toDoubleOrNull(),
                 marketDemand = marketDemand,
@@ -6253,17 +6298,71 @@ private fun ProductForm(
         RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
         TextInput("Time taken to complete", timeTaken, dictate = dictates("timeTakenToCompleteProduct")) { timeTaken = it }
         TextInput("Size", size, dictate = dictates("size")) { size = it }
+        /*
+         * THE THREE DIMENSION BOXES, AND WHY EACH ONE FORGETS ITS MARKER AS IT IS TYPED IN.
+         *
+         * `markers.body(...)` at save already drops any marker whose column no longer holds the exact
+         * text the machine wrote, so a typed-over number loses its claim with no help from here. The
+         * `forget` call covers the ONE case that comparison cannot see: a researcher who deletes the
+         * accepted number and types the identical digits back by hand. That is a hand-typed number and
+         * must be recorded as one. See `data/MeasurementMarkers.kt`.
+         */
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length, keyboardType = KeyboardType.Decimal, dictate = dictates("lengthInches")) { length = it } }
-            Box(modifier = Modifier.weight(1f)) { TextInput("Breadth (inches)", breadth, keyboardType = KeyboardType.Decimal, dictate = dictates("breadthInches")) { breadth = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length, keyboardType = KeyboardType.Decimal, dictate = dictates("lengthInches")) { length = it; markers.forget("lengthInches") } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Breadth (inches)", breadth, keyboardType = KeyboardType.Decimal, dictate = dictates("breadthInches")) { breadth = it; markers.forget("breadthInches") } }
         }
-        TextInput("Height (inches)", height, keyboardType = KeyboardType.Decimal, dictate = dictates("heightInches")) { height = it }
+        TextInput("Height (inches)", height, keyboardType = KeyboardType.Decimal, dictate = dictates("heightInches")) { height = it; markers.forget("heightInches") }
+        /*
+         * THE TWO MEASUREMENT ROUTES, DELIBERATELY IN THIS ORDER.
+         *
+         * [RecordMeasureField] runs `PhotoMeasure` entirely on this handset. It costs nothing per use,
+         * works with the aircraft-mode switch on in the courtyard where the object actually is, and
+         * anybody can re-derive its answer later from the marks that produced it. [GridMeasurementSection]
+         * below posts the photograph to a vision model that ESTIMATES the number: it needs a network,
+         * it bills per call, and nobody can check it after the fact.
+         *
+         * Both are offered because they fail in different places — geometry needs a reference of a known
+         * length in the frame, the model does not. The geometric one is FIRST because it is the one that
+         * should be reached for first, and it draws nothing at all when the batch has no photograph in
+         * it, so a record with no images looks exactly as it did before.
+         */
+        RecordMeasureField(
+            dimensions = PRODUCT_MEASURE_DIMENSIONS,
+            current = mapOf("lengthInches" to length, "breadthInches" to breadth, "heightInches" to height),
+            photos = media.uris,
+            enabled = !saving,
+            onPropose = { column, text, technique ->
+                when (column) {
+                    "lengthInches" -> length = text
+                    "breadthInches" -> breadth = text
+                    "heightInches" -> height = text
+                }
+                // RECORDED WITH THE EXACT TEXT JUST WRITTEN, which is what lets `body()` tell later
+                // whether this number is still the one the panel proposed. See MeasurementMarkers.
+                markers.accept(column, text, geometryMarker(technique))
+            },
+        )
         GridMeasurementSection(
             repository = repository,
             media = media,
             includeHeight = true,
-            onLengthBreadth = { l, b -> if (l != null && l > 0) length = numToText(l); if (b != null && b > 0) breadth = numToText(b) },
-            onHeight = { height = numToText(it) }
+            // EACH DIMENSION IS MARKED ONLY WHERE IT IS ACTUALLY WRITTEN — inside the same `if` that
+            // writes it. A model that read a length but not a breadth fills one box, and marking the
+            // other would claim a method for a number this request does not carry, which the server
+            // refuses BY NAME with a 422 and which the outbox will not queue.
+            //
+            // `visionMarker(null)` is the bare `{"method": "VISION_MODEL"}`: this client's repository
+            // returns a plain Double and has nowhere for the server's own marker to ride, so the
+            // provider, model id and confidence are OMITTED rather than invented. See
+            // `MeasurementMarkers.MeasurementReading` for the shape that would carry them.
+            onLengthBreadth = { l, b, marker ->
+                // `visionMarker(marker)`, not `visionMarker(null)`: the server's marker carries
+                // provider, modelId AND selfReportedConfidence, and passing null threw all three
+                // away — so the handset stored a weaker record than the browser for the same act.
+                if (l != null && l > 0) { length = numToText(l); markers.accept("lengthInches", length, visionMarker(marker)) }
+                if (b != null && b > 0) { breadth = numToText(b); markers.accept("breadthInches", breadth, visionMarker(marker)) }
+            },
+            onHeight = { value, marker -> height = numToText(value); markers.accept("heightInches", height, visionMarker(marker)) }
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             Box(modifier = Modifier.weight(1f)) { TextInput("Cost of making", costOfMaking, keyboardType = KeyboardType.Decimal, dictate = dictates("costOfMaking")) { costOfMaking = it } }
@@ -6360,6 +6459,19 @@ private fun ToolForm(
     var thickness by remember(editing) { mutableStateOf(numToText(editing?.thickness)) }
     var weight by remember(editing) { mutableStateOf(numToText(editing?.weight)) }
     var radius by remember(editing) { mutableStateOf(numToText(editing?.radius)) }
+    /*
+     * HOW `length` / `breadth` / `heightInches` WERE MEASURED, for the ones somebody accepted a
+     * proposal into — and NEVER `height`, `width`, `thickness`, `weight` or `radius`.
+     *
+     * Those five are ordinary typed boxes with no measurement route pointed at them, and `height` in
+     * particular is the unit-less legacy column: the server refuses a marker naming it BY NAME rather
+     * than dropping it, and on this platform a refused save is a lost record. `MeasurementMarkers.accept`
+     * also drops any column outside the documented three, so the mistake cannot be made from here even
+     * if a future caller tries.
+     *
+     * KEYED ON `editing` LIKE THE BOXES THEMSELVES — see ProductForm for why.
+     */
+    val markers = remember(editing) { MeasurementMarkers() }
     var maker by remember(editing) { mutableStateOf(editing?.maker ?: "UNKNOWN") }
     var traditionType by remember(editing) { mutableStateOf(editing?.traditionType ?: "UNKNOWN") }
     var replacementCost by remember(editing) { mutableStateOf(numToText(editing?.replacementCost)) }
@@ -6444,6 +6556,25 @@ private fun ToolForm(
                 heightInches = heightInches.toDoubleOrNull(),
                 lengthInches = length.toDoubleOrNull(),
                 breadthInches = breadth.toDoubleOrNull(),
+                /*
+                 * HOW THOSE THREE WERE MEASURED — read from the boxes AS THEY STAND AT SAVE. See the
+                 * identical block in ProductForm for the whole argument; the short version is that a
+                 * dimension typed over, dictated over or cleared since it was accepted no longer
+                 * matches the accepted text and silently loses its claim, which is the only behaviour
+                 * that keeps the marker true. Null when nothing survives, and the key is then dropped
+                 * from the request entirely.
+                 *
+                 * `height` IS NOT IN THIS MAP and must never be: it is the unit-less column, it is not
+                 * a dimension the server will accept a method for, and nothing machine-produced is
+                 * written into it any more.
+                 */
+                measurementMethods = markers.body(
+                    mapOf(
+                        "lengthInches" to length,
+                        "breadthInches" to breadth,
+                        "heightInches" to heightInches,
+                    )
+                ),
                 thickness = thickness.toDoubleOrNull(),
                 weight = weight.toDoubleOrNull(),
                 radius = radius.toDoubleOrNull(),
@@ -6638,9 +6769,15 @@ private fun ToolForm(
             Box(modifier = Modifier.weight(1f)) { TextInput("Height", height, keyboardType = KeyboardType.Decimal, dictate = dictates("height")) { height = it } }
             Box(modifier = Modifier.weight(1f)) { TextInput("Width", width, keyboardType = KeyboardType.Decimal, dictate = dictates("width")) { width = it } }
         }
+        /*
+         * THE INCH TRIPLE, AND WHY EACH BOX FORGETS ITS MARKER AS IT IS TYPED IN — see the same three
+         * boxes on ProductForm. `markers.body(...)` drops a marker whose text no longer matches; this
+         * covers the one case the comparison cannot see, a researcher retyping the identical digits by
+         * hand, which is a hand-typed number and must be recorded as one.
+         */
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length, keyboardType = KeyboardType.Decimal, dictate = dictates("lengthInches")) { length = it } }
-            Box(modifier = Modifier.weight(1f)) { TextInput("Breadth (inches)", breadth, keyboardType = KeyboardType.Decimal, dictate = dictates("breadthInches")) { breadth = it } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length, keyboardType = KeyboardType.Decimal, dictate = dictates("lengthInches")) { length = it; markers.forget("lengthInches") } }
+            Box(modifier = Modifier.weight(1f)) { TextInput("Breadth (inches)", breadth, keyboardType = KeyboardType.Decimal, dictate = dictates("breadthInches")) { breadth = it; markers.forget("breadthInches") } }
         }
         // THE THIRD OF THE INCH TRIPLE, and the box whose absence silently cost the unit. The grid
         // panel below proposes all three; until 2026-09-14 this client had nowhere to put the third,
@@ -6649,20 +6786,61 @@ private fun ToolForm(
         // hand-typed number. The browser's tool form has drawn this box since migration
         // 20260913120100, and this client's own ProductForm has always had it; only ToolForm here
         // was left behind.
-        TextInput("Height (inches)", heightInches, keyboardType = KeyboardType.Decimal, dictate = dictates("heightInches")) { heightInches = it }
+        TextInput("Height (inches)", heightInches, keyboardType = KeyboardType.Decimal, dictate = dictates("heightInches")) { heightInches = it; markers.forget("heightInches") }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             Box(modifier = Modifier.weight(1f)) { TextInput("Thickness", thickness, keyboardType = KeyboardType.Decimal, dictate = dictates("thickness")) { thickness = it } }
             Box(modifier = Modifier.weight(1f)) { TextInput("Weight", weight, keyboardType = KeyboardType.Decimal, dictate = dictates("weight")) { weight = it } }
         }
         TextInput("Radius", radius, keyboardType = KeyboardType.Decimal, dictate = dictates("radius")) { radius = it }
+        /*
+         * THE TWO MEASUREMENT ROUTES, DELIBERATELY IN THIS ORDER — the geometric one first, because it
+         * costs nothing per use, works with no signal in the courtyard where the tool actually is, and
+         * anybody can re-derive its answer later from the marks that produced it. The vision model
+         * below needs a network, bills per call, and cannot be checked after the fact. Both are offered
+         * because they fail in different places. See ProductForm for the longer form of this note.
+         */
+        RecordMeasureField(
+            dimensions = TOOL_MEASURE_DIMENSIONS,
+            current = mapOf(
+                "lengthInches" to length,
+                "breadthInches" to breadth,
+                "heightInches" to heightInches,
+            ),
+            photos = media.uris,
+            enabled = !saving,
+            onPropose = { column, text, technique ->
+                when (column) {
+                    "lengthInches" -> length = text
+                    "breadthInches" -> breadth = text
+                    // `heightInches`, NEVER `height`: the panel measures in inches and the unit-less
+                    // column cannot say so. TOOL_MEASURE_DIMENSIONS does not offer `height` at all, so
+                    // this `when` has no branch for it and a proposal into it cannot be constructed.
+                    "heightInches" -> heightInches = text
+                }
+                // RECORDED WITH THE EXACT TEXT JUST WRITTEN, which is what lets `body()` tell later
+                // whether this number is still the one the panel proposed. See MeasurementMarkers.
+                markers.accept(column, text, geometryMarker(technique))
+            },
+        )
         GridMeasurementSection(
             repository = repository,
             media = media,
             includeHeight = true,
-            onLengthBreadth = { l, b -> if (l != null && l > 0) length = numToText(l); if (b != null && b > 0) breadth = numToText(b) },
+            // EACH DIMENSION IS MARKED ONLY WHERE IT IS ACTUALLY WRITTEN — inside the same `if` that
+            // writes it. Marking one the request does not carry is a 422 the outbox will not queue.
+            // `visionMarker(null)` is the bare `{"method": "VISION_MODEL"}`: this client's repository
+            // returns a plain Double, so the provider, model id and confidence are OMITTED rather than
+            // invented.
+            onLengthBreadth = { l, b, marker ->
+                // `visionMarker(marker)`, not `visionMarker(null)`: the server's marker carries
+                // provider, modelId AND selfReportedConfidence, and passing null threw all three
+                // away — so the handset stored a weaker record than the browser for the same act.
+                if (l != null && l > 0) { length = numToText(l); markers.accept("lengthInches", length, visionMarker(marker)) }
+                if (b != null && b > 0) { breadth = numToText(b); markers.accept("breadthInches", breadth, visionMarker(marker)) }
+            },
             // INTO `heightInches`, NOT `height`. The panel returns an inches reading; writing it to
             // the unit-less column is the defect this whole block exists to close.
-            onHeight = { heightInches = numToText(it) }
+            onHeight = { value, marker -> heightInches = numToText(value); markers.accept("heightInches", heightInches, visionMarker(marker)) }
         )
         DropdownField("Maker", makerOptions.map { it to it }, maker, includeNone = false) { maker = it }
         DropdownField("Tradition type", traditionOptions.map { it to it }, traditionType, includeNone = false) { traditionType = it }

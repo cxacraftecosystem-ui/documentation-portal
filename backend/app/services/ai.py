@@ -18,6 +18,10 @@ from app.services import (
     user_ai_keys,
 )
 from app.services.ai_providers import AiProvider, AiTask
+from app.services.measurement_provenance import (
+    MeasurementProvenance,
+    vision_model_provenance,
+)
 from app.services.user_ai_keys import AiCredential
 
 logger = logging.getLogger(__name__)
@@ -984,6 +988,35 @@ def _extract_json(text: str) -> dict[str, Any]:
 
 _DIMENSION_ALIASES = {"length": "length", "breadth": "breadth", "width": "breadth", "height": "height"}
 
+#: Which service reads the grid photograph. Named rather than inlined so a reader grepping for
+#: everything that sends this repository's photographs to a third party finds this one too.
+MEASUREMENT_PROVIDER = "gemini"
+
+
+def _measurement_provenance(
+    analysis: dict[str, Any] | None, settings: Settings
+) -> MeasurementProvenance:
+    """The provenance of whatever this endpoint just did, INCLUDING when it failed.
+
+    THE PROVIDER AND MODEL ARE REPORTED ON THE FAILURE PATHS TOO. A researcher whose grid read failed
+    is told which service refused (the status, never the provider's own words — see
+    ``redact_secrets``), and an operator reading a log beside that failure needs to know which model
+    id was configured at the time. The self-reported confidence is None there because there is no
+    reading to be confident about, and ``UNRECORDED`` is not used for the model id on those paths:
+    the id is a fact this process holds, and a configured setting is recorded whether or not the call
+    it was used for succeeded.
+
+    See ``services/measurement_provenance`` for why a number with no origin was the defect: both
+    clients put this response straight into a form field, and ``records.merge_field_provenance`` then
+    stamped it with the name of whoever pressed Save — so the record asserted that a named human had
+    measured a model's estimate.
+    """
+    return vision_model_provenance(
+        analysis,
+        provider=MEASUREMENT_PROVIDER,
+        model_id=settings.gemini_measurement_model,
+    )
+
 
 def _measurement_prompt(dimension: str | None) -> str:
     """Prompt for either a single requested dimension or the legacy length+breadth pair."""
@@ -1090,6 +1123,15 @@ def _post_gemini_measurement(content: bytes, mime_type: str, settings: Settings,
             "analysis": parsed,
             "keysTried": attempt + 1,
             "raw": payload,
+            # WHAT PRODUCED THE NUMBER, TRAVELLING WITH THE NUMBER. Until this, the response carried
+            # ``valueInches`` and nothing about where it came from — while
+            # ``settings.gemini_measurement_model`` was in hand two lines above the return — so both
+            # clients auto-filled a form field from a model's estimate and the save stamped it with
+            # the name of whoever pressed Save. ADDITIVE ONLY: ``analysis`` is the provider's own
+            # parsed JSON, untouched, because an installed handset reads
+            # ``response.analysis?.valueInches`` and cannot be updated. See
+            # ``services/measurement_provenance`` for the whole argument and the client half.
+            **_measurement_provenance(parsed, settings).payload(),
         }
 
     raise last_error or RuntimeError("All configured Gemini keys failed")
@@ -1117,6 +1159,7 @@ async def analyze_measurement_image_bytes(
             "status": "UNAVAILABLE",
             "analysis": None,
             "message": "Gemini measurement analysis unavailable; fill in the value manually.",
+            **_measurement_provenance(None, settings).payload(),
         }
     try:
         return await asyncio.to_thread(
@@ -1136,4 +1179,8 @@ async def analyze_measurement_image_bytes(
                 f"Measurement analysis failed ({_fault(exc)}); measure the object and enter the "
                 "value manually. The provider's reply is in the server log."
             ),
+            # ``requiresAcceptance`` is on the FAILURES too, deliberately: it is a statement about
+            # what kind of thing this endpoint produces, not about one reading, and a client has to
+            # be able to branch on it before it knows whether a number arrived.
+            **_measurement_provenance(None, settings).payload(),
         }

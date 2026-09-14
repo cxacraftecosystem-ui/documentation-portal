@@ -491,6 +491,24 @@ def _measurement_update_data(
     analysis: dict[str, Any] | None,
     record: Any,
 ) -> dict[str, Any]:
+    """The columns a finished MEASUREMENT job writes onto the product or tool it was filed against.
+
+    ⚠ THE TWO DIMENSION WRITES BELOW HAVE NO HUMAN IN THEM ANYWHERE, AND THAT IS AN OPEN DEFECT.
+    ``lengthInches`` and ``breadthInches`` are documented dimensions: ``record_fields`` prints them
+    in the "Dimensions (LxBxH in)" cell, which reaches the data browser, every .xlsx sheet and the
+    CSV exports, where somebody costs a production run from them. This function fills them from a
+    vision model's estimate whenever the column happens to be empty, and it does NOT go through
+    ``records.merge_field_provenance`` — so the number lands carrying no provenance stamp at all,
+    not even the false human one that ``services/measurement_provenance`` was written to end. A
+    background worker read a photograph, nobody saw the answer, and a costed dimension changed.
+
+    IT IS LEFT ALONE HERE ON PURPOSE. Closing it is a behaviour change to the media pipeline — stop
+    writing the two columns, keep ``measurementAnalysis`` so a client can still show the reading and
+    a person can accept it through the ordinary save path — and that belongs to whoever owns this
+    queue, not to the provenance work. What that work DID close is the path with a person on it:
+    ``POST /media/analyze-measurement`` now states its method, and a save that carries the marker
+    stores it beside ``{by, byName, at}``.
+    """
     data: dict[str, Any] = {
         "measurementImageId": media_id,
         "measurementAnalysisStatus": status,

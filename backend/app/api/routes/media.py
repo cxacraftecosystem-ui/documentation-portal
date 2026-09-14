@@ -326,6 +326,31 @@ async def analyze_media_measurement(
     Bounded at ``MEASUREMENT_MAX_UPLOAD_BYTES``. The remedy names the action that actually clears
     the refusal from a phone camera — photograph the sheet alone — because a smaller picture of the
     whole workbench measures no better than the large one did.
+
+    ── THE ANSWER SAYS WHAT PRODUCED IT, AND THE NUMBER IS A PROPOSAL ───────────────────────────────
+
+    The result is handed back verbatim from ``analyze_measurement_image_bytes``, which now composes
+    ``method`` / ``provider`` / ``modelId`` / ``selfReportedConfidence`` /
+    ``confidenceIsCalibrated`` / ``requiresAcceptance`` / ``methodMarker`` beside the unchanged
+    ``analysis`` block. Three things a client author needs to know about those keys:
+
+    * ``requiresAcceptance`` is ``true`` on EVERY response this endpoint can produce, the failures
+      included. A client that honours it shows the number as a proposal with a button and writes
+      nothing into form state until somebody presses it. Until that landed, both clients auto-filled
+      a form field from a model's estimate and ``records.merge_field_provenance`` stamped the result
+      with the name of whoever pressed Save — the record asserted that a named human had measured a
+      machine's guess.
+    * ``confidenceIsCalibrated`` is hard ``false`` and no code path sets it true. The confidence
+      beside it is the model's claim about itself; nothing in this repository has measured it against
+      a tape. The flag exists so it can never be mistaken for ``photoMeasure``'s ``uncertainty``,
+      which IS a propagated error bar and travels on this same wire.
+    * ``methodMarker`` is what the client echoes back VERBATIM on the product/tool save, under
+      ``measurementMethods``, and only while the box still holds the exact string this route wrote.
+      ``services/measurement_provenance`` holds the acceptance rule and the whole argument.
+
+    PURELY ADDITIVE FOR EVERY BUILD ALREADY IN THE FIELD: ``analysis`` is untouched, and
+    ``ApiClient.kt`` decodes with ``ignoreUnknownKeys = true``, so a handset that has never heard of
+    ``methodMarker`` ignores it rather than failing to read the response at all.
     """
     content = await read_upload_bounded(
         file,

@@ -2446,7 +2446,7 @@ class FieldRepository(
      * inches, or null if the model couldn't read it. A grid photo is small, so reading it into memory
      * is fine. Used by the "Document using grid" capture to auto-fill the measurement field.
      */
-    suspend fun analyzeMeasurement(context: Context, uri: Uri, dimension: String): Double? {
+    suspend fun analyzeMeasurement(context: Context, uri: Uri, dimension: String): MeasurementReading {
         val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
         val bytes = withContext(Dispatchers.IO) {
             context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
@@ -2458,7 +2458,13 @@ class FieldRepository(
             bytes.toRequestBody(mimeType.toMediaType())
         )
         val response = api.analyzeMeasurement(part, dimension)
-        return response.analysis?.valueInches
+        // THE MARKER TRAVELS WITH THE NUMBER, because the two are only ever correct together. A bare
+        // `Double?` here is precisely how a model's estimate reached a record wearing a researcher's
+        // name: the caller had nothing to say a machine produced it. See MeasurementMarkers.kt.
+        return MeasurementReading(
+            valueInches = response.analysis?.valueInches,
+            marker = response.methodMarker,
+        )
     }
 
     /**
@@ -2466,7 +2472,7 @@ class FieldRepository(
      * on the grid). Calls the measurement endpoint with no dimension, which returns the legacy
      * length+breadth pair. Returns (lengthInches, breadthInches); either may be null if unread.
      */
-    suspend fun analyzeMeasurementLengthBreadth(context: Context, uri: Uri): Pair<Double?, Double?> {
+    suspend fun analyzeMeasurementLengthBreadth(context: Context, uri: Uri): MeasurementReading {
         val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
         val bytes = withContext(Dispatchers.IO) {
             context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
@@ -2479,7 +2485,12 @@ class FieldRepository(
         )
         val response = api.analyzeMeasurement(part, null)
         val analysis = response.analysis
-        return (analysis?.lengthInches) to (analysis?.breadthInches)
+        // One marker for the pair, because one photograph and one model call produced both numbers.
+        return MeasurementReading(
+            lengthInches = analysis?.lengthInches,
+            breadthInches = analysis?.breadthInches,
+            marker = response.methodMarker,
+        )
     }
 
     /**

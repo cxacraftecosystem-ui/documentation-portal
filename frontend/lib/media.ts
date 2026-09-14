@@ -1504,21 +1504,87 @@ export async function transcribeMediaFile(file: File, mediaType = inferMediaType
   };
 }
 
+/**
+ * HOW A DIMENSION CAME TO BE KNOWN, in the shape a client echoes back UNCHANGED when it saves the
+ * value it was given.
+ *
+ * The API's `measurement_provenance` service composes this and reads it back off the save body; the
+ * server then writes the method BESIDE the `{by, byName, at}` stamp `records.merge_field_provenance`
+ * already writes, so the row reads *a vision model estimated this, and this person accepted it into
+ * the record at that moment* rather than as a measurement that person took.
+ *
+ * DELIBERATELY ONE FORMAT FOR EVERY ORIGIN — a client composes the same shape by hand for the
+ * on-device geometry path (`{method: "PHOTO_GEOMETRY", technique: "SCALE" | "RECTIFIED"}`, built by
+ * `lib/photoMeasure.ts`'s `methodMarker`) and echoes the server's own for a vision reading. Keys
+ * whose answer is not a known fact are OMITTED rather than sent as a placeholder: a `provider` on a
+ * hand-typed dimension is a question that does not apply.
+ *
+ * SENDING NOTHING IS LEGAL AND MEANS `UNRECORDED`; **it must never mean TYPED.** The rows already in
+ * this database include model estimates that auto-filled a form field, so defaulting an absent marker
+ * to TYPED would assert a human measured a number a machine guessed, for exactly the rows where the
+ * assertion is false.
+ */
+export type MeasurementMethodMarker = {
+  method: string;
+  provider?: string;
+  modelId?: string;
+  selfReportedConfidence?: number;
+  technique?: string;
+};
+
+/**
+ * What `POST /media/analyze-measurement` answers with.
+ *
+ * EVERY PROVENANCE KEY IS OPTIONAL, and that is not laziness. A web build outlives a backend deploy
+ * — the web ships to Vercel and the API to EC2, separately — and a client that required
+ * `methodMarker` would break outright against a server that predates it. An absent marker is read as
+ * "this server does not say", never as "typed".
+ *
+ * `requiresAcceptance` is a statement about what kind of thing this endpoint produces, not about one
+ * reading. Nothing here branches on it — `components/media/gridProposal.ts` treats every reading as a
+ * proposal UNCONDITIONALLY, which is the stronger reading of the same rule — but it is declared so a
+ * future caller can see that the server has an opinion about it.
+ *
+ * `confidenceIsCalibrated` exists so `selfReportedConfidence` can never be mistaken for a measured
+ * error bar — which is what `lib/photoMeasure.ts`'s `uncertainty` is, and the two must not look alike
+ * on a wire that carries both.
+ */
+export type MeasurementAnalysisResponse = {
+  available: boolean;
+  status: string;
+  analysis?: {
+    valueInches?: number | string | null;
+    lengthInches?: number | string | null;
+    breadthInches?: number | string | null;
+    notes?: string;
+  } | null;
+  message?: string;
+  method?: string;
+  provider?: string | null;
+  modelId?: string | null;
+  selfReportedConfidence?: number | null;
+  confidenceIsCalibrated?: boolean;
+  requiresAcceptance?: boolean;
+  methodMarker?: MeasurementMethodMarker | null;
+};
+
+/**
+ * Send one grid photograph to be read.
+ *
+ * THROWS RATHER THAN RETURNING A VERDICT, and the classification lives in `lib/measurementFailure.ts`
+ * — `classifyMeasurementFailure` for what this throws, `measurementBodyFailure` for the two 200
+ * bodies that are failures anyway. Kept apart so that this function is only the wire and the
+ * sentences are only in one place; `components/media/gridProposal.ts` is the caller that reads both.
+ *
+ * NETWORK-ONLY, AND IT IS THE ONE MEASUREMENT PATH THAT IS. This route is not enqueueable: no outbox,
+ * no retry, nothing banked. `components/media/RecordPhotoMeasure.tsx` is the on-device path and needs
+ * no connection at all, which is why it is the primary one on both record forms.
+ */
 export async function analyzeMeasurementImage(file: File, dimension?: "length" | "breadth" | "height") {
   const form = new FormData();
   form.append("file", file);
   const query = dimension ? `?dimension=${dimension}` : "";
-  return apiFetch<{
-    available: boolean;
-    status: string;
-    analysis?: {
-      valueInches?: number | string | null;
-      lengthInches?: number | string | null;
-      breadthInches?: number | string | null;
-      notes?: string;
-    } | null;
-    message?: string;
-  }>(`/media/analyze-measurement${query}`, { method: "POST", body: form });
+  return apiFetch<MeasurementAnalysisResponse>(`/media/analyze-measurement${query}`, { method: "POST", body: form });
 }
 
 export async function extractImageExifMetadata(file: File) {

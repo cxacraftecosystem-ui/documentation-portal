@@ -12,6 +12,7 @@ from fastapi.encoders import jsonable_encoder
 from prisma import Json
 
 from app.core.db import db
+from app.services.measurement_provenance import MARKER_BODY_KEY
 
 # Strictly increasing privilege. A tier includes every action of the tiers below it.
 TIER_ORDER = {"DOWNLOAD": 1, "COMMENT": 2, "EDIT": 3}
@@ -79,6 +80,30 @@ async def effective_tier_for_record(
 
 
 # Infrastructural fields whose churn should not be logged as a meaningful edit.
+#
+# ── WHY ``measurementMethods`` IS IN HERE, AND WHY IT HAD TO ARRIVE BEFORE THE SCHEMAS DID ────────
+#
+# Every other entry is a COLUMN whose churn is noise. ``measurementMethods`` is a request-body key
+# that names no column on any table: it is a per-dimension hint about HOW ``lengthInches`` /
+# ``breadthInches`` / ``heightInches`` came to be known, popped off the payload by
+# ``records.merge_field_provenance`` and merged into each dimension's ``{by, byName, at}`` stamp.
+# ``services/measurement_provenance`` holds the whole argument.
+#
+# WHAT THIS ENTRY PREVENTS. ``guard_record_edit`` runs ``record_revision`` on the raw ``data``
+# BEFORE ``merge_field_provenance`` pops the key, and the loop below diffs every key not in this set
+# against the stored row. ``get_value(product, "measurementMethods")`` is None and
+# ``values_match(None, {...})`` is False — so without this entry EVERY marker-bearing PATCH appends a
+# RecordRevision for a key that is not a value, breaking ``record_revision``'s own contract ("No-op
+# when nothing meaningful changed") and filling an admin audit trail with an edit nobody made.
+#
+# THE TABLE IS APPEND-ONLY, which is why the ORDER matters and not just the entry: landing the
+# schema declaration that makes the key sendable before this line would write rows that adding the
+# line afterwards cannot retract. Moving the pop earlier is not available — the merge must still see
+# the marker. The marker is a hint about how a value was produced, not a value. Re-check the other
+# two halves with::
+#
+#     grep -n "measurementMethods" backend/app/schemas/records.py
+#     grep -n "MARKER_BODY_KEY" backend/app/services/records.py
 REVISION_SKIP_FIELDS = {
     "extraMetadata",
     "location",
@@ -88,6 +113,7 @@ REVISION_SKIP_FIELDS = {
     "createdById",
     "recordedAt",
     "recordedTimezone",
+    MARKER_BODY_KEY,
 }
 
 

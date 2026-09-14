@@ -24,9 +24,23 @@
 -- reading into "heightInches".
 --
 -- THE COLUMN IS HALF THE FIX AND THE FORMS ARE THE OTHER HALF. A column no client writes is a column
--- that stays empty while the bug above goes on happening. The web and Android tool forms are owned
--- by another workstream in this wave; if they have not landed when you read this, the defect is
--- still live and this file is the reason it is now FIXABLE rather than the reason it is fixed.
+-- that stays empty while the bug above goes on happening. When this migration landed, the web and
+-- Android tool forms were owned by another workstream and had not moved.
+--
+-- BOTH HALVES CLOSED ON 2026-09-14, so the three bullets above are now HISTORY rather than a
+-- description of the tree. They are kept in the past tense they were written in because they are the
+-- only record of what the rows already in this table are, and deleting them would leave "heightInches
+-- is NULL on every tool older than this date" looking like an accident.
+--
+--   * the WEB form was fixed first: ToolForm.tsx wires the panel's `onHeight` to `setHeightInches`
+--     and sends `heightInches:` beside the bare `height:`;
+--   * the ANDROID form was the last client writing the reading to the wrong column, and had no box
+--     for the third dimension at all, so `onHeight` had nowhere unit-bearing to write.
+--
+-- Both are pinned by backend/tests/test_tool_height_columns.py, which asserted the BROKEN state
+-- deliberately until the fix landed and is now the inverted version of that test. It fails if either
+-- client goes back to the unit-less column -- verified by reverting the Android handler and watching
+-- it go red, rather than by assuming.
 --
 -- =============================================================================================
 -- WHY THE PLAIN "height" COLUMN STAYS

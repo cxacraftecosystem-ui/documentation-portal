@@ -9,11 +9,19 @@ import { CappedListNotice } from "@/components/data/CappedListNotice";
 import { Field, Select, TextInput } from "@/components/FormControls";
 import { CarryContextBanner, carryScope, useCarryContext } from "@/components/forms/CarryContextBanner";
 import { LocationFields, type LocationInitialValues } from "@/components/forms/LocationFields";
+import {
+  forgetAcceptance,
+  measurementMethodsFor,
+  NO_ACCEPTED_MEASUREMENTS,
+  rememberAcceptance,
+  type AcceptedMeasurements
+} from "@/components/forms/measurementMethods";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { craftChangeClearsArtisan, useCraftAndArtisanOptions, useRecordOffPage } from "@/components/forms/recordPickers";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { GridMeasurement, type GridFiles, type GridGroup } from "@/components/media/GridMeasurement";
+import { RecordPhotoMeasure, type MeasureColumn } from "@/components/media/RecordPhotoMeasure";
 import { UploadProgress } from "@/components/media/UploadProgress";
 import { DictatedTextInput } from "@/components/richtext/DictatedTextInput";
 import { DictationUnavailableNotice } from "@/components/richtext/DictationUnavailableNotice";
@@ -37,6 +45,43 @@ function artisanOptionLabel(artisan: Artisan) {
   // process form already does; using both marks in one tool form reads as two conventions.
   return artisan.place?.trim() ? `${name} · ${artisan.place.trim()}` : name;
 }
+
+/**
+ * The dimension columns the on-device measurement may be accepted into, in the order the boxes are
+ * drawn below.
+ *
+ * ── THE THIRD ENTRY POINTS AT `heightInches`, AND THAT IS THE WHOLE POINT OF IT ───────────────
+ * `ToolDocumentation` carries BOTH a plain unit-less `height` and a `heightInches` (nullable
+ * `Decimal(10, 2)`, added by migration 20260913120100 and declared on `ToolCreate` / `ToolUpdate`).
+ * Only the second is in `measurement_provenance.DIMENSION_FIELDS`, and the difference is not
+ * cosmetic: **a marker naming `height` is a 422 on the whole save**, by name, which `saveOrQueue`
+ * will not queue — so it costs the researcher the form rather than costing them a provenance hint.
+ * It is also the column that cannot say what it holds: a reading accepted into `height` is stored
+ * with no recoverable unit, which is exactly the defect the inches column was added to close.
+ *
+ * ── THE PLAIN `height` COLUMN IS NOT REPLACED AND IS NOT BEING MIGRATED ───────────────────
+ * It still holds every number already typed into it, in a unit nothing can name, so its box stays on
+ * the form below and keeps working exactly as it did. What it does not receive is a MACHINE reading:
+ * both measurement routes on this form propose into `heightInches`, the only one of the two that can
+ * say what it measured. The sentence that tells the two boxes apart on screen is the full-width note
+ * under the pair, pointed at from BOTH inputs by `aria-describedby`.
+ *
+ * ── WHY `width`, `thickness` AND `radius` ARE NOT OFFERED ────────────────────────────────────
+ * Not an oversight: they are uncontrolled `defaultValue` boxes read straight out of `FormData` at
+ * submit, so a proposal has nowhere to land without making three more inputs controlled, and their
+ * units are as undeclared as `height`'s with no established convention to lean on. Offering a
+ * measurement into a box whose unit nobody has ever written down would be inventing one.
+ *
+ * Re-check: `grep -n heightInches backend/prisma/schema.prisma backend/app/schemas/records.py`.
+ */
+const MEASURE_COLUMNS: MeasureColumn[] = [
+  { key: "lengthInches", label: "Length (inches)", unit: "in" },
+  { key: "breadthInches", label: "Breadth (inches)", unit: "in" },
+  // No `note`, and its absence IS the argument: the column states its unit in its own name, so there
+  // is nothing left for a sentence under the button to disclose. `MeasureColumn.note` stays on the
+  // type for the next column that needs it.
+  { key: "heightInches", label: "Height (inches)", unit: "in" }
+];
 
 /**
  * Status policy (backend-enforced; the UI mirrors it): professor+ may pick any status and new
@@ -165,7 +210,33 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
     and the unit-less box is typed by hand or not at all.
   */
   const [heightInches, setHeightInches] = useState(initial?.heightInches != null ? String(initial.heightInches) : "");
+  /**
+   * WHICH OF THE THREE INCH BOXES STILL HOLDS A MACHINE'S NUMBER, and what produced it.
+   *
+   * Written only by an accept button, cleared by a keystroke in the box it describes, and read once —
+   * by `measurementMethodsFor` while the save body is built. It holds the accepted TEXT beside the
+   * marker, which is the whole mechanism: see `components/forms/measurementMethods.ts` for why a
+   * marker that outlives the number it describes is worse than no marker at all.
+   *
+   * THE UNIT-LESS `height` IS NEVER IN HERE. It is not in `DIMENSION_FIELDS`, so a marker naming it
+   * is a 422 on the whole save rather than a dropped hint — `rememberAcceptance` refuses the key
+   * itself, which is the guard that matters on THIS form specifically, because `height` is one
+   * plausible typo away from `heightInches`.
+   *
+   * EMPTY ON AN EDIT FORM, deliberately. A stored dimension arrives with no marker in the payload —
+   * its method, if it ever had one, is already in the record's own provenance — and this form has no
+   * grounds to make a fresh claim about a number it did not watch anybody produce.
+   */
+  const [accepted, setAccepted] = useState<AcceptedMeasurements>(NO_ACCEPTED_MEASUREMENTS);
   const [gridFiles, setGridFiles] = useState<GridFiles>({});
+  /**
+   * The photograph the DETERMINISTIC panel measured from, and whether its reference was a grid.
+   *
+   * Kept beside `gridFiles` rather than inside it because the two are different evidence: a grid file
+   * is a photograph a model was asked to read, and this one is a photograph a person marked. Both are
+   * stored with the record — the number is worthless to a later reader without the frame it came off.
+   */
+  const [measurePhoto, setMeasurePhoto] = useState<{ file: File; isGrid: boolean } | null>(null);
   /*
     ONE SENTENCE, TWO BOXES, AND IT IS REFERENCED BY BOTH.
 
@@ -232,6 +303,31 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
     return value.trim() && Number.isFinite(n) ? n : null;
   };
 
+  /**
+   * A DIMENSION BOX A PERSON IS TYPING IN, which is two facts and not one: the new text, and that
+   * whatever a machine proposed into this box is no longer what it holds.
+   *
+   * A marker is a claim about how THIS number was obtained, so a researcher who accepts a geometry
+   * reading and then edits the box has left a `PHOTO_GEOMETRY` claim standing over a typed number —
+   * a false statement in a record an auditor cannot check, and strictly worse than the `UNRECORDED`
+   * an absent marker earns. `forgetAcceptance` returns the same object when there is nothing to
+   * forget, so this costs no re-render on a form nobody has measured on.
+   *
+   * IT IS THE SECOND OF TWO GUARDS AND NOT THE LOAD-BEARING ONE. `measurementMethodsFor` at the
+   * payload re-checks each box against the accepted text regardless of how it came to differ; this
+   * handler is what additionally catches a person typing the identical digits back by hand, which is
+   * the one case value-equality cannot see.
+   *
+   * THE UNIT-LESS `height` BOX DOES NOT GO THROUGH IT, and that is not an omission: nothing machine-
+   * produced can land there (see MEASURE_COLUMNS), so there is never an acceptance to forget, and
+   * wiring it through would suggest there could be.
+   */
+  const typeInto =
+    (set: (value: string) => void, key: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
+      set(event.target.value);
+      setAccepted((current) => forgetAcceptance(current, key));
+    };
+
   // Offer the sitting this researcher was last working in, however they got here — the query string
   // only survives a click straight through from the save screen (lib/carryContext). The TOOL in the
   // bag is this form's own subject and is never applied here; a product or process in it belongs to
@@ -287,7 +383,9 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
     setSaving(true);
     setError(null);
     try {
-      const exifItems = await collectExifMetadata([...Object.values(gridFiles), ...stageFiles, ...mediaFiles].filter(Boolean) as File[]);
+      const exifItems = await collectExifMetadata(
+        [...Object.values(gridFiles), measurePhoto?.file, ...stageFiles, ...mediaFiles].filter(Boolean) as File[]
+      );
       const exifRemark = exifMetadataToRemark(exifItems);
       const recordedAt = recordedAtFromForm(form);
       const recordedTimezone = recordedTimezoneFromForm(form);
@@ -311,6 +409,42 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
         // value still reaches FormData — but reading it from state is the single source and cannot
         // disagree with what is on screen.
         heightInches: toNum(heightInches),
+        /*
+          ── HOW EACH OF THE THREE INCH DIMENSIONS ABOVE WAS MEASURED ────────────────────────────
+          `{"lengthInches": {"method": "PHOTO_GEOMETRY", "technique": "SCALE"}}` for a reading
+          accepted out of `RecordPhotoMeasure`, or the vision model's own `methodMarker` echoed back
+          verbatim for one accepted out of `GridMeasurement`. `records.merge_field_provenance` pops
+          the key — it is not a column — and merges the method INTO the `{by, byName, at}` stamp it
+          was already writing, so the row reads *a vision model estimated this, and this person
+          accepted it into the record at that moment* instead of asserting they measured it by hand.
+
+          THE UNIT-LESS `height` ABOVE IS NEVER NAMED IN HERE. It is not in the server's
+          `DIMENSION_FIELDS`, so a marker naming it is a 422 on the whole save; nothing machine-
+          produced lands there any more (see MEASURE_COLUMNS) and `rememberAcceptance` refuses the key
+          even if something tried.
+
+          ── THIS KEY IS ONLY SENDABLE ONCE THE SERVER DECLARES IT ───────────────────────────────
+          `ToolCreate` / `ToolUpdate` share an `APIModel` that is `ConfigDict(extra="forbid")`, so a
+          body carrying a key the schema does not declare is rejected 422 IN FULL — and `saveOrQueue`
+          will not queue a 4xx, so the record would be neither saved nor retried. Re-check both
+          halves before trusting this paragraph:
+
+            grep -n "MARKER_BODY_KEY" backend/app/services/access.py
+            grep -n "measurementMethods" backend/app/schemas/records.py
+
+          ── WHAT MAY BE IN IT, WHICH IS LESS THAN WHAT WAS ACCEPTED ─────────────────────────────
+          `measurementMethodsFor` emits a marker ONLY for a box still holding the exact text the
+          route proposed. Typed over, cleared, or never accepted and the key is simply not there —
+          the server reads absence as `UNRECORDED`, which is honest and is never the false human
+          claim. `undefined` and not `null` when there is nothing to say, so the key leaves the
+          `JSON.stringify` entirely and a save with no machine measurement is byte-for-byte the save
+          this form has always sent.
+        */
+        measurementMethods: measurementMethodsFor(accepted, {
+          lengthInches: length,
+          breadthInches: breadth,
+          heightInches
+        }),
         thickness: numericValue(form, "thickness"),
         weight: numericValue(form, "weight"),
         radius: numericValue(form, "radius"),
@@ -336,9 +470,10 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
         // extraMetadata stays programmatic (EXIF etc.) — the raw JSON textarea was removed.
         extraMetadata: exifItems.length ? { mediaExif: exifItems } : {}
       };
-      // Offline this queues instead of failing. Three groups, three batches: the measurement grids,
-      // the numbered process-stage captures and the general field media each keep their own caption,
-      // because the caption is the only thing that says which photo is which.
+      // Offline this queues instead of failing. Four groups, four batches: the measurement grids, the
+      // photograph the on-device panel measured from, the numbered process-stage captures and the
+      // general field media each keep their own caption, because the caption is the only thing that
+      // says which photo is which.
       const outcome = await saveOrQueue<ToolDocumentation>({
         label: `Tool · ${payload.toolkitName || "Untitled"}`,
         endpoint: initial ? `/tools/${initial.id}` : "/tools",
@@ -354,6 +489,24 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
             recordedTimezone,
             transcribeAudio: false
           })),
+          /*
+            THE PHOTOGRAPH THE ON-DEVICE PANEL MEASURED FROM, kept with the record for the same reason
+            the grid shots are: a dimension whose evidence is gone is a number nobody can re-derive,
+            and re-deriving it is the whole advantage this route has over the vision model.
+          */
+          ...(measurePhoto
+            ? [
+                {
+                  files: [measurePhoto.file],
+                  linkedRecordType: "tool",
+                  caption: `Measured-from photo${measurePhoto.isGrid ? " (grid)" : ""} for ${payload.toolkitName || "tool"}`,
+                  location,
+                  recordedAt,
+                  recordedTimezone,
+                  transcribeAudio: false
+                }
+              ]
+            : []),
           ...stageFiles.map((file, index) => ({
             files: [new File([file], `STAGE_STEP_${index + 1}_${file.name}`, { type: file.type, lastModified: file.lastModified })],
             linkedRecordType: "tool",
@@ -417,6 +570,25 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
           });
         } catch {
           /* keep the saved record even if a grid photo fails to store */
+        }
+      }
+      // The same, for the photograph the on-device panel measured from. Best-effort for the same
+      // reason: the dimension and its marker are already saved, and losing the evidence photo must
+      // not lose the record.
+      if (measurePhoto) {
+        try {
+          await uploadMediaFile({
+            file: measurePhoto.file,
+            linkedRecordType: "tool",
+            linkedRecordId: saved.id,
+            caption: `Measured-from photo${measurePhoto.isGrid ? " (grid)" : ""} for ${saved.toolkitName}`,
+            location,
+            recordedAt,
+            recordedTimezone,
+            transcribeAudio: false
+          });
+        } catch {
+          /* keep the saved record even if the measurement photo fails to store */
         }
       }
       // Android parity: each process-stage capture is stored as a numbered step (STAGE_STEP_n).
@@ -702,6 +874,10 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
           <Field label="Width">
             <TextInput name="width" type="number" step="0.01" min={0} defaultValue={initial?.width ?? ""} />
           </Field>
+          {/* These three — and NOT the unit-less `height` box above — go through `typeInto`, which
+              writes the box AND forgets whatever a machine proposed into it. See that helper for why
+              a marker must not outlive the number it describes, and why the unit-less box is
+              excluded. */}
           <Field label="Length (inches)">
             <TextInput
               name="lengthInches"
@@ -709,7 +885,7 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
               step="0.01"
               min={0}
               value={length}
-              onChange={(event) => setLength(event.target.value)}
+              onChange={typeInto(setLength, "lengthInches")}
             />
           </Field>
           <Field label="Breadth (inches)">
@@ -719,7 +895,7 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
               step="0.01"
               min={0}
               value={breadth}
-              onChange={(event) => setBreadth(event.target.value)}
+              onChange={typeInto(setBreadth, "breadthInches")}
             />
           </Field>
           <Field label="Height (inches)">
@@ -730,7 +906,7 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
               min={0}
               aria-describedby={heightHelpId}
               value={heightInches}
-              onChange={(event) => setHeightInches(event.target.value)}
+              onChange={typeInto(setHeightInches, "heightInches")}
             />
           </Field>
           {/*
@@ -760,32 +936,128 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
             <TextInput name="radius" type="number" step="0.01" min={0} defaultValue={initial?.radius ?? ""} />
           </Field>
         </div>
-        <GridMeasurement
-          includeHeight
-          onLengthBreadth={(l, b) => {
-            if (l) setLength(l);
-            if (b) setBreadth(b);
-            markDirty();
-          }}
-          /*
-            THE READING IS IN INCHES, SO IT GOES IN THE BOX THAT SAYS INCHES.
+        {/*
+          ── THE PRIMARY MEASUREMENT ROUTE, AND WHY IT IS ABOVE THE OTHER ONE ────────────────────
+          Deterministic, on this device, no connection and no per-call cost: the researcher marks
+          across N squares of the grid sheet they were already photographing the tool on, and the
+          arithmetic is a ratio of two pixel distances. It is FIRST on the page because it is the
+          primary path — the vision-model route below costs money on every capture, needs a connection
+          it has no queue behind, and cannot say how it reached a number. Order is not decoration
+          here: whichever control a researcher meets first is the one they learn.
 
-            This wrote `setHeight` — the unit-less column — until the record-parity sweep, which is
-            how every grid-measured tool height in this repository came to be stored with no
-            recoverable unit. Nothing reported it: the number was right, the box was filled, the save
-            returned 200, and only the UNIT was lost. See `heightInches` above and migration
-            20260913120100. ProductForm's identical panel has always written its own `heightInches`;
-            this is the two forms agreeing again.
-          */
-          onHeight={(value) => {
-            setHeightInches(value);
+          IT PROPOSES; IT NEVER WRITES. `setLength`/`setBreadth`/`setHeightInches` are reached only
+          from `onPropose`, which the panel calls only from a button's `onClick`. The plain `height`
+          box has no machine writer at all.
+
+          AND THE ACCEPTANCE IS RECORDED, NOT JUST THE NUMBER. The third argument is
+          `photoMeasure.methodMarker(result)` — `{method: "PHOTO_GEOMETRY", technique: "SCALE"}` or
+          `"RECTIFIED"`, whichever geometry actually produced the figure on the button — and it rides
+          out on the save's `measurementMethods` for as long as the box still holds this number.
+        */}
+        <RecordPhotoMeasure
+          columns={MEASURE_COLUMNS}
+          values={{ lengthInches: length, breadthInches: breadth, heightInches }}
+          onPropose={(key, text, method) => {
+            if (key === "lengthInches") setLength(text);
+            else if (key === "breadthInches") setBreadth(text);
+            // `heightInches` and NOT `height`. A measured number belongs in the column that says what
+            // unit it is in — and only that column can carry the method marker `DIMENSION_FIELDS`
+            // gates. The plain box is left to whoever typed into it.
+            else if (key === "heightInches") setHeightInches(text);
+            // AFTER the box is written and keyed by the same `key`, so the remembered text is
+            // exactly what went in. `rememberAcceptance` refuses anything outside `DIMENSION_FIELDS`
+            // itself — which on THIS form is the guard that matters, because the wrong `key` here is
+            // `height`, and a marker naming it is a 422 that loses the researcher the whole form.
+            setAccepted((current) => rememberAcceptance(current, key, text, method));
             markDirty();
           }}
-          onFilesChange={(files) => {
-            setGridFiles(files);
-            markDirty();
+          onPhotoChange={(photo) => {
+            setMeasurePhoto(photo);
+            // Only when there IS one. The panel reports `null` once on mount, and a blank new form
+            // announcing unsaved work before anybody has typed is what trains researchers to click
+            // through the guard.
+            if (photo) markDirty();
           }}
         />
+        {/*
+          ── THE FALLBACK, KEPT AND LABELLED ────────────────────────────────────────────────────
+          `GridMeasurement` posts the photograph to `POST /media/analyze-measurement`, which asks a
+          vision model to ESTIMATE the inches. It is retained deliberately: a tool that will not lie
+          flat, or a researcher who cannot mark the frame, still has it. What it is not any more is
+          the first thing on the page, and this wrapper is where it says which of the two it is.
+
+          THE HEADING SAYS "ESTIMATE" AND THE BADGE SAYS "NEEDS A CONNECTION", and neither is
+          rhetoric. The route has no queue, no outbox entry and no retry, so in a courtyard with no
+          signal it fails every single time; and its answer is a model's guess, which nobody can
+          re-derive from the photograph the way the panel above can.
+
+          NOT COLLAPSED, AND THAT IS ON PURPOSE. Its capture state (which groups are ticked, the
+          reading on offer) lives inside the component, while the FILES it has captured live up here
+          in `gridFiles`. Unmounting it on collapse would drop the first and keep the second, leaving
+          a photograph queued for upload with nothing on screen saying so.
+        */}
+        <section className="grid gap-2 rounded-lg border border-line-200 bg-card p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold text-ink-900">If you cannot mark it: estimate with the vision model</h3>
+            <span className="rounded-full border border-amber-500 bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+              Needs a connection
+            </span>
+          </div>
+          <p className="text-xs leading-5 text-ink-500">
+            This asks a model to read the inches off the photograph. It is an <strong>estimate</strong>, not a
+            measurement: it carries no error bar and nobody — including the model — can re-derive it from the picture
+            afterwards. Prefer the panel above wherever the grid or a ruler is in the frame.
+          </p>
+          {/*
+            THE MARKER THIS ONE CARRIES IS THE SERVER'S OWN, ECHOED BACK UNCHANGED. `POST
+            /media/analyze-measurement` answers with `methodMarker` beside the analysis —
+            `{method: "VISION_MODEL", provider, modelId, selfReportedConfidence}`, with any key the
+            model did not answer OMITTED rather than invented — and a client's job is to hand it back
+            on the save, not to compose one. `null` when the API predates that key, and
+            `rememberAcceptance` then records no acceptance at all: the reading is stored
+            `UNRECORDED`, because this client was told a number and not told how it was reached.
+          */}
+          <GridMeasurement
+            includeHeight
+            onLengthBreadth={(l, b, method) => {
+              // Keyed one dimension at a time and only for the ones that actually arrived: a
+              // photograph that yielded a length and no breadth must not leave a marker standing
+              // over a breadth box this call never touched.
+              if (l) {
+                setLength(l);
+                setAccepted((current) => rememberAcceptance(current, "lengthInches", l, method));
+              }
+              if (b) {
+                setBreadth(b);
+                setAccepted((current) => rememberAcceptance(current, "breadthInches", b, method));
+              }
+              markDirty();
+            }}
+            /*
+              THE READING IS IN INCHES, SO IT GOES IN THE BOX THAT SAYS INCHES — the same destination
+              as the panel above.
+
+              This wrote `setHeight` — the unit-less column — until the record-parity sweep, which is
+              how every grid-measured tool height in this repository came to be stored with no
+              recoverable unit. Nothing reported it: the number was right, the box was filled, the
+              save returned 200, and only the UNIT was lost. See `heightInches` above and migration
+              20260913120100. Two measurement routes on one form must also not land in two different
+              boxes; a researcher who tried the panel and then this fallback would otherwise be
+              looking at two heights, having been told nothing about why there are two.
+            */
+            onHeight={(value, method) => {
+              setHeightInches(value);
+              // `heightInches` and not `height` here too — the marker has to name the same column the
+              // number went into, or it describes a measurement of something else.
+              setAccepted((current) => rememberAcceptance(current, "heightInches", value, method));
+              markDirty();
+            }}
+            onFilesChange={(files) => {
+              setGridFiles(files);
+              markDirty();
+            }}
+          />
+        </section>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           <Field label="Maker">
             <Select name="maker" defaultValue={initial?.maker ?? "UNKNOWN"} onChange={markDirty}>

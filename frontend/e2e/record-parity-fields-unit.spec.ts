@@ -128,7 +128,17 @@ test("the tool form has the unit-bearing height box, and it is the one the grid 
   const box = inputFor(TOOL_FORM, "heightInches", "ToolForm");
   expect(box, "heightInches is a decimal measurement").toContain('type="number"');
   expect(box, "and it is controlled, so the grid panel can fill it").toContain("value={heightInches}");
-  expect(box).toContain("onChange={(event) => setHeightInches(event.target.value)}");
+  /*
+    THIS ASSERTION CHANGED WITH THE PROVENANCE WORK, AND IT IS STRICTLY STRONGER NOW. It read
+    `onChange={(event) => setHeightInches(event.target.value)}` — a bare setter. Every dimension box
+    on both record forms now goes through each form's `typeInto(setter, column)` factory, which does
+    two things and not one: it writes the box AND it forgets whatever a measurement route proposed
+    into it, because a method marker is a claim about how THIS number was obtained and is false the
+    instant somebody types over it. The column name is the second argument, so a box wired to the
+    wrong key would file — or fail to clear — a marker under a dimension it never touched. See
+    `components/forms/measurementMethods.ts`.
+  */
+  expect(box).toContain('onChange={typeInto(setHeightInches, "heightInches")}');
   expect(TOOL_FORM, "no microphone on a measurement").not.toMatch(
     /<DictatedTextInput[\s\S]{0,400}?name="heightInches"/
   );
@@ -143,9 +153,27 @@ test("the tool form has the unit-bearing height box, and it is the one the grid 
     tool in the repository. Asserted on the BLOCK rather than on the file, because `setHeight` is
     still a perfectly good function that the unit-less box's own onChange calls.
   */
-  const onHeight = TOOL_FORM.slice(TOOL_FORM.indexOf("onHeight={(value) => {"), TOOL_FORM.indexOf("onFilesChange="));
+  // The landmark gained a `method` parameter with the provenance work — `GridMeasurement` now hands
+  // the server's own marker through the accept — so the slice is anchored on the new signature. The
+  // guard itself is unchanged and is the whole reason this test exists.
+  const onHeightAt = TOOL_FORM.indexOf("onHeight={(value, method) => {");
+  expect(onHeightAt, "the grid panel's height callback must exist").toBeGreaterThan(-1);
+  const onHeight = TOOL_FORM.slice(onHeightAt, TOOL_FORM.indexOf("onFilesChange=", onHeightAt));
   expect(onHeight, "the inches reading goes in the inches box").toContain("setHeightInches(value)");
   expect(onHeight, "and never again in the unit-less one").not.toContain("setHeight(value)");
+
+  /*
+    AND THE SAME REDIRECT ON THE DETERMINISTIC PANEL, which did not exist when this test was written.
+    `RecordPhotoMeasure` proposes by COLUMN NAME, so the mistake it can make is the same one in a
+    different spelling: routing `heightInches` into `setHeight`. Both routes on this form must land in
+    one box, or a researcher who tries the panel and then the fallback is looking at two heights with
+    nothing saying why there are two.
+  */
+  const proposeAt = TOOL_FORM.indexOf("onPropose={(key, text, method) => {");
+  expect(proposeAt, "the deterministic panel must be wired").toBeGreaterThan(-1);
+  const onPropose = TOOL_FORM.slice(proposeAt, TOOL_FORM.indexOf("onPhotoChange=", proposeAt));
+  expect(onPropose, "the inches proposal goes in the inches box").toContain('key === "heightInches") setHeightInches(text)');
+  expect(onPropose, "and the unit-less column is not a destination").not.toContain("setHeight(text)");
 });
 
 test("both height boxes point at one sentence that says which is which", () => {

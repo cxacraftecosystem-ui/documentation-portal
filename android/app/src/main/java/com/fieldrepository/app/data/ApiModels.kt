@@ -366,7 +366,28 @@ data class AnalyzeMeasurementResponse(
     val available: Boolean = false,
     val status: String? = null,
     val analysis: MeasurementAnalysisDto? = null,
-    val message: String? = null
+    val message: String? = null,
+    /**
+     * THE SERVER'S OWN METHOD MARKER, RELAYED VERBATIM AND NEVER REBUILT.
+     *
+     * A `JsonObject` rather than a typed class ON PURPOSE, and this is the one field in this file
+     * where that is the right answer. The marker's key set is deliberately OPEN server-side — the
+     * validator accepts keys it does not know — precisely so a handset can relay a NEWER server's
+     * extra key through a save without being refused mid-deploy. A data class here would close the
+     * set again at exactly the layer that must not close it: `ignoreUnknownKeys = true` would drop
+     * the new key in silence, the handset would save a poorer marker than the browser did for the
+     * same act, and nothing anywhere would report it.
+     *
+     * WHAT ITS ABSENCE COST UNTIL 2026-09-14. This field did not exist, so the handset had nothing
+     * to echo and `visionMarker(null)` fell back to a bare `{"method": "VISION_MODEL"}` on every
+     * grid reading. The browser, reading the same endpoint, stored `provider`, `modelId` AND
+     * `selfReportedConfidence`. Same researcher, same photograph, same button — a weaker record from
+     * the handset, and the missing key was the confidence, which is the only number on the stamp.
+     *
+     * Null from a server that predates the marker and on every failure path, which is why
+     * `visionMarker` still keeps its fallback rather than assuming this is populated.
+     */
+    val methodMarker: JsonObject? = null
 )
 
 @Serializable
@@ -651,6 +672,39 @@ data class ProductCreateRequest(
     val lengthInches: Double? = null,
     val breadthInches: Double? = null,
     val heightInches: Double? = null,
+    /**
+     * HOW THOSE THREE WERE MEASURED, for the ones somebody accepted a machine's proposal into.
+     *
+     * `{lengthInches: {method: "PHOTO_GEOMETRY", technique: "SCALE"}, …}` — built by
+     * `MeasurementMarkers.body`, which is the only thing allowed to build it. A raw [JsonObject] and
+     * not a typed class on purpose: the server documents a marker's key set as OPEN so that a handset
+     * relaying a NEWER server's extra key is not refused mid-deploy, and a typed model here would
+     * either drop that key silently or fail to decode it. The one shape this client composes itself is
+     * `PHOTO_GEOMETRY`; a `VISION_MODEL` marker is the server's own, echoed back unchanged.
+     *
+     * ── THE KEY IS OMITTED WHEN THERE IS NOTHING TO SAY, AND THAT IS LOAD-BEARING ─────────────
+     *
+     * `MeasurementMarkers.body` answers null, and `ApiClient.json` is `explicitNulls = false`, so the
+     * key is DROPPED from the request entirely — every record whose dimensions were typed off a tape
+     * goes out on exactly the bytes it went out on before this field existed. That matters because the
+     * web and the API deploy separately, so a newer client meets an older server: its request models
+     * forbid unknown keys, so `"measurementMethods": null` on the body would be a 422 on the WHOLE
+     * save, and the outbox will not queue a 4xx. The researcher's form would be neither saved nor
+     * retried. An ABSENT key is refused by nothing, ever, and an absent marker means UNRECORDED —
+     * never TYPED.
+     *
+     * AND THIS IS ALSO THE OFFLINE PATH. This body is what `offlineFormJson.encodeToString` puts in the
+     * outbox and what `syncOutbox` decodes back out before posting, so a record saved in a courtyard
+     * keeps its provenance instead of arriving a fortnight later indistinguishable from a hand-typed
+     * one. `offlineFormJson` does NOT set `explicitNulls = false`, so a stored payload carries
+     * `"measurementMethods": null` — which is harmless precisely because it is decoded back into this
+     * field and re-encoded by the Retrofit converter on the way out. Nothing ever posts the stored
+     * string as a body.
+     *
+     * ⚠ A field missing from this class is dropped SILENTLY: `ApiClient.json` is
+     * `ignoreUnknownKeys = true`, so there is no error anywhere to tell you the marker never left.
+     */
+    val measurementMethods: JsonObject? = null,
     val costOfMaking: Double? = null,
     val sellingPrice: Double? = null,
     val marketDemand: String = "UNKNOWN",
@@ -692,6 +746,18 @@ data class ToolCreateRequest(
      * fill THIS field: until the column existed the only box it could reach was the unit-less one.
      */
     val heightInches: Double? = null,
+    /**
+     * HOW `lengthInches` / `breadthInches` / `heightInches` WERE MEASURED — see the identical field on
+     * [ProductCreateRequest] for the whole argument, including why the key is omitted rather than sent
+     * as null and why that is a data-loss question rather than a style one.
+     *
+     * ONE THING IS SPECIFIC TO THIS MODEL: [height] above — the unit-less legacy column — is NOT a
+     * dimension this may describe. `MEASUREMENT_DIMENSIONS` holds exactly the three inch columns, and
+     * a marker naming `height` is refused BY NAME with a 422 rather than dropped. That is also why
+     * `TOOL_MEASURE_DIMENSIONS` never offers it as a measurement destination: nothing in the database
+     * can say what unit the values already in it are in.
+     */
+    val measurementMethods: JsonObject? = null,
     val thickness: Double? = null,
     val weight: Double? = null,
     val radius: Double? = null,

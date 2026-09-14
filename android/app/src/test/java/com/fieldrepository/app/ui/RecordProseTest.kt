@@ -457,9 +457,13 @@ class RecordProseTest {
         RecordFormKind.ARTISAN to (6 to 15),
         // 2026-09-14: 6 → 7 for `workshopType`.
         RecordFormKind.WORKSHOP to (4 to 7),
-        RecordFormKind.PRODUCT to (11 to 11),
-        // 2026-09-14: 15 → 16 for `heightInches`, the third of the tool's inch triple.
-        RecordFormKind.TOOL to (10 to 16),
+        // 2026-09-14: 11 → 12 for `measurementMethods`, which the measurement-provenance work put on
+        // the wire. Excluded, and not because nobody got round to it: it is not a box on any client
+        // and records how the three dimensions beside it were obtained. No dictated total moves.
+        RecordFormKind.PRODUCT to (11 to 12),
+        // 2026-09-14: 15 → 16 for `heightInches`, the third of the tool's inch triple, then 16 → 17
+        // for `measurementMethods` alongside the product form's.
+        RecordFormKind.TOOL to (10 to 17),
         RecordFormKind.PROCESS to (3 to 8),
         RecordFormKind.MEDIA to (2 to 2),
         RecordFormKind.LOCATION to (1 to 12),

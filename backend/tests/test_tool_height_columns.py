@@ -89,20 +89,27 @@ def test_a_tool_with_no_inches_height_still_prints_the_two_it_has():
     assert _cell(tool, "Dimensions (LxBxH in)") == "8 x 2"
 
 
-def test_the_tool_forms_still_write_the_unit_less_height_and_that_is_this_change_s_open_half():
-    """THE COLUMN IS HALF THE FIX; THE FORMS ARE THE OTHER HALF, AND THEY ARE NOT IN THIS CHANGE.
+def test_both_tool_forms_now_write_the_measured_height_into_the_inches_column():
+    """THE OPEN HALF IS CLOSED, AND THIS TEST IS THE INVERTED VERSION OF THE ONE THAT SAID SO.
 
-    ``frontend/components/forms/ToolForm.tsx`` and the Android ``ToolForm`` belong to files this
-    workstream does not own, so as of today the grid panel still writes the unit-less ``height`` on
-    the tool form and ``heightInches`` stays empty on every tool. This test asserts THAT — the
-    current, broken state — so the open half is a named decision in the suite rather than an absence
-    a reader has to notice, and so the day somebody lands the fix this goes red and tells them what
-    to change here.
+    What stood here asserted the BROKEN state deliberately — that both tool forms still handed the
+    grid panel's INCHES reading to the unit-less ``height`` column — so that the open half was a
+    named decision in the suite rather than an absence a reader had to notice, and so the day
+    somebody landed the fix it would go red and tell them what to change. That is exactly what
+    happened, on 2026-09-14, and this is the inversion its own assertion messages asked for.
 
-    THE ANDROID HALF IS SCOPED TO THE TOOL FORM ON PURPOSE. The PRODUCT form's
-    ``onHeight = { height = numToText(it) }`` is CORRECT: its ``height`` state is seeded from
-    ``editing?.heightInches`` and sent as ``heightInches =``. A whole-file regex would call that a
-    bug, which is the trap that makes the naive version of this test wrong.
+    The two halves closed separately, which is why the old test named them separately:
+
+      * the WEB form was fixed first — ``ToolForm.tsx`` now wires the panel's ``onHeight`` to
+        ``setHeightInches`` and sends ``heightInches:`` beside the bare ``height:``;
+      * the ANDROID form was the last client doing it wrong, and had no box for the third dimension
+        at all, so its ``onHeight`` had nowhere to write but the unit-less column.
+
+    THE ANDROID HALF IS STILL SCOPED TO THE TOOL FORM ON PURPOSE, and the final assertion below is
+    the reason the naive version of this test is wrong. The PRODUCT form's
+    ``onHeight = { height = numToText(it) }`` reads like the identical defect and is CORRECT: its
+    ``height`` state is seeded from ``editing?.heightInches`` and sent as ``heightInches =``. A
+    whole-file regex would call that a bug.
 
     ``MainActivity.kt`` reports as binary to grep (it holds non-UTF-8 bytes), so it is read as bytes
     and decoded with ``errors="replace"`` and addressed by line index rather than by a text search.
@@ -111,43 +118,52 @@ def test_the_tool_forms_still_write_the_unit_less_height_and_that_is_this_change
 
     root = Path(__file__).resolve().parents[2]
 
+    # ── The web half ────────────────────────────────────────────────────────────────────────────
     web = (root / "frontend" / "components" / "forms" / "ToolForm.tsx").read_text(encoding="utf-8")
-    tool_payload = [line for line in web.splitlines() if line.strip().startswith("height:")]
-    assert tool_payload, (
-        "ToolForm.tsx no longer sends a bare `height:` — if it now sends `heightInches:` from the "
-        "grid panel, the defect is CLOSED: invert this test and delete the open-half note in "
-        "migration 20260913120100"
+    assert "setHeightInches" in web, (
+        "ToolForm.tsx no longer has a `heightInches` setter, so the grid panel's inches reading has "
+        "nowhere unit-bearing to go and the defect migration 20260913120100 describes is live again"
+    )
+    assert [line for line in web.splitlines() if line.strip().startswith("heightInches:")], (
+        "ToolForm.tsx no longer SENDS `heightInches:`. The box can be filled and the number still "
+        "never reaches the column."
+    )
+    assert [line for line in web.splitlines() if line.strip().startswith("height:")], (
+        "ToolForm.tsx stopped sending the bare `height:`. That column is NOT deprecated — rows hold "
+        "values in it whose unit nothing can recover, and dropping it from the payload would make "
+        "every edit of such a row silently clear it. See migration 20260913120100."
     )
 
+    # ── The Android half ────────────────────────────────────────────────────────────────────────
     android = (
         root / "android" / "app" / "src" / "main" / "java" / "com" / "fieldrepository" / "app"
         / "MainActivity.kt"
     ).read_bytes().decode("utf-8", errors="replace").splitlines()
-    tool_form_start = next(
-        i for i, line in enumerate(android) if line.strip().startswith("private fun ToolForm(")
-    )
-    tool_form_end = next(
-        i
-        for i, line in enumerate(android[tool_form_start + 1 :], start=tool_form_start + 1)
-        if line.strip().startswith("private fun ")
-    )
-    region = android[tool_form_start:tool_form_end]
-    handlers = [line.strip() for line in region if "onHeight" in line]
+
+    def _region(name: str) -> list[str]:
+        start = next(i for i, line in enumerate(android) if line.strip().startswith(f"private fun {name}("))
+        end = next(
+            i
+            for i, line in enumerate(android[start + 1 :], start=start + 1)
+            if line.strip().startswith("private fun ")
+        )
+        return android[start:end]
+
+    tool_region = _region("ToolForm")
+    handlers = [line.strip() for line in tool_region if "onHeight" in line]
     assert handlers, "the Android ToolForm no longer wires the grid panel's height at all"
-    assert any("height = numToText" in line for line in handlers), (
-        "the Android ToolForm's onHeight no longer writes the unit-less `height` — if it now writes "
-        "`heightInches`, the defect is CLOSED on this client: invert this test"
+    assert any("heightInches = numToText" in line for line in handlers), (
+        "the Android ToolForm's onHeight no longer writes `heightInches`. If it writes the bare "
+        "`height` again, the inches reading is back in a column that declares no unit — which is "
+        "the entire defect migration 20260913120100 exists to close."
+    )
+    assert any("heightInches = heightInches.toDoubleOrNull()" in line for line in tool_region), (
+        "the Android ToolForm accepts a height in inches and no longer SENDS it. The box would fill "
+        "from the grid and the number would never leave the handset."
     )
 
     # The product form, two screens up, has always been right — asserted so the scoping above cannot
     # quietly stop scoping anything.
-    product_start = next(
-        i for i, line in enumerate(android) if line.strip().startswith("private fun ProductForm(")
+    assert any(
+        "heightInches = height.toDoubleOrNull()" in line for line in _region("ProductForm")
     )
-    product_end = next(
-        i
-        for i, line in enumerate(android[product_start + 1 :], start=product_start + 1)
-        if line.strip().startswith("private fun ")
-    )
-    product_region = "\n".join(android[product_start:product_end])
-    assert "heightInches = height.toDoubleOrNull()" in product_region
