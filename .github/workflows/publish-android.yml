@@ -76,12 +76,16 @@ name: Publish Android release
 # Each carries its reason at the step. Do not delete one without reading it.
 #
 # ─── WHAT IS DELIBERATELY NOT HERE ────────────────────────────────────────────────────────────
-#   • NO GitHub Release, and therefore `permissions: contents: read`. The sibling repository cuts one
-#     and attaches the APK; that needs `contents: write` on the one workflow that holds the signing
-#     key, and it creates a SECOND distribution channel that keeps serving an old build for ever
-#     while `latest` moves on. `GET /api/app/download` is the single address this product publishes,
-#     and the run artifact below keeps the exact bytes for support questions without handing anyone
-#     a permanent install link. Add one deliberately if it is wanted; do not add it as a habit.
+#   • A GitHub Release IS cut now — see the `release:` job — and this entry stays because its two
+#     original objections were good and are answered rather than dropped. They were: `contents: write`
+#     on the one workflow holding the signing key, and a SECOND distribution channel that keeps
+#     serving an old build for ever while `latest` moves on. The first is answered by structure — the
+#     Release is a separate job with no secrets in it, and `publish` is still `contents: read`. The
+#     second is answered only partly, by a Release body that names `GET /api/app/download` as the
+#     canonical address and says in as many words that the page is an archive. What changed the
+#     balance is the signing-key migration: a run artifact expires in 90 days and needs a GitHub
+#     login, so it cannot be sent to a researcher who must install by hand because the in-app updater
+#     cannot cross a certificate change.
 #   • NO MULTIPART UPLOAD. See GUARD 5: the live v1.1.20 APK is 26,097,941 bytes, which is 40 MB
 #     under the single-PUT ceiling, and an upload path that has never run is not a safety net.
 #   • NO R8 MAPPING ARTIFACT. android/app/build.gradle.kts leaves `isMinifyEnabled` off on release
@@ -117,11 +121,16 @@ on:
         default: true
 
 permissions:
-  # READ ONLY. This workflow creates no GitHub Release, no comment and no deployment (see "WHAT IS
-  # DELIBERATELY NOT HERE" above), so it asks for nothing that could do any of those. It is the one
-  # workflow in this repository that holds the signing key; its GitHub token should be able to do as
-  # little as possible. If a Release step is ever added, raise this to `contents: write` in the same
-  # commit and say why here.
+  # READ ONLY, AT THE TOP LEVEL, AND IT STAYS THAT WAY NOW THAT A RELEASE IS CUT. The note that stood
+  # here said: "if a Release step is ever added, raise this to `contents: write` in the same commit
+  # and say why here." A Release step was added on 2026-09-14, and this line did NOT move — which is
+  # the point, so read the `release:` job at the bottom rather than assuming it did.
+  #
+  # `publish` is the job that holds the signing key. `release` holds no secret at all: it takes the
+  # APK from this run's artifact, and the only thing it can do is create a Release. Granting
+  # `contents: write` to the JOB that needs it, instead of to the FILE, is what keeps the key-holding
+  # job unable to write to this repository — which was the whole reason the original note wanted a
+  # deliberate decision here.
   contents: read
 
 concurrency:
@@ -191,6 +200,13 @@ env:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # Read by the `release:` job below, which cannot see this job's `env`. `artifact` is emitted
+    # rather than recomputed so the two names cannot drift apart: there is one expression, used here
+    # and consumed there.
+    outputs:
+      version: ${{ steps.version.outputs.version_name }}
+      artifact: app-release-${{ steps.version.outputs.version_name }}-${{ github.sha }}
+      dry_run: ${{ env.DRY_RUN }}
     defaults:
       run:
         # Everything Gradle-shaped is relative to `android/`, exactly as in android-build.yml.
@@ -422,6 +438,16 @@ jobs:
             echo "VERSION_NAME=${tree_version}"
             echo "VERSION_CODE=${version_code}"
           } >> "$GITHUB_ENV"
+
+          # ALSO a step output, and not instead of the env var. Later steps in this job read
+          # `$VERSION_NAME`; the `release:` job cannot see this job's env at all, and a job-level
+          # `outputs:` expression reading `env.` depends on GITHUB_ENV surviving into the env context
+          # at job-output evaluation time — true today, and not worth resting a release on. One
+          # value, written twice, in one place.
+          {
+            echo "version_name=${tree_version}"
+            echo "version_code=${version_code}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: GUARD 3 — the API must be THIS product's
         id: api_identity
@@ -1643,7 +1669,11 @@ jobs:
           #
           # `path:` is repo-root relative — actions/upload-artifact does not honour
           # `defaults.run.working-directory`.
-          name: app-release-${{ env.VERSION_NAME }}-${{ github.sha }}
+          # THE SAME EXPRESSION THE JOB'S `outputs.artifact` EMITS. The `release:` job downloads this
+          # by name, so a change to one of these two lines and not the other is a release with no APK
+          # attached. Written from `steps.version.outputs` in both places rather than from
+          # `env.VERSION_NAME` here and something else there.
+          name: app-release-${{ steps.version.outputs.version_name }}-${{ github.sha }}
           path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 90
@@ -1740,3 +1770,103 @@ jobs:
             echo "\`docs/RELEASING.md\` before asking anyone to uninstall anything, because an"
             echo "uninstall deletes the unsent outbox."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # ══════════════════════════════════════════════════════════════════════════════════════════════
+  # THE GITHUB RELEASE — a SEPARATE JOB, and the separation is the design rather than tidiness.
+  #
+  # The header of this file used to argue for cutting no Release at all, on two grounds. Both were
+  # good, and neither is answered by ignoring them:
+  #
+  #   1. LEAST PRIVILEGE. Cutting a Release needs `contents: write`, and `publish` is the one job in
+  #      this repository that holds the signing key. Answered by putting the permission on a job that
+  #      holds NO secret: this one never touches the keystore, never signs in to the API, and takes
+  #      the finished APK from the run artifact `publish` already uploads. `publish` stays
+  #      `contents: read` — check the top-level `permissions:` block, it did not move.
+  #
+  #   2. A SECOND DISTRIBUTION CHANNEL THAT GOES STALE. A Release serves one fixed build for ever
+  #      while `GET /api/app/download` moves on, so six months from now somebody follows a link to
+  #      v1.2.0 and installs it over a fleet on v1.4.0. Answered in the body below, which names the
+  #      canonical address in the first line under the download and dates the build. It is a mitigation
+  #      and not a cure: the API remains the address this product publishes, and the Release is an
+  #      archive of what went out.
+  #
+  # What it buys, and why it is now wanted: a run artifact expires after 90 days and requires a GitHub
+  # login to download, so it cannot be handed to a researcher. During a signing-key migration —
+  # exactly the release this job was added for — somebody has to send a person a link to an APK they
+  # can install by hand, because the in-app updater CANNOT cross a certificate change.
+  # ══════════════════════════════════════════════════════════════════════════════════════════════
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    # NOT `always()`. A Release must describe something that was actually published: a dry run has
+    # nothing to archive, and a failed publish must not leave a Release pointing at a build the fleet
+    # will never be offered. `needs:` already covers the failure case; this covers the dry run.
+    if: ${{ needs.publish.outputs.dry_run == 'false' }}
+    permissions:
+      # THE ONLY ELEVATED PERMISSION IN THIS FILE, on the only job with no secrets in it.
+      contents: write
+    steps:
+      - name: Take the exact APK that was published
+        uses: actions/download-artifact@v4
+        with:
+          # `publish` emits this name from the same expression its upload step uses, so the two
+          # cannot drift. If this ever fails to find the artifact, that is the drift — fix the
+          # expression, do not hard-code a name here.
+          name: ${{ needs.publish.outputs.artifact }}
+          path: apk
+
+      - name: Name it after the version, not after the build system
+        run: |
+          set -euo pipefail
+          # `app-release.apk` is Gradle's name for its output and means nothing to somebody with it in
+          # their downloads folder next to three others. The server sends the same shape in
+          # Content-Disposition on GET /api/app/download.
+          mv apk/app-release.apk "apk/field-repository-v${{ needs.publish.outputs.version }}.apk"
+          ls -l apk/
+
+      - name: Cut the Release, with the tag's own message as its body
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          # `--verify-tag` refuses to invent a tag: this job may only ever describe the tag that
+          # started the run. `--notes-file -` reads the body from stdin, which keeps the markdown out
+          # of an argument list and out of the process table.
+          #
+          # THE TAG'S MESSAGE IS THE BODY, exactly as it is the `AppRelease.notes` the handset shows,
+          # so the two accounts of one release cannot disagree. `git tag -l` needs the tag OBJECT,
+          # which a shallow checkout of a tag push does have — but this job checks out nothing at all,
+          # so the message is read back from the API instead.
+          body_file="$(mktemp)"
+          gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" --jq '.object.sha' > sha.txt 2>/dev/null || true
+          sha="$(cat sha.txt || true)"
+          if [ -n "$sha" ] && [ "$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${sha}" --jq '.message' 2>/dev/null || true)" != "" ]; then
+            gh api "repos/${GITHUB_REPOSITORY}/git/tags/${sha}" --jq '.message' \
+              | sed '/-----BEGIN PGP SIGNATURE-----/,$d' >> "$body_file"
+          else
+            printf 'Field Repository %s.\n' "$VERSION" >> "$body_file"
+          fi
+
+          {
+            printf '\n---\n\n'
+            printf '**The current build is always at `GET /api/app/download`, and in the app under Settings → Get the app.**\n'
+            printf 'This page is an archive of what version %s was; it will not change when a newer version ships.\n\n' "$VERSION"
+            printf 'Built and published by [%s](%s/%s/actions/runs/%s) from tag `%s`.\n' \
+              "${GITHUB_WORKFLOW}" "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}" "${TAG}"
+          } >> "$body_file"
+
+          gh release create "$TAG" \
+            "apk/field-repository-v${VERSION}.apk#field-repository-v${VERSION}.apk (signed release build)" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "Field Repository ${VERSION}" \
+            --verify-tag \
+            --notes-file "$body_file"
+
+          echo "### GitHub Release" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "[${TAG}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${TAG}) — APK attached." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "The canonical download remains \`GET /api/app/download\`; this Release is an archive." >> "$GITHUB_STEP_SUMMARY"
