@@ -245,7 +245,32 @@ class WorkshopWindowTest {
     @Test
     fun `the last millisecond of the 23rd reads as the 23rd`() {
         assertEquals(LocalDate.parse("2026-09-23"), workshopBoundaryDay("2026-09-23T23:59:59.999000+00:00"))
-        assertEquals("23 Sept 2026", formatWorkshopDay("2026-09-23T23:59:59.999000+00:00"))
+
+        // ⚠ THE DAY AND THE YEAR ARE ASSERTED EXACTLY; THE MONTH'S ABBREVIATION IS NOT, AND THAT IS
+        // NOT LAXNESS. This line read `assertEquals("23 Sept 2026", ...)` until 2026-09-14 and it
+        // was red on CI while green on every developer machine — for a THIRD reason, after the two
+        // already recorded below.
+        //
+        // CLDR changed the English abbreviation of September. A JDK 21 toolchain, which is what
+        // Gradle picks up here, renders "Sept"; the JDK 17 that `setup-java` pins on the runner
+        // renders "Sep". Same locale, same pattern, same code — a different month name, decided by
+        // the toolchain the TEST happens to run under.
+        //
+        // AND THAT TOOLCHAIN IS NOT WHAT SHIPS. An Android handset formats through its OWN bundled
+        // ICU, not through the JDK that compiled the app, so this assertion was never describing
+        // what a researcher sees. It was pinning the build machine's CLDR data and calling it a
+        // product guarantee — which is how a test comes to fail for a reason that has nothing to do
+        // with the code, and then gets "fixed" by editing the expectation until CI agrees.
+        //
+        // What the product actually guarantees, and what is asserted instead: the day and year are
+        // exact, the month is the right month in ENGLISH, and — the case that matters to a
+        // researcher — none of it moves with the handset's language. The last of those is pinned
+        // separately by the test below, which is the one with teeth.
+        val rendered = formatWorkshopDay("2026-09-23T23:59:59.999000+00:00")
+        assertTrue(
+            "the workshop day must read as the 23rd of September 2026 in English, and it read '$rendered'",
+            rendered != null && Regex("^23 Sept? 2026$").matches(rendered),
+        )
     }
 
     /**
