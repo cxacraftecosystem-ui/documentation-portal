@@ -190,7 +190,7 @@ val RECORD_NOT_DICTATED: Map<RecordFormKind, Map<String, String>> = mapOf(
         "lengthInches" to "A decimal measurement that the grid-measurement route also writes, so a dictated word would compete with a machine-measured number.",
         "breadthInches" to "A decimal measurement that the grid-measurement route also writes, and the same argument as the length beside it.",
         // Added 2026-09-14: the third of the inch triple reached the wire without being classified.
-        "heightInches" to "A decimal measurement, the third of the inch triple, and the same argument as the length and breadth above it. There is no box for it on this client yet either — the browser's tool form draws one and the handset's grid panel still writes the unit-less `height` above, which is the hand-off `ToolCreateRequest.heightInches`'s own KDoc names.",
+        "heightInches" to "A decimal measurement, the third of the inch triple, and the same argument as the length and breadth above it. The box exists on this client as of 2026-09-14 — before that there was none, and the grid panel wrote its inches reading into the unit-less `height` above, losing the one fact that made the number usable.",
         "thickness" to "A decimal measurement; spoken digits arrive as words and this box drops them silently.",
         "weight" to "A decimal measurement; spoken digits arrive as words and this box drops them silently.",
         "radius" to "A decimal measurement; spoken digits arrive as words and this box drops them silently.",

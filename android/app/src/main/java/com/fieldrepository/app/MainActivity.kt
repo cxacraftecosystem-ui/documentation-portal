@@ -6347,6 +6347,13 @@ private fun ToolForm(
     var material by remember(editing) { mutableStateOf(editing?.material ?: "") }
     var yearsInUse by remember(editing) { mutableStateOf(editing?.yearsInUse?.toString() ?: "") }
     var height by remember(editing) { mutableStateOf(numToText(editing?.height)) }
+    // The inches height, and a SEPARATE box from `height` above rather than a relabelling of it.
+    // `Tool.height` and `Tool.heightInches` are different columns: rows already hold values in
+    // `height` and nothing in the database can say what unit those are in, which is why the
+    // migration added a second column instead of converting the first (schema.prisma, and
+    // ToolCreateRequest.heightInches's own KDoc). Showing one box for two columns would lose that
+    // distinction again on the first edit of an old row.
+    var heightInches by remember(editing) { mutableStateOf(numToText(editing?.heightInches)) }
     var width by remember(editing) { mutableStateOf(numToText(editing?.width)) }
     var length by remember(editing) { mutableStateOf(numToText(editing?.lengthInches)) }
     var breadth by remember(editing) { mutableStateOf(numToText(editing?.breadthInches)) }
@@ -6434,6 +6441,7 @@ private fun ToolForm(
                 yearsInUse = yearsInUse.toIntOrNull(),
                 height = height.toDoubleOrNull(),
                 width = width.toDoubleOrNull(),
+                heightInches = heightInches.toDoubleOrNull(),
                 lengthInches = length.toDoubleOrNull(),
                 breadthInches = breadth.toDoubleOrNull(),
                 thickness = thickness.toDoubleOrNull(),
@@ -6634,6 +6642,14 @@ private fun ToolForm(
             Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length, keyboardType = KeyboardType.Decimal, dictate = dictates("lengthInches")) { length = it } }
             Box(modifier = Modifier.weight(1f)) { TextInput("Breadth (inches)", breadth, keyboardType = KeyboardType.Decimal, dictate = dictates("breadthInches")) { breadth = it } }
         }
+        // THE THIRD OF THE INCH TRIPLE, and the box whose absence silently cost the unit. The grid
+        // panel below proposes all three; until 2026-09-14 this client had nowhere to put the third,
+        // so `onHeight` wrote the measured INCHES into the unit-less `height` column above — a
+        // column that declares no unit — and the reading arrived at the server looking like any
+        // hand-typed number. The browser's tool form has drawn this box since migration
+        // 20260913120100, and this client's own ProductForm has always had it; only ToolForm here
+        // was left behind.
+        TextInput("Height (inches)", heightInches, keyboardType = KeyboardType.Decimal, dictate = dictates("heightInches")) { heightInches = it }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             Box(modifier = Modifier.weight(1f)) { TextInput("Thickness", thickness, keyboardType = KeyboardType.Decimal, dictate = dictates("thickness")) { thickness = it } }
             Box(modifier = Modifier.weight(1f)) { TextInput("Weight", weight, keyboardType = KeyboardType.Decimal, dictate = dictates("weight")) { weight = it } }
@@ -6644,7 +6660,9 @@ private fun ToolForm(
             media = media,
             includeHeight = true,
             onLengthBreadth = { l, b -> if (l != null && l > 0) length = numToText(l); if (b != null && b > 0) breadth = numToText(b) },
-            onHeight = { height = numToText(it) }
+            // INTO `heightInches`, NOT `height`. The panel returns an inches reading; writing it to
+            // the unit-less column is the defect this whole block exists to close.
+            onHeight = { heightInches = numToText(it) }
         )
         DropdownField("Maker", makerOptions.map { it to it }, maker, includeNone = false) { maker = it }
         DropdownField("Tradition type", traditionOptions.map { it to it }, traditionType, includeNone = false) { traditionType = it }
