@@ -20,6 +20,7 @@ import { DictationUnavailableNotice } from "@/components/richtext/DictationUnava
 import { RichTextField } from "@/components/richtext/RichTextField";
 import { StatusBadge } from "@/components/StatusBadge";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
+import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { apiFetch, listResource } from "@/lib/api";
 import { handleFormEnter } from "@/lib/formNav";
 import { describePreProcess, describeProcessStep, renameMediaFile, uploadMediaFile } from "@/lib/media";
@@ -550,6 +551,23 @@ export function ProcessForm({
     ]);
     setAddMenu(false);
   }
+
+  /**
+   * HAND THE PROMPT TO EVERY CONTROL THAT CAN LEAVE THIS FORM, not just to this form's own Cancel.
+   *
+   * `dirty` above has always been computed and has always armed the `beforeunload` handler, which
+   * covers closing the tab — and covers nothing else, because `beforeunload` does not fire for a
+   * CLIENT navigation. Three controls perform one: the round back control in `PageHeader`, and now
+   * the two dropdowns of `RecordSwitcher` above this form. `ArtisanForm`, `ProductForm` and
+   * `ToolForm` all registered here; this form was the one that had not, so on `/processes` every one
+   * of those three discarded a half-written process silently and answered 200 to nothing.
+   *
+   * The prompt is the one already built below — `guardOpen` and its `UnsavedChangesDialog` — so this
+   * is a registration and not a second dialog. Discard runs `onCancel`, which on `/processes` drops
+   * back to the list; see `RecordSwitcher.open` for why that destination is not always the one the
+   * researcher had just asked for, and what fixing it properly would cost.
+   */
+  useLeaveGuard(dirty, () => setGuardOpen(true));
 
   function requestCancel() {
     if (dirty) setGuardOpen(true);

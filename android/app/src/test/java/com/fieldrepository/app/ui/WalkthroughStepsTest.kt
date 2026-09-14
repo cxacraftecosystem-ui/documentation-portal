@@ -528,34 +528,5 @@ private fun webGuideSource(): String =
         WEB_GUIDE_PATH,
     ).readText(Charsets.UTF_8).replace("\r\n", "\n")
 
-/**
- * A file of this repository, found by walking up from wherever the test runner started.
- *
- * MISSING IS A FAILURE, LOUDLY, AND NEVER A SKIP — which is the single most important line in this
- * file. A source-reading test that quietly passed when it could not find its subject would prove
- * nothing on the day somebody moves that subject, and that is the one day it is most needed: its
- * silence would be read as parity. The `AssertionError` names both candidates and the directory the
- * walk started from, so the report says what to fix rather than that something is missing.
- *
- * Both candidates are tried at EVERY level of the walk rather than one candidate all the way up and
- * then the other. The two differ by a `..`, so a walk that tried the bare path first would find
- * nothing until the repository root and then find it — which is the same answer, but only by luck of
- * this repository's shape; a sibling checkout with a `frontend/` one level higher would resolve to
- * the wrong tree.
- *
- * Nothing in this module shared a helper like this before — this is the first test here to read a
- * file at all — so it is written out rather than imported. If a second suite wants it, lift it to a
- * shared test file rather than copying it: two copies of a walk-up is how one of them later stops
- * checking the candidate that mattered.
- */
-private fun repoFile(vararg relative: String): File {
-    var dir: File? = File(".").absoluteFile
-    while (dir != null) {
-        for (path in relative) {
-            val candidate = File(dir, path)
-            if (candidate.isFile) return candidate
-        }
-        dir = dir.parentFile
-    }
-    throw AssertionError("none of ${relative.toList()} found from ${File(".").absolutePath}")
-}
+// `repoFile` used to live here. It is now `RepoSources.kt`, in this package — see that file for the
+// drift this suite's own comment predicted and for why every candidate is tried at every level.

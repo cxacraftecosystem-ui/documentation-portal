@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { FieldProvenance } from "@/components/FieldProvenance";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { useEditDeepLink } from "@/components/hooks/useEditDeepLink";
+import { RecordSwitcher } from "@/components/forms/RecordSwitcher";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { UploadProgress } from "@/components/media/UploadProgress";
@@ -332,6 +333,34 @@ function CraftsPageBody() {
         <div className="mb-4 rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-muted">
           Loading the craft you asked to edit...
         </div>
+      ) : null}
+      {/*
+        OUTSIDE THE `<form>`, AND ONLY WHILE A CRAFT IS LOADED INTO IT.
+        
+        Outside, because this form is `onInput={() => setDirty(true)}` and the picker's search box is
+        an `<input>`. `SearchableSelect` does stop that event at the panel (see `containEvents`, which
+        exists for exactly this class of problem — a React portal moves the DOM but not the tree), but
+        relying on a sibling component's event containment to keep this page's unsaved-changes prompt
+        from arming on a search nobody committed is a dependency at a distance. Rendered as a sibling
+        it cannot arise.
+
+        Only while editing, because in create mode this page is a blank form over a list that has its
+        own search box and its own pager. A second record picker there would be a third way to reach
+        the same rows, defaulted to a workshop the list is not filtered by.
+      */}
+      {allowManage && editing ? (
+        <RecordSwitcher
+          kind="craft"
+          currentId={editing.id}
+          currentWorkshopId={editing.workshopId}
+          className="panel mb-5 grid gap-3 p-4 md:grid-cols-2"
+          // THROUGH `guard`, exactly as the row Edit button and the deep link's own `onEdit` go
+          // through it. That is what makes Discard land on the craft that was just PICKED: `guard`
+          // parks this navigation until the dialog is answered and then runs it, rather than letting
+          // the form's interceptor substitute its own `router.back()`. `onDiscard` clears `dirty`
+          // first, so the `?edit=` that lands a moment later does not raise the prompt a second time.
+          onNavigate={(href) => guard(() => router.push(href))}
+        />
       ) : null}
       {allowManage ? (
       <form

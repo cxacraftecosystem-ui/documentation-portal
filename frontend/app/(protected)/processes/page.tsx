@@ -17,6 +17,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { ProcessForm, type ProcessRecord } from "@/components/forms/ProcessForm";
+import { RecordSwitcher } from "@/components/forms/RecordSwitcher";
 import { useEditDeepLink } from "@/components/hooks/useEditDeepLink";
 import { apiFetch, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
@@ -210,6 +211,22 @@ function ProcessesPageInner() {
           icon={<GitBranch className="h-5 w-5" aria-hidden />}
         />
         {banners}
+        {/*
+          `?edit=<id>` IS THE NAVIGATION, not `setEditing`, and that is the point of routing it this
+          way rather than swapping the record into the form directly. The deep link is already the
+          receiving half of "open this process for editing" for every other caller — the data browser,
+          the dashboard, a search result — and it does four things this page would otherwise have to
+          do again: it fetches by id (the record is very often not on the loaded page), it reports a
+          failed load through the banner above, it strips the parameter once spent so Back does not
+          walk into an edit that was cancelled, and it scrolls. A second implementation of all four,
+          reachable only from this dropdown, is the one that would rot.
+        */}
+        <RecordSwitcher
+          kind="process"
+          currentId={editing.id}
+          currentWorkshopId={editing.workshopId}
+          className="panel mb-5 grid gap-3 p-4 md:grid-cols-2"
+        />
         <ProcessForm
           initial={editing}
           onDone={() => {

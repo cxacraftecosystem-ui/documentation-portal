@@ -320,26 +320,10 @@ private const val WINDOW_PATH =
 private const val JOURNEY_PATH =
     "app/src/main/java/com/fieldrepository/app/ui/WalkthroughJourney.kt"
 
-/**
- * A file of this module, found by walking up from wherever the test runner started.
- *
- * MISSING IS A FAILURE, LOUDLY, AND NEVER A SKIP, for the same reason `WalkthroughStepsTest` gives:
- * a source-reading test that quietly passed when it could not find its subject would prove nothing on
- * the day somebody moves that subject, and its silence would be read as "the wiring is fine".
- *
- * Copied rather than shared with that file's copy, because a top-level private helper is visible only
- * inside its own file and lifting it into a shared test utility for two callers would put a helper
- * into a source set neither of them owns. If a third suite wants it, that is the moment to lift it.
- */
-private fun repoFile(relative: String): File {
-    var dir: File? = File(".").absoluteFile
-    while (dir != null) {
-        val candidate = File(dir, relative)
-        if (candidate.isFile) return candidate
-        dir = dir.parentFile
-    }
-    throw AssertionError("$relative not found from ${File(".").absolutePath}")
-}
+// `repoFile` used to live here, copied from `WalkthroughStepsTest` with the condition for undoing
+// that written into the comment: "If a third suite wants it, that is the moment to lift it." A
+// fourth arrived. It is now `RepoSources.kt`, in this package, and takes a vararg — so this file's
+// single-path calls now also try the `../`-prefixed spelling, which its own copy never could.
 
 /**
  * A source file with its comments removed and its whitespace flattened to single spaces.

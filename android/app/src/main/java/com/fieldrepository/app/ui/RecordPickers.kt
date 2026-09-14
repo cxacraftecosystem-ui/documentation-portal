@@ -76,8 +76,9 @@ fun craftChangeClearsArtisan(
  * THE ONE SENTENCE UNDER A CAPPED LIST, or null when the screen must say nothing.
  *
  * The Kotlin twin of `cappedListNotice` in `frontend/components/data/cappedList.ts`, and the wording
- * is deliberately the same wording: two surfaces describing one cut in two different sentences is
- * how a researcher learns that neither of them means much.
+ * is deliberately the same wording — all four sentences of it, one per [ListCutReach] arm plus the
+ * "nothing loaded" arm above them: two surfaces describing one cut in two different sentences is how
+ * a researcher learns that neither of them means much.
  *
  * `null` is the common answer and the whole point of the return type — a complete list has nothing
  * to explain, and a standing note about pagination on every visit is padding this screen cannot
@@ -89,13 +90,56 @@ fun craftChangeClearsArtisan(
  * decision lives in a pure function a test can reach rather than in a `if` inside a composable: the
  * one state nobody can get a screenshot of is the state where silence does the most damage.
  */
-fun listCutNotice(loaded: Int, total: Int, noun: String): String? {
+/**
+ * HOW THE ROWS PAST THE CUT CAN BE GOT AT — which changes the sentence, because telling somebody to
+ * do something impossible is worse than admitting the limit.
+ *
+ * The Kotlin twin of `CutReach` in `frontend/components/data/cappedList.ts`, arm for arm.
+ *
+ * [PAGER] HAS NO CALLER ON THIS CLIENT TODAY and is here anyway. That is the same decision the web
+ * module makes about its `loaded == 0` arm and it is made for the same reason: these two files are
+ * asserted against each other as a pair, and an enum that is missing an arm the web has is an enum
+ * that quietly stops being comparable — the next person to add a paged picker here would find the
+ * vocabulary already short and would coin a sixth sentence rather than notice. The cost is one
+ * `when` branch; the alternative is a divergence nothing detects.
+ */
+enum class ListCutReach {
+    /** One page, no way past it from this control. Every record picker in the forms is this. */
+    NONE,
+
+    /** A pager is on screen and moving it re-requests from the server. */
+    PAGER,
+
+    /**
+     * The box above this sentence sends its term to the SERVER, so typing does reach the rows past
+     * the cut. Only for a control that actually does it — `ui/RecordSwitcher.kt` is the one.
+     */
+    SEARCH
+}
+
+fun listCutNotice(
+    loaded: Int,
+    total: Int,
+    noun: String,
+    reach: ListCutReach = ListCutReach.NONE
+): String? {
     if (total <= loaded) return null
     if (loaded == 0) {
         return "None of the $total $noun could be listed here — this is not an empty repository."
     }
-    return "Showing $loaded of $total $noun — the other ${total - loaded} are not on this list, " +
-        "and typing here searches only the $loaded shown."
+    return when (reach) {
+        ListCutReach.PAGER ->
+            "Showing $loaded of $total $noun — use the pager to reach the rest, which are not " +
+                "searched by the box above."
+        // The one arm that does NOT end by admitting a limit, because there is not one to admit: the
+        // term goes to the server, so every row counted in `total` is reachable by typing. The
+        // arithmetic is still worth the line — a reader looking at 100 rows and no sentence cannot
+        // tell whether that is the workshop or the ceiling, and the two call for different actions.
+        ListCutReach.SEARCH -> "Showing $loaded of $total $noun — type to search all $total."
+        ListCutReach.NONE ->
+            "Showing $loaded of $total $noun — the other ${total - loaded} are not on this list, " +
+                "and typing here searches only the $loaded shown."
+    }
 }
 
 /**

@@ -110,18 +110,25 @@ export function cutOf(loaded: number, total: number, noun: string): ListCut | nu
  *   past the array it was handed, and neither can a ComboBox that filters it locally
  *   (`components/ui/SearchableSelect`). Every record picker in these forms is this.
  * - `"pager"`: a `Pagination` control is on screen and moving it re-requests from the server.
+ * - `"search"`: the box above this sentence sends its term to the SERVER, so typing does reach the
+ *   rows past the cut. Only for a control that actually does it.
  *
- * There is deliberately no `"search"` arm. Giving these pickers the server-side `search=` the list
- * routes already accept means threading a search term out of a shared primitive, which this change
- * does not own. Writing "search to reach the rest" over a box that only filters what is already
- * loaded would be the same lie one layer down.
+ * `"search"` did not exist when this file was written, and the paragraph that stood here said so at
+ * length: giving these pickers the server-side `search=` the list routes have always accepted meant
+ * threading a search term back out of a shared primitive, which that change did not own, and writing
+ * "search to reach the rest" over a box that only filters what is already loaded would have been the
+ * same lie one layer down. `components/forms/RecordSwitcher.tsx` owns it now — `SearchableSelect`
+ * reports its query through `onSearch`, and the switcher debounces it into
+ * `GET /{collection}?workshopId=&search=`. The sentence is therefore true where it is used, and it
+ * is STILL a lie anywhere else: do not pass `"search"` to a picker that filters its options array in
+ * the browser, which is every other one of them.
  */
-export type CutReach = "none" | "pager";
+export type CutReach = "none" | "pager" | "search";
 
 /**
  * THE ONE SENTENCE UNDER A CAPPED LIST, or "" when the screen must say nothing.
  *
- * Four states, ordered so the impossible-looking one is tested first:
+ * Five states, ordered so the impossible-looking one is tested first:
  *
  * 1. **Nothing loaded although the server says rows exist.** Not reachable from a picker today —
  *    page one of a non-empty list always holds rows — but it is reachable the moment a caller
@@ -129,10 +136,13 @@ export type CutReach = "none" | "pager";
  *    control renders "no entries" over a repository holding hundreds. It gets its own words, and it
  *    never tells the reader to search or to page, because neither would help.
  * 2. **Cut, with a pager on screen.** Say the arithmetic and point at the pager.
- * 3. **Cut, with no way past it from here.** Say the arithmetic and say plainly that typing in this
+ * 3. **Cut, with a box that searches the SERVER.** Say the arithmetic and say that typing reaches
+ *    all of them — the only arm where the reader is not being warned about a limit, because the
+ *    control genuinely has not got one.
+ * 4. **Cut, with no way past it from here.** Say the arithmetic and say plainly that typing in this
  *    box searches only what is shown — otherwise the empty result of that typing reads as a fact
  *    about the repository, which is the entire defect.
- * 4. **Not cut.** Silence.
+ * 5. **Not cut.** Silence.
  *
  * The numbers are always both printed. "Showing the first 100" alone still leaves the reader
  * guessing whether that is most of the corpus or an eighth of it, and the difference is whether
@@ -145,6 +155,14 @@ export function cappedListNotice(cut: ListCut | null, reach: CutReach = "none"):
   }
   if (reach === "pager") {
     return `Showing ${cut.loaded} of ${cut.total} ${cut.noun} — use the pager to reach the rest, which are not searched by the box above.`;
+  }
+  if (reach === "search") {
+    // The one arm that does NOT end by admitting a limit, because there is not one to admit: the
+    // term goes to the server, so every row counted in `total` is reachable by typing. Saying the
+    // arithmetic anyway is still worth the line — a reader who sees 100 rows and no sentence has no
+    // way to know whether that is the workshop or the ceiling, and the two call for different next
+    // actions.
+    return `Showing ${cut.loaded} of ${cut.total} ${cut.noun} — type to search all ${cut.total}.`;
   }
   return `Showing ${cut.loaded} of ${cut.total} ${cut.noun} — the other ${cut.total - cut.loaded} are not on this list, and typing here searches only the ${cut.loaded} shown.`;
 }

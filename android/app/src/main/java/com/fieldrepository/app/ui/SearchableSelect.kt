@@ -180,12 +180,41 @@ fun SearchableSelectField(
     placeholder: String = "Select",
     includeNone: Boolean = true,
     enabled: Boolean = true,
+    /**
+     * Force the searchable sheet on (or off), overriding the [SEARCH_THRESHOLD] count rule.
+     *
+     * `null` lets the count decide, which is what almost every call site should do and what every
+     * existing one does. Pass `true` for a list that is short on THIS deployment and long on the
+     * next: `ui/RecordSwitcher.kt`'s record dropdown is the case — a workshop with six records and
+     * a workshop with sixty are the same control, and a picker that is searchable on one handset and
+     * silently not on another is two controls wearing one name. The web's `ComboBox` exists for
+     * exactly this and says the same thing in its own docstring.
+     */
+    searchable: Boolean? = null,
+    /**
+     * WHAT IS IN THE FILTER BOX, REPORTED OUT — for the one caller whose options are not all here yet.
+     *
+     * Search in this control is LOCAL: the sheet filters the list it was handed, which is the right
+     * and complete answer whenever the caller holds every row. It stops being complete when the
+     * caller holds ONE PAGE of a longer list — every list route clamps `pageSize` to 100 — because
+     * then the row being typed for may simply not be in the list, and the sheet answers "no matches"
+     * about the repository.
+     *
+     * `ui/RecordSwitcher.kt` is that caller: it mirrors this query, debounces it, and re-asks the
+     * server when — and only when — its list is actually cut. Nothing here changes; a wider set
+     * simply arrives as a new [options] list a moment later.
+     *
+     * IT FIRES ON EVERY RESET AS WELL AS EVERY KEYSTROKE. The clear button and the multi-select IME
+     * action both blank the box, and a listener told about the typing but not about the blanking
+     * would hold a term the reader can plainly see is gone.
+     */
+    onSearch: ((String) -> Unit)? = null,
     onSelect: (String) -> Unit
 ) {
     var sheetOpen by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     val selectedLabel = options.firstOrNull { it.value == selectedValue }?.label
-    val searchable = options.size >= SEARCH_THRESHOLD
+    val searchable = searchable ?: (options.size >= SEARCH_THRESHOLD)
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, color = MaterialTheme.field.muted, fontSize = 12.sp)
@@ -245,7 +274,13 @@ fun SearchableSelectField(
             selected = if (selectedValue.isBlank()) emptySet() else setOf(selectedValue),
             multiple = false,
             noneLabel = if (includeNone) placeholder else null,
-            onDismiss = { sheetOpen = false },
+            onSearch = onSearch,
+            onDismiss = {
+                sheetOpen = false
+                // The sheet is leaving and its query goes with it. A caller still holding the last
+                // term would go on requesting against a filter nobody can see — see [onSearch].
+                onSearch?.invoke("")
+            },
             onApply = { next -> onSelect(next.firstOrNull().orEmpty()) }
         )
     }
@@ -444,14 +479,31 @@ private fun SearchablePickerSheet(
     multiple: Boolean,
     noneLabel: String?,
     onDismiss: () -> Unit,
-    onApply: (Set<String>) -> Unit
+    onApply: (Set<String>) -> Unit,
+    /** See [SearchableSelectField]'s own parameter. Null for every caller that holds all its rows. */
+    onSearch: ((String) -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val focusRequester = remember { FocusRequester() }
-    var query by remember { mutableStateOf("") }
+    var queryState by remember { mutableStateOf("") }
     var draft by remember { mutableStateOf(selected) }
+
+    /**
+     * The ONE writer of the filter term, so what is reported and what is rendered cannot come apart.
+     *
+     * Three things blank this box — the clear icon in the field, the "Clear search" button in the
+     * empty state, and the multi-select IME action that ticks a row and starts the next name — and a
+     * listener told about the typing but not about those three would hold a stale term. Routing every
+     * write through one function is the only way that stays true as the sheet grows more of them.
+     */
+    fun setQuery(next: String) {
+        queryState = next
+        onSearch?.invoke(next)
+    }
+
+    val query = queryState
 
     val terms = queryTerms(query)
     val filtered = remember(options, query) { options.filter { it.matches(terms) } }
@@ -488,7 +540,7 @@ private fun SearchablePickerSheet(
         val row = highlighted ?: return
         if (multiple) {
             toggle(row.value)
-            query = ""
+            setQuery("")
             scope.launch { listState.scrollToItem(0) }
         } else {
             commitSingle(row.value)
@@ -540,7 +592,7 @@ private fun SearchablePickerSheet(
                 )
                 OutlinedTextField(
                     value = query,
-                    onValueChange = { query = it },
+                    onValueChange = { setQuery(it) },
                     // Just "Search", not "Search $title". A field label in this app is a whole
                     // phrase — "Artisans of selected crafts", "State / union territory" — and
                     // prefixing it wrapped the label onto two lines, which grows the box and, on a
@@ -559,7 +611,7 @@ private fun SearchablePickerSheet(
                     },
                     trailingIcon = {
                         if (query.isNotEmpty()) {
-                            IconButton(onClick = { query = "" }) {
+                            IconButton(onClick = { setQuery("") }) {
                                 Icon(
                                     Icons.Filled.Close,
                                     contentDescription = "Clear search",
@@ -675,7 +727,7 @@ private fun SearchablePickerSheet(
                                 color = MaterialTheme.field.muted,
                                 fontSize = 13.sp
                             )
-                            TextButton(onClick = { query = "" }) { Text("Clear search") }
+                            TextButton(onClick = { setQuery("") }) { Text("Clear search") }
                         }
                     }
                 }

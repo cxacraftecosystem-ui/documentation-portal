@@ -138,7 +138,9 @@ export function ComboBox({
   ariaLabel,
   className,
   disabled,
-  advanceOnSelect = true
+  advanceOnSelect = true,
+  emptyLabel,
+  onSearch
 }: {
   options: DropdownOption[];
   value: string;
@@ -149,6 +151,18 @@ export function ComboBox({
   className?: string;
   disabled?: boolean;
   advanceOnSelect?: boolean;
+  /**
+   * What the panel says when there are no options AT ALL (as opposed to none matching a query).
+   * Worth passing wherever an empty list is a statement about data rather than about the control —
+   * "No options" over a workshop that has no records yet tells the reader nothing they can act on.
+   */
+  emptyLabel?: string;
+  /**
+   * The filter box's contents, reported out — see `SearchableSelect`'s own note for when a caller
+   * needs this and why almost none do. Only a caller holding ONE PAGE of a longer list should wire
+   * it; local filtering is the complete answer for everybody else.
+   */
+  onSearch?: (query: string) => void;
 }) {
   return (
     <>
@@ -158,11 +172,13 @@ export function ComboBox({
         onChange={onChange}
         options={options}
         placeholder={placeholder}
+        emptyLabel={emptyLabel}
         disabled={disabled}
         className={className}
         ariaLabel={ariaLabel}
         searchable
         advanceOnSelect={advanceOnSelect}
+        onSearch={onSearch}
       />
     </>
   );

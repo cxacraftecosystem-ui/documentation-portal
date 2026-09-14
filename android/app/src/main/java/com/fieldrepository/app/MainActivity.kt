@@ -172,6 +172,11 @@ import com.fieldrepository.app.data.apiErrorMessage
 import com.fieldrepository.app.data.apiFailure
 import com.fieldrepository.app.data.occurrenceDate
 import com.fieldrepository.app.ui.AccessRosterScreen
+import com.fieldrepository.app.ui.RecordSwitchKind
+import com.fieldrepository.app.ui.recordOptionLabel
+import com.fieldrepository.app.ui.RecordSwitcher
+import com.fieldrepository.app.ui.recordSwitcherTitle
+import com.fieldrepository.app.ui.rememberRecordSwitcher
 import com.fieldrepository.app.ui.WorkshopWindowState
 import com.fieldrepository.app.ui.formatWorkshopDay
 import com.fieldrepository.app.ui.workshopWindowNotice
@@ -1818,7 +1823,12 @@ private fun HomeScreen(
                 // Same rule as the interview loader above: `adminMode` gates Delete on every web list.
                 canDelete = isAdmin && adminChrome,
                 onDone = { message = "${s.mode.label} updated"; refresh(); refreshLookups(); goDashboard() },
-                onError = { showMessage(it) }
+                onError = { showMessage(it) },
+                // The SAME destination the Browse picker and My Activity already produce. Reassigning
+                // `screen` re-enters this branch with a new `recordId`, and every `remember(recordId)`
+                // inside `EditScreen` re-keys on it — so the form, its detail fetch and the picker's
+                // own "which workshop is this record in" all rebuild for the record just chosen.
+                onOpenRecord = { picked -> message = null; screen = Screen.Edit(s.mode, picked) }
             )
 
             is Screen.MyActivity -> MyActivityScreen(
@@ -3722,9 +3732,25 @@ private fun StatusControl(canSetStatus: Boolean, value: String, onSelect: (Strin
  * not lose work to a flaky courtesy request.
  */
 /** How far down the occurrence order the create-time default walks looking for a submittable workshop. */
-private const val DEFAULT_PROBE_LIMIT = 5
+internal const val DEFAULT_PROBE_LIMIT = 5
 
-private class WorkshopPickerState(private val repository: FieldRepository, initialId: String) {
+/*
+ * ── `internal`, NOT `private`, AND THAT IS THE WHOLE OF THE CHANGE ─────────────────────────────
+ *
+ * This class and [rememberWorkshopPicker] below were file-private while `MainActivity.kt` was the
+ * only thing that mounted a workshop dropdown. `ui/RecordSwitcher.kt` now mounts one too — the
+ * primary dropdown of the record picker on the edit screen — and it needs THIS state object rather
+ * than a second one, because the rule the requirement turns on is [applyMostRecentSubmittable]: the
+ * default is the most recent workshop the account may ACTUALLY submit to, found by walking down the
+ * occurrence order past the workshops that are somebody else's. A second implementation of that walk
+ * is a second answer to "which workshop am I in", and the two would drift the first time either was
+ * touched — which is the defect this file has the most history with.
+ *
+ * `internal` is module-wide in Kotlin, so one keyword reaches across the package boundary and
+ * nothing outside the app can see it. The web made the same call by exporting `useWorkshopSelection`
+ * for `forms/RecordSwitcher.tsx` to reuse.
+ */
+internal class WorkshopPickerState(private val repository: FieldRepository, initialId: String) {
     var workshops by mutableStateOf<List<WorkshopDetailDto>>(emptyList())
     var selectedId by mutableStateOf(initialId)
     var baselineId by mutableStateOf(initialId)
@@ -3840,7 +3866,7 @@ private class WorkshopPickerState(private val repository: FieldRepository, initi
  * `editing` record so switching records rebuilds the state.
  */
 @Composable
-private fun rememberWorkshopPicker(
+internal fun rememberWorkshopPicker(
     repository: FieldRepository,
     isEdit: Boolean,
     initialId: String?,
@@ -4898,11 +4924,17 @@ private fun RecordPickerScreen(
         loading = true
         runCatching {
             when (mode) {
-                EntryMode.ARTISAN -> repository.artisans().map { it.id to "${it.name} · ${it.place}" }
-                EntryMode.CRAFT -> repository.crafts().map { it.id to (it.name + (it.place?.let { p -> " · $p" } ?: "")) }
-                EntryMode.PRODUCT -> repository.products().map { it.id to "${it.productName} · ${it.artisanName}" }
-                EntryMode.PROCESS -> repository.processes().map { it.id to (it.name + (it.product?.productName?.let { p -> " · $p" } ?: "")) }
-                EntryMode.TOOL -> repository.tools().map { it.id to "${it.toolkitName} · ${it.artisanName}" }
+                // THE FIVE LABELS ARE NO LONGER SPELLED HERE. They were, character for character, the
+                // same five templates `ui/RecordSwitcher.kt` now owns — which made this screen and the
+                // edit screen's picker two independent copies of one answer to "what is this row
+                // called", and the web a third. `recordOptionLabel` is the one copy; it also stopped
+                // the two hand-written middle dots that used to print with nothing after them when a
+                // craft had no place or a process no parent product.
+                EntryMode.ARTISAN -> repository.artisans().map { it.id to recordOptionLabel(it) }
+                EntryMode.CRAFT -> repository.crafts().map { it.id to recordOptionLabel(it) }
+                EntryMode.PRODUCT -> repository.products().map { it.id to recordOptionLabel(it) }
+                EntryMode.PROCESS -> repository.processes().map { it.id to recordOptionLabel(it) }
+                EntryMode.TOOL -> repository.tools().map { it.id to recordOptionLabel(it) }
                 EntryMode.WORKSHOP -> repository.workshops().map { it.id to it.title.ifBlank { "Untitled workshop" } }
                 EntryMode.MEDIA -> repository.media().map { m ->
                     m.id to (m.caption?.takeIf { it.isNotBlank() } ?: m.originalFilename)
@@ -5031,6 +5063,26 @@ private fun DeleteRecordSection(
     }
 }
 
+/**
+ * The [RecordSwitchKind] an [EntryMode] switches as, or null for the modes that have no such picker.
+ *
+ * NULL IS THE INTERESTING HALF and it is deliberately exhaustive rather than an `else -> null` over a
+ * guessed set. WORKSHOP is null because a workshop IS the picker's first dropdown and filtering
+ * workshops by workshop asks one question twice; MEDIA because it has no edit form to open (this
+ * screen routes it to `ViewDataDetail`); QUESTIONNAIRE because an interview is identified by its
+ * artisan SET rather than by a name, and the existing picker has to group and elect a representative
+ * before it can label one. The web's `RECORD_KINDS` names the same five and the two are asserted
+ * equal — see `ui/RecordSwitcher.kt`.
+ */
+private fun recordSwitchKindFor(mode: EntryMode): RecordSwitchKind? = when (mode) {
+    EntryMode.ARTISAN -> RecordSwitchKind.ARTISAN
+    EntryMode.CRAFT -> RecordSwitchKind.CRAFT
+    EntryMode.PROCESS -> RecordSwitchKind.PROCESS
+    EntryMode.PRODUCT -> RecordSwitchKind.PRODUCT
+    EntryMode.TOOL -> RecordSwitchKind.TOOL
+    else -> null
+}
+
 /** Fetches the chosen record's full detail, then renders the matching form in edit mode. */
 @Composable
 private fun EditScreen(
@@ -5048,8 +5100,57 @@ private fun EditScreen(
     adminView: Boolean,
     canDelete: Boolean,
     onDone: () -> Unit,
-    onError: (String) -> Unit
+    onError: (String) -> Unit,
+    /**
+     * Open a DIFFERENT record of the same kind, chosen from the picker this screen now carries.
+     *
+     * The caller turns it into `Screen.Edit(mode, recordId)` — the identical destination every other
+     * route into editing produces (Browse, My Activity, Search, the dashboard's recent rows). That is
+     * the whole of the picker's authority: it names an id, and the loads and refusals below are the
+     * ones that were always there. See `ui/RecordSwitcher.kt`'s header.
+     */
+    onOpenRecord: (String) -> Unit = {}
 ) {
+    /**
+     * WHICH WORKSHOP THE RECORD ON SCREEN IS FILED UNDER, as each branch below learns it.
+     *
+     * Only the "show this record's own workshop" shortcut reads it, and null simply withholds that
+     * shortcut — so a branch that never sets it degrades to a picker with one fewer button rather
+     * than to a wrong answer. Keyed on [recordId] so opening a second record does not leave the
+     * first one's workshop behind, which would offer a shortcut to somewhere the record is not.
+     */
+    var currentWorkshopId by remember(recordId) { mutableStateOf<String?>(null) }
+
+    /*
+     * THE PICKER, ABOVE THE FORM AND ONLY FOR THE KINDS THAT HAVE ONE.
+     *
+     * `isEdit = false` on the workshop picker even though this is the edit screen, and that is not a
+     * slip. The flag means "is this picker bound to a stored column that must not be clobbered" — on
+     * a record FORM it is, and the create-time default is suppressed so opening a record never
+     * rewrites its workshop link. Here the picker is bound to nothing; it filters a list. Suppressing
+     * the default would leave the dropdown empty and the control useless, and there is no link for it
+     * to damage because this picker writes nothing at all.
+     *
+     * `initialId = null` for the same reason: the requirement is that it open on the most recent
+     * workshop the account may submit to, not on whichever workshop the record in front of them
+     * happens to belong to. The shortcut above covers the times they want the latter.
+     */
+    val switchKind = recordSwitchKindFor(mode)
+    if (switchKind != null) {
+        val switchWorkshop = rememberWorkshopPicker(repository, isEdit = false, initialId = null)
+        val switcher = rememberRecordSwitcher(repository, switchKind, switchWorkshop)
+        RecordCard(title = recordSwitcherTitle(switchKind)) {
+            RecordSwitcher(
+                kind = switchKind,
+                workshop = switchWorkshop,
+                switcher = switcher,
+                currentId = recordId,
+                onPick = onOpenRecord,
+                currentWorkshopId = currentWorkshopId
+            )
+        }
+    }
+
     when (mode) {
         EntryMode.ARTISAN -> {
             var detail by remember(recordId) { mutableStateOf<ArtisanDetailDto?>(null) }
@@ -5057,7 +5158,7 @@ private fun EditScreen(
             var answersLoading by remember(recordId) { mutableStateOf(true) }
             LaunchedEffect(recordId) {
                 runCatching { repository.artisan(recordId) }
-                    .onSuccess { detail = it }
+                    .onSuccess { detail = it; currentWorkshopId = it.workshopId }
                     .onFailure { onError(it.message ?: "Unable to load artisan") }
                 runCatching { repository.artisanQuestionnaire(recordId) }
                     .onSuccess { answers = it.answered }
@@ -5083,7 +5184,7 @@ private fun EditScreen(
             var detail by remember(recordId) { mutableStateOf<ProductDetailDto?>(null) }
             LaunchedEffect(recordId) {
                 runCatching { repository.product(recordId) }
-                    .onSuccess { detail = it }
+                    .onSuccess { detail = it; currentWorkshopId = it.workshopId }
                     .onFailure { onError(it.message ?: "Unable to load product") }
             }
             val d = detail
@@ -5103,7 +5204,7 @@ private fun EditScreen(
             var detail by remember(recordId) { mutableStateOf<ProcessDetailDto?>(null) }
             LaunchedEffect(recordId) {
                 runCatching { repository.process(recordId) }
-                    .onSuccess { detail = it }
+                    .onSuccess { detail = it; currentWorkshopId = it.workshopId }
                     .onFailure { onError(it.message ?: "Unable to load process") }
             }
             val d = detail
@@ -5119,7 +5220,7 @@ private fun EditScreen(
             var detail by remember(recordId) { mutableStateOf<ToolDetailDto?>(null) }
             LaunchedEffect(recordId) {
                 runCatching { repository.tool(recordId) }
-                    .onSuccess { detail = it }
+                    .onSuccess { detail = it; currentWorkshopId = it.workshopId }
                     .onFailure { onError(it.message ?: "Unable to load tool") }
             }
             val d = detail
@@ -5156,7 +5257,7 @@ private fun EditScreen(
             var detail by remember(recordId) { mutableStateOf<CraftDto?>(null) }
             LaunchedEffect(recordId) {
                 runCatching { repository.craft(recordId) }
-                    .onSuccess { detail = it }
+                    .onSuccess { detail = it; currentWorkshopId = it.workshopId }
                     .onFailure { onError(it.message ?: "Unable to load craft") }
             }
             val d = detail

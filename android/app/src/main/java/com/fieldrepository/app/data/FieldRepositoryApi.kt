@@ -177,13 +177,61 @@ interface FieldRepositoryApi {
          * `ui/RecordPickers.kt` for what that cost. Filtering where the WHERE clause is turns that
          * into the craft's actual roster.
          */
-        @Query("craftId") craftId: String? = null
+        @Query("craftId") craftId: String? = null,
+        /**
+         * ONE workshop's records, filtered by the SERVER — the singular filter, not the plural scope.
+         *
+         * `GET /artisans` has always accepted it (`backend/app/api/routes/artisans.py`, `where["workshopId"]
+         * = workshopId`); nothing on this client had ever sent it. It is what `ui/RecordSwitcher.kt`'s
+         * second dropdown is a list OF, and filtering where the WHERE clause is rather than in memory
+         * is the same argument [artisans]' `craftId` carries: a page is 100 rows of the whole table,
+         * and one workshop's share of a long table is mostly not in it.
+         *
+         * DISTINCT FROM `workshopIds` wherever both exist. The plural is the shared SCOPE vocabulary
+         * — broader, reserved-word aware, and the one the matrix and the map speak. This is the narrow
+         * "records filed at this workshop" the form pickers have always meant, and the two must not be
+         * collapsed: an artisan who merely sat in an interview at a workshop is in the plural's answer
+         * and not in this one.
+         */
+        @Query("workshopId") workshopId: String? = null,
+        /**
+         * The server-side free-text search, for reaching rows past the 100-row page.
+         *
+         * Only sent when the list is genuinely cut — see `shouldSearchServer` in `ui/RecordSwitcher.kt`
+         * for why an unconditional search-per-keystroke would be strictly worse than the local filter
+         * it would replace, and would stop working in exactly the place this product is used.
+         */
+        @Query("search") search: String? = null
     ): PageResponse<ArtisanDto>
 
     @GET("crafts")
     suspend fun crafts(
         @Query("page") page: Int = 1,
-        @Query("pageSize") pageSize: Int = 100
+        @Query("pageSize") pageSize: Int = 100,
+        /**
+         * ONE workshop's records, filtered by the SERVER — the singular filter, not the plural scope.
+         *
+         * `GET /crafts` has always accepted it (`backend/app/api/routes/crafts.py`, `where["workshopId"]
+         * = workshopId`); nothing on this client had ever sent it. It is what `ui/RecordSwitcher.kt`'s
+         * second dropdown is a list OF, and filtering where the WHERE clause is rather than in memory
+         * is the same argument [artisans]' `craftId` carries: a page is 100 rows of the whole table,
+         * and one workshop's share of a long table is mostly not in it.
+         *
+         * DISTINCT FROM `workshopIds` wherever both exist. The plural is the shared SCOPE vocabulary
+         * — broader, reserved-word aware, and the one the matrix and the map speak. This is the narrow
+         * "records filed at this workshop" the form pickers have always meant, and the two must not be
+         * collapsed: an artisan who merely sat in an interview at a workshop is in the plural's answer
+         * and not in this one.
+         */
+        @Query("workshopId") workshopId: String? = null,
+        /**
+         * The server-side free-text search, for reaching rows past the 100-row page.
+         *
+         * Only sent when the list is genuinely cut — see `shouldSearchServer` in `ui/RecordSwitcher.kt`
+         * for why an unconditional search-per-keystroke would be strictly worse than the local filter
+         * it would replace, and would stop working in exactly the place this product is used.
+         */
+        @Query("search") search: String? = null
     ): PageResponse<CraftDto>
 
     @POST("artisans")
@@ -218,7 +266,31 @@ interface FieldRepositoryApi {
         @Query("page") page: Int = 1,
         @Query("pageSize") pageSize: Int = 100,
         @Query("artisanId") artisanId: String? = null,
-        @Query("artisanName") artisanName: String? = null
+        @Query("artisanName") artisanName: String? = null,
+        /**
+         * ONE workshop's records, filtered by the SERVER — the singular filter, not the plural scope.
+         *
+         * `GET /products` has always accepted it (`backend/app/api/routes/products.py`, `where["workshopId"]
+         * = workshopId`); nothing on this client had ever sent it. It is what `ui/RecordSwitcher.kt`'s
+         * second dropdown is a list OF, and filtering where the WHERE clause is rather than in memory
+         * is the same argument [artisans]' `craftId` carries: a page is 100 rows of the whole table,
+         * and one workshop's share of a long table is mostly not in it.
+         *
+         * DISTINCT FROM `workshopIds` wherever both exist. The plural is the shared SCOPE vocabulary
+         * — broader, reserved-word aware, and the one the matrix and the map speak. This is the narrow
+         * "records filed at this workshop" the form pickers have always meant, and the two must not be
+         * collapsed: an artisan who merely sat in an interview at a workshop is in the plural's answer
+         * and not in this one.
+         */
+        @Query("workshopId") workshopId: String? = null,
+        /**
+         * The server-side free-text search, for reaching rows past the 100-row page.
+         *
+         * Only sent when the list is genuinely cut — see `shouldSearchServer` in `ui/RecordSwitcher.kt`
+         * for why an unconditional search-per-keystroke would be strictly worse than the local filter
+         * it would replace, and would stop working in exactly the place this product is used.
+         */
+        @Query("search") search: String? = null
     ): PageResponse<ProductDetailDto>
 
     @GET("products/{id}")
@@ -230,7 +302,31 @@ interface FieldRepositoryApi {
     @GET("tools")
     suspend fun tools(
         @Query("page") page: Int = 1,
-        @Query("pageSize") pageSize: Int = 100
+        @Query("pageSize") pageSize: Int = 100,
+        /**
+         * ONE workshop's records, filtered by the SERVER — the singular filter, not the plural scope.
+         *
+         * `GET /tools` has always accepted it (`backend/app/api/routes/tools.py`, `where["workshopId"]
+         * = workshopId`); nothing on this client had ever sent it. It is what `ui/RecordSwitcher.kt`'s
+         * second dropdown is a list OF, and filtering where the WHERE clause is rather than in memory
+         * is the same argument [artisans]' `craftId` carries: a page is 100 rows of the whole table,
+         * and one workshop's share of a long table is mostly not in it.
+         *
+         * DISTINCT FROM `workshopIds` wherever both exist. The plural is the shared SCOPE vocabulary
+         * — broader, reserved-word aware, and the one the matrix and the map speak. This is the narrow
+         * "records filed at this workshop" the form pickers have always meant, and the two must not be
+         * collapsed: an artisan who merely sat in an interview at a workshop is in the plural's answer
+         * and not in this one.
+         */
+        @Query("workshopId") workshopId: String? = null,
+        /**
+         * The server-side free-text search, for reaching rows past the 100-row page.
+         *
+         * Only sent when the list is genuinely cut — see `shouldSearchServer` in `ui/RecordSwitcher.kt`
+         * for why an unconditional search-per-keystroke would be strictly worse than the local filter
+         * it would replace, and would stop working in exactly the place this product is used.
+         */
+        @Query("search") search: String? = null
     ): PageResponse<ToolDetailDto>
 
     @GET("tools/{id}")
@@ -412,7 +508,31 @@ interface FieldRepositoryApi {
     suspend fun processes(
         @Query("page") page: Int = 1,
         @Query("pageSize") pageSize: Int = 100,
-        @Query("productId") productId: String? = null
+        @Query("productId") productId: String? = null,
+        /**
+         * ONE workshop's records, filtered by the SERVER — the singular filter, not the plural scope.
+         *
+         * `GET /processes` has always accepted it (`backend/app/api/routes/processes.py`, `where["workshopId"]
+         * = workshopId`); nothing on this client had ever sent it. It is what `ui/RecordSwitcher.kt`'s
+         * second dropdown is a list OF, and filtering where the WHERE clause is rather than in memory
+         * is the same argument [artisans]' `craftId` carries: a page is 100 rows of the whole table,
+         * and one workshop's share of a long table is mostly not in it.
+         *
+         * DISTINCT FROM `workshopIds` wherever both exist. The plural is the shared SCOPE vocabulary
+         * — broader, reserved-word aware, and the one the matrix and the map speak. This is the narrow
+         * "records filed at this workshop" the form pickers have always meant, and the two must not be
+         * collapsed: an artisan who merely sat in an interview at a workshop is in the plural's answer
+         * and not in this one.
+         */
+        @Query("workshopId") workshopId: String? = null,
+        /**
+         * The server-side free-text search, for reaching rows past the 100-row page.
+         *
+         * Only sent when the list is genuinely cut — see `shouldSearchServer` in `ui/RecordSwitcher.kt`
+         * for why an unconditional search-per-keystroke would be strictly worse than the local filter
+         * it would replace, and would stop working in exactly the place this product is used.
+         */
+        @Query("search") search: String? = null
     ): PageResponse<ProcessDetailDto>
 
     @GET("processes/{id}")

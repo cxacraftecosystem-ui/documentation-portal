@@ -967,6 +967,45 @@ class FieldRepository(
     suspend fun artisansForCraftPage(craftId: String): PageResponse<ArtisanDto> =
         api.artisans(pageSize = 100, craftId = craftId)
 
+    /**
+     * ONE WORKSHOP'S RECORDS, WITH THE ENVELOPE KEPT — the five reads behind `ui/RecordSwitcher.kt`.
+     *
+     * Five near-identical one-liners rather than one generic helper, and that is not laziness: each
+     * returns a DIFFERENT DTO, Retrofit needs the response type at the declaration, and the only
+     * thing a generic wrapper could unify is the two query parameters. Kotlin cannot express "the
+     * page type for this record kind" without either a sealed hierarchy over five unrelated
+     * `@Serializable` classes or a reflective lookup, and both cost more than five lines.
+     *
+     * `pageSize = 100` is the CEILING, not a default somebody forgot to raise: `normalize_pagination`
+     * clamps to `MAX_PAGE_SIZE = 100` (`backend/app/services/pagination.py`) and each route declares
+     * `le=100` on top of it. Which is precisely why the envelope is returned rather than `.items` —
+     * `total` is the half that says whether this list is the whole answer for the workshop, and
+     * dropping it is how a cut list comes to render indistinguishably from an empty workshop. See
+     * `listCutNotice` in `ui/RecordPickers.kt`.
+     *
+     * [search] is null for the ordinary load and non-null only when the switcher has established that
+     * the list IS cut — see `shouldSearchServer` there for why searching unconditionally would be
+     * worse than the on-device filter it would replace, and would fail in a courtyard with no signal.
+     */
+    suspend fun artisansForWorkshopPage(workshopId: String, search: String? = null): PageResponse<ArtisanDto> =
+        api.artisans(pageSize = 100, workshopId = workshopId, search = search?.ifBlank { null })
+
+    /** One workshop's crafts. See [artisansForWorkshopPage]. */
+    suspend fun craftsForWorkshopPage(workshopId: String, search: String? = null): PageResponse<CraftDto> =
+        api.crafts(pageSize = 100, workshopId = workshopId, search = search?.ifBlank { null })
+
+    /** One workshop's products. See [artisansForWorkshopPage]. */
+    suspend fun productsForWorkshopPage(workshopId: String, search: String? = null): PageResponse<ProductDetailDto> =
+        api.products(pageSize = 100, workshopId = workshopId, search = search?.ifBlank { null })
+
+    /** One workshop's tools. See [artisansForWorkshopPage]. */
+    suspend fun toolsForWorkshopPage(workshopId: String, search: String? = null): PageResponse<ToolDetailDto> =
+        api.tools(pageSize = 100, workshopId = workshopId, search = search?.ifBlank { null })
+
+    /** One workshop's processes. See [artisansForWorkshopPage]. */
+    suspend fun processesForWorkshopPage(workshopId: String, search: String? = null): PageResponse<ProcessDetailDto> =
+        api.processes(pageSize = 100, workshopId = workshopId, search = search?.ifBlank { null })
+
     suspend fun crafts(): List<CraftDto> = api.crafts(pageSize = 100).items
 
     /** [crafts] with the envelope kept, for the same reason as [artisansPage]. */

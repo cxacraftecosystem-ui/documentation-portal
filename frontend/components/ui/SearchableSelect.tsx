@@ -398,6 +398,29 @@ export type SearchableSelectProps = {
    * jumping focus away from the control you are adjusting is wrong.
    */
   advanceOnSelect?: boolean;
+  /**
+   * WHAT IS IN THE FILTER BOX, REPORTED OUT — for the one caller whose options are not all here yet.
+   *
+   * Search in this control is LOCAL: `filterOptions` narrows the array it was handed, which is the
+   * right and complete answer whenever the caller holds every row. It stops being complete when the
+   * caller holds ONE PAGE of a longer list — every list route in this API clamps `pageSize` to 100
+   * (`components/data/cappedList`) — because then the rows the reader is typing to find may simply
+   * not be in the array, and the box silently answers "No matches" about the repository.
+   *
+   * `components/forms/RecordSwitcher.tsx` is that caller: it mirrors this query, debounces it, and
+   * re-asks the server with `search=` when — and only when — its list is actually cut. Nothing here
+   * changes: the local filter still runs over whatever options are present, and a wider set simply
+   * arrives as a new `options` array a moment later.
+   *
+   * IT FIRES ON EVERY RESET AS WELL AS EVERY KEYSTROKE, and that is deliberate rather than
+   * incidental. Opening the panel and closing it both blank the query, and a listener that learned
+   * about the typing but not about the blanking would leave its caller holding a stale term — still
+   * filtering a list the reader can plainly see is unfiltered. So this reports the box's value,
+   * always, not the box's keystrokes.
+   *
+   * Everything else in the app leaves this undefined and gets the behaviour it has always had.
+   */
+  onSearch?: (query: string) => void;
 };
 
 export function SearchableSelect({
@@ -410,7 +433,8 @@ export function SearchableSelect({
   className,
   ariaLabel,
   searchable,
-  advanceOnSelect = true
+  advanceOnSelect = true,
+  onSearch
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -436,10 +460,35 @@ export function SearchableSelect({
 
   const selected = options.find((option) => option.value === value);
 
+  /**
+   * `onSearch` read through a ref — the same discipline `useEditDeepLink` follows for its callbacks,
+   * and for the same reason. Every caller passes an inline closure over its own state, which is a
+   * new identity on every render; as a dependency of `applyQuery` it would rebuild `close`, and with
+   * it `closeAndMoveOn` and `onTabForward`, on each of those renders. Written in an effect with no
+   * dependency array rather than during render, so a render that concurrent React discards cannot
+   * leave a stale callback installed.
+   */
+  const searchRef = useRef(onSearch);
+  useEffect(() => {
+    searchRef.current = onSearch;
+  });
+
+  /**
+   * The ONLY writer of `query`, so the reported value and the rendered value cannot come apart.
+   *
+   * Three call sites set the filter box: typing in it, opening the panel (which blanks it) and
+   * closing the panel (which blanks it too). A listener told about the first and not the other two
+   * would hold a term the reader can see is gone — see the `onSearch` prop's own note.
+   */
+  const applyQuery = useCallback((next: string) => {
+    setQuery(next);
+    searchRef.current?.(next);
+  }, []);
+
   const close = useCallback(() => {
     setOpen(false);
-    setQuery("");
-  }, []);
+    applyQuery("");
+  }, [applyQuery]);
 
   /** Close, then hand the keyboard on. `advanceOnSelect` decides whether "on" means the next field. */
   const closeAndMoveOn = useCallback(
@@ -463,7 +512,7 @@ export function SearchableSelect({
   }
 
   function openPanel() {
-    setQuery("");
+    applyQuery("");
     setOpen(true);
     // Indexed against `rendered`, which is what the highlight means everywhere else. Against the
     // raw options array a pinned selection past the cap would highlight whatever happened to sit at
@@ -474,7 +523,7 @@ export function SearchableSelect({
 
   /** Typing in the box always re-aims Enter at the top match. */
   function onQueryChange(next: string) {
-    setQuery(next);
+    applyQuery(next);
     setHighlight(0);
   }
 

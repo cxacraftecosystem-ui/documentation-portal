@@ -148,8 +148,16 @@ export function useWorkshopScope({
   return { workshopIds, setWorkshopIds, workshops, loading, settling, queryValue, summary };
 }
 
-/** Title plus the day it ran — the same label `WorkshopSelect` uses, so one workshop reads one way. */
-function optionLabel(workshop: Workshop): string {
+/**
+ * Title plus the day it ran — the same label `WorkshopSelect` uses, so one workshop reads one way.
+ *
+ * EXPORTED, AND NAMED AFTER ITS KOTLIN TWIN. `workshopScopeLabel` is what Android's `WorkshopScope.kt`
+ * has always called this, and the two produce the same string; keeping the web copy private under a
+ * different name meant the third picker that needed it — `forms/RecordSwitcher` — had a choice
+ * between importing nothing and writing a fourth spelling of "title, middle dot, day". Four
+ * spellings of one label is four chances for one workshop to read four ways down one session.
+ */
+export function workshopScopeLabel(workshop: Workshop): string {
   const title = workshop.title?.trim() || "Untitled workshop";
   const when = formatDate(workshopOccurrenceDate(workshop) || null);
   return when === "-" ? title : `${title} · ${when}`;
@@ -179,7 +187,7 @@ export function WorkshopScopeSelect({
 
   const options = useMemo(
     () => [
-      ...workshops.map((workshop) => ({ value: workshop.id, label: optionLabel(workshop) })),
+      ...workshops.map((workshop) => ({ value: workshop.id, label: workshopScopeLabel(workshop) })),
       // Last, and named as what it is. It is not a workshop, so it does not belong among them in the
       // reading order — but it has to be selectable, or a scope of "every workshop" silently drops
       // every record filed before workshops existed.
