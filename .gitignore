@@ -85,3 +85,13 @@ TRANSCRIPTION_SERVICE.md
 fieldrepo-release.*
 keystore.properties
 KEYSTORE-CUSTODY.md
+
+# Scratch files the CI check steps write into the repository root. They are produced by
+# .github/workflows/checks.yml, and running one of those steps by hand — which is the fastest way to
+# reproduce a red gate, and how the `bash -e` defects of 2026-09-14 were found — drops them here.
+doc-problems.txt
+known-doc-problems.txt
+docs-check.log
+pytest-output.log
+actual-failures.txt
+expected-failures.txt

@@ -82,4 +82,19 @@ target-version = "py311"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-asyncio_mode = "auto"
+
+# ⚠ NO `asyncio_mode = "auto"` HERE, AND ITS ABSENCE IS DELIBERATE. That line stood here until
+# 2026-09-14 and was worse than useless: it needs `pytest-asyncio`, which is named in NO requirements
+# file, and `backend/` has no lock file — so whether it did anything depended entirely on what
+# happened to be in the reader's virtualenv. In this developer's it was installed; on the CI runner
+# it was not, where pytest reported only `PytestConfigWarning: Unknown config option: asyncio_mode`
+# and every unmarked `async def test_` failed with "async def functions are not natively supported".
+#
+# It cost exactly what a setting that lies costs: a module written against it
+# (tests/test_questionnaire_workshop_binding.py) passed locally and failed on GitHub. The convention
+# that actually runs everywhere is `pytestmark = pytest.mark.anyio` — anyio arrives transitively with
+# starlette and httpx, so it is present wherever the application is — and every async module in
+# tests/ declares it. Removing the line makes a local run and a CI run agree about what is collected.
+#
+# If auto mode is ever genuinely wanted, the honest version is to add `pytest-asyncio` to a
+# requirements file first. Until then, mark the module.

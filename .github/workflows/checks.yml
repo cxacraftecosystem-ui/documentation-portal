@@ -293,11 +293,17 @@ jobs:
             status=1
           fi
 
+          # ⚠ THE `|| :` BELOW IS LOAD-BEARING, AND IT IS THE GREEN CASE IT PROTECTS. GitHub runs
+          # this block as `bash -e {0}`; the script sets `-uo pipefail` and never clears `-e`. A suite
+          # with NO failures gives grep nothing to match, grep exits 1, `pipefail` promotes that to the
+          # pipeline's status, and `-e` kills the step — so this job would go red on the very day the
+          # backend suite finally went green, printing none of the messages below. `actual-failures.txt`
+          # is simply empty in that case, which every comparison below already reads correctly.
           # Node ids only: `FAILED tests/x.py::y - AssertionError: ...` becomes `tests/x.py::y`.
           # ERROR lines are collected too — a module that cannot import is a failure nothing licensed.
           grep -E '^(FAILED|ERROR) ' pytest-output.log \
             | sed -E 's/^(FAILED|ERROR)[[:space:]]+//; s/[[:space:]]+-[[:space:]].*$//' \
-            | sort -u > actual-failures.txt
+            | sort -u > actual-failures.txt || :
 
           # ── A FLOOR, NOT A TARGET ────────────────────────────────────────────────────
           # pytest reports success just as cheerfully over four tests as over a thousand, so a broken
@@ -306,7 +312,9 @@ jobs:
           # landed; 900 is far enough below that ordinary deletion never reaches it and far enough
           # above zero that losing a directory does. A MISSING summary line reads as 0 and goes red,
           # which is the right answer when pytest died before it could count anything.
-          summary=$(grep -E '^=+ .*(passed|failed|error).*=+$' pytest-output.log | tail -n 1)
+          # `|| :` for the same reason, and here it preserves a DIAGNOSTIC: with no summary line at all
+          # the floor below reports 0 passing tests and says why. Without it the step dies silently.
+          summary=$(grep -E '^=+ .*(passed|failed|error).*=+$' pytest-output.log | tail -n 1 || :)
           passed=$(printf '%s\n' "$summary" | sed -nE 's/.*[^0-9]([0-9]+) passed.*/\1/p')
           echo "pytest summary line: ${summary:-<none>}"
           if [ "${passed:-0}" -lt 900 ]; then
@@ -319,8 +327,15 @@ jobs:
           # longer, different one. grep's status is read rather than swallowed — 1 means "nothing
           # unexpected", which is the good case, and 2 or more means grep itself failed, which must
           # never be read as success.
-          unexpected=$(grep -vxFf expected-failures.txt actual-failures.txt)
-          rc=$?
+          # ⚠ `|| rc=$?`, NOT A BARE CALL. The comment above is right that 1 means "nothing
+          # unexpected, which is the good case" — but `rc=$?` on the next line never runs under
+          # `bash -e`, because the assignment has already killed the step. THIS IS THE TRAP THAT FIRES
+          # ON SUCCESS, and it is why it stayed invisible: every run of this job to date failed on a
+          # real test failure, so the good case was never reached. A `||` list exempts the grep from
+          # `-e` and keeps exactly the rc semantics the comment describes.
+          rc=0
+          unexpected=""
+          unexpected=$(grep -vxFf expected-failures.txt actual-failures.txt) || rc=$?
           if [ "$rc" -ge 2 ]; then
             echo "::error::could not compare the expected-failure list against this run (grep exited $rc). Failing rather than guessing."
             exit 1
@@ -553,8 +568,20 @@ jobs:
             status=1
           fi
 
-          grep -E '^FAIL' docs-check.log > doc-problems.txt
-          rc=$?
+          # ⚠ `|| rc=$?` RATHER THAN A BARE CALL, AND THE `rc=$?` ON THE NEXT LINE IS NOT ENOUGH.
+          # GitHub runs a `run:` block as `bash -e {0}`, and this script sets `-uo pipefail` without
+          # ever clearing `-e`. A grep that matches NOTHING exits 1, so under `-e` the step dies
+          # right here — before `rc` is read, before the comparison below, and with none of this
+          # script's own `::error::` lines printed. Putting the grep in a `||` list is what exempts
+          # it from `-e` while keeping the author's rc idiom intact.
+          #
+          # THIS WAS INVISIBLE FOR AS LONG AS THE DOCS WERE BROKEN. While the four licensed problems
+          # existed there were always FAIL lines to match, so this grep always exited 0. The first
+          # run in which the documentation was actually clean is the run that failed — a gate that
+          # could report a problem but could not report success. Found on 2026-09-14, the run after
+          # the known-problem list reached zero.
+          rc=0
+          grep -E '^FAIL' docs-check.log > doc-problems.txt || rc=$?
           if [ "$rc" -ge 2 ]; then
             echo "::error::could not read the docs-check output (grep exited $rc). Failing rather than guessing."
             exit 1
@@ -579,8 +606,13 @@ jobs:
             exit 1
           fi
 
-          unexpected=$(grep -vFf known-doc-problems.txt doc-problems.txt)
-          rc=$?
+          # Same `-e` trap, and this one bites on the HAPPY path specifically: "no unexpected
+          # problems" is grep finding nothing, which is exit 1. An empty known-problem list is also
+          # an empty PATTERN file — `grep -f` with no patterns matches nothing, so `-v` matches every
+          # line, which is the correct reading of an empty licence: every problem is unexpected.
+          rc=0
+          unexpected=""
+          unexpected=$(grep -vFf known-doc-problems.txt doc-problems.txt) || rc=$?
           if [ "$rc" -ge 2 ]; then
             echo "::error::could not compare the known-problem list against this run (grep exited $rc). Failing rather than guessing."
             exit 1
