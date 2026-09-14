@@ -1388,7 +1388,69 @@ jobs:
         run: |
           set -euo pipefail
           out="${RUNNER_TEMP}/publish.json"
-          notes="Published by ${{ github.workflow }} from tag ${RELEASE_TAG} (commit ${{ github.sha }}, run ${{ github.run_id }})."
+          # ── THE NOTES ARE READ BY A RESEARCHER, NOT BY US ───────────────────────────────────
+          # `AppRelease.notes` is rendered to the user inside the update prompt
+          # (MainActivity.kt:1915, under the version line). Until 2026-09-14 the only thing it ever
+          # carried was the provenance sentence below — so every researcher in the field was shown a
+          # workflow name, a commit sha and a run id, and nothing about what the update was or what
+          # they had to do.
+          #
+          # THAT MATTERS MOST FOR EXACTLY THE RELEASE THIS MECHANISM WAS ADDED FOR. Moving off the
+          # debug signing key changes the APK's CERTIFICATE, and Android refuses to install an update
+          # signed by a different certificate over an existing app — the handset must UNINSTALL first,
+          # which loses anything not yet synced. There is no MDM here and no remote uninstall: this
+          # string is the entire notification channel to the fleet, so it has to be able to say so.
+          #
+          # THE ANNOTATED TAG'S MESSAGE IS THE RELEASE NOTE. The tag already IS the release request
+          # (see the `on:` block), so its message is the natural place to write one, it is reviewable
+          # in `git show`, and it needs no new input to be kept in sync with the tag.
+          #
+          # ⚠ EVERY PART OF READING IT IS NON-FATAL, AND THAT IS THE POINT. This runs immediately
+          # before the one irreversible call in this file. A shallow checkout may not have the tag
+          # object; `fetch-tags` is deliberately off (see Checkout, which documents the refspec
+          # collision it causes on a tag push); a lightweight tag has no message at all; and a manual
+          # dry run has no tag whatsoever. Not one of those may cost us a publish, so each step is
+          # `|| true` and the fallback is precisely the provenance-only string this file sent before.
+          #
+          # Fetched into a DIFFERENT local ref name than the tag's own, which is what keeps this clear
+          # of the "Cannot fetch both <sha> and refs/tags/vX.Y.Z" collision the Checkout step records.
+          provenance="Published by ${{ github.workflow }} from tag ${RELEASE_TAG} (commit ${{ github.sha }}, run ${{ github.run_id }})."
+          message=""
+          if [ -n "${RELEASE_TAG:-}" ]; then
+            git fetch --depth=1 origin "+refs/tags/${RELEASE_TAG}:refs/tags/_publish_${RELEASE_TAG}" 2>/dev/null || true
+            # `%(contents)` is empty for a lightweight tag, which is the correct answer: there is no
+            # message to show. `cat-file -t` keeps us from reading a commit's message by mistake.
+            if [ "$(git cat-file -t "refs/tags/_publish_${RELEASE_TAG}" 2>/dev/null || true)" = "tag" ]; then
+              message="$(git tag -l --format='%(contents)' "_publish_${RELEASE_TAG}" 2>/dev/null || true)"
+            fi
+          fi
+
+          # Trim trailing blank lines, and drop a PGP signature block if the tag was signed — neither
+          # belongs in front of a researcher.
+          message="$(printf '%s
+' "$message" | sed '/-----BEGIN PGP SIGNATURE-----/,$d' | sed -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}')"
+
+          if [ -n "$message" ]; then
+            notes="${message}"$'
+
+'"${provenance}"
+          else
+            notes="${provenance}"
+          fi
+
+          # `notes` is `max_length=2000` on AppReleasePublishRequest and a 422 here would waste an
+          # upload that has already happened. Truncate rather than be refused, and say that we did.
+          if [ "${#notes}" -gt 2000 ]; then
+            notes="${notes:0:1900}"$'
+
+'"[truncated — see tag ${RELEASE_TAG}]"
+            echo "::warning::Release notes exceeded 2000 characters and were truncated for the API."
+          fi
+          printf 'Release notes to be published:
+---
+%s
+---
+' "$notes"
 
           code="$(jq -nc \
                 --arg versionName "$VERSION_NAME" \
