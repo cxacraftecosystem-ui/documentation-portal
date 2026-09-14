@@ -104,7 +104,7 @@ no key is skipped wherever it sits.
 | Surface | Files | Cases | Runner |
 |---|---|---|---|
 | Backend unit (`backend/tests/`) | 58 | 904 `def test_` | `python -m pytest -q` from `backend/` |
-| Web end-to-end (`frontend/e2e/`) | 38 | 537 `test(` | Playwright, `frontend/playwright.config.ts` |
+| Web end-to-end (`frontend/e2e/`) | 39 | 565 `test(` | Playwright, `frontend/playwright.config.ts` |
 | Android unit | present | — | `:app:testDebugUnitTest` reports NO-SOURCE |
 | Android instrumented | **none** — the `src/androidTest` source set does not exist | — | not run in CI |
 
@@ -117,10 +117,10 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 | Area | Tracked files | Tracked lines | Tree files | Tree lines |
 |---|---|---|---|---|
 | `backend/app` | 118 | 42,105 | 118 | 42,105 |
-| `frontend/app` | 41 | 15,921 | 41 | 15,921 |
-| `frontend/components` | 172 | 50,085 | 172 | 50,085 |
+| `frontend/app` | 41 | 15,997 | 41 | 15,997 |
+| `frontend/components` | 173 | 51,009 | 173 | 51,009 |
 | `frontend/lib` | 72 | 27,220 | 72 | 27,220 |
-| `android/app/src/main/java` | 79 | 70,295 | 79 | 70,295 |
+| `android/app/src/main/java` | 80 | 71,234 | 80 | 71,234 |
 
 Two columns because the two numbers get quoted interchangeably and disagree by however much work is
 uncommitted. **Tracked** is `git ls-files`, which is the figure to use in a write-up — it is
