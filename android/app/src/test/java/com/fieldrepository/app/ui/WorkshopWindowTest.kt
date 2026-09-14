@@ -9,6 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 import java.time.LocalDate
+import java.util.Locale
 
 /**
  * "THIS WORKSHOP ENDED ON 24 SEPT 2026", SAID TO SOMEONE STANDING IN IT ON THE 14TH.
@@ -245,6 +246,47 @@ class WorkshopWindowTest {
     fun `the last millisecond of the 23rd reads as the 23rd`() {
         assertEquals(LocalDate.parse("2026-09-23"), workshopBoundaryDay("2026-09-23T23:59:59.999000+00:00"))
         assertEquals("23 Sept 2026", formatWorkshopDay("2026-09-23T23:59:59.999000+00:00"))
+    }
+
+    /**
+     * THE GUARD THAT MAKES THE ASSERTION ABOVE MEAN SOMETHING — and it is not the obvious test.
+     *
+     * The assertion above passed on this developer's machine for weeks and failed on CI with
+     * `org.junit.ComparisonFailure`. Nothing about the date was wrong.
+     * `DateTimeFormatter.ofPattern("dd MMM yyyy")` carried no locale, so `MMM` — a TEXTUAL field —
+     * was rendered with `Locale.getDefault()`: "Sept" on an en_IN machine, "Sep" on the en_US
+     * runner. One build, two different strings.
+     *
+     * That is user-facing and not a test artefact. A researcher with their handset in Hindi or
+     * Bengali was shown that script's month inside an otherwise English sentence, and the web client
+     * — which pins `en-IN` (frontend/lib/format.ts:3) — disagreed with the app about the same
+     * workshop's dates. Fixed by pinning `WORKSHOP_DISPLAY_LOCALE` in ui/WorkshopOptions.kt.
+     *
+     * ⚠ THE OBVIOUS TEST FOR THIS DOES NOT WORK, AND WRITING IT WAS THE FIRST ATTEMPT HERE.
+     * `Locale.setDefault(Locale.US)` inside a test body proves nothing: `ofPattern` captures the
+     * locale AT CONSTRUCTION, and the formatter is a `private val` built once at class load, long
+     * before any test method runs. Measured — with the pin removed from ui/WorkshopOptions.kt, a
+     * suite containing exactly that test still passed on an en_IN laptop.
+     *
+     * The locale has to be wrong BEFORE THE JVM STARTS, so it is pinned on the forked test JVM in
+     * app/build.gradle.kts (`testOptions.unitTests.all { systemProperty("user.country", "US") }`).
+     * Under that, the plain assertion above is the real regression test.
+     *
+     * Which leaves one hole: somebody deletes those two lines, the suite goes back to running as
+     * en_IN, and the assertion above silently stops testing anything. THIS test is that hole's lid —
+     * it asserts the guard is still in force, and it is the reason a reader who sees a date test fail
+     * knows to pin the formatter rather than "fix" the build file.
+     */
+    @Test
+    fun `the suite runs under a locale that is not India, or the date tests prove nothing`() {
+        val default = Locale.getDefault()
+        assertFalse(
+            "The unit-test JVM is running as $default. A formatter with no explicit Locale would " +
+                "then be built as en_IN and every date assertion here would pass whether or not the " +
+                "formatter is pinned — which is exactly how the \"Sept\"/\"Sep\" bug reached main. " +
+                "Restore the systemProperty lines in app/build.gradle.kts testOptions.",
+            default.country == "IN" || default.toString().endsWith("_IN"),
+        )
     }
 
     /**

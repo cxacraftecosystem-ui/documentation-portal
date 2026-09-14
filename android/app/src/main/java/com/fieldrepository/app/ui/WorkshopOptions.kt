@@ -7,6 +7,7 @@ import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /**
  * THE WORKSHOP WINDOW AS THIS HANDSET JUDGES IT: THREE STATES, COUNTED IN IST DAYS.
@@ -70,7 +71,30 @@ import java.time.format.DateTimeFormatter
  */
 val WORKSHOP_OFFSET: ZoneOffset = ZoneOffset.ofHoursMinutes(5, 30)
 
-private val WORKSHOP_DAY_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd MMM yyyy")
+/**
+ * English (India), PINNED, and not the handset's locale — for the same reason [WORKSHOP_OFFSET] is
+ * not the handset's zone.
+ *
+ * `MMM` is a TEXTUAL field, so an unpinned formatter reads `Locale.getDefault()` and renders the
+ * month in whatever language the phone is set to: a researcher who has their handset in Hindi or
+ * Bengali got that script's month spliced into an otherwise English sentence. It also made the same
+ * build print different text on different machines — which is how this was found. A CI runner
+ * defaults to en_US, where CLDR abbreviates September "Sep"; this developer's machine is en_IN,
+ * where it is "Sept". `WorkshopWindowTest` asserts the string, so it passed here for weeks and
+ * failed on the first GitHub run that had unit tests to run at all.
+ *
+ * en-IN rather than ROOT or en-US, because it is what the product already says elsewhere: the web
+ * client formats every date with `Intl.DateTimeFormat("en-IN", …)` (frontend/lib/format.ts:3), and
+ * the two surfaces showing a workshop's dates differently would be a bug in its own right. ROOT and
+ * en-US would both print "Sep" and disagree with the web.
+ *
+ * Contrast `DateTimeFields.kt`'s `Locale.ROOT`, which is correct THERE and would be wrong here: that
+ * pattern is purely NUMERIC, where the only thing the locale can change is the numbering system.
+ */
+private val WORKSHOP_DISPLAY_LOCALE: Locale = Locale("en", "IN")
+
+private val WORKSHOP_DAY_FORMAT: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("dd MMM yyyy", WORKSHOP_DISPLAY_LOCALE)
 
 /** Not started / in window / over. The three answers a record form has to tell apart. */
 enum class WorkshopWindowState { NOT_STARTED, IN_WINDOW, ENDED }

@@ -3172,7 +3172,11 @@ private fun parseIsoToLocalDate(value: String?): LocalDate? {
 private fun formatIsoDate(value: String?): String? {
     val date = parseIsoToLocalDate(value) ?: return null
     return runCatching {
-        date.format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy"))
+        // en-IN, pinned, NOT the handset's locale — `MMM` is textual, so an unpinned formatter puts
+        // the phone's language into an English sentence and makes one build print different text on
+        // different machines. Same reasoning, and same locale, as WORKSHOP_DAY_FORMAT in
+        // ui/WorkshopOptions.kt; the web says en-IN too (frontend/lib/format.ts:3).
+        date.format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy", java.util.Locale("en", "IN")))
     }.getOrNull()
 }
 

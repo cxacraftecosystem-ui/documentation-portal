@@ -271,6 +271,42 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    testOptions {
+        unitTests.all {
+            // ── THE UNIT-TEST JVM RUNS AS en_US, DELIBERATELY, AND IT MUST NOT BE en_IN ──────────
+            //
+            // Not a preference: it is the only way a locale bug in a formatter can be caught by a
+            // test at all, and one shipped because it was not here.
+            //
+            // `DateTimeFormatter.ofPattern(pattern)` with no Locale captures `Locale.getDefault()`
+            // AT CONSTRUCTION, and the formatters in this app are `private val`s initialised once at
+            // class load. So a test that calls `Locale.setDefault(Locale.US)` in its own body proves
+            // NOTHING — the formatter was built before the test method ran, under whatever the
+            // machine's locale was. Measured: with the locale pin removed from
+            // ui/WorkshopOptions.kt, the whole suite still passed on an en_IN laptop.
+            //
+            // The locale therefore has to be wrong before the JVM starts, which is what
+            // `systemProperty` does — it becomes `-Duser.language=en -Duser.country=US` on the forked
+            // test JVM's command line, read at startup.
+            //
+            // en_US because it is what the GitHub runner uses, so a local run and a CI run agree; and
+            // because it differs from en_IN in exactly the way that matters — CLDR abbreviates
+            // September "Sep" under en_US and "Sept" under en_IN. That one letter is the whole of the
+            // bug that reached `main`: `WorkshopWindowTest` asserted "23 Sept 2026", passed on this
+            // developer's machine for weeks, and failed on the first CI run that had Android unit
+            // tests to run.
+            //
+            // ⚠ DO NOT "FIX" A FAILING DATE TEST BY CHANGING THIS TO en_IN. A test that fails here is
+            // telling you a formatter is reading the handset's locale, which means a researcher with
+            // their phone in Hindi or Bengali sees that script's month inside an English sentence.
+            // Pin the FORMATTER's locale instead — see WORKSHOP_DISPLAY_LOCALE in
+            // ui/WorkshopOptions.kt. `WorkshopWindowTest` asserts this pin is still in force, so
+            // removing these two lines fails the suite rather than quietly weakening it.
+            it.systemProperty("user.language", "en")
+            it.systemProperty("user.country", "US")
+        }
+    }
 }
 
 dependencies {
