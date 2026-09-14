@@ -1427,13 +1427,10 @@ jobs:
 
           # Trim trailing blank lines, and drop a PGP signature block if the tag was signed — neither
           # belongs in front of a researcher.
-          message="$(printf '%s
-' "$message" | sed '/-----BEGIN PGP SIGNATURE-----/,$d' | sed -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}')"
+          message="$(printf '%s\n' "$message" | sed '/-----BEGIN PGP SIGNATURE-----/,$d' | sed -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}')"
 
           if [ -n "$message" ]; then
-            notes="${message}"$'
-
-'"${provenance}"
+            notes="$(printf '%s\n\n%s' "$message" "$provenance")"
           else
             notes="${provenance}"
           fi
@@ -1441,16 +1438,10 @@ jobs:
           # `notes` is `max_length=2000` on AppReleasePublishRequest and a 422 here would waste an
           # upload that has already happened. Truncate rather than be refused, and say that we did.
           if [ "${#notes}" -gt 2000 ]; then
-            notes="${notes:0:1900}"$'
-
-'"[truncated — see tag ${RELEASE_TAG}]"
+            notes="$(printf '%s\n\n[truncated — see tag %s]' "${notes:0:1900}" "$RELEASE_TAG")"
             echo "::warning::Release notes exceeded 2000 characters and were truncated for the API."
           fi
-          printf 'Release notes to be published:
----
-%s
----
-' "$notes"
+          printf 'Release notes to be published:\n---\n%s\n---\n' "$notes"
 
           code="$(jq -nc \
                 --arg versionName "$VERSION_NAME" \
