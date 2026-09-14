@@ -1194,6 +1194,48 @@ jobs:
           # most dangerous thing that could be published — half the fleet would be on one artefact and
           # half on another, both reporting the same versionCode, with no way to tell them apart.
           # If a reissue is ever genuinely needed, bump the patch number. It costs nothing.
+          # ── THE ONE DELIBERATE WAY PAST THIS, ADDED 2026-09-14 ───────────────────────────────
+          # A VERSION RESET: deliberately publishing a LOWER versionCode, because the owner has
+          # decided to restart the numbering. It is opt-in per release and the opt-in lives in the
+          # ANNOTATED TAG'S MESSAGE, not in a workflow input, so the decision is recorded in the
+          # repository forever beside the release it applies to rather than in a form somebody
+          # ticked once.
+          #
+          # ⚠ WHAT A RESET ACTUALLY COSTS, because it is more than this guard and the marker is not
+          # permission to forget it:
+          #   1. EVERY INSTALLED HANDSET MUST UNINSTALL AND REINSTALL. Android refuses to install a
+          #      lower versionCode over a higher one. An uninstall deletes the unsent outbox.
+          #   2. `GET /api/app/release/latest` ANSWERS WITH THE HIGHEST CODE, NOT THE NEWEST ROW. A
+          #      lower release is accepted (201) and then offered to nobody, and the website goes on
+          #      serving the old build. Publishing the reset is NOT the whole job: the rows above it
+          #      have to go, and that is a database operation this workflow does not do and must not.
+          # The summary says both again at the end of the run.
+          reset_marker=""
+          if [ -n "${RELEASE_TAG:-}" ]; then
+            # FETCHED HERE TOO, because this step runs long before the publish step that also needs
+            # the tag object, and a marker that is never read is a guard that silently ignores the
+            # only way past it. Non-fatal and into a DIFFERENT local ref name than the tag's own,
+            # which is what keeps it clear of the "Cannot fetch both <sha> and refs/tags/vX.Y.Z"
+            # collision the Checkout step documents. Already-fetched is a no-op.
+            git fetch --depth=1 origin "+refs/tags/${RELEASE_TAG}:refs/tags/_publish_${RELEASE_TAG}" 2>/dev/null || true
+            reset_marker="$(git tag -l --format='%(contents)' "_publish_${RELEASE_TAG}" 2>/dev/null | grep -c '\[version-reset\]' || true)"
+          fi
+          if [ "$VERSION_CODE" -le "$published" ] && [ "${reset_marker:-0}" != "0" ]; then
+            echo "::warning title=Deliberate version reset::${VERSION_NAME} (code ${VERSION_CODE}) is BELOW the published ${published_name} (code ${published}), and the tag says [version-reset]. Publishing anyway."
+            echo "::warning::Every installed handset must UNINSTALL and reinstall — Android will not install a lower versionCode over a higher one, and an uninstall deletes the unsent outbox."
+            echo "::warning::This release will NOT become 'latest' while a higher versionCode exists in AppRelease: /api/app/release/latest answers with the highest CODE, not the newest row. Remove the higher rows or nobody is offered this."
+            {
+              echo "### ⚠ Version reset"
+              echo ""
+              echo "Published \`${VERSION_NAME}\` (code ${VERSION_CODE}) BELOW \`${published_name}\` (code ${published}), on the tag's \`[version-reset]\` marker."
+              echo ""
+              echo "- Every handset must **uninstall and reinstall**. An uninstall deletes the unsent outbox."
+              echo "- This is **not** \`latest\` yet — \`/api/app/release/latest\` returns the highest code, which is still ${published}. The higher AppRelease rows must be removed before any device is offered this."
+            } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            echo "PUBLISHED_BEFORE=${published}" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
           if [ "$VERSION_CODE" -le "$published" ]; then
             if [ "$VERSION_CODE" -eq "$published" ]; then
               echo "::error::Version ${VERSION_NAME} is ALREADY published at this exact code (${published}). Re-publishing the same code is refused outright here: a handset already on ${published} would never be offered it (the updater compares codes), so the only outcome is two different artefacts in the field claiming to be the same build."
@@ -1201,6 +1243,7 @@ jobs:
             echo "::error::Version ${VERSION_NAME} derives versionCode ${VERSION_CODE}, which is NOT ABOVE the published ${published} (${published_name}). Refusing to publish."
             echo "::error::This is the quiet failure: the API would ACCEPT this release and return 201, this run would go green, and not one device would ever be offered it — 'latest' is the highest versionCode, and that would still be ${published}."
             echo "::error::Bump 'val appVersionName' in android/app/build.gradle.kts above ${published_name} and tag THAT commit. Remember devices compare the CODE: major*1000000 + minor*1000 + patch."
+            echo "::error::If you MEANT to go backwards — restarting the numbering — put [version-reset] in the annotated tag's message. Read what it costs in the comment on this step first: every handset uninstalls, and this release is not 'latest' until the higher AppRelease rows are gone."
             exit 1
           fi
           echo "${VERSION_CODE} > ${published}: this release will be the latest."
