@@ -363,6 +363,74 @@ class RecordSwitcherTest {
      * the kind an edit to a page file removes silently: no compiler, type check or lint has an
      * opinion about a `<section>` that is one component shorter than it was.
      */
+    /**
+     * IT IS ON THE SCREEN THE APP CALLS "UPDATE EXISTING", AND THIS IS THE ASSERTION THAT WAS MISSING.
+     *
+     * The test below this one asserts `MainActivity.kt` contains `RecordSwitcher(` somewhere. That
+     * passed while the control was mounted ONLY on `EditScreen` — which you reach after you have
+     * already chosen the record, so the picker whose entire purpose is choosing one sat behind the
+     * choice it exists to make. The screen a researcher taps "Update existing artisan" to reach,
+     * `RecordPickerScreen`, went on showing every record of that kind in one unsearchable dropdown.
+     *
+     * It shipped in 0.0.3 and was reported as "no fix whatsoever is visible in the app". That was
+     * accurate: on the screen being looked at there was not one, and every test was green, because
+     * "the file mentions the component" is a different claim from "the update page draws it".
+     *
+     * So the body of each function is extracted and asserted SEPARATELY. A file-wide `contains` can
+     * never tell two mounts apart, and the whole failure was two screens one of which had it.
+     */
+    @Test
+    fun `the update-existing picker draws the switcher, not just the edit screen`() {
+        val main = repoSource(
+            "src/main/java/com/fieldrepository/app/MainActivity.kt",
+            "app/src/main/java/com/fieldrepository/app/MainActivity.kt",
+            "android/app/src/main/java/com/fieldrepository/app/MainActivity.kt",
+        )
+        for (screen in listOf("RecordPickerScreen", "EditScreen")) {
+            val start = main.indexOf("private fun $screen(")
+            assertTrue("$screen must exist in MainActivity.kt", start >= 0)
+            // To the next top-level declaration — enough to be that function's body and no more.
+            val next = main.indexOf("\nprivate fun ", start + 1)
+            val body = if (next > start) main.substring(start, next) else main.substring(start)
+            assertTrue(
+                "$screen must compose RecordSwitcher. A control mounted on only one of these two " +
+                    "screens is the 0.0.3 defect: the update page showed the old unfiltered dropdown " +
+                    "while the file-wide assertion passed on the other screen's mount.",
+                body.contains("RecordSwitcher(")
+            )
+            assertTrue(
+                "$screen must resolve the kind through recordSwitchKindFor so the five switchable " +
+                    "kinds stay one list rather than two that can disagree.",
+                body.contains("recordSwitchKindFor(")
+            )
+        }
+    }
+
+    /**
+     * AND THE UPDATE PAGE STILL REACHES RECORDS THE FILTER CANNOT NAME.
+     *
+     * The switcher narrows by `workshopId`, and the singular parameter the five list routes accept
+     * has no spelling for "unfiled" — so a record with a null `workshopId` is invisible to it. The
+     * plain list of every record, and the twelve recent tap targets under it, are therefore the only
+     * route to those rows and must not be "tidied away" now that a nicer control sits above them.
+     */
+    @Test
+    fun `the update-existing picker keeps its unfiltered list underneath`() {
+        val main = repoSource(
+            "src/main/java/com/fieldrepository/app/MainActivity.kt",
+            "app/src/main/java/com/fieldrepository/app/MainActivity.kt",
+            "android/app/src/main/java/com/fieldrepository/app/MainActivity.kt",
+        )
+        val start = main.indexOf("private fun RecordPickerScreen(")
+        val next = main.indexOf("\nprivate fun ", start + 1)
+        val body = if (next > start) main.substring(start, next) else main.substring(start)
+        assertTrue(
+            "RecordPickerScreen must keep the unfiltered dropdown: it is the only way to a record " +
+                "whose workshopId is null, which the workshop filter has no parameter to express.",
+            body.contains("Update existing ") && body.contains("Or tap a recent record")
+        )
+    }
+
     @Test
     fun `this client mounts the switcher on its edit screen`() {
         val main = repoSource(

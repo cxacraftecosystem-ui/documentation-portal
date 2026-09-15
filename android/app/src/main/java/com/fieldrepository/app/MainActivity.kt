@@ -4959,6 +4959,53 @@ private fun RecordPickerScreen(
         loading = false
     }
 
+    /*
+     * THE WORKSHOP-FIRST PICKER, ON THE SCREEN THAT IS ACTUALLY CALLED "UPDATE EXISTING".
+     *
+     * ── WHY IT IS HERE AND NOT ONLY ON THE EDIT SCREEN ────────────────────────────────────────
+     *
+     * It was built on `EditScreen` first, which sounds like the update page and is not: you only
+     * reach `EditScreen` once you have ALREADY chosen the record. The control whose whole purpose is
+     * choosing one was therefore behind the choice it exists to make, and the screen a researcher
+     * taps "Update existing artisan" to reach went on showing what it always had — every artisan in
+     * the repository, in one unsearchable dropdown. Reported as "no fix whatsoever is visible in the
+     * app", which was exactly right: on the screen being looked at, there wasn't one.
+     *
+     * ── IT IS THE SAME COMPONENT, NOT A SECOND ONE ────────────────────────────────────────────
+     *
+     * `RecordSwitcher` and `rememberRecordSwitcher` are reused verbatim, so this screen and the edit
+     * screen cannot drift about the default workshop, the debounce, when a search reaches the server,
+     * or what an empty or unreachable list says. Two pickers that answer "which record" differently
+     * is the drift `recordOptionLabel` was extracted to end, one screen earlier.
+     *
+     * ── THE PLAIN LIST BELOW IT STAYS ─────────────────────────────────────────────────────────
+     *
+     * `options` still loads every record of this kind and still draws the twelve most recent as tap
+     * targets. That is deliberate: it is the only route to a record whose `workshopId` is null, which
+     * the workshop filter has no spelling for — the singular `workshopId` parameter the five list
+     * routes accept cannot express "unfiled". Removing it would strand those records, so the
+     * switcher is an ADDITION to this screen and never a replacement.
+     */
+    val switchKind = recordSwitchKindFor(mode)
+    if (switchKind != null) {
+        val switchWorkshop = rememberWorkshopPicker(repository, isEdit = false, initialId = null)
+        val switcher = rememberRecordSwitcher(repository, switchKind, switchWorkshop)
+        RecordCard(title = recordSwitcherTitle(switchKind)) {
+            RecordSwitcher(
+                kind = switchKind,
+                workshop = switchWorkshop,
+                switcher = switcher,
+                // No record is open on this screen, so there is nothing to exclude and nothing to
+                // offer a "show this record's own workshop" shortcut for. Both are absences rather
+                // than blanks: `currentId` empty means the record dropdown pre-selects nothing, and
+                // a null `currentWorkshopId` simply withholds the shortcut button.
+                currentId = "",
+                onPick = onPick,
+                currentWorkshopId = null
+            )
+        }
+    }
+
     RecordCard(title = "Update existing ${mode.label.lowercase()}") {
         Text("Pick a record from the dropdown to open and edit it. Edits are attributed to you per field.", color = Muted, fontSize = 12.sp)
         when {
