@@ -16,12 +16,12 @@ API lags the tree by however many commits have not been deployed; see
 
 | | Count |
 |---|---|
-| Prisma models | **36** |
+| Prisma models | **37** |
 | Prisma enums | **16** |
-| `@@index` declarations | 92 |
-| `@@unique` declarations | 13 |
+| `@@index` declarations | 93 |
+| `@@unique` declarations | 14 |
 
-Models: `User`, `AccessRoster`, `AssignedTask`, `Feedback`, `UserPreference`, `AppRelease`, `Craft`, `Location`, `Artisan`, `Workshop`, `WorkshopArtisan`, `WorkshopCraft`, `ProductDocumentation`, `ToolDocumentation`, `ToolArtisan`, `MediaFile`, `MediaProcessingJob`, `Questionnaire`, `QuestionnaireSection`, `QuestionnaireSectionStatus`, `QuestionnaireQuestion`, `QuestionnaireInterview`, `QuestionnaireInterviewArtisan`, `QuestionnaireResponse`, `Process`, `ProcessStep`, `ReviewLog`, `AppSetting`, `WorkshopAssignment`, `ManagedSecret`, `SecretTestResult`, `DataAccessGrant`, `DataAccessScopeItem`, `EntryComment`, `RecordRevision`, `UserAiCredential`.
+Models: `User`, `AccessRoster`, `AssignedTask`, `Feedback`, `UserPreference`, `AppRelease`, `Craft`, `Location`, `Artisan`, `Workshop`, `WorkshopArtisan`, `WorkshopCraft`, `ProductDocumentation`, `ToolDocumentation`, `ToolArtisan`, `ToolCraft`, `MediaFile`, `MediaProcessingJob`, `Questionnaire`, `QuestionnaireSection`, `QuestionnaireSectionStatus`, `QuestionnaireQuestion`, `QuestionnaireInterview`, `QuestionnaireInterviewArtisan`, `QuestionnaireResponse`, `Process`, `ProcessStep`, `ReviewLog`, `AppSetting`, `WorkshopAssignment`, `ManagedSecret`, `SecretTestResult`, `DataAccessGrant`, `DataAccessScopeItem`, `EntryComment`, `RecordRevision`, `UserAiCredential`.
 
 Enums: `UserRole`, `AuthProvider`, `AccessStatus`, `RecordStatus`, `WorkshopType`, `MediaType`, `ProductType`, `MarketDemand`, `MakerType`, `TraditionType`, `ReviewRecordType`, `MediaProcessingJobType`, `MediaProcessingJobStatus`, `ProcessStepType`, `DataAccessTier`, `DataAccessStatus`.
 
@@ -103,8 +103,8 @@ no key is skipped wherever it sits.
 
 | Surface | Files | Cases | Runner |
 |---|---|---|---|
-| Backend unit (`backend/tests/`) | 58 | 904 `def test_` | `python -m pytest -q` from `backend/` |
-| Web end-to-end (`frontend/e2e/`) | 39 | 565 `test(` | Playwright, `frontend/playwright.config.ts` |
+| Backend unit (`backend/tests/`) | 59 | 955 `def test_` | `python -m pytest -q` from `backend/` |
+| Web end-to-end (`frontend/e2e/`) | 40 | 599 `test(` | Playwright, `frontend/playwright.config.ts` |
 | Android unit | present | — | `:app:testDebugUnitTest` reports NO-SOURCE |
 | Android instrumented | **none** — the `src/androidTest` source set does not exist | — | not run in CI |
 
@@ -116,11 +116,11 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 
 | Area | Tracked files | Tracked lines | Tree files | Tree lines |
 |---|---|---|---|---|
-| `backend/app` | 118 | 42,105 | 118 | 42,105 |
-| `frontend/app` | 41 | 15,997 | 41 | 15,997 |
-| `frontend/components` | 173 | 51,009 | 173 | 51,009 |
-| `frontend/lib` | 72 | 27,220 | 72 | 27,220 |
-| `android/app/src/main/java` | 80 | 71,281 | 80 | 71,281 |
+| `backend/app` | 118 | 43,000 | 118 | 43,000 |
+| `frontend/app` | 41 | 15,996 | 41 | 15,996 |
+| `frontend/components` | 173 | 51,957 | 174 | 52,135 |
+| `frontend/lib` | 72 | 27,328 | 72 | 27,328 |
+| `android/app/src/main/java` | 80 | 72,289 | 81 | 72,466 |
 
 Two columns because the two numbers get quoted interchangeably and disagree by however much work is
 uncommitted. **Tracked** is `git ls-files`, which is the figure to use in a write-up — it is
