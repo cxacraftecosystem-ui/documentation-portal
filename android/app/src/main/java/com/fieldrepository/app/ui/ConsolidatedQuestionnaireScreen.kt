@@ -254,6 +254,18 @@ private fun ConsolidatedIndex(
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var query by remember { mutableStateOf("") }
+    /**
+     * What this list is NOT showing, already worded (`ui/RecordPickers.listCutNotice`), or null when
+     * it is whole — which is the ordinary case for one workshop and prints nothing.
+     *
+     * The scope above is what usually makes this null: one workshop's artisans fit inside the
+     * hundred-row ceiling `normalize_pagination` clamps every list route to. "Usually" is not a
+     * property of the code, though, and an artisan who is silently absent from a picker is
+     * indistinguishable from an artisan who was never recorded — so the count comes back with the
+     * page and the screen says the number when it has to. `ListCutReach.NONE` is the honest reach
+     * here: the search box below filters the rows already loaded and does not reach the server.
+     */
+    var listCut by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(scope.settled, scope.requestKey) {
         // Held until the picker has settled, or the first request goes out unscoped and is replaced a
@@ -262,10 +274,14 @@ private fun ConsolidatedIndex(
         loading = true
         // Cleared BEFORE the request: a failed load followed by a scope change would otherwise keep
         // the old error card over a request already in flight, which reads as the retry not happening.
+        // The cut notice goes with it, for the same reason — it describes a list that is no longer
+        // the one being loaded.
         error = null
-        runCatching { repository.artisans(workshopIds = scope.workshopIds) }
-            .onSuccess {
-                artisans = it
+        listCut = null
+        runCatching { repository.artisansPage(workshopIds = scope.workshopIds) }
+            .onSuccess { page ->
+                artisans = page.items
+                listCut = listCutNotice(page.items.size, page.total, "artisans")
                 error = null
                 loading = false
             }
@@ -362,6 +378,9 @@ private fun ConsolidatedIndex(
         else -> ConsolidatedCard(title = "Artisans (${filtered.size})") {
             filtered.forEach { artisan ->
                 ArtisanPickRow(artisan = artisan, onOpen = { onOpen(artisan) })
+            }
+            listCut?.let {
+                Text(it, color = MaterialTheme.field.muted, fontSize = 11.sp)
             }
         }
     }

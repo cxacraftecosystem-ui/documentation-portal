@@ -39,7 +39,10 @@ import { PageHeader } from "@/components/PageHeader";
 import { useAuth } from "@/components/AuthProvider";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
 import { ComboBox, Dropdown } from "@/components/ui/Dropdown";
+import { CappedListNotice } from "@/components/data/CappedListNotice";
+import { listCut, type ListCut } from "@/components/data/cappedList";
 import { DataSearchPanel } from "@/components/data/DataSearchPanel";
+import { useWorkshopScope, WorkshopScopeSelect } from "@/components/WorkshopScopeSelect";
 import { API_BASE, apiFetch, buildQuery, getToken, listResource } from "@/lib/api";
 import { bytes, formatDateTime } from "@/lib/format";
 import { canDownloadDataset } from "@/lib/permissions";
@@ -540,12 +543,57 @@ function sortRecent<T extends { createdAt?: string }>(items: T[]) {
   return [...items].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
 }
 
+/**
+ * One type's rows, plus what the request could not reach.
+ *
+ * THE CUT TRAVELS WITH THE ROWS because it is the same defect one layer up that
+ * `components/data/cappedList` exists to end: every arm below asks for `pageSize: 100`, which is the
+ * server's ceiling (`normalize_pagination`), and every one of them used to keep `.items` and drop
+ * `total` on the floor. A browse list that silently stops at a hundred rows is indistinguishable from
+ * a repository that holds a hundred records, and this screen is literally called "View Data" — it is
+ * the screen a researcher opens to find out what exists.
+ *
+ * Only the questionnaire arm reports one today, because it is the only arm whose Android twin does
+ * (see [BrowseTypeDef.scoped]); the others return null and are unchanged. `CappedListNotice` renders
+ * nothing for a null, so adding the rest later is a one-line change per arm and no change here.
+ */
+type BrowseResult = {
+  rows: BrowseRow[];
+  cut: ListCut | null;
+};
+
+/** What a `load` is allowed to narrow by. One field today; it is a record so adding a second is not a signature change. */
+type BrowseScope = {
+  /** The workshop scope's wire value — comma-joined ids, or undefined for every workshop. */
+  workshopIds: string | undefined;
+};
+
 type BrowseTypeDef = {
   label: string;
   /** linkedRecordType value used by /media for this record type. */
   linkedType: string;
   editHref: (id: string) => string;
-  load: () => Promise<BrowseRow[]>;
+  /**
+   * DOES THIS ARM READ THE WORKSHOP SCOPE? It decides whether the control is on screen, whether the
+   * first request waits for the scope to settle, and whether changing the scope re-runs the load.
+   *
+   * ── WHY EXACTLY ONE ARM IS TRUE, AND WHY THAT IS NOT ARBITRARY ─────────────────────────────────
+   *
+   * This screen is "View Data" (`components/DynamicIslandNav.tsx`) and its handset twin is
+   * `ViewDataScreen` in `MainActivity.kt`: pick a record type, then an entry. The handset's
+   * questionnaire arm was given `rememberWorkshopScope` plus `repository.interviewsPage(scope.workshopIds)`
+   * and a cut notice, defaulting to the most recent workshop — and this one was left listing the
+   * newest hundred interviews from every workshop, silently. Two researchers at the third workshop,
+   * one on a phone and one on a laptop, got two different answers to *"what was recorded here"* off
+   * the same named screen.
+   *
+   * The other seven arms have no scoped Android counterpart, so scoping them here would CREATE the
+   * divergence rather than close it, in seven places, on a screen nobody asked us to change. They
+   * ignore the scope and the control does not claim to narrow them: it is only rendered for an arm
+   * that reads it. When one of them is scoped on the handset, it is turned on here in the same pass.
+   */
+  scoped?: boolean;
+  load: (scope: BrowseScope) => Promise<BrowseResult>;
 };
 
 const BROWSE_TYPES: Record<string, BrowseTypeDef> = {
@@ -553,37 +601,43 @@ const BROWSE_TYPES: Record<string, BrowseTypeDef> = {
     label: "Artisans",
     linkedType: "artisan",
     editHref: (id) => `/artisans/${id}/edit`,
-    load: async () =>
-      sortRecent((await listResource<Artisan>("/artisans", { pageSize: 100 })).items).map((x) => ({
+    load: async () => ({
+      rows: sortRecent((await listResource<Artisan>("/artisans", { pageSize: 100 })).items).map((x) => ({
         id: x.id,
         name: `${x.name}${x.place ? ` · ${x.place}` : ""}`,
         creator: x.createdBy?.name ?? "-",
         createdAt: x.createdAt
-      }))
+      })),
+      cut: null
+    })
   },
   product: {
     label: "Products",
     linkedType: "product",
     editHref: (id) => `/products/${id}/edit`,
-    load: async () =>
-      sortRecent((await listResource<ProductDocumentation>("/products", { pageSize: 100 })).items).map((x) => ({
+    load: async () => ({
+      rows: sortRecent((await listResource<ProductDocumentation>("/products", { pageSize: 100 })).items).map((x) => ({
         id: x.id,
         name: `${x.productName} · ${x.artisanName}`,
         creator: x.createdBy?.name ?? "-",
         createdAt: x.createdAt
-      }))
+      })),
+      cut: null
+    })
   },
   tool: {
     label: "Tools",
     linkedType: "tool",
     editHref: (id) => `/tools/${id}/edit`,
-    load: async () =>
-      sortRecent((await listResource<ToolDocumentation>("/tools", { pageSize: 100 })).items).map((x) => ({
+    load: async () => ({
+      rows: sortRecent((await listResource<ToolDocumentation>("/tools", { pageSize: 100 })).items).map((x) => ({
         id: x.id,
         name: `${x.toolkitName} · ${x.artisanName}`,
         creator: x.createdBy?.name ?? "-",
         createdAt: x.createdAt
-      }))
+      })),
+      cut: null
+    })
   },
   workshop: {
     label: "Workshops",
@@ -594,46 +648,70 @@ const BROWSE_TYPES: Record<string, BrowseTypeDef> = {
     // bare list route, which rendered the CREATE form: "Edit record" on a record the researcher had
     // already drilled into showed them an empty form, and filling it in made a second record.
     editHref: (id) => `/workshops?edit=${id}`,
-    load: async () =>
-      sortRecent((await listResource<Workshop>("/workshops", { pageSize: 100 })).items).map((x) => ({
+    load: async () => ({
+      rows: sortRecent((await listResource<Workshop>("/workshops", { pageSize: 100 })).items).map((x) => ({
         id: x.id,
         name: x.title?.trim() || "Untitled workshop",
         creator: x.createdBy?.name ?? "-",
         createdAt: x.createdAt
-      }))
+      })),
+      cut: null
+    })
   },
   craft: {
     label: "Crafts",
     linkedType: "craft",
     editHref: (id) => `/crafts?edit=${id}`,
-    load: async () =>
-      sortRecent((await listResource<Craft & WithCreator>("/crafts", { pageSize: 100 })).items).map((x) => ({
+    load: async () => ({
+      rows: sortRecent((await listResource<Craft & WithCreator>("/crafts", { pageSize: 100 })).items).map((x) => ({
         id: x.id,
         name: x.place ? `${x.name} · ${x.place}` : x.name,
         creator: x.createdBy?.name ?? "-",
         createdAt: x.createdAt
-      }))
+      })),
+      cut: null
+    })
   },
   questionnaire: {
     label: "Questionnaire",
     linkedType: "questionnaire",
     editHref: () => "/questionnaire",
-    load: async () =>
-      sortRecent((await listResource<QuestionnaireInterview>("/questionnaire/interviews", { pageSize: 100 })).items).map(
-        (x) => ({
+    // THE ONE SCOPED ARM. See `BrowseTypeDef.scoped` for why it is the one, and the handset twin it
+    // is matching (`MainActivity.ViewDataScreen`, questionnaire mode).
+    scoped: true,
+    load: async ({ workshopIds }) => {
+      // THE PLURAL, because this control is the multi-select `WorkshopScopeSelect` and it can hold
+      // several ids and the reserved `none`. `list_interviews` declares both spellings; the singular
+      // could not say either of those things, and `singleWorkshopIdOrNull`'s argument on the Kotlin
+      // side is the same one in reverse — a scope that cannot be said exactly must not be said
+      // approximately. The questionnaire page's own list sends the SINGULAR for the opposite reason:
+      // its control is `FunnelFilters`, which is single-select and has no unassigned option, so it
+      // has exactly one real id to say and the singular is understood by every deployed API.
+      const page = await listResource<QuestionnaireInterview>("/questionnaire/interviews", {
+        pageSize: 100,
+        workshopIds
+      });
+      return {
+        rows: sortRecent(page.items).map((x) => ({
           id: x.id,
           name: x.title?.trim() || "Untitled interview",
           creator: x.createdBy?.name ?? "-",
           createdAt: x.createdAt
-        })
-      )
+        })),
+        // OFF THE ENVELOPE AND NOT OFF `rows.length`: `sortRecent` copies the array and the map keeps
+        // its length, but reading the count from the envelope is what makes the sentence survive an
+        // arm that ever filters. `listCut` returns null when the page holds everything, which is the
+        // ordinary case for one workshop.
+        cut: listCut(page, "interviews")
+      };
+    }
   },
   process: {
     label: "Processes",
     linkedType: "process",
     editHref: (id) => `/processes?edit=${id}`,
-    load: async () =>
-      sortRecent(
+    load: async () => ({
+      rows: sortRecent(
         (
           await listResource<{ id: string; name: string; createdAt?: string } & WithCreator>("/processes", {
             pageSize: 100
@@ -644,19 +722,23 @@ const BROWSE_TYPES: Record<string, BrowseTypeDef> = {
         name: x.name,
         creator: x.createdBy?.name ?? "-",
         createdAt: x.createdAt
-      }))
+      })),
+      cut: null
+    })
   },
   media: {
     label: "Media",
     linkedType: "media",
     editHref: () => "/media",
-    load: async () =>
-      sortRecent((await listResource<MediaFile>("/media", { pageSize: 100 })).items).map((x) => ({
+    load: async () => ({
+      rows: sortRecent((await listResource<MediaFile>("/media", { pageSize: 100 })).items).map((x) => ({
         id: x.id,
         name: [x.originalFilename?.trim() || "Media", x.mediaType].filter(Boolean).join(" · "),
         creator: x.uploadedBy?.name ?? "-",
         createdAt: x.createdAt
-      }))
+      })),
+      cut: null
+    })
   }
 };
 
@@ -678,6 +760,7 @@ function mediaTypeIcon(mediaType?: string | null) {
 function BrowseByTypePanel() {
   const [typeKey, setTypeKey] = useState("");
   const [rows, setRows] = useState<BrowseRow[] | null>(null);
+  const [cut, setCut] = useState<ListCut | null>(null);
   const [loading, setLoading] = useState(false);
   const [recordId, setRecordId] = useState("");
   const [recordMedia, setRecordMedia] = useState<MediaFile[] | null>(null);
@@ -687,20 +770,56 @@ function BrowseByTypePanel() {
   const [downloadingDataset, setDownloadingDataset] = useState(false);
   const [datasetNote, setDatasetNote] = useState<string | null>(null);
 
+  /**
+   * WHICH WORKSHOP'S RECORDS THIS BROWSER IS LOOKING AT — the same control, with the same default,
+   * that the handset's `ViewDataScreen` mounts over the identical pair of dropdowns.
+   *
+   * DECLARED FOR EVERY TYPE, DISPLAYED FOR ONE, and that is not tidiness — it is the argument the
+   * Android twin already carries in its own comment. `typeKey` is state in this component, so a hook
+   * behind `if (def?.scoped)` would break the rules of hooks outright; and even as a child component
+   * it would be unmounted and rebuilt every time somebody flipped record type and came back, silently
+   * throwing away the scope they had chosen and re-applying the most-recent default under them.
+   *
+   * THE DEFAULT IS THE MOST RECENT WORKSHOP, which is `useWorkshopScope`'s default and the handset's.
+   * A browser opened during or just after a workshop is asking about that workshop; "All records" is
+   * one click away and says so in the summary line under the control.
+   */
+  const scope = useWorkshopScope();
+
   const def = typeKey ? BROWSE_TYPES[typeKey] : null;
+  // THE SCOPE ONLY EXISTS FOR AN ARM THAT READS IT. Spelled out as a variable rather than inlined
+  // into the effect twice, because the load and the effect key have to agree about it: a request sent
+  // with a workshop but keyed without one would not re-run when the workshop moved, which is the
+  // "loaded once and never refreshed" defect this whole change is about, wearing a different hat.
+  const scopeValue = def?.scoped ? scope.queryValue : undefined;
+  // HOLD THE FIRST REQUEST UNTIL THE DEFAULT IS IN. `useWorkshopScope` settles asynchronously, and
+  // "nothing chosen yet" and "the researcher chose All records" are the same value — an empty array
+  // — so a request fired during that window goes out unscoped, comes back, and is replaced a moment
+  // later by the scoped answer. Two requests, and a visible flash of every workshop's interviews
+  // under a control that is about to read like one workshop. `CompletionMatrixPanel`, the
+  // questionnaire picker and Android's own consumers all hold on the same flag.
+  const scopeSettling = Boolean(def?.scoped) && scope.settling;
 
   useEffect(() => {
     setRows(null);
+    setCut(null);
     setRecordId("");
     setRecordMedia(null);
     if (!typeKey) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
+    // HOLDING COUNTS AS LOADING, because the control below cannot tell the two apart and would
+    // otherwise say "No records" about a request that has not been sent yet — the same claim-before-
+    // the-answer this whole change is about, one control over. The effect re-runs the moment the
+    // scope settles, so this is a pause and not a branch.
+    if (scopeSettling) return;
     BROWSE_TYPES[typeKey]
-      .load()
+      .load({ workshopIds: scopeValue })
       .then((loaded) => {
-        if (!cancelled) setRows(loaded);
+        if (cancelled) return;
+        setRows(loaded.rows);
+        setCut(loaded.cut);
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "Unable to load records");
@@ -711,7 +830,10 @@ function BrowseByTypePanel() {
     return () => {
       cancelled = true;
     };
-  }, [typeKey]);
+    // `scopeValue` is in the list so a workshop change RE-FETCHES. A list loaded once and never
+    // refreshed is the same defect as a list never scoped at all: right when it arrived, wrong from
+    // the next tap on.
+  }, [typeKey, scopeValue, scopeSettling]);
 
   useEffect(() => {
     setRecordMedia(null);
@@ -800,6 +922,13 @@ function BrowseByTypePanel() {
 
   return (
     <section className="panel mb-5 p-4">
+      {/*
+        ABOVE BOTH DROPDOWNS, because it decides what each of them is a list OF — the same placement,
+        and the same sentence, as the handset's `ViewDataScreen`. Rendered only for an arm that reads
+        it: a control that appears to narrow a list it does not touch is worse than no control, and
+        seven of the eight arms here do not touch it. See `BrowseTypeDef.scoped`.
+      */}
+      {def?.scoped ? <WorkshopScopeSelect scope={scope} label="Workshops in this list" className="mb-3" /> : null}
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-56 flex-1">
           <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">Record type</div>
@@ -823,6 +952,15 @@ function BrowseByTypePanel() {
               onChange={setRecordId}
               placeholder={loading ? "Loading…" : recordOptions.length === 0 ? "No records" : "Type to filter records"}
             />
+            {/*
+              WHAT THIS LIST IS NOT SHOWING. `components/data/cappedList`'s standing rule, and it bites
+              hardest on this screen of all of them: the box beside it filters the rows already
+              loaded, so a record past the hundredth is not merely hard to find here, it cannot be
+              reached by typing its own name — and the empty result of that typing reads as a fact
+              about the repository. `reach="none"` says exactly that, and is the honest answer for a
+              `ComboBox` that never sends a term to the server.
+            */}
+            <CappedListNotice cuts={[cut]} />
           </div>
         ) : null}
         <button type="button" className="field-button ml-auto" disabled={downloadingDataset} onClick={downloadDataset}>

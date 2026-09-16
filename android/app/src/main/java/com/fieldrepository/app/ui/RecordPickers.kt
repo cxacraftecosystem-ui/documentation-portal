@@ -293,6 +293,101 @@ fun listCutNotice(
 }
 
 /**
+ * THE PLURAL NOUN THE CAPPED-LIST SENTENCE IS BUILT AROUND \u2014 "Showing 100 of 240 \u2026".
+ *
+ * It names the SCOPE and not just the record type, because the two sentences answer different
+ * questions: under a workshop the reader needs to know that this WORKSHOP has more people than are
+ * listed, not that the repository does.
+ *
+ * Web twin: `artisanScopeNoun` in `frontend/components/questionnaires/interviewArtisans.ts`, same two
+ * strings. It is here rather than beside the picker because the two clients printing two different
+ * sentences about one cut is the kind of difference nobody files a bug about and everybody notices.
+ */
+fun artisanScopeNoun(workshopId: String): String = if (workshopId.isNotBlank()) "artisans at this workshop" else "artisans"
+
+/**
+ * WHICH TICKED ARTISANS THE WORKSHOP'S ROSTER DOES NOT ACCOUNT FOR \u2014 a SENTENCE, not a deletion.
+ *
+ * ── WHAT THIS ANSWERS, AND WHAT IT DELIBERATELY DOES NOT DO ─────────────────────────────────────
+ *
+ * The browser used to run this same ruling and then WRITE THE RESULT BACK into the form's selection:
+ * a workshop change silently unticked anybody the new workshop's complete roster did not hold. This
+ * client never did, and the two therefore saved different `QuestionnaireInterviewArtisan` rows for
+ * one identical pair of taps. Keeping the tick won, on the argument written out in full as rule 6 in
+ * `frontend/components/questionnaires/interviewArtisans.ts`; the short version is that
+ * `artisan_workshop_clause` counts three links and the third is HAVING SAT IN AN INTERVIEW TAKEN AT
+ * THE WORKSHOP \u2014 the link the questionnaire form itself creates \u2014 so a roster's silence about
+ * somebody is not evidence that ticking them was a mistake, it is evidence they have not been
+ * interviewed here before.
+ *
+ * What was missing on both clients was the sentence. A selection a form quietly disagrees with is a
+ * form that has an opinion nobody can read.
+ *
+ * ── THE THREE-WAY RULING, WHICH IS UNCHANGED ────────────────────────────────────────────────────
+ *
+ * "Absent from the list" has three causes and only one of them is "this workshop does not know
+ * them", so this stays silent unless it is certain:
+ *
+ *   \u2022 [loadedForWorkshop] != [workshopId] \u2014 the roster for the workshop now on screen has not landed
+ *     (or the request failed, which leaves it null on purpose). Nothing is known, so nothing is said.
+ *     Without this arm the line would appear on every mount and every workshop change for the length
+ *     of a round trip, naming everybody, and a warning that is usually wrong is one nobody reads.
+ *   \u2022 [cut] is non-null \u2014 the roster stopped at the page budget with rows behind it. An artisan
+ *     absent from a truncated list may be perfectly well linked here and simply past the cut, and
+ *     [listCutNotice] is already on screen saying the list is short. This one would be contradicting
+ *     it.
+ *   \u2022 Otherwise the roster is the complete answer for this workshop, so absence means absence.
+ *
+ * Returns ids IN THE ORDER GIVEN so the sentence lists people in the researcher's own tick order and
+ * reads identically on both clients. Web twin: `artisansNotAtWorkshop`.
+ */
+fun artisansNotAtWorkshop(
+    selectedIds: Collection<String>,
+    offeredIds: Collection<String>,
+    loadedForWorkshop: String?,
+    workshopId: String,
+    cut: String?
+): List<String> {
+    if (loadedForWorkshop != workshopId) return emptyList()
+    if (cut != null) return emptyList()
+    val offered = offeredIds.toHashSet()
+    return selectedIds.filter { it.isNotBlank() && !offered.contains(it) }
+}
+
+/** How many names the sentence prints before it starts counting. A selection of thirty must not print a paragraph. */
+const val OUT_OF_WORKSHOP_NAMES_SHOWN = 4
+
+/**
+ * THE SENTENCE UNDER THE PICKER naming the ticked artisans this workshop's roster does not hold, or
+ * null when there is nothing to say.
+ *
+ * WHY IT DOES NOT READ AS A WARNING. Nothing is wrong yet, and in the commonest case nothing is wrong
+ * at all: an interview taken at this workshop with somebody whose own record is filed at another one
+ * is an ordinary event, and filing it is precisely what creates the link that would have put them on
+ * this roster. So the sentence states the fact, states what saving will do, and stops. Wording it as
+ * "these artisans do not belong here" would push a researcher into unticking a perfectly good
+ * selection to make a message go away.
+ *
+ * NAMES AND NOT A COUNT. "1 artisan is not recorded at this workshop" makes the reader open the
+ * control and compare it against a roster to find out who; the names are already in hand, and the
+ * whole point of the sentence is that it can be acted on without looking anything up.
+ *
+ * WORD FOR WORD THE WEB'S `outOfWorkshopNotice`, and that is the requirement rather than a nicety \u2014
+ * the same reason [listCutNotice] has a twin. Two screens describing the same situation in two
+ * different sentences is how a researcher learns that neither of them means much.
+ */
+fun outOfWorkshopNotice(names: List<String>): String? {
+    val clean = names.map { it.trim() }.filter { it.isNotEmpty() }
+    if (clean.isEmpty()) return null
+    val shown = clean.take(OUT_OF_WORKSHOP_NAMES_SHOWN)
+    val remainder = clean.size - shown.size
+    val list = shown.joinToString(", ") + if (remainder > 0) " and $remainder more" else ""
+    val subject = if (clean.size == 1) "$list is" else "$list are"
+    return "$subject not recorded at this workshop yet. They stay ticked \u2014 saving this interview here " +
+        "is what links them to it. Untick anyone who should not be on it."
+}
+
+/**
  * Add rows to a picker's options without ever removing one — the other half of living with a
  * ceiling.
  *

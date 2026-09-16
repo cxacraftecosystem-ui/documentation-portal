@@ -13,6 +13,9 @@ import android.widget.Toast
 // concurrently when that feature landed. Re-declaring them here would give the app two spellings of
 // one wire format; if they ever move into ApiModels.kt this import is the only line to delete.
 import com.fieldrepository.app.ui.ConsolidatedQuestionnaireDto
+import com.fieldrepository.app.ui.UNASSIGNED_WORKSHOP
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -160,6 +163,51 @@ private fun detailMessage(detail: JsonElement): String? = when (detail) {
 
 /** Files in flight at once. Matches the web's UPLOAD_CONCURRENCY; see docs/MEDIA_PIPELINE.md. */
 private const val UPLOAD_CONCURRENCY = 3
+
+/**
+ * THE LARGEST PAGE ANY LIST ROUTE IN THIS APPLICATION WILL SERVE.
+ *
+ * `normalize_pagination` does `min(page_size, MAX_PAGE_SIZE)` with `MAX_PAGE_SIZE = 100`
+ * (`backend/app/services/pagination.py`) and the list routes declare `Query(20, ge=1, le=100)` on top
+ * of that, so 100 is refused-past and not a tunable. Named rather than repeated as a literal so that
+ * the day the server raises it there is one number to change and a grep that finds every caller.
+ *
+ * The web's twin is `LIST_PAGE_CEILING` in `frontend/components/data/cappedList.ts`, same value, same
+ * paragraph.
+ */
+internal const val LIST_PAGE_CEILING = 100
+
+/**
+ * HOW MANY PAGES OF A WORKSHOP'S ARTISAN ROSTER THIS CLIENT WILL WALK — and why it walks any.
+ *
+ * ── THE DEFECT THIS CLOSES ─────────────────────────────────────────────────────────────────────
+ *
+ * [FieldRepository.artisansPage] was one request for one page, so the questionnaire form on the
+ * handset offered at most 100 artisans for a workshop while the browser offered 500: the web's
+ * `useWorkshopArtisans` has paged to `ARTISAN_PAGE_BUDGET = 5` since the scoping landed
+ * (`frontend/components/questionnaires/interviewArtisans.ts`). Both clients printed an honest cut
+ * notice, so neither was lying — they were simply OFFERING DIFFERENT PEOPLE for the same workshop,
+ * which is the first thing the parity requirement names. A researcher could link an interview to the
+ * 118th artisan from a laptop and could not link it to them at all from the phone they were holding
+ * inside the workshop.
+ *
+ * `/artisans` is ordered `createdAt desc`, so the hundred a single request keeps are the NEWEST
+ * hundred: the cut fell in a different place on each client on each day, which is why nobody caught
+ * it by looking.
+ *
+ * ── WHY FIVE ────────────────────────────────────────────────────────────────────────────────────
+ *
+ * It is the web's number, and it must stay the web's number or the two clients start disagreeing
+ * again one row at a time. Five pages is 500 artisans, which covers the largest table the sibling
+ * deployment has ever counted behind this picker (749 artisans across EVERY workshop; one workshop's
+ * share of that is far smaller — see `frontend/components/data/cappedList.ts` for the census) while
+ * bounding the worst case at five requests. Pages two onward go out together, so it is two round
+ * trips and not five.
+ *
+ * RAISING THIS ALONE WOULD FIX NOTHING. That is `ui/RecordPickers.listCutNotice`'s standing rule and
+ * the reason the notice ships beside it: moving a cut is not telling anybody where the cut is.
+ */
+internal const val ARTISAN_PAGE_BUDGET = 5
 
 class FieldRepository(
     private val api: FieldRepositoryApi,
@@ -941,18 +989,70 @@ class FieldRepository(
         api.artisans(pageSize = 100, workshopIds = workshopIds.toQueryCsv()).items
 
     /**
-     * The same request, WITH the envelope — because `total` is the half that says whether the list
-     * is whole.
+     * The same request, WITH the envelope and PAGED — because `total` is the half that says whether
+     * the list is whole, and one page of it is not enough of the list.
      *
-     * `pageSize = 100` is not a generous default somebody forgot to raise: `normalize_pagination`
-     * clamps to `MAX_PAGE_SIZE = 100` (`backend/app/services/pagination.py`), so it is the ceiling
-     * and cannot be widened from this client even in principle. Every caller of [artisans] above
-     * keeps `.items` and drops `total`, which is exactly how a cut list came to render
-     * indistinguishably from a repository with nothing in it. A screen that shows this list must be
-     * able to say so — see `ui/RecordPickers.listCutNotice`.
+     * ── THE CEILING, AND WHY ONE REQUEST CANNOT CLEAR IT ────────────────────────────────────────
+     *
+     * [LIST_PAGE_CEILING] is refused-past server-side, so a single request holds 100 rows however it
+     * is asked — it is not a default somebody forgot to raise. Every caller of [artisans] above keeps
+     * `.items` and drops `total`, which is exactly how a cut list came to render indistinguishably
+     * from a repository with nothing in it. A screen that shows this list must be able to say so —
+     * see `ui/RecordPickers.listCutNotice`.
+     *
+     * ── AND WHY THE NOTICE WAS NOT ENOUGH ON ITS OWN ────────────────────────────────────────────
+     *
+     * It made the handset HONEST about offering a hundred people; it did not make the handset offer
+     * the same people the browser was offering. See [ARTISAN_PAGE_BUDGET] for the whole argument. So
+     * this walks pages 1..min(pages, budget) exactly as `useWorkshopArtisans` does, and reports the
+     * remainder off the ACCUMULATED count so the sentence still tells the truth past 500.
+     *
+     * PAGES TWO ONWARD GO OUT TOGETHER. `total` and `pages` come back with page one, so the remaining
+     * page numbers are known exactly; waiting for each answer to learn the next number would turn a
+     * field connection's latency into a multiple of itself for no extra information. `awaitAll`
+     * preserves the order it was given, so concatenating keeps the server's own `createdAt desc`
+     * ordering intact end to end — which is the ordering half of the parity contract, and the reason
+     * neither client sorts.
+     *
+     * THE ENVELOPE IS REBUILT RATHER THAN RETURNED VERBATIM: `items` is everything walked, `pageSize`
+     * is how many rows that actually is, and `total` and `pages` stay the server's answer about the
+     * whole filtered set. A caller reading `items.size` against `total` therefore gets the real
+     * remainder rather than "100 of 640" over 500 loaded rows.
+     *
+     * A FAILURE ON ANY PAGE FAILS THE WHOLE CALL, deliberately. `coroutineScope` cancels its siblings
+     * and rethrows, so the caller gets an exception rather than a silently short list: the one thing
+     * worse than a roster that stops at 100 is a roster that stops at 237 and says 500.
+     *
+     * ── [pageBudget] DEFAULTS TO ONE, AND THAT IS NOT TIMIDITY ──────────────────────────────────
+     *
+     * Only the surface whose web twin pages asks for pages. The web has exactly one: the questionnaire
+     * capture form's artisan picker (`useWorkshopArtisans` effect B, `ARTISAN_PAGE_BUDGET`). Its other
+     * two artisan reads are deliberately page-one — the consolidated index
+     * (`app/(protected)/questionnaire/consolidated/page.tsx`, `pageSize: 100`) and the repository-wide
+     * reachability probe that backs the carry bag, whose own comment refuses to page it because
+     * *"paging it would be a change to a different feature's behaviour, made silently from here"*.
+     *
+     * A budget that defaulted to five would therefore FIX one divergence by creating two: the handset's
+     * consolidated index would offer 500 artisans against the browser's 100, and every app start would
+     * walk five pages of the whole artisan table to widen `carryScope`'s reach behind the researcher's
+     * back. Parity is per surface, so the budget is per call site — and each call site that raises it
+     * is a place where somebody decided the browser does the same.
      */
-    suspend fun artisansPage(workshopIds: List<String>? = null): PageResponse<ArtisanDto> =
-        api.artisans(pageSize = 100, workshopIds = workshopIds.toQueryCsv())
+    suspend fun artisansPage(
+        workshopIds: List<String>? = null,
+        /** How many pages to walk. One is the whole of today's behaviour; [ARTISAN_PAGE_BUDGET] is the picker's. */
+        pageBudget: Int = 1
+    ): PageResponse<ArtisanDto> = coroutineScope {
+        val scope = workshopIds.toQueryCsv()
+        val first = api.artisans(page = 1, pageSize = LIST_PAGE_CEILING, workshopIds = scope)
+        val lastPage = minOf(first.pages, pageBudget)
+        if (lastPage <= 1) return@coroutineScope first
+        val rest = (2..lastPage)
+            .map { page -> async { api.artisans(page = page, pageSize = LIST_PAGE_CEILING, workshopIds = scope) } }
+            .awaitAll()
+        val rows = first.items + rest.flatMap { it.items }
+        first.copy(items = rows, page = 1, pageSize = rows.size)
+    }
 
     /**
      * The artisans of SEVERAL crafts, filtered by the server rather than in memory.
@@ -1522,7 +1622,86 @@ class FieldRepository(
     suspend fun createQuestionnaireInterview(body: QuestionnaireInterviewCreateRequest): CreatedRecordDto =
         api.createQuestionnaireInterview(body)
 
-    suspend fun interviews(): List<QuestionnaireInterviewDetailDto> = api.interviews(pageSize = 100).items
+    /**
+     * THE INTERVIEWS IN SCOPE. [workshopIds] is the shared workshop scope — null or empty is EVERY
+     * workshop, and the reserved id `none` asks for interviews linked to no workshop. Spelled and
+     * defaulted exactly like [artisans] above, because the questionnaire form and the browse screens
+     * read the two lists side by side and a scope that meant two different things across them would
+     * offer one workshop's artisans against another workshop's interviews.
+     *
+     * ── THIS PARAMETER IS DEFECT (2) ──────────────────────────────────────────────────────────
+     *
+     * "In the android, the questionnaire from the previous workshop are showing up even in the third
+     * workshop". This method took NO argument. Every questionnaire surface on the handset therefore
+     * listed every interview in the repository, in every workshop, for ever — while
+     * `ui/ConsolidatedQuestionnaireScreen.kt` had been passing `scope.workshopIds` to [artisans]
+     * since the scope control landed. One list scoped and its neighbour not is the shape of bug that
+     * survives a release: each screen is internally consistent, and only somebody holding both at
+     * once can see that they disagree.
+     *
+     * ── THE DEFAULT IS "EVERY WORKSHOP", AND THE CALLERS ARE WHERE THE MEANING IS ─────────────
+     *
+     * A defaulted null here is NOT the policy for "no workshop chosen" — it is the absence of a
+     * question, and it exists so that the surfaces which genuinely have no workshop control on
+     * screen (My Activity, the misc-media link picker) keep compiling and keep meaning what they
+     * always meant. The policy for a screen that DOES carry the control lives in
+     * `ui/WorkshopScope.kt`: the picker settles on the most recent workshop before the first request
+     * goes out, and the only way to see everything is to tap "All records", which says so. There is
+     * no third state on either client — "nothing chosen yet" is not reachable, because a screen that
+     * could show an unscoped list while the picker still read like a workshop was chosen is exactly
+     * the confusion being fixed.
+     *
+     * @see interviewsPage for the 100-row ceiling, which is the reason most callers want the envelope.
+     */
+    suspend fun interviews(workshopIds: List<String>? = null): List<QuestionnaireInterviewDetailDto> =
+        interviewsPage(workshopIds).items
+
+    /**
+     * [interviews] WITH THE ENVELOPE — because `total` is the half that says whether the list is
+     * whole.
+     *
+     * `pageSize = 100` is not a default somebody forgot to raise: `normalize_pagination` clamps to
+     * `MAX_PAGE_SIZE = 100` (`backend/app/services/pagination.py`) and the route declares `le=100` on
+     * top of it, so it is the ceiling and cannot be widened from this client even in principle. The
+     * same argument, and the same answer, as [artisansPage]: a caller that keeps `.items` and drops
+     * `total` renders a cut list indistinguishably from a repository with nothing in it. Every
+     * questionnaire picker on this client now takes the envelope and says the number out loud through
+     * `ui/RecordPickers.listCutNotice`.
+     *
+     * Scoping and the ceiling are the same fix twice over, which is why they landed together: one
+     * workshop's interviews fit inside a hundred rows in practice, so the parameter above is also
+     * what makes the cap stop mattering — and the notice is what keeps "in practice" from being load-
+     * bearing.
+     */
+    suspend fun interviewsPage(workshopIds: List<String>? = null): PageResponse<QuestionnaireInterviewDetailDto> =
+        api.interviews(
+            pageSize = 100,
+            workshopIds = workshopIds.toQueryCsv(),
+            workshopId = workshopIds.singleWorkshopIdOrNull()
+        )
+
+    /**
+     * EVERY INTERVIEW ONE ARTISAN SAT IN, filtered by the server — the sibling-save lookup, and
+     * deliberately NOT scoped by workshop.
+     *
+     * An interview is identified by its exact set of artisans, and two screens need every save ever
+     * made against that set: the View Data detail (which aggregates answers and media across the
+     * group, so a recording attached to a sibling is never hidden) and the questionnaire form in edit
+     * mode (which shows those same recordings while the form is open). Both used to find the group by
+     * pulling the newest hundred interviews in the WHOLE repository and filtering them in memory —
+     * so the moment the repository outgrew one page, a sibling that had sorted off page one was not
+     * found, and its answers and its recordings silently disappeared from the two screens whose
+     * stated purpose is that they never do. Asking for one artisan's interviews is a bounded question
+     * and the right one.
+     *
+     * NO WORKSHOP SCOPE HERE, ON PURPOSE. The record is already chosen at both call sites; the group
+     * is a property of that record, not of the list it was picked from. Narrowing it to whatever
+     * workshop the picker happens to be showing would drop the sittings the aggregation exists to
+     * gather — the caller would have scoped the RECORD rather than the LIST, which is the one place
+     * scoping is wrong.
+     */
+    suspend fun interviewsForArtisan(artisanId: String): List<QuestionnaireInterviewDetailDto> =
+        api.interviews(pageSize = 100, artisanId = artisanId).items
 
     suspend fun interview(id: String): QuestionnaireInterviewDetailDto = api.interview(id)
 
@@ -2743,6 +2922,40 @@ private fun String?.blankToNull(): String? = this?.trim()?.takeIf { it.isNotEmpt
  */
 private fun List<String>?.toQueryCsv(): String? =
     this?.mapNotNull { it.blankToNull() }?.distinct()?.takeIf { it.isNotEmpty() }?.joinToString(",")
+
+/**
+ * THE ONE WORKSHOP A SCOPE CAN ALSO BE SENT AS — or null when it cannot be sent as one at all.
+ *
+ * The singular `workshopId` parameter rides beside the plural `workshopIds` on the routes that
+ * accept both, so that a handset updated ahead of the API still narrows: FastAPI ignores a query
+ * parameter it does not declare, in silence, so a client that sent ONLY the plural to a server that
+ * had not yet grown it would get the whole table back and render it as one workshop's records. See
+ * `FieldRepositoryApi.interviews`'s `workshopId`, and `artisansForCraftsPage` for the same argument
+ * about `craftId`/`craftIds`.
+ *
+ * IT REFUSES EVERY SCOPE IT CANNOT SAY EXACTLY, and that is the whole point of it being a function
+ * rather than `workshopIds?.firstOrNull()`:
+ *
+ *   - TWO OR MORE WORKSHOPS collapse to null. Sending the first id would answer a NARROWER question
+ *     than the one asked, with nothing on screen to say which of the ticked workshops was dropped —
+ *     and against a server that DOES understand the plural, both parameters narrow, so the first id
+ *     would win and the others would vanish.
+ *   - THE RESERVED `none` collapses to null. `workshopId=none` tests the column against the literal
+ *     string "none" and matches nothing whatsoever, rather than the records linked to no workshop
+ *     that the sentinel exists to name — an empty screen where the answer was "these seven".
+ *
+ * In both refused cases the plural still goes out alone, so a current server answers correctly and
+ * only a stale one is wide. The alternative — narrowing wrongly but confidently — is worse, because
+ * a wide list is visibly wide and a silently-narrowed one is not.
+ *
+ * Blanks and duplicates are dropped first, exactly as [toQueryCsv] drops them, so the two parameters
+ * are always derived from the same normalised selection and cannot describe different scopes.
+ */
+private fun List<String>?.singleWorkshopIdOrNull(): String? =
+    this?.mapNotNull { it.blankToNull() }
+        ?.distinct()
+        ?.singleOrNull()
+        ?.takeIf { it != UNASSIGNED_WORKSHOP }
 
 // ---------------------------------------------------------------------------
 // The name a captured file is uploaded under.

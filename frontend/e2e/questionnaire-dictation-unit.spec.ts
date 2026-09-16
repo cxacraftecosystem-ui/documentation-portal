@@ -217,7 +217,26 @@ test("the dictated boxes on this page are exactly the free-text ones, named", ()
   // box whose value must be exact is the one box dictation must not touch.
   expect(CODE, "the instrument picker is a Select").toMatch(/<Select\s+name="questionnaireId"/);
   expect(CODE, "status is a Select").toMatch(/<Select name="status"/);
-  expect(CODE, "the primary artisan is a Select").toMatch(/<Select\s+name="primaryArtisanId"/);
+  /*
+    THE ARTISAN PICKER IS A MULTI-SELECT AND HAS NO MICROPHONE.
+
+    Until 0.0.5 this line read `expect(CODE).toMatch(/<Select\s+name="primaryArtisanId"/)` — there
+    were two artisan controls, a single-select "Primary artisan" and a multi-select "Additional
+    artisans", and the assertion pinned the first of them. The two are now one
+    `MultiSelectDropdown` (`components/questionnaires/interviewArtisans.ts` carries the argument),
+    so the control this rule is about has a different shape and the rule itself is unchanged: a set
+    of artisan IDs is the closed vocabulary par excellence, and a recogniser handed "Ramesh Kumar"
+    returns "Ramesh Kumar", "Ramesh Kumaar" or "Remus Kumar" with equal confidence while the value
+    that has to be stored is a cuid nobody can say out loud.
+
+    Asserted as "the picker is a MultiSelectDropdown" AND "no dictated box was put in its place",
+    because the failure worth catching is not the control changing type — it is somebody replacing a
+    picker with a free-text box on the grounds that the list was too long to scroll.
+  */
+  expect(CODE, "the artisans are picked from a multi-select, not typed").toMatch(
+    /<MultiSelectDropdown\s+values=\{selectedArtisanIds\}/
+  );
+  expect(CODE, "no artisan is ever dictated into a box").not.toMatch(/name="(primary)?[aA]rtisan(Id|Ids)?"/);
   expect(CODE, "a section code is typed, never spoken").toMatch(
     /<TextInput value=\{newCode\} onChange=\{\(event\) => setNewCode\(event\.target\.value\)\}/
   );

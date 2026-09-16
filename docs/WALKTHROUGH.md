@@ -224,9 +224,8 @@ record whether the toolchain behind the craft is still alive.
 
 Sit down with the artisan and work through the interview sections, recording each answer as audio.
 
-**What the screen asks for:** Interview title *(required)*, Date, Place, Language, Primary artisan,
-Additional artisans, then per question either a **"Record this question"** audio clip or a typed
-answer.
+**What the screen asks for:** Interview title *(required)*, Date, Place, Language, Artisans
+interviewed, then per question either a **"Record this question"** audio clip or a typed answer.
 
 **Why it exists.** The questionnaire is the artisan speaking in their own voice and their own
 language. Recorded audio is auto-transcribed on the server, so you get both the original recording

@@ -486,8 +486,7 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
             "Date",
             "Place",
             "Language",
-            "Primary artisan",
-            "Additional artisans",
+            "Artisans interviewed",
             "Per question: \"Record this question\" audio, or typed answer",
         ),
         watch = listOf(

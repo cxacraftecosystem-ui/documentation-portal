@@ -247,8 +247,7 @@ export const GUIDE_STEPS: GuideStep[] = [
       "Date",
       "Place",
       "Language",
-      "Primary artisan",
-      "Additional artisans",
+      "Artisans interviewed",
       "Per question: \"Record this question\" audio, or typed answer"
     ],
     watch: [

@@ -747,6 +747,29 @@ async def list_interviews(
     search: str | None = None,
     artisanId: str | None = None,
     workshopId: str | None = None,
+    # The workshop SCOPE, plural, from the shared filter vocabulary — repeatable or comma-joined ids
+    # plus the reserved value "none"; absent means every workshop. Distinct from the singular
+    # ``workshopId`` above, which stays because every existing caller sends it; WHEN BOTH ARE SENT
+    # BOTH NARROW.
+    #
+    # IT IS SPELLED EXACTLY AS ``artisans.list_artisans`` SPELLS ITS OWN — same parser, same
+    # sentinel, same "absent means every workshop" default — and that is the point rather than a
+    # coincidence. These two routes back the SAME control on both clients: Android's
+    # ``rememberWorkshopScope`` already hands ``scope.workshopIds`` to the artisan list, and the web
+    # questionnaire form scopes its artisan picker and its interview lookup from one dropdown. A
+    # scope that meant something subtly different on this route would offer one workshop's artisans
+    # against another workshop's interviews, on a form whose entire job is linking the two. The two
+    # routes cannot drift because the narrowing is the same three lines over the same helper.
+    #
+    # WHY THE SINGULAR ABOVE IS NOT ENOUGH, given it works and is staying. The scope control is a
+    # MULTI-select on both clients (``Set<String>`` on Android, sorted and comma-joined onto the
+    # query string), and it may hold the reserved "none". Neither is expressible singularly. Two
+    # ticked workshops would have to be sent as the first id alone — silently answering a narrower
+    # question than the one asked, with nothing on screen to say so — or as one request per ticked
+    # workshop, which is the N-requests-for-N-ids shape ``list_artisans`` rejects in its own note.
+    # And ``workshopId=none`` would test the column against the literal string "none", matching
+    # nothing at all rather than the unlinked interviews the sentinel exists to name.
+    workshopIds: list[str] | None = Query(None),
     questionnaireId: str | None = None,
     statusFilter: str | None = None,
     dateFrom: datetime | None = None,
@@ -784,7 +807,37 @@ async def list_interviews(
     if artisanId:
         where["artisans"] = {"some": {"artisanId": artisanId}}
     if workshopId:
+        # Equality on the interview's own column. Deliberately NOT routed through
+        # ``workshop_clause`` even though the plural below is: for one real id that helper returns
+        # ``{"workshopId": {"in": [id]}}``, which is this same predicate spelled longer, so there is
+        # no behaviour to share and the existing filter keeps the exact shape every caller has been
+        # getting.
         where["workshopId"] = workshopId
+    resolved_workshops = resolve_workshop_ids(workshopIds)
+    if resolved_workshops is not None:
+        ids, include_unassigned = resolved_workshops
+        # An interview carries its OWN ``workshopId`` foreign key, so this takes the ordinary branch
+        # of the shared clause builder rather than the workshop-table one — the identical call
+        # ``_derived_completed_sections`` makes for this identical table, so the interview LIST and
+        # the completion MATRIX cannot disagree about which sittings a workshop scope contains.
+        clause = workshop_clause(ids, include_unassigned)
+        # INTO ``and_filters``, AND NOT a plain top-level key. The note immediately below explains
+        # why every SCALAR filter on this route is a plain key; this one is not a scalar, and the
+        # contrast is the reason it is written here rather than beside them. ``workshop_clause``
+        # returns an ``OR`` the moment a scope names real workshops AND the reserved "none"
+        # together, and ``where["OR"]`` is ASSIGNED OUTRIGHT by the free-text search above — parked
+        # there, the entire scope would vanish for any caller who had also typed in the search box,
+        # which is the browse screen's ordinary state. ``and_filters`` is the list the read
+        # predicate already rides and is consumed into ``where["AND"]`` further down, so this
+        # composes with the search ``OR`` instead of racing it. Writing ``where["AND"]`` here
+        # directly would be a KeyError for the same reason that note gives: the key does not exist
+        # yet.
+        #
+        # An impossible selection is written as IMPOSSIBLE rather than dropped, mirroring
+        # ``artisan_workshop_clause``: "matches no interview" must never be mistakable for "do not
+        # filter", which is the failure that shows the whole repository under a scope that excludes
+        # all of it.
+        and_filters.append(clause if clause else {"id": {"in": []}})
     # A PLAIN TOP-LEVEL KEY, beside `workshopId`, and neither under `where["OR"]` nor under
     # `where["AND"]`. `where["OR"]` is ASSIGNED OUTRIGHT by the free-text search above, so anything
     # parked there is dropped the moment a caller also passes `search=`; `where["AND"]` does not

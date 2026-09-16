@@ -147,6 +147,7 @@ import com.fieldrepository.app.data.RecordRevisionDto
 import com.fieldrepository.app.data.DashboardRecentSubmissionDto
 import com.fieldrepository.app.data.DashboardStats
 import com.fieldrepository.app.data.DashboardStatsMine
+import com.fieldrepository.app.data.ARTISAN_PAGE_BUDGET
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.GoogleAuthClient
 import com.fieldrepository.app.data.LocationRequest
@@ -208,7 +209,11 @@ import com.fieldrepository.app.ui.craftNameFor
 import com.fieldrepository.app.ui.craftsChangeClearsArtisans
 import com.fieldrepository.app.ui.inchesTextFromCm
 import com.fieldrepository.app.ui.propagateDimension
+import com.fieldrepository.app.ui.artisanScopeNoun
+import com.fieldrepository.app.ui.artisansNotAtWorkshop
 import com.fieldrepository.app.ui.listCutNotice
+import com.fieldrepository.app.ui.mergeArtisansById
+import com.fieldrepository.app.ui.outOfWorkshopNotice
 import com.fieldrepository.app.ui.rememberArtisanPicker
 import com.fieldrepository.app.ui.rememberCraftOptions
 import com.fieldrepository.app.ui.rememberCarryPrefill
@@ -3757,10 +3762,59 @@ internal const val DEFAULT_PROBE_LIMIT = 5
  * nothing outside the app can see it. The web made the same call by exporting `useWorkshopSelection`
  * for `forms/RecordSwitcher.tsx` to reuse.
  */
-internal class WorkshopPickerState(private val repository: FieldRepository, initialId: String) {
+internal class WorkshopPickerState(
+    private val repository: FieldRepository,
+    initialId: String,
+    /**
+     * Is a create-time default walk still going to move [selectedId]? True only on a create form that
+     * opened with no workshop on it — see [settled].
+     */
+    defaultWalkPending: Boolean = false
+) {
     var workshops by mutableStateOf<List<WorkshopDetailDto>>(emptyList())
     var selectedId by mutableStateOf(initialId)
     var baselineId by mutableStateOf(initialId)
+
+    /**
+     * HAS THIS PICKER FINISHED CHOOSING FOR ITSELF? Hold any request that depends on the selection
+     * until it is true.
+     *
+     * ── THE FLAG THIS REPLACES, AND WHY THAT ONE COULD NOT WORK ─────────────────────────────────
+     *
+     * The questionnaire form's artisan effect used to hold on `workshop.workshops.isNotEmpty()`, and
+     * its own KDoc described that as preventing exactly what it failed to prevent. [rememberWorkshopPicker]
+     * publishes `state.workshops = list` and only THEN awaits [applyMostRecentSubmittable], which walks
+     * up to [DEFAULT_PROBE_LIMIT] sequential `GET /workshops/{id}/submission-check` round trips before
+     * it sets [selectedId]. So "the workshops are known" flipped true several seconds before "the
+     * workshop is known", the guard fell open, and the artisan request went out with a BLANK workshop
+     * — which is the wire spelling of "every artisan in the deployment". The researcher was then
+     * offered the whole repository under a workshop field that filled itself in a moment later.
+     *
+     * A flag that answers the question the caller is actually asking cannot fail that way, which is
+     * why this one is set where the walk ENDS rather than inferred from something the walk happens to
+     * touch on its way past.
+     *
+     * TRUE FROM CONSTRUCTION when there is no walk to wait for: an edit form (which must never move
+     * off the workshop the record was saved at) and a create form that was handed one. And it is set
+     * true even when `GET /workshops` FAILS or answers an empty list — there is then nothing to wait
+     * for either, and a guard that never released would hold the artisan list hostage for the whole
+     * session on a deployment with no workshops in it. That is the bug the old flag also had, in its
+     * other direction, and its own comment called it "the correct outcome".
+     *
+     * Web parity: `workshopScopeSettling` in `frontend/components/questionnaires/interviewArtisans.ts`,
+     * which answers the same question about `useWorkshopSelection`'s identical probe; and
+     * `ui/WorkshopScope.WorkshopScopeState.settled`, which is this flag for the list screens' scope.
+     */
+    var settled by mutableStateOf(!defaultWalkPending)
+        private set
+
+    /**
+     * The walk is over (or there was never one, or it could not be run). Call exactly once, after
+     * [applyMostRecentSubmittable] has returned — never before it, which is the whole point.
+     */
+    internal fun markSettled() {
+        settled = true
+    }
 
     /** Pre-flight answer for the CURRENT selection; null while it loads or when it is unavailable. */
     var check by mutableStateOf<WorkshopSubmissionCheckDto?>(null)
@@ -3879,18 +3933,41 @@ internal fun rememberWorkshopPicker(
     initialId: String?,
     resetKey: Any? = null
 ): WorkshopPickerState {
-    val state = remember(resetKey) { WorkshopPickerState(repository, initialId.orEmpty()) }
+    val state = remember(resetKey) {
+        WorkshopPickerState(
+            repository = repository,
+            initialId = initialId.orEmpty(),
+            // The walk below runs on exactly this condition, so the flag is seeded from exactly this
+            // condition. An edit form, or a create form handed a workshop, has nothing to wait for and
+            // starts settled.
+            defaultWalkPending = !isEdit && initialId.isNullOrBlank()
+        )
+    }
     LaunchedEffect(resetKey) {
         // A failure here is non-fatal: the dropdown simply stays empty and the record saves unlinked,
         // which is better than blocking a field capture on a list request.
-        runCatching { repository.workshopsByOccurrence() }.onSuccess { list ->
-            state.workshops = list
-            // The list is ordered most-recent-occurrence-first; the default is the most recent one
-            // this user may actually submit to (see applyMostRecentSubmittable).
-            if (!isEdit && state.selectedId.isBlank()) {
-                state.applyMostRecentSubmittable(list)
+        runCatching { repository.workshopsByOccurrence() }
+            .onSuccess { list ->
+                state.workshops = list
+                // The list is ordered most-recent-occurrence-first; the default is the most recent one
+                // this user may actually submit to (see applyMostRecentSubmittable). THIS SUSPENDS — it
+                // walks up to DEFAULT_PROBE_LIMIT submission-check requests — which is why nothing may
+                // read `settled` as true until it has returned.
+                if (!isEdit && state.selectedId.isBlank()) {
+                    state.applyMostRecentSubmittable(list)
+                }
             }
-        }
+            .onFailure {
+                // Re-keying cancels the load, and `runCatching` catches that like anything else.
+                // Rethrowing skips `markSettled` below, and must: the composition that cancelled this
+                // is gone, and a state object nobody reads has no first request to release. Any OTHER
+                // failure falls through and DOES settle — a picker that could not load its options
+                // must not also hold every list that depends on it for the rest of the session.
+                if (it is kotlinx.coroutines.CancellationException) throw it
+            }
+        // The walk is over, however it ended. See WorkshopPickerState.settled for what reads this and
+        // for the defect that existed while nothing did.
+        state.markSettled()
     }
     // Keep the pre-flight answer in step with whatever is selected, including the auto-default, so
     // the warning is already on screen by the time the researcher reaches the save button.
@@ -4251,12 +4328,27 @@ private fun ArtisanMultiSelectField(
     label: String,
     artisans: List<ArtisanDto>,
     selectedIds: Set<String>,
+    /**
+     * WHAT AN EMPTY LIST MEANS, WHICH IS NOT ALWAYS "THERE ARE NO ARTISANS".
+     *
+     * The default is the sentence this control has always printed and is right for the two callers
+     * that hand it a list they already hold: an empty one there really does mean the repository has
+     * nobody in it yet, and the next thing to do really is to create an artisan.
+     *
+     * The questionnaire form's list is FETCHED PER WORKSHOP and is therefore empty in three more
+     * states — in flight, failed, and "this workshop has nobody yet" — in which that sentence is a
+     * claim about the repository built out of a claim about the network, and sends a researcher off
+     * to create a duplicate of an artisan who already exists. It passes its own. The browser prints
+     * the same four sentences off the same three facts
+     * (`frontend/app/(protected)/questionnaire/page.tsx`, the picker's `emptyLabel`).
+     */
+    emptyMessage: String = "No artisans available yet. Create an artisan first.",
     onToggle: (String) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("$label (${selectedIds.size} selected)", color = Muted, fontSize = 12.sp)
         if (artisans.isEmpty()) {
-            Text("No artisans available yet. Create an artisan first.", color = Muted, fontSize = 12.sp)
+            Text(emptyMessage, color = Muted, fontSize = 12.sp)
         } else {
             Column(
                 modifier = Modifier
@@ -4982,9 +5074,56 @@ private fun RecordPickerScreen(
     var loading by remember(mode) { mutableStateOf(true) }
     var options by remember(mode) { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var selected by remember(mode) { mutableStateOf("") }
+    /**
+     * What the list below is NOT showing, already worded (`ui/RecordPickers.listCutNotice`), or null
+     * when the list is whole. Only the questionnaire arm sets it today, because it is the only arm
+     * that keeps the response envelope; every other arm still drops `total` on the floor and so has
+     * nothing it could honestly say.
+     */
+    var listCut by remember(mode) { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(mode) {
+    /*
+     * WHICH WORKSHOP'S INTERVIEWS THIS PICKER OFFERS — defect (2), on the screen the owner was
+     * looking at.
+     *
+     * "In the android, the questionnaire from the previous workshop are showing up even in the third
+     * workshop". The questionnaire arm below called `repository.interviews()`, which took no workshop
+     * argument at all, so this dropdown offered every interview ever recorded no matter which
+     * workshop the researcher was standing in. The shared control fixes it with the SAME default (the
+     * most recent workshop), the SAME three states and the SAME wire format as the completion matrix,
+     * the consolidated questionnaire and the map — see `ui/WorkshopScope.kt`. A fourth opinion about
+     * what "this workshop" means is the drift that file exists to prevent.
+     *
+     * ── WHY IT IS DECLARED FOR EVERY MODE AND SHOWN FOR ONE ───────────────────────────────────
+     *
+     * `rememberWorkshopScope` cannot live inside `if (mode == EntryMode.QUESTIONNAIRE)`: the effect
+     * below has to read `settled` and `requestKey` to know whether to hold its first request, and an
+     * effect cannot read a `remember` that only exists in a sibling branch. The alternative — a
+     * second picker composable owning its own scope — would duplicate this screen's dropdown, its
+     * twelve recent-record cards and its empty-state copy, which is exactly how two pickers come to
+     * answer "which record" differently. The cost of declaring it unconditionally is one small
+     * `GET /workshops` on the five modes that do not display it, which is the same request
+     * `rememberWorkshopPicker` already issues below for those same five.
+     *
+     * ── AND WHY THE OTHER FIVE MODES DO NOT WAIT FOR IT ───────────────────────────────────────
+     *
+     * The scope joins this screen's request key ONLY in the mode that sends it. Keying every mode on
+     * it would put a workshops round-trip in front of the artisan list for no reason, and would
+     * re-issue that list every time a scope the artisan picker does not even show happened to move.
+     */
+    val workshopScope = rememberWorkshopScope(repository = repository, onError = onError)
+    val scopeSettled = mode != EntryMode.QUESTIONNAIRE || workshopScope.settled
+    val scopeKey = if (mode == EntryMode.QUESTIONNAIRE) workshopScope.requestKey else ""
+
+    LaunchedEffect(mode, scopeSettled, scopeKey) {
+        // Held until the picker has settled, or the first request goes out unscoped and is replaced a
+        // moment later — two requests, and a visible flash of the previous workshop's interviews,
+        // which is the exact symptom being fixed.
+        if (!scopeSettled) return@LaunchedEffect
         loading = true
+        // Cleared BEFORE the request rather than after it: a notice left standing while a new scope
+        // is in flight describes a list that is no longer on screen.
+        listCut = null
         runCatching {
             when (mode) {
                 // THE FIVE LABELS ARE NO LONGER SPELLED HERE. They were, character for character, the
@@ -5005,7 +5144,14 @@ private fun RecordPickerScreen(
                 EntryMode.QUESTIONNAIRE -> {
                     // Idempotent: all saved interview records for the same set of artisan(s) collapse
                     // into one entry (open the most recent); the label notes how many sessions exist.
-                    repository.interviews().groupBy { interviewGroupKey(it) }.values.map { group ->
+                    //
+                    // SCOPED, and with the envelope kept. `interviewsPage` rather than `interviews`
+                    // because the grouping above destroys the count — twelve sittings for one artisan
+                    // set collapse to one row — so `total` has to be read before the fold or there is
+                    // no honest number left to print. See `listCut` below.
+                    val page = repository.interviewsPage(workshopScope.workshopIds)
+                    listCut = listCutNotice(page.items.size, page.total, "interviews")
+                    page.items.groupBy { interviewGroupKey(it) }.values.map { group ->
                         val rep = representativeInterview(group)
                         val artisanNames = rep.artisans.mapNotNull { it.artisan?.name }.distinct().joinToString(", ")
                         val parts = listOfNotNull(
@@ -5071,8 +5217,22 @@ private fun RecordPickerScreen(
 
     RecordCard(title = "Update existing ${mode.label.lowercase()}") {
         Text("Pick a record from the dropdown to open and edit it. Edits are attributed to you per field.", color = Muted, fontSize = 12.sp)
+        if (mode == EntryMode.QUESTIONNAIRE) {
+            // ABOVE the list, because it changes what the list IS — the same placement the completion
+            // matrix and the consolidated index give it, for the same reason.
+            WorkshopScopeSelect(scope = workshopScope, label = "Workshops in this list")
+        }
         when {
             loading -> Text("Loading ${mode.label.lowercase()} records…", color = Muted)
+            // AN EMPTY SCOPED LIST IS NOT AN EMPTY REPOSITORY, and saying only the second sends a
+            // researcher looking for a record that is sitting one tap away under "All records". The
+            // wording is `ConsolidatedIndex`'s, which faced the identical choice one screen over.
+            options.isEmpty() && mode == EntryMode.QUESTIONNAIRE && !workshopScope.isAllRecords ->
+                Text(
+                    "No interviews in the chosen workshops yet. Widen the workshop scope, or choose " +
+                        "All records.",
+                    color = Muted
+                )
             options.isEmpty() -> Text("No ${mode.label.lowercase()} records found yet.", color = Muted)
             else -> {
                 DropdownField(
@@ -5083,6 +5243,7 @@ private fun RecordPickerScreen(
                     includeNone = false,
                     onSelect = { selected = it }
                 )
+                listCut?.let { Text(it, color = Muted, fontSize = 12.sp) }
                 Button(
                     onClick = { if (selected.isNotBlank()) onPick(selected) },
                     enabled = selected.isNotBlank(),
@@ -8306,6 +8467,79 @@ private fun interviewGroupKey(iv: QuestionnaireInterviewDetailDto): String {
 private fun representativeInterview(group: List<QuestionnaireInterviewDetailDto>): QuestionnaireInterviewDetailDto =
     group.maxByOrNull { it.createdAt ?: "" } ?: group.first()
 
+/**
+ * EVERY SAVE EVER MADE AGAINST THE SAME SET OF ARTISANS AS [of], [of] itself included — the sibling
+ * group the detail view aggregates and the edit form shows recordings from.
+ *
+ * ── WHY IT ASKS FOR ONE ARTISAN'S INTERVIEWS AND NOT FOR ALL OF THEM ──────────────────────────
+ *
+ * Both call sites used to load `repository.interviews()` — the newest hundred interviews in the
+ * WHOLE repository — and filter them in memory by [interviewGroupKey]. That works until the
+ * repository outgrows one page, at which point a sibling that has sorted off page one is simply not
+ * found: its answers stop appearing in the detail view and its recordings stop appearing in the edit
+ * form, on the two screens whose stated purpose is that nothing recorded under a sibling save is
+ * ever hidden. Silent, and it gets worse every week the fieldwork continues. One artisan's
+ * interviews is a bounded question, answered by the `artisanId` filter the route has always had.
+ *
+ * ── THE ANCHOR IS THE LOWEST ARTISAN ID, AND IT HAS TO BE A RULE ──────────────────────────────
+ *
+ * Every interview in a group has the SAME artisan set by construction, so asking about ANY member
+ * returns a superset of the group. The lowest id is chosen because it is the one member that does
+ * not depend on the order the API happened to return the links in — the same reason
+ * [interviewGroupKey] sorts before it joins. `artisans.first()` would have been an anchor that could
+ * change between two loads of the same record, which is how a screen comes to show a different
+ * number of sittings on a refresh with nothing about the data having changed.
+ *
+ * ── AND WHY THERE IS NO WORKSHOP SCOPE HERE ───────────────────────────────────────────────────
+ *
+ * The record is already chosen at both call sites. The group is a property of THAT record, not of
+ * the list it was picked from, so narrowing it to whatever workshop the picker is currently showing
+ * would drop exactly the sittings this function exists to gather — a sitting taken with the same
+ * artisans at last month's workshop is still part of what they said. Scoping belongs on the LISTS
+ * that offer a choice, never on the record that choice landed on.
+ *
+ * A failure is swallowed to [of] alone rather than surfaced: the record on screen is already loaded
+ * and complete in itself, and a dropped connection must degrade to "this one sitting" rather than to
+ * an error card over a record the reader can see.
+ */
+private suspend fun interviewGroup(
+    repository: FieldRepository,
+    of: QuestionnaireInterviewDetailDto
+): List<QuestionnaireInterviewDetailDto> {
+    // An interview with no linked artisans is keyed by its own id (see [interviewGroupKey]) and can
+    // therefore have no siblings at all. Returning early is not an optimisation: there is no artisan
+    // to anchor the request on, and a request with no `artisanId` is the repository-wide page this
+    // function was written to stop making.
+    val anchor = of.artisans.map { it.artisanId }.minOrNull() ?: return listOf(of)
+    val key = interviewGroupKey(of)
+    val siblings = runCatching { repository.interviewsForArtisan(anchor) }.getOrDefault(emptyList())
+    val group = siblings.filter { interviewGroupKey(it) == key }
+    // `of` is added back when the server's answer does not contain it — a record created seconds ago
+    // behind a stale read, or a sibling list that came back empty because the request failed. The
+    // group must never be missing the record the reader is actually looking at.
+    return if (group.any { it.id == of.id }) group else group + of
+}
+
+/**
+ * A record type's entries as (id, label) pairs, for a dropdown that has no filter of its own.
+ *
+ * DELIBERATELY UNSCOPED, INCLUDING THE INTERVIEWS. Every questionnaire list a researcher chooses
+ * FROM is now scoped by the shared workshop control — the update picker and the View Data browse
+ * screen both draw one and both pass `scope.workshopIds`. This helper's only remaining questionnaire
+ * caller is the miscellaneous-media form's "linked record" dropdown, which carries no workshop
+ * control at all: it asks "which record does this file belong to", and the answer is legitimately
+ * any record in the repository, including one filed at a different workshop. Passing a scope nothing
+ * on that screen displays would narrow the list by a rule the researcher could neither see nor
+ * change, which is a worse failure than the one being fixed — they would simply be unable to attach
+ * a file, with no explanation.
+ *
+ * If that form ever grows a workshop field, this signature grows a `workshopIds` parameter and the
+ * questionnaire arm below passes it. The rule is the same one stated on `FieldRepository.interviews`:
+ * a list passes the scope that is ACTUALLY ON SCREEN, and nothing else.
+ *
+ * The 100-row ceiling on every arm here is untouched and is the one thing still outstanding — see the
+ * report for this change. It bites the questionnaire arm no harder than the seven beside it.
+ */
 private suspend fun loadViewEntries(repository: FieldRepository, mode: EntryMode): List<Pair<String, String>> = when (mode) {
     // Every list is ordered most-recent-first (createdAt desc; ISO timestamps sort lexically).
     EntryMode.ARTISAN -> repository.artisans().sortedByDescending { it.createdAt ?: "" }.map { it.id to "${it.name} · ${it.place}" }
@@ -8350,6 +8584,10 @@ private suspend fun loadMyActivity(repository: FieldRepository, userId: String):
         .forEach { items.add(ActivityItem(EntryMode.CRAFT, it.id, it.name, "Craft", it.createdAt)) }
     runCatching { repository.workshops() }.getOrDefault(emptyList()).filter { mine(it.createdById) }
         .forEach { items.add(ActivityItem(EntryMode.WORKSHOP, it.id, it.title.ifBlank { "Untitled workshop" }, "Workshop", it.createdAt)) }
+    // UNSCOPED BY WORKSHOP, like the six lists above it and for the same reason: the question this
+    // screen asks is "everything YOU have recorded", not "what came out of one workshop". There is no
+    // workshop control on this screen to pass, and inventing one here would answer a question nobody
+    // asked while hiding a researcher's own earlier fieldwork from them.
     runCatching { repository.interviews() }.getOrDefault(emptyList()).filter { mine(it.createdById) }
         .forEach { items.add(ActivityItem(EntryMode.QUESTIONNAIRE, it.id, it.title.ifBlank { "Untitled interview" }, "Interview", it.createdAt)) }
     return items.sortedByDescending { it.createdAt ?: "" }
@@ -9442,6 +9680,9 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
             if (map.containsKey(t)) return@forEach
             runCatching {
                 when (t.lowercase()) {
+                    // Unscoped, exactly as `loadViewEntries` is and for the identical reason: this
+                    // is the re-link picker on the media screen, which has no workshop control, and a
+                    // file legitimately re-links to a record filed at any workshop.
                     "questionnaire", "questionnaireinterview" -> repository.interviews().map { it.id to it.title.ifBlank { "Untitled interview" } }
                     "product" -> repository.products().map { it.id to "${it.productName} · ${it.artisanName}" }
                     "tool" -> repository.tools().map { it.id to "${it.toolkitName} · ${it.artisanName}" }
@@ -9759,8 +10000,38 @@ private fun ViewDataScreen(
     var selectedId by remember { mutableStateOf("") }
     var loadingList by remember { mutableStateOf(false) }
 
+    /*
+     * WHICH WORKSHOP'S INTERVIEWS THIS SCREEN BROWSES — defect (2) again, on the other surface that
+     * reproduces it.
+     *
+     * The questionnaire arm below loaded EVERY interview in the repository and every artisan in it,
+     * so "Involved artisan(s)" offered people from the first workshop while the researcher was
+     * standing in the third, and the dependent dropdown then listed that first workshop's sittings.
+     * The shared control is the same one the completion matrix on this very screen already uses —
+     * same default, same three states, same wire format (`ui/WorkshopScope.kt`).
+     *
+     * BOTH HALVES ARE SCOPED FROM THE ONE PARAMETER, and that is not tidiness. Scoping only the
+     * interviews would still offer out-of-scope artisans in the filter above them; scoping only the
+     * artisans would offer this workshop's people against every interview they have ever sat in. The
+     * completion matrix states the identical rule in its own comment for the identical reason.
+     *
+     * DECLARED FOR EVERY MODE, DISPLAYED FOR ONE. `mode` is screen state here, not a parameter, so a
+     * `rememberWorkshopScope` behind `if (mode == EntryMode.QUESTIONNAIRE)` would be discarded and
+     * rebuilt every time somebody flipped record type and came back — silently throwing away the
+     * scope they had chosen and re-applying the most-recent default under them. It also has to be
+     * readable by the load effect below, which runs for every mode.
+     */
+    val workshopScope = rememberWorkshopScope(repository = repository, onError = onError)
+    /**
+     * What the interview list is NOT showing, already worded (`ui/RecordPickers.listCutNotice`), or
+     * null when it is whole. Questionnaire mode only: it is the only arm here that keeps `total`.
+     */
+    var interviewListCut by remember { mutableStateOf<String?>(null) }
+
     // Questionnaire-only filter: pick involved artisan(s), then the dependent dropdown lists the
-    // interviews any of them were part of. Loaded once when the questionnaire mode is selected.
+    // interviews any of them were part of. RELOADED WHENEVER THE WORKSHOP SCOPE MOVES — it used to
+    // load once when questionnaire mode was selected and never again, which is the same defect
+    // wearing a different hat: a list that was right when it arrived and wrong from the next tap on.
     var interviewsDetailed by remember { mutableStateOf<List<QuestionnaireInterviewDetailDto>>(emptyList()) }
     var artisanFilterList by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
     var selectedArtisanIds by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -9821,14 +10092,33 @@ private fun ViewDataScreen(
         }
     }
 
-    LaunchedEffect(mode) {
+    /*
+     * Reloads when the scope moves, and NEVER fires before the picker has settled on its default —
+     * the first request would otherwise go out unscoped and be replaced a moment later, which is two
+     * requests and a second of the previous workshop's interviews on screen.
+     *
+     * Only the questionnaire arm reads the scope, so only it waits: keying the other seven modes on
+     * `settled` would put a workshops round-trip in front of every list on this screen, and keying
+     * them on `requestKey` would reload them whenever a control they do not display happened to move.
+     */
+    val scopeSettled = mode != EntryMode.QUESTIONNAIRE || workshopScope.settled
+    val scopeKey = if (mode == EntryMode.QUESTIONNAIRE) workshopScope.requestKey else ""
+    LaunchedEffect(mode, scopeSettled, scopeKey) {
+        if (!scopeSettled) return@LaunchedEffect
         loadingList = true
         selectedId = ""
         selectedArtisanIds = emptySet()
+        interviewListCut = null
         if (mode == EntryMode.QUESTIONNAIRE) {
             runCatching {
-                val interviews = repository.interviews()
-                val arts = repository.artisans()
+                // BOTH LISTS TAKE THE SAME SCOPE. The envelope is kept for the interviews because the
+                // grouping below folds sittings together and destroys the count; `artisans` needs no
+                // envelope here because `artisanFilterList` is rebuilt from the interview links
+                // rather than from this page, so a cut artisan page cannot shorten the filter.
+                val page = repository.interviewsPage(workshopScope.workshopIds)
+                interviewListCut = listCutNotice(page.items.size, page.total, "interviews")
+                val interviews = page.items
+                val arts = repository.artisans(workshopIds = workshopScope.workshopIds)
                 // Sections power the "A1"-style section+question codes in the dropdown label; a failure
                 // here must not block the list, so it's fetched leniently and defaults to empty.
                 questionnaireSections = runCatching { repository.questionnaireSections() }.getOrDefault(emptyList())
@@ -9843,7 +10133,16 @@ private fun ViewDataScreen(
                     iv.artisans.forEach { link -> (link.artisan ?: byId[link.artisanId])?.let { involved.putIfAbsent(it.id, it) } }
                 }
                 artisanFilterList = involved.values.sortedBy { it.name.lowercase() }
-            }.onFailure { onError(it.message ?: "Unable to load questionnaires") }
+            }.onFailure {
+                // Re-keying this effect on the scope cancels the load in flight, and `runCatching`
+                // catches that cancellation like any other Throwable. Rethrowing keeps a superseded
+                // request from surfacing as an error banner over the answer that replaced it — the
+                // same guard `CompletionMatrixCard` and `ConsolidatedIndex` carry on this screen and
+                // the next. It also skips `loadingList = false`, and must: the pass that replaced
+                // this one owns that flag.
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                onError(it.message ?: "Unable to load questionnaires")
+            }
         } else {
             runCatching { loadViewEntries(repository, mode) }
                 .onSuccess { options = it }
@@ -9869,6 +10168,9 @@ private fun ViewDataScreen(
         when {
             loadingList -> Text("Loading ${mode.label.lowercase()}…", color = Muted)
             mode == EntryMode.QUESTIONNAIRE -> {
+                // ABOVE both dropdowns, because it decides what each of them is a list OF: the
+                // artisans offered here and the interviews offered below come from the one parameter.
+                WorkshopScopeSelect(scope = workshopScope, label = "Workshops in this list")
                 ArtisanMultiSelectField(
                     label = "Involved artisan(s)",
                     artisans = artisanFilterList,
@@ -9890,8 +10192,18 @@ private fun ViewDataScreen(
                     enabled = true
                 ) { selectedId = it }
                 if (hasArtisan && questionnaireOptions.isEmpty()) {
-                    Text("No questionnaires involve the selected artisan(s) yet — \"Check completion\" still shows the full matrix.", color = Muted, fontSize = 12.sp)
+                    // NAMES THE SCOPE WHEN THERE IS ONE, because "no questionnaires involve these
+                    // artisans" and "none in the workshops you are looking at" call for different
+                    // actions, and the first sentence alone sends a researcher hunting for a sitting
+                    // that is one tap away under All records.
+                    val why =
+                        if (workshopScope.isAllRecords) "No questionnaires involve the selected artisan(s) yet"
+                        else "No questionnaires in the chosen workshops involve the selected artisan(s)"
+                    Text("$why — \"Check completion\" still shows the full matrix.", color = Muted, fontSize = 12.sp)
                 }
+                // What the interview list is not showing. Printed under the dropdown it describes,
+                // exactly as the record forms print theirs.
+                interviewListCut?.let { Text(it, color = Muted, fontSize = 12.sp) }
             }
             options.isEmpty() -> Text("No ${mode.label.lowercase()} records yet.", color = Muted)
             else -> DropdownField(
@@ -10934,10 +11246,14 @@ private fun ViewDataDetail(
             var groupMedia by remember(recordId) { mutableStateOf<List<MediaFileDto>>(emptyList()) }
             LaunchedEffect(recordId) {
                 runCatching {
-                    val all = repository.interviews()
-                    val selected = all.firstOrNull { it.id == recordId } ?: repository.interview(recordId)
-                    val key = interviewGroupKey(selected)
-                    val group = all.filter { interviewGroupKey(it) == key }.ifEmpty { listOf(selected) }
+                    // The record BY ID, then its group — see [interviewGroup]. This used to scan the
+                    // newest hundred interviews in the repository twice over: once to find the record
+                    // and once to find its siblings. A direct GET is the correct question for the
+                    // first, and one artisan's interviews for the second; neither can be defeated by
+                    // the repository growing, and neither is scoped by workshop, because the record
+                    // has already been chosen.
+                    val selected = repository.interview(recordId)
+                    val group = interviewGroup(repository, selected)
                     // Media is pulled per record through the media endpoint (which carries uploader +
                     // transcript), then de-duplicated by id across the whole group.
                     val mediaById = LinkedHashMap<String, MediaFileDto>()
@@ -11621,6 +11937,240 @@ private fun AndroidSavedMediaPreview(
 
 private val IN_APP_PLAYABLE = setOf("IMAGE", "VIDEO", "AUDIO")
 
+/**
+ * THE ARTISANS THE QUESTIONNAIRE FORM OFFERS, what that list is not showing, and the three states it
+ * can be in while it shows nothing.
+ *
+ * [loading], [failed] and "loaded and genuinely empty" are three different facts and the picker
+ * prints a different sentence for each. Collapsing them \u2014 which is what a bare `List<ArtisanDto>`
+ * does \u2014 is how "No artisans available yet. Create an artisan first." came to be printed over a
+ * dropped request, which is a claim about the repository assembled out of a claim about the network.
+ * `frontend/app/(protected)/questionnaire/page.tsx` prints the same four sentences off the same three
+ * facts.
+ */
+private data class QuestionnaireArtisanOptions(
+    val options: List<ArtisanDto>,
+    val cut: String?,
+    /** This workshop's roster is in flight. Nothing is being offered YET; nothing is being claimed. */
+    val loading: Boolean,
+    /** This workshop's roster request failed. Nothing is being offered; that is the network, not the repository. */
+    val failed: Boolean,
+    /** The ids on the loaded roster, for [outOfWorkshopNotice]. Empty whenever [loadedForWorkshop] is null. */
+    val offeredIds: List<String>,
+    /** Which workshop [offeredIds] describes; null before the first answer, on every change, and after a failure. */
+    val loadedForWorkshop: String?
+)
+
+/**
+ * THE ARTISANS THIS INTERVIEW MAY BE ABOUT, NARROWED TO THE WORKSHOP THE FORM IS FILING INTO.
+ *
+ * ── THE DEFECT, IN THE OWNER'S WORDS ────────────────────────────────────────────────────────────
+ *
+ * *"When the workshop is already selected in the dropdown, why are artisans from other workshops
+ * showing up?"* They were said about the browser, and they were true of the handset for the same
+ * reason: this form was handed the app-wide artisan list \u2014 one page of a hundred rows loaded once at
+ * startup and given unchanged to every record form \u2014 and never asked the server a narrower question.
+ * Fixing one client and not the other is the disagreement this repository is most tired of, so the
+ * handset takes the same narrowing from the same field: THE WORKSHOP PICKER AT THE TOP OF THIS VERY
+ * FORM, which is the only workshop a researcher filling it in has said anything about.
+ *
+ * THE FULL CONTRACT BOTH CLIENTS OWE IS WRITTEN OUT ONCE, in the header of
+ * `frontend/components/questionnaires/interviewArtisans.ts`, as nine numbered rules. This function
+ * owes rules 1\u20137. Where a paragraph below cites a rule number, that is the file it means.
+ *
+ * ── WHY IT RE-ASKS RATHER THAN FILTERING WHAT IT WAS GIVEN (rule 1) ─────────────────────────────
+ *
+ * Filtering the startup list in memory would give the intersection of one workshop with the NEWEST
+ * HUNDRED ARTISANS OVERALL \u2014 a roster that silently shrinks as the repository grows, until the
+ * picker stops offering a real artisan with nothing on screen to say they were left out. That is the
+ * ceiling defect `ui/RecordPickers.kt` is written about, and the answer is the same one the craft
+ * roster uses: filter where the WHERE clause is. The envelope comes back with it, so the one case
+ * that still cannot be served is SAID rather than hidden (`listCutNotice`).
+ *
+ * THE PLURAL `workshopIds`, NOT THE SINGULAR `workshopId`, even though exactly one workshop is ever
+ * sent. The plural is broader in one specific way that matters here: it also counts an artisan who
+ * merely SAT IN an interview taken at this workshop, through `artisan_workshop_clause`. This form
+ * creates precisely those sittings, so the singular filter would have offered a roster that excluded
+ * people the previous interview at the same workshop was about \u2014 and it would have disagreed with
+ * the completion matrix, the consolidated index and the browse screen, all of which count a workshop's
+ * artisans the plural way. One question, one answer, on every screen that asks it.
+ *
+ * ── IT PAGES, TO THE SAME BUDGET THE BROWSER PAGES TO (rule 2) ──────────────────────────────────
+ *
+ * [ARTISAN_PAGE_BUDGET], passed explicitly, for the reasons written on the constant: a single request
+ * is clamped to a hundred rows, the browser has walked five pages since the scoping landed, and until
+ * this call did too the two clients OFFERED DIFFERENT PEOPLE for the same workshop \u2014 up to four
+ * hundred of them \u2014 while both printed an honest cut notice about it.
+ *
+ * ── THE FIRST REQUEST IS HELD ON [workshopSettled] (rule 3), AND THAT FLAG IS NEW ───────────────
+ *
+ * It used to be held on `workshop.workshops.isNotEmpty()`, and this paragraph used to claim that
+ * prevented an unscoped first request. It did not, and the comment was wrong about its own code,
+ * which this repository treats as a defect in itself. `rememberWorkshopPicker` publishes the workshop
+ * LIST and only then awaits the submission-check walk that picks the default, so "the workshops are
+ * known" went true seconds before "the workshop is known": the guard fell open, `workshopId` was
+ * still `""`, `toQueryCsv()` turned an empty list into no parameter at all, and the server answered
+ * with EVERY ARTISAN IN THE DEPLOYMENT. The researcher then ticked somebody out of a repository-wide
+ * list while the workshop field filled itself in above them. [WorkshopPickerState.settled] is set
+ * where the walk ENDS and cannot fail that way; it also releases when there are no workshops at all,
+ * where the old flag deadlocked for the session.
+ *
+ * ── A WORKSHOP CHANGE CLEARS THE OFFER, AND CLEARS IT TO NOTHING (rule 4) ───────────────────────
+ *
+ * `scoped` is dropped BEFORE the request and not after it: a list left standing under a workshop that
+ * has just changed is the same wrong-workshop list this whole change is about, and it would be on
+ * screen for the length of a field connection's round trip.
+ *
+ * WHAT IT IS CLEARED TO IS THE HALF THAT WAS WRONG. This function used to compute
+ * `val base = scoped ?: fallback`, so for the whole duration of every scoped request \u2014 the first one
+ * and every workshop change \u2014 the checkbox list was `fallback`: THE APP-WIDE STARTUP PAGE, every
+ * artisan in the repository, under a named workshop, with no notice. Clearing the stale list was the
+ * right instinct and clearing it to the unscoped list reinstated the defect rather than removing it.
+ * The base is now the scoped answer or NOTHING, and "nothing" carries a sentence
+ * ([QuestionnaireArtisanOptions.loading]).
+ *
+ * Holding the PREVIOUS workshop's roster through the gap was the other candidate and was rejected for
+ * the same reason as `fallback`: the previous workshop's people under this workshop's name is the
+ * report, merely briefer. The browser clears to empty for that reason too, so the two clients show
+ * the same thing in the same window.
+ *
+ * ── A FAILED NARROWING SAYS SO (rule 5) ─────────────────────────────────────────────────────────
+ *
+ * The failure arm used to be SILENT and argued for it: the startup list was "still a complete and
+ * honest offer, merely a wider one". It is neither, under a workshop name \u2014 it is every artisan in
+ * the deployment presented as one workshop's roster, which is the owner's first report reproduced on
+ * the client they did not report it on, and it was PERSISTENT because a failed effect does not retry.
+ * The failure is now a flag the form turns into one line beside the control. Not the screen's error
+ * banner: a roster that could not be narrowed stops the form OFFERING, not working, and the banner is
+ * for the failures that stop it working.
+ *
+ * ── A TICKED ARTISAN IS ALWAYS IN THE OPTIONS, AND IS NEVER UNTICKED (rule 6) ───────────────────
+ *
+ * A ticked artisan who is not in the options is an artisan the researcher can neither see nor untick,
+ * and on an edit it is a link that has silently vanished from the screen that is supposed to be
+ * showing it. So every row this form has ever held \u2014 the startup list, the rows the interview being
+ * edited carries, and every page loaded under a workshop since changed \u2014 is kept in `everSeen`, and
+ * any of them that is still ticked is merged back in. `mergeArtisansById` is first-writer-wins and
+ * purely additive, which is what makes "a narrower list" incapable of becoming "a shorter world".
+ *
+ * THE BROWSER NOW AGREES, which it did not before this pass. It ran the ticked ids against the new
+ * workshop's roster on every change and silently removed the ones it did not hold; this client kept
+ * them. Same two taps, two different sets of `QuestionnaireInterviewArtisan` rows \u2014 and the browser's
+ * half emptied the `?artisanId=` handoff and the carry prefill, which are the two paths that most
+ * often name somebody filed at another workshop. The rule kept is this one; what the browser gained
+ * is the sentence, `outOfWorkshopNotice`, which this form prints too.
+ *
+ * ── ORDERING IS THE SERVER'S, AND IS NOT TOUCHED HERE (rule 7) ──────────────────────────────────
+ *
+ * `GET /artisans` answers `createdAt desc` and that order is rendered as it arrives, exactly as
+ * `ui/ConsolidatedQuestionnaireScreen.kt` renders it (it filters for its search box and never
+ * re-orders) and exactly as the web's own artisan picker renders it. An alphabetical sort was
+ * considered here \u2014 a list of PEOPLE is easier to search by name than a list of RECORDS \u2014 and
+ * rejected, because imposing it on one client alone would give the two clients two different lists
+ * of the same people. The parity break would be the ORDER, which is the kind of difference nobody
+ * files a bug about and everybody notices. If it is ever worth changing it is worth changing in both
+ * places, in one pass, and the server is the obvious place to decide it.
+ *
+ * Rescued rows land at the END rather than in date order, and that is the one deliberate exception:
+ * `mergeArtisansById` is additive and first-writer-wins, so an artisan the scoped page did not
+ * return is appended instead of being slotted in. They are by definition already ticked, so they are
+ * not being searched FOR \u2014 they are being checked, and having them together at the bottom makes
+ * that easier rather than harder.
+ *
+ * ── NO WORKSHOP CHOSEN MEANS EVERY ARTISAN ──────────────────────────────────────────────────────
+ *
+ * An empty selection sends no parameter, which the server reads as "do not filter" \u2014 the same
+ * "All records" meaning `ui/WorkshopScope.kt` gives an empty scope on every list screen, and the same
+ * answer the web gives. Showing NOTHING until a workshop is picked was considered and rejected: this
+ * form's workshop field is optional, a legitimate interview can be filed without one, and a picker
+ * that is empty for a reason the researcher cannot see is indistinguishable from a repository with
+ * no artisans in it. Nothing on screen claims a narrowing while none is in force, so an unscoped list
+ * cannot mislead; an empty one would.
+ */
+@Composable
+private fun rememberQuestionnaireArtisanOptions(
+    repository: FieldRepository,
+    /**
+     * The app-wide list, loaded once at startup and handed to every form.
+     *
+     * LABELS ONLY, NOW. It used to be the base of the options whenever no scoped page was in hand,
+     * which is the defect written up above; it is never offered any more. What it is still needed for
+     * is rule 6: a ticked artisan whose row is not on this workshop's roster has to be drawn from
+     * somewhere, and this is one of the three places a row can come from (with [hydrated] and the
+     * pages already walked). Exactly the job the web's `known` array does, for exactly the same rows.
+     */
+    fallback: List<ArtisanDto>,
+    /** Rows the interview being edited already carries (`artisans[].artisan`), so an edit never has to rescue them by id. */
+    hydrated: List<ArtisanDto>,
+    /** The form's own workshop field. Blank means none chosen, which is every artisan. */
+    workshopId: String,
+    /** [WorkshopPickerState.settled] \u2014 has the workshop field finished choosing for itself? See rule 3 above. */
+    workshopSettled: Boolean,
+    /** The ids currently ticked, which must never fall out of [QuestionnaireArtisanOptions.options]. */
+    selectedIds: Set<String>
+): QuestionnaireArtisanOptions {
+    var scoped by remember { mutableStateOf<List<ArtisanDto>?>(null) }
+    var cut by remember { mutableStateOf<String?>(null) }
+    var failed by remember { mutableStateOf(false) }
+    // Which workshop `scoped` is the answer for. Null covers all three of "not asked yet", "asked and
+    // waiting" and "asked and failed", which is exactly the set of states in which nothing may be
+    // claimed about this workshop's people \u2014 see `outOfWorkshopNotice`'s first guard, and the web's
+    // `loadedForWorkshop`, which is the same variable under the same name.
+    var loadedForWorkshop by remember { mutableStateOf<String?>(null) }
+    // Every row any scope has ever returned for this form. Grows, never shrinks \u2014 see rule 6 above.
+    // Bounded by the pages one open form actually loads.
+    var everSeen by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
+
+    LaunchedEffect(workshopId, workshopSettled) {
+        if (!workshopSettled) return@LaunchedEffect
+        // Dropped BEFORE the request, not after it, and dropped to NOTHING rather than to the app-wide
+        // list. Both halves of that are load-bearing; the KDoc above argues them.
+        scoped = null
+        cut = null
+        failed = false
+        loadedForWorkshop = null
+        runCatching {
+            repository.artisansPage(
+                workshopIds = listOfNotNull(workshopId.ifBlank { null }),
+                pageBudget = ARTISAN_PAGE_BUDGET
+            )
+        }
+            .onSuccess { page ->
+                scoped = page.items
+                everSeen = mergeArtisansById(everSeen, page.items)
+                cut = listCutNotice(page.items.size, page.total, artisanScopeNoun(workshopId))
+                loadedForWorkshop = workshopId
+            }
+            .onFailure {
+                // Re-keying cancels the request in flight and `runCatching` catches that like anything
+                // else; rethrowing leaves the state to the pass that replaced this one, which would
+                // otherwise paint a failure over an answer that has already arrived.
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                failed = true
+            }
+    }
+
+    // The base is the scoped page and ONLY the scoped page. `?: fallback` stood here; see the KDoc.
+    val base = scoped.orEmpty()
+    val pool = mergeArtisansById(mergeArtisansById(fallback, hydrated), everSeen)
+    val keep = selectedIds.mapNotNull { id -> pool.firstOrNull { it.id == id } }
+    val options = remember(base, keep) { mergeArtisansById(base, keep) }
+    // The notice belongs to the scoped page and to nothing else: while no page is in hand there is no
+    // `total` this function was given, so it says nothing rather than repeating a number about a
+    // different request.
+    return QuestionnaireArtisanOptions(
+        options = options,
+        cut = if (scoped == null) null else cut,
+        // "In flight" is the settled-but-unanswered window, and `failed` takes it out again: a request
+        // that has come back and come back badly is not still loading, and telling the researcher to
+        // wait for an answer that will never arrive is the one sentence worse than silence.
+        loading = workshopSettled && scoped == null && !failed,
+        failed = failed,
+        offeredIds = base.map { it.id },
+        loadedForWorkshop = loadedForWorkshop
+    )
+}
+
 @Composable
 private fun QuestionnaireForm(
     repository: FieldRepository,
@@ -11657,6 +12207,49 @@ private fun QuestionnaireForm(
     var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }
     var capturedLocation by remember(editing) { mutableStateOf(editing?.location?.toRequest()) }
     val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
+    /*
+     * WHO THIS INTERVIEW MAY BE ABOUT, narrowed by the workshop field directly above — the handset's
+     * half of the owner's first defect, and the half that keeps the two clients saying the same thing
+     * about the same workshop. See [rememberQuestionnaireArtisanOptions] for the whole argument: why
+     * it re-asks the server rather than filtering the startup list, why an unchosen workshop offers
+     * every artisan, and why the options can never be missing an artisan who is already ticked.
+     *
+     * The rows the interview being edited carries are handed in so an edit never opens with a linked
+     * artisan it cannot draw: they arrive embedded in the same `GET /questionnaire/interviews/{id}`
+     * response this form was built from, and rescuing them from there costs no request at all.
+     */
+    val artisanOptions = rememberQuestionnaireArtisanOptions(
+        repository = repository,
+        fallback = artisans,
+        hydrated = editing?.artisans?.mapNotNull { it.artisan }.orEmpty(),
+        workshopId = workshop.selectedId,
+        // `workshop.workshops.isNotEmpty()` stood here and did not hold: the workshop LIST arrives
+        // several submission-check round trips before the workshop DOES, so the first artisan request
+        // went out with a blank scope and the form offered the whole repository under a workshop field
+        // that filled itself in a moment later. See [WorkshopPickerState.settled].
+        workshopSettled = workshop.settled,
+        selectedIds = selectedArtisans
+    )
+    /**
+     * WHO IS TICKED THAT THIS WORKSHOP'S ROSTER DOES NOT ACCOUNT FOR — and the sentence that says so.
+     *
+     * Nothing here unticks anybody; that is rule 6 of the contract in
+     * `frontend/components/questionnaires/interviewArtisans.ts` and it is the rule BOTH clients now
+     * keep. What this adds is the half that was missing on both: a form that quietly disagrees with a
+     * researcher's selection is a form with an opinion nobody can read. The names come out of the
+     * options list, which is a superset of the selection by construction, so no request is made and
+     * no id is ever printed raw.
+     */
+    val outOfWorkshopArtisans = artisansNotAtWorkshop(
+        selectedIds = selectedArtisans.toList(),
+        offeredIds = artisanOptions.offeredIds,
+        loadedForWorkshop = artisanOptions.loadedForWorkshop,
+        workshopId = workshop.selectedId,
+        cut = artisanOptions.cut
+    )
+    val outOfWorkshopMessage = outOfWorkshopNotice(
+        outOfWorkshopArtisans.mapNotNull { id -> artisanOptions.options.firstOrNull { it.id == id }?.name }
+    )
     /**
      * Open on the artisan this researcher was last documenting.
      *
@@ -11669,6 +12262,12 @@ private fun QuestionnaireForm(
         repository = repository,
         enabled = !isEdit,
         applies = CarryPrefillDefaults.QUESTIONNAIRE_FORM,
+        // THE APP-WIDE LIST AND NOT THE SCOPED ONE, deliberately. `carryScope` asks "is the carried
+        // artisan reachable from this form", and answering it from a workshop's roster would DROP the
+        // prefill for the one case it exists to serve: an interview taken straight after a tool or a
+        // product, with an artisan whose own record happens to be filed at a different workshop.
+        // Nothing is lost by the wider answer — an artisan the carry ticks is rescued back into the
+        // options by `rememberQuestionnaireArtisanOptions` precisely because they are ticked.
         scopes = listOf(carryScope(CarryNode.ARTISAN, lookupState, artisans) { it.id }),
         handoff = prefill
     ) { carried ->
@@ -11714,11 +12313,14 @@ private fun QuestionnaireForm(
             // Show saved recordings/media from EVERY interview record for the same set of artisan(s),
             // not just the one opened — so a recording captured on a sibling save is visible (and not
             // lost) here too. De-duplicated by media id across the group.
-            val key = interviewGroupKey(ed)
-            val groupIds = runCatching { repository.interviews().filter { interviewGroupKey(it) == key }.map { it.id } }
-                .getOrDefault(emptyList())
-                .ifEmpty { listOf(ed.id) }
-                .let { if (ed.id in it) it else it + ed.id }
+            //
+            // The group comes from [interviewGroup], which asks for one artisan's interviews rather
+            // than for the newest hundred in the repository. It is the same helper the View Data
+            // detail uses, so the two screens cannot come to disagree about which sittings belong
+            // together — and it is deliberately NOT workshop-scoped: the interview being edited is
+            // already chosen, and a recording made with these artisans at an earlier workshop is
+            // still one of this record's recordings.
+            val groupIds = interviewGroup(repository, ed).map { it.id }
             val byId = LinkedHashMap<String, MediaFileDto>()
             groupIds.forEach { gid ->
                 runCatching { repository.mediaForRecord("questionnaire", gid) }.getOrDefault(emptyList())
@@ -11909,8 +12511,28 @@ private fun QuestionnaireForm(
         StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
         ArtisanMultiSelectField(
             label = "Linked artisans",
-            artisans = artisans,
-            selectedIds = selectedArtisans
+            artisans = artisanOptions.options,
+            selectedIds = selectedArtisans,
+            /*
+              FOUR SENTENCES AND NOT ONE, because "the request failed", "the answer has not arrived",
+              "nobody is recorded at this workshop" and "nobody is recorded at all" are four different
+              facts and only two of them are about the repository. Word for word the browser's
+              `emptyLabel` (`frontend/app/(protected)/questionnaire/page.tsx`), because a researcher
+              comparing a handset against a laptop must not have to wonder whether a difference in
+              wording is a difference in meaning.
+
+              THE EMPTY LIST IS NOW A ROUTINE STATE rather than a rare one, which is what made the old
+              single sentence untenable: the roster is dropped the moment the workshop changes, so this
+              control is genuinely empty for the length of every scoped request and STAYS empty when one
+              fails. It used to fall back to the app-wide startup list instead, which is why the
+              question never came up — and that fallback was the defect.
+            */
+            emptyMessage = when {
+                artisanOptions.failed -> "This workshop's artisan list could not be loaded"
+                artisanOptions.loading -> "Loading artisans…"
+                workshop.selectedId.isNotBlank() -> "No artisans are recorded at this workshop yet"
+                else -> "No artisans recorded yet"
+            }
         ) { id ->
             val adding = !selectedArtisans.contains(id)
             selectedArtisans = if (adding) selectedArtisans + id else selectedArtisans - id
@@ -11919,7 +12541,12 @@ private fun QuestionnaireForm(
             // suggestion. Only on the way IN — unticking says who the interview is not about, which
             // is no statement about where the researcher is sitting.
             if (adding) {
-                artisans.firstOrNull { it.id == id }?.let {
+                // LOOKED UP IN THE OPTIONS AND NOT IN THE APP-WIDE LIST. Since the options became a
+                // workshop's roster rather than the startup page, an artisan can legitimately be
+                // tickable here and absent from `artisans` — and this lookup returning null is silent:
+                // the tick lands, the carried context simply never updates, and the NEXT form opens on
+                // whoever the researcher was documenting before.
+                artisanOptions.options.firstOrNull { it.id == id }?.let {
                     carry.remember(
                         CarryContext(
                             artisanId = it.id,
@@ -11933,6 +12560,42 @@ private fun QuestionnaireForm(
                 }
             }
         }
+        /*
+          THE FAILED NARROWING, BESIDE THE CONTROL IT IS ABOUT — and not in the screen's error banner,
+          which is for the failures that stop the form working. A roster that could not be narrowed
+          stops the form OFFERING, which is a smaller thing; putting the two at the same weight teaches
+          a reader to discount both.
+
+          The failure arm used to be silent and argued for it in as many words, on the grounds that the
+          app-wide startup list was "still a complete and honest offer, merely a wider one". Under a
+          named workshop it is neither: it is every artisan in the deployment presented as one
+          workshop's roster, which is the owner's first report reproduced on the handset. Nothing falls
+          back any more, so there is an empty list to explain instead — and this explains it.
+        */
+        if (artisanOptions.failed) {
+            Text(
+                "This workshop's artisan list could not be loaded, so nobody is being offered above. " +
+                    "Pick the workshop again to ask for it once more. Anyone already ticked is still on " +
+                    "this interview.",
+                color = Muted,
+                fontSize = 12.sp
+            )
+        }
+        // What the roster above is not showing. Silent for a workshop that fits inside the ceiling,
+        // which is the ordinary case — and that is the point: a sentence that printed always would be
+        // a sentence readers learn to skip past.
+        artisanOptions.cut?.let { Text(it, color = Muted, fontSize = 12.sp) }
+        /*
+          WHO IS TICKED THAT THIS WORKSHOP'S ROSTER DOES NOT ACCOUNT FOR. See `outOfWorkshopNotice` for
+          the wording and `artisansNotAtWorkshop` for the three-way ruling that decides whether there is
+          anything to say at all.
+
+          UNDER the capped-list line rather than above it, because the two answer questions of different
+          sizes: that one is about the list, this one is about the record being saved. They are also
+          mutually exclusive in practice — nothing is named while the roster is cut, since a truncated
+          list cannot prove an absence.
+        */
+        outOfWorkshopMessage?.let { Text(it, color = Muted, fontSize = 12.sp) }
         DropdownField(
             label = "Recording mode",
             options = listOf(

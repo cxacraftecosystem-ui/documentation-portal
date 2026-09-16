@@ -625,7 +625,71 @@ interface FieldRepositoryApi {
     @GET("questionnaire/interviews")
     suspend fun interviews(
         @Query("page") page: Int = 1,
-        @Query("pageSize") pageSize: Int = 100
+        @Query("pageSize") pageSize: Int = 100,
+        /**
+         * THE SHARED WORKSHOP SCOPE, plural — the parameter whose absence WAS the defect.
+         *
+         * "In the android, the questionnaire from the previous workshop are showing up even in the
+         * third workshop". This route was the only questionnaire list on either client that took no
+         * workshop argument at all, so every interview ever recorded was offered in every workshop —
+         * and the handset's own [artisans] declaration in this same file had carried the plural
+         * `workshopIds` since the workshop-scope control landed. One list scoping and the list beside
+         * it not is the disagreement that is hardest to live with: each screen looks self-consistent
+         * on its own, and only somebody holding both at once can see that they answer differently.
+         *
+         * Comma-joined ids, plus the reserved value `none` for interviews linked to no workshop;
+         * ABSENT means every workshop. Byte for byte the spelling [artisans] already uses on
+         * `GET /artisans`, parsed by the same `record_filters.resolve_workshop_ids` on the server,
+         * and narrowed by the same `record_filters.workshop_clause` the completion matrix is
+         * narrowed by — so the list of interviews and the matrix counting them cannot disagree about
+         * what a workshop contains.
+         *
+         * A SET, NOT AN ID, because the control is a multi-select on both clients and may also hold
+         * the reserved sentinel; see [workshopId] directly below for why the singular cannot stand
+         * in for it and why both are sent anyway.
+         */
+        @Query("workshopIds") workshopIds: String? = null,
+        /**
+         * ONE workshop, the singular filter this route has accepted since interviews gained a
+         * workshop column (`backend/app/api/routes/questionnaire.py`, `where["workshopId"]`).
+         *
+         * SENT BESIDE [workshopIds], NOT INSTEAD OF IT, and only when the scope is exactly one real
+         * workshop. The server narrows on each independently, so for a single workshop the two
+         * narrow to the same set and the pair costs nothing. What it buys is that this client keeps
+         * working against an API deployed BEFORE the plural landed: a query parameter FastAPI does
+         * not declare is ignored in silence, so a handset updated ahead of the server would
+         * otherwise get the whole interview page back and render it as one workshop's interviews —
+         * the exact defect this parameter exists to close, reappearing as a deploy-order accident.
+         * The two clients ship separately from the API; `FieldRepository.artisansForCraftsPage`
+         * makes the same argument about `craftId`/`craftIds` and sends both for the same reason.
+         *
+         * IT CANNOT CARRY THE WHOLE SCOPE, which is why it is a fallback and never the mechanism.
+         * Two ticked workshops would have to be sent as the first id alone — silently answering a
+         * narrower question than the one asked — and `workshopId=none` would test the column against
+         * the literal string "none" and match nothing at all, rather than the unlinked interviews
+         * the sentinel names. `FieldRepository.singleWorkshopIdOrNull` is where that rule lives.
+         */
+        @Query("workshopId") workshopId: String? = null,
+        /**
+         * ONE ARTISAN'S INTERVIEWS, filtered by the SERVER (`list_interviews`, `where["artisans"] =
+         * {"some": {"artisanId": …}}` — the parameter has always been there; nothing on this client
+         * had ever sent it).
+         *
+         * It exists for the SIBLING-SAVE LOOKUP, not for a picker. An interview is identified by its
+         * exact set of artisans, and two surfaces need every save made against that set: the View
+         * Data detail, which aggregates answers and media across the group, and the questionnaire
+         * form in edit mode, which shows recordings captured on a sibling save. Both used to find
+         * the group by loading the newest hundred interviews in the WHOLE repository and filtering
+         * them in memory — so on a repository with more than a hundred interviews a sibling that had
+         * sorted off page one was simply not found, and its answers and its recordings vanished from
+         * a screen whose stated job is that nothing recorded under a sibling save is ever hidden.
+         * One artisan's interviews is a bounded list and the right question to ask.
+         *
+         * DELIBERATELY NOT SCOPED BY WORKSHOP at its call sites: the record is already chosen there,
+         * and narrowing its own group to the workshop currently on screen would hide the sittings the
+         * aggregation exists to gather. See `FieldRepository.interviewsForArtisan`.
+         */
+        @Query("artisanId") artisanId: String? = null
     ): PageResponse<QuestionnaireInterviewDetailDto>
 
     @GET("questionnaire/interviews/{id}")

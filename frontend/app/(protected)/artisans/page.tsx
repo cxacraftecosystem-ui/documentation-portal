@@ -108,6 +108,32 @@ export default function ArtisansPage() {
     }
   }
 
+  /**
+   * "Start questionnaire" / "Document a product" — open the capture form with this artisan already on
+   * it, which is the whole advertised purpose of these links.
+   *
+   * ── THE ARTISAN'S OWN WORKSHOP DELIBERATELY DOES NOT TRAVEL ────────────────────────────────────
+   *
+   * `artisan.workshopId` is not in this bag, and that is a decision rather than an omission.
+   *
+   * It was considered, because for a while the questionnaire form quietly unticked a seeded artisan
+   * who was not on the DEFAULT workshop's roster: the researcher clicked a link promising a prefilled
+   * interview, watched the name appear and vanish, and concluded the link was broken. Sending the
+   * workshop along would have removed the commonest case of that.
+   *
+   * IT WAS THE WRONG FIX, TWICE OVER. `artisan.workshopId` is where the PERSON'S RECORD was filed,
+   * which is routinely a workshop months ago and a district away — not where the researcher clicking
+   * this link is standing. Opening the interview form on it would file the sitting at the wrong
+   * workshop by default, which is a wrong stored record rather than a confusing screen; and it would
+   * override `useWorkshopSelection`'s probe, whose entire job is to land on a workshop this account
+   * may actually SUBMIT to (`components/forms/WorkshopSelect.tsx`), so the form could open already
+   * refusing to save. The carry-forward bag may move the workshop precisely because the workshop it
+   * carries is the one the LAST RECORD was filed at, minutes ago, by this researcher.
+   *
+   * The disappearing tick is fixed where it belonged: nothing unticks a seeded artisan any more, on
+   * either client, and a ticked artisan the workshop's roster does not hold is named in a sentence
+   * under the picker. See rule 6 in `components/questionnaires/interviewArtisans.ts`.
+   */
   function artisanEntryHref(path: string, artisan: Artisan) {
     const params = new URLSearchParams({
       artisanId: artisan.id,

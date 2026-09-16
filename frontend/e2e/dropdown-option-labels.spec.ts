@@ -87,11 +87,11 @@ function expectReadable(labels: string[], separator: string) {
 }
 
 test.describe("Dropdown labels", () => {
-  test("/questionnaire — the primary artisan reads as a name, craft and place", async ({ page }) => {
+  test("/questionnaire — the artisans picker reads as a name, craft and place", async ({ page }) => {
     await signIn(page);
     await page.goto("/questionnaire");
     // `{artisan.name} - {artisan.craft?.name ?? "No craft"} - {artisan.place}`
-    expectReadable(await readOptions(page, "Primary artisan"), " - ");
+    expectReadable(await readOptions(page, "Artisans interviewed"), " - ");
   });
 
   test("/processes — the required artisan picker reads as a name and place", async ({ page }) => {
