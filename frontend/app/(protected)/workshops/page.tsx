@@ -33,7 +33,7 @@ import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/format";
-import { locationFromForm, requiredText, textValue } from "@/lib/forms";
+import { locationFromForm, requiredText, sameIdSet, textValue } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import { uploadMediaBatch, type BatchProgress } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
@@ -55,20 +55,6 @@ function linkedCraftIds(workshop: Workshop | null): string[] {
   return ((workshop as WorkshopWithCrafts | null)?.crafts ?? [])
     .map((item) => item.craft?.id ?? item.craftId)
     .filter((id): id is string => Boolean(id));
-}
-
-/**
- * Do these two id lists name the same set? ORDER-INSENSITIVE on purpose: the multi-selects hand back
- * the order the researcher ticked boxes in, while the stored list comes back in the join table's own
- * order, so comparing sequences would report "changed" for a roster nobody touched — which is the
- * exact 403 the diff in `submit` exists to avoid. Both inputs are already duplicate-free (the join
- * table is unique on the pair; the pickers cannot tick a row twice), so a length check plus
- * membership is a true set comparison here.
- */
-function sameIdSet(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
-  const seen = new Set(a);
-  return b.every((id) => seen.has(id));
 }
 
 const statusOptions: RecordStatus[] = ["DRAFT", "PENDING", "APPROVED", "REJECTED", "NEEDS_REVISION"];

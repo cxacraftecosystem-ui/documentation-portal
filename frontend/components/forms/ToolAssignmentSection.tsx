@@ -161,7 +161,25 @@ export function ToolAssignmentSection() {
                 artisanName: tool.artisanName,
                 place: tool.place,
                 craftId: tool.craftId,
-                craftName: tool.craftName,
+                /*
+                  ONE CRAFT'S OWN NAME, NEVER THE JOINED LIST.
+
+                  A tool covers several crafts now, and `tool.craftName` is every linked craft's name
+                  joined ", " by the route (`_resolve_tool_links`) — while `tool.craftId` beside it is
+                  only the FIRST of them. The carry bag holds ONE craft: the banner prints its name as
+                  a single name, and `ProductForm` drops it straight into its REQUIRED "Craft name"
+                  box, which `create_product` stores verbatim with no re-derivation. Banking the
+                  joined string therefore wrote a product row naming a craft called "Bandhani, Block
+                  printing" against a `craftId` pointing at Bandhani alone — a craft that does not
+                  exist, and a name column that no longer matches its own foreign key.
+
+                  `crafts` is loaded in this panel already, by the same effect that loads `tools`, so
+                  the first craft's own row is here to be read. The fallback takes the first name out
+                  of the joined string, which is the same craft by construction — the route joins in
+                  `craftIds` order and `craftId` is element 0 — for a craft this page could not load.
+                  `ToolForm` banks its sitting under the same rule.
+                */
+                craftName: crafts.find((craft) => craft.id === tool.craftId)?.name ?? tool.craftName.split(",")[0].trim(),
                 toolId: tool.id,
                 toolName: tool.toolkitName
               });

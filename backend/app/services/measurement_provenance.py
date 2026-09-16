@@ -380,11 +380,24 @@ GEOMETRY_TECHNIQUES: frozenset[str] = frozenset({TECHNIQUE_SCALE, TECHNIQUE_RECT
 #:     grep -n "heightInches" backend/prisma/schema.prisma
 #:
 #: WHAT IS DELIBERATELY OUT, so nobody reads the shared set as an invitation: ``ToolDocumentation``
-#: also has ``height``, ``width``, ``thickness``, ``weight`` and ``radius``, and every one of them is
-#: an ordinary typed input with no grid control and no photo-measure control pointed at it. ``height``
-#: in particular is the UNIT-LESS legacy column — rows hold values in it and nothing in the database
-#: can say what unit those are in — and it may never carry a marker: a client aiming a photograph
-#: reading at it is aiming at the wrong column, and :func:`marker_body_problems` tells it so by name.
+#: also has ``height``, ``width``, ``thickness``, ``weight`` and ``radius``. ``thickness``, ``weight``
+#: and ``radius`` are ordinary typed inputs with no grid control and no photo-measure control pointed
+#: at them, and there is nothing to say about how they were measured.
+#:
+#: ``height`` AND ``width`` ARE THE INTERESTING PAIR, AND THEY STAY OUT FOR A REASON THAT GOT
+#: STRONGER RATHER THAN WEAKER. This comment used to call ``height`` "the UNIT-LESS legacy column"
+#: whose unit nothing in the database could say. That is still true of every row saved before
+#: 2026-09-15 and true of nothing saved after it: the tool form now labels ``height`` "Height (cm)"
+#: and ``width`` "Width (cm)", and each is filled BY CONVERSION from its inches partner
+#: (``height`` <-> ``heightInches``, ``width`` <-> ``breadthInches``) at 2.54 cm to the inch.
+#:
+#: A DERIVED NUMBER MUST NOT CARRY A MARKER OF ITS OWN. When a researcher accepts a grid reading into
+#: ``heightInches``, the marker belongs to ``heightInches`` — that is the box the model measured —
+#: and the centimetre value beside it is arithmetic on that reading, not a second measurement. Giving
+#: it its own stamp would put a vision model's name against a number no model ever produced, and two
+#: stamps that could disagree about one measurement is exactly the fiction this module exists to
+#: refuse. So the cm boxes carry no provenance, and a client aiming a marker at one is aiming at the
+#: wrong column: :func:`marker_body_problems` tells it so by name.
 DIMENSION_FIELDS: frozenset[str] = frozenset({"lengthInches", "breadthInches", "heightInches"})
 
 #: The key the PROVIDER answers under: the measurement prompt asks Gemini for "confidence from 0 to 1",
@@ -712,6 +725,12 @@ def marker_body_problems(markers: Any, *, present_fields: Any) -> list[str]:
         # documented to go and the unit-less ``height`` box was the only column that would take it. A
         # client written against that world aims its marker there, and this is what tells it to move
         # the value one box over instead of dropping the method in silence.
+        #
+        # THE SECOND CLIENT THAT AIMS HERE BY MISTAKE IS THE NEW ONE. ``height`` and ``width`` became
+        # the CENTIMETRE partners of ``heightInches`` and ``breadthInches`` on 2026-09-15, so a form
+        # that accepts a machine reading now writes TWO boxes and it would be an easy slip to stamp
+        # both. The cm box is arithmetic on the inches reading, not a reading of its own; the refusal
+        # below names the three columns a method may describe, which is the whole answer.
         if field not in DIMENSION_FIELDS:
             problems.append(
                 f"{MARKER_BODY_KEY} names {field}, which is not a documented dimension. A "

@@ -129,16 +129,31 @@ test("the tool form has the unit-bearing height box, and it is the one the grid 
   expect(box, "heightInches is a decimal measurement").toContain('type="number"');
   expect(box, "and it is controlled, so the grid panel can fill it").toContain("value={heightInches}");
   /*
-    THIS ASSERTION CHANGED WITH THE PROVENANCE WORK, AND IT IS STRICTLY STRONGER NOW. It read
-    `onChange={(event) => setHeightInches(event.target.value)}` — a bare setter. Every dimension box
-    on both record forms now goes through each form's `typeInto(setter, column)` factory, which does
-    two things and not one: it writes the box AND it forgets whatever a measurement route proposed
-    into it, because a method marker is a claim about how THIS number was obtained and is false the
-    instant somebody types over it. The column name is the second argument, so a box wired to the
+    THIS ASSERTION HAS CHANGED TWICE, AND IT IS STRICTLY STRONGER EACH TIME.
+
+    It first read `onChange={(event) => setHeightInches(event.target.value)}` — a bare setter. The
+    provenance work moved every dimension box on both record forms onto each form's factory, which
+    does two things and not one: it writes the box AND it forgets whatever a measurement route
+    proposed into it, because a method marker is a claim about how THIS number was obtained and is
+    false the instant somebody types over it. The column name is an argument, so a box wired to the
     wrong key would file — or fail to clear — a marker under a dimension it never touched. See
     `components/forms/measurementMethods.ts`.
+
+    THE CENTIMETRE PAIRING ADDED THE THIRD ARGUMENT AND RENAMED THE FACTORY. `ToolForm.typeInto`
+    is `typeInches` now, and the third argument is the CENTIMETRE PARTNER this inch box fills as the
+    researcher types: `heightInches` ↔ `height`, `breadthInches` ↔ `width`. The partner is asserted
+    by name because the failure it guards against is silent and symmetrical — wiring `heightInches`
+    to `setWidth` puts a height into the width column with nothing on screen or in the payload
+    saying so. `lengthInches` is STANDALONE and passes no partner; `ProductForm` has no pairing at
+    all and keeps `typeInto`.
   */
-  expect(box).toContain('onChange={typeInto(setHeightInches, "heightInches")}');
+  expect(box).toContain('onChange={typeInches(setHeightInches, "heightInches", setHeight)}');
+  expect(inputFor(TOOL_FORM, "breadthInches", "ToolForm"), "breadth fills the width box").toContain(
+    'onChange={typeInches(setBreadth, "breadthInches", setWidth)}'
+  );
+  expect(inputFor(TOOL_FORM, "lengthInches", "ToolForm"), "length has no centimetre partner").toContain(
+    'onChange={typeInches(setLength, "lengthInches")}'
+  );
   expect(TOOL_FORM, "no microphone on a measurement").not.toMatch(
     /<DictatedTextInput[\s\S]{0,400}?name="heightInches"/
   );
@@ -160,7 +175,19 @@ test("the tool form has the unit-bearing height box, and it is the one the grid 
   expect(onHeightAt, "the grid panel's height callback must exist").toBeGreaterThan(-1);
   const onHeight = TOOL_FORM.slice(onHeightAt, TOOL_FORM.indexOf("onFilesChange=", onHeightAt));
   expect(onHeight, "the inches reading goes in the inches box").toContain("setHeightInches(value)");
-  expect(onHeight, "and never again in the unit-less one").not.toContain("setHeight(value)");
+  /*
+    `setHeight(value)` WAS THE DEFECT AND STILL IS — but the box it names is no longer unit-less.
+    `height` is the CENTIMETRE partner of `heightInches` now, so the grid's height accept legitimately
+    reaches `setHeight`; what it may never do is put the INCHES STRAIGHT IN, which is what
+    `setHeight(value)` spells and what lost the unit on every grid-measured tool in this repository.
+    So the negative assertion is kept verbatim — it is still exactly the wrong line — and a positive
+    one is added beside it naming the conversion. A partner filled with `value` and a partner filled
+    with `cmTextFromInches(value)` differ by a factor of 2.54 and by nothing a reader can see.
+  */
+  expect(onHeight, "the inches are never written verbatim into the centimetre box").not.toContain("setHeight(value)");
+  expect(onHeight, "the centimetre partner is filled, converted").toContain(
+    "propagate(value, cmTextFromInches, setHeight)"
+  );
 
   /*
     AND THE SAME REDIRECT ON THE DETERMINISTIC PANEL, which did not exist when this test was written.
@@ -172,8 +199,18 @@ test("the tool form has the unit-bearing height box, and it is the one the grid 
   const proposeAt = TOOL_FORM.indexOf("onPropose={(key, text, method) => {");
   expect(proposeAt, "the deterministic panel must be wired").toBeGreaterThan(-1);
   const onPropose = TOOL_FORM.slice(proposeAt, TOOL_FORM.indexOf("onPhotoChange=", proposeAt));
-  expect(onPropose, "the inches proposal goes in the inches box").toContain('key === "heightInches") setHeightInches(text)');
-  expect(onPropose, "and the unit-less column is not a destination").not.toContain("setHeight(text)");
+  expect(onPropose, "the inches proposal goes in the inches box").toMatch(
+    /key === "heightInches"\)\s*\{?\s*\n?\s*setHeightInches\(text\);?/
+  );
+  // Same distinction as the grid route above: the centimetre partner is filled by CONVERSION, and
+  // the raw inch string is never written into it.
+  expect(onPropose, "the inches are never written verbatim into the centimetre box").not.toContain("setHeight(text)");
+  expect(onPropose, "the centimetre partner is filled, converted").toContain(
+    "propagate(text, cmTextFromInches, setHeight)"
+  );
+  expect(onPropose, "and breadth fills its own partner, `width`").toContain(
+    "propagate(text, cmTextFromInches, setWidth)"
+  );
 });
 
 test("both height boxes point at one sentence that says which is which", () => {
@@ -207,8 +244,54 @@ test("both height boxes point at one sentence that says which is which", () => {
     "the paragraph sits between Fields, never inside one"
   ).toBeGreaterThan(TOOL_FORM.lastIndexOf("<Field", paragraphAt));
   const paragraph = TOOL_FORM.slice(paragraphAt, TOOL_FORM.indexOf("</p>", paragraphAt));
-  expect(paragraph, "it names the box to fill in").toContain("Height (inches)");
+  expect(paragraph, "it names both boxes of the pair").toContain("Height (inches)");
+  expect(paragraph, "and the centimetre one by its new label").toContain("Height (cm)");
   expect(paragraph, "and spans the row, or it reads as a note about one box").toMatch(/md:col-span-2/);
+  /*
+    THE INSTRUCTION REVERSED ON 2026-09-15, AND THIS IS THE ASSERTION THAT HOLDS THE NEW ONE SHUT.
+    The paragraph used to say the two boxes were different columns and to *"leave it empty unless you
+    are correcting one of those"*. They are now the SAME measurement in two units and filling either
+    fills the other, so the old sentence is not merely stale — it tells a researcher to do the one
+    thing the form no longer expects. A screen that still carried it would be a worse defect than no
+    note at all, because it would be confidently wrong.
+  */
+  expect(paragraph, "the retired instruction is gone from the screen").not.toContain("leave it empty unless");
+  expect(paragraph, "and the new truth is stated").toContain("filling either fills the other");
+  expect(paragraph, "with the factor, so nobody has to guess what it converted by").toContain("2.54");
+  // It must stay honest about the rows that predate the pairing: this form NEVER converts on load,
+  // so an old record can show two figures that disagree and the note is the only thing that says so.
+  expect(paragraph, "it admits the old rows").toContain("before this pairing existed");
+  // The standalone box is named as standalone, or a reader is left to infer it from an absence.
+  expect(paragraph, "and Length is declared to have no partner").toContain("has no centimetre box");
+});
+
+test("the tool form's centimetre boxes are labelled as centimetres and never renamed on the wire", () => {
+  /*
+    THE LABEL SAYS THE UNIT; THE FIELD NAME DOES NOT MOVE.
+
+    `height` and `width` are the same columns, the same wire keys and the same entries in
+    `_CLEARABLE_COLUMNS` / `ToolCreate` / `ToolUpdate` they always were — renaming any of those would
+    be a migration wearing a label change. What changed is the only half a person reads. Asserted
+    together because the pair is the decision: a label without the name, or a name without the label.
+  */
+  expect(TOOL_FORM, "the centimetre height says so").toContain('<Field label="Height (cm)">');
+  expect(TOOL_FORM, "and the centimetre width").toContain('<Field label="Width (cm)">');
+  expect(TOOL_FORM, "the unqualified labels are gone from this form").not.toContain('<Field label="Height">');
+  expect(TOOL_FORM, "both of them").not.toContain('<Field label="Width">');
+  expect(inputFor(TOOL_FORM, "height", "ToolForm"), "and the wire key is untouched").toContain('name="height"');
+  expect(inputFor(TOOL_FORM, "width", "ToolForm"), "as is the other one").toContain('name="width"');
+  /*
+    WIDTH IS CONTROLLED NOW, WHICH IS NOT COSMETIC: a partner box is written by code, and an
+    uncontrolled `defaultValue` input cannot be. A `defaultValue` left here would take the researcher's
+    typing and silently ignore every conversion, which looks exactly like a working form.
+  */
+  expect(inputFor(TOOL_FORM, "width", "ToolForm"), "width is controlled, or nothing can fill it").toContain(
+    "value={width}"
+  );
+  expect(inputFor(TOOL_FORM, "width", "ToolForm"), "and not half-converted from FormData").not.toContain(
+    "defaultValue"
+  );
+  expect(TOOL_FORM, "and the payload reads it from state").toContain("width: toNum(width)");
 });
 
 test("no measurement or price on the tool and product forms accepts a negative", () => {
@@ -241,6 +324,227 @@ test("no measurement or price on the tool and product forms accepts a negative",
       "min={0}"
     );
   }
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 1b. The tool's two multi-selects, and the name that follows another name
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+test("the tool form links SEVERAL crafts and artisans, and still fills the first-of-each columns", () => {
+  /*
+    ONE TOOL COVERS SEVERAL CRAFTS, AND THE SCALARS DO NOT GO AWAY. `tool.craftId` keeps the FIRST
+    selected craft and `tool.artisanId` the first artisan, because every existing filter, index,
+    report, carry-forward and data-browser branch reads them; `craftName` holds every craft name
+    joined ", " in the same order; the `ToolCraft` / `ToolArtisan` join tables hold all of them. A
+    form that sent only the lists would leave those columns holding whatever they held before, which
+    is a record whose links and whose own columns disagree — and nothing on any screen would say so.
+  */
+  expect(TOOL_FORM, "crafts are a multi-select").toMatch(
+    /<Field label="Linked crafts \(fills craft name\)">[\s\S]{0,400}?<MultiSelectDropdown/
+  );
+  expect(TOOL_FORM, "and so are artisans").toMatch(
+    /<Field label="Linked artisans \(fills artisan \+ place\)">[\s\S]{0,400}?<MultiSelectDropdown/
+  );
+  // Both lists reach the body, and both scalars are still derived from element 0 rather than kept as
+  // a second piece of state that could drift from the selection.
+  const payload = TOOL_FORM.slice(TOOL_FORM.indexOf("const payload = {"), TOOL_FORM.indexOf("// Offline this queues"));
+  expect(payload, "the craft list is sent").toContain("craftIds: craftLinksChanged ? craftIds : undefined,");
+  expect(payload, "the artisan list is sent").toContain("artisanIds: artisanLinksChanged ? artisanIds : undefined,");
+  expect(payload, "and the first-of-each columns with them").toContain("craftId: craftId || null");
+  expect(payload, "and the first-of-each columns with them").toContain("artisanId: artisanId || null");
+  expect(TOOL_FORM, "the scalars are DERIVED, never a second state").toContain('const craftId = craftIds[0] ?? "";');
+  expect(TOOL_FORM, "both of them").toContain('const artisanId = artisanIds[0] ?? "";');
+  /*
+    SENT ONLY WHEN THE PICKER CHANGED, AND THE ASSERTION THIS REPLACED IS QUOTED RATHER THAN DROPPED.
+    It read `expect(payload, "the craft list is sent").toMatch(/^\s*craftIds,$/m)` — i.e. that the
+    state array was sent unconditionally, on every save. That was right about `[]` and wrong about
+    everything else: `PATCH /tools/{id}` refuses ANY send of a populated relation from a caller who is
+    not an admin, the author, or an EDIT-grantee, so an unconditional send answered a contributor who
+    had typed into "Material" with *"Only the original contributor or an admin can change populated
+    relation: craftIds"*, about a picker they never opened — after the row had already been
+    updated and a revision already committed. It also re-sent a mount-time list over links a
+    colleague had added since, which `_replace_artisan_links` deletes.
+
+    `[]` STILL TRAVELS, which is the half that must not be lost: the diff is against the record's own
+    stored links, so an EMPTIED picker differs from them and is still sent as `[]`. A
+    `craftIds.length ? craftIds : undefined` is the shape that would break it, and the two
+    assertions below still ban exactly that.
+  */
+  expect(payload, "an empty selection is not hidden behind a conditional").not.toMatch(/craftIds\.length \?/);
+  expect(payload, "and neither is the artisan one").not.toMatch(/artisanIds\.length \?/);
+  expect(TOOL_FORM, "the craft diff is a SET comparison against the stored links").toContain(
+    "const craftLinksChanged = !initial || !sameIdSet(craftIds, storedCraftIds(initial));"
+  );
+  expect(TOOL_FORM, "and so is the artisan one").toContain(
+    "const artisanLinksChanged = !initial || !sameIdSet(artisanIds, storedArtisanIds(initial));"
+  );
+  // The craft-deselection rule is the shared one, where a test can reach it — never re-derived here.
+  expect(TOOL_FORM, "deselection goes through the shared rule").toContain("craftsChangeClearsArtisans({");
+  /*
+    AND IT IS TOLD WHICH CRAFTS WENT AWAY. Without `removedCraftIds` the rule answers "is this artisan
+    of a craft that is not ticked", which drops people whose craft was never ticked in the first
+    place — every artisan linked through "Assign a tool to multiple artisans", whose craft this
+    picker has nothing to do with. Only the caller can compute the difference, so only the caller can
+    get it wrong.
+  */
+  expect(TOOL_FORM, "the removed crafts are computed from the PREVIOUS selection").toContain(
+    "const removed = craftIds.filter((id) => !next.includes(id));"
+  );
+  expect(TOOL_FORM, "and handed to the rule").toContain("removedCraftIds: removed,");
+  expect(TOOL_FORM, "and the A→Z order is the shared one too").toContain("sortArtisansByCraft(offered, selectedCrafts)");
+});
+
+test("the tool form keeps `artisanId` and `artisanName` naming the SAME person", () => {
+  /*
+    THREE WAYS ONE RECORD CAME TO NAME TWO PEOPLE, and the three rules that close them. `artisanId` is
+    element 0 of the picker; `artisanName` and `place` are single NOT NULL columns describing that
+    person. Every failure below returned 200 with nothing on screen having changed.
+
+    1. THE SEED. `artisanLinks` does not mean "this tool's artisans" — it means "also assigned to".
+       "Assign a tool to multiple artisans" writes rows for anybody and touches none of the scalars,
+       and `DELETE /tools/{id}/artisans/{id}` removes rows just as freely, the tool's own artisan
+       included. Seeding from the links alone put somebody else at element 0, so opening a tool to fix
+       a typo and pressing Update re-pointed `tool.artisanId` at them. The stored scalar leads.
+    2. THE ORDER. `artisanLinks` had no order at all until `_order_artisan_links` landed beside this
+       change — `hydrate_relations` issues no `order`, and `_replace_artisan_links` restamps every row
+       in one `create_many`, so `createdAt asc` could not have broken the tie either. The server pins
+       the scalar first now; the client hoists it anyway, because a tool whose `artisanId` has no link
+       row has nothing to pin and because this bundle may be reading an older API.
+    3. THE PROMOTION. Unticking a CRAFT drops that craft's artisans, which can drop the head — and
+       that path rewrote neither name box, while the artisan picker's own `onChange` did. Same end
+       state, two different stored rows. Both go through one helper now.
+  */
+  expect(TOOL_FORM, "the stored scalar leads the seeded craft list").toContain(
+    "  return [head, ...linked.filter((id) => id !== head)];"
+  );
+  expect(TOOL_FORM, "the craft picker is seeded from it").toContain("const seeded = storedCraftIds(initial);");
+  expect(TOOL_FORM, "and the artisan picker from its twin").toContain("const seeded = storedArtisanIds(initial);");
+  // The links are read ONLY through those two helpers, which is what makes the hoist unskippable: a
+  // second reader of `initial.artisanLinks` inside the component is a second seeding rule.
+  expect(TOOL_FORM, "the component never reads the raw links").not.toContain("initial?.artisanLinks");
+  expect(TOOL_FORM, "nor the raw craft links").not.toContain("initial?.craftLinks");
+
+  // ONE WRITER for the two companion columns, reached from both gestures.
+  const sync = TOOL_FORM.slice(
+    TOOL_FORM.indexOf("function syncArtisanColumns("),
+    TOOL_FORM.indexOf("function onCraftsChanged(")
+  );
+  expect(sync, "nothing is written when element 0 did not move").toContain(
+    'if (!head || head === (previous[0] ?? "")) return;'
+  );
+  expect(sync, "and nothing when the new head is off-page").toContain("if (!first) return;");
+  expect(sync, "the two columns come from the head artisan's own row").toContain("setArtisanName(first.name);");
+  expect(sync, "both of them").toContain("setPlace(first.place);");
+  expect(TOOL_FORM, "the craft cascade re-derives them").toContain("syncArtisanColumns(kept, artisanIds);");
+  expect(TOOL_FORM, "and so does the artisan picker").toContain("syncArtisanColumns(next, previous);");
+  /*
+    AND NEITHER COLUMN IS WRITTEN ANYWHERE ELSE. `routes/tools.py` does NOT derive `artisanName` or
+    `place` from `artisanIds` — both are things a researcher legitimately corrects by hand
+    ("A. Khatri" → "Abdul Khatri"), so the body's values stand. A second writer that fired on every
+    toggle is what reverted a hand-corrected Place the moment a second artisan was ticked.
+  */
+  const code = codeOnly(TOOL_FORM);
+  expect(code.match(/setArtisanName\(first\.name\)/g) ?? [], "one writer, not two").toHaveLength(1);
+  expect(code.match(/setPlace\(first\.place\)/g) ?? [], "one writer, not two").toHaveLength(1);
+});
+
+test("the tool form never converts a dimension on load, and never watches both halves of a pair", () => {
+  /*
+    TWO PROHIBITIONS, AND BOTH ARE THE KIND THAT LOOK LIKE TIDY-UPS WHEN SOMEBODY ADDS THEM BACK.
+
+    NO CONVERSION ON LOAD. Rows saved before the pairing hold two genuinely unrelated numbers in
+    `height` and `heightInches`; seeding either box from its partner would rewrite a stored value the
+    moment a researcher merely OPENED the record, and the next save would make it permanent. Each box
+    is seeded from its own column and nothing else.
+
+    NO WATCHER OVER BOTH HALVES. `useEffect`/`useMemo` over `[height, heightInches]` fires for
+    whichever of the two changed and re-derives the source from the value it just wrote — 1 cm
+    becomes 0.39 in becomes 0.99 cm, decaying on every keystroke. The conversion is written ONLY from
+    inside the typing box's own handler, which cannot do that. `ToolForm` has no `useEffect` at all,
+    so the strong form of the assertion is available: there is no effect in this file to hide one in.
+  */
+  expect(TOOL_FORM, "the centimetre height is seeded from its own column").toContain(
+    'const [height, setHeight] = useState(initial?.height != null ? String(initial.height) : "");'
+  );
+  expect(TOOL_FORM, "and the centimetre width from its own").toContain(
+    'const [width, setWidth] = useState(initial?.width != null ? String(initial.width) : "");'
+  );
+  expect(TOOL_FORM, "no conversion helper is reached at construction").not.toMatch(
+    /useState\([^)]*(cmTextFromInches|inchesTextFromCm)/
+  );
+  /*
+    ASSERTED AT THE IMPORT AND NOT ON THE BODY, because the body legitimately NAMES `useEffect` — the
+    comments beside both conversion factories argue at length about why the watcher version is the
+    one shape that cannot work, and an assertion that banned the word would ban the explanation. An
+    effect cannot be written without importing the hook (this codebase never writes `React.useEffect`
+    and has no `React` default import anywhere), so the import line is the airtight half and the
+    comments stay where a reader will meet them.
+  */
+  const reactImport = TOOL_FORM.slice(TOOL_FORM.indexOf('import {'), TOOL_FORM.indexOf('} from "react";') + 15);
+  expect(reactImport, "this form imports no effect hook").not.toContain("useEffect");
+  expect(TOOL_FORM, "and reaches for none through a namespace either").not.toMatch(/React\.use(Effect|LayoutEffect)/);
+});
+
+test("the toolkit name mirrors into the English name, and stops the moment a person touches it", () => {
+  /*
+    ── A ONE-WAY DOOR, AND THE THREE WAYS IT IS HELD SHUT ──────────────────────────────────────
+
+    The rule: "English name" follows "Toolkit name" as it is typed, UNLESS the researcher has edited
+    the English box themselves — after which it is theirs for the life of the form. The failure modes
+    are all silent, so each is asserted by source rather than left to a reading:
+
+    1. **A `useRef`, not a `useState`.** The latch is read inside a callback handed to a child; a
+       state value captured in a stale closure would re-arm a divorced form on the next keystroke and
+       overwrite a hand-typed name.
+    2. **Mirrored at the WRITE SITE, never in an effect.** An effect keyed on `toolkitName` fires on
+       MOUNT with the loaded value, so an edit whose stored English name is empty — legitimately
+       armed — would be rewritten and marked dirty by merely being OPENED. (The blanket "no effects
+       on this form" assertion above covers the file; this names the reason.)
+    3. **Every writer goes through one helper.** A second `setToolkitName(...)` anywhere else is a
+       write that silently does not mirror, which is indistinguishable from the feature working until
+       somebody uses that path.
+  */
+  expect(TOOL_FORM, "the latch is a ref").toMatch(/const mirrorArmed = useRef\(/);
+  expect(TOOL_FORM, "and it is never state").not.toMatch(/\[\s*mirrorArmed\s*,/);
+  /*
+    THE INITIAL STATE IS THE EDGE CASE. A create always arms. An EDIT arms only when the stored
+    English name is blank or RAW-EQUAL to the stored toolkit name — i.e. when mirroring cannot
+    destroy anything anybody chose. A record whose two names genuinely differ opens DIVORCED, so
+    correcting the toolkit name of an existing tool never clobbers its English name.
+  */
+  // Sliced from the declaration to the helper BELOW it — `indexOf("applyToolkitName")` from the top
+  // of the file lands in the latch's own docblock, which names the helper before declaring it.
+  const latchAt = TOOL_FORM.indexOf("const mirrorArmed = useRef(");
+  const latch = TOOL_FORM.slice(latchAt, TOOL_FORM.indexOf("function applyToolkitName", latchAt));
+  expect(latch, "a create arms").toContain("initial ?");
+  expect(latch, "an edit arms on a blank stored name").toContain('(initial.englishName ?? "").trim() === ""');
+  expect(latch, "or on raw equality — no trim, no case fold").toContain(
+    '(initial.englishName ?? "") === (initial.toolkitName ?? "")'
+  );
+
+  // ONE WRITER. The helper is the only thing that may call `setToolkitName`, so no path can skip the
+  // mirror; `applyToolkitName` itself is the single exception the count allows for.
+  expect(TOOL_FORM.match(/setToolkitName\(/g)?.length, "exactly one writer of the toolkit name").toBe(1);
+  expect(TOOL_FORM, "and it is the helper").toMatch(/function applyToolkitName\([\s\S]{0,200}?setToolkitName\(next\);/);
+  expect(TOOL_FORM, "which mirrors only while armed").toMatch(/if \(mirrorArmed\.current\) setEnglishName\(next\);/);
+  expect(TOOL_FORM, "the toolkit box goes through it").toContain(
+    "onChange={(next) => applyToolkitName(next, { user: true })}"
+  );
+
+  /*
+    TOUCHING THE ENGLISH BOX DISARMS — INCLUDING CLEARING IT BY HAND. Every route into that handler
+    is a person (a keystroke, a paste, a dictated phrase, a backspace to nothing), so the latch drops
+    there unconditionally: no `if (next)` guard, or emptying the box would leave it armed and the
+    next keystroke in "Toolkit name" would refill what somebody had just deliberately cleared.
+  */
+  const englishAt = TOOL_FORM.indexOf('name="englishName"');
+  expect(englishAt, "the English name box must exist").toBeGreaterThan(-1);
+  const englishBox = TOOL_FORM.slice(englishAt, TOOL_FORM.indexOf("/>", englishAt));
+  expect(englishBox, "it disarms the mirror").toContain("mirrorArmed.current = false;");
+  expect(englishBox, "unconditionally — clearing the box is an edit").not.toMatch(/if \(next\)[\s\S]{0,80}mirrorArmed/);
+  // A PROGRAMMATIC write of the English name must NOT disarm, so the latch may be set false in
+  // exactly one place: that handler.
+  expect(TOOL_FORM.match(/mirrorArmed\.current = false/g)?.length, "one disarm site, and one only").toBe(1);
 });
 
 /* ────────────────────────────────────────────────────────────────────────────

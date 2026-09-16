@@ -368,7 +368,7 @@ export function recordSwitcherTitle(kind: RecordKind): string {
  *
  * Deliberately three values and not a boolean, and deliberately NOT collapsed into "do we have
  * rows". `recordPickers.ts` carries the long-form version of this argument under
- * `artisansLoadedForCraft`: "no records" is a claim about the repository, and a screen that makes it
+ * `artisansLoadedForCrafts`: "no records" is a claim about the repository, and a screen that makes it
  * while the answer is still in flight — or after the answer failed to arrive — is stating as fact
  * something it has no basis for. The researcher's reasonable response to "no artisans are linked to
  * this workshop" is to go and create one, which is how a duplicate gets filed.
@@ -546,7 +546,7 @@ export function RecordSwitcher({
   const [state, setState] = useState<RecordListState>("pending");
   /**
    * WHICH workshop the rows in `records` belong to — not a boolean, for the reason
-   * `recordPickers.useCraftAndArtisanOptions` gives about `artisansLoadedForCraft`. Between a
+   * `recordPickers.useCraftAndArtisanOptions` gives about `artisansLoadedForCrafts`. Between a
    * workshop being chosen and its rows arriving there is a window in which `records` is populated
    * and describes the PREVIOUS workshop, and everything this control says about "this workshop" in
    * that window is said about the wrong one.

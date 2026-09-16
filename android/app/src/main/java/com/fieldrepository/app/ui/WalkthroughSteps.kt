@@ -425,18 +425,19 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
             "Local name",
             "English name",
             "Workshop",
-            "Linked craft (fills craft name)",
+            "Linked crafts (fills craft name)",
             "Craft name (required)",
-            "Linked artisan (fills artisan + place)",
+            "Linked artisans (fills artisan + place)",
             "Artisan name (required)",
             "Place (required)",
             "Process used in",
             "Material",
             "Years in use",
-            "Height",
-            "Width",
+            "Height (cm)",
+            "Width (cm)",
             "Length (inches)",
             "Breadth (inches)",
+            "Height (inches)",
             "Thickness",
             "Weight",
             "Radius",
@@ -452,6 +453,16 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         watch = listOf(
             "Fill only the dimensions that make sense for the tool — a blade has a length and " +
                 "thickness, a wheel has a radius.",
+            // The centimetre pairing, 2026-09-15. Verbatim from the web, because the behaviour is
+            // identical on both clients — the same conversion, the same two pairs, the same
+            // standalone length.
+            "Height (cm) and Height (inches) are one measurement: fill either and the other fills " +
+                "itself. Width (cm) pairs with Breadth (inches) the same way; Length (inches) has " +
+                "no centimetre box.",
+            // The two multi-selects, 2026-09-15. Verbatim too: "tick" is the right word for the
+            // handset's sheet as well as for the browser's dropdown.
+            "A tool can be linked to several crafts and several artisans at once — tick as many as " +
+                "apply, and the craft name box fills with all of them in the order you picked.",
             "\"Process stages\" archives your captures in order as STAGE_STEP_1, STAGE_STEP_2, … " +
                 "so shoot them in sequence.",
             // "Assign tools to artisans" is this handset's own menu row, at AppNavigation.kt:364,

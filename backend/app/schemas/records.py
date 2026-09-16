@@ -660,8 +660,32 @@ class ProcessUpdate(APIModel):
     expectedUpdatedAt: datetime | None = None
 
 
+#: THE BOUND ON A TOOL'S ``craftName``, WHICH IS NOT ONE CRAFT'S NAME.
+#:
+#: Every other 180 in this file bounds a box a person types into. This one bounds a string the SERVER
+#: writes: once ``craftIds`` is present and non-empty, ``routes/tools._resolve_tool_links`` replaces
+#: whatever the body sent with every linked craft's name joined ``", "``. At 180 the two disagreed,
+#: and the disagreement was not theoretical — ``Craft.name`` is itself capped at 180 (``CraftCreate``
+#: above), so TWO long craft names already overflow it and about seven ordinary ones do
+#: ("Ajrakh Hand Block Printing" is 26 characters; seven of those joined is 194). What that produced
+#: was a 422 naming ``craftName`` — a box the researcher had not typed in and, once the value was
+#: stored, could not correct, because the route re-derived the same over-long string on the next save
+#: and refused it again. The column is TEXT and enforced nothing, so only these two numbers were ever
+#: in play.
+#:
+#: THE NUMBER HAS TO BE ONE NUMBER, and that is the whole point of naming it. ``_resolve_tool_links``
+#: imports this constant and refuses a join it cannot fit BEFORE anything is written, so what the
+#: route can store and what these schemas will accept back are the same bound by construction rather
+#: than by two people remembering to change two literals. Ten crafts at the full 180-character
+#: ``Craft.name`` cap is 1818 characters (10 x 180 + 9 x 2); at the names this register actually
+#: holds it is about seventy crafts. A tool linked to seventy crafts is a question for a person, not
+#: a string to truncate silently, which is why the route answers it with a refusal that says so.
+TOOL_CRAFT_NAME_MAX = 2000
+
+
 class ToolCreate(APIModel):
-    craftName: str = Field(min_length=1, max_length=180)
+    # Server-derived whenever ``craftIds`` is sent, so its bound is the JOIN's — see the constant.
+    craftName: str = Field(min_length=1, max_length=TOOL_CRAFT_NAME_MAX)
     place: str = Field(min_length=1, max_length=180)
     artisanName: str = Field(min_length=1, max_length=180)
     toolkitName: str = Field(min_length=1, max_length=220)
@@ -676,13 +700,19 @@ class ToolCreate(APIModel):
     width: Decimal | None = Field(default=None, ge=0)
     lengthInches: Decimal | None = Field(default=None, ge=0)
     breadthInches: Decimal | None = Field(default=None, ge=0)
-    # THE THIRD OF THE TRIPLE, AND THE ONLY HEIGHT ON THIS MODEL THAT RECORDS ITS UNIT. ``height``
-    # above is the old unit-less column: rows already hold values in it, nothing in the database can
-    # say what unit those are in, and it is kept rather than merged for exactly that reason. The
-    # grid-measurement panel returns an INCHES reading and must fill THIS box; until this column
-    # existed the only box it could reach was the unit-less one, which is how every grid-measured
-    # tool height in this repository came to be stored with no recoverable unit. See migration
-    # 20260913120100.
+    # THE THIRD OF THE TRIPLE, AND THE BOX A MACHINE READING LANDS IN. The grid-measurement panel
+    # returns an INCHES reading and must fill THIS one; until this column existed the only box it
+    # could reach was the bare ``height``, which is how every grid-measured tool height in this
+    # repository came to be stored with no recoverable unit. See migration 20260913120100.
+    #
+    # ``height`` ABOVE IS ITS CENTIMETRE PARTNER SINCE 2026-09-15, not an unrelated column any more:
+    # the clients label the pair "Height (cm)" / "Height (inches)" and fill either from the other at
+    # 2.54 cm to the inch, and ``width``/``breadthInches`` pair the same way. ``lengthInches`` stands
+    # alone. THE SERVER CONVERTS NOTHING — it stores what it is sent, both columns are
+    # ``Decimal(10, 2)``, and a body carrying only one of a pair is a body that means only one of a
+    # pair. That is what keeps rows saved BEFORE the pairing readable: they can hold two numbers that
+    # are not the same measurement, nothing in the database can say what unit the older one was typed
+    # in, and no migration invented one.
     heightInches: Decimal | None = Field(default=None, ge=0)
     # HOW each of the three dimensions above was measured. Not a column: popped by
     # ``records.merge_field_provenance`` and merged into that dimension's provenance stamp. Omitting
@@ -703,6 +733,25 @@ class ToolCreate(APIModel):
     remarks: str | None = None
     artisanId: str | None = None
     craftId: str | None = None
+    # ── THE CRAFTS AND ARTISANS THIS TOOL IS LINKED TO, PLURAL ──────────────────────────────────
+    #
+    # NOT COLUMNS. Both are popped by ``routes/tools`` and written as ``ToolCraft`` / ``ToolArtisan``
+    # rows; ``craftId``/``artisanId`` above stay exactly where they are and are DERIVED from element
+    # 0 when these are present and non-empty, which is what keeps every existing filter, index,
+    # report and carry-forward that reads the singular column reading the same value as before.
+    #
+    # ``artisanIds`` IS SPELLED EXACTLY AS ``ToolArtisanAssign.artisanIds`` SPELLS IT, below, because
+    # it is the same list of the same ids meaning the same thing — the tool-to-artisans join. Two
+    # names for one relation is how a client comes to send one of them and wonder why the other
+    # screen disagrees.
+    #
+    # NULL IS REFUSED, and the validator below is the only thing that can refuse it. ABSENT means
+    # "leave the links alone"; ``[]`` means "no links". ``clean_data`` drops a ``None`` for anything
+    # outside ``CLEARABLE_KEYS``, and these are not columns so ``_CLEARABLE_COLUMNS`` cannot carry
+    # them — an explicit null would therefore be silently indistinguishable from an absent key,
+    # which is the one distinction the whole contract rests on.
+    craftIds: list[str] | None = None
+    artisanIds: list[str] | None = None
     workshopId: str | None = None
     status: str = "PENDING"
     recordedAt: datetime | None = None
@@ -722,9 +771,24 @@ class ToolCreate(APIModel):
     # record schema in this file — an artisan has no dimensions to state a method for.
     _measurement_methods = model_validator(mode="after")(validate_measurement_methods)
 
+    @field_validator("craftIds", "artisanIds", mode="before")
+    @classmethod
+    def _no_explicit_null_link_list(cls, value: Any) -> Any:
+        # Pydantic does NOT call a field validator for an ABSENT field with a default, so reaching
+        # this with ``None`` means the caller sent a literal null. The two spellings mean different
+        # things to the route and it cannot tell them apart once pydantic has parsed them, so the
+        # refusal has to happen here, by name, with the fix in the message.
+        if value is None:
+            raise ValueError("send [] to clear the links, or omit the key to leave them alone")
+        return value
+
 
 class ToolUpdate(APIModel):
-    craftName: str | None = Field(default=None, min_length=1, max_length=180)
+    # Bounded on the UPDATE by the same constant as on the create, and for a reason that only bites
+    # here: a stored ``craftName`` the SERVER derived is seeded back into the box by both forms and
+    # re-sent on the next save, so a cap this schema could not accept would make the record refuse
+    # every later edit on a value nobody typed. See ``TOOL_CRAFT_NAME_MAX``.
+    craftName: str | None = Field(default=None, min_length=1, max_length=TOOL_CRAFT_NAME_MAX)
     place: str | None = Field(default=None, min_length=1, max_length=180)
     artisanName: str | None = Field(default=None, min_length=1, max_length=180)
     toolkitName: str | None = Field(default=None, min_length=1, max_length=220)
@@ -739,8 +803,9 @@ class ToolUpdate(APIModel):
     width: Decimal | None = Field(default=None, ge=0)
     lengthInches: Decimal | None = Field(default=None, ge=0)
     breadthInches: Decimal | None = Field(default=None, ge=0)
-    # See ``ToolCreate.heightInches``: this is the height that records its unit, and ``height`` above
-    # is the old unit-less column kept for what is already stored.
+    # See ``ToolCreate.heightInches``: this is the inch box a machine reading lands in, and ``height``
+    # above is its centimetre partner — two units of one measurement on every client since 2026-09-15,
+    # and still two independent columns to this server, which converts neither.
     heightInches: Decimal | None = Field(default=None, ge=0)
     # HOW each of the three dimensions above was measured. Not a column: popped by
     # ``records.merge_field_provenance`` and merged into that dimension's provenance stamp. Omitting
@@ -761,6 +826,25 @@ class ToolUpdate(APIModel):
     remarks: str | None = None
     artisanId: str | None = None
     craftId: str | None = None
+    # ── THE CRAFTS AND ARTISANS THIS TOOL IS LINKED TO, PLURAL ──────────────────────────────────
+    #
+    # NOT COLUMNS. Both are popped by ``routes/tools`` and written as ``ToolCraft`` / ``ToolArtisan``
+    # rows; ``craftId``/``artisanId`` above stay exactly where they are and are DERIVED from element
+    # 0 when these are present and non-empty, which is what keeps every existing filter, index,
+    # report and carry-forward that reads the singular column reading the same value as before.
+    #
+    # ``artisanIds`` IS SPELLED EXACTLY AS ``ToolArtisanAssign.artisanIds`` SPELLS IT, below, because
+    # it is the same list of the same ids meaning the same thing — the tool-to-artisans join. Two
+    # names for one relation is how a client comes to send one of them and wonder why the other
+    # screen disagrees.
+    #
+    # NULL IS REFUSED, and the validator below is the only thing that can refuse it. ABSENT means
+    # "leave the links alone"; ``[]`` means "no links". ``clean_data`` drops a ``None`` for anything
+    # outside ``CLEARABLE_KEYS``, and these are not columns so ``_CLEARABLE_COLUMNS`` cannot carry
+    # them — an explicit null would therefore be silently indistinguishable from an absent key,
+    # which is the one distinction the whole contract rests on.
+    craftIds: list[str] | None = None
+    artisanIds: list[str] | None = None
     workshopId: str | None = None
     status: str | None = None
     recordedAt: datetime | None = None
@@ -778,6 +862,17 @@ class ToolUpdate(APIModel):
     # lines and not one shared base, because a base class would also hand the key to every OTHER
     # record schema in this file — an artisan has no dimensions to state a method for.
     _measurement_methods = model_validator(mode="after")(validate_measurement_methods)
+
+    @field_validator("craftIds", "artisanIds", mode="before")
+    @classmethod
+    def _no_explicit_null_link_list(cls, value: Any) -> Any:
+        # Pydantic does NOT call a field validator for an ABSENT field with a default, so reaching
+        # this with ``None`` means the caller sent a literal null. The two spellings mean different
+        # things to the route and it cannot tell them apart once pydantic has parsed them, so the
+        # refusal has to happen here, by name, with the fix in the message.
+        if value is None:
+            raise ValueError("send [] to clear the links, or omit the key to leave them alone")
+        return value
 
 
 class ToolArtisanAssign(APIModel):

@@ -768,6 +768,52 @@ data class ToolCreateRequest(
     val remarks: String? = null,
     val artisanId: String? = null,
     val craftId: String? = null,
+    /**
+     * THE CRAFTS AND ARTISANS THIS TOOL IS LINKED TO, PLURAL — the tool form's two multi-selects.
+     *
+     * NOT COLUMNS. The route pops both and writes `ToolCraft` / `ToolArtisan` rows; [craftId] and
+     * [artisanId] above stay exactly where they are and are DERIVED from element 0 when these are
+     * present and non-empty, so every existing filter, index, report and carry-forward that reads
+     * the singular column keeps reading the same value. `craftName` is likewise re-derived by the
+     * server as the selected names joined ", " IN THIS ORDER, which is why the list is ordered and
+     * why nothing here sorts it.
+     *
+     * `artisanIds` is spelled exactly as [ToolArtisanAssignRequest.artisanIds] already spells it,
+     * because it is the same list of the same ids meaning the same thing.
+     *
+     * ── NULL IS NOT THE SAME AS EMPTY, AND THE SERVER REFUSES ONE OF THEM ──────────────────────
+     *
+     * Absent means "leave the links alone"; `[]` means "no links". The server answers a LITERAL
+     * `"craftIds": null` with a 422, because it cannot tell that apart from absent otherwise, and
+     * the whole contract rests on the distinction. Two things make the null unreachable from here
+     * and both must stay true:
+     *
+     *  • `ApiClient.json` is `explicitNulls = false`, so a null default is dropped from the body
+     *    rather than written as `null`. This is the same property `measurementMethods` above relies
+     *    on, and for the same 422.
+     *  • The OFFLINE QUEUE stores the body with `encodeDefaults = true` and `explicitNulls` at its
+     *    default, so a queued blob genuinely does hold `"craftIds": null` — and that is harmless
+     *    precisely because the replay DECODES it back into this class and re-encodes it through the
+     *    Retrofit converter (`FieldRepository.kt`, `offlineJson.decodeFromString<ToolCreateRequest>`),
+     *    where `explicitNulls = false` drops it again. Do NOT add `@EncodeDefault` to either field:
+     *    the argument that earned `maker` one — "the one edit that cannot be saved is the edit BACK
+     *    to the default" — does not apply, because `[]` and null are different values here and `[]`
+     *    is what a clearing client sends.
+     *
+     * WHO SENDS THEM, AND WHEN. The tool form sends a list when it CHANGED that list — an emptied
+     * picker included, because `[]` is a real answer — and omits the key entirely when the picker was
+     * never touched. It used to send both on every save, which made an edit about Remarks a request
+     * to rewrite two relations, and both of this route's gates then fired on the key's PRESENCE:
+     * `_may_manage_tool_links` left the professor clause out of its copy of the edit rule, and
+     * `assert_can_contribute_relation` asked only whether the stored relation was populated without
+     * comparing, so a byte-identical list was refused as a replacement. The backend has since fixed
+     * both (it delegates to `record_edit_privilege`, and the guard now asks whether the relation is
+     * populated AND changing) — this client still sends only what it changed because a fielded APK
+     * meets whatever server is deployed, and because "absent" is the contract's own word for a
+     * relation nobody touched. A queued body still means exactly the form it was written from.
+     */
+    val craftIds: List<String>? = null,
+    val artisanIds: List<String>? = null,
     val workshopId: String? = null,
     val status: String = "PENDING",
     val recordedAt: String? = null,
@@ -1148,6 +1194,51 @@ data class ProductDetailDto(
     val extraMetadata: JsonObject? = null
 )
 
+/**
+ * One row of the `ToolCraft` join table, as `GET /tools` hydrates it.
+ *
+ * Shaped like [WorkshopCraftLinkDto] on purpose — the id and the craft, and not the link row's own
+ * `id`/`createdAt`, which no screen reads. The SERVER decides the order (it returns these in the
+ * order the names appear in `craftName`) and this client preserves it: `craftIds` is an ordered wire
+ * contract, so re-sorting the list here would change what the next save stores.
+ */
+@Serializable
+data class ToolCraftLinkDto(
+    val craftId: String,
+    val craft: CraftDto? = null
+)
+
+/**
+ * One row of the `ToolArtisan` join table, as `GET /tools` hydrates it. Shaped like [ToolCraftLinkDto].
+ *
+ * ── THE HEAD IS THE LINK `artisanId` NAMES. THE TAIL IS "OLDEST FIRST". ──────────────────────
+ *
+ * This line used to end *"ordered `createdAt` ascending"*, which was true of a DIFFERENT ENDPOINT:
+ * `GET /tools/{id}/artisans` sorts `createdAt asc, id asc` and promises "oldest first". The
+ * `artisanLinks` on a tool payload come from `hydrate_relations`, which passes no `order` at all —
+ * so for a while they arrived in whatever order Postgres's chosen plan produced, and since the server
+ * derives `tool.artisanId` from element 0 of what comes back, merely reopening a tool and saving it
+ * could re-point that column at a different person while `artisanName`/`place` kept naming the first.
+ *
+ * `_order_artisan_links` now sorts every encoded tool: the link whose `artisanId` matches the tool's
+ * own column FIRST, then the rest by `createdAt asc, id asc`. Note what that second key can and
+ * cannot say — a whole selection is written by one `create_many` and therefore shares one
+ * `createdAt`, so TICK ORDER DOES NOT SURVIVE THIS TABLE and only the head is meaningful. Do not
+ * write anything here that reads the tail as the order somebody ticked in. [ToolCraftLinkDto] is
+ * different: `craftName` is its ordinal and `_order_craft_links` restores the full order from it.
+ *
+ * THE HEAD IS STILL PINNED CLIENT-SIDE, and that is not redundant. `_order_artisan_links` can only
+ * pin a link that EXISTS, and `DELETE /tools/{id}/artisans/{artisan_id}` removes a link row while
+ * touching no scalar — so a tool may hold an `artisanId` with no row of its own at any time, and a
+ * fielded APK may be talking to an API older than that ordering. The tool form seeds its selection as
+ * the union with `artisanId` at the head; see `MainActivity.ToolForm`.
+ */
+@Serializable
+data class ToolArtisanLinkDto(
+    val artisanId: String,
+    val artisan: ArtisanDto? = null
+)
+
 @Serializable
 data class ToolDetailDto(
     val id: String,
@@ -1181,6 +1272,28 @@ data class ToolDetailDto(
     val remarks: String? = null,
     val artisanId: String? = null,
     val craftId: String? = null,
+    /**
+     * EVERY craft and artisan this tool is linked to — what the form's two multi-selects re-open on.
+     *
+     * [craftId] and [artisanId] above still hold the FIRST of each, for every reader that has always
+     * read them; these hold all of them. Always present on the wire and never null — an empty array
+     * for a tool with no links — so `emptyList()` here is the "older server" default and not a
+     * "no links" answer.
+     *
+     * DO NOT ASSUME THESE CONTAIN THE TWO SCALARS. Both join tables have now been backfilled from
+     * their column — `ToolCraft` by `20260915100000`, `ToolArtisan` by `20260916090000`, which was
+     * missed at the time and cost every tool recorded between June and the multi-select its primary
+     * artisan on the next save — so in the ordinary case they do. But `ToolArtisan` is also written
+     * by "Assign tools to artisans", whose DELETE removes a link row and touches no scalar, so a tool
+     * can hold an [artisanId] that appears in no link row again at any time; and a fielded APK meets
+     * whatever API the courtyard has, including one that predates either backfill. A form that seeds
+     * its selection from these alone then drops the record's own artisan and, because the server
+     * derives `artisanId` from element 0 while leaving `artisanName`/`place` untouched, reassigns the
+     * tool to somebody else under a 200. The tool form seeds the UNION with the scalar at the head;
+     * see `MainActivity.ToolForm`.
+     */
+    val craftLinks: List<ToolCraftLinkDto> = emptyList(),
+    val artisanLinks: List<ToolArtisanLinkDto> = emptyList(),
     val workshopId: String? = null,
     val status: String = "PENDING",
     val measurementAnalysisStatus: String? = null,

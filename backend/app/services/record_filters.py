@@ -81,6 +81,37 @@ def resolve_workshop_ids(raw: list[str] | None) -> tuple[list[str], bool] | None
     return ids, include_unassigned
 
 
+def resolve_craft_ids(raw: list[str] | None) -> list[str] | None:
+    """Parse ``craftIds`` into real ids, or ``None`` for "every craft".
+
+    Accepts the two spellings clients build query strings with — repeated parameters
+    (``?craftIds=a&craftIds=b``) and one comma-joined value (``?craftIds=a,b``) — for the same reason
+    :func:`resolve_workshop_ids` above does: the web and Android assemble them differently, and a
+    scope that quietly covered everything because it was spelled the other way would look exactly
+    like the control not working.
+
+    ``None`` (absent, empty, or all-blank) means DO NOT FILTER, which is the same distinction the
+    workshop version draws: the default state of a picker is "all crafts" and must not be spelled the
+    same way as a mistake.
+
+    THERE IS NO RESERVED "none" HERE, and that is not an omission. :data:`UNASSIGNED_WORKSHOP` exists
+    because a record legitimately belongs to no workshop and a reader wants to find those. This
+    parameter serves ONE caller — the tool form's multi-craft artisan picker — whose question is "who
+    practises these crafts". "Artisans linked to no craft" is not an answer that picker can offer
+    (``ArtisanCreate`` demands a craft), and inventing a second spelling of a sentinel nothing sends
+    is how two filters come to disagree about what it means.
+    """
+    if not raw:
+        return None
+    wanted = [
+        part.strip()
+        for value in raw
+        for part in str(value).split(",")
+        if part.strip()
+    ]
+    return list(dict.fromkeys(wanted)) or None
+
+
 def workshop_clause(
     ids: list[str], include_unassigned: bool, *, is_workshop_table: bool = False
 ) -> dict[str, Any] | None:

@@ -277,7 +277,11 @@ _EDIT_SCHEMAS: dict[str, type[APIModel]] = {
 # - ``workshopId`` — moving a record between workshops is a workshop submission with its own
 #   assignment + window checks (``enforce_workshop_submission``); it belongs on the record's own PATCH.
 # - the relation lists and ``location`` — those are separate writes (join rows, a Location row), not
-#   column updates, and a review edit is for correcting field values.
+#   column updates, and a review edit is for correcting field values. ``artisanIds``/``craftIds``
+#   were named here for ``WorkshopUpdate``'s rosters and now cover ``ToolUpdate`` too, which gained
+#   the same two keys with migration 20260915100000 — same reason, no new entry needed. A reviewer
+#   who needs to change which crafts a tool covers sends them to the tool's own PATCH, where the
+#   404/403 checks on the ids live.
 _NOT_REVIEW_EDITABLE = frozenset(
     {
         "status",

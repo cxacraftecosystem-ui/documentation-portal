@@ -214,15 +214,26 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
    * made the second and third ones necessary. `referenceState` still means what it did ("can I see
    * this artisan?" and "is there any signal?" are different answers, and `useCarryContext` treats
    * them differently); it lives in the hook only because it is settled by the same load.
+   *
+   * THE HOOK TAKES LISTS NOW, AND THIS FORM STILL LINKS EXACTLY ONE OF EACH. ToolForm's craft and
+   * artisan links went multi-select; the question asked of the API is the same question ("which
+   * crafts, and which artisans of those crafts"), so it stayed one hook rather than being forked
+   * into a near-copy — which is the duplication `forms/recordPickers` was written to end. A product
+   * still has one craft and one artisan, so it passes a one-element list and the request that comes
+   * out is byte-for-byte the one this form has always made. Nothing about THIS form's links changed.
    */
+  // Memoised rather than built inline: the hook keys its effects off the joined string and not off
+  // the array, but a fresh array identity every render would still churn the by-id rescue's memo.
+  const craftIdList = useMemo(() => (craftId ? [craftId] : []), [craftId]);
+  const artisanIdList = useMemo(() => (artisanId ? [artisanId] : []), [artisanId]);
   const {
     artisans,
     crafts,
     referenceState,
     craftCut,
     craftArtisanCut,
-    artisansLoadedForCraft
-  } = useCraftAndArtisanOptions({ craftId, artisanId });
+    artisansLoadedForCrafts
+  } = useCraftAndArtisanOptions({ craftIds: craftIdList, artisanIds: artisanIdList });
   /**
    * THIS PRODUCT'S OWN CRAFT IS ALWAYS AN OPTION, wherever it sorts.
    *
@@ -694,9 +705,10 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
             {/* A claim about the REPOSITORY, so it waits for the repository's answer about THIS
                 craft. Printed off a stale roster it said "no artisans are linked to this craft yet"
                 over a craft with a dozen of them — the silent-emptiness failure in one sentence, and
-                the reason `artisansLoadedForCraft` records WHICH craft the loaded rows are for
-                rather than a bare boolean. */}
-            {craftId && artisansLoadedForCraft === craftId && artisansForCraft.length === 0 ? (
+                the reason `artisansLoadedForCrafts` records WHICH crafts the loaded rows are for
+                rather than a bare boolean. For a form that links one craft the key IS that craft's
+                id, so this comparison reads exactly as it always did. */}
+            {craftId && artisansLoadedForCrafts === craftId && artisansForCraft.length === 0 ? (
               <p className="mt-1 text-xs text-ink-muted">No artisans are linked to this craft yet.</p>
             ) : null}
             <CappedListNotice cuts={[craftId ? craftArtisanCut : null]} />

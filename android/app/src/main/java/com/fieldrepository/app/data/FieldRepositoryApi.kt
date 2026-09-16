@@ -179,6 +179,22 @@ interface FieldRepositoryApi {
          */
         @Query("craftId") craftId: String? = null,
         /**
+         * SEVERAL crafts' rosters at once, comma-joined — the plural of [craftId] directly above,
+         * and the shape `workshopIds` two parameters up already has on this same route.
+         *
+         * It exists because a MULTI-craft picker cannot be served by the singular one. The tool
+         * form's craft box became a many-of-many on 2026-09-15; issuing one request per ticked craft
+         * is not a substitute ("Select all 178" would fire 178 of them), and filtering one 100-row
+         * page in memory gives the intersection of N crafts with the newest hundred artisans
+         * overall, which is the ceiling defect `ui/RecordPickers.kt` is written about.
+         *
+         * DISTINCT FROM [craftId], WHICH STAYS, because every single-select picker link still uses
+         * it. WHEN BOTH ARE SENT BOTH NARROW — see `FieldRepository.artisansForCraftsPage`, which
+         * sends both for a single craft on purpose so that this client still narrows correctly
+         * against an API deployed before the plural landed.
+         */
+        @Query("craftIds") craftIds: String? = null,
+        /**
          * ONE workshop's records, filtered by the SERVER — the singular filter, not the plural scope.
          *
          * `GET /artisans` has always accepted it (`backend/app/api/routes/artisans.py`, `where["workshopId"]

@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import com.fieldrepository.app.data.ArtisanDto
 import com.fieldrepository.app.data.CraftDto
 import com.fieldrepository.app.data.FieldRepository
+import kotlinx.coroutines.CancellationException
 
 /**
  * THE CRAFT AND ARTISAN PICKERS THE RECORD FORMS SHARE — and the ceiling they used to hide.
@@ -70,6 +71,155 @@ fun craftChangeClearsArtisan(
     if (nextCraftId.isBlank() || artisanId.isBlank()) return false
     val known = artisans.firstOrNull { it.id == artisanId } ?: return false
     return known.craftId != nextCraftId
+}
+
+/**
+ * THE SAME RULE FOR A MULTI-SELECT: which artisans a craft DESELECTION must drop.
+ *
+ * The tool form's craft box became a many-of-many on 2026-09-15, and [craftChangeClearsArtisan]
+ * above cannot answer for it — its question is "does this ONE artisan practise this ONE craft", and
+ * the multi-select's question is "which of these artisans did the craft that just went away account
+ * for". Asking the singular per artisan against the FIRST ticked craft would drop everybody who
+ * practises the second one.
+ *
+ * ADDED BESIDE THE SINGULAR RATHER THAN REPLACING IT. `ProductForm` is still a single-select on both
+ * clients and still calls the singular, `RecordPickersTest` still drives it, and a rule with two
+ * live callers is not improved by having one of them route through a list of one.
+ *
+ * THE FOUR REASONS AN ARTISAN IS KEPT, in the order they are asked — the same four, in the same
+ * words, as `frontend/components/forms/recordPickers.ts`:
+ *
+ *  • NOT IN THE LOADED LIST AT ALL. "Not on the page" and "not of that craft" are different
+ *    observations, and reading the first as the second is the silent link deletion the singular's
+ *    header is written about. Against a 100-row page of a longer table this is the ORDINARY case on
+ *    an older record.
+ *  • NO CRAFT RECORDED ON THEIR ROW. A null `craftId` is a fact about that artisan, not about which
+ *    crafts are ticked here. THE SINGULAR ANSWERS THE OTHER WAY on this one case and the difference
+ *    is deliberate: a single-select that keeps them leaves the form asserting one link that
+ *    contradicts the other with no room to show both, and a multi-select has that room.
+ *  • THEIR CRAFT IS NOT ONE THIS GESTURE REMOVED — see the paragraph below.
+ *  • THEIR CRAFT IS STILL TICKED SOMEWHERE in the new selection.
+ *
+ * ── `removedCraftIds` IS NOT A CONVENIENCE, IT IS THE WHOLE RULE ─────────────────────────────────
+ *
+ * This function used to ask only `craftId !in nextCraftIds` — *is this artisan of a craft that is
+ * not ticked* — which is a different question and answers wrongly for everybody whose craft was
+ * never ticked in the first place. A tool's artisans do not all arrive through this picker: "Assign
+ * tools to artisans" links anybody, of any craft, and the form draws every one of them ticked. So a
+ * tool linked to crafts [Bandhani, Block printing] and, through that panel, to a POTTER lost the
+ * potter the moment a researcher unticked Block printing — his craft was not in the next list, he
+ * was returned as dropped, the PATCH carried the shortened list, and `_replace_artisan_links`
+ * deleted his row under a 200 with nothing on screen saying an assignment had been removed.
+ *
+ * `removedCraftIds` is everything the PREVIOUS selection held that the next one does not, which only
+ * the caller can compute — this function never sees the selection it is being asked about the change
+ * FROM. Both clauses are kept: the craft must be one that just went away AND must not still be
+ * ticked under another entry.
+ *
+ * ── THE EMPTY-TICK-LIST ARM IS GONE, AND IT IS RETIRED WITH QUOTATION RATHER THAN DELETED ────────
+ *
+ * This function used to open `if (nextCraftIds.none { it.isNotBlank() }) emptyList() else …`, under a
+ * paragraph headed "UNTICKING THE LAST CRAFT DROPS NOBODY" that called itself *"a DELIBERATE
+ * DIVERGENCE from the cross-surface specification's own sketch of this function, which has no such
+ * arm"* and argued: *"Without the arm, unticking the last craft drops every artisan this form knows
+ * the craft of, the save sends `artisanIds: []`, and every `ToolArtisan` row for the tool is deleted
+ * — under a 200, from an edit that was about a CRAFT. It is also order-dependent, which is worse:
+ * untick A then tick B loses B's artisans, tick B then untick A keeps them."* It closed: *"If the
+ * browser's twin lands without this arm the two clients will genuinely disagree; say so rather than
+ * quietly deleting it here."*
+ *
+ * The browser's twin landed without it, so the two clients DID disagree — on every gesture that
+ * empties the craft list and not only on "Clear all": the browser ended with no artisans and the
+ * handset kept exactly one. Both sides now run ONE rule with no special case, and `removedCraftIds`
+ * is what makes that safe rather than merely consistent: unticking the last craft drops THAT craft's
+ * people and nobody else's, which is what unticking a craft means whether or not it was the last.
+ * The arm was protecting against a harm the general rule no longer causes.
+ *
+ * THE ORDER-DEPENDENCE THE ARM WAS ALSO ARGUING AGAINST IS GONE, AND GONE PROPERLY. Both gestures
+ * above remove the same craft, so both produce the same record. The tool form also applies a whole
+ * sheet selection in ONE call now (`onCraftsChanged` in `MainActivity.kt`) instead of fanning it out
+ * into one call per toggled id, so there are no intermediate craft lists for the answer to depend on.
+ *
+ * Returns the ids to DROP — not the ids to keep — so a caller that forgets to apply the answer
+ * changes nothing, which is the safe direction to fail in.
+ */
+fun craftsChangeClearsArtisans(
+    nextCraftIds: List<String>,
+    removedCraftIds: List<String>,
+    artisanIds: List<String>,
+    artisans: List<ArtisanDto>
+): List<String> = artisanIds.filter { id ->
+    if (id.isBlank()) return@filter false
+    val known = artisans.firstOrNull { it.id == id } ?: return@filter false
+    val craftId = known.craftId
+    if (craftId.isNullOrBlank()) return@filter false
+    craftId in removedCraftIds && craftId !in nextCraftIds
+}
+
+/**
+ * THE CRAFT NAME TO SORT AND LABEL AN ARTISAN BY, or "" when this form does not know one.
+ *
+ * Two sources and a stated order: the artisan's own hydrated `craft` if the server sent one, then
+ * the ticked craft whose id their `craftId` column names. Only the TICKED crafts are consulted and
+ * not the whole register — an artisan of an unticked craft cannot be in this list at all, so a name
+ * found there would be a heading for a group with nothing in it.
+ */
+fun craftNameFor(artisan: ArtisanDto, selectedCrafts: List<CraftDto>): String {
+    val hydrated = artisan.craft?.name.orEmpty()
+    if (hydrated.isNotBlank()) return hydrated
+    val id = artisan.craftId
+    if (id.isNullOrBlank()) return ""
+    return selectedCrafts.firstOrNull { it.id == id }?.name.orEmpty()
+}
+
+/**
+ * Fold a name to its sort key: trimmed, lowercased at `Locale.ROOT` by the NO-ARGUMENT overload.
+ *
+ * `lowercase()` with no argument is ROOT and matches ECMAScript's locale-independent
+ * `String.prototype.toLowerCase`, which is what the browser's twin of this ordering uses. NOT
+ * `lowercase(Locale.getDefault())`: a handset set to Turkish would fold a capital I to a dotless ı
+ * and order a craft list differently from the same data in the browser beside it.
+ */
+private fun sortFold(value: String): String = value.trim().lowercase()
+
+/**
+ * THE CANONICAL ARTISAN ORDERING FOR A MULTI-CRAFT PICKER — by craft name A→Z, then by artisan name
+ * A→Z within each craft.
+ *
+ * IDENTICAL IN TYPESCRIPT AND KOTLIN, TO THE COMPARISON, and that is the whole reason it is a named
+ * function in a file a unit test can reach rather than a `sortedBy` inside a composable. The rules,
+ * none of them negotiable:
+ *
+ *  • Case folding is [sortFold] — `trim()` then the ROOT `lowercase()`.
+ *  • String comparison is Kotlin's own `compareTo`, which is UTF-16 CODE-UNIT order and is what
+ *    JavaScript's `<`/`>` on strings is. FORBIDDEN, here and in the twin: `localeCompare`,
+ *    `Intl.Collator`, `java.text.Collator`, `String.CASE_INSENSITIVE_ORDER` and
+ *    `compareTo(other, ignoreCase = true)`. Every one of them is ICU-version-dependent,
+ *    locale-dependent, or char-by-char-with-both-cases, and each would make the two clients order a
+ *    Devanagari or Gujarati craft name differently on the same data.
+ *  • An artisan whose craft this form cannot name sorts LAST, never first — a blank key would
+ *    otherwise sort before every real name and put the unknowns at the top of the sheet.
+ *  • The key ends in the artisan's id, a unique cuid, so the order is TOTAL. Nothing here depends
+ *    on `sortedWith` being stable.
+ *
+ * The result is also what makes the handset's grouping work without group headings: `SelectOption`
+ * has no `group` on either client (see `ui/SearchableSelect.kt`), so the craft goes in the row's
+ * `hint` and the visual grouping falls out of this order.
+ */
+fun artisansByCraftThenName(
+    artisans: List<ArtisanDto>,
+    selectedCrafts: List<CraftDto>
+): List<ArtisanDto> {
+    val craftKeys = artisans.associate { it.id to sortFold(craftNameFor(it, selectedCrafts)) }
+    return artisans.sortedWith(
+        compareBy(
+            { a: ArtisanDto -> if (craftKeys[a.id].isNullOrEmpty()) 1 else 0 },
+            { a: ArtisanDto -> craftKeys[a.id].orEmpty() },
+            { a: ArtisanDto -> sortFold(a.name) },
+            { a: ArtisanDto -> a.name },
+            { a: ArtisanDto -> a.id },
+        )
+    )
 }
 
 /**
@@ -179,36 +329,81 @@ fun mergeArtisansById(previous: List<ArtisanDto>, incoming: List<ArtisanDto>): L
  * ARTISAN form it is worse still: the box under the dropdown is "Or new craft name", so the
  * reasonable response to a craft that cannot be found is to type it, minting a duplicate craft row.
  *
- * Returns `crafts` unchanged when the id is blank or already on the page — the common case — so a
- * caller can use the result everywhere and never think about it again.
+ * Returns `crafts` unchanged when nothing is selected or every selection is already on the page —
+ * the common case — so a caller can use the result everywhere and never think about it again.
+ *
+ * PLURAL SINCE 2026-09-15, because the tool form's craft box is a multi-select and EVERY id it holds
+ * may be off the page, not just the first. Rescuing only `craftIds[0]` would draw a blank chip for a
+ * craft the record genuinely holds, which is the same wrong reading the singular rescue exists to
+ * stop — one selection along. The single-craft overload below is unchanged for its callers.
+ *
+ * @param hydrated the craft rows the record being edited ALREADY CARRIES — `craftLinks[].craft`, which
+ *   `GET /tools/{id}` embeds in the very response this form was built from. Passing them makes the
+ *   common case cost NOTHING: the picker opens with every linked craft drawn and ticked, and the
+ *   serial by-id loop below has nothing left to ask for. Without them a tool linked to three off-page
+ *   crafts fired three `GET /crafts/{id}` requests for rows that had already been parsed and thrown
+ *   away, and drew "0 selected" over a record that genuinely holds three of them until they landed.
+ *   Additive and optional: an older server that sends a null nested object simply falls through to the
+ *   by-id loop, which is why that loop stays.
+ */
+@Composable
+fun rememberCraftOptions(
+    repository: FieldRepository,
+    crafts: List<CraftDto>,
+    craftIds: List<String>,
+    hydrated: List<CraftDto> = emptyList()
+): List<CraftDto> {
+    var offPage by remember { mutableStateOf<List<CraftDto>>(emptyList()) }
+    val attempted = remember { mutableSetOf<String>() }
+    val selected = craftIds.filter { it.isNotBlank() }.distinct()
+    // A row supplied for an id that is no longer selected must never be offered — see `rescued`.
+    val embedded = hydrated
+        .filter { craft -> craft.id in selected && crafts.none { it.id == craft.id } }
+        .distinctBy { it.id }
+    val missing = selected.filterNot { id ->
+        crafts.any { it.id == id } || embedded.any { it.id == id }
+    }
+
+    LaunchedEffect(missing.joinToString(",")) {
+        for (id in missing) {
+            if (id in attempted) continue
+            // MARKED ATTEMPTED ONLY ONCE THE REQUEST HAS ACTUALLY ANSWERED, and a cancellation is
+            // rethrown rather than swallowed. Marking it before the call meant that a loop cancelled
+            // mid-flight — which this one is every time `missing` changes, because that is the effect
+            // key — burned the id it was in the middle of fetching: the restarted loop skipped it, and
+            // the craft was then absent from the options for the life of the form. A 404 still marks,
+            // which is what the guard is actually for: without it an id that names nothing would
+            // re-fire on every recomposition that changes `crafts`, forever.
+            val fetched = try {
+                repository.craft(id)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                null
+            }
+            attempted.add(id)
+            if (fetched != null) offPage = offPage + fetched
+        }
+    }
+
+    // A row fetched for an id that is no longer selected must never be offered: the researcher has
+    // unticked it, and it would appear as an option that is neither on a page nor chosen.
+    val rescued = offPage.filter { it.id in missing }
+    return if (embedded.isEmpty() && rescued.isEmpty()) crafts else crafts + embedded + rescued
+}
+
+/**
+ * The one-craft form of [rememberCraftOptions], for the pickers that are still single-select.
+ *
+ * `ProductForm`, `ArtisanForm` and the review editor each hold one craft id and are unchanged by the
+ * tool form's move to a multi-select. A blank id means "nothing selected" and rescues nothing.
  */
 @Composable
 fun rememberCraftOptions(
     repository: FieldRepository,
     crafts: List<CraftDto>,
     craftId: String
-): List<CraftDto> {
-    var offPage by remember { mutableStateOf<CraftDto?>(null) }
-    val attempted = remember { mutableSetOf<String>() }
-    val onPage = craftId.isBlank() || crafts.any { it.id == craftId }
-
-    LaunchedEffect(craftId, onPage) {
-        if (onPage) return@LaunchedEffect
-        // Without this the 403/404 case re-fires on every recomposition that changes `crafts`,
-        // forever. It is not an optimisation.
-        if (!attempted.add(craftId)) return@LaunchedEffect
-        runCatching { repository.craft(craftId) }.onSuccess { offPage = it }
-    }
-
-    val fetched = offPage
-    // A row fetched for a DIFFERENT id must never be offered: the researcher has moved on, and it
-    // would appear as an option that is neither on a page nor selected.
-    return if (fetched != null && fetched.id == craftId && !crafts.any { it.id == craftId }) {
-        crafts + fetched
-    } else {
-        crafts
-    }
-}
+): List<CraftDto> = rememberCraftOptions(repository, crafts, listOfNotNull(craftId.ifBlank { null }))
 
 /**
  * What a record form's artisan dropdown should actually offer, and what it is NOT offering.
@@ -218,67 +413,138 @@ fun rememberCraftOptions(
  *   judgement is about the repository rather than about one craft.
  * @param options the same list plus the chosen craft's roster and the record's own artisan.
  * @param craftRosterCut the sentence for the craft-scoped load, or null when it is whole.
- * @param loadedForCraft WHICH craft the roster belongs to — not a boolean. "No artisans are linked
+ * @param loadedForCraft WHICH crafts the roster belongs to — not a boolean. "No artisans are linked
  *   to this craft yet" is a claim about the repository, and printing it off the PREVIOUS craft's
  *   rows while the new craft's request is still in flight makes that claim before the answer
- *   exists. Callers must test `loadedForCraft == craftId` before saying anything about emptiness.
+ *   exists. Callers must test it before saying anything about emptiness.
+ *
+ *   IT HOLDS A SCOPE KEY AND NOT AN ID, since the tool form's box became a multi-select. The key is
+ *   [craftScopeKey] — the ticked ids, blanks dropped, de-duplicated, SORTED and comma-joined — and
+ *   for one craft it is that craft's id exactly, which is what the single-select callers have always
+ *   compared against and still may. Use [isLoadedFor] rather than comparing by hand.
  */
 data class ArtisanPickerState(
     val options: List<ArtisanDto>,
     val craftRosterCut: String?,
     val loadedForCraft: String?
-)
+) {
+    /** Has the roster for exactly these crafts arrived? See [loadedForCraft]. */
+    fun isLoadedFor(craftIds: List<String>): Boolean =
+        loadedForCraft != null && loadedForCraft == craftScopeKey(craftIds)
+}
+
+/**
+ * The ticked crafts as ONE stable key: blanks dropped, de-duplicated, sorted, comma-joined.
+ *
+ * SORTED, so that ticking Bandhani then Block Printing and ticking them the other way round are the
+ * same scope and do not cost a second request. The WIRE order is the researcher's tick order and is
+ * not this — see the tool form's payload, where `craftIds` is ordered and the server persists that
+ * order — but which artisans a scope contains does not depend on it.
+ */
+private fun craftScopeKey(craftIds: List<String>): String =
+    craftIds.filter { it.isNotBlank() }.distinct().sorted().joinToString(",")
+
+/** "artisans of this craft" / "artisans of these crafts" — the noun [listCutNotice] prints. */
+private fun craftRosterNoun(crafts: Int): String =
+    if (crafts <= 1) "artisans of this craft" else "artisans of these crafts"
 
 /**
  * The two follow-up requests that close the ceiling defect, held for one form.
  *
- * 1. **The chosen craft's own roster**, asked for with the `craftId` the endpoint has always
- *    accepted (`routes/artisans.py:234-235`). This is the request that actually closes it: it turns
- *    a hundred-row window on the whole artisan table into, in practice, the complete answer for the
- *    craft in hand.
- * 2. **The record's own artisan, by id**, when neither page holds them — so that "this artisan is
+ * 1. **The chosen crafts' own roster**, asked for with the `craftIds` the endpoint gained on
+ *    2026-09-15 beside the singular `craftId` it has always accepted. This is the request that
+ *    actually closes it: it turns a hundred-row window on the whole artisan table into, in practice,
+ *    the complete answer for the crafts in hand. ONE request for the whole tick list and never one
+ *    per craft — "Select all 178" would otherwise fire 178 of them.
+ * 2. **The record's own artisans, by id**, when neither page holds them — so that "this artisan is
  *    not in the list" and "this artisan does not practise that craft" stop being the same
  *    observation. They were the same observation, and [craftChangeClearsArtisan]'s predecessor read
  *    the first as the second and deleted the link.
  *
- * Failures are deliberately silent. The startup lookup's artisans are still a legitimate, narrower
- * offer; `loadedForCraft` stays put so the caller does not print "no artisans are linked to this
- * craft" off a failed request; and a by-id 403/404 means the link is intact but not editable from
- * here, which is an honest state and not an error banner. `attempted` stops a failed id being
- * re-requested on every recomposition.
+ *    PLURAL SINCE THE TOOL FORM'S ARTISAN BOX BECAME A MULTI-SELECT, and this half is now
+ *    load-bearing in a way it was not: the picker sheet holds a DRAFT of the whole selection and its
+ *    "Clear all" empties it outright, so an id that is selected but absent from `options` is an id a
+ *    researcher cannot see, cannot untick deliberately, and can lose in one tap. Rescuing every
+ *    selected id is what keeps `options` a superset of the selection at all times.
+ *
+ * @param hydrated the artisan rows the record being edited ALREADY CARRIES — `artisanLinks[].artisan`,
+ *   embedded in the same `GET /tools/{id}` response the form was built from. They are merged in BEFORE
+ *   `missing` is computed, so for an ordinary edit the serial by-id loop has nothing left to ask: the
+ *   artisans that most need rescuing are exactly the ones assigned from "Assign tools to artisans",
+ *   who may practise a craft that is not ticked here and whom the roster request therefore cannot
+ *   return. Additive and optional — an older server sending a null nested object falls through to the
+ *   loop, which is why the loop stays.
+ *
+ * FAILURES ARE DELIBERATELY SILENT, and the paragraph that stood here was wrong about one of them.
+ * It read: *"a by-id 403/404 means the link is intact but not editable from here, which is an honest
+ * state and not an error banner."* THE 403 HALF IS NOT REACHABLE: `GET /artisans/{id}` and
+ * `GET /crafts/{id}` go through `require_record` (`backend/app/services/records.py`), which does a
+ * bare lookup and answers 404 or the row — no visibility filter, no scope, no 403 to get. What is
+ * reachable is a 404 (the row is gone) and a transport failure on a field connection, and those two
+ * are NOT the same state: the first is permanent and the second is a blip. Both are still swallowed,
+ * because a picker that cannot reach one row is not an error banner — but a transport failure now
+ * costs the id only until the effect next restarts on a cancellation, rather than always. The
+ * roster request is silent for its own reason: the startup lookup's artisans remain a legitimate,
+ * narrower offer and `loadedForCraft` stays put, so the caller does not print "no artisans are linked
+ * to this craft" off a request that never answered.
  */
 @Composable
 fun rememberArtisanPicker(
     repository: FieldRepository,
     artisans: List<ArtisanDto>,
-    craftId: String,
-    artisanId: String
+    craftIds: List<String>,
+    artisanIds: List<String>,
+    hydrated: List<ArtisanDto> = emptyList()
 ): ArtisanPickerState {
     var roster by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
     var rosterCut by remember { mutableStateOf<String?>(null) }
     var loadedForCraft by remember { mutableStateOf<String?>(null) }
-    var offPage by remember { mutableStateOf<ArtisanDto?>(null) }
+    var offPage by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
     val attempted = remember { mutableSetOf<String>() }
 
-    LaunchedEffect(craftId) {
-        if (craftId.isBlank()) return@LaunchedEffect
-        runCatching { repository.artisansForCraftPage(craftId) }
+    val scopeKey = craftScopeKey(craftIds)
+    LaunchedEffect(scopeKey) {
+        if (scopeKey.isEmpty()) return@LaunchedEffect
+        val wanted = craftIds.filter { it.isNotBlank() }.distinct()
+        runCatching { repository.artisansForCraftsPage(wanted) }
             .onSuccess { page ->
                 roster = page.items
-                rosterCut = listCutNotice(page.items.size, page.total, "artisans of this craft")
-                loadedForCraft = craftId
+                rosterCut = listCutNotice(page.items.size, page.total, craftRosterNoun(wanted.size))
+                loadedForCraft = scopeKey
             }
     }
 
-    val known = mergeArtisansById(mergeArtisansById(artisans, roster), listOfNotNull(offPage))
+    // A row supplied for an id that is no longer selected must never stay in the options: the
+    // researcher has unticked it and it would show as an entry that is neither on a page nor chosen.
+    // The rule is the same for a row the record embedded as for one fetched by id.
+    val wantedArtisans = artisanIds.filter { it.isNotBlank() }.distinct()
+    val embedded = hydrated.filter { it.id in wantedArtisans }
+    val rescued = offPage.filter { it.id in wantedArtisans }
+    val known = mergeArtisansById(
+        mergeArtisansById(mergeArtisansById(artisans, roster), embedded),
+        rescued
+    )
 
-    LaunchedEffect(artisanId, known.size) {
-        if (artisanId.isBlank()) return@LaunchedEffect
-        if (known.any { it.id == artisanId }) return@LaunchedEffect
-        if (!attempted.add(artisanId)) return@LaunchedEffect
-        runCatching { repository.artisan(artisanId) }
-            .onSuccess { detail ->
-                offPage = ArtisanDto(
+    val missing = wantedArtisans.filterNot { id -> known.any { it.id == id } }
+    LaunchedEffect(missing.joinToString(",")) {
+        for (id in missing) {
+            if (id in attempted) continue
+            // MARKED ATTEMPTED ONLY ONCE THE REQUEST HAS ANSWERED — see the identical guard in
+            // `rememberCraftOptions`. `missing` is this effect's own key, so the loop is cancelled
+            // every time a roster page lands or the selection moves; marking before the call meant a
+            // cancelled request burned its id and the artisan then never appeared in the options at
+            // all. A cancellation is rethrown so the restarted loop asks again; a 404 still marks, so
+            // an id that names nothing cannot re-fire forever.
+            val detail = try {
+                repository.artisan(id)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                null
+            }
+            attempted.add(id)
+            if (detail != null) {
+                offPage = offPage + ArtisanDto(
                     id = detail.id,
                     name = detail.name,
                     place = detail.place,
@@ -290,14 +556,28 @@ fun rememberArtisanPicker(
                     createdAt = detail.createdAt
                 )
             }
+        }
     }
 
-    // A row fetched for a DIFFERENT id must never stay in the options: the researcher has moved on
-    // and it would show as an entry that is neither on a page nor selected.
-    val options = if (offPage != null && offPage?.id != artisanId) {
-        mergeArtisansById(artisans, roster)
-    } else {
-        known
-    }
-    return ArtisanPickerState(options = options, craftRosterCut = rosterCut, loadedForCraft = loadedForCraft)
+    return ArtisanPickerState(options = known, craftRosterCut = rosterCut, loadedForCraft = loadedForCraft)
 }
+
+/**
+ * The one-craft, one-artisan form of [rememberArtisanPicker], for the pickers that are still
+ * single-select — `ProductForm` and the tool-assignment screen's own artisan box.
+ *
+ * A blank id means "nothing selected" on either argument, which is what the review editor's
+ * `rememberArtisanPicker(repository, artisans, "", artisanId)` has always relied on.
+ */
+@Composable
+fun rememberArtisanPicker(
+    repository: FieldRepository,
+    artisans: List<ArtisanDto>,
+    craftId: String,
+    artisanId: String
+): ArtisanPickerState = rememberArtisanPicker(
+    repository = repository,
+    artisans = artisans,
+    craftIds = listOfNotNull(craftId.ifBlank { null }),
+    artisanIds = listOfNotNull(artisanId.ifBlank { null })
+)

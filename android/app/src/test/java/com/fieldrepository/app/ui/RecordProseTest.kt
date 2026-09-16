@@ -463,7 +463,10 @@ class RecordProseTest {
         RecordFormKind.PRODUCT to (11 to 12),
         // 2026-09-14: 15 → 16 for `heightInches`, the third of the tool's inch triple, then 16 → 17
         // for `measurementMethods` alongside the product form's.
-        RecordFormKind.TOOL to (10 to 17),
+        // 2026-09-15: 17 → 19 for `craftIds` and `artisanIds`, the two link lists the multi-craft
+        // work put on the tool body. Both excluded — they are ticked, never typed, exactly as the
+        // workshop form's pair of the same names already is — so no dictated total moves.
+        RecordFormKind.TOOL to (10 to 19),
         RecordFormKind.PROCESS to (3 to 8),
         RecordFormKind.MEDIA to (2 to 2),
         RecordFormKind.LOCATION to (1 to 12),

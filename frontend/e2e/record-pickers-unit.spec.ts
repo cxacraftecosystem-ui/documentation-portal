@@ -1,8 +1,14 @@
 import { expect, test } from "@playwright/test";
 
 import { cappedListNotice, cutOf, mergeById, type ListCut } from "@/components/data/cappedList";
-import { craftChangeClearsArtisan } from "@/components/forms/recordPickers";
-import type { Artisan } from "@/lib/types";
+import {
+  craftChangeClearsArtisan,
+  craftNameFor,
+  craftsChangeClearsArtisans,
+  craftsKey,
+  sortArtisansByCraft
+} from "@/components/forms/recordPickers";
+import type { Artisan, Craft } from "@/lib/types";
 
 /**
  * A CRAFT CORRECTION THAT DELETED AN ARTISAN LINK, and the ceiling that hid it.
@@ -27,6 +33,22 @@ function artisan(id: string, craftId: string | null): Artisan {
   // Only the three fields the rule reads are meaningful; the cast keeps the fixture to the point
   // rather than inventing a plausible-looking whole artisan record that nothing asserts on.
   return { id, name: `Artisan ${id}`, place: "Place", status: "APPROVED", craftId } as unknown as Artisan;
+}
+
+/** An artisan whose NAME matters, for the ordering rules below. */
+function named(id: string, name: string, craftId: string | null, hydratedCraft?: string): Artisan {
+  return {
+    id,
+    name,
+    place: "Place",
+    status: "APPROVED",
+    craftId,
+    craft: hydratedCraft ? ({ id: craftId ?? "", name: hydratedCraft } as Craft) : null
+  } as unknown as Artisan;
+}
+
+function craft(id: string, name: string): Craft {
+  return { id, name } as Craft;
 }
 
 test.describe("craftChangeClearsArtisan", () => {
@@ -67,6 +89,283 @@ test.describe("craftChangeClearsArtisan", () => {
     // link the researcher never touched.
     expect(craftChangeClearsArtisan({ nextCraftId: "", artisanId: "a1", artisans })).toBe(false);
     expect(craftChangeClearsArtisan({ nextCraftId: "pottery", artisanId: "", artisans })).toBe(false);
+  });
+});
+
+/**
+ * THE SAME RULE FOR THE TOOL FORM'S MULTI-SELECT, which is where the stakes are higher: the single
+ * rule decides whether ONE link survives a craft correction, and this one decides which of several
+ * do. Every case below mirrors one above, deliberately — if a case here answers differently from its
+ * singular twin without a stated reason, one of the two is wrong.
+ *
+ * THE ARGUMENT LIST GREW A THIRD MEMBER AND THAT IS THE POINT OF HALF THESE CASES. `removedCraftIds`
+ * is the crafts THIS GESTURE took away; without it the rule asks only "is this artisan of a craft
+ * that is not ticked", which is a different question and answers wrongly for everybody whose craft
+ * was never ticked at all. A tool's artisans do not all arrive through its craft picker — "Assign a
+ * tool to multiple artisans" links anybody, of any craft — so the old reading deleted a potter's
+ * assignment when a researcher unticked Block printing.
+ *
+ * ANDROID PARITY. `craftsChangeClearsArtisans` in `ui/RecordPickers.kt`, driven by the same cases in
+ * `RecordPickersTest.kt`.
+ */
+test.describe("craftsChangeClearsArtisans", () => {
+  test("deselecting one craft drops only that craft's people", () => {
+    const artisans = [artisan("weaver", "weaving"), artisan("potter", "pottery")];
+    expect(
+      craftsChangeClearsArtisans({
+        nextCraftIds: ["pottery"],
+        removedCraftIds: ["weaving"],
+        artisanIds: ["weaver", "potter"],
+        artisans
+      })
+    ).toEqual(["weaver"]);
+  });
+
+  test("an artisan of a craft that is still ticked is kept", () => {
+    const artisans = [artisan("potter", "pottery")];
+    expect(
+      craftsChangeClearsArtisans({
+        nextCraftIds: ["pottery", "weaving"],
+        removedCraftIds: ["blockprinting"],
+        artisanIds: ["potter"],
+        artisans
+      })
+    ).toEqual([]);
+  });
+
+  /**
+   * THE HEADLINE DEFECT, AND THE ONE CASE THE OLD RULE COULD NOT GET RIGHT. Mohan is a potter; this
+   * tool was linked to him through "Assign a tool to multiple artisans", and Pottery has never been
+   * ticked on this form. Unticking Block printing has nothing to do with him. The old rule read his
+   * craft's absence from the next list as a reason to drop him, the PATCH carried the shortened
+   * list, and `_replace_artisan_links` deleted his `ToolArtisan` row under a 200.
+   */
+  test("an artisan whose craft was never ticked is not touched by unticking another", () => {
+    const artisans = [artisan("mohan", "pottery"), artisan("printer", "blockprinting")];
+    expect(
+      craftsChangeClearsArtisans({
+        nextCraftIds: ["bandhani"],
+        removedCraftIds: ["blockprinting"],
+        artisanIds: ["mohan", "printer"],
+        artisans
+      })
+    ).toEqual(["printer"]);
+  });
+
+  /**
+   * THE REGRESSION, IN ITS PLURAL FORM. An artisan simply not on the loaded page says nothing
+   * whatever about their craft, and reading that silence as "wrong craft" is the silent unlink the
+   * singular rule was written to stop. Against a 100-row page of a longer table this is the ORDINARY
+   * case on any older record, and a multi-select makes it worse rather than better: the form draws
+   * the artisan as ticked while believing it knows they do not belong.
+   */
+  test("an artisan the picker cannot see keeps their link", () => {
+    const pageOne = [artisan("someone-else", "pottery")];
+    expect(
+      craftsChangeClearsArtisans({
+        nextCraftIds: ["pottery"],
+        removedCraftIds: ["weaving"],
+        artisanIds: ["off-page"],
+        artisans: pageOne
+      })
+    ).toEqual([]);
+    expect(
+      craftsChangeClearsArtisans({
+        nextCraftIds: ["blockprinting"],
+        removedCraftIds: ["pottery"],
+        artisanIds: ["off-page"],
+        artisans: pageOne
+      })
+    ).toEqual([]);
+  });
+
+  /**
+   * DIFFERENT FROM THE SINGULAR, AND DELIBERATELY SO. `craftChangeClearsArtisan` treats an artisan
+   * with no craft recorded as a known difference and clears the link, because in a single-select the
+   * only alternative reading is "this row has a craft I cannot see". Here the answer is KEEP: a null
+   * `craftId` is a fact about that artisan's own record, not about which crafts are ticked, and a
+   * multi-select has room to leave them visible and one click from being corrected. Dropping them
+   * would delete a link over an absence.
+   */
+  test("an artisan with no craft recorded is kept, not guessed about", () => {
+    const artisans = [artisan("unfiled", null)];
+    expect(
+      craftsChangeClearsArtisans({
+        nextCraftIds: ["pottery"],
+        removedCraftIds: ["weaving"],
+        artisanIds: ["unfiled"],
+        artisans
+      })
+    ).toEqual([]);
+  });
+
+  /**
+   * UNTICKING THE LAST CRAFT IS NOT A SPECIAL CASE, AND THE CASE THAT SAID IT WAS IS QUOTED.
+   *
+   * This was named *"unticking every craft drops the artisans it can account for, and only those"*
+   * and it passed for the wrong reason: the rule dropped everyone whose craft was not ticked, which
+   * over an empty list is everyone the form can read a craft for, including people no gesture here
+   * had anything to do with. The Kotlin twin answered the opposite with an
+   * `if (nextCraftIds.none { it.isNotBlank() }) emptyList()` arm, so the two clients disagreed on
+   * every gesture that empties the list.
+   *
+   * Both sides now run ONE rule with no empty-list arm (`ui/RecordPickers.kt` retires its own with
+   * the argument), and `removedCraftIds` makes the empty case fall out of the general one: the craft
+   * just unticked is in `removedCraftIds`, so its artisans go, and nobody else's does — which is
+   * what unticking a craft means whether or not it was the last.
+   *
+   * AND THE ORDER-DEPENDENCE IS GONE WITH IT: both gestures below remove the same craft, so both
+   * produce the same record. Under the old rule untick-A-then-tick-B and tick-B-then-untick-A did
+   * not, and a researcher had no way to know which one they had performed.
+   */
+  test("unticking the last craft drops that craft's people and nobody else's", () => {
+    const artisans = [artisan("potter", "pottery"), artisan("weaver", "weaving"), artisan("unfiled", null)];
+    expect(
+      craftsChangeClearsArtisans({
+        nextCraftIds: [],
+        removedCraftIds: ["pottery"],
+        artisanIds: ["potter", "weaver", "unfiled", "off-page"],
+        artisans
+      })
+    ).toEqual(["potter"]);
+  });
+
+  test("the same two gestures in either order remove the same people", () => {
+    const artisans = [artisan("potter", "pottery"), artisan("weaver", "weaving")];
+    const ids = ["potter", "weaver"];
+    // Untick Pottery first (list empties), then tick Weaving.
+    const unticked = craftsChangeClearsArtisans({
+      nextCraftIds: [],
+      removedCraftIds: ["pottery"],
+      artisanIds: ids,
+      artisans
+    });
+    const thenTicked = craftsChangeClearsArtisans({
+      nextCraftIds: ["weaving"],
+      removedCraftIds: [],
+      artisanIds: ids.filter((id) => !unticked.includes(id)),
+      artisans
+    });
+    // Tick Weaving first, then untick Pottery.
+    const ticked = craftsChangeClearsArtisans({
+      nextCraftIds: ["pottery", "weaving"],
+      removedCraftIds: [],
+      artisanIds: ids,
+      artisans
+    });
+    const thenUnticked = craftsChangeClearsArtisans({
+      nextCraftIds: ["weaving"],
+      removedCraftIds: ["pottery"],
+      artisanIds: ids.filter((id) => !ticked.includes(id)),
+      artisans
+    });
+    expect([...unticked, ...thenTicked]).toEqual(["potter"]);
+    expect([...ticked, ...thenUnticked]).toEqual(["potter"]);
+  });
+
+  test("nothing ticked is nothing to drop", () => {
+    const artisans = [artisan("potter", "pottery")];
+    expect(
+      craftsChangeClearsArtisans({
+        nextCraftIds: ["weaving"],
+        removedCraftIds: ["pottery"],
+        artisanIds: [],
+        artisans
+      })
+    ).toEqual([]);
+  });
+
+  /**
+   * A PURE ADDITION DROPS NOBODY, which falls out of `removedCraftIds` being empty and is asserted
+   * rather than left to be inferred: the form only calls this when something was removed, and a rule
+   * that answered otherwise here would be one refactor away from being called on every toggle.
+   */
+  test("ticking a craft drops nobody", () => {
+    const artisans = [artisan("weaver", "weaving"), artisan("potter", "pottery")];
+    expect(
+      craftsChangeClearsArtisans({
+        nextCraftIds: ["pottery", "weaving"],
+        removedCraftIds: [],
+        artisanIds: ["weaver", "potter"],
+        artisans
+      })
+    ).toEqual([]);
+  });
+});
+
+test.describe("the artisan roster's order, which both clients must compute identically", () => {
+  const crafts = [craft("c-bandhani", "Bandhani"), craft("c-block", "Block printing"), craft("c-ajrakh", "Ajrakh")];
+
+  test("by craft name A→Z, then by artisan name A→Z", () => {
+    const rows = [
+      named("a1", "Zubair", "c-block"),
+      named("a2", "Amina", "c-block"),
+      named("a3", "Yusuf", "c-ajrakh"),
+      named("a4", "Bhavna", "c-bandhani")
+    ];
+    expect(sortArtisansByCraft(rows, crafts).map((row) => row.name)).toEqual([
+      // Ajrakh · Bandhani · Block printing — and inside Block printing, Amina before Zubair.
+      "Yusuf",
+      "Bhavna",
+      "Amina",
+      "Zubair"
+    ]);
+  });
+
+  test("an artisan whose craft this client cannot name sorts LAST, never first", () => {
+    /*
+      An empty craft name sorts before everything under a plain comparison, which would open the list
+      with the rows the client can say the least about. The key carries an explicit "unknown" flag
+      ahead of the name for exactly that reason.
+    */
+    const rows = [named("a1", "Anonymous", "c-unknown-to-this-page"), named("a2", "Bhavna", "c-bandhani")];
+    expect(sortArtisansByCraft(rows, crafts).map((row) => row.name)).toEqual(["Bhavna", "Anonymous"]);
+  });
+
+  test("the order is TOTAL, so two clients cannot disagree about a tie", () => {
+    // Same craft, same name: the key falls through to the cuid, which is unique. It therefore does
+    // not matter whether either platform's sort is stable.
+    const rows = [named("z", "Amina", "c-block"), named("a", "Amina", "c-block")];
+    expect(sortArtisansByCraft(rows, crafts).map((row) => row.id)).toEqual(["a", "z"]);
+  });
+
+  test("case is folded for the comparison and not for the display", () => {
+    const rows = [named("a1", "amina", "c-block"), named("a2", "Bhavna", "c-block")];
+    const sorted = sortArtisansByCraft(rows, crafts);
+    // "Bhavna" < "amina" by raw UTF-16 code unit (upper case sorts first); folding is what puts them
+    // in the order a reader expects, and the name itself is untouched.
+    expect(sorted.map((row) => row.name)).toEqual(["amina", "Bhavna"]);
+  });
+
+  test("the hydrated craft wins over the selected list, and the selected list over nothing", () => {
+    // The API includes `artisan.craft`; the ticked craft rows are the fallback for a page that has
+    // the id but not the row. Both are real sources and the order between them is stated.
+    expect(craftNameFor(named("a1", "Amina", "c-block", "Renamed since"), crafts)).toBe("Renamed since");
+    expect(craftNameFor(named("a2", "Amina", "c-block"), crafts)).toBe("Block printing");
+    expect(craftNameFor(named("a3", "Amina", "c-nowhere"), crafts)).toBe("");
+    expect(craftNameFor(named("a4", "Amina", null), crafts)).toBe("");
+  });
+
+  test("the sort does not mutate the array it was handed", () => {
+    // It feeds a `useMemo` over hook state; sorting in place would reorder the loaded roster itself.
+    const rows = [named("a1", "Zubair", "c-block"), named("a2", "Amina", "c-block")];
+    sortArtisansByCraft(rows, crafts);
+    expect(rows.map((row) => row.name)).toEqual(["Zubair", "Amina"]);
+  });
+});
+
+test.describe("craftsKey", () => {
+  test("tick order does not make two keys out of one roster", () => {
+    // It is compared with `===` in a render to decide whether "no artisans are linked to these
+    // crafts" may be said yet. Two keys for one selection would leave that sentence printed off the
+    // previous roster while the new request was still in flight.
+    expect(craftsKey(["b", "a"])).toBe(craftsKey(["a", "b"]));
+  });
+
+  test("blanks and duplicates cannot widen it", () => {
+    expect(craftsKey(["a", "", "a", "b"])).toBe("a,b");
+    expect(craftsKey([])).toBe("");
+    expect(craftsKey([""])).toBe("");
   });
 });
 

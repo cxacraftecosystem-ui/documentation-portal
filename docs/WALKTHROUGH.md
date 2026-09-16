@@ -197,11 +197,11 @@ Record the toolkit the artisan uses: what it is made of, how big it is, who made
 to replace.
 
 **What the screen asks for:** Toolkit name *(required)*, Local name, English name, Workshop, Linked
-craft (fills craft name), Craft name *(required)*, Linked artisan (fills artisan + place), Artisan
-name *(required)*, Place *(required)*, Process used in, Material, Years in use, Height, Width,
-Length (inches), Breadth (inches), Thickness, Weight, Radius, Maker, Tradition type, Replacement
-cost, Suggestions for improvement, Remarks, Process stages, Tool media, Location (GPS fix or map
-pin).
+crafts (fills craft name), Craft name *(required)*, Linked artisans (fills artisan + place), Artisan
+name *(required)*, Place *(required)*, Process used in, Material, Years in use, Height (cm), Width
+(cm), Length (inches), Breadth (inches), Height (inches), Thickness, Weight, Radius, Maker,
+Tradition type, Replacement cost, Suggestions for improvement, Remarks, Process stages, Tool media,
+Location (GPS fix or map pin).
 
 **Why it exists.** Tools are the most quietly endangered part of a craft — the maker of a tool often
 disappears before the craft does. Replacement cost, maker and tradition type are the fields that

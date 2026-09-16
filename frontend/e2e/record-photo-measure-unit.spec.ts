@@ -424,21 +424,47 @@ for (const [name, path, keys] of [
       "rememberAcceptance(current, key, text, method)"
     );
     // And every one of the three boxes forgets its acceptance when a person types in it, through the
-    // one handler that does both — see `typeInto` in each form for why it is a factory.
+    // one handler that does both — see each form's factory for why it is a factory.
     expect(source, "the typing handler forgets the acceptance").toContain("forgetAcceptance(current, key)");
+    /*
+      THE TWO FORMS NAME THAT FACTORY DIFFERENTLY NOW, AND THE DIFFERENCE IS A REAL ONE.
+
+      `ProductForm` keeps `typeInto(setter, column)`: its three dimensions are inches and nothing
+      else. `ToolForm`'s is `typeInches(setter, column, setPartner?)`, because two of its three inch
+      boxes have a CENTIMETRE partner they fill as the researcher types (`heightInches` ↔ `height`,
+      `breadthInches` ↔ `width`) and `lengthInches` deliberately has none. The optional third
+      argument is why this pattern admits one: a regex demanding `)}` right after the column name
+      would go red on the two paired boxes and say nothing about what was actually wrong.
+
+      What is held shut here is unchanged and is the point of the test: every dimension box goes
+      through ITS FORM'S factory, keyed by the column it writes.
+    */
+    const factory = name === "ToolForm" ? "typeInches" : "typeInto";
     for (const key of keys) {
-      expect(source, `${key} is wired through it`).toMatch(new RegExp(`onChange=\\{typeInto\\(set\\w+, "${key}"\\)\\}`));
+      expect(source, `${key} is wired through it`).toMatch(
+        new RegExp(`onChange=\\{${factory}\\(set\\w+, "${key}"(, set\\w+)?\\)\\}`)
+      );
     }
     if (name === "ToolForm") {
-      // The unit-less `height` is not in `DIMENSION_FIELDS`; a marker naming it is a REJECTED SAVE,
-      // not a dropped hint. `"heightInches"` does not match `"height"` — the closing quote separates
-      // them — so this is an exact test for the legacy box and not a prefix match on the new one.
-      expect(source, "the legacy height column never records an acceptance").not.toMatch(
+      // `height` is not in `DIMENSION_FIELDS`; a marker naming it is a REJECTED SAVE, not a dropped
+      // hint. `"heightInches"` does not match `"height"` — the closing quote separates them — so this
+      // is an exact test for the centimetre box and not a prefix match on the inch one. It holds
+      // after the pairing for the same reason it held before: the centimetre boxes now receive a
+      // CONVERTED figure from the accept callbacks, and a converted figure carries no provenance of
+      // its own, so neither of them may ever appear as a provenance KEY.
+      expect(source, "the centimetre height column never records an acceptance").not.toMatch(
         /rememberAcceptance\(current, "height"[,)]/
       );
-      expect(source, "and is not wired through the forgetting handler either").not.toMatch(
-        /typeInto\(set\w+, "height"\)/
+      expect(source, "nor the centimetre width").not.toMatch(/rememberAcceptance\(current, "width"[,)]/);
+      expect(source, "and neither is wired through the forgetting handler either").not.toMatch(
+        /type(Into|Inches)\(set\w+, "(height|width)"[,)]/
       );
+      // The centimetre boxes have their OWN factory, which takes no column name at all — there is no
+      // key it could file a marker under even by accident.
+      expect(source, "the centimetre boxes go through the partner-writing factory").toContain(
+        "onChange={typeCm(setHeight, setHeightInches)}"
+      );
+      expect(source, "both of them").toContain("onChange={typeCm(setWidth, setBreadth)}");
     }
   });
 

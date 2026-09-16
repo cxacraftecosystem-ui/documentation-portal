@@ -955,17 +955,34 @@ class FieldRepository(
         api.artisans(pageSize = 100, workshopIds = workshopIds.toQueryCsv())
 
     /**
-     * One craft's artisans, filtered by the server rather than in memory.
+     * The artisans of SEVERAL crafts, filtered by the server rather than in memory.
      *
      * The request the record forms were missing. Filtering a 100-row page of the WHOLE artisan table
      * down to one craft on the device gives the intersection of that craft with the newest hundred
-     * rows overall; asking the server for `craftId` gives the craft's roster, up to the same ceiling
-     * — which for a single craft is, in practice, all of them. The envelope is returned for the same
-     * reason as above: "in practice" is not a property of the code, so the caller still has to be
-     * able to say when it was not.
+     * rows overall; asking the server for the crafts gives their roster, up to the same ceiling —
+     * which for a handful of crafts is, in practice, all of them. The envelope is returned for the
+     * same reason as above: "in practice" is not a property of the code, so the caller still has to
+     * be able to say when it was not.
+     *
+     * ONE REQUEST FOR THE WHOLE TICK LIST. The tool form's craft box is a multi-select, and issuing
+     * one request per ticked craft is not a substitute — "Select all 178" would fire 178 of them.
+     * `craftIds` is the plural the route gained on 2026-09-15, spelled exactly as `workshopIds`
+     * already is on the same route.
+     *
+     * BOTH PARAMETERS ARE SENT FOR A SINGLE CRAFT, and that is deliberate rather than untidy. The
+     * server narrows on each independently, so for one craft they narrow to the same set; what it
+     * buys is that this client keeps working, unchanged, against an API that predates the plural —
+     * a query parameter FastAPI does not declare is ignored in silence, and without the singular
+     * beside it a handset updated ahead of the server would quietly get the whole artisan page back
+     * and call it a craft's roster. The two clients deploy separately from the API; see
+     * `MeasurementMarkers.body` for the same argument made about a request key.
      */
-    suspend fun artisansForCraftPage(craftId: String): PageResponse<ArtisanDto> =
-        api.artisans(pageSize = 100, craftId = craftId)
+    suspend fun artisansForCraftsPage(craftIds: List<String>): PageResponse<ArtisanDto> =
+        api.artisans(
+            pageSize = 100,
+            craftId = craftIds.singleOrNull()?.blankToNull(),
+            craftIds = craftIds.toQueryCsv()
+        )
 
     /**
      * ONE WORKSHOP'S RECORDS, WITH THE ENVELOPE KEPT — the five reads behind `ui/RecordSwitcher.kt`.

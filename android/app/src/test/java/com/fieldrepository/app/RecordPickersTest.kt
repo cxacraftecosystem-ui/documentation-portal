@@ -1,7 +1,11 @@
 package com.fieldrepository.app
 
 import com.fieldrepository.app.data.ArtisanDto
+import com.fieldrepository.app.data.CraftDto
+import com.fieldrepository.app.ui.artisansByCraftThenName
 import com.fieldrepository.app.ui.craftChangeClearsArtisan
+import com.fieldrepository.app.ui.craftNameFor
+import com.fieldrepository.app.ui.craftsChangeClearsArtisans
 import com.fieldrepository.app.ui.listCutNotice
 import com.fieldrepository.app.ui.mergeArtisansById
 import org.junit.Assert.assertEquals
@@ -27,6 +31,18 @@ class RecordPickersTest {
 
     private fun artisan(id: String, craftId: String?) =
         ArtisanDto(id = id, name = "Artisan $id", place = "Place", status = "APPROVED", craftId = craftId)
+
+    private fun named(id: String, name: String, craftId: String?, craft: CraftDto? = null) =
+        ArtisanDto(
+            id = id,
+            name = name,
+            place = "Place",
+            status = "APPROVED",
+            craftId = craftId,
+            craft = craft
+        )
+
+    private fun craft(id: String, name: String) = CraftDto(id = id, name = name)
 
     // -----------------------------------------------------------------------
     // craftChangeClearsArtisan — the destructive one
@@ -75,6 +91,251 @@ class RecordPickersTest {
         // second link the researcher never touched.
         assertFalse(craftChangeClearsArtisan(nextCraftId = "", artisanId = "a1", artisans = artisans))
         assertFalse(craftChangeClearsArtisan(nextCraftId = "pottery", artisanId = "", artisans = artisans))
+    }
+
+    // -----------------------------------------------------------------------
+    // craftsChangeClearsArtisans — the destructive one, in its multi-select form
+    //
+    // EVERY CASE BELOW HAS A TWIN in `frontend/e2e/record-pickers-unit.spec.ts`, against
+    // `frontend/components/forms/recordPickers.ts`. If you change a rule there and these still pass
+    // unchanged, you have just created the divergence both files are written about.
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `deselecting one craft drops only that craft's people`() {
+        val artisans = listOf(artisan("weaver", craftId = "weaving"), artisan("potter", craftId = "pottery"))
+        assertEquals(
+            listOf("weaver"),
+            craftsChangeClearsArtisans(
+                nextCraftIds = listOf("pottery"),
+                removedCraftIds = listOf("weaving"),
+                artisanIds = listOf("weaver", "potter"),
+                artisans = artisans
+            )
+        )
+    }
+
+    @Test
+    fun `an artisan of a craft that is still ticked is kept`() {
+        val artisans = listOf(artisan("potter", craftId = "pottery"))
+        assertEquals(
+            emptyList<String>(),
+            craftsChangeClearsArtisans(
+                nextCraftIds = listOf("pottery", "weaving"),
+                removedCraftIds = listOf("blockprinting"),
+                artisanIds = listOf("potter"),
+                artisans = artisans
+            )
+        )
+    }
+
+    /**
+     * THE HEADLINE DEFECT, AND THE ONE CASE THE OLD RULE COULD NOT GET RIGHT. Mohan is a potter; this
+     * tool was linked to him through "Assign tools to artisans", and Pottery has never been ticked on
+     * this form. Unticking Block printing has nothing to do with him. The old rule read his craft's
+     * absence from the next list as a reason to drop him, the save carried the shortened list, and
+     * `_replace_artisan_links` deleted his `ToolArtisan` row under a 200.
+     */
+    @Test
+    fun `an artisan whose craft was never ticked is not touched by unticking another`() {
+        val artisans = listOf(artisan("mohan", craftId = "pottery"), artisan("printer", craftId = "blockprinting"))
+        assertEquals(
+            listOf("printer"),
+            craftsChangeClearsArtisans(
+                nextCraftIds = listOf("bandhani"),
+                removedCraftIds = listOf("blockprinting"),
+                artisanIds = listOf("mohan", "printer"),
+                artisans = artisans
+            )
+        )
+    }
+
+    /**
+     * THE REGRESSION, in the plural. Same shape as the singular's: the artisan is simply not on the
+     * loaded page, which says nothing whatever about their craft, and reading that silence as "wrong
+     * craft" is what destroyed stored links under a 200.
+     */
+    @Test
+    fun `an artisan the picker cannot see keeps their link across a craft deselection`() {
+        val loadedPage = listOf(artisan("someone-else", craftId = "pottery"))
+        assertEquals(
+            emptyList<String>(),
+            craftsChangeClearsArtisans(
+                nextCraftIds = listOf("pottery"),
+                removedCraftIds = listOf("weaving"),
+                artisanIds = listOf("off-page"),
+                artisans = loadedPage
+            )
+        )
+        assertEquals(
+            emptyList<String>(),
+            craftsChangeClearsArtisans(
+                nextCraftIds = listOf("blockprinting"),
+                removedCraftIds = listOf("pottery"),
+                artisanIds = listOf("off-page"),
+                artisans = loadedPage
+            )
+        )
+    }
+
+    /**
+     * AND HERE THE PLURAL DELIBERATELY DIFFERS FROM THE SINGULAR ABOVE.
+     *
+     * `craftChangeClearsArtisan` CLEARS an artisan whose own craft column is blank, because its
+     * question is "is this artisan of THE craft" and a blank column is a knowable no. The plural's
+     * question is "did the craft that just went away account for this artisan", which a blank column
+     * cannot answer at all — so the link is kept. The browser's twin makes the same choice, in the
+     * same words.
+     */
+    @Test
+    fun `an artisan with no craft recorded is never dropped by a craft change`() {
+        val artisans = listOf(artisan("unfiled", craftId = null))
+        assertTrue(craftChangeClearsArtisan("pottery", "unfiled", artisans))
+        assertEquals(
+            emptyList<String>(),
+            craftsChangeClearsArtisans(
+                nextCraftIds = listOf("pottery"),
+                removedCraftIds = listOf("weaving"),
+                artisanIds = listOf("unfiled"),
+                artisans = artisans
+            )
+        )
+    }
+
+    /**
+     * UNTICKING THE LAST CRAFT IS NOT A SPECIAL CASE, AND THE CASE THAT SAID IT WAS IS QUOTED.
+     *
+     * This was named "unticking every craft never touches the artisans" and asserted
+     * `emptyList()` for an empty `nextCraftIds`, under a comment headed "UNTICKING THE LAST CRAFT
+     * DROPS NOBODY" which argued that without the arm "the save would send `artisanIds: []`, every
+     * `ToolArtisan` row for the tool would be deleted, and the trigger would have been an edit about
+     * a CRAFT", and that the answer was otherwise order-dependent. The browser asserted the OPPOSITE
+     * for the same input, so the two clients disagreed on every gesture that empties the list.
+     *
+     * Both sides now run ONE rule with no empty-list arm, and `removedCraftIds` is what makes that
+     * safe rather than merely consistent: the craft just unticked is in `removedCraftIds`, so ITS
+     * artisans go and nobody else's — which is what unticking a craft means whether or not it was the
+     * last. The harm the arm was protecting against is no longer caused by the general rule.
+     */
+    @Test
+    fun `unticking the last craft drops that craft's people and nobody else's`() {
+        val artisans = listOf(
+            artisan("potter", craftId = "pottery"),
+            artisan("weaver", craftId = "weaving"),
+            artisan("unfiled", craftId = null),
+        )
+        assertEquals(
+            listOf("potter"),
+            craftsChangeClearsArtisans(
+                nextCraftIds = emptyList(),
+                removedCraftIds = listOf("pottery"),
+                artisanIds = listOf("potter", "weaver", "unfiled", "off-page"),
+                artisans = artisans
+            )
+        )
+    }
+
+    /**
+     * THE ORDER-DEPENDENCE THE OLD ARM WAS ALSO ARGUING ABOUT, ASSERTED RATHER THAN CLAIMED. Both
+     * gestures remove exactly Pottery, so both end at the same record — which under the old rule they
+     * did not, and a researcher had no way to know which of the two they had performed.
+     */
+    @Test
+    fun `the same two gestures in either order remove the same people`() {
+        val artisans = listOf(artisan("potter", craftId = "pottery"), artisan("weaver", craftId = "weaving"))
+        val ids = listOf("potter", "weaver")
+        // Untick Pottery first (the list empties), then tick Weaving.
+        val unticked = craftsChangeClearsArtisans(emptyList(), listOf("pottery"), ids, artisans)
+        val thenTicked = craftsChangeClearsArtisans(
+            listOf("weaving"), emptyList(), ids.filterNot { it in unticked }, artisans
+        )
+        // Tick Weaving first, then untick Pottery.
+        val ticked = craftsChangeClearsArtisans(listOf("pottery", "weaving"), emptyList(), ids, artisans)
+        val thenUnticked = craftsChangeClearsArtisans(
+            listOf("weaving"), listOf("pottery"), ids.filterNot { it in ticked }, artisans
+        )
+        assertEquals(listOf("potter"), unticked + thenTicked)
+        assertEquals(listOf("potter"), ticked + thenUnticked)
+    }
+
+    @Test
+    fun `a blank artisan id is never returned as something to drop`() {
+        val artisans = listOf(artisan("a1", craftId = "weaving"))
+        assertEquals(
+            emptyList<String>(),
+            craftsChangeClearsArtisans(
+                nextCraftIds = listOf("pottery"),
+                removedCraftIds = listOf("weaving"),
+                artisanIds = listOf(""),
+                artisans = artisans
+            )
+        )
+    }
+
+    // -----------------------------------------------------------------------
+    // craftNameFor / artisansByCraftThenName — the canonical picker ordering
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `the hydrated craft wins, then the ticked craft, then nothing`() {
+        val ticked = listOf(craft("c1", "Bandhani"))
+        assertEquals(
+            "Block Printing",
+            craftNameFor(named("a1", "Asha", craftId = "c1", craft = craft("c9", "Block Printing")), ticked)
+        )
+        assertEquals("Bandhani", craftNameFor(named("a2", "Bina", craftId = "c1"), ticked))
+        // An id no ticked craft carries, and an artisan with no craft at all, both answer "".
+        assertEquals("", craftNameFor(named("a3", "Chandni", craftId = "c2"), ticked))
+        assertEquals("", craftNameFor(named("a4", "Devi", craftId = null), ticked))
+    }
+
+    @Test
+    fun `artisans sort by craft name then by artisan name`() {
+        val ticked = listOf(craft("c1", "Weaving"), craft("c2", "Bandhani"))
+        val rows = listOf(
+            named("a1", "Zoya", craftId = "c2"),
+            named("a2", "Asha", craftId = "c1"),
+            named("a3", "Bina", craftId = "c2"),
+            named("a4", "Anil", craftId = "c1"),
+        )
+        // Bandhani before Weaving, whatever order the crafts were ticked in; then by name inside each.
+        assertEquals(
+            listOf("a3", "a1", "a4", "a2"),
+            artisansByCraftThenName(rows, ticked).map { it.id }
+        )
+    }
+
+    /**
+     * An artisan whose craft this form cannot name sorts LAST, never first.
+     *
+     * A blank sort key would otherwise sort before every real craft name and put the unknowns at the
+     * top of the sheet, which reads as the list being broken rather than as the crafts being unknown.
+     */
+    @Test
+    fun `an unknown craft sorts last rather than first`() {
+        val ticked = listOf(craft("c1", "Weaving"))
+        val rows = listOf(
+            named("a1", "Asha", craftId = null),
+            named("a2", "Bina", craftId = "c1"),
+        )
+        assertEquals(listOf("a2", "a1"), artisansByCraftThenName(rows, ticked).map { it.id })
+    }
+
+    /**
+     * Case folding is ROOT-lowercase on both the craft and the artisan name, and the tuple ends in
+     * the id so the order is TOTAL — nothing here depends on `sortedWith` being stable.
+     */
+    @Test
+    fun `the ordering is case insensitive and total`() {
+        val ticked = listOf(craft("c1", "bandhani"), craft("c2", "Ajrakh"))
+        val rows = listOf(
+            named("z", "asha", craftId = "c1"),
+            named("a", "Asha", craftId = "c1"),
+            named("m", "BINA", craftId = "c2"),
+        )
+        // Ajrakh first despite its capital; then the two Ashas, whose fold is identical, split by the
+        // raw name ("Asha" before "asha" in UTF-16 code-unit order) and then by id.
+        assertEquals(listOf("m", "a", "z"), artisansByCraftThenName(rows, ticked).map { it.id })
     }
 
     // -----------------------------------------------------------------------

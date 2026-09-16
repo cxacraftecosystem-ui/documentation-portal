@@ -112,8 +112,12 @@ def _editor():
     return _Row(id="usr_7", name="R. Menon", role="RESEARCHER")
 
 
-async def _privileged(_record, _user, _data, _kind):
-    """``guard_record_edit``'s stand-in: the author may edit, and no revision row is written."""
+async def _privileged(_record, _user, _data, _kind, **_kwargs):
+    """``guard_record_edit``'s stand-in: the author may edit, and no revision row is written.
+
+    ``**_kwargs`` absorbs ``privileged=``, which ``routes/tools`` passes because it has to ask the
+    question EARLIER than this call — its two link relations are guarded above the write, and
+    ``guard_record_edit`` commits a ledger row. Every other route here omits it."""
     return True
 
 
@@ -208,7 +212,13 @@ def _drive_tool(monkeypatch, fields: dict[str, Any], stored: _Row) -> tuple[Any,
     monkeypatch.setattr(tools, "apply_status_policy_update", _no_status_policy)
     monkeypatch.setattr(tools, "attach_location", _attach_location)
     monkeypatch.setattr(tools, "enforce_workshop_submission", _no_workshop_check)
-    monkeypatch.setattr(tools, "public_encode", lambda row, _viewer=None, **_kw: row)
+    # A DICT AND NOT THE ROW, unlike the three drivers above, because this route post-processes
+    # the ENCODED payload: ``_tool_payload`` sorts ``craftLinks`` back into ``craftName``'s order
+    # once the encoder has run. Handing it a row would be handing it something the real
+    # ``public_encode`` never returns, and the failure would read as a bug in the route.
+    monkeypatch.setattr(
+        tools, "public_encode", lambda row, _viewer=None, **_kw: dict(vars(row))
+    )
 
     payload = _Payload(fields)
     asyncio.run(tools.update_tool("tol_1", payload, _editor()))

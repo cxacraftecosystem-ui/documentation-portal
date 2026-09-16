@@ -399,15 +399,30 @@ TOOL = RecordSpec(
         # the visible half of that; the lost unit was the half that mattered.
         #
         # THE HEIGHT BELOW IS A DIFFERENT COLUMN FROM THE THIRD NUMBER IN THE CELL ABOVE, which is
-        # why both print and neither is redundant. `height` is the OLD unit-less column, kept because
-        # rows already hold values in it and nothing in the database can say what unit those are in.
-        # IT IS THE SAME ROW THAT WAS ALREADY HERE, moved under the new comment rather than added — a
-        # second `Height` entry would ship a duplicate column into a public dataset header, because
-        # `sheet_columns` is a plain list with no dedupe and `datasets._csv_columns('tool')` is
-        # derived from it (so `test_dataset_api`'s advertised-columns assertion would agree with the
-        # duplicate rather than catch it).
-        _f("Height", lambda t: num(t.height)),
-        _f("Width", lambda t: num(t.width)),
+        # why both print and neither is redundant. IT IS THE SAME ROW THAT WAS ALREADY HERE, moved
+        # under the new comment rather than added — a second `Height` entry would ship a duplicate
+        # column into a public dataset header, because `sheet_columns` is a plain list with no dedupe
+        # and `datasets._csv_columns('tool')` is derived from it (so `test_dataset_api`'s
+        # advertised-columns assertion would agree with the duplicate rather than catch it).
+        #
+        # THE TWO LABELS NOW DECLARE THEIR UNIT, AND THAT IS A CHANGE OF FACT AND NOT OF WORDING.
+        # What stood here said `height` "declares no unit" and that "nothing in the database can say
+        # what unit those are in" — true of every row saved before 2026-09-15, and no longer true of
+        # anything saved after it. `height` is now the CENTIMETRE partner of `heightInches` and
+        # `width` the centimetre partner of `breadthInches`: all four clients label them "Height (cm)"
+        # and "Width (cm)", and typing in either box of a pair fills the other at 2.54 cm to the inch.
+        #
+        # THE OLD ROWS ARE STILL UNIT-LESS AND NOTHING HERE PRETENDS OTHERWISE. A tool recorded before
+        # the pairing can hold two numbers in `height` and `heightInches` that are not the same
+        # measurement at all, and no migration invented a unit for them — see 20260913120100 for why
+        # copying one into the other would have been irreversible. So the cells stay SEPARATE, the
+        # inches triple keeps its own cell above, and a reader comparing the two on an old row is
+        # seeing a genuine disagreement rather than a rounding error.
+        #
+        # THE COLUMN NAMES ON THE WIRE AND IN THE DATABASE ARE UNCHANGED: `height` and `width`. Only
+        # what a person reads moved. Re-check with `grep -n "\"height\"" backend/app/api/routes/tools.py`.
+        _f("Height (cm)", lambda t: num(t.height)),
+        _f("Width (cm)", lambda t: num(t.width)),
         _f("Thickness", lambda t: num(t.thickness)),
         _f("Weight", lambda t: num(t.weight)),
         _f("Radius", lambda t: num(t.radius)),

@@ -36,7 +36,20 @@ export default function EditToolPage() {
             shortcut would blink into existence a moment after the rest of the page had settled.
           */}
           <RecordSwitcher kind="tool" currentId={record.id} currentWorkshopId={record.workshopId} />
-          <ToolForm initial={record} />
+          {/*
+            `key` IS THE FORM'S RE-KEY, AND IT IS LOAD-BEARING RATHER THAN A HINT TO REACT.
+
+            Every value on `ToolForm` is SEEDED ONCE, at construction, from `initial` — thirty-odd
+            `useState(initial?.x)` calls, plus the mirror latch that decides whether "English name"
+            follows "Toolkit name" and the two multi-selects seeded from the record's own links. The
+            picker above navigates to another tool's edit URL, and this page keeps the previous
+            record on screen until the new one arrives rather than blanking to `Loading…`. Without a
+            key React would reuse the instance: the form would hold the OLD record's answers while
+            `initial.id` — and therefore the PATCH's target — was already the new one, so a Save
+            would write one tool's contents over another's, under a 200, with nothing on screen
+            saying so. Keyed on the id, the switch remounts and every seed is re-read.
+          */}
+          <ToolForm key={record.id} initial={record} />
           <FieldProvenance extraMetadata={record.extraMetadata} title="Tool field contributions" />
         </div>
       ) : (

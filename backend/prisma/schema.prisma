@@ -458,6 +458,12 @@ model Craft {
   artisans  Artisan[]
   products  ProductDocumentation[]
   tools     ToolDocumentation[]
+  // The tools linked to this craft through the JOIN, beside the `tools` back-relation above, which
+  // is the `ToolDocumentation.craftId` column. Spelled `toolLinks` because `Artisan` already spells
+  // its `ToolArtisan` back-relation that way, and two join tables off one parent that name
+  // themselves differently is how a later reader comes to believe one of them means something the
+  // other does not.
+  toolLinks ToolCraft[]
   media     MediaFile[]
   workshops WorkshopCraft[]
 
@@ -947,6 +953,13 @@ model ToolDocumentation {
   /// `height` above is a DIFFERENT COLUMN and is not being merged into this one: rows already hold
   /// values in it and nothing in the database can say what unit those are in. See migration
   /// 20260913120100.
+  ///
+  /// SINCE 2026-09-15 THE TWO ARE TWO UNITS OF ONE MEASUREMENT ON EVERY CLIENT, and that is a change
+  /// to what NEW rows mean, not a claim about old ones. `height` is the centimetre box ("Height
+  /// (cm)"), this is the inch box, and typing in either fills the other at 2.54 cm to the inch;
+  /// `width` and `breadthInches` pair the same way, and `lengthInches` has no centimetre partner.
+  /// No conversion happens on LOAD and none happened in a migration, so a row saved before the
+  /// pairing keeps both of its numbers exactly as they were — including the ones that disagree.
   heightInches                  Decimal?      @db.Decimal(10, 2)
   measurementImageId            String?
   measurementAnalysis           Json?
@@ -984,6 +997,10 @@ model ToolDocumentation {
   media     MediaFile[]
   mediaProcessingJobs MediaProcessingJob[]
   artisanLinks ToolArtisan[]
+  /// EVERY craft this tool is linked to. `craftId` above holds the FIRST of them and `craftName`
+  /// holds all of their names joined ", " in the same order; this is the list itself. See
+  /// `model ToolCraft` for why the column was kept rather than retired.
+  craftLinks   ToolCraft[]
 
   @@index([artisanId])
   @@index([craftId])
@@ -1008,6 +1025,36 @@ model ToolArtisan {
   // tool-to-artisans lookup already.
   @@unique([toolId, artisanId])
   @@index([artisanId])
+}
+
+// Many-to-many between a tool and the crafts it is linked to. Lets one documented tool cover several
+// crafts instead of one, WITHOUT retiring `ToolDocumentation.craftId` — every existing filter, index,
+// report, carry-forward and data-browser branch reads that column and keeps reading it. It holds the
+// first of the selected crafts; this table holds all of them, and `craftName` holds their names
+// joined ", " in the same order.
+//
+// IT MIRRORS `ToolArtisan` ABOVE COLUMN FOR COLUMN, deliberately: same four columns, same unique,
+// same single secondary index, same CASCADE on both sides. See migration 20260915100000.
+//
+// THE ASYMMETRY WITH `ToolDocumentation.craft` IS THE EXISTING ONE AND IS NOT A DEFECT TO "FIX".
+// That relation is `onDelete: SetNull` while this one is `onDelete: Cascade`, so deleting a `Craft`
+// nulls `tool.craftId`, deletes the link row, and leaves `tool.craftName` holding the old joined
+// string. `ToolArtisan` has had exactly that shape since it was written (`artisanId` SetNull, the
+// link Cascade), which is why `artisanName` is NOT NULL — the name outlives the reference on
+// purpose, so a record does not lose the only readable trace of who or what it documented.
+model ToolCraft {
+  id        String   @id @default(cuid())
+  toolId    String
+  craftId   String
+  createdAt DateTime @default(now())
+
+  tool  ToolDocumentation @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  craft Craft             @relation(fields: [craftId], references: [id], onDelete: Cascade)
+
+  // No [toolId] of its own — it is the leading column of the unique below, which serves the
+  // tool-to-crafts lookup already.
+  @@unique([toolId, craftId])
+  @@index([craftId])
 }
 
 model MediaFile {

@@ -186,15 +186,21 @@ val RECORD_NOT_DICTATED: Map<RecordFormKind, Map<String, String>> = mapOf(
         "workshopId" to "A closed vocabulary behind a picker; nothing is typed here, so a microphone would have nowhere to put a word.",
         "craftId" to "A closed vocabulary behind a dropdown whose free-text escape hatch, `craftName`, is dictated instead.",
         "artisanId" to "A closed vocabulary behind a dropdown whose free-text escape hatch, `artisanName`, is dictated instead.",
+        // Added 2026-09-15 with the multi-craft work, which put both lists on the wire.
+        "craftIds" to "A multi-select over crafts the server already knows; the answer is ticked, never typed, exactly as the workshop form's own `craftIds` entry says one field above.",
+        "artisanIds" to "A multi-select over people the server already knows; the answer is ticked, never typed, and the free-text fallbacks beside it — `craftName` and `artisanName` — are the boxes that do dictate.",
         "yearsInUse" to "A whole number behind a numeric keyboard; spoken digits arrive as words and are discarded without a word to the researcher.",
-        "height" to "A decimal measurement, and the unit-less legacy one at that — the least forgiving box on the form to put a mis-heard word into.",
-        "width" to "A decimal measurement; spoken digits arrive as words and this box drops them silently.",
+        // 2026-09-15: `height` and `width` are the CENTIMETRE boxes now, paired with `heightInches`
+        // and `breadthInches`. The dictation answer does not change — a decimal is a decimal — but the
+        // reason had to, because both entries argued from a unit the boxes no longer lack.
+        "height" to "A decimal measurement, and now a PAIRED one: what lands here converts straight into `heightInches` beside it, so a mis-heard word does not stop at one box.",
+        "width" to "A decimal measurement paired with `breadthInches`; spoken digits arrive as words, this box drops them silently, and the partner it fills goes with them.",
         "lengthInches" to "A decimal measurement that the grid-measurement route also writes, so a dictated word would compete with a machine-measured number.",
         "breadthInches" to "A decimal measurement that the grid-measurement route also writes, and the same argument as the length beside it.",
         // Added 2026-09-14: the third of the inch triple reached the wire without being classified.
-        "heightInches" to "A decimal measurement, the third of the inch triple, and the same argument as the length and breadth above it. The box exists on this client as of 2026-09-14 — before that there was none, and the grid panel wrote its inches reading into the unit-less `height` above, losing the one fact that made the number usable.",
+        "heightInches" to "A decimal measurement, the third of the inch triple, and the same argument as the length and breadth above it. The box exists on this client as of 2026-09-14 — before that there was none, and the grid panel wrote its inches reading into the then unit-less `height` above, losing the one fact that made the number usable.",
         // Added 2026-09-14 with the measurement-provenance work, alongside the product form's entry.
-        "measurementMethods" to "NOT A BOX ON ANY CLIENT, and the same argument the product form's entry makes: it records HOW the inch triple was obtained, it is written only where a machine route's proposal is accepted, and a spoken claim about a measurement nobody made with a machine is precisely the false provenance the key exists to prevent. It describes the three inch columns only, never the unit-less `height` above.",
+        "measurementMethods" to "NOT A BOX ON ANY CLIENT, and the same argument the product form's entry makes: it records HOW the inch triple was obtained, it is written only where a machine route's proposal is accepted, and a spoken claim about a measurement nobody made with a machine is precisely the false provenance the key exists to prevent. It describes the three INCH columns only — never `height` or `width`, which are filled by conversion from two of them and carry no provenance of their own.",
         "thickness" to "A decimal measurement; spoken digits arrive as words and this box drops them silently.",
         "weight" to "A decimal measurement; spoken digits arrive as words and this box drops them silently.",
         "radius" to "A decimal measurement; spoken digits arrive as words and this box drops them silently.",

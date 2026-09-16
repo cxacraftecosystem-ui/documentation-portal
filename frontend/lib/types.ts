@@ -391,6 +391,66 @@ export type ProductDocumentation = {
   clientKey?: string | null;
 };
 
+/**
+ * ONE ROW OF THE `ToolCraft` JOIN TABLE — a tool and one of the crafts it is linked to.
+ *
+ * `ToolDocumentation.craftId` is NOT retired and still holds the FIRST of the selected crafts, which
+ * is what every existing filter, index, report and carry-forward reads; `craftName` holds every
+ * selected name joined ", " in the same order; and this is the table that holds ALL of them. The
+ * shape mirrors `ToolArtisan` column for column, deliberately — two join tables off one parent that
+ * disagree about their own shape is how a later reader comes to believe one of them means something
+ * the other does not.
+ *
+ * THE SERVER RETURNS THESE IN `craftName` ORDER, because the join table has no ordinal of its own.
+ * Nothing on this client re-sorts them: the order is the researcher's own tick order, it is the wire
+ * contract for `craftIds` on the way back up, and re-deriving it here would be a second opinion
+ * about a question the route already answered.
+ */
+export type ToolCraftLink = {
+  id: string;
+  toolId: string;
+  craftId: string;
+  createdAt?: string;
+  craft?: Craft | null;
+};
+
+/**
+ * One row of the `ToolArtisan` join table. Predates the craft one by three months
+ * (`20260618150000_tool_artisan_links`) and is the table "Assign a tool to multiple artisans" has
+ * always written; the tool form's own artisan picker now writes it too, rather than inventing a
+ * second mechanism for the same fact.
+ *
+ * ── THE TOOL'S OWN ARTISAN COMES FIRST, AND THE SENTENCE THAT SAID OTHERWISE IS QUOTED ────
+ * It read: *"Returned `createdAt asc, id asc` — 'oldest first', which is what
+ * `GET /tools/{id}/artisans` already promises and what `ToolAssignmentSection` already renders."*
+ * The second half was true of THAT ROUTE and said nothing about this field, which had no order at
+ * all: `hydrate_relations` issues a bare `find_many(where=...)`, so the rows arrived in whatever
+ * order the query plan produced.
+ *
+ * WHAT IS TRUE NOW: `routes/tools._order_artisan_links` sorts every encoded tool — the row whose
+ * `artisanId` matches `tool.artisanId` FIRST, then the rest `createdAt asc, id asc`. The pin is the
+ * load-bearing half and the tiebreak alone would not have done: `_replace_artisan_links` writes a
+ * whole selection in ONE `create_many`, so every row of one save shares a `createdAt` and the tie
+ * falls to a cuid. `craftLinks` above needs no pin because `craftName` records every name in tick
+ * order and `_order_craft_links` reads the order back out of it; `artisanName` holds only the FIRST
+ * name, so the artisan side has no such ordinal and the scalar is it.
+ *
+ * A CLIENT STILL PUTS THE SCALAR FIRST ITSELF, and that is not distrust of the above. Two cases the
+ * server-side pin cannot cover: a tool whose `artisanId` has NO link row has nothing to pin (the
+ * assignment endpoint adds links without touching the scalar, and its DELETE removes them just as
+ * freely — migration 20260916090000 backfilled the historical ones, not the future ones); and
+ * this bundle may be reading an API that predates the ordering, because the web deploys to Vercel
+ * and the API to EC2 separately. `ToolForm.storedArtisanIds` therefore seeds element 0 from
+ * `artisanId` itself, which is also what the route writes back into that column on the next save.
+ */
+export type ToolArtisanLink = {
+  id: string;
+  toolId: string;
+  artisanId: string;
+  createdAt?: string;
+  artisan?: Artisan | null;
+};
+
 export type ToolDocumentation = {
   id: string;
   craftName: string;
@@ -428,6 +488,20 @@ export type ToolDocumentation = {
   recordedTimezone?: string | null;
   artisanId?: string | null;
   craftId?: string | null;
+  /**
+   * EVERY linked craft and EVERY linked artisan, where `craftId` / `artisanId` above hold only the
+   * first of each.
+   *
+   * OPTIONAL ON THE TYPE THOUGH THE ROUTE ALWAYS SENDS THEM, and the reason is the one this
+   * repository has to keep in mind in exactly one direction: **the web deploys to Vercel and the API
+   * to EC2, separately** (see `forms/measurementMethods.ts`), so a newer bundle can be reading an
+   * older API that has no join table to include. `[]` and "this deployment does not serve them" are
+   * different facts, and a form that seeded a multi-select from `?? []` would read the second as the
+   * first and open an edit form with every link unticked — one Save away from deleting them. The
+   * tool form therefore falls back to the scalar `craftId` / `artisanId` when the key is ABSENT.
+   */
+  craftLinks?: ToolCraftLink[];
+  artisanLinks?: ToolArtisanLink[];
   workshopId?: string | null;
   workshop?: Workshop | null;
   media?: MediaFile[];

@@ -144,28 +144,61 @@ async def record_revision(record: Any, user: Any, data: dict[str, Any], record_t
     )
 
 
-async def guard_record_edit(record: Any, user: Any, data: dict[str, Any], record_type: str) -> bool:
+async def record_edit_privilege(record: Any, user: Any, record_type: str) -> bool:
+    """May `user` change this record's POPULATED fields and relations? Reads nothing, writes nothing.
+
+    The question :func:`guard_record_edit` has always answered on its way past, lifted out so a route
+    can ASK IT BEFORE ANYTHING COMMITS. `guard_record_edit` ends in `record_revision`, which writes a
+    ledger row, and this backend has no transaction to roll one back with — so a route whose own
+    refusals depend on the answer (`routes/tools`' two link relations) could only raise them AFTER
+    the ledger entry, and after the column write beyond it, unless it could get the answer first.
+    It takes the same two queries in the same order, and the caller hands the result back to
+    `guard_record_edit` so the pair costs exactly what the single call used to.
+
+    Privileged means: an admin, the record's own author, a Professor+ outranking that author, or the
+    holder of an EDIT-tier grant over it. Everyone else is an ordinary contributor, who may FILL what
+    nobody has answered yet and may not change or clear what somebody has.
+    """
+    from app.core.deps import get_value, is_admin, may_edit_lower_ranked_record
+
+    owner_id = get_value(record, "createdById")
+    uid = get_value(user, "id")
+    if is_admin(user) or (owner_id is not None and uid == owner_id):
+        return True
+    # "A professor may edit the data of anyone ranked below them" — checked before the grant
+    # lookup because it costs nothing for the ranks it does not apply to, so nobody below
+    # Professor pays an extra query for a clause that can only ever answer no for them.
+    if await may_edit_lower_ranked_record(user, owner_id):
+        return True
+    return await effective_tier_for_record(user, owner_id, record_type, get_value(record, "id")) == "EDIT"
+
+
+async def guard_record_edit(
+    record: Any,
+    user: Any,
+    data: dict[str, Any],
+    record_type: str,
+    *,
+    privileged: bool | None = None,
+) -> bool:
     """Authorize a field-changing edit and audit it. Returns True if the user is privileged (admin,
     owner, a professor+ outranking the record's author, or an EDIT-tier grantee) and may change any
     populated field/relation; False for an ordinary contributor (who may only fill empty fields —
     enforced here, raising 403 on a locked field). Always records a revision of the fields that
     change. Pass the cleaned `data` before provenance is merged.
-    """
-    from app.core.deps import assert_can_contribute_fields, get_value, is_admin, may_edit_lower_ranked_record
 
-    owner_id = get_value(record, "createdById")
-    uid = get_value(user, "id")
-    privileged = is_admin(user) or (owner_id is not None and uid == owner_id)
+    `privileged` IS THE ANSWER :func:`record_edit_privilege` ALREADY GAVE, for a caller that had to
+    ask early. Omit it and this asks for itself, which is what every route but `routes/tools` does;
+    pass it and the two queries are not repeated. It cannot be used to GRANT privilege that the
+    function would not have found on its own — a route computing it any other way would be inventing
+    a second answer to the one question this module exists to answer once.
+    """
+    from app.core.deps import assert_can_contribute_fields
+
+    if privileged is None:
+        privileged = await record_edit_privilege(record, user, record_type)
     if not privileged:
-        # "A professor may edit the data of anyone ranked below them" — checked before the grant
-        # lookup because it costs nothing for the ranks it does not apply to, so nobody below
-        # Professor pays an extra query for a clause that can only ever answer no for them.
-        if await may_edit_lower_ranked_record(user, owner_id):
-            privileged = True
-        elif await effective_tier_for_record(user, owner_id, record_type, get_value(record, "id")) == "EDIT":
-            privileged = True
-        else:
-            assert_can_contribute_fields(record, user, data)
+        assert_can_contribute_fields(record, user, data)
     await record_revision(record, user, data, record_type)
     return privileged
 

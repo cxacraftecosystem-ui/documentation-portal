@@ -52,11 +52,24 @@ def test_the_tool_sheet_has_exactly_one_height_column():
     same function, so it would agree with a duplicate rather than catch it.
 
     The obvious wrong edit is what makes this worth a test: replacing the dimensions line alone and
-    pasting the ``Height`` row in beneath it, leaving the original ``Height`` row where it was.
+    pasting the ``Height (cm)`` row in beneath it, leaving the original one where it was.
+
+    THE LABEL GAINED ITS UNIT ON 2026-09-15 and this assertion moved with it. It read
+    ``columns.count("Height") == 1`` while the bare ``height`` column declared no unit at all; the
+    tool form now labels that box "Height (cm)" on all four clients and fills it by conversion from
+    ``heightInches``, so the header says so too. The bare name is asserted GONE rather than left
+    unmentioned, because a header carrying both would be the duplicate this test exists to catch
+    wearing a different coat.
     """
     columns = sheet_columns("tool")
 
-    assert columns.count("Height") == 1, columns
+    assert columns.count("Height (cm)") == 1, columns
+    assert columns.count("Width (cm)") == 1, columns
+    assert "Height" not in columns, (
+        "the unit-less ``Height`` label is back in the header beside ``Height (cm)`` — two columns "
+        "for one value in a public dataset contract"
+    )
+    assert "Width" not in columns, columns
     assert columns.count("Dimensions (LxBxH in)") == 1
     assert columns.count("Dimensions (LxB in)") == 0, (
         "the old two-number label is still in the header — the cell now prints three numbers under a "
@@ -65,9 +78,15 @@ def test_the_tool_sheet_has_exactly_one_height_column():
 
 
 def test_height_and_height_inches_are_two_separate_cells():
-    """A TOOL HOLDING BOTH PRINTS BOTH, and the bare ``Height`` cell is the unit-less one. If these
-    ever collapsed into one column, the unit-less legacy value and the measured inches would be
-    indistinguishable — which is the whole failure the ``*Inches`` naming exists to prevent."""
+    """A TOOL HOLDING BOTH PRINTS BOTH, and they are two units of one measurement rather than one
+    number printed twice.
+
+    The two cells must never collapse into one. On a row saved SINCE the pairing they agree to two
+    decimals and a reader could be forgiven for thinking one of them redundant; on a row saved BEFORE
+    it they hold unrelated numbers, because the bare column declared no unit and nothing converted it
+    retroactively. The row below is deliberately that older shape — 14 against 6 — and both numbers
+    print exactly as stored, which is what proves the sheet reports the disagreement instead of
+    hiding it."""
     tool = _Tool(
         toolkitName="Dyeing vat",
         height=Decimal("14"),
@@ -76,7 +95,7 @@ def test_height_and_height_inches_are_two_separate_cells():
         heightInches=Decimal("6"),
     )
 
-    assert _cell(tool, "Height") == "14"
+    assert _cell(tool, "Height (cm)") == "14"
     assert _cell(tool, "Dimensions (LxBxH in)") == "10 x 4 x 6"
 
 

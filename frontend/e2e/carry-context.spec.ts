@@ -38,6 +38,40 @@ async function chooseOption(page: Page, fieldName: string, optionLabel: string |
   await page.getByRole("option", { name: optionLabel }).first().dispatchEvent("click");
 }
 
+/**
+ * The same act on a MULTI-select, which has to be found and dismissed differently.
+ *
+ * THE TOOL FORM'S CRAFT AND ARTISAN PICKERS TAKE SEVERAL ANSWERS NOW, so there is no hidden mirror
+ * input carrying a `name` for `chooseOption` above to find them by — the value is a list and it
+ * reaches the save from React state. They are located by their FIELD LABEL instead, exactly as
+ * `processProductField` at the bottom of this file locates the one other control in the app with no
+ * name of its own.
+ *
+ * AND THE PANEL IS DISMISSED EXPLICITLY. A single-select closes on a pick because picking one option
+ * is the whole answer; a multi-select deliberately does not, since several usually are. Leaving it
+ * open would float it over whichever control the next line reaches for.
+ */
+async function chooseInMultiSelect(page: Page, fieldLabel: string, optionLabel: string | RegExp) {
+  const escaped = fieldLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  await page
+    .locator("label")
+    .filter({ has: page.locator("span.field-label", { hasText: new RegExp(`^${escaped}( \\*)?$`) }) })
+    .locator("[data-searchable-select]")
+    .click();
+  await page.getByRole("option", { name: optionLabel }).first().dispatchEvent("click");
+  await page.keyboard.press("Escape");
+}
+
+/** The tool form's craft picker, by the label a researcher reads. */
+const TOOL_CRAFTS = "Linked crafts (fills craft name)";
+/** The tool form's artisan picker. Its rows read "Craft · Name · Place", craft FIRST. */
+const TOOL_ARTISANS = "Linked artisans (fills artisan + place)";
+
+/** One row of the tool form's artisan picker, composed by the form's own rule. */
+function toolArtisanRow(row: ArtisanRow) {
+  return [row.craft?.name, row.name, row.place].filter(Boolean).join(" · ");
+}
+
 async function signIn(page: Page) {
   await page.goto("/login");
   await page.getByPlaceholder("Enter your email").fill(EMAIL);
@@ -106,17 +140,34 @@ test.describe("Carry-forward artisan context", () => {
     await expect(banner).toContainText(/you documented/);
     await expect(page.locator('input[name="artisanName"]')).toHaveValue(first.name);
     await expect(page.locator('input[name="place"]')).toHaveValue(first.place);
-    await expect(page.locator('input[name="artisanId"]')).toHaveValue(first.id);
+    /*
+      THE LINK ITSELF, ASSERTED THROUGH THE CONTROL RATHER THAN THROUGH A HIDDEN INPUT.
+
+      This read `input[name="artisanId"]` until the tool form's artisan picker became a MULTI-select:
+      the value is a list now and it reaches the save from React state, so there is no mirror input
+      to carry an id into FormData and none is wanted — a hidden input holding one of several ids
+      would be a second, narrower answer to the same question. The trigger counts what is ticked, so
+      "1 selected" is this form saying the carried artisan is linked, and the banner plus the two
+      boxes above already say WHICH.
+    */
+    const artisanPicker = page
+      .locator("label")
+      .filter({ has: page.locator("span.field-label", { hasText: TOOL_ARTISANS }) })
+      .locator("[data-searchable-select]");
+    await expect(artisanPicker).toContainText("1 selected");
 
     // 4. One action clears it, and the fields go with the banner.
     await banner.getByRole("button", { name: "Change" }).click();
     await expect(banner).toHaveCount(0);
     await expect(page.locator('input[name="artisanName"]')).toHaveValue("");
     await expect(page.locator('input[name="place"]')).toHaveValue("");
+    // And the link with them: "Change" empties both pickers, so the artisan one is back to its
+    // "pick a craft first" placeholder rather than still holding the artisan it was cleared of.
+    await expect(artisanPicker).not.toContainText("selected");
 
     // 5. Choose somebody else, and confirm THAT is what comes back next time.
-    await chooseOption(page, "craftId", second.craft?.name ?? "");
-    await chooseOption(page, "artisanId", `${second.name} · ${second.place}`);
+    await chooseInMultiSelect(page, TOOL_CRAFTS, second.craft?.name ?? "");
+    await chooseInMultiSelect(page, TOOL_ARTISANS, toolArtisanRow(second));
     await expect(page.locator('input[name="artisanName"]')).toHaveValue(second.name);
     // An explicit pick is the researcher's own choice, so nothing claims to have prefilled it.
     await expect(page.getByRole("status").filter({ hasText: "Continuing with" })).toHaveCount(0);
@@ -313,8 +364,8 @@ test.describe("Carry-forward across record types", () => {
     // Choosing somebody else is a contradiction, not an addition: the product belonged to the
     // artisan being replaced, so keeping it would file it under a person who never made it.
     await page.goto("/tools/new");
-    await chooseOption(page, "craftId", other.craft?.name ?? "");
-    await chooseOption(page, "artisanId", `${other.name} · ${other.place}`);
+    await chooseInMultiSelect(page, TOOL_CRAFTS, other.craft?.name ?? "");
+    await chooseInMultiSelect(page, TOOL_ARTISANS, toolArtisanRow(other));
 
     await page.goto("/dashboard");
     await page.goto("/processes?new=1");
