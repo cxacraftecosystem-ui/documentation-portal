@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fieldrepository.app.data.DataAccessGrantDto
 import com.fieldrepository.app.data.DataAccessScopeItemDto
+import com.fieldrepository.app.data.EVERY_WORKSHOP
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.UserDto
 import com.fieldrepository.app.data.apiErrorMessage
@@ -381,7 +382,10 @@ fun GrantAccessFields(
                     .forEach { recs += SelectOption("tool::${it.id}", "Tool · ${it.toolkitName}") }
                 repository.workshops().filter { it.createdById == myId }
                     .forEach { recs += SelectOption("workshop::${it.id}", "Workshop · ${it.title}") }
-                repository.interviews().filter { it.createdById == myId }
+                // [EVERY_WORKSHOP] because this screen shares YOUR OWN records and carries no
+                // workshop control — the same rule My Activity states. Written out because the
+                // parameter no longer defaults; see [FieldRepository.interviews] for why it does not.
+                repository.interviews(EVERY_WORKSHOP).filter { it.createdById == myId }
                     .forEach { recs += SelectOption("questionnaire::${it.id}", "Interview · ${it.title}") }
                 recs
             }.onSuccess { myRecords = it }

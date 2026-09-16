@@ -165,6 +165,25 @@ private fun detailMessage(detail: JsonElement): String? = when (detail) {
 private const val UPLOAD_CONCURRENCY = 3
 
 /**
+ * "EVERY WORKSHOP, AND I MEAN IT" — the argument a caller passes to [FieldRepository.interviews] and
+ * [FieldRepository.interviewsPage] when the screen it is on has no workshop control to narrow by.
+ *
+ * It is `null`, which is exactly what the parameter's own default used to be, and that is the whole
+ * reason it exists. A default is invisible at the call site: a bare `interviews()` looked identical
+ * whether somebody had decided the list should span the repository or had simply never thought about
+ * it, and the second kind is what *"the questionnaire from the previous workshop are showing up even
+ * in the third workshop"* was made of. Spelled out, the decision is in the diff, the compiler finds
+ * every site the day the parameter changes again, and a reviewer can ask the only useful question —
+ * *is this screen really repository-wide?* — of a line that is actually making the claim.
+ *
+ * NOT `emptyList()`. The server treats null and empty the same (`toQueryCsv` drops both), so the
+ * choice is a spelling and not a behaviour; null is chosen because `workshopIds = null` is what the
+ * route documents as "no scope", and a reader of the API and a reader of this file should not have
+ * to reconcile two ways of saying nothing.
+ */
+internal val EVERY_WORKSHOP: List<String>? = null
+
+/**
  * THE LARGEST PAGE ANY LIST ROUTE IN THIS APPLICATION WILL SERVE.
  *
  * `normalize_pagination` does `min(page_size, MAX_PAGE_SIZE)` with `MAX_PAGE_SIZE = 100`
@@ -1624,10 +1643,31 @@ class FieldRepository(
 
     /**
      * THE INTERVIEWS IN SCOPE. [workshopIds] is the shared workshop scope — null or empty is EVERY
-     * workshop, and the reserved id `none` asks for interviews linked to no workshop. Spelled and
-     * defaulted exactly like [artisans] above, because the questionnaire form and the browse screens
-     * read the two lists side by side and a scope that meant two different things across them would
-     * offer one workshop's artisans against another workshop's interviews.
+     * workshop, and the reserved id `none` asks for interviews linked to no workshop. SPELLED
+     * exactly like [artisans] above, because the questionnaire form and the browse screens read the
+     * two lists side by side and a scope that meant two different things across them would offer one
+     * workshop's artisans against another workshop's interviews.
+     *
+     * AND NO LONGER *DEFAULTED* LIKE IT, WHICH IS THE HALF THIS COMMENT USED TO GET WRONG.
+     *
+     * There was a `= null` here, and it is what made the fix below look finished when it was not.
+     * Adding the parameter changed the signature without changing a single call site: every caller
+     * that had been asking the repository-wide question went on asking it, still compiled, still
+     * read as deliberate, and the two that mattered were found months later by hand. A default whose
+     * value is also the old behaviour cannot be audited — nothing at a bare call says whether the
+     * scope is a decision or an oversight, and the compiler, the one reader that visits every call
+     * site, had been told not to care.
+     *
+     * So the parameter is REQUIRED and [EVERY_WORKSHOP] is what a caller writes when it genuinely
+     * means the whole repository. The name is the point: `interviews(EVERY_WORKSHOP)` is a sentence
+     * somebody wrote; `interviews()` was a sentence nobody wrote. Four callers say it today — My
+     * Activity, the misc-media link picker, the orphan re-link picker and the sharing batch — and
+     * each says why on the line above it.
+     *
+     * [artisans] KEEPS ITS DEFAULT, and the asymmetry is a decision rather than an unfinished edit:
+     * it was not the reported defect, it has an order of magnitude more call sites, and turning all
+     * of them into a mechanical `EVERY_WORKSHOP` in this commit would bury the four interview sites
+     * that are its subject. It is the next candidate, not a thing left behind.
      *
      * ── THIS PARAMETER IS DEFECT (2) ──────────────────────────────────────────────────────────
      *
@@ -1639,21 +1679,29 @@ class FieldRepository(
      * survives a release: each screen is internally consistent, and only somebody holding both at
      * once can see that they disagree.
      *
-     * ── THE DEFAULT IS "EVERY WORKSHOP", AND THE CALLERS ARE WHERE THE MEANING IS ─────────────
+     * ── "EVERY WORKSHOP" IS A THING A CALLER SAYS, NOT A THING THIS SIGNATURE ASSUMES ─────────
      *
-     * A defaulted null here is NOT the policy for "no workshop chosen" — it is the absence of a
-     * question, and it exists so that the surfaces which genuinely have no workshop control on
-     * screen (My Activity, the misc-media link picker) keep compiling and keep meaning what they
-     * always meant. The policy for a screen that DOES carry the control lives in
-     * `ui/WorkshopScope.kt`: the picker settles on the most recent workshop before the first request
-     * goes out, and the only way to see everything is to tap "All records", which says so. There is
-     * no third state on either client — "nothing chosen yet" is not reachable, because a screen that
-     * could show an unscoped list while the picker still read like a workshop was chosen is exactly
-     * the confusion being fixed.
+     * This section used to open "THE DEFAULT IS EVERY WORKSHOP" and argue that a defaulted null here
+     * is not a policy but the absence of a question — kept so the surfaces with no workshop control
+     * on screen would "keep compiling and keep meaning what they always meant". The paragraph above
+     * removed the default it was describing, and the two halves of this comment then said opposite
+     * things about the same parameter. It is rewritten rather than deleted because its CONCLUSION
+     * was never the wrong part; only its subject was.
+     *
+     * What survives: [EVERY_WORKSHOP] is still not the policy for "no workshop chosen". It is the
+     * absence of a question, written by the four screens that genuinely have no workshop control —
+     * and the difference from the old default is that they now write it, so "keep compiling" is no
+     * longer something a call site can do by saying nothing.
+     *
+     * The policy for a screen that DOES carry the control lives in `ui/WorkshopScope.kt`: the picker
+     * settles on the most recent workshop before the first request goes out, and the only way to see
+     * everything is to tap "All records", which says so. There is no third state on either client —
+     * "nothing chosen yet" is not reachable, because a screen that could show an unscoped list while
+     * the picker still read like a workshop was chosen is exactly the confusion being fixed.
      *
      * @see interviewsPage for the 100-row ceiling, which is the reason most callers want the envelope.
      */
-    suspend fun interviews(workshopIds: List<String>? = null): List<QuestionnaireInterviewDetailDto> =
+    suspend fun interviews(workshopIds: List<String>?): List<QuestionnaireInterviewDetailDto> =
         interviewsPage(workshopIds).items
 
     /**
@@ -1673,7 +1721,7 @@ class FieldRepository(
      * what makes the cap stop mattering — and the notice is what keeps "in practice" from being load-
      * bearing.
      */
-    suspend fun interviewsPage(workshopIds: List<String>? = null): PageResponse<QuestionnaireInterviewDetailDto> =
+    suspend fun interviewsPage(workshopIds: List<String>?): PageResponse<QuestionnaireInterviewDetailDto> =
         api.interviews(
             pageSize = 100,
             workshopIds = workshopIds.toQueryCsv(),

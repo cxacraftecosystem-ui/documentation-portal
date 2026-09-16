@@ -1,0 +1,731 @@
+{
+  "contract": "questionnaire-capture-form",
+  "version": 1,
+  "enforcedBy": "backend/tests/test_questionnaire_form_contract.py",
+  "authority": "frontend/app/(protected)/questionnaire/page.tsx",
+  "whatThisIs": [
+    "The questionnaire capture form, declared ONCE. Every client and every guide that claims to",
+    "describe this form is measured against this file, and never against each other.",
+    "",
+    "THE OWNER'S REPORT, VERBATIM: \"all the fields on the questionnaire page that are there on the",
+    "web application, should be exactly there on the android app as well, the checkbox list should be",
+    "replaced with multi-select dropdown for artisans over there as well, web implementation is",
+    "correct, I want the same thing for android as well, create contracts so that the two do not",
+    "drift\". This file is the last clause. The `fields` list below is the first three."
+  ],
+  "whyAContractAndNotAParityTest": [
+    "A test that compares the web form against the Android form answers the wrong question twice.",
+    "",
+    "It cannot say WHICH SIDE IS RIGHT. `test_walkthrough_fields_parity.py` in the sibling designer",
+    "portal is the two-way form, and it is honest about the cost: its failure message has to end",
+    "\"The web is the register: fix steps.ts and WALKTHROUGH_FIELDS together\" because the assertion",
+    "itself cannot tell you that. A reader who does not already know the rule can make it green from",
+    "either end, and the quickest end is usually the wrong one.",
+    "",
+    "AND IT GOES GREEN WHEN BOTH SIDES DRIFT THE SAME WAY. That was not a hypothetical here. Both",
+    "walkthrough registers in this repository — `frontend/components/guide/steps.ts` and",
+    "`android/.../ui/WalkthroughSteps.kt` — named a \"Date\" field that the form had not had for as long",
+    "as the comment at page.tsx:997 had been there, and both omitted Workshop, Questionnaire, Status",
+    "and Interview notes. `WalkthroughStepsTest.kt` held those two registers EQUAL to each other and",
+    "PASSED, because they were equally wrong. Two copies agreeing is not evidence; it is the failure",
+    "mode.",
+    "",
+    "Both were regenerated on 2026-09-16 and are green against this file. The paragraph stays in the",
+    "past tense rather than going, because it is the only account of WHY this file is shaped the way",
+    "it is — and because the green suite it describes is still green and still cannot see the thing it",
+    "missed. A reader who arrives after the registers are correct would otherwise find a two-way test",
+    "passing, this file apparently redundant, and no record that the two facts once coexisted.",
+    "",
+    "So this file names the intended truth once and every surface is joined to IT. The register-to-",
+    "register edge already exists in WalkthroughStepsTest.kt and is deliberately not repeated by the",
+    "enforcing test — what was missing is the edge from each register to the form, which is the only",
+    "edge that can notice a claim both registers make and neither screen honours.",
+    "",
+    "THE REJECTED ALTERNATIVE, and why it is not enough: generate the Android form from this file at",
+    "build time, so drift is impossible rather than merely detected. It would work, and it is the",
+    "right shape for a product whose two clients draw the same widgets — which these do not. A",
+    "Compose column and a CSS grid disagree about what \"order\" even means at a breakpoint, the web's",
+    "status control is a `<Select>` or a locked chip by role, and the handset's is a dropdown or a",
+    "chip by the same role through different primitives. A generator would have to model both widget",
+    "sets to emit either, and the first control that did not fit would be written by hand beside it,",
+    "unguarded, which is where this started. Declaring the truth and checking both readings of it",
+    "leaves each client free to draw it natively and still refuses to let them mean different things."
+  ],
+  "howOrderIsPartOfIt": [
+    "The `fields` array is in WEB SCREEN ORDER and that order is contractual, not incidental.",
+    "",
+    "A form whose boxes appear in one sequence on a laptop and another on a handset is a form a",
+    "researcher has to re-learn on each device, and they re-learn it in a courtyard with an artisan",
+    "waiting. It is also the thing a printed guide gets wrong most usefully: `docs/WALKTHROUGH.md`",
+    "gets read with the form open beside it, so a list in the wrong sequence sends the reader",
+    "hunting for a box two fields further down and, finding the wrong one, filling it in.",
+    "",
+    "THE TWO CLIENTS DISAGREED ABOUT THIS AND THE WEB WON. The web draws the three text boxes first",
+    "and then the workshop (page.tsx:989-1031, \"The workshop leads every other dropdown\"); the handset",
+    "opened with the workshop. Both orders are defensible in isolation, and exactly one of them can be",
+    "the contract. The owner ruled the web correct, so the handset's field block was re-ordered to",
+    "match (MainActivity.kt:12771-13216, where the argument is written out at the head of the block).",
+    "",
+    "This paragraph was written while the disagreement was still live and said so in the present",
+    "tense. It is kept in the past tense rather than deleted, because the ORDER is the half of this",
+    "contract with no other evidence behind it: a reader who finds `fields` in an order that is not",
+    "alphabetical, not the database's and not the API's needs to know it is the web's screen order and",
+    "that somebody chose it."
+  ],
+  "controls": {
+    "why": [
+      "THE CONTROL VOCABULARY, declared once: which component on each client draws which kind",
+      "of control, and how that component says its own label.",
+      "",
+      "IT LIVES HERE AND NOT ON THE FIELDS because how a control labels itself is a property of",
+      "the CONTROL, not of the field it happens to be drawing. `MultiNoteInput` defaults its",
+      "label to \"Notes\" for every caller in the application, not only for this form, and a",
+      "copy of that fact on each field would be a register with as many copies as there are",
+      "fields using it.",
+      "",
+      "IT IS ALSO WHAT KEEPS THE CONTRACT FROM CONTRADICTING ITSELF. A field names a `control`",
+      "kind AND the component each client draws it with; the enforcing test checks that the",
+      "named component is registered under the named kind. Without that join a field could",
+      "declare `\"control\": \"text\"` and `\"composable\": \"DropdownField\"` in the same breath —",
+      "which the first draft of this file did for `language`, and nothing would have caught it:",
+      "the handset would have been held to a dropdown by a contract that said free text.",
+      "",
+      "THE SCANNER READS THIS WHOLE LIST rather than only the components each field names, so a",
+      "field drawn with the WRONG registered control is reported as the swap it is ('drawn with",
+      "DropdownField, contract declares TextInput') instead of as a field that is missing. The",
+      "`checkbox-wall` kind exists for exactly that reason and for no other: no field may",
+      "declare it — see `controlPins.forbidden` — but the scanner has to be able to FIND one to",
+      "say that it is there."
+    ],
+    "web": [
+      {
+        "component": "DictatedTextInput",
+        "kinds": [
+          "text"
+        ],
+        "labelFrom": "prop"
+      },
+      {
+        "component": "TitleCasedInput",
+        "kinds": [
+          "text"
+        ],
+        "labelFrom": "prop"
+      },
+      {
+        "component": "TextInput",
+        "kinds": [
+          "text"
+        ],
+        "labelFrom": "wrapper"
+      },
+      {
+        "component": "TextArea",
+        "kinds": [
+          "textarea"
+        ],
+        "labelFrom": "wrapper"
+      },
+      {
+        "component": "MultiNoteField",
+        "kinds": [
+          "textarea"
+        ],
+        "labelFrom": "prop"
+      },
+      {
+        "component": "Select",
+        "kinds": [
+          "select",
+          "status"
+        ],
+        "labelFrom": "wrapper"
+      },
+      {
+        "component": "ComboBox",
+        "kinds": [
+          "select"
+        ],
+        "labelFrom": "wrapper"
+      },
+      {
+        "component": "WorkshopSelect",
+        "kinds": [
+          "select"
+        ],
+        "labelFrom": "componentDefault",
+        "labelSource": "frontend/components/forms/WorkshopSelect.tsx"
+      },
+      {
+        "component": "MultiSelectDropdown",
+        "kinds": [
+          "searchable-multiselect"
+        ],
+        "labelFrom": "wrapper"
+      },
+      {
+        "component": "SearchableMultiSelect",
+        "kinds": [
+          "searchable-multiselect"
+        ],
+        "labelFrom": "wrapper"
+      }
+    ],
+    "android": [
+      {
+        "composable": "RequiredInput",
+        "kinds": [
+          "text"
+        ],
+        "labelFrom": "positional"
+      },
+      {
+        "composable": "TextInput",
+        "kinds": [
+          "text"
+        ],
+        "labelFrom": "positional"
+      },
+      {
+        "composable": "RecordProseField",
+        "kinds": [
+          "textarea"
+        ],
+        "labelFrom": "named"
+      },
+      {
+        "composable": "MultiNoteInput",
+        "kinds": [
+          "textarea"
+        ],
+        "labelFrom": "composableDefault",
+        "labelSymbol": "MultiNoteInput"
+      },
+      {
+        "composable": "DropdownField",
+        "kinds": [
+          "select"
+        ],
+        "labelFrom": "named"
+      },
+      {
+        "composable": "SearchableSelectField",
+        "kinds": [
+          "select"
+        ],
+        "labelFrom": "named"
+      },
+      {
+        "composable": "WorkshopField",
+        "kinds": [
+          "select"
+        ],
+        "labelFrom": "composableDefault",
+        "labelSymbol": "WorkshopDropdown"
+      },
+      {
+        "composable": "StatusControl",
+        "kinds": [
+          "status"
+        ],
+        "labelFrom": "composableDefault",
+        "labelSymbol": "StatusDropdown"
+      },
+      {
+        "composable": "SearchableMultiSelectField",
+        "kinds": [
+          "searchable-multiselect"
+        ],
+        "labelFrom": "named"
+      },
+      {
+        "composable": "ArtisanMultiSelectField",
+        "kinds": [
+          "checkbox-wall"
+        ],
+        "labelFrom": "named"
+      },
+      {
+        "composable": "CheckboxMultiSelectField",
+        "kinds": [
+          "checkbox-wall"
+        ],
+        "labelFrom": "named"
+      }
+    ]
+  },
+  "fields": [
+    {
+      "key": "title",
+      "label": "Interview title",
+      "control": "text",
+      "required": true,
+      "note": "What this sitting is called in every list that shows it; title-cased by the server on save.",
+      "web": {
+        "component": "DictatedTextInput"
+      },
+      "android": {
+        "composable": "RequiredInput"
+      }
+    },
+    {
+      "key": "place",
+      "label": "Place",
+      "control": "text",
+      "required": false,
+      "note": "Where the interview happened; title-cased by the server, like the title and unlike the language.",
+      "web": {
+        "component": "DictatedTextInput"
+      },
+      "android": {
+        "composable": "TextInput"
+      }
+    },
+    {
+      "key": "language",
+      "label": "Language",
+      "control": "text",
+      "required": false,
+      "note": [
+        "The language the interview was conducted in, as FREE TEXT and not a closed vocabulary.",
+        "",
+        "The web argues this where it draws it (page.tsx:1012-1018): the column is `str | None` with no",
+        "enum behind it on either side, and the artisan's own answer — \"Kutchi, and some Gujarati\" — is",
+        "a perfectly good value that no list of language names can hold. A dropdown here is not a",
+        "narrower version of this control; it is a different control that cannot express the answer.",
+        "",
+        "THE HANDSET DREW A DROPDOWN — twenty-four scheduled languages plus \"Other\", preserving any",
+        "pre-existing free-text value as an extra option — AND THE OWNER'S RULING MADE THAT A DRIFT. It",
+        "was not in the reported list, which named the missing fields and the artisan widget; it is",
+        "recorded here because a contract that quietly omitted it would be the third register in this",
+        "repository that looks authoritative and is held to nothing.",
+        "",
+        "CLOSED on 2026-09-16: the handset now draws `TextInput(\"Language\", …)` (MainActivity.kt:12795)",
+        "and the \"Other\" row is gone with the list. The \"Other\" row is worth one more sentence, because",
+        "it is the proof rather than a detail — it recorded that the researcher had an answer and then",
+        "threw the answer away. The dropdown's `?: \"Hindi\"` seed went with it: on a closed vocabulary a",
+        "default is a starting position, on a free-text box it is an ANSWER the form supplies on the",
+        "researcher's behalf, indistinguishable in the archive from one they typed."
+      ],
+      "web": {
+        "component": "DictatedTextInput"
+      },
+      "android": {
+        "composable": "TextInput"
+      }
+    },
+    {
+      "key": "workshop",
+      "label": "Workshop",
+      "control": "select",
+      "required": false,
+      "note": [
+        "The workshop this interview belongs to — the context that scopes the artisan roster offered",
+        "below it and the interviews the browse screens list.",
+        "",
+        "Neither client writes this label at the call site: the web's `WorkshopSelect` defaults",
+        "`label = \"Workshop\"` (WorkshopSelect.tsx:406) and the handset's `WorkshopField` reaches",
+        "`WorkshopDropdown`, which defaults the same string (MainActivity.kt:4119). That is why the",
+        "enforcing test resolves a `componentDefault` label out of the component's own file instead of",
+        "scanning the form for a literal — a scan for literals alone reports this field as missing from",
+        "both clients, which is the parser lying rather than the form drifting."
+      ],
+      "web": {
+        "component": "WorkshopSelect"
+      },
+      "android": {
+        "composable": "WorkshopField"
+      }
+    },
+    {
+      "key": "questionnaireId",
+      "label": "Questionnaire",
+      "control": "select",
+      "required": false,
+      "note": [
+        "WHICH INSTRUMENT this sitting is answering — the questionnaire whose sections and questions the",
+        "rest of the screen then draws.",
+        "",
+        "ABSENT FROM THE HANDSET ENTIRELY as of this contract's first version: `questionnaireId` does not",
+        "occur once in MainActivity.kt (it exists only in the data layer, ApiModels/FieldRepository/",
+        "FieldRepositoryApi), so the handset answers whichever instrument its `sections` were loaded",
+        "from and the researcher is never asked. On a deployment with one instrument that is invisible;",
+        "on the third workshop with a revised instrument beside the original it is an interview filed",
+        "against the wrong questionnaire with nothing on the screen that could have said so.",
+        "",
+        "It sits immediately after the workshop on the web because the workshop is usually what chooses",
+        "it — page.tsx:1027-1033 also records why it is a `<Field>` + `<Select>` and not a `<details>`:",
+        "the capture e2e spec locates this form's sections as `form.panel details`, so a collapsible",
+        "control here joins that set and breaks the spec while reading as a styling change."
+      ],
+      "web": {
+        "component": "Select"
+      },
+      "android": {
+        "composable": "DropdownField"
+      }
+    },
+    {
+      "key": "status",
+      "label": "Status",
+      "control": "status",
+      "required": false,
+      "note": [
+        "The record's review state. A control kind of its own rather than a `select`, because on both",
+        "clients it is TWO controls chosen by role and a contract that called it a dropdown would be",
+        "describing only the half that admins see.",
+        "",
+        "Web (page.tsx:1054-1074): a `<Select>` of DRAFT/PENDING/APPROVED/REJECTED defaulting to",
+        "APPROVED when `canPickStatus`, otherwise a locked \"Pending\" chip carrying the sentence \"New",
+        "interviews are submitted for review as Pending.\" Handset (MainActivity.kt:3696): `StatusControl`",
+        "makes the same split on `canSetStatus`, `StatusDropdown` above it and a Pending chip below.",
+        "Both label the whole control \"Status\", in both arms — which is what the enforcing test reads."
+      ],
+      "web": {
+        "component": "Select"
+      },
+      "android": {
+        "composable": "StatusControl",
+        "alsoNamesLabelIn": [
+          "StatusControl"
+        ]
+      }
+    },
+    {
+      "key": "artisans",
+      "label": "Artisans interviewed",
+      "control": "searchable-multiselect",
+      "required": false,
+      "note": [
+        "Everybody this interview is with. ONE control for the whole set, searchable, never a wall of",
+        "checkboxes — see `controlPins` below, which is where that is made structural rather than a",
+        "matter of what this note says.",
+        "",
+        "The web reached one control by an earlier round of the same complaint (page.tsx:1075-1092): it",
+        "used to draw \"Primary\" and \"Additional\" artisans as two dropdowns, the database join has no",
+        "rank column, and the form already de-duplicated the two into one set before every request it",
+        "sent — so the split only ever created work, and a set assembled two ways could leave the RESP",
+        "block describing nobody.",
+        "",
+        "THE FOUR-SENTENCE EMPTY MESSAGE IS PART OF THIS FIELD AND MUST SURVIVE ANY WIDGET SWAP. An empty",
+        "roster means one of four different things — the request is in flight, the request failed,",
+        "nobody is recorded at this workshop, nobody is recorded at all — and only two of them are facts",
+        "about the repository. Printing \"No artisans are recorded at this workshop yet\" off an empty",
+        "array while the answer is still coming makes a claim before it exists, and the researcher who",
+        "believes it goes off to create a duplicate of an artisan who is already there. Both clients",
+        "print the same four sentences off the same three facts today (page.tsx `emptyLabel`,",
+        "MainActivity.kt `emptyMessage`), and the argument for them is written out at both call sites",
+        "and in `ArtisanMultiSelectField`'s own KDoc. Whoever moves this field onto",
+        "`SearchableMultiSelectField` carries those four sentences and that reasoning across; the",
+        "widget is what changes, not what the form is able to say."
+      ],
+      "web": {
+        "component": "MultiSelectDropdown"
+      },
+      "android": {
+        "composable": "SearchableMultiSelectField"
+      }
+    },
+    {
+      "key": "notes",
+      "label": "Interview notes",
+      "control": "textarea",
+      "required": false,
+      "note": [
+        "Free notes about the sitting, as a repeating group: one textarea per note with an \"Add note\"",
+        "button and a per-note remove, joined on a blank line into the single `notes` column.",
+        "",
+        "PRESENT ON BOTH CLIENTS AND ONCE LABELLED DIFFERENTLY, which was the quietest of the drifts",
+        "here. The web writes the label at the call site (`<MultiNoteField name=\"notes\"",
+        "label=\"Interview notes\" />`, page.tsx:1447); the handset called `MultiNoteInput(value = notes,",
+        "dictate = false)` with no label at all and took that composable's default, which is \"Notes\"",
+        "(MainActivity.kt:15428). Nothing was missing, nothing was broken, and the two screens called one",
+        "box two names — which is exactly the class of difference a reader dismisses as cosmetic until",
+        "they are trying to explain a form over a phone line, and exactly why it outlived two releases",
+        "that both claimed parity.",
+        "",
+        "CLOSED on 2026-09-16 by writing the label at the handset's call site (MainActivity.kt:13216).",
+        "THE COMPOSABLE'S DEFAULT IS DELIBERATELY LEFT ALONE: changing `label: String = \"Notes\"` would",
+        "rename the notes box on every other record form in the application to fix one screen, and four",
+        "forms that say \"Notes\" about notes are not wrong. That is also what makes this contract's",
+        "`labelFrom: composableDefault` rule load-bearing rather than decorative — the enforcing test has",
+        "to read the default to know that a call site which stops passing a label has silently renamed",
+        "the box back."
+      ],
+      "web": {
+        "component": "MultiNoteField"
+      },
+      "android": {
+        "composable": "MultiNoteInput"
+      }
+    }
+  ],
+  "controlPins": [
+    {
+      "field": "artisans",
+      "pin": "searchable-multiselect",
+      "forbidden": [
+        "ArtisanMultiSelectField",
+        "CheckboxMultiSelectField"
+      ],
+      "why": [
+        "THE OWNER ASKED FOR THIS ONE BY NAME: \"the checkbox list should be replaced with multi-select",
+        "dropdown for artisans over there as well\".",
+        "",
+        "PINNED BY THE CONTROL AND NOT BY THE LABEL, because a label check cannot see this defect. The",
+        "handset drew `ArtisanMultiSelectField` (declared at MainActivity.kt:4358), which paints a Column",
+        "of checkboxes — every artisan at the workshop, one row each, straight into the form — under a",
+        "\"(n selected)\" caption. Rename that control's label to the contract's word and every assertion",
+        "about labels goes green over a wall of checkboxes that is still a wall of checkboxes. So the",
+        "enforcing test asserts WHICH COMPOSABLE DRAWS THE FIELD, and `forbidden` names the two that must",
+        "not: a future edit that swaps the widget back is caught as the widget change it is.",
+        "",
+        "ONLY ONE OF THE TWO FORBIDDEN NAMES STILL PAINTS CHECKBOXES, and the second is listed for a",
+        "different reason that has to be said or the failure message misleads. `CheckboxMultiSelectField`",
+        "(MainActivity.kt:4479) is TODAY a four-line alias that forwards straight to",
+        "`SearchableMultiSelectField` — it was rewritten onto it and kept its old name, so drawing this",
+        "field with it would in fact produce the control the owner asked for, under a name that says the",
+        "opposite. It stays forbidden HERE anyway: this contract's job is to be readable by somebody",
+        "checking the handset against the browser, and a line reading",
+        "`CheckboxMultiSelectField(label = \"Artisans interviewed\")` reads as the defect whatever it",
+        "compiles to. It is also one rename away from being true again — a name nobody has to honour is",
+        "a name somebody eventually re-implements.",
+        "",
+        "THE REGISTRY ENTRY IS LEFT AT `checkbox-wall` RATHER THAN CORRECTED TO WHAT IT DRAWS. That kind",
+        "is a sentinel in `controls` — see its `why`: it exists so the scanner can FIND a control no",
+        "field may declare, not to describe pixels — and moving this entry to `searchable-multiselect`",
+        "would make the control-kind assertion pass on a line the `forbidden` assertion still rejects,",
+        "which is two checks disagreeing about one call site. The rejected alternative was to drop",
+        "`CheckboxMultiSelectField` from `forbidden` altogether now that it is harmless; that trades a",
+        "misleading failure message for no failure at all, and the message is the cheaper thing to fix.",
+        "",
+        "CLOSED on 2026-09-16 — the capture form draws `SearchableMultiSelectField` at",
+        "MainActivity.kt:12896, and the browse screen's filter (see `distinctLabels`) was swapped in the",
+        "same pass, because the owner's complaint was about the widget and not about one screen.",
+        "`ArtisanMultiSelectField` still EXISTS and still has one caller — the Workshop record form's own",
+        "\"Linked artisans\" box, which the web also calls \"Linked artisans\" (workshops/page.tsx:630), so",
+        "that surviving label is web parity rather than the residue of this drift. `forbidden` therefore",
+        "names a composable that is still in the file on purpose: this pin is about which control draws",
+        "THIS field, not about deleting a control from the application.",
+        "",
+        "`SearchableMultiSelectField` already exists in this repository",
+        "(android/.../ui/SearchableSelect.kt:304) and is what `CheckboxMultiSelectField` was itself",
+        "rewritten onto — a summary trigger, the chosen rows as chips, and a searchable sheet with",
+        "\"Select all\". Its own KDoc gives the argument against the wall it replaced: the wall has no",
+        "summary line, so the only way to see what is ticked is to scroll the form back over it, and no",
+        "room for a Select-all row without pushing the next field further down a page that is already",
+        "long. There is no third control to write, and writing one would be the whole problem again.",
+        "",
+        "The web is already there: `MultiSelectDropdown` (components/ui/Dropdown.tsx) is a thin adapter",
+        "over `SearchableMultiSelect`, and the questionnaire page forces `searchable` on rather than",
+        "leaving it to an option count — one workshop on this deployment, forty on the next, and a",
+        "control that changes shape between two workshops for reasons the researcher cannot see."
+      ]
+    }
+  ],
+  "absent": [
+    {
+      "key": "date",
+      "labelsThatMustNotAppear": [
+        "Date",
+        "Interview date",
+        "Recorded at",
+        "Record time"
+      ],
+      "why": [
+        "THERE IS NO DATE CONTROL ON THIS FORM, ON EITHER CLIENT, AND THAT IS A DECISION.",
+        "",
+        "The server derives `interviewDate` from `recordedAt`, which is when the interview was actually",
+        "captured. page.tsx:997 records the reasoning where the box used to be — asking a researcher to",
+        "confirm today's date was a field to tab past that could only ever be wrong — and adds the",
+        "second half, that a spoken date is the one thing a recogniser gets wrong in a way that still",
+        "parses, so no microphone would go on one even if it came back. `frontend/components/forms/",
+        "RecordedAtField.tsx` is a deprecated stub that renders null for the same reason, across every",
+        "record form. The handset says the same thing in the comment at MainActivity.kt:12772-12776.",
+        "",
+        "IT IS IN THIS CONTRACT AS A NEGATIVE BECAUSE ALL THREE GUIDES STILL CLAIM IT. steps.ts,",
+        "WalkthroughSteps.kt and docs/WALKTHROUGH.md each list \"Date\" between the title and the place.",
+        "A guide naming a field that was removed on purpose sends the reader looking for it, and a",
+        "printed guide does it to somebody with no signal to check against. A contract that only ever",
+        "said what SHOULD be there could not catch this: the registers are supersets of the field list",
+        "by design, so an extra entry is invisible to a floor check. This is the ceiling."
+      ]
+    }
+  ],
+  "alsoDrawn": {
+    "why": [
+      "The labelled controls each form draws that are NOT fields of this contract, declared per client",
+      "with a reason, so that the enforcing test can compare an EQUALITY instead of a containment.",
+      "",
+      "Without this list the only assertion available is \"every contract field appears somewhere\",",
+      "which is silent about a NEW box appearing on one client and not the other — the drift that",
+      "started this, running in the other direction. With it, any labelled control on either form that",
+      "is neither a contract field nor a line below fails, and the person who added it has to say which",
+      "it is. That is the whole cost of the list and it is meant to be paid at the moment a control is",
+      "added rather than at the next desync."
+    ],
+    "web": [],
+    "android": [
+      {
+        "label": "Recording mode",
+        "composable": "DropdownField",
+        "why": [
+          "How answers are captured — per question, or one take for a whole section. The web asks the",
+          "same question through `QuestionnaireCaptureControls` (page.tsx:1264), a component that lives",
+          "outside this form file and whose labels are therefore invisible to a scan of the form region.",
+          "It is a capture PREFERENCE and not a property of the interview: nothing it sets is stored on",
+          "the record, which is why it is not a field of this contract on either client."
+        ]
+      },
+      {
+        "label": "Answer",
+        "composable": "TextInput",
+        "why": [
+          "The typed answer to ONE question, drawn once per question inside the sections loop. Its web",
+          "counterpart is a bare `<TextArea>` labelled by `aria-labelledby` against the question prompt",
+          "rather than by a `label=` literal, so the two clients genuinely do differ in how this box is",
+          "named — and it is the question prompt, not a form label, that names it on both.",
+          "",
+          "It belongs to the instrument rather than to this form: there are as many of these as the",
+          "questionnaire has questions, they are keyed by question id, and no fixed register could list",
+          "them. All three guides describe them in the one line they can — \"Per question: ...\" — which",
+          "is licensed under `paraphrases` below."
+        ]
+      }
+    ]
+  },
+  "distinctLabels": [
+    {
+      "site": "android/app/src/main/java/com/fieldrepository/app/MainActivity.kt",
+      "symbol": "ViewDataScreen",
+      "label": "Involved artisan(s)",
+      "control": "searchable-multiselect",
+      "why": [
+        "THE BROWSE SCREEN'S ARTISAN FILTER KEEPS ITS OWN WORD, DELIBERATELY. It is a different control",
+        "on a different screen doing a different job: it narrows a list of interviews that already",
+        "exist, and ticking somebody there asserts nothing about any record.",
+        "",
+        "The capture form's label is a claim about the interview being written — these are the artisans",
+        "this interview is with. \"Artisans interviewed\" on a filter row would read as a claim of the",
+        "same kind about rows the researcher is merely looking through, and the two screens would then",
+        "use one phrase for a statement and for a query.",
+        "",
+        "THE WEB AGREES BY PRECEDENT RATHER THAN BY COINCIDENCE: the web has no control called",
+        "\"Artisans interviewed\" anywhere outside this form, and its own browse filter",
+        "(components/FunnelFilters.tsx:153) names itself \"Filter by artisan\" — filter wording for a",
+        "filter, exactly as here.",
+        "",
+        "THE ALTERNATIVE, REJECTED: make every artisan control in the product say one thing, on the",
+        "argument that one control should have one name. That argument is right and it is about ONE",
+        "control; these are two. Unifying them would mean either the filter claiming to interview",
+        "people or the capture form describing its subject as a filter term, and the second is how",
+        "\"Linked artisans\" got onto the capture form in the first place.",
+        "",
+        "IT IS WRITTEN DOWN HERE, RATHER THAN LEFT UNSAID, so that the enforcing test can hold it: the",
+        "site must still exist and must still use this word. A licence nobody checks is the third",
+        "register again — it would read as a considered decision long after the screen it describes had",
+        "been renamed or deleted."
+      ]
+    }
+  ],
+  "registers": {
+    "why": [
+      "The three places that DESCRIBE this form to a researcher. Each is joined to the field list",
+      "above, and none of them is joined to another — the register-to-register edge already exists in",
+      "`android/app/src/test/java/com/fieldrepository/app/ui/WalkthroughStepsTest.kt`, which holds",
+      "`walkthroughJourney` equal to `steps.ts` field for field, and which passes today over two",
+      "registers that are equally wrong about the form.",
+      "",
+      "A FLOOR AND A CEILING, NOT AN EQUALITY. Every field in this contract must be NAMED in each",
+      "register; a register may name MORE, because it describes a whole screen and this contract",
+      "describes the interview's own boxes — \"Per question: ...\" is a true thing to tell a researcher",
+      "and has no single label to be equal to. The ceiling is `absent` above: what a register may not",
+      "do is name a field the form deliberately does not have.",
+      "",
+      "The sibling portal learned the floor-not-equality rule the expensive way and wrote it down:",
+      "making the check symmetric there would have reported the printed guide as wrong FOR BEING RIGHT,",
+      "and the quickest way to green would have been deleting true sentences about the one field that",
+      "stops the archive filling with duplicate artisans."
+    ],
+    "web": {
+      "file": "frontend/components/guide/steps.ts",
+      "anchor": "export const GUIDE_STEPS",
+      "step": "questionnaire",
+      "shape": "GuideStep.fields — the real form labels, in screen order, with (required) marked"
+    },
+    "android": {
+      "file": "android/app/src/main/java/com/fieldrepository/app/ui/WalkthroughSteps.kt",
+      "anchor": "internal val walkthroughJourney",
+      "step": "questionnaire",
+      "shape": "WalkStep.fields — the web's GuideStep.fields verbatim"
+    },
+    "printed": {
+      "file": "docs/WALKTHROUGH.md",
+      "heading": "Questionnaire",
+      "marker": "**What the screen asks for:**",
+      "shape": [
+        "One prose sentence, markdown, hard-wrapped. Compared loosely — lowercased with punctuation",
+        "collapsed — because the guide writes \"**Craft** *(required)*\" for a register's \"Craft",
+        "(required)\" and that emphasis is typography, not a different claim about the form. The strict",
+        "character-for-character comparison is kept for the two CLIENTS, where \"Do's\" against \"Do's\"",
+        "really is one screen calling one box two names.",
+        "",
+        "This is the copy that gets printed and carried into a village with no signal, which is why it",
+        "is held at all: it is the only rendering whose reader cannot check it against the screen."
+      ]
+    }
+  },
+  "paraphrases": {
+    "why": [
+      "THE ESCAPE HATCH, AND IT IS EMPTY ON PURPOSE. A row here says: this register is allowed to name",
+      "this field with THIS wording instead of the contract's label, for the reason the row gives.",
+      "",
+      "Empty today because no register needs one. Every contract field is a short noun phrase that all",
+      "three guides can print as written, and the four fields the registers currently fail to name",
+      "(Workshop, Questionnaire, Status, Interview notes) fail by being absent, not by being said",
+      "differently — a paraphrase row for any of them would be licensing a sentence nobody has written.",
+      "",
+      "THE MECHANISM SHIPS ANYWAY, because the day a register genuinely needs one is the day somebody",
+      "would otherwise weaken the floor check to get past it. The printed guide already says one true",
+      "thing a label list cannot — \"then per question either a **\\\"Record this question\\\"** audio clip",
+      "or a typed answer\" — and prose has a grammar for a repeating block that a chip does not.",
+      "",
+      "EVERY ROW IS ITSELF CHECKED, both ways: the wording it licenses must still be in the document",
+      "(a licence for a sentence that has been rewritten is a licence for nothing), and the field it",
+      "covers must NOT be named plainly in that register (a special case still switched on after the",
+      "guide started saying the plain thing makes this table a worse description of where the document",
+      "is allowed to be loose than no table at all). A licence is only ever a licence to say a TRUE",
+      "thing differently — the sibling portal spent a cycle licensing prose against two register",
+      "entries that were themselves wrong, which is this file's own subject one level down: a",
+      "paraphrase row makes a claim look considered."
+    ],
+    "rows": []
+  },
+  "maintenance": [
+    "WHEN THE WEB FORM CHANGES, this file changes in the same commit, and then both clients and all",
+    "three registers. Not the other way round: an edit that changes a client to match a form is a fix,",
+    "an edit that changes this file to match a client is a decision, and they should not look alike in",
+    "a diff.",
+    "",
+    "WHEN THE ENFORCING TEST FAILS, it names the file and the line. Read that line before editing this",
+    "file. The failure modes it cannot tell apart on its own are the two that matter — a client that",
+    "drifted, and a form that legitimately grew a field nobody has recorded here yet — and only a",
+    "person can say which, which is the point of a contract having prose in it.",
+    "",
+    "WHAT THIS FILE DELIBERATELY DOES NOT COVER, each because it is already one register somewhere",
+    "else and a second copy here would be the failure this file exists to prevent:",
+    "",
+    "  * THE LOCATION GROUP. The web draws `<LocationFields />` (page.tsx:1276) and the handset draws",
+    "    `LocationAddressEditor` (MainActivity.kt:13017); both are shared components used by every",
+    "    record form, both carry their own stated-address / \"Captured at\" split and their own long",
+    "    argument for it, and the two clients are already joined by",
+    "    `backend/tests/test_android_location_compat.py`. Listing State, District, Pincode, Latitude",
+    "    and the rest here would put a second copy of that register in a file about questionnaires.",
+    "",
+    "  * MEDIA CAPTURE. `MediaCaptureField` / `MediaCaptureSection`, same argument: one component per",
+    "    client, used by every form, with its own tests.",
+    "",
+    "  * THE QUESTIONS THEMSELVES. They come from the instrument, which the server publishes; a",
+    "    hand-kept list of them is the exact thing the instrument exists to make unnecessary."
+  ]
+}

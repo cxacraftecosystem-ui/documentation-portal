@@ -224,8 +224,9 @@ record whether the toolchain behind the craft is still alive.
 
 Sit down with the artisan and work through the interview sections, recording each answer as audio.
 
-**What the screen asks for:** Interview title *(required)*, Date, Place, Language, Artisans
-interviewed, then per question either a **"Record this question"** audio clip or a typed answer.
+**What the screen asks for:** Interview title *(required)*, Place, Language, **Workshop**,
+**Questionnaire**, **Status**, Artisans interviewed, then per question either a **"Record this
+question"** audio clip or a typed answer, and Interview notes at the foot of the form.
 
 **Why it exists.** The questionnaire is the artisan speaking in their own voice and their own
 language. Recorded audio is auto-transcribed on the server, so you get both the original recording
@@ -359,6 +360,7 @@ It is maintained by walking it.
 | Section | Checked against |
 |---|---|
 | The field list on each step | The form component: `frontend/components/forms/ArtisanForm.tsx`, `ProductForm.tsx`, `ToolForm.tsx`, `ProcessForm.tsx`, and the questionnaire page. `grep -oP 'label="[^"]+"'` over a form gives its labels in one command; diff that against the step's field list. |
+| The field list on step 7 (**Questionnaire**) | Nothing — it is **checked**, not walked. `shared/questionnaire-form-contract.json` declares that form once, and `backend/tests/test_questionnaire_form_contract.py` holds the web form, the Android form, both walkthrough registers and *the sentence in this document* to it. Edit the contract first; the test names the file and line of anything that then disagrees. |
 | Which fields are **required** | The same components' validation, and the Pydantic schemas in `backend/app/schemas/records.py`. A field marked *(required)* here that is optional there is the error to look for — it makes the guide stricter than the product, which reads as a bug to the researcher. |
 | The route in each **Screen:** heading | The `(protected)` route tree. `docs/tools/check-docs.mjs` does not check these (they are app routes, not files), so they are the most likely thing here to be stale after a page moves. |
 | The ten-step order | `frontend/app/(protected)/guide/page.tsx` — the in-app Walkthrough. **These two must not diverge**, because a researcher may read either. |
@@ -371,6 +373,22 @@ researchers actually read, and this one is the version that gets printed and car
 **Review triggers:** any file under `frontend/components/forms/`, the guide page, or a new step in the
 documentation workflow.
 
-**Known unverified:** the Android screens are asserted to carry the same names and the same fields as
-the web ones. That parity is real as a design rule and is **not** mechanically checked; if a field
-exists on one client and not the other, nothing in this repository will notice.
+**Known unverified — with one exception, and the exception is the point.** The Android screens are
+asserted to carry the same names and the same fields as the web ones. For nine of the ten steps that
+parity is real as a design rule and is **not** mechanically checked: if a field exists on one client
+and not the other, nothing in this repository will notice.
+
+Step 7, **Questionnaire**, is the exception. It stopped being a design rule on 2026-09-16, after the
+third report of the same desync — the handset was missing the instrument picker and the notes box,
+called the artisan control something else, drew it as a wall of checkboxes, and all three copies of
+the guide listed a `Date` field the form has not had in months. `shared/questionnaire-form-contract.json`
+now declares that form once and `backend/tests/test_questionnaire_form_contract.py` measures both
+clients and all three guides against it, this document included. Read the contract before editing
+step 7's field list above: the sentence there is checked against it, and a field added to the form
+without being added to the contract fails the backend suite rather than quietly appearing on one
+device.
+
+The other nine steps are still walked by hand, and that is the honest state of them. The contract is
+worth copying to the next form somebody has to desync twice before anyone writes it down — its own
+`whyAContractAndNotAParityTest` section argues the case, including against generating the clients
+from it, which was the obvious alternative and is the wrong one here.

@@ -161,12 +161,26 @@ internal data class WalkStep(
      * ON THE STEP AND NOT IN A SIDE MAP, WHICH IS A DELIBERATE DIVERGENCE FROM THE DESIGNER PORT.
      * There the same register lives in a `WALKTHROUGH_FIELDS` map in the drawing file, held to the
      * web by `backend/tests/test_walkthrough_fields_parity.py` — 674 lines of Python that parses
-     * TypeScript on one side and Kotlin on the other. This repository has no such test and this
-     * workstream cannot add one (the backend is another agent's tree), so an unguarded duplicate map
-     * is exactly the failure that Python file exists to prevent. Putting the strings on the step
-     * instead means `WalkthroughStepsTest` can IMPORT them — they are `internal`, the test source set
-     * is the same module — and compare them to `steps.ts` with no Kotlin parser at all. One register,
-     * one guard, in one language.
+     * TypeScript on one side and Kotlin on the other. An unguarded duplicate map is exactly the
+     * failure that Python file exists to prevent. Putting the strings on the step instead means
+     * `WalkthroughStepsTest` can IMPORT them — they are `internal`, the test source set is the same
+     * module — and compare them to `steps.ts` with no Kotlin parser at all. One register, one guard,
+     * in one language.
+     *
+     * THE SECOND HALF OF THIS PARAGRAPH USED TO READ "this repository has no such test and this
+     * workstream cannot add one (the backend is another agent's tree)". That was true when it was
+     * written and stopped being true on 2026-09-16: `backend/tests/test_questionnaire_form_contract.py`
+     * is here, it parses TypeScript and Kotlin exactly as the sibling's does, and it reads THIS list
+     * among its three registers. Rewritten rather than deleted because the sentence was load-bearing
+     * — it is what the design choice below was argued FROM, and a reader who found it gone would not
+     * know whether the choice had been re-examined or merely tidied.
+     *
+     * THE CHOICE IS UNCHANGED, AND NOW RESTS ON THE BETTER ARGUMENT OF THE TWO. Availability was
+     * never the real reason; a Kotlin parser is a thing you maintain forever to avoid a refactor you
+     * do twice. An imported `internal` list cannot fall out of step with the declaration it IS, and
+     * the two guards now answer different questions: `WalkthroughStepsTest` holds this register and
+     * `steps.ts` equal to each other, and the Python file holds both of them — and the printed guide
+     * — to the form. Two registers agreeing was never evidence, which is the gap that file closed.
      *
      * Empty for the two ends of the deck, which teach no screen. Empty means the card draws no
      * heading, on the same terms as [watch].
@@ -481,13 +495,34 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
             "answer as audio. The questionnaire is the artisan speaking in their own voice and " +
             "their own language. Recorded audio is auto-transcribed on the server, so you get both " +
             "the original recording and searchable text without typing during the interview.",
+        // REGENERATED AGAINST THE FORM ON 2026-09-16, and now held to it rather than to the other
+        // register: `shared/questionnaire-form-contract.json` declares this form's boxes once and
+        // `backend/tests/test_questionnaire_form_contract.py` measures this list, `steps.ts` and
+        // `docs/WALKTHROUGH.md` against that declaration. The register-to-register edge in
+        // `WalkthroughStepsTest` stays and still matters — it is what keeps the two clients' guides
+        // word for word — but it cannot tell you WHICH side is right, and it passed for months over
+        // two lists that were equally wrong.
+        //
+        // WHAT WAS WRONG, since a list that changes by four entries deserves the account: "Date" was
+        // named by all three guides and the form has not had one since the server started deriving
+        // `interviewDate` from `recordedAt` (page.tsx:997, and `absent` in the contract) — a guide
+        // naming a removed field sends the reader looking for it, and the printed copy does that to
+        // somebody with no signal to check against. Workshop, Questionnaire, Status and Interview
+        // notes were all missing: four boxes a researcher had not been told to fill in, two of which
+        // decide which questionnaire the sitting is filed against and whether it is approved.
+        //
+        // THE ORDER IS THE WEB'S SCREEN ORDER, which is the contract's, and the handset's form was
+        // re-ordered to match it in the same commit.
         fields = listOf(
             "Interview title (required)",
-            "Date",
             "Place",
             "Language",
+            "Workshop",
+            "Questionnaire",
+            "Status",
             "Artisans interviewed",
             "Per question: \"Record this question\" audio, or typed answer",
+            "Interview notes",
         ),
         watch = listOf(
             "There is one interview per exact set of artisans. If an entry already exists for that " +

@@ -242,13 +242,23 @@ export const GUIDE_STEPS: GuideStep[] = [
     summary: "Sit down with the artisan and work through the interview sections, recording each answer as audio.",
     why:
       "The questionnaire is the artisan speaking in their own voice and their own language. Recorded audio is auto-transcribed on the server, so you get both the original recording and searchable text without typing during the interview.",
+    // Regenerated against the form on 2026-09-16 and now held to `shared/questionnaire-form-
+    // contract.json` by `backend/tests/test_questionnaire_form_contract.py`, together with the
+    // Android register and the printed guide. It listed a "Date" the form has not had since the
+    // server began deriving `interviewDate` from `recordedAt` (see page.tsx:997), and omitted
+    // Workshop, Questionnaire, Status and Interview notes. `WalkthroughStepsTest.kt` holds this
+    // array and the Kotlin one equal, so the two move together — what it could never say is which
+    // of them was right, which is why the contract exists.
     fields: [
       "Interview title (required)",
-      "Date",
       "Place",
       "Language",
+      "Workshop",
+      "Questionnaire",
+      "Status",
       "Artisans interviewed",
-      "Per question: \"Record this question\" audio, or typed answer"
+      "Per question: \"Record this question\" audio, or typed answer",
+      "Interview notes"
     ],
     watch: [
       "There is one interview per exact set of artisans. If an entry already exists for that set, saving adds your answers to it — it never creates a duplicate.",

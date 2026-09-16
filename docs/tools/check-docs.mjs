@@ -118,8 +118,46 @@ function testFacts() {
     (f) => f.endsWith(".spec.ts"),
     /^\s*test\(/gm,
   );
-  const androidUnit = existsSync(join(REPO, "android", "app", "src", "test"));
-  const androidInstr = existsSync(join(REPO, "android", "app", "src", "androidTest"));
+  /*
+    THE ANDROID ROW USED TO BE A PRESENCE CHECK AND A HARD-CODED SENTENCE.
+
+    It reported `existsSync("src/test")` as "present", and the Runner column said, in a string
+    literal with no input, "`:app:testDebugUnitTest` reports NO-SOURCE". That was true of a tree with
+    an empty source set and it stopped being true a long time before anybody noticed: the task runs
+    526 cases across 26 classes today, including the suites that guard the questionnaire capture
+    form's wiring. A generated document that says a suite does not run is worse than one that omits
+    it — a reader checking whether the handset is covered at all is told, by the file whose whole
+    job is to be true, that it is not.
+
+    So this walks the tree and counts, the way the backend and e2e rows above already do. RECURSIVE
+    because Kotlin tests live under their package path (`src/test/java/com/fieldrepository/app/…`)
+    while `backend/tests` and `frontend/e2e` are flat — which is exactly why the shared `count`
+    helper, a single `readdirSync`, could not be pointed at it and why this grew its own walk rather
+    than a fourth argument to that one.
+
+    `@Test` and not `fun \`…\`()`: the annotation is what JUnit runs. A helper written in the test
+    file is a `fun` and is not a case, and counting funs would have inflated every number here in the
+    one direction a coverage table must not drift.
+  */
+  const kotlinCases = (dir) => {
+    if (!existsSync(dir)) return null;
+    let files = 0;
+    let cases = 0;
+    const walk = (at) => {
+      for (const entry of readdirSync(at, { withFileTypes: true })) {
+        const full = join(at, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith(".kt")) {
+          files += 1;
+          cases += (read(full).match(/^\s*@Test\b/gm) || []).length;
+        }
+      }
+    };
+    walk(dir);
+    return { files, cases };
+  };
+  const androidUnit = kotlinCases(join(REPO, "android", "app", "src", "test"));
+  const androidInstr = kotlinCases(join(REPO, "android", "app", "src", "androidTest"));
   return { backend, e2e, androidUnit, androidInstr };
 }
 
@@ -283,8 +321,8 @@ no key is skipped wherever it sits.
 |---|---|---|---|
 | Backend unit (\`backend/tests/\`) | ${tests.backend.files} | ${tests.backend.cases} \`def test_\` | \`python -m pytest -q\` from \`backend/\` |
 | Web end-to-end (\`frontend/e2e/\`) | ${tests.e2e.files} | ${tests.e2e.cases} \`test(\` | Playwright, \`frontend/playwright.config.ts\` |
-| Android unit | ${tests.androidUnit ? "present" : "**none** — the `src/test` source set does not exist"} | — | \`:app:testDebugUnitTest\` reports NO-SOURCE |
-| Android instrumented | ${tests.androidInstr ? "present" : "**none** — the `src/androidTest` source set does not exist"} | — | not run in CI |
+| Android unit (\`android/app/src/test/\`) | ${tests.androidUnit ? tests.androidUnit.files : "**none** — the `src/test` source set does not exist"} | ${tests.androidUnit ? `${tests.androidUnit.cases} \`@Test\`` : "—"} | \`./gradlew :app:testDebugUnitTest\` from \`android/\` |
+| Android instrumented | ${tests.androidInstr ? tests.androidInstr.files : "**none** — the `src/androidTest` source set does not exist"} | ${tests.androidInstr ? `${tests.androidInstr.cases} \`@Test\`` : "—"} | not run in CI |
 
 The backend case count is \`def test_\` occurrences; pytest reports a larger number because
 parametrised cases expand. Neither the backend suite nor the e2e suite is a CI gate today — see

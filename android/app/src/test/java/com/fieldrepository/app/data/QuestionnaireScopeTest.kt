@@ -202,12 +202,19 @@ class QuestionnaireScopeTest {
      * This is also the assertion that pins REQUIREMENT 3 for the handset: the "All records" state is
      * an empty selection, and an empty selection asks for everything explicitly rather than falling
      * through to some other default.
+     *
+     * THE FIRST OF THE THREE USED TO READ `interviews()`, and rewriting it to name [EVERY_WORKSHOP]
+     * is not a spelling change. The parameter no longer defaults (see [FieldRepository.interviews]):
+     * a bare call was indistinguishable from a caller that had never considered the scope, which is
+     * how two screens went on asking the repository-wide question through a fix that was supposed to
+     * have closed them. This line is now the same claim the four production call sites make, in the
+     * same words, which is what lets this test stand behind them.
      */
     @Test
     fun `no scope sends no workshop parameter at all`() {
         val api = api()
         runBlocking {
-            repository(api).interviews()
+            repository(api).interviews(EVERY_WORKSHOP)
             repository(api).interviews(emptyList())
             repository(api).interviews(listOf("", "   "))
         }

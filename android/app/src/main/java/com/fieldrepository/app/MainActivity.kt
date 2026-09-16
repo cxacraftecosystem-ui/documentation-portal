@@ -148,6 +148,7 @@ import com.fieldrepository.app.data.DashboardRecentSubmissionDto
 import com.fieldrepository.app.data.DashboardStats
 import com.fieldrepository.app.data.DashboardStatsMine
 import com.fieldrepository.app.data.ARTISAN_PAGE_BUDGET
+import com.fieldrepository.app.data.EVERY_WORKSHOP
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.GoogleAuthClient
 import com.fieldrepository.app.data.LocationRequest
@@ -155,6 +156,7 @@ import com.fieldrepository.app.data.MeasurementMarkers
 import com.fieldrepository.app.data.geometryMarker
 import com.fieldrepository.app.data.visionMarker
 import com.fieldrepository.app.data.ProductCreateRequest
+import com.fieldrepository.app.data.QuestionnaireDto
 import com.fieldrepository.app.data.QuestionnaireInterviewCreateRequest
 import com.fieldrepository.app.data.QuestionnaireInterviewDetailDto
 import com.fieldrepository.app.data.QuestionnaireInterviewUpdateRequest
@@ -1746,13 +1748,16 @@ private fun HomeScreen(
                     // Carries the admin-view state into the form's "Check completion" matrix, whose
                     // override is `adminMode && isAdmin` on the web.
                     adminView = adminView,
-                    onRefreshSections = {
-                        runCatching { repository.questionnaireSections() }
+                    // THE INSTRUMENT COMES FROM THE FORM, because the form is where it is chosen.
+                    // `null` keeps the old meaning exactly -- let the server resolve it -- so the
+                    // startup load and every caller that names no instrument behave as before.
+                    onRefreshSections = { instrumentId ->
+                        runCatching { repository.questionnaireSections(instrumentId) }
                             .onSuccess { sections = it }
                             .onFailure { showMessage(it.message) }
                     },
-                    onSync = {
-                        runCatching { repository.questionnaireSections() }
+                    onSync = { instrumentId ->
+                        runCatching { repository.questionnaireSections(instrumentId) }
                             .onSuccess { sections = it }
                             .onFailure { showMessage(it.message) }
                         loadLookups()
@@ -1815,8 +1820,8 @@ private fun HomeScreen(
                     // Every record Delete on the web is `{adminMode ? … : null}` — the role is what
                     // grants it, the toggle is what puts it away while an admin browses as a user.
                     canDelete = isAdmin && adminChrome,
-                    onRefreshSections = {
-                        runCatching { repository.questionnaireSections() }
+                    onRefreshSections = { instrumentId ->
+                        runCatching { repository.questionnaireSections(instrumentId) }
                             .onSuccess { sections = it }
                             .onFailure { showMessage(it.message) }
                     },
@@ -4323,6 +4328,32 @@ private fun ArtisanAadhaarField(
     }
 }
 
+/**
+ * A WALL OF CHECKBOXES OVER AN ARTISAN LIST — one row per artisan, painted straight into the form.
+ *
+ * ── ONE CALLER LEFT, AND IT IS NOT AN OVERSIGHT ─────────────────────────────────────────────────
+ *
+ * The WORKSHOP record form's "Linked artisans" box, and nothing else. The two callers that used to
+ * sit beside it — the questionnaire capture form and the browse screen's interview filter — both
+ * moved to [SearchableMultiSelectField] on 2026-09-16, because the owner asked for that by name:
+ * *"the checkbox list should be replaced with multi-select dropdown for artisans over there as
+ * well"*. `shared/questionnaire-form-contract.json` pins the capture form's control so it cannot
+ * come back, and `QuestionnaireFormWiringTest` says the same thing where an Android change is made.
+ *
+ * SO WHY IS THIS STILL HERE. The owner's report was about the questionnaire page, and the workshop
+ * form is a different screen with a materially different list: it is the roster a researcher is
+ * ASSEMBLING for a workshop they are creating, seen all at once, ticked in bulk, from a list that is
+ * short at the moment the workshop is being written. The wall's real cost — no summary line, so the
+ * only way to see who is ticked is to scroll the form back over them — is what made it wrong in a
+ * long capture form; it is the least bad thing about it in a short one. The dropdown is probably
+ * still the better control there. That is a decision to take with the workshop form in front of you,
+ * not one to take by extension from another screen's complaint, and it is deliberately NOT taken
+ * here so that this commit means one thing.
+ *
+ * WHEN THAT LAST CALLER MOVES, DELETE THIS. There is no third control to write and nothing here that
+ * [SearchableMultiSelectField] cannot draw better; the one thing to carry across is [emptyMessage],
+ * which is the parameter below.
+ */
 @Composable
 private fun ArtisanMultiSelectField(
     label: String,
@@ -4331,16 +4362,21 @@ private fun ArtisanMultiSelectField(
     /**
      * WHAT AN EMPTY LIST MEANS, WHICH IS NOT ALWAYS "THERE ARE NO ARTISANS".
      *
-     * The default is the sentence this control has always printed and is right for the two callers
-     * that hand it a list they already hold: an empty one there really does mean the repository has
-     * nobody in it yet, and the next thing to do really is to create an artisan.
+     * The default is the sentence this control has always printed and is right for the caller that
+     * remains: the workshop form hands it a list it already holds, so an empty one really does mean
+     * the repository has nobody in it yet and the next thing to do really is to create an artisan.
      *
-     * The questionnaire form's list is FETCHED PER WORKSHOP and is therefore empty in three more
-     * states — in flight, failed, and "this workshop has nobody yet" — in which that sentence is a
-     * claim about the repository built out of a claim about the network, and sends a researcher off
-     * to create a duplicate of an artisan who already exists. It passes its own. The browser prints
-     * the same four sentences off the same three facts
+     * THE PARAMETER EXISTS FOR A CALLER THAT HAS SINCE LEFT, and the reasoning is what left with it —
+     * to [SearchableMultiSelectField]'s identically-named parameter, at the questionnaire form's
+     * artisan control. A list FETCHED PER WORKSHOP is empty in three more states — in flight, failed,
+     * and "this workshop has nobody yet" — in which that default is a claim about the repository
+     * built out of a claim about the network, and sends a researcher off to create a duplicate of an
+     * artisan who already exists. The browser prints the same four sentences off the same three facts
      * (`frontend/app/(protected)/questionnaire/page.tsx`, the picker's `emptyLabel`).
+     *
+     * It is kept rather than removed with its last user because the next caller to fetch a scoped
+     * list needs it, and because a control whose only empty message is a hard-coded claim is how that
+     * defect happened the first time.
      */
     emptyMessage: String = "No artisans available yet. Create an artisan first.",
     onToggle: (String) -> Unit
@@ -5566,7 +5602,8 @@ private fun InterviewEditLoader(
     canManageQuestionnaire: Boolean,
     adminView: Boolean,
     canDelete: Boolean,
-    onRefreshSections: suspend () -> Unit,
+    /** Forwarded to the form, which is what names the instrument. See [QuestionnaireForm]. */
+    onRefreshSections: suspend (String?) -> Unit,
     onError: (String) -> Unit,
     onDone: () -> Unit
 ) {
@@ -8548,7 +8585,10 @@ private suspend fun loadViewEntries(repository: FieldRepository, mode: EntryMode
     EntryMode.PROCESS -> repository.processes().sortedByDescending { it.createdAt ?: "" }.map { it.id to (it.name + (it.product?.productName?.let { p -> " · $p" } ?: "")) }
     EntryMode.TOOL -> repository.tools().sortedByDescending { it.createdAt ?: "" }.map { it.id to "${it.toolkitName} · ${it.artisanName}" }
     EntryMode.WORKSHOP -> repository.workshops().sortedByDescending { it.createdAt ?: "" }.map { it.id to it.title.ifBlank { "Untitled workshop" } }
-    EntryMode.QUESTIONNAIRE -> repository.interviews().sortedByDescending { it.createdAt ?: "" }.map { it.id to it.title.ifBlank { "Untitled interview" } }
+    // [EVERY_WORKSHOP] written out, and not a bare call. The scope is deliberate here — the header
+    // above says why — and naming it is what makes that visible on the line where the decision is,
+    // rather than at a default on the declaration where nobody reading this list would look.
+    EntryMode.QUESTIONNAIRE -> repository.interviews(EVERY_WORKSHOP).sortedByDescending { it.createdAt ?: "" }.map { it.id to it.title.ifBlank { "Untitled interview" } }
     EntryMode.MEDIA -> repository.mediaList().sortedByDescending { it.createdAt ?: "" }.map { m ->
         val tag = m.linkedRecordType?.takeIf { it.isNotBlank() }?.replaceFirstChar { it.uppercase() }
         m.id to (m.originalFilename.ifBlank { "Media" } + " · " + listOfNotNull(m.mediaType, tag).joinToString(" · "))
@@ -8587,8 +8627,11 @@ private suspend fun loadMyActivity(repository: FieldRepository, userId: String):
     // UNSCOPED BY WORKSHOP, like the six lists above it and for the same reason: the question this
     // screen asks is "everything YOU have recorded", not "what came out of one workshop". There is no
     // workshop control on this screen to pass, and inventing one here would answer a question nobody
-    // asked while hiding a researcher's own earlier fieldwork from them.
-    runCatching { repository.interviews() }.getOrDefault(emptyList()).filter { mine(it.createdById) }
+    // asked while hiding a researcher's own earlier fieldwork from them. Re-checked on 2026-09-16
+    // against the screen, and it still holds. What changed is only that the line now SAYS it:
+    // [EVERY_WORKSHOP] is the same `null` the parameter's default used to supply, written where the
+    // decision is taken instead of where the function is declared.
+    runCatching { repository.interviews(EVERY_WORKSHOP) }.getOrDefault(emptyList()).filter { mine(it.createdById) }
         .forEach { items.add(ActivityItem(EntryMode.QUESTIONNAIRE, it.id, it.title.ifBlank { "Untitled interview" }, "Interview", it.createdAt)) }
     return items.sortedByDescending { it.createdAt ?: "" }
 }
@@ -9683,7 +9726,7 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
                     // Unscoped, exactly as `loadViewEntries` is and for the identical reason: this
                     // is the re-link picker on the media screen, which has no workshop control, and a
                     // file legitimately re-links to a record filed at any workshop.
-                    "questionnaire", "questionnaireinterview" -> repository.interviews().map { it.id to it.title.ifBlank { "Untitled interview" } }
+                    "questionnaire", "questionnaireinterview" -> repository.interviews(EVERY_WORKSHOP).map { it.id to it.title.ifBlank { "Untitled interview" } }
                     "product" -> repository.products().map { it.id to "${it.productName} · ${it.artisanName}" }
                     "tool" -> repository.tools().map { it.id to "${it.toolkitName} · ${it.artisanName}" }
                     "artisan" -> repository.artisans().map { it.id to it.name }
@@ -10171,13 +10214,51 @@ private fun ViewDataScreen(
                 // ABOVE both dropdowns, because it decides what each of them is a list OF: the
                 // artisans offered here and the interviews offered below come from the one parameter.
                 WorkshopScopeSelect(scope = workshopScope, label = "Workshops in this list")
-                ArtisanMultiSelectField(
+                /*
+                  -- THIS CONTROL KEEPS ITS OWN WORD, AND THAT IS A DECISION ---------------------------
+
+                  The capture form's artisan box is now "Artisans interviewed", which is the browser's
+                  word and the word both walkthrough registers and the printed guide use. THIS one
+                  stays "Involved artisan(s)", and the reason is that it is a different control on a
+                  different screen doing a different job: it narrows a list of interviews that ALREADY
+                  EXIST, and ticking somebody here asserts nothing about any record.
+
+                  The capture form's label is a claim about the interview being written -- these are
+                  the artisans this interview is with. "Artisans interviewed" on a filter row would
+                  read as a claim of the same kind about rows the researcher is merely looking
+                  through, and the two screens would then use one phrase for a statement and for a
+                  query.
+
+                  THE WEB AGREES BY PRECEDENT RATHER THAN BY COINCIDENCE: it has no control called
+                  "Artisans interviewed" anywhere outside the capture form, and its own browse filter
+                  (`components/FunnelFilters.tsx:153`) names itself "Filter by artisan" -- filter
+                  wording for a filter, exactly as here.
+
+                  THE ALTERNATIVE, REJECTED: make every artisan control in the product say one thing,
+                  on the argument that one control should have one name. That argument is right and it
+                  is about ONE control; these are two. Unifying them would mean either this filter
+                  claiming to interview people or the capture form describing its subject as a filter
+                  term -- and the second is how "Linked artisans" got onto the capture form in the
+                  first place. `distinctLabels` in `shared/questionnaire-form-contract.json` records
+                  the decision so that a licence nobody checks cannot outlive the screen it describes.
+
+                  THE WIDGET, HOWEVER, IS NOT A DELIBERATE DIFFERENCE. This was the second wall of
+                  checkboxes on the handset -- every artisan in the scope, one row each, painted into
+                  a filter row above the list it filters -- and the owner's complaint was about the
+                  widget, not about one screen: *"the checkbox list should be replaced with
+                  multi-select dropdown for artisans over there as well"*. It draws with the same
+                  [SearchableMultiSelectField] the capture form now uses, so the two screens differ in
+                  the one place they mean to and in no other. The contract's `distinctLabels` row
+                  names this control as a searchable multi-select; that row is now true.
+                */
+                val artisanFilterOptions = remember(artisanFilterList) { artisanSelectOptions(artisanFilterList) }
+                SearchableMultiSelectField(
                     label = "Involved artisan(s)",
-                    artisans = artisanFilterList,
-                    selectedIds = selectedArtisanIds
-                ) { id ->
-                    selectedArtisanIds = if (selectedArtisanIds.contains(id)) selectedArtisanIds - id else selectedArtisanIds + id
-                }
+                    options = artisanFilterOptions,
+                    selected = selectedArtisanIds,
+                    placeholder = "Narrow the list to one or more artisans",
+                    emptyMessage = "No artisans in the workshops above yet"
+                ) { next -> selectedArtisanIds = next }
                 val hasArtisan = selectedArtisanIds.isNotEmpty()
                 // "Check completion" is always offered first — it opens the artisans x sections matrix
                 // (all artisans). The artisan-filtered questionnaire entries follow once an artisan is picked.
@@ -11948,6 +12029,45 @@ private val IN_APP_PLAYABLE = setOf("IMAGE", "VIDEO", "AUDIO")
  * `frontend/app/(protected)/questionnaire/page.tsx` prints the same four sentences off the same three
  * facts.
  */
+/**
+ * AN ARTISAN ROSTER AS PICKER ROWS — the one mapping, used by the interview capture form and by the
+ * browse screen's interview filter.
+ *
+ * WHY IT IS A FUNCTION AND NOT TWO `map` BLOCKS. Both screens now draw [SearchableMultiSelectField]
+ * over the same rows, and the thing that must not drift between them is the VALUE: it is the artisan
+ * id, it is what the capture form puts in `artisanIds`, and it is what the browse filter matches
+ * interviews by. Two copies of "value = artisan.id" is the cheapest possible drift to write and the
+ * most expensive to see — a picker whose rows carry the wrong identifier looks completely normal and
+ * files the interview against nobody.
+ *
+ * NAME AND PLACE IN THE LABEL, CRAFT IN THE HINT, and the browser's flat "Name - Craft - Place"
+ * (`artisanPickerOptionLabel`) is the rejected alternative for a reason about this widget rather
+ * than about wording. [SearchableMultiSelectField] draws the chosen rows as CHIPS, one line each,
+ * ellipsised; a three-part string turns four ticked artisans into four truncated chips that all
+ * begin with a name and end in "...". [SelectOption.hint] is the handset's answer: a second line
+ * inside the sheet, where there is room, and [SelectOption] searches the hint as well as the label —
+ * so typing a craft name filters the sheet exactly as it would if the craft were in the label. Same
+ * three facts, same search, drawn the way this control was built to draw them. "No craft" is the
+ * browser's own word for the blank, so the two clients read the same about an artisan with none.
+ *
+ * IT LIVES HERE AND NOT IN `ui/RecordPickers.kt`, WHICH IS WHERE THE REST OF THIS FAMILY LIVES
+ * ([artisansNotAtWorkshop], [outOfWorkshopNotice]): both callers are in this file, and a helper
+ * moved to a shared module for one file's benefit is a dependency nobody needed. The day a THIRD
+ * caller appears outside `MainActivity.kt`, that is the moment to lift it — same condition
+ * `WalkthroughSurfaceTest` set for its own copied helper, and the same one that was later met.
+ *
+ * `internal` rather than `private` so `QuestionnaireFormWiringTest` can put the rule in front of a
+ * roster instead of asserting about the shape of a `map` block in the source.
+ */
+internal fun artisanSelectOptions(artisans: List<ArtisanDto>): List<SelectOption> =
+    artisans.map { artisan ->
+        SelectOption(
+            value = artisan.id,
+            label = "${artisan.name} \u00b7 ${artisan.place}",
+            hint = artisan.craft?.name ?: "No craft"
+        )
+    }
+
 private data class QuestionnaireArtisanOptions(
     val options: List<ArtisanDto>,
     val cut: String?,
@@ -12182,8 +12302,20 @@ private fun QuestionnaireForm(
     prefill: Prefill? = null,
     editing: QuestionnaireInterviewDetailDto? = null,
     adminView: Boolean = false,
-    onRefreshSections: suspend () -> Unit,
-    onSync: suspend () -> Unit = onRefreshSections,
+    /**
+     * RELOAD THE SECTIONS, FOR ONE NAMED INSTRUMENT. The id is a parameter and not something the
+     * caller captures, because the form is now what CHOOSES the instrument (see the "Questionnaire"
+     * picker below) and the screen that owns `sections` cannot know what the researcher has picked.
+     *
+     * `null` means "whatever the server resolves" — the workshop's bound instrument, else the
+     * default — which is exactly what this lambda meant before it had a parameter, so the startup
+     * load is unchanged. THE REJECTED ALTERNATIVE was to let the form own its own section list and
+     * leave this signature alone: it compiles, and then two lists of sections exist (the screen's
+     * and the form's), the builder edits one of them, and which one the save reads depends on
+     * whether the researcher touched the picker. One list, passed the id, cannot do that.
+     */
+    onRefreshSections: suspend (String?) -> Unit,
+    onSync: suspend (String?) -> Unit = onRefreshSections,
     onSubmit: suspend (QuestionnaireInterviewCreateRequest) -> String,
     onError: (String) -> Unit,
     onSaved: () -> Unit
@@ -12202,11 +12334,137 @@ private fun QuestionnaireForm(
         )
     }
     var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }
-    // Hindi is the primary/default language; the dropdown lists English + the major Indian languages.
-    var language by remember(editing) { mutableStateOf(editing?.language?.takeIf { it.isNotBlank() } ?: "Hindi") }
+    /*
+      THE LANGUAGE BOX OPENS BLANK, and the comment that stood here — "Hindi is the primary/default
+      language; the dropdown lists English + the major Indian languages" — described a control this
+      form no longer has. The box is free text now (the argument is at the field itself, and in
+      `shared/questionnaire-form-contract.json`), so there is no list to be the head of.
+
+      THE DEFAULT WENT WITH THE DROPDOWN AND NOT BY ACCIDENT. `?: "Hindi"` was a reasonable default on
+      a closed vocabulary where the researcher would see the box and pick from it; on a free-text box
+      it is an ANSWER the form supplies on the researcher's behalf, indistinguishable in the archive
+      from one they typed, in the column the archive reports language by. It also filled itself in on
+      an EDIT of a record that had no language — writing "Hindi" into a sitting nobody had said that
+      about, the moment somebody opened it to fix a typo. The browser opens this box blank; so does
+      this one.
+    */
+    var language by remember(editing) { mutableStateOf(editing?.language.orEmpty()) }
     var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }
     var capturedLocation by remember(editing) { mutableStateOf(editing?.location?.toRequest()) }
     val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
+    /*
+      ── WHICH INSTRUMENT THIS SITTING IS ON ─────────────────────────────────────────────────────
+
+      TWO QUESTIONNAIRES EXIST AND THEIR SECTION CODES COLLIDE COMPLETELY (see [QuestionnaireDto]),
+      so "section A" is meaningless without one. The handset never asked: it answered whichever
+      instrument the screen's startup `questionnaireSections()` call happened to resolve, and the
+      researcher was never shown the choice or the answer. On a deployment with one instrument that
+      is invisible; at the third workshop, with a revised instrument sitting beside the original, it
+      is an interview filed against the wrong questionnaire with nothing on screen that could have
+      said so. `shared/questionnaire-form-contract.json` names this field `questionnaireId` and the
+      web has drawn it since page.tsx:1034.
+
+      THE THREE PIECES OF STATE MIRROR THE BROWSER'S, deliberately and name for name — `instruments`,
+      `questionnaireId`, `instrumentTouched` (page.tsx:121-123). The third is the one that is easy to
+      leave out and the one that hurts: the workshop effect below wants to move the instrument
+      whenever the workshop changes, and a questionnaire manager running a pilot on the OTHER
+      instrument must not have their choice snatched back on the next recomposition. Without the
+      flag the answers go to the instrument they did not pick, silently.
+    */
+    var instruments by remember { mutableStateOf<List<QuestionnaireDto>>(emptyList()) }
+    var questionnaireId by remember(editing) { mutableStateOf(editing?.questionnaireId) }
+    var instrumentTouched by remember(editing) { mutableStateOf(false) }
+    /*
+      WHAT AN EMPTY INSTRUMENT LIST MEANS, WHICH IS NOT ALWAYS "THERE ARE NO QUESTIONNAIRES".
+
+      Two flags and not one, for the reason the artisan roster four fields down needed four sentences:
+      an empty list is three different facts — the request is in flight, the request failed, the
+      deployment has published nothing — and only the third is about the repository. A single
+      `isEmpty()` collapses them and the picker then says "Loading…" for ever on a deployment with no
+      instruments, or claims there are none while the answer is still coming. `loaded` separates the
+      first from the other two and `failed` separates the second from the third; between them the
+      placeholder below can say which one it is.
+    */
+    var instrumentsLoaded by remember { mutableStateOf(false) }
+    var instrumentsFailed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        runCatching { repository.questionnaires() }
+            .onSuccess { instruments = it; instrumentsLoaded = true; instrumentsFailed = false }
+            .onFailure { instrumentsFailed = true }
+    }
+    /*
+      WHAT THE FORM IS ACTUALLY BUILT FROM, read back off the sections rather than guessed.
+
+      The server resolved SOME instrument for the section request whether or not this client named
+      one, and the rows it sent carry the id it chose ([QuestionnaireSectionDto.questionnaireId]).
+      Reading it back is what keeps the picker showing the instrument whose questions are on screen
+      — the browser does the same at page.tsx:363-368, and for the same reason: a picker that shows
+      the client's guess while the questions come from the server's is a control that lies quietly.
+
+      ONLY WHILE NOBODY HAS CHOSEN. An explicit pick and an edit both set `questionnaireId` already,
+      and re-deriving over either would be the snatch-back the touched flag exists to prevent.
+    */
+    LaunchedEffect(sections, instruments) {
+        if (instrumentTouched || questionnaireId != null) return@LaunchedEffect
+        questionnaireId = sections.firstOrNull()?.questionnaireId
+            ?: instruments.firstOrNull { it.isDefault }?.id
+            ?: instruments.firstOrNull()?.id
+    }
+    /**
+     * The instrument an admin bound to the workshop now in the picker; null when none is bound,
+     * which resolves to the default at read time and is not the same as "this workshop has no
+     * questionnaire" (see [WorkshopDetailDto.questionnaireId]).
+     */
+    val boundInstrumentId = workshop.workshops.firstOrNull { it.id == workshop.selectedId }?.questionnaireId
+    /*
+      THE WORKSHOP CHOOSES THE INSTRUMENT — until somebody says otherwise. Web parity with the effect
+      at page.tsx:392-402.
+
+      A workshop is bound to one questionnaire by an admin, so opening this form at that workshop
+      should open the questions that apply there without anybody choosing again. Guarded by
+      [instrumentTouched] for the pilot case above, and by [isEdit] for a harder reason: an interview
+      already saved is ON an instrument and the API has no field to move it (there is no
+      `questionnaireId` on [QuestionnaireInterviewUpdateRequest]), so re-pointing the picker on an
+      edit would change the questions under answers that belong to the other instrument's ids.
+    */
+    LaunchedEffect(boundInstrumentId, questionnaireId, isEdit) {
+        if (isEdit || instrumentTouched) return@LaunchedEffect
+        val bound = boundInstrumentId ?: return@LaunchedEffect
+        if (bound == questionnaireId) return@LaunchedEffect
+        questionnaireId = bound
+        // THE FAILURE IS SAID OUT LOUD rather than swallowed, and it is the one case where this
+        // screen's error banner is the right place: the picker has already moved to the bound
+        // instrument, so a dropped section load leaves the control naming one questionnaire while
+        // the questions below it belong to another. That is a form disagreeing with itself, not a
+        // narrower offer — which is the line the artisan roster's own quiet notice sits on the other
+        // side of. The browser sets its page error from the same failure (`loadMeta`'s catch).
+        runCatching { onRefreshSections(bound) }
+            .onFailure { onError(it.message ?: "Couldn't load this workshop's questionnaire") }
+    }
+    /*
+      THE ROWS THE PICKER OFFERS, AND THE ONE IT MUST NEVER LOSE.
+
+      `GET /questionnaires` is asked with `activeOnly` on, so an instrument that has been retired
+      since a sitting was filed is NOT in the list — and an edit form whose picker cannot draw its
+      own record's instrument shows the researcher a blank where the answer is. The record's own
+      hydrated row ([QuestionnaireInterviewDetailDto.questionnaire]) is merged back in for exactly
+      that case. Same rule the artisan options keep three fields down: a selection is never absent
+      from the offer that describes it.
+
+      "(this workshop)" marks the bound instrument, verbatim from page.tsx:1048 — a researcher
+      comparing a handset against a laptop must not have to wonder whether a difference in wording
+      is a difference in meaning.
+    */
+    val instrumentOptions = remember(instruments, editing, questionnaireId, boundInstrumentId) {
+        val rows = instruments.toMutableList()
+        val chosen = questionnaireId
+        if (chosen != null && rows.none { it.id == chosen }) {
+            editing?.questionnaire?.takeIf { it.id == chosen }?.let { rows.add(0, it) }
+        }
+        rows.map { instrument ->
+            instrument.id to instrument.title + if (instrument.id == boundInstrumentId) " (this workshop)" else ""
+        }
+    }
     /*
      * WHO THIS INTERVIEW MAY BE ABOUT, narrowed by the workshop field directly above — the handset's
      * half of the owner's first defect, and the half that keeps the two clients saying the same thing
@@ -12250,6 +12508,10 @@ private fun QuestionnaireForm(
     val outOfWorkshopMessage = outOfWorkshopNotice(
         outOfWorkshopArtisans.mapNotNull { id -> artisanOptions.options.firstOrNull { it.id == id }?.name }
     )
+    // The rows the artisan picker offers, in the server's own order — [artisanSelectOptions] does
+    // not re-sort and neither does [rememberQuestionnaireArtisanOptions], so what the workshop's
+    // roster came back as is what the sheet shows.
+    val artisanPickerOptions = remember(artisanOptions.options) { artisanSelectOptions(artisanOptions.options) }
     /**
      * Open on the artisan this researcher was last documenting.
      *
@@ -12400,7 +12662,11 @@ private fun QuestionnaireForm(
             Text(if (showBuilder) "Hide questionnaire builder" else "Open questionnaire builder")
         }
         if (showBuilder) {
-            QuestionnaireBuilder(repository, sections, onRefreshSections, onError)
+            // The builder edits the sections of the instrument the FORM is on, so the reload it
+            // triggers has to ask for that instrument back. Passing `onRefreshSections` bare would
+            // re-read whatever the server resolves by default, and a manager who renamed a section
+            // on the revised questionnaire would watch the original's sections appear underneath.
+            QuestionnaireBuilder(repository, sections, { onRefreshSections(questionnaireId) }, onError)
         }
     }
     // Available to every user, including least-privilege: pull the latest sections/questions
@@ -12418,7 +12684,9 @@ private fun QuestionnaireForm(
             if (syncing) return@Button
             scope.launch {
                 syncing = true
-                runCatching { onSync() }
+                // Same argument as the builder's reload above: sync the instrument on screen,
+                // not the one the server would pick for a request that named none.
+                runCatching { onSync(questionnaireId) }
                     .onSuccess { syncStatus = ActionStatus.SUCCESS }
                     .onFailure {
                         if (it !is kotlinx.coroutines.CancellationException) {
@@ -12472,9 +12740,28 @@ private fun QuestionnaireForm(
         if (isEdit) {
             Text("Add or update answers below. Existing answers from other interviewers are preserved unless you change them.", color = Muted, fontSize = 12.sp)
         }
-        // Above the workshop picker, so what was filled in is read before any of the fields it filled.
+        // ABOVE EVERY FIELD IT FILLS, so what was carried in is read before any of them. This used
+        // to say "above the workshop picker", which was true when the workshop opened the form; the
+        // field order is now the web's and the title leads. The banner still comes first, for the
+        // same reason it always did.
         CarryPrefillBanner(state = carry, onChange = { clearCarriedContext() })
-        WorkshopField(state = workshop, saving = saveState == SaveState.SAVING)
+        /*
+          -- THE FIELD ORDER BELOW IS THE WEB'S, AND IT IS CONTRACTUAL ------------------------------
+
+          Interview title, Place, Language, Workshop, Questionnaire, Status, Artisans interviewed --
+          then the sections, then Interview notes at the foot. That sequence is declared once, in
+          `shared/questionnaire-form-contract.json` under `fields`, and its `howOrderIsPartOfIt`
+          section is the argument for holding it.
+
+          THIS FORM USED TO OPEN WITH THE WORKSHOP AND THE BROWSER OPENS WITH THE TITLE, and both are
+          defensible in isolation: the workshop is the container every other record form leads with,
+          and it is still what chooses the instrument and scopes the roster below. Exactly one of the
+          two orders can be the contract. A form whose boxes come in one sequence on a laptop and
+          another on a handset is a form a researcher re-learns per device -- in a courtyard, with an
+          artisan waiting -- and the printed guide is read with the form open beside it, so a list in
+          the wrong sequence sends the reader two fields down and, finding the wrong box, filling it
+          in. The owner ruled the web correct. The workshop keeps its job and loses its place.
+        */
         // NO MICROPHONE HERE, AND IT IS THE SAME DECISION AS THE ONE AT `MultiNoteInput` BELOW.
         // The questionnaire screens are out of the record-form dictation work by decision (see
         // `MainActivity.kt:11154-11180` for the argument in full) and the browser's own interview
@@ -12482,37 +12769,135 @@ private fun QuestionnaireForm(
         // quietly opt this screen in. The sibling application took the opposite decision on
         // 2026-08-28; taking it here is a questionnaire-workstream change, not a side effect.
         RequiredInput("Interview title", title, titleError, titleFocus, titleCased = true, dictate = false) { title = it }
-        // Web parity (app/(protected)/questionnaire/page.tsx): title → place → language → status →
-        // the artisans this interview is about. There is deliberately NO date field: the server
-        // derives interviewDate from recordedAt, which is when the interview was actually captured.
-        // Same decision as the title above.
+        // There is deliberately NO date field: the server derives interviewDate from recordedAt,
+        // which is when the interview was actually captured. Asking a researcher to confirm today's
+        // date was a field to tab past that could only ever be wrong -- and a spoken date is the one
+        // thing a recogniser gets wrong in a way that still parses, so no microphone would go on one
+        // even if it came back. `absent` in the form contract holds all three guides to that.
         TextInput("Place", place, titleCased = true, dictate = false) { place = it }
-        // Language of the interview: Hindi primary, then English + the major scheduled Indian
-        // languages. Any pre-existing free-text value is preserved as an extra option.
-        val languageOptions = remember(language) {
-            val base = listOf(
-                "Hindi", "English", "Bengali", "Marathi", "Telugu", "Tamil", "Gujarati", "Urdu",
-                "Kannada", "Odia", "Malayalam", "Punjabi", "Assamese", "Maithili", "Sanskrit",
-                "Konkani", "Nepali", "Manipuri (Meitei)", "Bodo", "Dogri", "Kashmiri", "Santali",
-                "Sindhi", "Other"
-            )
-            val withExisting = if (language.isNotBlank() && base.none { it.equals(language, ignoreCase = true) }) {
-                listOf(language) + base
-            } else base
-            withExisting.map { it to it }
-        }
+        /*
+          -- LANGUAGE IS FREE TEXT, AND THE DROPDOWN THAT STOOD HERE WAS THE DRIFT -------------------
+
+          What was here: twenty-four scheduled languages plus "Other", preserving any pre-existing
+          free-text value as an extra row. A careful control, and the wrong one. The column is
+          `str | None` with no enum behind it on either client, and the artisan's own answer --
+          "Kutchi, and some Gujarati" -- is a perfectly good value that no list of language names can
+          hold. A dropdown here is not a narrower version of this control; it is a DIFFERENT control
+          that cannot express the answer, and the "Other" row is the proof: it records that the
+          researcher had an answer and then throws the answer away. The web argues the same where it
+          draws it (page.tsx:1012-1018) and the contract records the ruling.
+
+          THE "Hindi" DEFAULT GOES WITH THE DROPDOWN. The argument for it was real -- Hindi is the
+          commonest answer on this deployment and pre-filling saved a tap -- but a value nobody typed
+          is indistinguishable in the archive from one they did, and this is the column the archive
+          reports language BY. The browser opens this box blank. So does this one.
+        */
+        TextInput("Language", language, dictate = false) { language = it }
+        // The workshop no longer leads the form but still leads everything under it in MEANING: it
+        // is the context the interview belongs to, it chooses the instrument in the next field, and
+        // it scopes the artisan roster two fields down.
+        WorkshopField(state = workshop, saving = saveState == SaveState.SAVING)
+        /*
+          WHICH INSTRUMENT THIS SITTING IS ON -- the field the handset did not have at all. The state,
+          the workshop binding and the rescue rule are all set out where they are declared, above;
+          this is only the control.
+
+          IMMEDIATELY AFTER THE WORKSHOP because the workshop is usually what chooses it, which is
+          where the browser puts it too (page.tsx:1027-1033).
+
+          `includeNone = false`: "no questionnaire" is not a state a sitting can be in. A blank here
+          means the server has not been told which one, and the server then resolves it -- the
+          workshop's bound instrument, else the default -- so the placeholder says THAT rather than
+          offering an empty row that would read like a choice.
+
+          DISABLED ON AN EDIT, and this is not politeness. There is no `questionnaireId` on
+          [QuestionnaireInterviewUpdateRequest] because the API has no way to move a sitting between
+          instruments; a picker that moved would swap the questions on screen while the saved answers
+          stayed keyed to the other instrument's question ids, and the researcher would be looking at
+          a form that cannot save what it is showing.
+        */
         DropdownField(
-            label = "Language",
-            options = languageOptions,
-            selectedValue = language,
-            placeholder = "Select language",
-            includeNone = false
-        ) { language = it }
+            label = "Questionnaire",
+            options = instrumentOptions,
+            selectedValue = questionnaireId.orEmpty(),
+            /*
+              THE THREE EMPTY STATES, SAID APART. "Default questionnaire" is the only one of the four
+              that is not about emptiness: it is what a blank selection MEANS on a loaded list — the
+              server has not been told which instrument, and it will resolve the workshop's binding or
+              the default. The other three are the flags above, and the order matters: a failure is
+              checked before "still loading", because a dropped request leaves `loaded` false for ever
+              and would otherwise print the in-flight sentence over a request that is not coming back.
+            */
+            placeholder = when {
+                instrumentsFailed -> "Questionnaire list unavailable"
+                !instrumentsLoaded -> "Loading questionnaires…"
+                instrumentOptions.isEmpty() -> "No questionnaires published yet"
+                else -> "Default questionnaire"
+            },
+            includeNone = false,
+            enabled = !isEdit && saveState != SaveState.SAVING && instrumentOptions.isNotEmpty()
+        ) { picked ->
+            // An explicit pick, so the workshop effect stops moving it. See `instrumentTouched`.
+            instrumentTouched = true
+            questionnaireId = picked
+            scope.launch {
+                runCatching { onRefreshSections(picked) }
+                    .onFailure { onError(it.message ?: "Couldn't load that questionnaire's sections") }
+            }
+        }
+        if (isEdit) {
+            Text(
+                "An interview stays on the questionnaire it was first saved against.",
+                color = Muted,
+                fontSize = 12.sp
+            )
+        }
+        /*
+          THE FAILED INSTRUMENT LIST, BESIDE THE CONTROL IT IS ABOUT -- the same rule the artisan
+          roster keeps two fields down, and for the same reason: a picker that cannot offer anything
+          has to say why, and the screen's error banner is for the failures that stop the form
+          working rather than the ones that stop it offering. The sitting still saves; the server
+          resolves the instrument exactly as it did for every build before this field existed.
+        */
+        if (instrumentsFailed) {
+            Text(
+                "The questionnaire list could not be loaded, so there is nothing to choose from. " +
+                    "This interview will be filed against the questionnaire set for the workshop, " +
+                    "or the default one.",
+                color = Muted,
+                fontSize = 12.sp
+            )
+        }
         StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
-        ArtisanMultiSelectField(
-            label = "Linked artisans",
-            artisans = artisanOptions.options,
-            selectedIds = selectedArtisans,
+        /*
+          -- THE WALL OF CHECKBOXES IS GONE ----------------------------------------------------------
+
+          The owner asked for this one by name: *"the checkbox list should be replaced with
+          multi-select dropdown for artisans over there as well"*. What stood here was
+          [ArtisanMultiSelectField], which paints a Column of checkboxes -- every artisan at the
+          workshop, one row each, straight into a form that is already long. It has no summary line,
+          so the only way to see who is ticked is to scroll the form back over them, and no room for
+          a Select-all row without pushing the next field further down.
+
+          [SearchableMultiSelectField] ALREADY EXISTED (`ui/SearchableSelect.kt`) and is what
+          `CheckboxMultiSelectField` was itself rewritten onto: a summary trigger, the chosen rows as
+          chips, and a searchable sheet with "Select all N matching". There was no third control to
+          write, and writing one would have been this whole problem again. The browser reached the
+          same control by the same route -- `MultiSelectDropdown` over `SearchableSelect`, with
+          `searchable` forced ON rather than left to an option count, because a picker that changes
+          shape between two workshops changes it for reasons the researcher cannot see.
+
+          THE LABEL IS THE WEB'S WORD. "Linked artisans" stood here and "Artisans interviewed" is
+          what the browser, both walkthrough registers and the printed guide all say. One box with
+          two names across two devices a researcher may use on the same day is the quietest of the
+          drifts and the longest-lived. The browse screen's filter keeps its own word on purpose --
+          see [ViewDataScreen], and `distinctLabels` in the contract for the argument.
+        */
+        SearchableMultiSelectField(
+            label = "Artisans interviewed",
+            options = artisanPickerOptions,
+            selected = selectedArtisans,
+            placeholder = "Select the artisans this interview is with",
             /*
               FOUR SENTENCES AND NOT ONE, because "the request failed", "the answer has not arrived",
               "nobody is recorded at this workshop" and "nobody is recorded at all" are four different
@@ -12521,11 +12906,15 @@ private fun QuestionnaireForm(
               comparing a handset against a laptop must not have to wonder whether a difference in
               wording is a difference in meaning.
 
-              THE EMPTY LIST IS NOW A ROUTINE STATE rather than a rare one, which is what made the old
+              THE EMPTY LIST IS A ROUTINE STATE rather than a rare one, which is what made the old
               single sentence untenable: the roster is dropped the moment the workshop changes, so this
               control is genuinely empty for the length of every scoped request and STAYS empty when one
               fails. It used to fall back to the app-wide startup list instead, which is why the
-              question never came up — and that fallback was the defect.
+              question never came up -- and that fallback was the defect.
+
+              CARRIED ACROSS THE WIDGET SWAP UNCHANGED, which is why this block survives in place: the
+              wall and the dropdown take the same `emptyMessage` parameter, so the four sentences moved
+              with the field. The widget is what changed, not what the form is able to say.
             */
             emptyMessage = when {
                 artisanOptions.failed -> "This workshop's artisan list could not be loaded"
@@ -12533,17 +12922,28 @@ private fun QuestionnaireForm(
                 workshop.selectedId.isNotBlank() -> "No artisans are recorded at this workshop yet"
                 else -> "No artisans recorded yet"
             }
-        ) { id ->
-            val adding = !selectedArtisans.contains(id)
-            selectedArtisans = if (adding) selectedArtisans + id else selectedArtisans - id
-            // Naming an artisan is an explicit pick, so it replaces the remembered context and
-            // retires the banner: from here on the selection is the researcher's own, not a
-            // suggestion. Only on the way IN — unticking says who the interview is not about, which
-            // is no statement about where the researcher is sitting.
-            if (adding) {
+        ) { next ->
+            /*
+              THE SHEET HANDS BACK THE WHOLE SELECTION, and this handler is pure set replacement, so
+              there is nothing to reconcile: `selectedArtisans` IS the answer. That is the difference
+              from the wall, which reported one id at a time and left the arithmetic here.
+
+              THE CARRIED CONTEXT STILL MOVES ONLY ON THE WAY IN, unchanged from the toggle this
+              replaces: unticking says who the interview is NOT about, which is no statement about
+              where the researcher is sitting. `next - selectedArtisans` is the ids that arrived, and
+              the sheet's own `LinkedHashSet` draft means `first()` is the researcher's own tick order
+              -- the same rule `primaryInterviewArtisanId` states for the browser. The browser goes one
+              step further and re-remembers the head of what REMAINS after an untick; that is a
+              difference in the carry bag rather than in this form's fields, and it is left alone
+              deliberately -- moving a behaviour the owner did not rule on, inside a commit about which
+              boxes the form draws, is how the next audit finds two changes wearing one reason.
+            */
+            val added = next - selectedArtisans
+            selectedArtisans = next
+            added.firstOrNull()?.let { id ->
                 // LOOKED UP IN THE OPTIONS AND NOT IN THE APP-WIDE LIST. Since the options became a
                 // workshop's roster rather than the startup page, an artisan can legitimately be
-                // tickable here and absent from `artisans` — and this lookup returning null is silent:
+                // tickable here and absent from `artisans` -- and this lookup returning null is silent:
                 // the tick lands, the carried context simply never updates, and the NEXT form opens on
                 // whoever the researcher was documenting before.
                 artisanOptions.options.firstOrNull { it.id == id }?.let {
@@ -12798,7 +13198,22 @@ private fun QuestionnaireForm(
          * form moving in the same commit — `RecordDictationParityTest` does not cover this screen,
          * so nothing else would catch it.
          */
-        MultiNoteInput(value = notes, dictate = false) { notes = it }
+        /*
+          "Interview notes", WRITTEN AT THE CALL SITE, and not [MultiNoteInput]'s own default.
+
+          This call used to pass no label at all and take the composable's default, which is "Notes"
+          -- so the browser's box said "Interview notes" (`<MultiNoteField label="Interview notes">`,
+          page.tsx:1447) and the handset's said something else, with no call site anywhere saying so.
+          Nothing was missing and nothing was broken, which is exactly why it survived: it is the
+          class of difference a reader dismisses as cosmetic until they are explaining a form over a
+          phone line.
+
+          THE DEFAULT ITSELF IS LEFT ALONE. Changing `label: String = "Notes"` would rename the notes
+          box on every other record form in the application to fix one screen's label -- the fix and
+          its blast radius would not resemble each other in a diff, and four forms that say "Notes"
+          about notes are not wrong.
+        */
+        MultiNoteInput(label = "Interview notes", value = notes, dictate = false) { notes = it }
         fun submit() {
             if (!validateRequired(listOf(
                     RequiredCheck(title.isBlank(), { titleError = it }, titleFocus)
@@ -12834,6 +13249,15 @@ private fun QuestionnaireForm(
                                 status = status,
                                 artisanIds = selectedArtisans.toList(),
                                 workshopId = workshop.value(),
+                                // WRITTEN AT QUEUE TIME, NOT AT REPLAY TIME -- the one line in this
+                                // payload that has to be here rather than resolved later. This object
+                                // is what `queueOfflineEntry` serialises into the outbox, and an
+                                // interview captured today may not be sent for a week; by then the
+                                // workshop's binding or the server's default may have moved, and the
+                                // sitting would file against an instrument the researcher never saw.
+                                // Blank is normalised away so an unresolved picker sends nothing at
+                                // all rather than an empty string the server would have to interpret.
+                                questionnaireId = questionnaireId?.blankToNull(),
                                 location = capturedLocation,
                                 responses = responsesToSend,
                                 recordedAt = now
@@ -12879,7 +13303,13 @@ private fun QuestionnaireForm(
                         }.isSuccess
                         if (ok) {
                             media.reset(); qMedia.reset(); questionAudio = emptyMap()
-                            title = ""; selectedArtisans = emptySet(); place = ""; language = "Hindi"; notes = ""
+                            // `language = ""` and no longer `"Hindi"`: the box is free text (see
+                            // the field above) and a cleared form must not arrive pre-answered.
+                            // `questionnaireId` is deliberately NOT cleared -- interviews are taken
+                            // back-to-back at one workshop on one instrument, the same argument the
+                            // workshop selection is kept on, and re-deriving it would put the picker
+                            // back to the default between two sittings on the revised questionnaire.
+                            title = ""; selectedArtisans = emptySet(); place = ""; language = ""; notes = ""
                             status = defaultCreateStatus(repository.cachedUser()?.role)
                             capturedLocation = null; answers.values.forEach { it.value = "" }
                             // Interviews are usually captured back-to-back at one workshop, so the
@@ -12900,6 +13330,11 @@ private fun QuestionnaireForm(
                             val originalArtisans = original.artisans.map { it.artisanId }.toSet()
                             repository.updateQuestionnaireInterview(
                                 original.id,
+                                // NO `questionnaireId` HERE, AND THAT IS THE API'S RULE RATHER
+                                // THAN AN OMISSION: [QuestionnaireInterviewUpdateRequest] has no such
+                                // field, because a sitting's answers are keyed to one instrument's
+                                // question ids and moving the sitting would orphan every one of them.
+                                // The picker above is disabled on an edit for the same reason.
                                 QuestionnaireInterviewUpdateRequest(
                                     title = title.trim(),
                                     place = place.blankToNull(),
@@ -12924,6 +13359,11 @@ private fun QuestionnaireForm(
                                     status = status,
                                     artisanIds = selectedArtisans.toList(),
                                     workshopId = workshop.value(),
+                                    // Which instrument the researcher was looking at. Null is a real
+                                    // answer and not a gap: the server then resolves it from the
+                                    // workshop's binding or the default, which is what every build
+                                    // before this field existed relied on.
+                                    questionnaireId = questionnaireId?.blankToNull(),
                                     location = capturedLocation,
                                     responses = responsesToSend,
                                     recordedAt = now
@@ -13035,7 +13475,12 @@ private fun QuestionnaireForm(
                         title = ""
                         selectedArtisans = emptySet()
                         place = ""
-                        language = "Hindi"
+                        // Blank, not "Hindi": the box is free text now and a cleared form must not
+                        // arrive pre-answered. Same change as the offline reset above, and the
+                        // argument is at the field itself. `questionnaireId` is deliberately NOT
+                        // cleared here either — interviews are taken back-to-back at one workshop on
+                        // one instrument, which is the same reason the workshop selection survives.
+                        language = ""
                         notes = ""
                         status = defaultCreateStatus(repository.cachedUser()?.role)
                         capturedLocation = null

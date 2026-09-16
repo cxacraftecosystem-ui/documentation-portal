@@ -78,12 +78,33 @@ There is also the older `frontend/scripts/pw-smoke.mjs`, a login-and-visit-every
 
 ### 1.3 Android
 
-No `src/test`, no `src/androidTest`. `:app:testDebugUnitTest` is wired into CI and reports
-`NO-SOURCE`; the step prints a warning so a green tick is never mistaken for "the tests passed". The
-only real Android gate is that it **compiles**.
+`src/test` exists and runs: **27 files, 526 `@Test` cases**, wired into CI through
+`:app:testDebugUnitTest` (see [REPO_FACTS.md](REPO_FACTS.md), which generates those two numbers
+rather than quoting them from here). `src/androidTest` still does not exist, so there is **no
+instrumented coverage at all** — nothing that launches an activity, renders a Composable or touches a
+real device.
 
-Given that the Android app is the largest single body of code in the repository by line count (see
-[REPO_FACTS.md](REPO_FACTS.md)), this is the largest coverage gap by some distance.
+> **Corrected 2026-09-16:** this section said "No `src/test`, no `src/androidTest`.
+> `:app:testDebugUnitTest` is wired into CI and reports `NO-SOURCE`… the only real Android gate is
+> that it **compiles**." The first sentence was true when written and had stopped being true without
+> anybody re-measuring — the same failure the §1.2 correction above records, on the other client. It
+> is corrected rather than withdrawn because the numbers WERE re-measured: `REPO_FACTS.md`'s
+> generator now walks the source set and counts `@Test`, so this paragraph cannot rot again without
+> that table rotting in the same commit. Note what the old sentence cost: a reader deciding whether
+> to trust an Android change was told the suite did not exist, and the honest response to that is to
+> not write one.
+
+**What those 526 cases are and are not.** They are JVM unit tests: pure functions, request/response
+mapping, and a family of suites that read the app's own source off disk and assert about it
+(`QuestionnaireFormWiringTest`, `WalkthroughStepsTest`, `RecordDictationParityTest`). That last kind
+is unusual and worth naming, because it is easy to over-read: it proves a field is passed to a
+request builder and a label is written at a call site, **not** that the screen draws, that a tap
+works, or that anything reaches a server. The gap it closes is real — a control that renders and
+never saves — and the gap it leaves is everything a person would see.
+
+So the ranking below is unchanged in substance: the Android app is still the largest single body of
+code in the repository by line count and still has no test that runs it. What has changed is that the
+gap is now "no instrumented coverage", not "no coverage".
 
 ---
 

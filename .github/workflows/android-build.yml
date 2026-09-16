@@ -102,14 +102,20 @@ jobs:
 
       - name: Unit tests
         id: tests
-        # HONEST STATUS, measured on this tree (not assumed): android/app/src contains only
-        # `main/` — no `src/test/`, no `src/androidTest/`. Running the task locally prints
-        #   > Task :app:compileDebugUnitTestKotlin NO-SOURCE
-        #   > Task :app:testDebugUnitTest NO-SOURCE
-        # so it passes without asserting anything. It is wired up anyway so that the first
-        # unit test anyone adds is enforced the moment it lands, with no CI change needed.
-        # The step below prints which case you are in so the green tick is never mistaken
-        # for "the tests passed".
+        # HONEST STATUS, measured on this tree (not assumed): `app/src/test/` now holds 27
+        # Kotlin files and 526 `@Test` cases, so this step runs them for real and a red tick
+        # here is a real failure. `src/androidTest/` still does not exist, so nothing
+        # instrumented runs — see the note at the foot of this step.
+        #
+        # THIS COMMENT USED TO SAY THE OPPOSITE, and the shape of that is worth keeping: it
+        # read "android/app/src contains only `main/` … so it passes without asserting
+        # anything", which was measured, was true, and then quietly stopped being true when
+        # the first suites landed. Nothing here failed — the step had been written to detect
+        # the change rather than to assume it, which is why the RUN below needed no edit and
+        # only the prose did. That is the argument for the `if` under it: a step that decides
+        # at run time which case it is in survives the day the tree moves, and a comment that
+        # states the case as a fact does not. Rewritten rather than deleted so the next
+        # person can see that the branch has now taken both paths in anger.
         run: |
           set -euo pipefail
           if [ -d app/src/test ] && [ -n "$(find app/src/test -name '*.kt' -o -name '*.java' 2>/dev/null | head -1)" ]; then
