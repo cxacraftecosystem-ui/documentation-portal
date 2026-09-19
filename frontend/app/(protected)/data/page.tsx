@@ -675,7 +675,12 @@ const BROWSE_TYPES: Record<string, BrowseTypeDef> = {
   questionnaire: {
     label: "Questionnaire",
     linkedType: "questionnaire",
-    editHref: () => "/questionnaire",
+    // The fourth inline-form page, and the last one still discarding the id the signature above
+    // declares. `/questionnaire` rendered the CREATE form, so "Edit record" on an interview the
+    // researcher had just drilled into opened an empty capture form — and filling it in filed a
+    // SECOND sitting rather than correcting the one they clicked. The questionnaire page now reads
+    // `?edit=` through the same `useEditDeepLink` as workshops, crafts and processes.
+    editHref: (id) => `/questionnaire?edit=${id}`,
     // THE ONE SCOPED ARM. See `BrowseTypeDef.scoped` for why it is the one, and the handset twin it
     // is matching (`MainActivity.ViewDataScreen`, questionnaire mode).
     scoped: true,

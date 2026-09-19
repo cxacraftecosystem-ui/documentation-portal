@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ArrowDown, ArrowUp, ClipboardList, GripVertical, Lock, Mic, Pencil, Plus, Save, Square, Trash2 } from "lucide-react";
@@ -15,6 +15,7 @@ import { LocationFields } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { QuestionnaireCaptureControls, useCapturePrefs } from "@/components/forms/QuestionnaireCaptureControls";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
+import { useEditDeepLink } from "@/components/hooks/useEditDeepLink";
 import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
 import { UploadProgress } from "@/components/media/UploadProgress";
 import { UploadTray } from "@/components/media/UploadTray";
@@ -96,7 +97,10 @@ const clipTraySectionId = (key: string) => `question-audio-${key.replace(SECTION
 export default function QuestionnairePage() {
   return (
     <UploadsProvider>
-      <QuestionnairePageBody />
+      {/* Next 16: `useEditDeepLink` reads useSearchParams, which must sit inside a Suspense boundary. */}
+      <Suspense fallback={<div className="panel p-4 text-sm text-ink-500">Loading...</div>}>
+        <QuestionnairePageBody />
+      </Suspense>
       <UploadTray />
     </UploadsProvider>
   );
@@ -172,6 +176,25 @@ function QuestionnairePageBody() {
   const [searchQuery, setSearchQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * THE SITTING THIS FORM IS EDITING, or null while it is capturing a new one.
+   *
+   * WHAT THIS CLOSES. Until now the browser could CREATE an interview and DELETE one, and nothing
+   * in between: `/data`'s "Edit record" for a questionnaire linked to the bare `/questionnaire`
+   * route, which renders this form in create mode, so "edit this interview" and "take a new
+   * interview" landed on the identical blank page — and filling it in produced a SECOND sitting
+   * instead of correcting the one that was clicked. That is the same defect `useEditDeepLink` was
+   * written for on /crafts, /workshops and /processes; this page is the fourth inline form and was
+   * simply never wired to it. The handset has had the edit path since `InterviewEditLoader`.
+   *
+   * IT IS THE WHOLE RECORD AND NOT JUST AN ID, because the form has to seed from it (title, place,
+   * language, the answers, the artisan set, the workshop) and because the instrument picker has to
+   * be able to draw the record's OWN instrument even when `GET /questionnaires?activeOnly` no
+   * longer lists it — the same rule the handset keeps at `MainActivity.kt`'s `instrumentOptions`.
+   */
+  const [editing, setEditing] = useState<QuestionnaireInterview | null>(null);
+  /** The capture form, so `useEditDeepLink` can scroll an arriving record into view. */
+  const formRef = useRef<HTMLFormElement | null>(null);
   /*
     THE THREE HEADER BOXES LIVE IN REACT STATE, WHICH IS FORCED ON US BY THE CONTROL, NOT PREFERRED.
 
@@ -392,14 +415,24 @@ function QuestionnairePageBody() {
   );
 
   useEffect(() => {
-    if (instrumentTouched.current) return;
+    /*
+      `editing` GUARDS THIS AS WELL AS `instrumentTouched`, and the belt is not redundant with the
+      braces. `seedFromInterview` does set the ref, so on the ordinary path this effect is already
+      parked — but the ref is a mutable escape hatch that any future edit to this file could reset,
+      and what it is protecting here is not a preference. A sitting already saved is ON an
+      instrument the API has no field to move it to; re-pointing the picker under an open edit
+      would swap the questions out from under answers keyed to the other instrument's ids, and the
+      two instruments' section codes collide completely, so nothing downstream would raise. The
+      handset states the same condition the same way: `if (isEdit || instrumentTouched) return`.
+    */
+    if (editing || instrumentTouched.current) return;
     const bound = boundInstrumentId;
     if (!bound || bound === questionnaireId) return;
     setQuestionnaireId(bound);
     void loadMeta(bound);
     // `loadMeta` is deliberately NOT a dependency: it is re-created every render, so listing it
     // would re-run this effect on every render and re-fetch the whole instrument each time.
-  }, [boundInstrumentId, questionnaireId]);
+  }, [boundInstrumentId, questionnaireId, editing]);
 
   /**
    * Open on the artisan this researcher was last documenting.
@@ -736,6 +769,92 @@ function QuestionnairePageBody() {
     setLanguage("");
   }
 
+  /**
+   * BACK TO A BLANK CAPTURE FORM — the Cancel on the edit banner, and `?new=1`.
+   *
+   * `formRef.current?.reset()` and `clearHeaderBoxes()` together, for the reason the header-box
+   * block above gives: `reset()` rewrites the DOM nodes and tells React nothing, so the three
+   * controlled boxes would re-paint the edited interview's title over a form that is supposed to be
+   * empty. The uncontrolled half (notes, status, the location and capture rows) is what `reset()`
+   * is FOR — it returns them to the `defaultValue`s the remount keyed on `editing?.id` installs.
+   */
+  function resetToCreate() {
+    setEditing(null);
+    formRef.current?.reset();
+    clearHeaderBoxes();
+    setAnswers({});
+    setMediaFiles([]);
+    setQuestionAudioFiles({});
+    setSelectedArtisanIds([]);
+    setInterviewProgress(null);
+    setQuestionProgress({});
+  }
+
+  /**
+   * SEED EVERY CONTROL FROM A STORED SITTING.
+   *
+   * THE ANSWERS ARE KEYED BY `questionId` and not by position, which is the only mapping that
+   * survives a section being reordered or a question being retired between the sitting and the
+   * edit. A response whose question no longer exists on the instrument simply has nowhere to render
+   * and is left untouched in the database — `upsert_responses` is an upsert over the ids this form
+   * sends, so an answer it cannot draw is an answer it cannot destroy.
+   *
+   * MEDIA IS NOT SEEDED, DELIBERATELY. `mediaFiles` and `questionAudioFiles` are the NEW clips this
+   * visit is uploading; what is already attached to the interview belongs to the saved-media block
+   * and must not be re-uploaded as duplicates on every save. The handset draws the same line
+   * (`savedMedia` versus `media.uris`).
+   */
+  function seedFromInterview(interview: QuestionnaireInterview) {
+    setEditing(interview);
+    setTitle(interview.title ?? "");
+    setPlace(interview.place ?? "");
+    setLanguage(interview.language ?? "");
+    setAnswers(
+      Object.fromEntries(
+        (interview.responses ?? [])
+          .filter((response) => response.questionId)
+          .map((response) => [response.questionId, response.answerText ?? ""])
+      )
+    );
+    setSelectedArtisanIds((interview.artisans ?? []).map((link) => link.artisan?.id).filter(Boolean) as string[]);
+    setMediaFiles([]);
+    setQuestionAudioFiles({});
+    /*
+      THE INSTRUMENT IS FIXED FOR THE LIFE OF A SITTING, and this is the half of the seed that is
+      not merely convenience. `questionnaireId` is one side of the interview's uniqueness key and
+      `QuestionnaireInterviewUpdate` carries no field for it — the API is extra="forbid", so sending
+      one is a 422 — because the answers are keyed to THIS instrument's question ids and moving the
+      sitting would orphan every one of them. `instrumentTouched` is set so the workshop effect
+      below cannot re-point the picker at the workshop's bound instrument while an edit is open,
+      which would change the questions under answers that belong to the other instrument. The picker
+      itself is disabled on edit for the same reason, exactly as `MainActivity.kt` disables it.
+    */
+    instrumentTouched.current = true;
+    setQuestionnaireId(interview.questionnaireId);
+    void loadMeta(interview.questionnaireId);
+    // The workshop the sitting is filed under, so the roster and the late-submission pre-flight both
+    // describe the record actually on screen rather than whichever workshop the page opened on.
+    if (interview.workshopId) workshop.setWorkshopId(interview.workshopId);
+  }
+
+  /**
+   * `/questionnaire?edit=<id>` loads that interview into the form below; `?new=1` opens a blank one.
+   * Shared with /crafts, /workshops and /processes so the four inline forms cannot drift into four
+   * dialects of the same link. `allowed` is true because taking and correcting an interview is not
+   * a privileged act on this page — the server's own `guard_record_edit` decides, and a refusal
+   * arrives in the error banner rather than as a link that silently does nothing.
+   */
+  const { loading: deepLinkLoading } = useEditDeepLink<QuestionnaireInterview>({
+    endpoint: "/questionnaire/interviews",
+    basePath: "/questionnaire",
+    targetRef: formRef,
+    onEdit: seedFromInterview,
+    onNew: resetToCreate,
+    onError: setError,
+    allowed: true,
+    errorMessage: "Unable to load that interview"
+  });
+
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     // React nulls event.currentTarget after the first await — capture it before any async work.
@@ -755,7 +874,11 @@ function QuestionnairePageBody() {
       const recordedAt = recordedAtFromForm(form);
       const recordedTimezone = recordedTimezoneFromForm(form);
       const interviewTitle = textValue(form, "title") || `Interview ${new Date().toLocaleDateString()}`;
-      const interviewPayload = {
+      /*
+        THE SHARED HALF OF BOTH BODIES. Every key here is legal on a create AND on an update —
+        `QuestionnaireInterviewUpdate` (backend/app/schemas/questionnaire.py:159) declares each one.
+      */
+      const commonPayload = {
           title: interviewTitle,
           // interviewDate is deliberately not sent: the server derives it from recordedAt.
           place: textValue(form, "place"),
@@ -763,24 +886,53 @@ function QuestionnairePageBody() {
           notes: textValue(form, "notes"),
           status: canPickStatus ? textValue(form, "status") || "APPROVED" : "PENDING",
           workshopId: workshop.workshopId || null,
-          // WRITTEN AT QUEUE TIME, NOT AT REPLAY TIME. This same object is what `saveOrQueue`
-          // serialises into the outbox, so an interview captured today and replayed next week files
-          // on the instrument the researcher was actually looking at — not on whatever the default
-          // has become by then. Do not "simplify" this away on the offline path.
-          questionnaireId: questionnaireId || null,
           artisanIds,
-          responses,
-          recordedAt,
-          recordedTimezone,
-          location
+          responses
       };
+      const editingId = editing?.id ?? null;
+      /*
+        TWO BODIES, AND EACH OF THE THREE DIFFERENCES IS AN API RULE RATHER THAN A PREFERENCE.
+
+        `questionnaireId` — CREATE ONLY. The update schema has no such field and `APIModel` is
+        extra="forbid", so sending it on a PATCH is a 422 raised by pydantic before the handler
+        runs. A sitting never changes instrument: it is half of
+        @@unique([questionnaireId, artisanSetKey]), and every answer already stored is keyed to
+        THIS instrument's question ids.
+
+        `recordedAt` / `recordedTimezone` — CREATE ONLY. They stamp when the capture happened. The
+        update schema does accept them, which is exactly why omitting them has to be deliberate:
+        sending them would rewrite that stamp to whatever the remounted "Captured at" row happens
+        to read, silently restamping last week's fieldwork every time somebody corrects a typo in
+        its title. The handset's update body omits them for the same reason.
+
+        `location` — OMITTED WHEN ABSENT, never null. `forbid_clearing_location` on the update
+        model rejects an explicit null ("omit to keep, send to replace"), so a correction typed
+        indoors with no fix must leave the key off entirely rather than clear the coordinates the
+        sitting was actually recorded at. On a create there is nothing to clear and null is the
+        ordinary "no fix was available".
+      */
+      const interviewPayload = editingId
+        ? { ...commonPayload, ...(location ? { location } : {}) }
+        : {
+            ...commonPayload,
+            // WRITTEN AT QUEUE TIME, NOT AT REPLAY TIME. This same object is what `saveOrQueue`
+            // serialises into the outbox, so an interview captured today and replayed next week files
+            // on the instrument the researcher was actually looking at — not on whatever the default
+            // has become by then. Do not "simplify" this away on the offline path.
+            questionnaireId: questionnaireId || null,
+            recordedAt,
+            recordedTimezone,
+            location
+          };
       // Offline this queues the whole interview — answers, the interview audio and every
       // per-question or whole-section clip — to the outbox. An interview is the one record that
-      // cannot be reconstructed later: the artisan has gone home.
+      // cannot be reconstructed later: the artisan has gone home. AN EDIT QUEUES THE SAME WAY:
+      // `saveOrQueue` takes the method, so a correction made with no signal is banked rather than
+      // lost, and replays as the PATCH it was rather than as a second sitting.
       const outcome = await saveOrQueue<QuestionnaireInterview>({
-        label: `Interview · ${interviewTitle}`,
-        endpoint: "/questionnaire/interviews",
-        method: "POST",
+        label: editingId ? `Interview (edit) · ${interviewTitle}` : `Interview · ${interviewTitle}`,
+        endpoint: editingId ? `/questionnaire/interviews/${editingId}` : "/questionnaire/interviews",
+        method: editingId ? "PATCH" : "POST",
         body: interviewPayload,
         media: [
           {
@@ -814,6 +966,18 @@ function QuestionnairePageBody() {
       });
       if (outcome.queued) {
         // OutboxBanner at the top of the page names the entry and says where it lives.
+        if (editingId) {
+          // A QUEUED EDIT LEAVES EDIT MODE, and the form must not keep the corrected record on
+          // screen: the PATCH is banked and has not been applied yet, so a form still showing that
+          // interview invites a second correction written against a row the server has not seen the
+          // first one for. `resetToCreate` drops the whole edit, including the artisan set — the
+          // head-stays-ticked rule below is a CREATE convenience and carrying an old sitting's
+          // artisans into the next blank form is not the same thing at all.
+          resetToCreate();
+          setSaving(false);
+          if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+          return;
+        }
         formElement.reset();
         clearHeaderBoxes();
         setAnswers({});
@@ -866,6 +1030,24 @@ function QuestionnairePageBody() {
       // Cleared only once every question has been pushed, so the tray's page-level total counts the
       // whole run rather than shrinking back to whichever question is uploading right now.
       setQuestionProgress({});
+      if (editingId) {
+        /*
+          AN EDIT BANKS NOTHING AND CARRIES NOTHING FORWARD.
+
+          The carry bag exists so the NEXT capture opens on the artisan the researcher is sitting in
+          front of. Correcting a sitting recorded last week is no evidence of where anybody is now,
+          and re-arming the bag from it would hand the next blank form a stale workshop and a stale
+          artisan — the carry banner would then announce a context the researcher never chose.
+
+          The form drops back to create mode rather than staying open on the record. Leaving it open
+          would be defensible, but every other inline form in this repository closes on save, and a
+          form that still shows a saved record is the one that invites a second save of the same
+          edit. The table below re-reads so the corrected row is visible straight away.
+        */
+        resetToCreate();
+        await loadInterviews();
+        return;
+      }
       // Bank the sitting: the interview does not become part of the carried context (nothing else
       // links to one) but the artisan it was taken with is exactly where the researcher still is.
       //
@@ -942,6 +1124,25 @@ function QuestionnairePageBody() {
     [artisanScope.scoped, knownArtisans, selectedArtisanIds]
   );
 
+  /**
+   * THE ROWS THE INSTRUMENT PICKER OFFERS, AND THE ONE IT MUST NEVER LOSE.
+   *
+   * `GET /questionnaires` is asked with `activeOnly`, so an instrument retired since a sitting was
+   * filed is NOT in `instruments` — and an edit form whose picker cannot draw its own record's
+   * instrument shows a blank where the answer is, on a control the researcher cannot correct
+   * because it is disabled. The record's own hydrated row is merged back in for exactly that case.
+   *
+   * Same rule the artisan options keep: a selection is never absent from the offer that describes
+   * it. The handset does this merge too — see `instrumentOptions` in `MainActivity.kt`, which this
+   * mirrors deliberately so a researcher comparing a laptop against a handset sees one list.
+   */
+  const instrumentOptions = useMemo(() => {
+    const rows = [...instruments];
+    const own = editing?.questionnaire ?? null;
+    if (own && !rows.some((row) => row.id === own.id)) rows.push(own);
+    return rows;
+  }, [instruments, editing]);
+
   return (
     <>
       <PageHeader
@@ -954,8 +1155,49 @@ function QuestionnairePageBody() {
       {/* 1) Completion matrix — top of the page, collapsed by default. */}
       <CompletionMatrixPanel canOverride={adminMode && isAdmin(user)} questionnaireId={questionnaireId} />
 
-      <form onSubmit={submit} onKeyDown={handleFormEnter} className="panel mb-5 grid gap-4 p-4">
-        <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
+      {/*
+        KEYED ON THE RECORD, so arriving at `?edit=<id>` REMOUNTS the form rather than re-rendering
+        it. That is what re-seeds the uncontrolled half — "Interview notes", the status select, the
+        location and capture rows — from the `defaultValue`s below; a re-render would leave them
+        showing whatever the previous occupant of the form had typed. `"new"` and not `undefined`
+        for the create case, so cancelling an edit is also a remount and cannot leave one edited
+        box behind on a form that says it is blank. Same rule the other three inline forms keep.
+      */}
+      <form
+        key={editing?.id ?? "new"}
+        ref={formRef}
+        onSubmit={submit}
+        onKeyDown={handleFormEnter}
+        // scroll-mt-28 clears the island nav when `?edit=` scrolls this form into view (§AppShell pt-24).
+        className="panel mb-5 grid gap-4 p-4 scroll-mt-28"
+      >
+        {editing ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-field-300 bg-field-100 px-3 py-2">
+            <div className="text-sm text-ink-700">
+              <span className="font-semibold text-ink-900">Editing interview</span>
+              <span className="px-1.5 text-ink-500">·</span>
+              <span>{editing.title || "Untitled interview"}</span>
+              {/* Which instrument it is on, because the picker below is disabled and cannot say it. */}
+              {editing.questionnaire?.title ? (
+                <span className="block text-xs text-ink-500">On {editing.questionnaire.title}</span>
+              ) : null}
+              <span className="block text-xs text-ink-500">
+                Saving updates this interview. Recordings already attached are kept; anything added below is
+                uploaded alongside them.
+              </span>
+            </div>
+            <button type="button" className="field-button-secondary" onClick={resetToCreate} disabled={saving}>
+              Cancel edit
+            </button>
+          </div>
+        ) : null}
+        {deepLinkLoading ? (
+          <div className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-500">
+            Loading that interview...
+          </div>
+        ) : null}
+        {/* The carried context seeds a NEW sitting; on an edit the record itself is the context. */}
+        {editing ? null : <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />}
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
           {/*
             THE ONE PLACE THIS PAGE EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.
@@ -1035,7 +1277,15 @@ function QuestionnairePageBody() {
             <Select
               name="questionnaireId"
               value={questionnaireId ?? ""}
-              disabled={saving || instruments.length === 0}
+              /*
+                DISABLED ON AN EDIT, AND IT IS THE API'S RULE RATHER THAN A UI CHOICE.
+                `QuestionnaireInterviewUpdate` carries no `questionnaireId` — a sitting is half of
+                @@unique([questionnaireId, artisanSetKey]) and its answers are keyed to THIS
+                instrument's question ids, so moving it would orphan every one of them. The handset
+                disables the same control on an edit for the same reason; `submit` above leaves the
+                field out of the PATCH body, and this is the half that stops it being asked for.
+              */
+              disabled={saving || Boolean(editing) || instrumentOptions.length === 0}
               onChange={(event) => {
                 // An explicit pick, so the workshop effect stops moving it. See instrumentTouched.
                 instrumentTouched.current = true;
@@ -1043,17 +1293,25 @@ function QuestionnairePageBody() {
                 void loadMeta(event.target.value);
               }}
             >
-              {instruments.map((instrument) => (
+              {instrumentOptions.map((instrument) => (
                 <option key={instrument.id} value={instrument.id}>
                   {instrument.title}
                   {instrument.id === boundInstrumentId ? " (this workshop)" : ""}
                 </option>
               ))}
             </Select>
+            {editing ? (
+              <p className="text-xs text-ink-500">
+                An interview stays on the questionnaire it was taken on. Delete it and take a new one to
+                move it.
+              </p>
+            ) : null}
           </Field>
           <Field label="Status">
             {canPickStatus ? (
-              <Select name="status" defaultValue="APPROVED">
+              /* An edit opens on the status the record already carries, not on the create default —
+                 re-approving a REJECTED sitting has to be something somebody chose on screen. */
+              <Select name="status" defaultValue={editing?.status ?? "APPROVED"}>
                 {["DRAFT", "PENDING", "APPROVED", "REJECTED"].map((status) => (
                   <option key={status}>{status}</option>
                 ))}
@@ -1216,13 +1474,37 @@ function QuestionnairePageBody() {
         </div>
         {/* The theme defines exactly three amber tokens (100/500/800); 50/200/300/700 are not
             Tailwind classes here and silently render as nothing. */}
-        {existingEntry ? (
+        {/*
+          NOT SHOWN WHEN THE ENTRY IT FOUND IS THE ONE BEING EDITED, which on an edit is the usual
+          case: the lookup keys on the artisan set and the instrument, and an open edit normally
+          still has both of the record's own. Left in, this panel would announce the record to
+          itself and promise that saving "adds to" it, over a form that is about to PATCH it.
+
+          A DIFFERENT entry for the same set is still worth saying, and says something ELSE on an
+          edit than on a create. Creating folds into the existing sitting — that is the
+          one-entry-per-set rule working. Editing INTO an occupied set cannot fold: it would have to
+          make the pair (questionnaireId, artisanSetKey) collide, which @@unique refuses, so the
+          save comes back 409. Telling the researcher that before they press the button is the
+          difference between a warning and a postmortem.
+        */}
+        {existingEntry && existingEntry.id !== editing?.id ? (
           <section className="rounded-lg border border-amber-500 bg-amber-100 p-4">
             <h3 className="font-display font-bold text-lg text-amber-800">A shared entry already exists for this set of artisans</h3>
             <p className="mt-1 text-sm text-amber-800">
-              There is one questionnaire entry per set of artisans. Saving below adds your answers and media to{" "}
-              <span className="font-medium">{existingEntry.title}</span> — it will not create a duplicate. Questions
-              already answered by someone else are shown here and can only be changed by that contributor or an admin.
+              {editing ? (
+                <>
+                  Another interview — <span className="font-medium">{existingEntry.title}</span> — already covers this
+                  exact set of artisans on this questionnaire. There is one entry per set, so saving this edit with
+                  these artisans ticked will be refused. Put the original artisans back, or cancel and edit that
+                  interview instead.
+                </>
+              ) : (
+                <>
+                  There is one questionnaire entry per set of artisans. Saving below adds your answers and media to{" "}
+                  <span className="font-medium">{existingEntry.title}</span> — it will not create a duplicate. Questions
+                  already answered by someone else are shown here and can only be changed by that contributor or an admin.
+                </>
+              )}
             </p>
             {existingEntry.responses && existingEntry.responses.length > 0 ? (
               <div className="mt-3 grid gap-2">
@@ -1444,12 +1726,31 @@ function QuestionnairePageBody() {
             </details>
           ))}
         </div>
-        <MultiNoteField name="notes" label="Interview notes" />
-        <div>
+        {/* `defaultValue` is read once per mount, which is why the form above is keyed on the record. */}
+        <MultiNoteField name="notes" label="Interview notes" defaultValue={editing?.notes ?? null} />
+        <div className="flex flex-wrap items-center gap-2">
           <button className="field-button" disabled={saving}>
-            <Plus className="h-4 w-4" aria-hidden />
-            {saving ? "Saving..." : existingEntry ? "Add to shared entry" : "Save interview"}
+            {editing ? <Save className="h-4 w-4" aria-hidden /> : <Plus className="h-4 w-4" aria-hidden />}
+            {/*
+              `editing` IS TESTED BEFORE `existingEntry`, and that order is load-bearing. The
+              shared-entry offer is the one-interview-per-artisan-set rule: it fires when the ticked
+              set already has a sitting on this instrument. On an edit the set very often still
+              matches the record being edited, so `existingEntry` is that same record — and the
+              button would read "Add to shared entry" while the form is in fact about to PATCH it.
+            */}
+            {saving
+              ? "Saving..."
+              : editing
+                ? "Update interview"
+                : existingEntry
+                  ? "Add to shared entry"
+                  : "Save interview"}
           </button>
+          {editing ? (
+            <button type="button" className="field-button-secondary" onClick={resetToCreate} disabled={saving}>
+              Cancel
+            </button>
+          ) : null}
         </div>
       </form>
 
@@ -1525,14 +1826,33 @@ function QuestionnairePageBody() {
                       {formatDate(interview.interviewDate ?? interview.recordedAt ?? interview.createdAt)}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {adminMode ? (
-                        <RowActions>
+                      <RowActions>
+                        {/*
+                          EDIT IS OFFERED TO EVERYONE, AND DELETE IS STILL NOT.
+
+                          The server's own `guard_record_edit` decides whether this account may write
+                          to this interview, and a refusal arrives in the page's error banner saying
+                          so. Gating the link on `adminMode` would hide it from the researcher who
+                          TOOK the sitting, who is the person most likely to be fixing a name or
+                          finishing an answer — and this page's whole purpose is their capture.
+                          Deleting is the irreversible one and stays where it was.
+
+                          A LINK AND NOT A BUTTON, so it is the same `?edit=` navigation the data
+                          browser, the dashboard and search all produce — one route into editing, and
+                          one that survives a refresh or being shared.
+                        */}
+                        <Link className={rowAction()} href={`/questionnaire?edit=${interview.id}`}>
+                          <Pencil className="h-3.5 w-3.5" aria-hidden />
+                          Edit
+                        </Link>
+                        {adminMode ? (
                           <button className={rowAction("danger")} onClick={() => remove(interview.id)}>
                             Delete
                           </button>
-                        </RowActions>
-                      ) : (
-                        <span className="text-xs text-ink-500">Admin view only</span>
+                        ) : null}
+                      </RowActions>
+                      {adminMode ? null : (
+                        <span className="sr-only">Deleting is available in admin view only</span>
                       )}
                     </td>
                   </tr>

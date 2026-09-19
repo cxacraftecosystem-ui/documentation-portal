@@ -5608,13 +5608,73 @@ private fun InterviewEditLoader(
     onDone: () -> Unit
 ) {
     var detail by remember(recordId) { mutableStateOf<QuestionnaireInterviewDetailDto?>(null) }
+    /**
+     * WHETHER [sections] DESCRIBE THIS RECORD'S OWN INSTRUMENT YET — the whole point of this loader.
+     *
+     * THE DEFECT THIS CLOSES, reported as *"on the edit page, the sections of the 2nd workshop are
+     * rendering even though the 3rd is selected in the dropdown"*.
+     *
+     * `sections` arrives as a PARAMETER, hoisted to the screen and filled by the startup
+     * `questionnaireSections()` call — which names no instrument, so the server resolves it by the
+     * three-step rule and lands on the DEFAULT. The default is still the 2nd workshop's instrument.
+     * Nothing then moved it: this loader never asked for the record's own sections, and the effect
+     * inside [QuestionnaireForm] that would normally follow the instrument is guarded by
+     * `if (isEdit || instrumentTouched) return` — deliberately, because on an edit the picker must
+     * not chase the workshop's binding. So the form drew the picker from the RECORD
+     * (`editing?.questionnaireId`, correctly the 3rd) and the questions from the SCREEN (the 2nd).
+     * One form, two instruments, and the section codes collide completely, so nothing looked wrong.
+     *
+     * WHAT THE RESEARCHER ACTUALLY SAW, which is worse than a mislabelled heading. `answers` is
+     * seeded by matching `editing.responses` against the id of each rendered question; the record's
+     * answers carry the 3rd instrument's question ids and the rendered questions were the 2nd's, so
+     * NOTHING matched and every box came up blank. Their answers were not lost — they were simply
+     * not on screen. Typing into those boxes and saving then sent the 2nd instrument's question ids
+     * for a 3rd-instrument sitting, which `upsert_responses` refuses with a 422 telling them to
+     * "reload the questionnaire and try again" — a thing this screen gave them no way to do. The
+     * backend guard is what kept it from corrupting anything; it is not a reason to leave the
+     * client sending the wrong ids.
+     *
+     * HELD, NOT PATCHED AFTERWARDS. The form is not composed until this is true, so the wrong
+     * instrument's questions are never rendered even for one frame — a form that draws 24 blank
+     * boxes and then swaps them for 22 different ones underneath a researcher who has begun typing
+     * is its own defect. `remember(recordId)` so opening a second interview re-arms the wait rather
+     * than inheriting the first record's answer.
+     */
+    var sectionsReady by remember(recordId) { mutableStateOf(false) }
+    /** Set when the instrument's sections could not be fetched, so the wait can end in a sentence. */
+    var sectionsError by remember(recordId) { mutableStateOf<String?>(null) }
     LaunchedEffect(recordId) {
         runCatching { repository.interview(recordId) }
-            .onSuccess { detail = it }
+            .onSuccess { loaded ->
+                detail = loaded
+                /*
+                  THE RECORD'S OWN INSTRUMENT, NAMED. `questionnaireId` is NOT NULL server-side and
+                  never changes, so this is the id the sitting's answers are keyed to. Passing null
+                  when the column is somehow absent preserves the old behaviour exactly — the server
+                  resolves it — rather than inventing an instrument for a record that does not name
+                  one.
+                */
+                runCatching { onRefreshSections(loaded.questionnaireId) }
+                    .onSuccess { sectionsReady = true }
+                    .onFailure {
+                        // SAID OUT LOUD AND NOT SWALLOWED. The alternative to a sentence here is a
+                        // form drawing another instrument's questions, which is the defect itself.
+                        sectionsError = it.message ?: "Couldn't load this interview's questionnaire."
+                    }
+            }
             .onFailure { onError(it.message ?: "Unable to load interview") }
     }
     val d = detail
-    if (d == null) {
+    val failure = sectionsError
+    if (failure != null) {
+        RecordCard(title = "Edit interview") {
+            Text(
+                "This interview's questionnaire could not be loaded, so its questions cannot be shown. " +
+                    "Check your connection and open it again. ($failure)",
+                color = Muted
+            )
+        }
+    } else if (d == null || !sectionsReady) {
         LoadingCard(EntryMode.QUESTIONNAIRE)
     } else {
         QuestionnaireForm(
@@ -5625,7 +5685,19 @@ private fun InterviewEditLoader(
             editing = d,
             adminView = adminView,
             onRefreshSections = onRefreshSections,
-            onSubmit = { repository.createQuestionnaireInterview(it).id },
+            /*
+              UNREACHABLE ON THIS PATH, AND DELIBERATELY NOT A CREATE. [QuestionnaireForm] branches
+              on `editing != null` and calls `repository.updateQuestionnaireInterview` instead, so
+              this lambda is never invoked while a record is open for editing.
+
+              It raises rather than POSTing because of what the previous line would do if that
+              branch were ever edited: silently file a SECOND sitting for the artisan set instead of
+              correcting the one on screen. That is precisely the defect the web page shipped with
+              for months, and the one nobody noticed because it answered 201. `QuestionnaireForm`
+              wraps the save in `runCatching`, so this surfaces through `onError` as a sentence
+              rather than as a crash — loud, recoverable, and impossible to mistake for success.
+            */
+            onSubmit = { error("An open edit must PATCH the interview, never create a second one.") },
             onError = onError,
             onSaved = onDone
         )
