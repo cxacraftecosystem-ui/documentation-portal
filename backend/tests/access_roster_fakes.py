@@ -213,6 +213,22 @@ class FakeTable:
             self.writes.append(("delete", dict(where)))
         return row
 
+    async def delete_many(self, where: dict[str, Any] | None = None, **_: Any) -> int:
+        """The set-shaped delete, beside the set-shaped ``update_many`` already above it.
+
+        Added for ``routes/questionnaire.merge_interview_into``, which clears the response rows that
+        cannot travel (``@@unique([interviewId, questionId])`` allows one row per question per
+        interview, so a row moving onto a question the survivor already holds has to be reconciled
+        first) in ONE statement rather than one per answer. Modelled exactly as ``update_many`` is:
+        it implements the QUERY — ``_matches`` decides membership, including the ``{"in": [...]}``
+        shape that route uses — and it decides nothing.
+        """
+        doomed = [row for row in self.rows if _matches(row, where)]
+        for row in doomed:
+            self.rows.remove(row)
+        self.writes.append(("delete_many", dict(where or {})))
+        return len(doomed)
+
 
 #: Column defaults for the questionnaire container and its children, mirroring prisma/schema.prisma
 #: exactly as USER_DEFAULTS does. A column added to a model shows up in one place.

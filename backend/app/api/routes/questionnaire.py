@@ -36,7 +36,11 @@ from app.core.deps import (
     require_admin,
     require_questionnaire_manager,
 )
-from app.services.access import guard_record_edit, owner_download_scope
+from app.services.access import (
+    guard_record_edit,
+    owner_download_scope,
+    record_edit_privilege,
+)
 from app.schemas.questionnaire import (
     MAX_HELP_CHARS,
     CompletionCellUpdate,
@@ -200,6 +204,76 @@ _DUPLICATE_SET_DETAIL = (
     "artisan set — open it to add or view answers instead of creating another."
 )
 
+#: The stable discriminator on that 409's body. A client branches on THIS and never on the prose
+#: above: the sentence is written for a human, has been reworded before, and any client that greps
+#: it for "already exists" silently stops offering the move the next time somebody improves it.
+_DUPLICATE_SET_CODE = "artisan_set_taken"
+
+
+async def duplicate_set_conflict(interview_id: str, set_key: str | None) -> HTTPException:
+    """The 409 for "this artisan set is already taken" — NAMING THE INTERVIEW THAT HOLDS IT.
+
+    THE PROSE ALONE WAS NOT ENOUGH TO ACT ON, and that is the whole reason this exists. Two
+    researchers recorded one artisan set as two sittings titled by the sections they covered
+    ("D Black Pottery" and an "F" one — see :func:`section_codes_from_title`, which documents that
+    practice); the F sitting had missed an artisan. Adding that artisan makes F's set key equal D's,
+    and the refusal a client could read said only that *an* interview exists. It could not say
+    WHICH, so it could not offer "D Black Pottery already covers this set — move this interview's
+    sections and recordings into it?", and the researcher had no way forward at all.
+
+    ``holder`` is ``{"id", "title"}`` under exactly those keys, or ``None`` when the holder cannot
+    be identified (a concurrent delete, or a NULL set key — those are not deduped). ``None`` is the
+    honest answer and is distinguishable from a holder that is merely untitled; a client that gets
+    it falls back to printing ``message``, which is what every client does today.
+
+    TWO READS, ON THE FAILURE PATH ONLY, AND THEY ARE SAFE HERE FOR A REASON THAT IS NOT PORTABLE.
+    A unique violation aborts the enclosing transaction in Postgres, so issuing another statement
+    after one is a second error rather than an answer — the sibling designer-portal's copy of this
+    refusal runs inside ``db.tx()`` and must build its body from what the caller already holds. This
+    backend has no transaction idiom at all (zero ``db.tx()`` call sites, see
+    ``services/questionnaire_seeding``), so the violation kills one statement and nothing else, and
+    these two reads answer normally. Anyone porting this into a transaction must move the lookup.
+    """
+    holder: dict[str, Any] | None = None
+    if set_key:
+        interview = await db.questionnaireinterview.find_unique(where={"id": interview_id})
+        # SCOPED BY INSTRUMENT, because the index is. `@@unique([questionnaireId, artisanSetKey])`
+        # (schema.prisma:1461) is what was violated, so the row that holds the set is the one on
+        # THIS sitting's instrument — an unscoped lookup would name the other instrument's sitting,
+        # and a client would then offer to move an interview into a questionnaire it was never
+        # asked against. See migration 20260913100000 for why the scope moved.
+        questionnaire_id = get_value(interview, "questionnaireId") if interview else None
+        if questionnaire_id:
+            row = await db.questionnaireinterview.find_first(
+                where={"questionnaireId": questionnaire_id, "artisanSetKey": set_key}
+            )
+            if row is not None and get_value(row, "id") != interview_id:
+                holder = {"id": get_value(row, "id"), "title": get_value(row, "title")}
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        # A DICT, KEEPING THE SENTENCE, IN THE SHAPE THIS REPOSITORY ALREADY USES FOR EXACTLY THIS
+        # — `routes/artisans._identity_conflict`, which is the same problem one table over: a unique
+        # index refused the save, and the refusal carries the record that holds the value so the
+        # form can offer to open it instead. Same three parts, same order: a snake_case `code`, the
+        # human `message`, and the named record. Copying that shape rather than inventing a second
+        # one is what makes the web client work UNCHANGED: `frontend/lib/api.describeApiDetail`
+        # already unpacks `{message: …}` out of an object detail (it was written for the artisan
+        # conflict above), so the prose keeps rendering on every screen and only the new `holder`
+        # half needs client code. Nothing in this repository or either client read the old bare
+        # string (grepped 2026-09-20).
+        #
+        # The SENTENCE IS UNCHANGED even when the holder is known — deliberately, where the artisan
+        # conflict rewrites its message to name the artisan. The naming sentence the researcher sees
+        # ("D Black Pottery already covers this set. Move this interview's sections and recordings
+        # into it?") is an OFFER with a button on it, and it belongs to the client that owns the
+        # button; the server's job is to hand over the title it needs to write it.
+        detail={
+            "code": _DUPLICATE_SET_CODE,
+            "message": _DUPLICATE_SET_DETAIL,
+            "holder": holder,
+        },
+    )
+
 
 def artisan_set_key(artisan_ids: list[str]) -> str | None:
     """Deterministic key for the exact set of artisans an interview covers.
@@ -327,7 +401,9 @@ async def replace_interview_artisans(interview_id: str, artisan_ids: list[str]) 
             where={"id": interview_id}, data={"artisanSetKey": set_key}
         )
     except UniqueViolationError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_DUPLICATE_SET_DETAIL) from exc
+        # NAMES THE HOLDER. The refusal stands — this edit still does not happen — but the body now
+        # carries what a client needs to offer the move instead of only printing prose.
+        raise (await duplicate_set_conflict(interview_id, set_key)) from exc
     await db.questionnaireinterviewartisan.delete_many(where={"interviewId": interview_id})
     if unique_ids:
         await db.questionnaireinterviewartisan.create_many(
@@ -861,7 +937,19 @@ async def list_interviews(
         order={"createdAt": "desc"},
         relations=RELATIONS,
     )
-    return page_payload(public_encode(items), total, page, page_size)
+    # THE VIEWER, exactly as `routes/artisans.py` passes it (:358, :392, :402, :476) and for the
+    # second of the two reasons that encoder takes one. Without it `public_encode` masks every
+    # embedded artisan's Aadhaar AND — the half this route actually depends on — drops `url`,
+    # `publicUrl` and `objectKey` from every media node, because no viewer means "withhold every
+    # URL" (services/records.py:248-252, the safe default a route reaches by NOT thinking about
+    # it). An interview on this instrument IS largely its recordings, so a saved interview came
+    # back with its clips listed and unplayable: the client held the media rows and had no URL to
+    # draw them from. `media_urls` is left to the encoder's own derivation, which is what the
+    # record routes do — every URL for professor-and-above and for a dataset downloader, the
+    # caller's own uploads otherwise. `media_url_owners` is the media LIST's answer, one query
+    # dearer, and copying it here would be the second spelling of one rule this repository keeps
+    # paying for.
+    return page_payload(public_encode(items, current_user), total, page, page_size)
 
 
 # Scalar fields a "create for an existing set" may back-fill on the canonical interview — but ONLY
@@ -919,7 +1007,10 @@ async def merge_into_interview(
             existing.id, payload.responses, current_user, get_value(existing, "questionnaireId")
         )
     await hydrate_relations([canonical], RELATIONS)
-    return public_encode(canonical)
+    # The viewer, for the reason `list_interviews` states in full. A fold ANSWERS WITH THE
+    # CANONICAL ROW so the client attaches its media to the shared entry — which it cannot do
+    # while the recordings already on that row come back without a URL to play them from.
+    return public_encode(canonical, current_user)
 
 
 @questionnaire_router.post("/interviews", status_code=status.HTTP_201_CREATED)
@@ -1017,7 +1108,8 @@ async def create_interview(
     # The row we just inserted IS the response; only its links and answers were written afterwards,
     # and those load in one wave here instead of a re-read followed by six more statements.
     await hydrate_relations([created], RELATIONS)
-    return public_encode(created)
+    # The viewer, for the reason `list_interviews` states in full.
+    return public_encode(created, current_user)
 
 
 @questionnaire_router.get("/interviews/by-artisans")
@@ -1025,7 +1117,7 @@ async def interview_for_artisan_set(
     artisanIds: list[str] = Query(default=[]),
     questionnaireId: str | None = None,
     workshopId: str | None = None,
-    _: Any = Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any] | None:
     """The single canonical interview for an EXACT set of artisans ON ONE INSTRUMENT, or ``null``.
 
@@ -1055,7 +1147,10 @@ async def interview_for_artisan_set(
     if not interview:
         return None
     await hydrate_relations([interview], RELATIONS)
-    return public_encode(interview)
+    # The viewer, for the reason `list_interviews` states in full. THIS route is the one the capture
+    # page calls before it offers to join a shared entry, so the recordings it shows as already
+    # gathered are exactly the ones that were coming back unplayable.
+    return public_encode(interview, current_user)
 
 
 COMPLETION_STATUSES = {"COMPLETED", "NEEDS_REVIEW", "NEEDS_REDO"}
@@ -1338,10 +1433,14 @@ async def set_completion_cell(
 
 
 @questionnaire_router.get("/interviews/{interview_id}")
-async def get_interview(interview_id: str, _: Any = Depends(get_current_user)) -> dict[str, Any]:
+async def get_interview(
+    interview_id: str, current_user: Any = Depends(get_current_user)
+) -> dict[str, Any]:
     interview = await require_record(db.questionnaireinterview, interview_id)
     await hydrate_relations([interview], RELATIONS)
-    return public_encode(interview)
+    # The viewer, for the reason `list_interviews` states in full. The dependency was named `_`
+    # while the value was genuinely unused; it is used now, so it is named.
+    return public_encode(interview, current_user)
 
 
 @questionnaire_router.patch("/interviews/{interview_id}")
@@ -1385,7 +1484,250 @@ async def update_interview(
     # in one parallel wave rather than letting the include walk them one after another.
     updated = await db.questionnaireinterview.find_unique(where={"id": interview_id})
     await hydrate_relations([updated], RELATIONS)
-    return public_encode(updated)
+    # The viewer, for the reason `list_interviews` states in full.
+    return public_encode(updated, current_user)
+
+
+#: The two columns of one answer that hold a researcher's words. A merge may FILL either where the
+#: surviving row is empty and must REFUSE where both rows have said something different — per
+#: column, because "same answer, extra note on one side" is a complement and not a disagreement.
+_RESPONSE_TEXT_FIELDS = ("answerText", "notes")
+
+_MERGE_CONFLICT_CODE = "merge_answer_conflict"
+
+
+@questionnaire_router.post("/interviews/{interview_id}/merge-into/{target_id}")
+async def merge_interview_into(
+    interview_id: str,
+    target_id: str,
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Move this interview's answers and recordings onto ``target_id``, then remove this interview.
+
+    LET AN EDIT FOLD, AS A CREATE ALREADY DOES — EXPLICITLY, NEVER SILENTLY. A create for a taken
+    artisan set folds into the canonical row on its own (:func:`merge_into_interview`); an edit that
+    arrives at the same set could not fold at all, and answered 409 with no way forward. That is the
+    real case this exists for: two researchers recorded one artisan set as two sittings titled by
+    the sections they covered, the "F" one had missed an artisan, and adding that artisan made F's
+    set key equal D's. THE REFUSAL STILL STANDS — ``PATCH`` is unchanged and still refuses — and the
+    fold happens only when a client, having read the holder off that 409, calls THIS route. The
+    confirmation is the call.
+
+    ── THE GATE IS THE ONE AN EDIT OF ``interview_id`` ALREADY PASSES, AND NOT A NEW ONE ──
+
+    :func:`record_edit_privilege` (the question :func:`guard_record_edit` answers on its way past,
+    asked early so a refusal below costs no ledger row), and for a caller it answers "no" to,
+    ``deps.assert_can_contribute_relation`` — the SAME pair, in the same order, that
+    :func:`update_interview` applies to ``artisanIds`` a few lines above. That is the right
+    predicate because a merge is precisely what that guard is about: it empties this interview's
+    populated relations onto another row and then removes the row itself, which is the strongest
+    change to a record anybody but its author or an admin can be asking for. ``populated`` is passed
+    ``True`` unconditionally for that reason — not derived from whether there happen to be answers
+    to move — since the removal alone is already more than a contributor may do to someone else's
+    sitting. No new permission is introduced and none is relaxed: whoever may edit this interview
+    today, and nobody else, may fold it.
+
+    THE TARGET IS NOT GATED SEPARATELY, and that is deliberate and not an oversight. The create-path
+    fold writes onto a canonical row belonging to somebody else with no target-side check either;
+    what protects the target THERE is that a fold can only ever fill what is empty. The same rule is
+    what protects it here — a populated answer on the surviving row is never overwritten, it is
+    either matched, complemented, or refused below — so the two paths are safe for one reason
+    rather than two.
+
+    ── WHAT IT REFUSES ──
+
+    * A different instrument on either side: 422. The surviving row's answers must belong to the
+      questions the sitting was actually taken on, and the two halves of
+      ``@@unique([questionnaireId, artisanSetKey])`` only ever collide within one instrument
+      anyway, so a cross-instrument merge cannot be the fold this route exists for.
+    * ITSELF: 422. A self-merge would otherwise delete the row after moving its rows onto itself.
+    * **BOTH ROWS ANSWERING ONE QUESTION WITH DIFFERENT TEXT: 409, naming every such question.**
+      Nothing is written. Picking a winner would destroy a researcher's words under a 200, which is
+      the worst outcome available here and the one thing this route must never do — a 409 costs the
+      client one screen and costs nobody their work. Identical text is not a conflict; an answer
+      only one side gave is not a conflict.
+
+    ── THE WRITE ORDER IS THE ATOMICITY, BECAUSE THERE IS NO TRANSACTION TO BE ATOMIC WITH ──
+
+    This backend has zero ``db.tx()`` call sites, so these five writes cannot be wrapped and an
+    interruption between any two of them is a real state somebody will be left holding. The order is
+    chosen so that EVERY such state is recoverable and none of them loses or orphans anything:
+
+    1. delete the rows that cannot travel — source rows the survivor already says word for word, and
+       EMPTY survivor rows about to be replaced by a real answer. Nothing here holds words.
+    2. move the remaining answers. Stop here and they are on the survivor; the source still exists.
+    3. fill the survivor's silent columns from the source rows being retired.
+    4. repoint the media. Stop here and the clips are on the survivor; the source still exists.
+    5. only now delete the source, whose responses and media are no longer its own.
+
+    At no point is a recording attached to a row that has gone, and at no point are a researcher's
+    words in neither place. The worst interruption leaves an emptied source interview still standing
+    — visibly wrong, losing nothing, and finished by repeating the same call, which is why the whole
+    route is safe to retry. Re-ordering these (deleting the row earlier, say) trades that for
+    ``onDelete: SetNull`` orphaning every clip, which is the failure this ordering exists to avoid.
+
+    Answers with the SURVIVING interview, hydrated and encoded for this viewer, so the client can
+    redraw the whole screen from the response rather than guessing what the move produced.
+    """
+    if interview_id == target_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="An interview cannot be merged into itself.",
+        )
+    source = await require_record(db.questionnaireinterview, interview_id)
+    target = await require_record(db.questionnaireinterview, target_id)
+
+    # SAME INSTRUMENT, CHECKED BEFORE THE GATE so a caller who may edit neither row still learns the
+    # cheap, non-sensitive fact first and does not have a ledger row written for a doomed merge.
+    if get_value(source, "questionnaireId") != get_value(target, "questionnaireId"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "These two interviews were taken on different questionnaires. Answers cannot move "
+                "between instruments — they would land under questions the sitting was never asked."
+            ),
+        )
+
+    # The gate. Asked through `record_edit_privilege` rather than `guard_record_edit` so that every
+    # refusal below happens before ANYTHING is written: `guard_record_edit` ends in `record_revision`
+    # and this backend has no transaction to take a ledger row back with. It is called for real, with
+    # this same answer handed to it, immediately before the first write.
+    privileged = await record_edit_privilege(source, current_user, "questionnaire")
+    if not privileged:
+        assert_can_contribute_relation(source, current_user, True, "responses")
+
+    source_rows, target_rows = await gather_reads(
+        db.questionnaireresponse.find_many(where={"interviewId": interview_id}),
+        db.questionnaireresponse.find_many(where={"interviewId": target_id}),
+    )
+    surviving = {get_value(row, "questionId"): row for row in target_rows}
+
+    # One verdict per answer on the interview being folded away.
+    conflicts: list[dict[str, Any]] = []
+    #: question ids whose source row travels WHOLESALE — text, author and timestamps together.
+    movable: list[str] = []
+    #: (surviving row id, columns to fill) where the survivor is silent and the source is not.
+    fills: list[tuple[str, dict[str, Any]]] = []
+    #: rows to delete before the move: empty survivors being replaced, and source rows the survivor
+    #: already says word for word. Both exist because `@@unique([interviewId, questionId])` allows
+    #: exactly one row per question per interview, so two rows for one question cannot both land.
+    stale: list[str] = []
+
+    for row in source_rows:
+        question_id = get_value(row, "questionId")
+        twin = surviving.get(question_id)
+        if twin is None:
+            movable.append(question_id)
+            continue
+        clashing = [
+            field
+            for field in _RESPONSE_TEXT_FIELDS
+            if not is_empty_value(get_value(row, field))
+            and not is_empty_value(get_value(twin, field))
+            and get_value(row, field) != get_value(twin, field)
+        ]
+        if clashing:
+            conflicts.append({"questionId": question_id, "fields": clashing})
+            continue
+        if all(is_empty_value(get_value(twin, field)) for field in _RESPONSE_TEXT_FIELDS) and any(
+            not is_empty_value(get_value(row, field)) for field in _RESPONSE_TEXT_FIELDS
+        ):
+            # The survivor holds an EMPTY row for this question and the source holds the words. Drop
+            # the empty one and let the real one travel, rather than copying text across: the row
+            # that moves keeps its own `answeredById` and its own timestamps, so the researcher who
+            # actually gave the answer stays named as its author.
+            stale.append(get_value(twin, "id"))
+            movable.append(question_id)
+            continue
+        # Same words, or each side holding a different one of the two columns. Fill what is silent
+        # on the survivor and drop the source row, which now says nothing the survivor does not.
+        # `answeredById` is deliberately NOT restamped here: the survivor keeps the author of the
+        # text it already carried, and only an empty column was filled.
+        fill = {
+            field: get_value(row, field)
+            for field in _RESPONSE_TEXT_FIELDS
+            if not is_empty_value(get_value(row, field)) and is_empty_value(get_value(twin, field))
+        }
+        if fill:
+            fills.append((get_value(twin, "id"), fill))
+        stale.append(get_value(row, "id"))
+
+    if conflicts:
+        # NAME THE QUESTIONS, not just the count. A researcher cannot act on "3 answers disagree";
+        # they can act on the section and the prompt, which is what they will read on screen and
+        # what they have to go and reconcile by hand before asking for the move again.
+        questions = await db.questionnairequestion.find_many(
+            where={"id": {"in": sorted({item["questionId"] for item in conflicts})}}
+        )
+        by_id = {get_value(question, "id"): question for question in questions}
+        named = [
+            {
+                "questionId": item["questionId"],
+                "sectionCode": get_value(by_id.get(item["questionId"]), "sectionCode"),
+                "prompt": get_value(by_id.get(item["questionId"]), "prompt"),
+                "fields": item["fields"],
+            }
+            for item in conflicts
+        ]
+        named.sort(key=lambda item: (item["sectionCode"] or "", item["prompt"] or ""))
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": _MERGE_CONFLICT_CODE,
+                "message": (
+                    f"Both interviews answer {len(named)} question(s) differently. Nothing was "
+                    "moved. Reconcile these answers first — whichever wording is right has to be "
+                    "chosen by somebody who was there, not by the server."
+                ),
+                "questions": named,
+            },
+        )
+
+    # NOTHING ABOVE THIS LINE HAS WRITTEN ANYTHING. The ledger entry goes in first, naming the move
+    # and who asked for it, because the row it describes is about to stop existing and this is the
+    # only trace of the fold that outlives it. `privileged` is handed back so the two permission
+    # reads are not repeated — it cannot grant what `record_edit_privilege` did not already find.
+    await guard_record_edit(
+        source, current_user, {"mergedIntoId": target_id}, "questionnaire", privileged=privileged
+    )
+
+    if stale:
+        # BEFORE the move, or a row travelling into a question the survivor already has a row for
+        # violates `@@unique([interviewId, questionId])` and the merge dies half-done.
+        await db.questionnaireresponse.delete_many(where={"id": {"in": sorted(stale)}})
+    if movable:
+        await db.questionnaireresponse.update_many(
+            where={"interviewId": interview_id, "questionId": {"in": sorted(movable)}},
+            data={"interviewId": target_id},
+        )
+    for row_id, fill in fills:
+        await db.questionnaireresponse.update(where={"id": row_id}, data=fill)
+
+    # THE RECORDINGS MOVE TOO, and on this instrument they are most of what an interview IS: the
+    # app's questionnaire clips carry their section in the filename and are the completion signal
+    # for a sitting whose answers were spoken rather than typed (`_derived_completed_sections`
+    # reads them). A merge that moved only responses would move almost nothing — and it would do
+    # worse than nothing, because `MediaFile.questionnaireInterviewId` is `onDelete: SetNull`
+    # (schema.prisma:1118): the delete below would not have taken the clips with the row, it would
+    # have ORPHANED them, leaving those recordings attached to no interview at all.
+    await db.mediafile.update_many(
+        where={"questionnaireInterviewId": interview_id},
+        data={"questionnaireInterviewId": target_id},
+    )
+
+    # Now the row can go. Its artisan links cascade with it (`QuestionnaireInterviewArtisan`,
+    # onDelete: Cascade), which is what frees the artisan set key and leaves ONE row for this set on
+    # this instrument — the premise `by-artisans`, the consolidated view and the shared-entry banner
+    # all rest on. Its responses are no longer its own by this point, so the `onDelete: Cascade` on
+    # `QuestionnaireResponse` has nothing left to take.
+    await db.questionnaireinterview.delete(where={"id": interview_id})
+
+    survivor = await db.questionnaireinterview.find_unique(where={"id": target_id})
+    await hydrate_relations([survivor], RELATIONS)
+    # The viewer, for the reason `list_interviews` states in full — and most of all here: the point
+    # of the move is that the recordings end up on this row, so an answer that listed them without
+    # a URL would be a screen the researcher cannot tell apart from the merge having lost them.
+    return public_encode(survivor, current_user)
 
 
 # --- One artisan's questionnaire, gathered across every interview they sat in --------------------
