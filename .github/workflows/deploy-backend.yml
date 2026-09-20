@@ -40,6 +40,21 @@ on:
 # cancelling mid-deploy is destructive here: the remote script stops the fieldrepo service
 # before running `prisma migrate deploy`, so a run killed in that window can leave the API
 # down with no restart step to come. Queueing is slower and safe; cancelling is not.
+# ─── LEAST PRIVILEGE, AND `actions: read` IS NOT OPTIONAL HERE ───────────────────────────────
+# This file had no `permissions:` block, so the token every step received was the repository
+# default — historically read/WRITE on contents, i.e. a token that can push to main, sitting in a
+# job that also opens a port and holds the production .env. Nothing here writes to the repository.
+#
+#   contents: read   the checkout, and nothing more.
+#   actions: read    `wait-for-checks` and the live-commit lookup read this repository's own
+#                    workflow runs and their jobs through the REST API. That is the only reason
+#                    this scope is here; without it both get a 404 that looks exactly like
+#                    "nothing has run yet" — the live lookup would fail open (harmless, it just
+#                    stops closing the hole) and the wait would sit out its full budget and fail.
+permissions:
+  contents: read
+  actions: read
+
 concurrency:
   group: deploy-backend
   cancel-in-progress: false
@@ -56,10 +71,65 @@ jobs:
       frontend: ${{ steps.detect.outputs.frontend }}
       android: ${{ steps.detect.outputs.android }}
     steps:
-      - name: Checkout (full history so the push range can be diffed)
+      - name: Checkout (full history, so both the push range and the live range can be diffed)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      # ─── WHAT THIS WORKFLOW LAST ACTUALLY PUT ON THE BOX ──────────────────────────────────
+      #
+      # FAIL OPEN, EXACTLY AS deploy-frontend.yml's GATE DOES, AND FOR THE IDENTICAL REASON. Every
+      # path that cannot answer writes an empty string, and an empty answer makes `detect` below
+      # fall back to the push range alone — i.e. to the behaviour this step is fixing, which is
+      # strictly no worse than what shipped before it. Over-deploying costs a build minute;
+      # under-deploying cost two days on f4f6740 and, on 2026-09-20, a 404 in production.
+      #
+      # ⚠ "SUCCEEDED" IS NOT ENOUGH — THE `deploy` JOB MUST HAVE RUN. That is the whole finding. A
+      # run whose `deploy` job was SKIPPED still concludes `success`, and treating it as deployed
+      # would put the baseline on a commit the box has never seen and re-open the hole one level
+      # deeper. So each candidate run's jobs are read and the one named `deploy` is required to
+      # have concluded `success` itself.
+      #
+      # THE CURRENT RUN IS EXCLUDED BY ID. On a re-run of this very workflow the API can already
+      # list it, and a baseline of "this commit" makes every diff empty — the gate would then skip
+      # the deploy it exists to perform, and would do it only on re-runs, which is the worst
+      # possible place for a bug to hide.
+      #
+      # `actions: read` is granted at the workflow level and is already what `wait-for-checks`
+      # uses; this job declares no permissions of its own and needs no new secret.
+      - name: Read the commit this workflow last deployed
+        id: live
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          THIS_RUN: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          api="repos/${GITHUB_REPOSITORY}/actions"
+          live=""
+          reason="no successful deploy of this workflow was found in the last 50 runs"
+
+          # Newest first. `status=success` drops the runs that failed outright; the jobs read below
+          # is what separates "deployed" from "skipped the deploy and went green anyway".
+          runs="$(gh api "${api}/workflows/deploy-backend.yml/runs?status=success&per_page=50" 2>/dev/null || echo '{"workflow_runs":[]}')"
+          candidates="$(printf '%s' "$runs" | jq -r --arg this "$THIS_RUN" '
+            [ .workflow_runs[] | select((.id|tostring) != $this) ] | .[] | "\(.id) \(.head_sha)"
+          ' 2>/dev/null || true)"
+
+          while read -r run_id sha; do
+            [ -n "${run_id:-}" ] || continue
+            jobs="$(gh api "${api}/runs/${run_id}/jobs?per_page=100" 2>/dev/null || echo '{"jobs":[]}')"
+            ran="$(printf '%s' "$jobs" | jq -r '[.jobs[] | select(.name=="deploy" and .conclusion=="success")] | length' 2>/dev/null || echo 0)"
+            if [ "${ran:-0}" -gt 0 ]; then
+              live="$sha"
+              reason="run ${run_id} deployed ${sha}"
+              break
+            fi
+          done <<< "$candidates"
+
+          echo "$reason"
+          echo "sha=${live}" >> "$GITHUB_OUTPUT"
+          echo "reason=${reason}" >> "$GITHUB_OUTPUT"
 
       - name: Detect which areas changed
         id: detect
@@ -67,6 +137,11 @@ jobs:
           EVENT: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
+          # Empty whenever the step above could not answer, or died. An unwritten output reads as
+          # '' and folds into the push-range-only path below, which is the behaviour that shipped
+          # before this change — strictly no worse.
+          LIVE: ${{ steps.live.outputs.sha }}
+          LIVE_REASON: ${{ steps.live.outputs.reason }}
         run: |
           set -euo pipefail
           # Fail SAFE: anything we cannot diff (manual dispatch, first push of a branch,
@@ -82,12 +157,47 @@ jobs:
           else
             files="$(git diff --name-only "$BEFORE" "$AFTER")"
             all=false
-            echo "Changed files:"; printf '%s\n' "$files"
+            echo "Changed files in this push:"; printf '%s\n' "$files"
+          fi
+
+          # ── AND EVERYTHING THE BOX HAS NOT SEEN YET ───────────────────────────────────────
+          #
+          # UNIONED, NEVER SUBSTITUTED. The push range answers "what did this push touch" and is
+          # what the step summary reports to a human; this answers "what has changed since the box
+          # was last written to", which is the only question a DEPLOY decision may be made on.
+          # Adding lines to `files` can only turn an area from false to true, so this cannot
+          # introduce a skipped deploy — the failure mode it exists to remove.
+          #
+          # `git cat-file -e` because the baseline may genuinely be absent from this checkout: a
+          # force-push can orphan it, and the commit of a deploy older than the repository's
+          # history rewrite is not reachable. Absent means UNKNOWN, and unknown means deploy.
+          echo "Last deployed: ${LIVE_REASON:-unknown}"
+          if [ "$all" != "true" ]; then
+            if [ -z "${LIVE:-}" ]; then
+              echo "The commit last deployed could not be read, so every area is treated as changed."
+              all=true
+            elif ! git cat-file -e "${LIVE}^{commit}" 2>/dev/null; then
+              echo "The last deployed commit ${LIVE} is not in this checkout's history; treating all areas as changed."
+              all=true
+            elif [ "$LIVE" = "$AFTER" ]; then
+              echo "The box is already on ${AFTER}; the push range alone decides."
+            else
+              undeployed="$(git diff --name-only "$LIVE" "$AFTER")"
+              echo "Changed since the box was last written to (${LIVE}):"; printf '%s\n' "$undeployed"
+              # A newline between them, and `printf` rather than an echo of two variables, so an
+              # empty half cannot glue two filenames into one line that matches neither pattern.
+              files="$(printf '%s\n%s\n' "$files" "$undeployed" | sort -u)"
+            fi
           fi
 
           area() {
             if [ "$all" = "true" ]; then echo true; return; fi
-            if printf '%s\n' "$files" | grep -Eq "$1"; then echo true; else echo false; fi
+            # A HERESTRING, NOT A PIPE. `grep -q` exits at its FIRST match; if `printf` still holds
+            # bytes the 64 KiB pipe buffer cannot take, it dies of SIGPIPE, `pipefail` (set at the
+            # top of this step) makes the pipeline non-zero even though grep MATCHED, and this
+            # function then answers `false` for an area that DID change — silently skipping the
+            # deploy. The sister repository fixed the identical line for the identical reason.
+            if grep -Eq "$1" <<< "$files"; then echo true; else echo false; fi
           }
           backend=$(area '^(backend/|\.github/workflows/deploy-backend\.yml$)')
           frontend=$(area '^(frontend/|\.github/workflows/deploy-frontend\.yml$)')
@@ -113,12 +223,97 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  deploy:
+  wait-for-checks:
+    name: Wait for Checks on this commit
     needs: changes
-    # Skipped (not failed) when the push did not touch backend/. A skipped job still lets
-    # the workflow run finish as a success, which is what keeps the frontend stage moving
-    # on a frontend-only change. Manual dispatch always deploys.
-    if: ${{ needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch' }}
+    # Push only, and only when a deploy would actually follow. A frontend-only push skips this
+    # for the same reason it skips `deploy` — there is nothing to gate.
+    if: ${{ needs.changes.outputs.backend == 'true' && github.event_name != 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    # A hair over the poll's own 20-minute budget, so the loop's error message (which names what
+    # it was still waiting for) is what a reader sees rather than a bare job cancellation.
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Poll for the gating jobs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ github.sha }}
+          # The three checks.yml jobs branch protection names (see that file's header). JSON
+          # because jq consumes it as a list; a shell string of names with spaces in them is how
+          # this kind of loop quietly starts matching nothing.
+          GATING_JOBS: '["Backend tests","Web typecheck, lint and unit specs","Docs check"]'
+        run: |
+          set -euo pipefail
+          api="repos/${GITHUB_REPOSITORY}/actions"
+          # 60 × 20 s. Twenty minutes is roughly double the measured wall clock of the three
+          # gating jobs, which leaves room for a queued runner without letting a stuck run hold
+          # the box's deploy open indefinitely.
+          for attempt in $(seq 1 60); do
+            # `checks.yml` BY FILENAME. Looking the workflow up by its display name would break
+            # the day somebody edits `name:` at the top of that file, and would break silently —
+            # an empty result is indistinguishable from "not started yet".
+            runs="$(gh api "${api}/workflows/checks.yml/runs?head_sha=${SHA}&per_page=30" 2>/dev/null || echo '{"workflow_runs":[]}')"
+            # Prefer the `push` run for this SHA; fall back to whatever run exists for it. On main
+            # the push run is the one that matters, but a re-run or a dispatch of Checks against
+            # the same commit is just as good an answer and there is no reason to ignore it.
+            run_id="$(printf '%s' "$runs" | jq -r '([.workflow_runs[] | select(.event=="push")][0] // .workflow_runs[0]) | .id // ""')"
+            if [ -z "$run_id" ]; then
+              echo "attempt ${attempt}/60: no Checks run for ${SHA} yet"
+              sleep 20
+              continue
+            fi
+            jobs="$(gh api "${api}/runs/${run_id}/jobs?per_page=100" 2>/dev/null || echo '{"jobs":[]}')"
+            verdict="$(printf '%s' "$jobs" | jq -r --argjson want "$GATING_JOBS" '
+              [ .jobs[] | select(.name | IN($want[])) ]                       as $g
+              | ($want - [ $g[].name ])                                        as $missing
+              | ([ $g[] | select(.status != "completed") | .name ])            as $running
+              | ([ $g[] | select(.status == "completed" and .conclusion != "success") | .name ]) as $bad
+              | if   ($bad | length) > 0     then "fail " + ($bad | join(", "))
+                elif (($missing + $running) | length) > 0 then "wait " + (($missing + $running) | join(", "))
+                else "pass" end')"
+            state="${verdict%% *}"
+            detail="${verdict#* }"
+            case "$state" in
+              pass)
+                echo "Checks passed for ${SHA} — run ${run_id}"
+                echo "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+                ;;
+              fail)
+                echo "::error::Checks failed for ${SHA} (${detail}). Not deploying. See ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
+                exit 1
+                ;;
+              *)
+                echo "attempt ${attempt}/60: still waiting on ${detail}"
+                ;;
+            esac
+            sleep 20
+          done
+          echo "::error::timed out after 20 minutes waiting for the Checks jobs on ${SHA}. Nothing was deployed. If the suite is genuinely this slow now, raise the loop bound here rather than deleting the gate; to ship past it in an emergency, run this workflow from the Actions tab — workflow_dispatch skips the wait by design."
+          exit 1
+
+  deploy:
+    needs: [changes, wait-for-checks]
+    # ─── THE CONDITION HAS TO NAME THE SKIP CASE EXPLICITLY ──────────────────────────────
+    # Skipped (not failed) when the push did not touch backend/ AND the box already runs this
+    # tree's backend. A skipped job still lets the workflow run finish as a success, which is what
+    # keeps the frontend stage moving on a frontend-only change. Manual dispatch always deploys.
+    #
+    # `wait-for-checks` SKIPS ITSELF on a manual dispatch, and GitHub's default is that a job whose
+    # dependency was skipped is skipped too — which would silently turn the emergency override into
+    # "dispatch never deploys". Writing an `if` that contains a status function (`!cancelled()`) is
+    # what removes the implicit `success()` and lets this job judge the results itself, so:
+    #   • wait-for-checks succeeded            → deploy (the normal, gated path)
+    #   • wait-for-checks was skipped          → deploy (manual dispatch, or nothing to gate)
+    #   • wait-for-checks failed or cancelled  → DO NOT deploy
+    if: >-
+      ${{ !cancelled()
+          && needs.changes.result == 'success'
+          && (needs.wait-for-checks.result == 'success' || needs.wait-for-checks.result == 'skipped')
+          && (needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
