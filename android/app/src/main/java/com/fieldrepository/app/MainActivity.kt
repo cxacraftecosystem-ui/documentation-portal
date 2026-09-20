@@ -173,6 +173,15 @@ import com.fieldrepository.app.data.UserDto
 import com.fieldrepository.app.data.WorkshopCreateRequest
 import com.fieldrepository.app.data.apiErrorMessage
 import com.fieldrepository.app.data.apiFailure
+import com.fieldrepository.app.data.InterviewSetHolder
+import com.fieldrepository.app.data.MergeAnswerConflict
+import com.fieldrepository.app.data.artisanSetHolder
+import com.fieldrepository.app.data.mergeAnswerConflicts
+import com.fieldrepository.app.ui.answerBoxVisible
+import com.fieldrepository.app.ui.mergeConflictLines
+import com.fieldrepository.app.ui.mergeOfferQuestion
+import com.fieldrepository.app.ui.sectionsToRevealOnEdit
+import com.fieldrepository.app.ui.unsavedBeforeMergeNotice
 import com.fieldrepository.app.data.occurrenceDate
 import com.fieldrepository.app.ui.AccessRosterScreen
 import com.fieldrepository.app.ui.RecordSwitchKind
@@ -12726,6 +12735,61 @@ private fun QuestionnaireForm(
     // wanted, but it is not the shape of the work and so it is not the default.
     var recordMode by remember { mutableStateOf("SECTION") }
     var expandedSections by remember { mutableStateOf<Set<String>>(emptySet()) }
+    /*
+      ── AN EDIT OPENS ON WHAT THE RECORD ALREADY HOLDS ──────────────────────────────────────────
+
+      *"when edit page is opened, already existing entries and media do not show up in the respective
+      sections, those should show up while editing as well"* — the owner's first complaint, and on
+      THIS client that sentence is about one line: `expandedSections` above starts empty.
+
+      Nothing was ever missing. `answers` is seeded from `editing.responses` a hundred lines up,
+      `savedMedia` is loaded across the whole sibling group, and both are drawn — the answers in
+      their boxes, the recordings read-only under each section with an "Other saved recordings &
+      media" catch-all beneath. But a section composes its contents ONLY when expanded, and none of
+      them were, so a researcher opening their own interview got a column of collapsed headers and
+      one count line as the sole evidence that anything was in there. "Not drawn" and "lost" look
+      identical from the other side of the screen, and the second is what gets reported.
+
+      [sectionsToRevealOnEdit] is the rule, and it is a pure function in `ui/QuestionnaireEditReveal`
+      rather than a condition inlined here, because Compose is deliberately off this module's
+      unit-test classpath: written here it would be checkable only by a human opening an interview.
+
+      ── WHY THE EFFECT RE-RUNS, AND WHY IT STILL CANNOT FIGHT THE READER ────────────────────────
+
+      `savedMedia` arrives asynchronously and over several requests (one per sibling sitting), so the
+      set of sections holding a recording GROWS after the first frame; keyed only on `editing?.id`
+      this would decide before the answer was in. Keyed on `savedMedia` as well, it decides again as
+      each batch lands — which is also how a section a researcher had just CLOSED would spring back
+      open under them, if `revealedSections` did not exist. That set remembers what this rule has
+      already opened once, so every section is auto-opened at most once per record and a deliberate
+      collapse is final. `remember(editing?.id)` re-arms the whole thing when a different interview
+      is opened rather than inheriting the first record's memory.
+
+      NOTHING IS EVER CLOSED HERE. The result is UNIONED into `expandedSections`; assigning over it
+      would shut a section the researcher had opened by hand while looking for something.
+    */
+    var revealedSections by remember(editing?.id) { mutableStateOf<Set<String>>(emptySet()) }
+    LaunchedEffect(editing?.id, sections, savedMedia) {
+        if (!isEdit) return@LaunchedEffect
+        // Attributed through the form's own caption rule, so "which section is this recording under"
+        // has exactly one answer on this screen — the one that also decides where the clip is drawn
+        // and what the collapsed header counts. A second, differently-shaped rule here would open a
+        // section whose media panel then rendered nothing.
+        val sectionsWithSavedMedia = sections
+            .filter { section -> savedMedia.any { captionBelongsToSection(it.caption, section) } }
+            .map { it.id }
+            .toSet()
+        val reveal = sectionsToRevealOnEdit(
+            sections = sections,
+            responses = editing?.responses.orEmpty(),
+            sectionsWithSavedMedia = sectionsWithSavedMedia,
+            alreadyRevealed = revealedSections
+        )
+        if (reveal.isNotEmpty()) {
+            expandedSections = expandedSections + reveal
+            revealedSections = revealedSections + reveal
+        }
+    }
     var showBuilder by remember { mutableStateOf(false) }
 
     if (canManageQuestionnaire && !isEdit) {
@@ -13167,7 +13231,28 @@ private fun QuestionnaireForm(
                                         onError = onError
                                     )
                                 }
-                                if (!hideAnswers) {
+                                /*
+                                  THE ANSWER THIS RECORD ALREADY CARRIES, which decides whether the
+                                  box is drawn at all — see [answerBoxVisible] for the argument.
+
+                                  "Do not display answer text boxes" is ON by default and it STAYS
+                                  exactly as the reader left it: it is their choice about capture,
+                                  and flipping it for them would change what the next interview they
+                                  record looks like in order to fix the one they are reading. What
+                                  changes is its scope. The toggle hides EMPTY boxes, which is what
+                                  it was for; it does not hide a researcher's words. On an edit of a
+                                  sitting that was typed rather than spoken, every one of those
+                                  words was in `answers` and none of them were on screen — the same
+                                  invisible-answers report from the other direction, where
+                                  `InterviewEditSectionsTest` has the boxes drawn and blank.
+
+                                  Read off `editing` and not off the live box: deciding from the
+                                  current value would make the field vanish under the cursor the
+                                  moment somebody cleared it to retype.
+                                */
+                                val recordedAnswer = editing?.responses
+                                    ?.firstOrNull { it.questionId == question.id }?.answerText
+                                if (answerBoxVisible(hideAnswers, recordedAnswer)) {
                                     // NO MICROPHONE AND NO EDITOR, BY DECISION — see the comment on
                                     // this screen's `MultiNoteInput` below. This section already has
                                     // its own audio capture beside it, and a second, differently
@@ -13286,6 +13371,167 @@ private fun QuestionnaireForm(
           about notes are not wrong.
         */
         MultiNoteInput(label = "Interview notes", value = notes, dictate = false) { notes = it }
+        /*
+          ══ FOLDING THIS INTERVIEW INTO THE ONE THAT ALREADY COVERS ITS ARTISAN SET ═══════════════
+
+          THE REPORT. Two researchers recorded one artisan set as two sittings, each titled by the
+          sections it covered — "D Black Pottery" and an "F" one. The F sitting had missed an
+          artisan. Ticking that artisan makes F's set key equal D's, `@@unique([questionnaireId,
+          artisanSetKey])` refuses the PATCH, and until the backend's merge route landed there was
+          nothing the handset could do but print a sentence and stop: the researcher could not
+          complete the correction, could not file the sitting, and could not get their recordings
+          onto the row that everything else reads from.
+
+          ── EXPLICITLY, NEVER SILENTLY: THE CONFIRMATION IS THE CALL ────────────────────────────
+
+          The save is NOT retried with a flag and the PATCH is not weakened — it still refuses,
+          exactly as before. What happens instead is that the refusal is read for its holder, the
+          holder is NAMED on screen, and `POST …/merge-into/{targetId}` is called only if a person
+          answers yes. A create folds on its own because a create has nothing to lose; an edit is
+          somebody's open record and two sittings being welded together is not a thing to discover
+          afterwards.
+
+          ── WHAT THE DIALOG HAS TO SAY, AND WHY EACH PART IS THERE ──────────────────────────────
+
+          * THE HOLDER'S TITLE. Without it the researcher is being asked to fold their afternoon
+            into something they cannot identify. The server hands the title over precisely so the
+            client can write this sentence ([mergeOfferQuestion]).
+          * WHAT MOVES AND WHAT GOES. The source row is DELETED by the route, so "move" is not the
+            whole truth unless the removal is said out loud too.
+          * WHAT IS NOT SAVED YET ([unsavedBeforeMergeNotice], counted at the moment of refusal).
+            The offer is reached from a save that did not land, so anything typed or recorded in
+            this form is still only on the screen — and after the fold there is no record left for
+            it to be saved to. Silent on the ordinary case, where the only change is the artisan.
+          * THE DISAGREEING ANSWERS, NAMED. The route refuses rather than picking a winner when both
+            rows answer one question differently, and it sends every such question with its section
+            code and prompt. A count would be unactionable; the list is what somebody walks back
+            through the paper with. When it is on screen the move is no longer offered — repeating
+            it before the wording is reconciled would only earn the same 409.
+
+          The amber panel is `MaterialTheme.field.warningContainer`, and its heading says "Not
+          moved — reconcile these first" in words: a reader who does not see the colour still gets
+          the whole signal.
+        */
+        var mergeOffer by remember(editing?.id) { mutableStateOf<InterviewSetHolder?>(null) }
+        var mergeUnsaved by remember(editing?.id) { mutableStateOf<String?>(null) }
+        var mergeConflicts by remember(editing?.id) { mutableStateOf<List<MergeAnswerConflict>>(emptyList()) }
+        var mergeConflictMessage by remember(editing?.id) { mutableStateOf<String?>(null) }
+        var merging by remember(editing?.id) { mutableStateOf(false) }
+        fun dismissMergeOffer() {
+            if (merging) return
+            mergeOffer = null
+            mergeUnsaved = null
+            mergeConflicts = emptyList()
+            mergeConflictMessage = null
+        }
+        fun confirmMerge(holder: InterviewSetHolder) {
+            val original = editing ?: return
+            scope.launch {
+                merging = true
+                runCatching { repository.mergeQuestionnaireInterviewInto(original.id, holder.id) }
+                    .onSuccess {
+                        merging = false
+                        mergeOffer = null
+                        // THE RECORD THIS FORM WAS EDITING NO LONGER EXISTS — the route deletes it
+                        // once its answers and clips are on the survivor. So the screen leaves, the
+                        // way a completed save leaves (`onSaved` is `InterviewEditLoader`'s
+                        // `onDone`). Staying would leave a form bound to a deleted id whose next
+                        // save 404s with nothing on screen explaining why.
+                        onSaved()
+                    }
+                    .onFailure { error ->
+                        merging = false
+                        val failure = error.apiFailure("Unable to move this interview")
+                        val conflicts = failure.mergeAnswerConflicts()
+                        if (conflicts.isEmpty()) {
+                            // Any other refusal — a different instrument, a permission, a dropped
+                            // connection. NOTHING WAS MOVED in every one of those cases, so the
+                            // dialog closes and the sentence goes to the screen's error line rather
+                            // than leaving a dead offer open over it.
+                            dismissMergeOffer()
+                            onError(failure.message)
+                        } else {
+                            mergeConflicts = conflicts
+                            mergeConflictMessage = failure.message
+                        }
+                    }
+            }
+        }
+        mergeOffer?.let { holder ->
+            val holderName = holder.title?.trim().orEmpty()
+            AlertDialog(
+                onDismissRequest = { dismissMergeOffer() },
+                title = {
+                    Text(
+                        if (mergeConflicts.isEmpty()) "This artisan set already has an interview"
+                        else "Nothing was moved — these answers disagree"
+                    )
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (mergeConflicts.isEmpty()) {
+                            Text(mergeOfferQuestion(holder.title), color = Body, fontSize = 13.sp)
+                            Text(
+                                "Its answers and recordings move onto that interview and this one is " +
+                                    "then removed. Nothing already answered there is overwritten.",
+                                color = Muted,
+                                fontSize = 12.sp
+                            )
+                            mergeUnsaved?.let {
+                                Text(it, color = MaterialTheme.field.onWarningContainer, fontSize = 12.sp)
+                            }
+                        } else {
+                            mergeConflictMessage?.let { Text(it, color = Body, fontSize = 13.sp) }
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.field.warningContainer, RoundedCornerShape(8.dp))
+                                    .padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    "Not moved — reconcile these first",
+                                    color = MaterialTheme.field.onWarningContainer,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 12.sp
+                                )
+                                mergeConflictLines(mergeConflicts).forEach { line ->
+                                    Text(
+                                        "• $line",
+                                        color = MaterialTheme.field.onWarningContainer,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+                            Text(
+                                "Open both interviews, agree on the wording for each question above, " +
+                                    "then try the move again.",
+                                color = Muted,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    if (mergeConflicts.isEmpty()) {
+                        Button(onClick = { confirmMerge(holder) }, enabled = !merging) {
+                            Text(
+                                when {
+                                    merging -> "Moving…"
+                                    holderName.isEmpty() -> "Move into the other interview"
+                                    else -> "Move into “$holderName”"
+                                }
+                            )
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { dismissMergeOffer() }, enabled = !merging) {
+                        Text(if (mergeConflicts.isEmpty()) "Keep both, cancel" else "Close")
+                    }
+                }
+            )
+        }
         fun submit() {
             if (!validateRequired(listOf(
                     RequiredCheck(title.isBlank(), { titleError = it }, titleFocus)
@@ -13514,9 +13760,55 @@ private fun QuestionnaireForm(
                             title.ifBlank { "Interview" },
                             "Field media for ${title.trim().ifBlank { "interview" }}"
                         )
-                    }.onFailure {
+                    }.onFailure { error ->
                         saveState = SaveState.IDLE
-                        onError(it.message ?: "Unable to save questionnaire")
+                        /*
+                          ── A REFUSED SAVE READ PROPERLY, AND THE ONE REFUSAL THAT HAS A WAY OUT ──
+
+                          `it.message` STOOD HERE AND IT IS RETROFIT'S, NOT THE SERVER'S. Retrofit
+                          collapses every non-2xx into an `HttpException` whose message is the bare
+                          status line, so a researcher whose save was refused read "HTTP 409
+                          Conflict" — the server's sentence explaining WHY was in the body and never
+                          reached the screen at all. `apiFailure` is the repository's own reader for
+                          that body (it is what the sign-in gate uses), and it is called ONCE because
+                          reading the error body consumes it.
+
+                          THE ARTISAN-SET COLLISION IS THE ONE FAILURE WITH SOMEWHERE TO GO. Two
+                          researchers recorded one artisan set as two sittings titled by the sections
+                          they covered; the "F" one had missed an artisan, and ticking that artisan
+                          makes F's set key equal D's, which `@@unique([questionnaireId,
+                          artisanSetKey])` refuses. A create folds into the holder on its own; an
+                          edit could not fold at all and the researcher was simply stuck. The 409 now
+                          names the holder, so the handset can ask.
+
+                          BRANCHED ON THE CODE, NEVER ON THE PROSE — the server's own instruction at
+                          `_DUPLICATE_SET_CODE`, and the reason [artisanSetHolder] checks it before
+                          it looks at anything else. A null holder (a concurrent delete, an older
+                          server) falls through to the sentence, which is what every screen did
+                          before this existed.
+
+                          `isEdit` GATES THE OFFER because the fold needs a source row to move: on a
+                          create there is no interview to merge and the POST has already folded
+                          server-side anyway, so the only honest answer there is the server's
+                          sentence.
+                        */
+                        val failure = error.apiFailure("Unable to save questionnaire")
+                        val holder = if (isEdit) failure.artisanSetHolder() else null
+                        if (holder != null) {
+                            // Counted at the moment of refusal, while the pending work is still in
+                            // scope — the dialog cannot ask later, and after the fold there is no
+                            // record left for any of it to be saved to.
+                            mergeUnsaved = unsavedBeforeMergeNotice(
+                                typedAnswers = responsesToSend.size,
+                                recordings = qMedia.uris.size,
+                                attachments = media.uris.size
+                            )
+                            mergeConflicts = emptyList()
+                            mergeConflictMessage = null
+                            mergeOffer = holder
+                        } else {
+                            onError(failure.message)
+                        }
                         return@launch
                     }
                     // Clear the staged-media bookkeeping so leaving the form doesn't delete the objects

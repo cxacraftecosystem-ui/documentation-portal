@@ -104,14 +104,9 @@ class QuestionnaireArtisanOfferTest {
             .create(FieldRepositoryApi::class.java)
     }
 
-    /** See `QuestionnaireScopeTest.unopenedTokenStore` for why this exists and why it is safe here. */
-    private fun repository(api: FieldRepositoryApi): FieldRepository {
-        val field = Class.forName("sun.misc.Unsafe").getDeclaredField("theUnsafe")
-        field.isAccessible = true
-        val unsafe = field.get(null)
-        val allocate = unsafe.javaClass.getMethod("allocateInstance", Class::class.java)
-        return FieldRepository(api, allocate.invoke(unsafe, TokenStore::class.java) as TokenStore)
-    }
+    /** See [unopenedTokenStore] for why a real `TokenStore` cannot be constructed here. */
+    private fun repository(api: FieldRepositoryApi): FieldRepository =
+        FieldRepository(api, unopenedTokenStore())
 
     // -----------------------------------------------------------------------------------------
     // 1. The page walk

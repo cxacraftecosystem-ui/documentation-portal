@@ -329,7 +329,17 @@ test("every answer box has a microphone, and it appends to the answer as it stan
   // The microphone lives INSIDE the answer-box branch. In the default capture mode the answer boxes
   // are hidden and a microphone with no box to fill would be a control that does nothing —
   // `questionnaire-capture.spec.ts` asserts a section holds zero textareas on first paint.
-  const answerBranch = CODE.slice(CODE.indexOf("{capture.hideAnswers ? null : ("));
+  //
+  // THE BRANCH GAINED A SECOND CONDITION AND THIS ANCHOR FOLLOWED IT, which is the whole change here.
+  // It used to read `{capture.hideAnswers ? null : (`; an edit carrying a written answer now draws
+  // that question's box regardless of the stored preference (`answeredOnRecord` — see
+  // `e2e/questionnaire-saved-media-unit.spec.ts`), so the condition is now
+  // `capture.hideAnswers && !answeredOnRecord.has(question.id)`. Anchoring on `capture.hideAnswers &&`
+  // rather than on the whole expression keeps this assertion about WHERE THE MICROPHONE IS, which is
+  // what it has always been about, instead of re-stating a gate another spec owns. Left as it was,
+  // `indexOf` answered -1, `slice(-1)` handed back one character, and this failed on its own anchor
+  // rather than on anything to do with dictation.
+  const answerBranch = CODE.slice(CODE.indexOf("{capture.hideAnswers &&"));
   expect(answerBranch.slice(0, answerBranch.indexOf("</>")), "the mic is inside the hideAnswers branch").toMatch(
     /<OnDeviceDictationButton/
   );

@@ -45,7 +45,7 @@ import { MultiSelectDropdown } from "@/components/ui/Dropdown";
 import { useWorkshopScope, WorkshopScopeSelect } from "@/components/WorkshopScopeSelect";
 import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
-import { apiFetch, buildQuery, listResource } from "@/lib/api";
+import { ApiError, apiFetch, buildQuery, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { locationFromForm, recordedAtFromForm, recordedTimezoneFromForm, textValue } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
@@ -59,7 +59,7 @@ import {
 import { saveOrQueue } from "@/lib/offline";
 import { canManageQuestionnaire, hasRank, isAdmin } from "@/lib/permissions";
 import { UploadsProvider, useEagerStaging, useUploads } from "@/lib/uploads";
-import type { PageResult, Questionnaire, QuestionnaireInterview, QuestionnaireQuestion, QuestionnaireSection } from "@/lib/types";
+import type { MediaFile, PageResult, Questionnaire, QuestionnaireInterview, QuestionnaireQuestion, QuestionnaireSection } from "@/lib/types";
 
 /**
  * The API's own ceiling on an interview title — `QuestionnaireInterviewCreate.title` is
@@ -93,6 +93,215 @@ const sectionClipKey = (sectionId: string) => `${SECTION_CLIP_PREFIX}${sectionId
 const isSectionClipKey = (key: string) => key.startsWith(SECTION_CLIP_PREFIX);
 /** Tray section id for a clip key — ":" is stripped so the id stays a plain slug. */
 const clipTraySectionId = (key: string) => `question-audio-${key.replace(SECTION_CLIP_PREFIX, "section-")}`;
+
+/*
+  ══ WHICH SECTION A SAVED CLIP BELONGS TO ═══════════════════════════════════════════════════════════
+
+  THE CAPTION IS THE ONLY EVIDENCE THERE IS, on every client. A clip's section is not a column on
+  `MediaFile`: this page sends `extraMetadata: { sectionId, sectionCode, … }` with the upload, and the
+  `MediaFile` the API hands back does not carry it (see `lib/types.ts` — there is no metadata field on
+  the type, because the response does not have one). What does survive is the caption this page and the
+  handset both write — "Section audio: D RAW MATERIALS", "Question audio: D3 - How is the clay
+  prepared?" — and the BACKEND reads the section back out of exactly that string too
+  (`_CAPTION_SECTION` / `_CAPTION_QUESTION` in `backend/app/services/media_naming.py`). So parsing the
+  caption is not a shortcut around a cleaner join; it is the same rule all three sides already keep.
+
+  PORTED FROM `captionBelongsToSection` IN `android/.../MainActivity.kt`, whose comment says the same
+  thing, because a rule the other client cannot read is a rule the other client will not match — and
+  the two clients drawing a different set of clips under one section is precisely the report this whole
+  change answers ("already existing entries and media do not show up … on both android and web").
+
+  TWO RULES, AND THE EXACT-MATCH RULE THE HANDSET LISTS FIRST IS DELIBERATELY NOT REPEATED. Android
+  builds the set of captions it would itself have written and checks membership before falling back to
+  the prefixes. Every caption this page writes begins with one of the two prefixes below, so rule 1 is
+  entirely subsumed by rules 2 and 3 here; repeating it would only add a branch that can never be the
+  one that decides. The prefixes are also what makes a clip survive an admin RENAMING the section or
+  editing the prompt after the recording was made — the case the exact set cannot cover.
+
+  THE DIGIT IN RULE 3 IS LOAD-BEARING. Section codes are one to three letters (`[A-Za-z]{1,3}` in the
+  backend's own parser), so "DA1" starts with "D": without requiring a digit immediately after the
+  code, section D would claim every one of section DA's question clips and DA's panel would look empty.
+
+  A caption neither rule can place is NOT guessed at. It goes to the catch-all block at the foot of the
+  form, which is the whole reason the catch-all exists — a clip filed under the wrong section is worse
+  than a clip filed under "everything else", because only one of the two is visibly a question.
+*/
+const SECTION_CAPTION_PREFIX = "Section audio:";
+const QUESTION_CAPTION_PREFIX = "Question audio:";
+
+/** What a caption says after one of the two prefixes above, or `null` when it is not that kind. */
+function captionBody(caption: string | null | undefined, prefix: string): string | null {
+  const text = (caption ?? "").trim();
+  return text.startsWith(prefix) ? text.slice(prefix.length).trim() : null;
+}
+
+/** A single take covering this whole section — the default capture mode, so most clips are these. */
+function captionIsWholeSection(caption: string | null | undefined, section: { code: string }): boolean {
+  const rest = captionBody(caption, SECTION_CAPTION_PREFIX);
+  if (rest === null) return false;
+  return rest === section.code || rest.startsWith(`${section.code} `);
+}
+
+/**
+ * A clip recorded against ONE question. Both separators are accepted because the two clients differ
+ * by one character and always have: the web writes "Question audio: D3 - <prompt>" and the handset
+ * writes "Question audio: D3 <prompt>". A recording made on a phone must still appear under its
+ * question in the browser, so this reads both rather than picking a winner.
+ */
+function captionAnswersQuestion(
+  caption: string | null | undefined,
+  question: { sectionCode: string; sortOrder: number }
+): boolean {
+  const rest = captionBody(caption, QUESTION_CAPTION_PREFIX);
+  if (rest === null) return false;
+  const stem = `${question.sectionCode}${question.sortOrder}`;
+  // `rest === stem` for a caption with no prompt on it; the two separators otherwise. Anchoring on
+  // the separator is what stops question 3 claiming question 30's clips.
+  return rest === stem || rest.startsWith(`${stem} `) || rest.startsWith(`${stem}-`);
+}
+
+/** Any clip belonging to this section: its whole-section take, or any of its questions' takes. */
+function captionBelongsToSection(caption: string | null | undefined, section: { code: string }): boolean {
+  if (captionIsWholeSection(caption, section)) return true;
+  const rest = captionBody(caption, QUESTION_CAPTION_PREFIX);
+  if (rest === null) return false;
+  if (!rest.startsWith(section.code)) return false;
+  const next = rest.charAt(section.code.length);
+  return next >= "0" && next <= "9";
+}
+
+/**
+ * A stored `MediaFile` as the shape this page's preview tile and lightbox already speak.
+ *
+ * `url` MAY BE ABSENT and that is not a bug to code around: `public_encode` withholds media URLs from
+ * a viewer who neither uploaded the file nor holds the rank to download other people's
+ * (`backend/app/services/records.py`). The tile still draws — an audio tile is an icon and a name, not
+ * a player — so a researcher can always SEE that the recording exists, which is the complaint being
+ * answered here, even where they may not play it.
+ */
+function savedMediaPreview(media: MediaFile): PreviewMedia {
+  return {
+    key: media.id,
+    id: media.id,
+    name: media.originalFilename,
+    mediaType: media.mediaType,
+    mimeType: media.mimeType,
+    sizeBytes: media.sizeBytes,
+    url: media.url,
+    caption: media.caption,
+    transcriptStatus: media.transcriptStatus,
+    transcriptText: media.transcriptText,
+    transcriptError: media.transcriptError
+  };
+}
+
+/**
+ * WHAT THE SHARED ENTRY ACTUALLY HOLDS, IN WORDS — and the reason this is a function and not a
+ * `responses.length > 0` ternary in the JSX.
+ *
+ * THE BUG IT CLOSES. The banner measured `existingEntry.responses` and nothing else, so it told a
+ * researcher "No questions answered yet" about an interview a colleague had fully recorded. On this
+ * instrument that is not an edge case, it is the NORMAL case: capture defaults to one audio take per
+ * section with the answer boxes hidden (`DEFAULT_CAPTURE_PREFS`), so a correctly conducted sitting has
+ * ZERO response rows and a dozen media rows. The count that was being read was the one count that is
+ * reliably zero for good work.
+ *
+ * IT SAYS WHAT IT FOUND rather than "empty" or "not empty". "3 recordings, no typed answers yet" is a
+ * true sentence a researcher can act on; "No questions answered yet" over three recordings is a false
+ * one that tells them their colleague did nothing. The only branch that may say nothing is there is
+ * the one where both counts really are zero.
+ */
+function sharedEntrySummary(responses: number, recordings: number): string {
+  const answers = `${responses} typed answer${responses === 1 ? "" : "s"}`;
+  const clips = `${recordings} recording${recordings === 1 ? "" : "s"}`;
+  if (responses && recordings) return `${clips} and ${answers} already recorded in it.`;
+  if (recordings) return `${clips}, no typed answers yet.`;
+  if (responses) return `${answers}, no recordings yet.`;
+  return "Nothing recorded in it yet — you can be the first to fill it in.";
+}
+
+/*
+  ══ THE TWO 409s THIS FORM CAN NOW ACT ON ══════════════════════════════════════════════════════════
+
+  BRANCH ON `code`, NEVER ON THE PROSE. Both refusals below carry a snake_case discriminator precisely
+  so a client stops grepping the sentence — the backend's own comment on `_DUPLICATE_SET_CODE` says the
+  message "is written for a human, has been reworded before, and any client that greps it for
+  'already exists' silently stops offering the move the next time somebody improves it".
+
+  `ApiError.payload` IS THE WHOLE RESPONSE BODY, not the detail: `lib/api.ts` throws
+  `new ApiError(status, message, body)`, so the structure is at `payload.detail`. `ApiError.message`
+  has already been reduced to the human sentence by `describeApiDetail`, which unpacks `{message: …}`
+  out of an object detail and throws the rest away — which is why the holder and the conflicting
+  questions have to be read off `payload` here rather than off the message.
+*/
+const ARTISAN_SET_TAKEN = "artisan_set_taken";
+const MERGE_ANSWER_CONFLICT = "merge_answer_conflict";
+
+/** The interview that already holds this artisan set. `title` is null for an untitled holder. */
+type ConflictHolder = { id: string; title: string | null };
+/** One question both interviews answer differently, named so a researcher can go and reconcile it. */
+type MergeAnswerConflict = { questionId: string; sectionCode: string | null; prompt: string | null; fields: string[] };
+
+/** The structured `detail` of a 409 carrying `code`, or null for any other failure. */
+function conflictDetail(error: unknown, code: string): Record<string, unknown> | null {
+  if (!(error instanceof ApiError) || error.status !== 409) return null;
+  const payload = error.payload;
+  if (!payload || typeof payload !== "object") return null;
+  const detail = (payload as { detail?: unknown }).detail;
+  // Arrays are excluded on purpose: FastAPI's own 422 body is a LIST of per-field errors, and one of
+  // those must never be read as a conflict envelope.
+  if (!detail || typeof detail !== "object" || Array.isArray(detail)) return null;
+  const record = detail as Record<string, unknown>;
+  return record.code === code ? record : null;
+}
+
+/**
+ * Who holds the artisan set a save was refused for — or null.
+ *
+ * NULL IS A REAL ANSWER AND NOT A PARSE FAILURE. The server sends `holder: null` when it cannot
+ * identify the row (a concurrent delete, a null set key), and says so in as many words; a client that
+ * gets it must fall back to printing `message`, which is exactly what this page does. So a null here
+ * and a non-409 here take the same path, and that is correct in both cases: there is nobody to offer.
+ */
+function artisanSetHolder(error: unknown): ConflictHolder | null {
+  const detail = conflictDetail(error, ARTISAN_SET_TAKEN);
+  const holder = detail?.holder;
+  if (!holder || typeof holder !== "object") return null;
+  const { id, title } = holder as { id?: unknown; title?: unknown };
+  if (typeof id !== "string" || !id) return null;
+  return { id, title: typeof title === "string" && title.trim() ? title.trim() : null };
+}
+
+/**
+ * The questions a merge was refused over, or null when the failure was something else.
+ *
+ * AN EMPTY ARRAY IS NOT NULL. A `merge_answer_conflict` whose `questions` list this client cannot read
+ * is still a refusal that must be shown rather than swallowed — the caller renders the server's own
+ * sentence above the (then empty) list, and the researcher is told nothing moved.
+ */
+function mergeAnswerConflicts(error: unknown): MergeAnswerConflict[] | null {
+  const detail = conflictDetail(error, MERGE_ANSWER_CONFLICT);
+  if (!detail) return null;
+  const rows = Array.isArray(detail.questions) ? detail.questions : [];
+  return rows
+    .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object")
+    .map((row) => ({
+      questionId: typeof row.questionId === "string" ? row.questionId : "",
+      sectionCode: typeof row.sectionCode === "string" ? row.sectionCode : null,
+      prompt: typeof row.prompt === "string" ? row.prompt : null,
+      fields: Array.isArray(row.fields) ? row.fields.filter((f): f is string => typeof f === "string") : []
+    }));
+}
+
+/**
+ * The column names the merge refusal names, in words a researcher recognises. `answerText` and `notes`
+ * are database columns (`_RESPONSE_TEXT_FIELDS` on the route); printing them raw asks the reader to
+ * know the schema before they can tell which half of an answer disagrees.
+ */
+const MERGE_FIELD_LABELS: Record<string, string> = { answerText: "the written answer", notes: "the notes" };
+function conflictFieldLabel(field: string): string {
+  return MERGE_FIELD_LABELS[field] ?? field;
+}
 
 export default function QuestionnairePage() {
   return (
@@ -193,6 +402,32 @@ function QuestionnairePageBody() {
    * longer lists it — the same rule the handset keeps at `MainActivity.kt`'s `instrumentOptions`.
    */
   const [editing, setEditing] = useState<QuestionnaireInterview | null>(null);
+  /**
+   * THE QUESTIONS THIS RECORD ARRIVED WITH A WRITTEN ANSWER FOR — frozen at seed time, and the whole
+   * mechanism behind "show the recorded answers on an edit without touching the stored preference".
+   *
+   * WHY A SEPARATE SET AND NOT `answers[id]`. Both hold strings and only one of them is evidence. The
+   * live `answers` map is written by the RESP prefill effect, by every keystroke, and by dictation; a
+   * box drawn because the live map is non-empty would appear under the cursor as somebody typed into a
+   * neighbouring field, and — worse — would VANISH under the cursor the moment they selected their own
+   * answer and deleted it, taking the caret with it. This set is written once, from the stored
+   * responses, and never again for the life of the edit, so a box that is on screen stays on screen.
+   *
+   * IT IS EMPTY IN CREATE MODE, by construction, which is what keeps the default capture screen
+   * exactly as `e2e/questionnaire-capture.spec.ts` asserts it: one record button per section and no
+   * textareas at all.
+   */
+  const [answeredOnRecord, setAnsweredOnRecord] = useState<Set<string>>(() => new Set());
+  /**
+   * The questions a merge was refused over, and the sentence a completed merge left behind.
+   *
+   * SEPARATE FROM `error`, which is a single string and would flatten a list of named questions into
+   * one line — and the list is the entire value of that refusal. The backend's comment says so: "NAME
+   * THE QUESTIONS, not just the count. A researcher cannot act on '3 answers disagree'; they can act
+   * on the section and the prompt".
+   */
+  const [mergeConflicts, setMergeConflicts] = useState<MergeAnswerConflict[]>([]);
+  const [mergeNotice, setMergeNotice] = useState<string | null>(null);
   /** The capture form, so `useEditDeepLink` can scroll an arriving record into view. */
   const formRef = useRef<HTMLFormElement | null>(null);
   /*
@@ -325,6 +560,45 @@ function QuestionnairePageBody() {
    */
   const currentInterviewLoad = useRef(0);
 
+  /**
+   * ⚠ WHICH `loadMeta` IS THE CURRENT ONE — the guard whose absence made an edit draw blank boxes.
+   *
+   * ── THE RACE ────────────────────────────────────────────────────────────────────────────────────
+   *
+   * TWO `loadMeta` RUNS HAPPEN ON EVERY EDIT and neither one waits for the other. The mount effect
+   * (`useEffect(() => { loadMeta(); }, [])`) asks with NO instrument, and the server answers with
+   * whichever one it resolves as the default. A moment later `useEditDeepLink` lands the record and
+   * `seedFromInterview` calls `loadMeta(interview.questionnaireId)` for the sitting's OWN instrument.
+   * Both end in `setSections(sectionList)`, so whichever response arrives LAST wins — and on a field
+   * connection, or against two endpoints of different sizes, that is routinely the first request.
+   *
+   * ── WHAT IT LOOKS LIKE ON SCREEN, WHICH IS WHY IT WENT UNDIAGNOSED SO LONG ──────────────────────
+   *
+   * The form renders the DEFAULT instrument's questions while the answers seeded beside them are keyed
+   * to the RECORD's instrument's question ids. The two instruments' section codes collide completely
+   * (that is stated all over this file and the backend), so nothing looks wrong: the section headings
+   * read A, B, C as they should, the question prompts are plausible, and every single answer box is
+   * empty. The researcher sees their recorded interview opened for editing with all their work gone,
+   * and there is nothing anywhere on the page that explains it. Saving from that state then PATCHes
+   * `responses: []`-shaped nothing over an instrument the answers do not belong to.
+   *
+   * ── THIS REPOSITORY'S ALONE, AND ALREADY FIXED ON THE OTHER CLIENT ──────────────────────────────
+   *
+   * Commit 544262b ("Editing a recorded interview: the browser gains it, the handset stops drawing the
+   * wrong questionnaire") fixed exactly this on Android by holding the form until the record's own
+   * sections arrive. The browser gained the edit path in that same commit and never got the guard.
+   *
+   * ── COUNTED, NOT ABORTED ────────────────────────────────────────────────────────────────────────
+   *
+   * `apiFetch` takes no `AbortSignal` (see `lib/api.ts`), so there is nothing to cancel; the same
+   * generation counter `currentInterviewLoad` above uses for the list is the convention here, and for
+   * the same stated reason — "ignoring the late answer is the part that matters". The counter also
+   * gives the right answer for the instrument PICKER and the builder's `onChanged`, which call
+   * `loadMeta` again later: the newest request always carries the highest generation, so the newest
+   * intent always wins, whatever order the network answers in.
+   */
+  const currentMetaLoad = useRef(0);
+
   useEffect(() => {
     if (!selectedArtisan || questions.length === 0) return;
     const respondentAnswers: Record<string, string> = {};
@@ -374,6 +648,7 @@ function QuestionnairePageBody() {
    * `useWorkshopArtisans` (`components/questionnaires/interviewArtisans.ts`), keyed on the workshop.
    */
   async function loadMeta(instrumentId?: string | null) {
+    const generation = (currentMetaLoad.current += 1);
     try {
       // TWO reads, one wave. The instrument list joins it rather than following it, because a
       // sequential "which instruments exist, then give me that one's sections" is two round trips
@@ -384,6 +659,11 @@ function QuestionnairePageBody() {
           `/questionnaire/sections${buildQuery({ questionnaireId: instrumentId ?? undefined })}`
         )
       ]);
+      // THE LATE ANSWER TO A SUPERSEDED QUESTION IS DROPPED HERE, before it can touch `sections` or
+      // `questionnaireId`. Placed after the await and before the FIRST setter, so a stale wave writes
+      // nothing at all rather than half of itself — an instrument list from one request and sections
+      // from another is the same defect wearing different clothes.
+      if (generation !== currentMetaLoad.current) return;
       setInstruments(instrumentList);
       // The server resolved SOME instrument for that read whether or not we named one, and its
       // sections carry the id it chose. Reading it back off them keeps the picker showing what the
@@ -396,6 +676,10 @@ function QuestionnairePageBody() {
       setSections(sectionList);
       setError(null);
     } catch (err) {
+      // A superseded request's failure is not this form's failure: the instrument the researcher is
+      // actually on may well have loaded fine, and painting its error banner would describe a question
+      // nobody is waiting for an answer to any more.
+      if (generation !== currentMetaLoad.current) return;
       setError(err instanceof Error ? err.message : "Unable to load questionnaire");
     }
   }
@@ -788,6 +1072,12 @@ function QuestionnairePageBody() {
     setSelectedArtisanIds([]);
     setInterviewProgress(null);
     setQuestionProgress({});
+    // The edit-only display state goes with the edit. Left behind, `answeredOnRecord` would keep
+    // drawing answer boxes on a BLANK capture form for question ids the previous sitting answered —
+    // overriding the researcher's hidden-answers preference on a screen with no record behind it.
+    setAnsweredOnRecord(new Set());
+    setMergeConflicts([]);
+    setMergeNotice(null);
   }
 
   /**
@@ -814,6 +1104,21 @@ function QuestionnairePageBody() {
         (interview.responses ?? [])
           .filter((response) => response.questionId)
           .map((response) => [response.questionId, response.answerText ?? ""])
+      )
+    );
+    /*
+      WHICH OF THOSE ANSWERS ARE REAL WORDS, captured once, here, and never recomputed.
+
+      An `upsert_responses` row can exist with an empty `answerText` — the merge route's own "EMPTY
+      survivor rows" branch is written for exactly that shape — so "has a response row" is not the same
+      question as "somebody typed something", and only the second one earns a box on a form whose
+      reader has asked for no boxes. `.trim()` is what tells them apart.
+    */
+    setAnsweredOnRecord(
+      new Set(
+        (interview.responses ?? [])
+          .filter((response) => response.questionId && (response.answerText ?? "").trim())
+          .map((response) => response.questionId)
       )
     );
     setSelectedArtisanIds((interview.artisans ?? []).map((link) => link.artisan?.id).filter(Boolean) as string[]);
@@ -855,6 +1160,110 @@ function QuestionnairePageBody() {
     errorMessage: "Unable to load that interview"
   });
 
+  /**
+   * THE WAY FORWARD OUT OF "THIS ARTISAN SET IS ALREADY TAKEN" — the third complaint, answerable now.
+   *
+   * ── THE CASE ────────────────────────────────────────────────────────────────────────────────────
+   *
+   * Two researchers recorded one artisan set as two sittings titled by the sections they covered, "D
+   * Black Pottery" and an "F" one. The F sitting had MISSED an artisan. Adding that artisan is the
+   * correct fix and it makes F's set key equal D's, which `@@unique([questionnaireId, artisanSetKey])`
+   * refuses — so the only edit that repairs the record is the one edit the database will not accept.
+   * Until now the refusal a client could read said only that *an* interview exists, not WHICH, so this
+   * form could offer nothing at all and the researcher was simply stuck.
+   *
+   * ── WHAT THIS DOES AND, MORE IMPORTANTLY, WHAT IT DOES NOT ──────────────────────────────────────
+   *
+   * THE PATCH IS STILL REFUSED AND STAYS REFUSED. Nothing here retries the save. The 409 carries a
+   * `holder`, this reads it, and the ONLY thing that happens without a further human decision is that
+   * a dialog opens naming the holder. `POST …/merge-into/…` is called on confirmation and never
+   * otherwise — the backend says the same thing from its side: "the fold happens only when a client,
+   * having read the holder off that 409, calls THIS route. The confirmation is the call."
+   *
+   * EDIT-ONLY, DELIBERATELY. A CREATE for a taken set does not reach here: the server folds it into
+   * the canonical row by itself (`merge_into_interview`) and answers 200. And a merge needs a stored
+   * source row to move, which a create that never landed does not have.
+   *
+   * ── THE ONE THING THE DIALOG MUST SAY AND WOULD BE EASY TO LEAVE OUT ────────────────────────────
+   *
+   * ONLY WHAT IS ALREADY SAVED MOVES. The PATCH was refused, so anything typed or recorded in this
+   * form since it was opened is not on the server, is not what the merge moves, and is gone when the
+   * source row is deleted. That is a real cost and it is the researcher's to weigh, so the note says
+   * it in the dialog rather than in a comment only we will read.
+   *
+   * Returns true when it has fully handled the failure — including when the researcher declines, which
+   * is handled by explaining why nothing was saved rather than by falling through to a bare message.
+   */
+  async function offerMergeOnConflict(error: unknown, sourceId: string): Promise<boolean> {
+    const holder = artisanSetHolder(error);
+    // No holder — a different failure, or a 409 the server could not name a holder for. The caller
+    // prints `ApiError.message`, which is the server's own sentence, which is what it asks clients to
+    // fall back to.
+    if (!holder) return false;
+    const holderName = holder.title ?? "Another interview";
+    setMergeConflicts([]);
+    setMergeNotice(null);
+    const ok = await confirm({
+      title: `${holderName} already covers this exact set of artisans`,
+      body: (
+        <>
+          There is one questionnaire entry per set of artisans, so this interview cannot be saved with these
+          artisans ticked. Moving it into <span className="font-semibold">{holderName}</span> puts this
+          interview&apos;s saved answers and every recording made against it onto that entry, and then removes
+          this one.
+        </>
+      ),
+      note: (
+        <>
+          Only what is <span className="font-semibold">already saved</span> on this interview moves. Anything
+          typed or recorded in this form since it was opened has not reached the server and will be lost — cancel,
+          write it down, and put the original artisans back if you need to keep it. If both interviews answer the
+          same question differently the move is refused and nothing at all changes.
+        </>
+      ),
+      confirmLabel: "Move this interview in",
+      cancelLabel: "Leave both interviews alone",
+      tone: "warning"
+    });
+    if (!ok) {
+      setError(
+        `Not saved. ${holderName} already covers this exact set of artisans on this questionnaire, and there is ` +
+          "one entry per set. Put the original artisans back to save this interview as it was, or open that " +
+          "interview and add the answers there."
+      );
+      return true;
+    }
+    try {
+      // The survivor comes back hydrated for exactly this: the backend returns it "so the client can
+      // redraw the whole screen from the response rather than guessing what the move produced". Seeding
+      // from it is what puts the moved recordings and answers straight in front of the researcher, on
+      // the entry they now live on, instead of an empty form and a hope.
+      const survivor = await apiFetch<QuestionnaireInterview>(
+        `/questionnaire/interviews/${sourceId}/merge-into/${holder.id}`,
+        { method: "POST" }
+      );
+      seedFromInterview(survivor);
+      setError(null);
+      setMergeNotice(
+        `Moved. The answers and recordings from this interview are now on ${survivor.title || holderName}, which is ` +
+          "open below; the interview they came from has been removed."
+      );
+      await loadInterviews();
+      return true;
+    } catch (mergeError) {
+      const conflicts = mergeAnswerConflicts(mergeError);
+      if (conflicts) {
+        // NEVER SWALLOWED. Nothing moved, and the questions the server named are the work list — see
+        // the panel above the form, which prints every one of them.
+        setMergeConflicts(conflicts);
+        setError(mergeError instanceof Error ? mergeError.message : "The two interviews answer some questions differently.");
+        return true;
+      }
+      setError(mergeError instanceof Error ? mergeError.message : "Unable to move this interview");
+      return true;
+    }
+  }
+
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     // React nulls event.currentTarget after the first await — capture it before any async work.
@@ -865,6 +1274,10 @@ function QuestionnairePageBody() {
     if (!(await workshop.confirmSubmission())) return;
     setSaving(true);
     setError(null);
+    // Last attempt's refusal and last merge's receipt both describe a state this save is about to
+    // replace; leaving either on screen over a fresh outcome is the page contradicting itself.
+    setMergeConflicts([]);
+    setMergeNotice(null);
     const artisanIds = selectedArtisanIds;
     const responses = Object.entries(answers)
       .filter(([, answerText]) => answerText.trim())
@@ -1079,7 +1492,11 @@ function QuestionnairePageBody() {
       if (page !== 1) setPage(1);
       else await loadInterviews();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to save interview");
+      // `saveOrQueue` rethrows a 4xx rather than banking it (`lib/offline.ts`: "Only a request that
+      // never reached the server may be queued"), so a collision arrives here as a real ApiError with
+      // the server's structured body on it. `editing` is the only case with a source row to move.
+      const handled = editing ? await offerMergeOnConflict(err, editing.id) : false;
+      if (!handled) setError(err instanceof Error ? err.message : "Unable to save interview");
     } finally {
       setSaving(false);
       setInterviewProgress(null);
@@ -1143,6 +1560,130 @@ function QuestionnairePageBody() {
     return rows;
   }, [instruments, editing]);
 
+  /**
+   * THE RECORDINGS ALREADY ON THIS SITTING, filed under the section each was made for.
+   *
+   * ── THE COMPLAINT ───────────────────────────────────────────────────────────────────────────────
+   *
+   * *"when edit page is opened, already existing entries and media do not show up in the respective
+   * sections"*. The handset has drawn these since it gained the edit path; THE BROWSER DREW NONE AT
+   * ALL. It is the one edit form in this repository without a saved-media block — `ExistingMedia` is
+   * mounted on artisans, products, tools, crafts and workshops, and never here — so a researcher who
+   * opened a recorded interview on a laptop saw the recordings they had made replaced by empty
+   * recorders, with the page saying nothing about the files still attached to the record.
+   *
+   * ── WHY NOT `components/media/ExistingMedia`, WHICH IS THE REPOSITORY'S OWN PANEL FOR THIS ──────
+   *
+   * It is the right component everywhere else and the wrong one here, for two reasons that are both
+   * about shape rather than taste:
+   *
+   *  1. IT IS FLAT. Its whole API is `linkedRecordType` + `linkedRecordId`, and it renders one list
+   *     for a record. There is no seam to group by — and a per-SECTION layout is the entire point of
+   *     the complaint, which names "the respective sections". A single list of thirty clips at the
+   *     foot of an eighty-one-question form does not answer "is section D recorded?", which is the
+   *     question a researcher opens this page holding.
+   *  2. IT WOULD RE-FETCH WHAT WE ALREADY HAVE. It issues `GET /media?linkedRecordType&linkedRecordId`
+   *     on mount. `RELATIONS` on the interview route already hydrates `media`, so
+   *     `GET /questionnaire/interviews/{id}` — the request `useEditDeepLink` has just made — brought
+   *     every one of these rows down with the record. A second request for them would be a round trip
+   *     on a field connection to learn something already in memory, and a window in which the two
+   *     lists disagree.
+   *
+   * So this builds the smallest thing that does fit, and it reuses rather than reinvents: the tiles
+   * are `MediaPreviewTile` and opening one hands it to the `MediaLightbox` ALREADY MOUNTED at the foot
+   * of this page through `activePreview` — the same preview the freshly recorded clips above use, so
+   * playback, download and the transcript block are identical for a clip whether it was recorded three
+   * seconds or three weeks ago, and there is exactly one lightbox on the page.
+   *
+   * ── READ-ONLY, AND THAT IS A RULE RATHER THAN AN OMISSION ───────────────────────────────────────
+   *
+   * Nothing here feeds `mediaFiles` or `questionAudioFiles`. Those two maps are the NEW clips this
+   * visit is uploading, and `submit` uploads every file in them on every save — so seeding them with
+   * what is already attached would re-upload the whole interview each time somebody fixed a typo, and
+   * the duplicates would count towards the completion matrix. `seedFromInterview` states the same rule
+   * from the other side, and the handset draws the same line (`savedMedia` versus `media.uris`).
+   */
+  const savedMedia = useMemo(() => {
+    const all = editing?.media ?? [];
+    const bySection = new Map<string, MediaFile[]>();
+    const placed = new Set<string>();
+    sections.forEach((section) => {
+      const mine = all.filter((media) => captionBelongsToSection(media.caption, section));
+      if (mine.length) bySection.set(section.id, mine);
+      mine.forEach((media) => placed.add(media.id));
+    });
+    // THE CATCH-ALL, as on the handset ("Other saved recordings & media"). Interview-wide audio, a
+    // photo attached from the general media field, and any clip whose caption this client cannot parse
+    // all land here. Dropping them instead would hide files from the one screen that exists to show
+    // the researcher that their work is still there — which is the defect, not a tidier list.
+    return { bySection, other: all.filter((media) => !placed.has(media.id)) };
+  }, [editing, sections]);
+
+  /**
+   * WHICH SECTIONS OPEN THEMSELVES ON AN EDIT — the ones that have something in them.
+   *
+   * The web opened only the FIRST section and Android opened none, so an interview whose answers live
+   * in sections D and F opened on section A, empty, with nine collapsed headings below it that said
+   * nothing about their contents. A researcher reading that page has no way to distinguish it from a
+   * sitting that was never recorded, which is precisely what happened.
+   *
+   * COMPUTED FROM THE SEEDED RECORD AND NOT FROM THE LIVE FORM, which is why it reads
+   * `answeredOnRecord` rather than `answers`. `open` on a `<details>` is re-applied by React whenever
+   * the value it renders changes, so deriving it from live state would let a section SHUT ITSELF while
+   * somebody was working in it — clear the last answer in a section and the panel folds up with the
+   * caret inside. Both inputs here are frozen for the life of the edit.
+   */
+  const sectionsOpenOnEdit = useMemo(() => {
+    const open = new Set<string>();
+    if (!editing) return open;
+    sections.forEach((section) => {
+      const hasAnswer = section.questions.some((question) => answeredOnRecord.has(question.id));
+      if (hasAnswer || (savedMedia.bySection.get(section.id)?.length ?? 0) > 0) open.add(section.id);
+    });
+    return open;
+  }, [editing, sections, answeredOnRecord, savedMedia]);
+
+  /** What the shared entry holds, counted on BOTH axes — see `sharedEntrySummary` for why. */
+  const existingEntryTally = useMemo(() => {
+    const responses = existingEntry?.responses ?? [];
+    const recordings = existingEntry?.media ?? [];
+    return { responses, recordings, summary: sharedEntrySummary(responses.length, recordings.length) };
+  }, [existingEntry]);
+
+  /**
+   * "12 questions · 5 answered · 3 saved recordings" — what the handset prints under every section
+   * heading and the browser printed nowhere.
+   *
+   * THIS IS THE LINE THAT WOULD HAVE TOLD THE RESEARCHER THEIR WORK WAS THERE. With the answer boxes
+   * hidden by preference and every section collapsed, a recorded sitting and an empty one are the same
+   * screen; a count on the closed heading is the only thing on the page that can tell them apart
+   * without a click.
+   *
+   * THE RULE FOR "ANSWERED" IS ANDROID'S, TO THE LETTER, because two clients disagreeing about how
+   * much of an interview is done is worse than either answer: a WHOLE-SECTION take answers every
+   * question in its section (that is what recording a section means), and otherwise a question counts
+   * when it has typed text, a clip staged in this visit, or a clip already saved against it.
+   *
+   * `group.items` AND NOT the section's active questions, because the count has to describe THE SCREEN
+   * — this form renders every question in `items`, so a count taken over any other set would be a
+   * number the reader cannot verify by looking.
+   */
+  function sectionTally(group: { section: QuestionnaireSection; items: QuestionnaireQuestion[] }) {
+    const clips = savedMedia.bySection.get(group.section.id) ?? [];
+    const wholeSectionTake =
+      (questionAudioFiles[sectionClipKey(group.section.id)]?.length ?? 0) > 0 ||
+      clips.some((media) => captionIsWholeSection(media.caption, group.section));
+    const answered = wholeSectionTake
+      ? group.items.length
+      : group.items.filter(
+          (question) =>
+            (answers[question.id] ?? "").trim().length > 0 ||
+            (questionAudioFiles[question.id]?.length ?? 0) > 0 ||
+            clips.some((media) => captionAnswersQuestion(media.caption, question))
+        ).length;
+    return { questions: group.items.length, answered, saved: clips.length };
+  }
+
   return (
     <>
       <PageHeader
@@ -1151,6 +1692,66 @@ function QuestionnairePageBody() {
         icon={<ClipboardList className="h-5 w-5" aria-hidden />}
       />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+      {/*
+        THE MERGE RECEIPT. Not red, because nothing failed, and not silent, because the interview that
+        was on screen a moment ago no longer exists — a form that quietly re-seeds itself with a
+        different record is a form the researcher will read as having lost theirs.
+      */}
+      {mergeNotice ? (
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3 rounded-md border border-line-200 bg-field-100 px-3 py-2 text-sm text-ink-700">
+          <span className="min-w-0">{mergeNotice}</span>
+          <button type="button" className="text-xs font-semibold text-purple-700" onClick={() => setMergeNotice(null)}>
+            Dismiss
+          </button>
+        </div>
+      ) : null}
+      {/*
+        THE MERGE REFUSAL, NAMED QUESTION BY QUESTION — never swallowed and never reduced to a count.
+        The server went to the trouble of resolving every clashing question's section and prompt for
+        exactly this, and its own comment says why: "A researcher cannot act on '3 answers disagree';
+        they can act on the section and the prompt, which is what they will read on screen and what
+        they have to go and reconcile by hand."
+
+        Amber and not red, and the HEADING SAYS "Nothing was moved" IN WORDS rather than leaving that
+        to the colour: amber is the repository's "consequential but recoverable" tone, this is
+        recoverable, and a reader who cannot tell amber from red — or who is reading a screenshot in
+        greyscale — still has to learn that both interviews are exactly as they were.
+      */}
+      {mergeConflicts.length ? (
+        <section className="mb-4 rounded-lg border border-amber-500 bg-amber-100 p-4">
+          <h2 className="font-display font-bold text-lg text-amber-800">
+            Nothing was moved: {mergeConflicts.length} question{mergeConflicts.length === 1 ? "" : "s"} answered
+            differently in both interviews
+          </h2>
+          <p className="mt-1 text-sm text-amber-800">
+            Both interviews already answer these questions, and they disagree. The move was refused rather than a
+            winner picked, so every word on both sides is still where it was. Decide which wording is right, correct
+            it by hand so the two agree, then ask for the move again.
+          </p>
+          <ul className="mt-3 grid gap-2">
+            {mergeConflicts.map((row, index) => (
+              <li key={row.questionId || index} className="rounded-md border border-amber-500 bg-card/70 p-2 text-xs">
+                <div className="font-semibold text-ink">
+                  {row.sectionCode ? `[${row.sectionCode}] ` : ""}
+                  {row.prompt ?? "A question this client could not name"}
+                </div>
+                <div className="mt-1 text-amber-800">
+                  {row.fields.length
+                    ? `The two interviews disagree on ${row.fields.map(conflictFieldLabel).join(" and ")}.`
+                    : "The two interviews disagree on this answer."}
+                </div>
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            className="mt-3 text-xs font-semibold text-purple-700"
+            onClick={() => setMergeConflicts([])}
+          >
+            Dismiss
+          </button>
+        </section>
+      ) : null}
 
       {/* 1) Completion matrix — top of the page, collapsed by default. */}
       <CompletionMatrixPanel canOverride={adminMode && isAdmin(user)} questionnaireId={questionnaireId} />
@@ -1506,12 +2107,29 @@ function QuestionnairePageBody() {
                 </>
               )}
             </p>
-            {existingEntry.responses && existingEntry.responses.length > 0 ? (
+            {/*
+              WHAT IS IN THAT ENTRY, COUNTED ON BOTH AXES.
+
+              THE DEFECT THIS REPLACES: this block measured `existingEntry.responses` and nothing else,
+              so an interview a researcher had fully recorded was announced to their colleague as "No
+              questions answered yet". It was not a rare miss. Capture on this instrument defaults to
+              ONE AUDIO TAKE PER SECTION with the answer boxes hidden (`DEFAULT_CAPTURE_PREFS`), so a
+              properly conducted sitting has ZERO response rows and a dozen media rows — the one number
+              being read was the one number that is reliably zero for good work, and the sentence it
+              produced invited the reader to record the whole interview a second time.
+
+              The counts come off `media` as well, which `by-artisans` hydrates with the rest of
+              `RELATIONS`, so this costs no request. `sharedEntrySummary` writes the sentence and says
+              what it found — never a bare "empty" — and lives at module scope so the wording of each
+              case is pinned by a spec rather than by whoever edits this JSX next.
+            */}
+            <p className="mt-2 text-xs text-amber-800">{existingEntryTally.summary}</p>
+            {existingEntryTally.responses.length > 0 ? (
               <div className="mt-3 grid gap-2">
                 <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">
-                  Already recorded ({existingEntry.responses.length})
+                  Typed answers ({existingEntryTally.responses.length})
                 </div>
-                {existingEntry.responses.map((response) => (
+                {existingEntryTally.responses.map((response) => (
                   <div key={response.id} className="rounded-md border border-amber-500 bg-card/70 p-2 text-xs">
                     <div className="font-semibold text-ink">
                       {response.question?.sectionCode ? `[${response.question.sectionCode}] ` : ""}
@@ -1524,9 +2142,24 @@ function QuestionnairePageBody() {
                   </div>
                 ))}
               </div>
-            ) : (
-              <p className="mt-2 text-xs text-amber-800">No questions answered yet — you can be the first to fill them in.</p>
-            )}
+            ) : null}
+            {existingEntryTally.recordings.length > 0 ? (
+              <div className="mt-3 grid gap-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                  Recordings and files ({existingEntryTally.recordings.length})
+                </div>
+                {/* Captions, not tiles: this is somebody ELSE'S entry being described before the
+                    researcher decides to join it, so it names what is in there without offering to play
+                    it. The record's own recordings are drawn, playable, further down the form. */}
+                <ul className="grid gap-1 text-xs text-amber-800">
+                  {existingEntryTally.recordings.map((media) => (
+                    <li key={media.id} className="truncate">
+                      {media.caption || media.originalFilename}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </section>
         ) : null}
         {selectedArtisan ? (
@@ -1557,10 +2190,37 @@ function QuestionnairePageBody() {
         <UploadProgress progress={interviewProgress} sectionId={INTERVIEW_SECTION} label={INTERVIEW_SECTION_LABEL} />
         <LocationFields />
         <div className="grid gap-3">
-          {orderedGroups.map(([code, group], index) => (
-            <details key={code} className="rounded-md border border-line-200 bg-field-100 p-3" open={index === 0}>
+          {orderedGroups.map(([code, group], index) => {
+            const tally = sectionTally(group);
+            const sectionClips = savedMedia.bySection.get(group.section.id) ?? [];
+            return (
+            <details
+              key={code}
+              className="rounded-md border border-line-200 bg-field-100 p-3"
+              /*
+                OPEN ON THE FIRST SECTION, AS BEFORE — AND ON EVERY SECTION THAT HAS SOMETHING IN IT
+                WHEN THIS IS AN EDIT. `sectionsOpenOnEdit` is empty in create mode by construction, so
+                a fresh capture opens exactly as it always has: section one, and nothing else.
+              */
+              open={index === 0 || sectionsOpenOnEdit.has(group.section.id)}
+            >
               <summary className="cursor-pointer font-display font-bold text-lg text-ink">
                 {code}. {group.title}
+                {/*
+                  THE COUNTS, WHICH ARE THE ONLY THING A CLOSED SECTION CAN SAY ABOUT ITSELF. Android
+                  has printed this line under every section heading since the form was written; the web
+                  printed the heading alone, so a collapsed section gave a researcher no way at all to
+                  tell a recorded sitting from an empty one. See `sectionTally` for the counting rule
+                  and for why it is the handset's rule exactly.
+
+                  `font-sans` and `font-normal` because `<summary>` is inside a `font-display
+                  font-bold` heading and a sub-line in the display face at 12px reads as a second
+                  title rather than as a measurement.
+                */}
+                <span className="mt-0.5 block font-sans text-xs font-normal text-ink-500">
+                  {tally.questions} question{tally.questions === 1 ? "" : "s"} · {tally.answered} answered
+                  {tally.saved ? ` · ${tally.saved} saved recording${tally.saved === 1 ? "" : "s"}` : ""}
+                </span>
               </summary>
               <div className="mt-3 grid gap-3">
                 {/* One take for the whole section. Rendered whenever such a take EXISTS, not only in
@@ -1660,8 +2320,43 @@ function QuestionnairePageBody() {
                         elapsedMs={questionElapsedMs}
                       />
                     ) : null}
-                    {capture.hideAnswers ? null : (
+                    {/*
+                      ══ THE ANSWER THE RECORD ALREADY CARRIES IS ALWAYS DRAWN ═══════════════════════
+
+                      `hideAnswers` IS NOT TOUCHED AND MUST NOT BE. It is the reader's stored choice
+                      about CAPTURE, made for a real reason — an eighty-one-question instrument answered
+                      by voice does not want eighty-one empty textareas between the researcher and the
+                      record button — and it is remembered across sections, reloads and days. Flipping
+                      it to solve a display problem would silently change how every future interview is
+                      captured on this device, on behalf of somebody who never asked.
+
+                      SO THE GATE MOVES INSTEAD OF THE PREFERENCE. The box is drawn when the preference
+                      says to draw it, OR when THIS RECORD arrived with words in it. Those are the only
+                      boxes that appear against the preference, and they are the ones whose absence was
+                      the bug: an edit form that hides a researcher's typed answer is showing them a
+                      blank where their work is.
+
+                      AN EDITABLE BOX AND NOT READ-ONLY TEXT, which was the other option and is the
+                      wrong one here. This page is the correction surface — the reason `?edit=` exists —
+                      and text a researcher can see but not fix is a screen that shows them the typo and
+                      refuses to let them touch it. The recorded answer also has to stay in `answers`
+                      either way, because `submit` rebuilds `responses` from that map: a question
+                      rendered with no box still submits the seeded value, so making it read-only would
+                      buy nothing and cost the edit.
+
+                      NOT GATED ON `editing`. `answeredOnRecord` is only ever non-empty on an edit —
+                      `seedFromInterview` fills it and `resetToCreate` empties it — so the set IS the
+                      condition, and adding `editing &&` would state the same fact twice and invite the
+                      two to drift.
+                    */}
+                    {capture.hideAnswers && !answeredOnRecord.has(question.id) ? null : (
                       <>
+                        {capture.hideAnswers ? (
+                          <p className="text-xs leading-5 text-ink-500">
+                            Shown because this interview already has a written answer here. Your &quot;do not display
+                            answer text boxes&quot; setting has not been changed.
+                          </p>
+                        ) : null}
                         <TextArea
                           aria-labelledby={`question-label-${question.id}`}
                           value={answers[question.id] ?? ""}
@@ -1722,10 +2417,33 @@ function QuestionnairePageBody() {
                     />
                   </div>
                 ))}
+                {/* THIS SECTION'S SAVED RECORDINGS — see the `savedMedia` memo for the whole argument,
+                    including why the repository's own `ExistingMedia` panel is not what is mounted here
+                    and why nothing in this block feeds the upload tray. */}
+                <SavedMediaPanel
+                  title="Saved recordings & media for this section"
+                  description="Already stored against this interview. Shown here so nothing looks lost; they are not uploaded again when you save."
+                  items={sectionClips}
+                  onOpenPreview={setActivePreview}
+                />
               </div>
             </details>
-          ))}
+            );
+          })}
         </div>
+        {/*
+          THE CATCH-ALL, exactly as the handset's "Other saved recordings & media" block. Interview-wide
+          audio names no section and never will; so does a photo attached through the media field above;
+          so does a clip whose caption this client cannot parse. Every one of them is on the record, and
+          a file on the record that no screen draws is the defect this whole change is about — so they
+          are gathered here rather than dropped for being hard to file.
+        */}
+        <SavedMediaPanel
+          title="Other saved recordings & media"
+          description="On this interview but not filed under any one section — interview-wide audio, attached files, and clips whose section could not be read from their caption."
+          items={savedMedia.other}
+          onOpenPreview={setActivePreview}
+        />
         {/* `defaultValue` is read once per mount, which is why the form above is keyed on the record. */}
         <MultiNoteField name="notes" label="Interview notes" defaultValue={editing?.notes ?? null} />
         <div className="flex flex-wrap items-center gap-2">
@@ -1965,6 +2683,50 @@ function ClipRecorder({
         </div>
       ) : null}
     </>
+  );
+}
+
+/**
+ * Saved media for one section — or the catch-all — drawn READ-ONLY.
+ *
+ * Renders NOTHING for an empty list rather than an "or so far nothing" line, and that is deliberate on
+ * a form with ten sections on it: a create has no saved media anywhere, and ten copies of a sentence
+ * saying so is the reader learning to skip grey text on the screen where it finally matters.
+ *
+ * NO REMOVE CONTROL, which is the difference from `ExistingMedia` and is not an oversight. `MediaPreviewTile`
+ * draws a delete affordance the moment it is handed `onRemove`, and deleting a colleague's recording is
+ * not a gesture that belongs on a capture form behind no confirmation of its own — the media surfaces that
+ * own that action have it. What this panel owes the researcher is the ability to SEE the work is still
+ * there, which is what was missing.
+ */
+function SavedMediaPanel({
+  title,
+  description,
+  items,
+  onOpenPreview
+}: {
+  title: string;
+  description: string;
+  items: MediaFile[];
+  onOpenPreview: (item: PreviewMedia) => void;
+}) {
+  if (!items.length) return null;
+  return (
+    <div className="rounded-md border border-line-200 bg-card p-3">
+      <h4 className="font-display font-bold text-sm text-ink">
+        {title} ({items.length})
+      </h4>
+      <p className="mt-0.5 text-xs text-ink-muted">{description}</p>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {items.map((media) => {
+          const preview = savedMediaPreview(media);
+          // The page's own lightbox, handed the same shape the freshly recorded clips hand it: one
+          // preview surface for the whole form, so playback and the transcript block are identical
+          // whether a clip was recorded three seconds or three weeks ago.
+          return <MediaPreviewTile key={preview.key} item={preview} onOpen={() => onOpenPreview(preview)} />;
+        })}
+      </div>
+    </div>
   );
 }
 

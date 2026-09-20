@@ -701,6 +701,35 @@ interface FieldRepositoryApi {
         @Body body: QuestionnaireInterviewUpdateRequest
     ): QuestionnaireInterviewDetailDto
 
+    /**
+     * FOLD THIS INTERVIEW INTO THE ONE THAT ALREADY COVERS ITS ARTISAN SET — the way out of the 409
+     * [updateInterview] raises, and the only way there is.
+     *
+     * Two researchers recorded one artisan set as two sittings titled by the sections they covered
+     * ("D Black Pottery" and an "F" one); the F sitting had missed an artisan, and adding them makes
+     * F's set key equal D's. `@@unique([questionnaireId, artisanSetKey])` then refuses the PATCH with
+     * `{code: "artisan_set_taken", holder: {id, title}}` — and the refusal STILL STANDS after this
+     * route exists. The PATCH is unchanged. This is a separate, explicit call the client makes only
+     * after a person has read the holder's name and said yes, which is what "explicitly, never
+     * silently" means on the handset: THE CONFIRMATION IS THE CALL.
+     *
+     * NO REQUEST BODY, deliberately — both interviews are named in the path and there is nothing to
+     * choose. Retrofit sends an empty body for a `@POST` with no `@Body`, which is what the route
+     * (path parameters and the session, no Pydantic model) expects.
+     *
+     * ANSWERS WITH THE SURVIVOR, hydrated and encoded for this viewer, so a caller redraws from the
+     * response instead of guessing what the move produced. THE SOURCE INTERVIEW IS GONE when this
+     * returns: `id` is not a record any more, and a screen still holding it must leave rather than
+     * re-fetch. It refuses with 409 `{code: "merge_answer_conflict", questions: […]}` when both rows
+     * answer one question differently — nothing is written in that case, so retrying after somebody
+     * reconciles the wording is safe, as is retrying after an interrupted call.
+     */
+    @POST("questionnaire/interviews/{id}/merge-into/{targetId}")
+    suspend fun mergeInterviewInto(
+        @Path("id") id: String,
+        @Path("targetId") targetId: String
+    ): QuestionnaireInterviewDetailDto
+
     @GET("questionnaire/completion")
     suspend fun completionMatrix(
         @Query("artisanId") artisanId: String? = null,

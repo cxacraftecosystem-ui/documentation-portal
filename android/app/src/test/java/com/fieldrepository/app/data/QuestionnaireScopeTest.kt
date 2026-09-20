@@ -95,49 +95,19 @@ class QuestionnaireScopeTest {
             .create(FieldRepositoryApi::class.java)
     }
 
+    /**
+     * The repository under test, holding a `TokenStore` that was never opened — see
+     * [unopenedTokenStore] for why one cannot be constructed in a plain JVM suite.
+     *
+     * THAT HELPER WAS LIFTED OUT OF THIS FILE when a third suite wanted it
+     * (`QuestionnaireMergeTest`), which is the condition `ui/RepoSources.kt` records for lifting a
+     * duplicated test helper. The four methods this suite drives — `interviews`, `interviewsPage`,
+     * `interviewsForArtisan` and the page's envelope — are pass-throughs to Retrofit that never
+     * reach for the session, which is what makes an unconstructed store safe HERE; the argument is
+     * restated in full where the helper now lives.
+     */
     private fun repository(api: FieldRepositoryApi): FieldRepository =
         FieldRepository(api, unopenedTokenStore())
-
-    /**
-     * A `TokenStore` THAT WAS NEVER OPENED — the one awkward line in this file, and the alternatives
-     * are worse.
-     *
-     * `FieldRepository` takes two collaborators, and the second one wraps `SharedPreferences`: its
-     * constructor asks an Android `Context` for them. A plain JVM suite has no `Context` to give. This
-     * module carries no Robolectric and no mocking framework (`app/build.gradle.kts` declares
-     * `junit:junit` and nothing else for the JVM suite), and that file belongs to another slice of
-     * this change, so a new test dependency was not on the table. `RecordSwitcherTest` records the
-     * same constraint and works around it the same way — by testing what it can actually reach.
-     *
-     * NULL IS NOT REACHABLE, which is the first thing to try and the first thing that fails: Kotlin
-     * emits `Intrinsics.checkNotNullParameter` on every public constructor, so a null second argument
-     * throws inside `FieldRepository.<init>` however it is smuggled in — through a generic, through
-     * reflection, through a cast. So the object is ALLOCATED WITHOUT RUNNING ITS CONSTRUCTOR instead:
-     * a real `TokenStore` of the right type, with `preferences` never assigned. This is the same
-     * mechanism every serialization library and every mocking framework uses to build an instance
-     * whose constructor it cannot call.
-     *
-     * IT IS SAFE HERE FOR A REASON THAT CAN BE CHECKED, not because it happens to work. The bearer
-     * token is attached by an interceptor in `ApiClient`, not by this class; `FieldRepository`'s
-     * constructor only stores the reference; and the four methods this suite drives — `interviews`,
-     * `interviewsPage`, `interviewsForArtisan` and the page's envelope — are pass-throughs to Retrofit
-     * that never reach for the session. If an edit makes one of them read the token store, this suite
-     * fails with an NPE naming the line. That is the correct outcome and not a flake: a read that
-     * needs the session is not the read this file is describing, and it should be looked at.
-     *
-     * AND IF THE MECHANISM ITSELF EVER GOES AWAY — a JDK that removes `allocateInstance`, a module
-     * system that closes `sun.misc` — this throws and every test here goes red. Loudly wrong is the
-     * requirement (`ui/RepoSources.kt` argues it at length for the source-reading suites): a helper
-     * that swallowed the failure and skipped would report parity on the one day nobody should believe
-     * it.
-     */
-    private fun unopenedTokenStore(): TokenStore {
-        val field = Class.forName("sun.misc.Unsafe").getDeclaredField("theUnsafe")
-        field.isAccessible = true
-        val unsafe = field.get(null)
-        val allocate = unsafe.javaClass.getMethod("allocateInstance", Class::class.java)
-        return allocate.invoke(unsafe, TokenStore::class.java) as TokenStore
-    }
 
     /** The single request this test made, or a failure naming how many there actually were. */
     private fun onlyRequest(): HttpUrl {

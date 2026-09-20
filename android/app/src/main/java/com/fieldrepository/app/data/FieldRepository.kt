@@ -127,8 +127,91 @@ data class ApiFailure(
     /** e.g. `ACCESS_PENDING`. Null for a plain-string detail, a 422 list, or a transport failure. */
     val code: String?,
     /** What to show the person: the API's own sentence, else the platform's, else the fallback. */
-    val message: String
+    val message: String,
+    /**
+     * THE REST OF THE OBJECT DETAIL, kept because reading the body twice is not available.
+     *
+     * The same "one read, both answers" argument the two fields above are held together by, arriving
+     * a third time and harder. `detail` is not always just a code and a sentence: the artisan-set 409
+     * carries `holder: {id, title}` — the interview that already covers this set — and the merge
+     * route's 409 carries `questions: [{questionId, sectionCode, prompt}]`, every question the two
+     * sittings answer differently. A screen cannot offer to move an interview into a record it
+     * cannot name, or list what has to be reconciled, without those; and it cannot go back for them,
+     * because [Throwable.apiFailure] has already consumed the buffered error body by the time the
+     * caller sees this object.
+     *
+     * NULL for a plain-string detail, a 422 validation list, or a transport failure — the shapes
+     * that have nothing beyond their sentence. Readers are the typed extensions below; nothing
+     * outside this file should be poking at raw JSON.
+     */
+    val detail: JsonObject? = null
 )
+
+/**
+ * The 409 code a PATCH raises when another interview already covers this exact set of artisans —
+ * `_DUPLICATE_SET_CODE` in `backend/app/api/routes/questionnaire.py`.
+ *
+ * BRANCH ON THIS AND NEVER ON THE PROSE, which is the instruction that constant's own comment
+ * gives: the sentence is written for a human, has been reworded once already, and a client matching
+ * on "already exists" silently stops offering the move the next time somebody improves it.
+ */
+const val DUPLICATE_ARTISAN_SET_CODE = "artisan_set_taken"
+
+/** The 409 code the merge route raises when both interviews answer a question differently. */
+const val MERGE_ANSWER_CONFLICT_CODE = "merge_answer_conflict"
+
+/**
+ * The interview that already holds this artisan set, off a [DUPLICATE_ARTISAN_SET_CODE] refusal.
+ *
+ * NULL IS A REAL AND EXPECTED ANSWER, not only the sign of an old server: the route sends
+ * `holder: null` when the holder cannot be identified (a concurrent delete, or a null set key,
+ * which is not deduped). A caller that gets null falls back to printing [ApiFailure.message], which
+ * is what every screen did before this existed — the offer is an addition to that sentence and
+ * never a replacement for it.
+ *
+ * The title is left null when the holder is untitled, which the server deliberately keeps
+ * distinguishable from having no holder at all. `ui/mergeOfferQuestion` is where that becomes words.
+ */
+data class InterviewSetHolder(val id: String, val title: String?)
+
+fun ApiFailure.artisanSetHolder(): InterviewSetHolder? {
+    if (code != DUPLICATE_ARTISAN_SET_CODE) return null
+    val holder = detail?.get("holder") as? JsonObject ?: return null
+    val id = (holder["id"] as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+        ?: return null
+    return InterviewSetHolder(
+        id = id,
+        title = (holder["title"] as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+    )
+}
+
+/** One question the two interviews answer differently, as the merge route's 409 names it. */
+data class MergeAnswerConflict(
+    val questionId: String,
+    val sectionCode: String? = null,
+    val prompt: String? = null
+)
+
+/**
+ * Every question a refused merge named, in the order the server sorted them (section code, then
+ * prompt) — that order is the one a researcher reads a questionnaire in, and re-sorting here would
+ * put the list out of step with the paper it is being checked against.
+ *
+ * EMPTY FOR ANY OTHER FAILURE, including a merge that failed for a reason with no question list
+ * (422 for a cross-instrument merge, 403, a dropped connection). A caller that treats "empty" as
+ * "not this kind of refusal" and falls back to [ApiFailure.message] is behaving correctly.
+ */
+fun ApiFailure.mergeAnswerConflicts(): List<MergeAnswerConflict> {
+    if (code != MERGE_ANSWER_CONFLICT_CODE) return emptyList()
+    val rows = detail?.get("questions") as? JsonArray ?: return emptyList()
+    return rows.mapNotNull { row ->
+        val obj = row as? JsonObject ?: return@mapNotNull null
+        fun text(key: String) =
+            (obj[key] as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+        val id = text("questionId") ?: return@mapNotNull null
+        MergeAnswerConflict(questionId = id, sectionCode = text("sectionCode"), prompt = text("prompt"))
+    }
+}
 
 fun Throwable.apiFailure(fallback: String): ApiFailure {
     val plain = message?.takeIf { it.isNotBlank() } ?: fallback
@@ -143,7 +226,7 @@ fun Throwable.apiFailure(fallback: String): ApiFailure {
     val code = ((detail as? JsonObject)?.get("code") as? JsonPrimitive)?.contentOrNull
         ?.trim()
         ?.takeIf { it.isNotEmpty() }
-    return ApiFailure(code, detailMessage(detail) ?: plain)
+    return ApiFailure(code, detailMessage(detail) ?: plain, detail as? JsonObject)
 }
 
 /** Pull the human-readable text out of whichever `detail` shape FastAPI returned. */
@@ -1755,6 +1838,18 @@ class FieldRepository(
 
     suspend fun updateQuestionnaireInterview(id: String, body: QuestionnaireInterviewUpdateRequest): QuestionnaireInterviewDetailDto =
         api.updateInterview(id, body)
+
+    /**
+     * Move [id]'s answers and recordings onto [targetId] and remove [id], answering with the
+     * survivor. See [FieldRepositoryApi.mergeInterviewInto] for the contract and what it refuses.
+     *
+     * CALLED ONLY FROM A CONFIRMATION, never from a save path. The PATCH's 409 carries the holder
+     * ([ApiFailure.artisanSetHolder]); the screen names it, asks, and calls this if the answer is
+     * yes. A caller that reached here straight off the refusal would be folding two researchers'
+     * sittings together without either of them agreeing to it.
+     */
+    suspend fun mergeQuestionnaireInterviewInto(id: String, targetId: String): QuestionnaireInterviewDetailDto =
+        api.mergeInterviewInto(id, targetId)
 
     /**
      * Completion matrix (artisans x sections). Pass [artisanId] to scope it to one artisan, and
