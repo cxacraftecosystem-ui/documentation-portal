@@ -43,15 +43,31 @@ on:
   workflow_dispatch:
     inputs:
       force:
-        description: "Deploy even if no frontend/ files changed"
+        # 2026-09-20: THE MEANING IS UNCHANGED — "publish regardless of what the gate would have
+        # decided". Only the thing the gate consults changed (what the live site is serving, not
+        # what one push touched), so the wording follows it. `force=true` still skips the
+        # eligibility test outright, and since this rewrite it also skips the clone and the two
+        # api.vercel.com calls that test needs: the emergency override has to work when the thing
+        # being escaped IS the gate. On 2026-09-17, in the sister repository, a forced dispatch was
+        # the only thing that got production off a two-day-old commit.
+        description: "Deploy even if production is already serving this frontend/ tree"
         type: boolean
         default: true
 
 permissions:
   contents: read
-  # actions: read is what lets this run download the change-detection artifact that the
-  # backend run produced. Artifacts are the only channel across a workflow_run boundary —
-  # job outputs do not cross it.
+  # 2026-09-20: this note used to say `actions: read` was here to download the change-detection
+  # artifact the backend run produced, because artifacts are the only channel across a
+  # `workflow_run` boundary. THE GATE NO LONGER DOWNLOADS IT — it asks the Vercel API what
+  # production is serving instead of asking the push what it touched, and the step that replaced
+  # the download carries the full argument. The scope stays because it has a new caller: the gate
+  # asks GitHub whether the run that published the CURRENT live commit concluded success, which is
+  # `gh api repos/.../actions/runs/<id>` and needs exactly this. Do not remove it on the grounds
+  # that the artifact download went with it.
+  #
+  # deploy-backend.yml still UPLOADS `pipeline-changes`, deliberately and untouched: other readers
+  # may appear, and deleting a producer is a separate change from deleting one consumer's
+  # dependency on it. Nothing in this file reads it any more.
   actions: read
 
 concurrency:
@@ -68,25 +84,327 @@ jobs:
   #      so keeping a job alive keeps stage 3 reliably reachable even on a failed backend
   #      deploy — which is exactly when you still want to know the APK compiles.
   # It does NOT fail when the backend deploy failed: the backend workflow is already red,
-  # and a second red X for the same root cause is noise, not information.
+  # and a second red X for the same root cause is noise, not information. THAT CHOICE IS KEPT,
+  # AND AS OF 2026-09-20 IT IS FINALLY SAFE TO KEEP. The reason it was dangerous before is the
+  # whole subject of the two steps below: the refusal was correct, but under a per-push gate the
+  # work it refused to publish could never publish itself afterwards. It can now — the gate
+  # measures against the live site, so the first green backend run after a failure carries the
+  # backlog with it. A refusal here is a delay again rather than a dead end, which is what that
+  # "second red X is noise" argument always assumed and, until today, was wrong to assume.
   gate:
     runs-on: ubuntu-latest
+    # 2026-09-20: this job used to be a download and a shell and could not hang. It now clones the
+    # repository and calls api.vercel.com, and it sits inside a concurrency group that does NOT
+    # cancel in progress (see the top of this file) — so a stalled fetch would hold the publish
+    # lane for GitHub's six-hour default and no frontend deploy could start behind it. A silent
+    # multi-hour not-deploy is the same failure this rewrite exists to end, wearing a spinner
+    # instead of a green tick. `continue-on-error` on the steps below catches a checkout or an API
+    # call that FAILS; only this catches one that HANGS.
+    timeout-minutes: 10
     outputs:
       should_deploy: ${{ steps.decide.outputs.should_deploy }}
       sha: ${{ steps.decide.outputs.sha }}
     steps:
-      - name: Fetch the change summary from the backend run
-        id: fetch
-        # Skipped when the backend deploy did not succeed — there is nothing to deploy in
-        # that case, and the artifact may not even have been uploaded.
-        if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
-        continue-on-error: true # absent on manual dispatch, and on any older backend run
-        uses: actions/download-artifact@v4
+      # ───────────────────────────────────────────────────────────────────────────────────
+      # DEPLOY ELIGIBILITY IS MEASURED AGAINST WHAT IS LIVE — REWRITTEN 2026-09-20
+      # ───────────────────────────────────────────────────────────────────────────────────
+      #
+      # WHAT USED TO BE HERE. A `download-artifact` step that fetched `pipeline-changes` from the
+      # backend run, and a `grep -qx 'frontend=false'` on it further down. That artifact is
+      # deploy-backend.yml's `changes` job answering ONE question: "did THIS PUSH touch frontend/?"
+      # — a `git diff --name-only` over a single push range.
+      #
+      # WHY THAT WAS THE WRONG QUESTION, AND WHAT IT COST. Deploy eligibility was a PURE PER-PUSH
+      # FUNCTION. Nothing anywhere compared against what was actually DEPLOYED. So the moment a
+      # frontend-carrying push was blocked by something unrelated — the ordering rule below, or a
+      # failed backend deploy — that work was stranded, and every LATER backend-only push wrote
+      # `frontend=false` and skipped the publish. Not once: FOREVER. The stranded work could never
+      # ship itself, because the only thing that could have shipped it was a diff it was no longer
+      # part of — INCLUDING THE VERY PUSH THAT FIXED THE BACKEND, which is a backend-only push by
+      # definition and therefore wrote `frontend=false` like all the others.
+      #
+      # THIS IS NOT A HYPOTHESIS. The sister repository (`designer-portal`) carried a byte-identical
+      # gate and lived it on 2026-09-17: its backend deploy went red and stayed red; the ordering
+      # rule correctly refused six consecutive runs; each of those runs concluded SUCCESS, because
+      # refusing is an `exit 0` and a skipped deploy job does not fail a run. PRODUCTION SAT ON
+      # f4f6740 FOR TWO DAYS WHILE `main` MOVED SEVEN COMMITS AHEAD, carrying two commits of
+      # frontend work that nothing in that pipeline would ever have published. A human noticing, and
+      # a manual dispatch with force=true, is what got the site back. This file is the same fix,
+      # ported before the same thing happens here.
+      #
+      # THE QUESTION THESE TWO STEPS ASK INSTEAD. Not "did this push touch frontend/" but "does the
+      # tree this run would publish differ, under frontend/, from the tree production is ACTUALLY
+      # SERVING RIGHT NOW?" That question is self-healing by construction: a backend-only push
+      # landing after a blocked frontend push still differs from the live commit, because the live
+      # commit is still the old one. A gate whose input is the live site cannot drift away from it.
+      #
+      # AND IT RUNS EVEN WHEN THE BACKEND RUN IS RED, WHICH THE DELETED DOWNLOAD DID NOT. The old
+      # step was gated on `conclusion == 'success'`, so on exactly the runs where the question
+      # mattered it could not be asked. This comparison needs nothing from the backend run — only
+      # Vercel and git — so there is nothing to gate it on, and the refusal below can now say what
+      # it is holding back.
+      - name: Check out the tree this run would publish, and the history to compare it against
+        # Skipped ONLY on the forced dispatch. `decide` ignores the comparison on that path, and the
+        # emergency override must not wait on a clone and two calls to api.vercel.com to do what it
+        # is for. Every other event runs this, red backend runs included.
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.force }}
+        # The gate had NO checkout until today, because the only question it asked was answered by a
+        # file somebody else uploaded. It now asks a question about two commits, so it needs the
+        # commits. `continue-on-error` because a gate that cannot check out must still reach a
+        # verdict: the step below treats a missing working tree as `unknown`, and unknown publishes.
+        # Refusing to publish because a checkout flaked would be this whole exercise re-creating its
+        # own bug in a new place.
+        continue-on-error: true
+        uses: actions/checkout@v4
         with:
-          name: pipeline-changes
-          path: pipeline-changes
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # The same commit `decide` resolves as `${HEAD_SHA:-$GITHUB_SHA}` and the deploy job
+          # checks out as `needs.gate.outputs.sha`. It is spelled out a third time here rather than
+          # read from a step output because `with:` is evaluated before any step of this job has
+          # run, so there is no output to read yet. THE THREE MUST NOT DRIFT: if this one ever
+          # resolves a different commit from the deploy job's, the gate grades one tree and the
+          # pipeline publishes another — a silent mis-publish, not a failure. Nothing goes red; the
+          # wrong bytes just go live.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          # FULL HISTORY, for the same reason deploy-backend.yml's `changes` job takes it. The
+          # commit production is serving is bounded by NOTHING: it is however far behind `main` the
+          # last successful publish left it. In the sister repository's incident that was seven
+          # commits; a fortnight of red backend deploys would make it fifty. A shallow fetch that
+          # does not reach it makes `git cat-file -e` fail on every run, which makes every run
+          # `unknown`, which makes every run deploy — safe, but the gate would have quietly stopped
+          # deciding anything and nobody would know.
+          fetch-depth: 0
+
+      - name: Compare this commit with the one production is actually serving
+        id: scope
+        # Same guard, same reason, as the checkout above.
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.force }}
+        # ─── FAIL OPEN. THIS IS THE WHOLE POINT, SO IT IS BUILT TWICE. ────────────────────────
+        # Every path that cannot answer the question answers `unknown`, and `decide` below only
+        # ever turns a deploy OFF on an exact `false` — the same rule the old `grep -qx` had, kept
+        # deliberately. Over-deploying costs a build minute. Under-deploying is two days on a stale
+        # commit. Those are not comparable, so the tie never goes to "skip".
+        #
+        # Net one is the shell: every fallible call is `|| true`-guarded and reaches an explicit
+        # `out unknown "…"` for each named failure. Net two is `continue-on-error` — the step runs
+        # under `set -euo pipefail`, and an unguarded curl or a `jq` parse error on an HTML error
+        # page would abort it and FAIL THE GATE, which publishes nothing, which is the same class
+        # of bug wearing a red tick instead of a green one. If the step dies anyway it writes no
+        # outputs, an unwritten output reads as `''`, and `decide` folds `''` into `unknown`.
+        # Both nets are load-bearing; do not remove either on the grounds that the other exists.
+        continue-on-error: true
+        env:
+          # All three are the repository secrets this workflow already documents at the top of the
+          # file. If any of them is ever moved to an environment secret this step goes permanently
+          # `unknown` — the gate reverts to "always deploy", which is safe, and which the summary
+          # says out loud on every run. (The `production-web` environment is declared on the deploy
+          # job below, not on this one, so this job can only see repository-scoped secrets.)
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          # For the "was the live build ever accepted" question below. The workflow-level
+          # `actions: read` covers it; this job declares no permissions of its own.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          set -euo pipefail
+
+          live=""
+
+          # Single exit point, so no path can forget to write an output. THREE VALUES, and the third
+          # is not decoration: `true` and `false` decide whether to publish, and `unknown` is what
+          # lets the refusal path below tell "nothing was stranded" apart from "the gate could not
+          # see". The reason string is echoed to the log AND handed to `decide`, which prints it in
+          # the job summary — the diagnostic that was missing on 2026-09-17, when six runs went
+          # green without one of them saying the site was still on the old commit. Keep every reason
+          # on ONE LINE: $GITHUB_OUTPUT is line-oriented and a newline in a value silently truncates
+          # it.
+          out() {
+            {
+              echo "pending=$1"
+              echo "live_sha=${live}"
+              echo "reason=$2"
+            } >> "$GITHUB_OUTPUT"
+            echo "$2"
+          }
+
+          # The token goes in a HEADER, never in the URL, so it cannot land in a redirect, an error
+          # line or a log. No `--fail`: without it curl exits 0 on a 4xx and hands us the API's own
+          # error body, which is the diagnostic worth having — `jq` turns it into an empty string a
+          # moment later either way. `|| true` because a DNS failure or a timeout must not kill the
+          # step (see the two-nets comment above).
+          api() {
+            curl -sS --max-time 20 --retry 2 --retry-delay 3 --retry-connrefused \
+                 -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+                 -H "Accept: application/json" \
+                 "$1" || true
+          }
+
+          # ── 1. WHAT IS THIS PROJECT CALLED — resolved, never written down ───────────────────
+          # THE ONE THING IN THIS STEP THAT MUST NOT BE HARDCODED. `field-repository.vercel.app`
+          # and `designer-repository.vercel.app` are two different products in the same Vercel
+          # team, and a literal hostname is exactly how a check ends up grading the other one —
+          # answering confidently about a site this pipeline does not publish, and either skipping
+          # a deploy that was needed or deploying over a decision it never really made. The project
+          # id is the only thing that distinguishes the two, so the NAME is derived from it: point
+          # VERCEL_PROJECT_ID somewhere else and this moves with it.
+          #
+          # It is also the SAME source of truth the deploy job uses, reached a cheaper way. That job
+          # runs `vercel pull` and the CLI fills `.vercel/project.json` from this exact API record.
+          # Reading it directly avoids a Node setup and a global `npm install vercel` in a job that
+          # fires on every backend-deploy completion, without introducing a second opinion about
+          # which project is production.
+          project="$(api "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}?teamId=${VERCEL_ORG_ID}")"
+          name="$(printf '%s' "$project" | jq -r '.name // empty' 2>/dev/null || true)"
+          if [ -z "$name" ]; then
+            out unknown "Vercel did not say what project '${VERCEL_PROJECT_ID:-<unset>}' is, so the commit production is serving could not be read. Check VERCEL_TOKEN, VERCEL_ORG_ID and VERCEL_PROJECT_ID."
+            exit 0
+          fi
+          echo "Vercel project '${name}' — production alias ${name}.vercel.app"
+
+          # ── 2. WHAT IS THAT ALIAS SERVING ───────────────────────────────────────────────────
+          # THE ALIAS, NOT THE DEPLOYMENT LIST, AND THE DIFFERENCE IS NOT ACADEMIC. The
+          # obvious-looking alternative is `/v6/deployments?projectId=..&target=production&limit=1`,
+          # which answers "what is the NEWEST production deployment". That is a different question.
+          # An alias that was ever assigned by hand stops tracking new production deployments and
+          # `--prod` does not move it back — the failure the last step of the deploy job below
+          # exists to catch ("the production alias is still pointing at an older deployment").
+          # When the two disagree, the list reports a commit NEWER than the one visitors are being
+          # served, which shrinks the diff below and SKIPS a deploy that was needed. It errs in the
+          # one direction this gate exists to make impossible, so it is not used, not even as a
+          # fallback. A failed call here is `unknown`, and unknown deploys.
+          #
+          # `deployedCommitSha` first: the deploy job stamps it with `--meta` on every publish, so
+          # it is a contract this pipeline controls. `githubCommitSha` second: that one is inferred
+          # by the Vercel CLI from the checkout it deployed from, and it is all that deployments
+          # made before this change carry — including the one that is live right now.
+          dep="$(api "https://api.vercel.com/v13/deployments/${name}.vercel.app?teamId=${VERCEL_ORG_ID}")"
+          live="$(printf '%s' "$dep" | jq -r '(.meta.deployedCommitSha // .meta.githubCommitSha) // empty' 2>/dev/null | tr 'A-Z' 'a-z' || true)"
+
+          # A 404 here is the FIRST EVER DEPLOY — no production deployment to compare against — and
+          # a garbage or truncated value is a malformed answer. Both are "no live commit".
+          if ! printf '%s' "$live" | grep -Eq '^[0-9a-f]{40}$'; then
+            live=""
+            out unknown "${name}.vercel.app names no commit this gate can read (first deploy, or the API did not answer). Publishing rather than guessing."
+            exit 0
+          fi
+          echo "production is serving ${live}; this run would publish ${TARGET_SHA}"
+
+          # ── 3. IS WHAT IS LIVE KNOWN GOOD? ──────────────────────────────────────────────────
+          # A deployment is stamped at UPLOAD, and the two steps that can still condemn it run
+          # AFTER the upload: the production smoke check, and the assertion that the bundle the CDN
+          # is serving carries the API host. So `live` can name a build that is serving visitors and
+          # that this pipeline has already judged broken. The values that build inlines come from
+          # the Vercel dashboard and not from git (the file header says so at length), so the fix
+          # for that class of failure — 2026-07-26, the Sensitive-variable incident — changes NO
+          # FILE, and a gate that only compares trees would then refuse to republish for ever. That
+          # is the stranded-work bug in different clothes.
+          #
+          # So ask GitHub what the run that published `live` concluded — BY RUN ID, which the deploy
+          # step stamps alongside the commit. Asking by `head_sha=${live}` is wrong: on a
+          # `workflow_run` event a run's own `head_sha` is the DEFAULT-BRANCH TIP AT TRIGGER TIME,
+          # not the commit it checked out (the deploy job pins its checkout to
+          # `needs.gate.outputs.sha`), so a query for the commit that was actually live returns
+          # nothing whenever main moved between the backend run starting and this one being created
+          # — which is exactly when it matters.
+          #
+          # An empty answer — no id stamped, no run found, the API down — falls through to the
+          # ordinary comparison, which is the fail-open direction. Only a definite non-success
+          # forces a republish. THE EMPTY CASE IS LOAD-BEARING AND IT IS PERMANENT for one cycle:
+          # every deployment made before this stamp existed carries no `deployedRunId`, including
+          # the one that is live the first time this runs, and a missing id must never be read as a
+          # condemnation.
+          run_id="$(printf '%s' "$dep" | jq -r '.meta.deployedRunId // empty' 2>/dev/null || true)"
+          verdict=""
+          if printf '%s' "$run_id" | grep -Eq '^[0-9]+$'; then
+            verdict="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.conclusion // empty' 2>/dev/null || true)"
+          fi
+          if [ -n "$verdict" ] && [ "$verdict" != "success" ]; then
+            out true "The run that published ${live} concluded '${verdict}', so what production is serving is not known good. Republishing rather than trusting it."
+            exit 0
+          fi
+
+          # ── 4. CAN WE ACTUALLY DIFF THEM ────────────────────────────────────────────────────
+          # The checkout above is `continue-on-error`, so it may simply not be here.
+          if [ ! -d .git ]; then
+            out unknown "No checkout to diff in — the checkout step did not complete."
+            exit 0
+          fi
+          # Same idiom, and the same reasoning, as deploy-backend.yml's `changes` job: a commit that
+          # is not in this repository cannot be diffed against. A force-push or a rebase that
+          # orphaned the live commit lands here, and so does a live commit published from another
+          # tree. Treat it as unanswerable, exactly as that job treats an unreachable `$BEFORE`.
+          for want in "$live" "$TARGET_SHA"; do
+            if ! git cat-file -e "${want}^{commit}" 2>/dev/null; then
+              out unknown "Commit ${want} is not in this repository (force-push, rebase, or a deployment from another tree), so there is nothing to diff."
+              exit 0
+            fi
+          done
+
+          if [ "$live" = "$TARGET_SHA" ]; then
+            out false "Production is already serving ${TARGET_SHA}. Nothing to publish; run this workflow with force=true to republish it."
+            exit 0
+          fi
+
+          # ── 5. A WARNING, DELIBERATELY NOT A REFUSAL ────────────────────────────────────────
+          # If the commit we would publish is an ANCESTOR of the live one, production is ahead of
+          # this run and publishing moves the site BACKWARDS. That happens when someone re-runs an
+          # older backend deploy, which is also one of the documented ways to roll the site back on
+          # purpose — so this says so loudly and then does it anyway. It is not new behaviour
+          # either: the artifact this step replaced said `frontend=true` in exactly this case and
+          # deployed. Every NEW refusal path is a new way to strand work, and stranding work is the
+          # failure this step was written to end.
+          if git merge-base --is-ancestor "$TARGET_SHA" "$live" 2>/dev/null; then
+            echo "::warning title=This publish moves production backwards::${live} is live and ${TARGET_SHA} is an ancestor of it. Publishing will roll the site back to the older tree. If that is not what you meant, cancel this run."
+          fi
+
+          # ── 6. THE DIFF ─────────────────────────────────────────────────────────────────────
+          # Byte-identical to deploy-backend.yml's `frontend` pattern, and it has to stay that way:
+          # two definitions of "a frontend change" in one pipeline is how a rule gets fixed in one
+          # place and left broken in the other. The workflow file is in the pattern because a change
+          # to HOW we publish is a change to WHAT gets published — an edit to this gate must be able
+          # to reach production through this gate.
+          #
+          # Filtered with grep rather than a `git diff -- frontend/` pathspec ON PURPOSE: a pathspec
+          # silently drops the workflow-file half of that rule, and it would drop it quietly, on the
+          # safe-looking side.
+          # NOT `|| true`. Every OTHER fallible call in this step is guarded that way and then
+          # reaches an explicit `out unknown`; this one cannot be, because an empty `files` is
+          # indistinguishable from "the trees are identical" and would land on `false` — the
+          # fail-CLOSED direction, in the one step whose entire contract is to fail open. A diff
+          # that could not be taken is not an answer of "nothing to do".
+          if ! files="$(git diff --name-only "$live" "$TARGET_SHA")"; then
+            out unknown "git diff between ${live} and ${TARGET_SHA} failed, so no comparison could be made. Publishing rather than guessing."
+            exit 0
+          fi
+          echo "files differing between live and target:"
+          printf '%s\n' "$files"
+
+          # ─── A HERESTRING, NOT A PIPE, AND THAT IS A CORRECTNESS FIX RATHER THAN A STYLE ─────
+          # `printf '%s\n' "$files" | grep -Eq …` answers THE WRONG WAY ROUND on a large diff,
+          # silently, under `set -euo pipefail`:
+          #
+          #   `grep -q` exits the instant it matches. If `printf` still holds bytes that the
+          #   64 KiB pipe buffer cannot take, it is killed by SIGPIPE (141). `pipefail` takes the
+          #   pipeline's status from the rightmost non-zero command, so the pipeline is non-zero
+          #   EVEN THOUGH GREP MATCHED, the `if` falls to the `else`, and the gate emits
+          #   `pending=false` — "the site is already serving this frontend" — over a diff whose
+          #   FIRST line was a frontend file.
+          #
+          # Measured in the sister repository before the fix: a diff whose first line is
+          # `frontend/app/globals.css` answers MATCH at 29 KB and ELSE at 119 KB. The threshold is
+          # the pipe buffer, so what decides it is the SIZE of the diff — that is, HOW FAR BEHIND
+          # PRODUCTION HAS FALLEN. That is the stranded-work bug rebuilt inside the fix for it, and
+          # worse: self-perpetuating, because a wrong `false` keeps the site stale, which grows the
+          # diff, which keeps the answer wrong. With a green tick every time.
+          #
+          # A herestring is not a pipeline, so `pipefail` has nothing to observe and `grep`'s own
+          # status is the whole answer. The pattern is unchanged and must stay byte-identical to
+          # deploy-backend.yml's — see the paragraph above.
+          if grep -Eq '^(frontend/|\.github/workflows/deploy-frontend\.yml$)' <<< "$files"; then
+            out true "frontend/ differs between ${live} (live) and ${TARGET_SHA} — there is work production is not serving."
+          else
+            out false "Nothing under frontend/ differs between ${live} (live) and ${TARGET_SHA} — the site is already serving this frontend."
+          fi
 
       - name: Decide whether to deploy
         id: decide
@@ -98,15 +416,55 @@ jobs:
           # Presence only — the value never enters the log. `secrets` is not readable from
           # an `if:` on a step in a reusable position, so the check happens here in the gate.
           HAVE_VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN != '' }}
+          # 2026-09-20. The verdict from the comparison above, and the sentence explaining it.
+          # Read as strings, and folded to `unknown` below rather than trusted, because they are
+          # EMPTY whenever that step was skipped or died — and empty must mean "we do not know",
+          # never "nothing to do". LIVE_SHA is empty whenever the live commit could not be read;
+          # the summary prints it as `unknown` so a reader can tell "nothing changed" apart from
+          # "we could not find out" without opening the log.
+          PENDING: ${{ steps.scope.outputs.pending }}
+          SCOPE_REASON: ${{ steps.scope.outputs.reason }}
+          LIVE_SHA: ${{ steps.scope.outputs.live_sha }}
         run: |
           set -euo pipefail
           sha="${HEAD_SHA:-$GITHUB_SHA}"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
+          # ── THE ONE FACT, NORMALISED ONCE, ABOVE EVERY BRANCH THAT CAN EXIT ──────────
+          # 2026-09-20. Three paths below consume this and two of them exit the step, so it is
+          # resolved here or it is not resolved on the path that caused the incident. If you add
+          # a branch that can exit, it goes BELOW this block.
+          #
+          # ANY value that is not literally `true` or `false` is `unknown`. That covers the step
+          # having been skipped (the forced dispatch), having died before writing, and having
+          # answered honestly that it could not tell. All three mean the same thing to every
+          # consumer below, and none of them may be mistaken for "nothing to do".
+          pending="${PENDING:-}"
+          case "$pending" in
+            true|false) ;;
+            *) pending=unknown ;;
+          esac
+          echo "Unpublished frontend work on ${sha}: pending=${pending} (production is serving ${LIVE_SHA:-unknown})"
+
           # ── The ordering rule, enforced ──────────────────────────────────────────────
           # Anything other than a green backend run stops the deploy dead. A cancelled or
           # failed backend deploy can leave the API stopped mid-migration, so publishing a
           # frontend that depends on it would be strictly worse than publishing nothing.
+          #
+          # STILL `exit 0`, STILL GREEN, AND THAT IS NOW AN ARGUMENT RATHER THAN AN ASSUMPTION.
+          # The backend workflow is already red for this push and a second red X for the same
+          # root cause is noise — but the sentence this summary used to end on, "fix the backend
+          # deploy and re-run it; this workflow will follow", was FALSE under the old per-push
+          # gate: the push that fixed the backend was itself a backend-only push, so it wrote
+          # `frontend=false` and the stranded work stayed stranded. It is true now, because the
+          # comparison above measures against the live site rather than against one push. The
+          # exit code is unchanged; what changed is that it no longer hides anything.
+          #
+          # WHAT IT SAYS IS NOT UNCHANGED. Six green runs in the sister repository never once
+          # said the site was still on f4f6740, and that is why the diagnosis took two days. This
+          # summary now names both commits and says out loud whether the refusal is holding work
+          # back — the three cases are the three values of `pending`, and `unknown` is a distinct
+          # case on purpose: "the gate could not see" must never read as "nothing to do".
           if [ "$EVENT" != "workflow_dispatch" ] && [ "${BACKEND_CONCLUSION}" != "success" ]; then
             echo "Backend deploy concluded '${BACKEND_CONCLUSION}' — refusing to publish the frontend."
             {
@@ -115,6 +473,38 @@ jobs:
               echo "The backend workflow concluded \`${BACKEND_CONCLUSION}\`. The web app calls"
               echo "endpoints that may not exist (or may be down mid-migration) until that deploy"
               echo "is green. Fix the backend deploy and re-run it; this workflow will follow."
+              echo ""
+              echo "| | commit |"
+              echo "| --- | --- |"
+              echo "| production is serving | \`${LIVE_SHA:-unknown}\` |"
+              echo "| this run would have published | \`${sha}\` |"
+              echo ""
+              case "$pending" in
+                true)
+                  echo "**\`${sha}\` carries frontend work production is not serving.** The first"
+                  echo "green backend run after this one will publish it without being asked —"
+                  echo "the gate now compares against the live site rather than against a single"
+                  echo "push, so the backlog is no longer invisible to it. If the API is already"
+                  echo "healthy and you do not want to wait:"
+                  echo ""
+                  echo "\`\`\`"
+                  echo "gh workflow run \"Deploy frontend to Vercel\" --ref main -f force=true"
+                  echo "\`\`\`"
+                  ;;
+                false)
+                  echo "**Nothing is waiting behind this refusal.** Production is already serving"
+                  echo "the newest frontend there is, so this run is green on purpose."
+                  ;;
+                *)
+                  echo "**This gate could not work out whether that refusal stranded anything:**"
+                  echo ""
+                  echo "> ${SCOPE_REASON:-the comparison step did not run, or died before it answered.}"
+                  echo ""
+                  echo "Compare \`main\` against what production is actually serving by hand, and"
+                  echo "check that \`VERCEL_TOKEN\`, \`VERCEL_ORG_ID\` and \`VERCEL_PROJECT_ID\` are"
+                  echo "still readable from this job."
+                  ;;
+              esac
             } >> "$GITHUB_STEP_SUMMARY"
             echo "should_deploy=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -148,25 +538,53 @@ jobs:
             exit 0
           fi
 
-          # Default to deploying. A missing or unreadable summary must never silently skip
-          # a real change — over-deploying costs a build minute, under-deploying ships a
-          # stale site that nobody notices until a user reports it.
+          # ── THE ELIGIBILITY TEST, AGAINST THE LIVE SITE — REWRITTEN 2026-09-20 ───────
+          # This used to read `pipeline-changes/changes.env` and skip on `frontend=false`. The
+          # step that replaced that artifact carries the full account of why a per-push diff
+          # could strand two commits of work for two days; what survives from the old shape is
+          # the RULE, kept word for word: ONLY AN EXACT `false` CAN TURN A DEPLOY OFF. `unknown`
+          # is not `false`, so it deploys.
+          #
+          # deploy-backend.yml still uploads that artifact and this file no longer reads it, by
+          # design. If anyone re-introduces it here as a second opinion it may only ever turn a
+          # deploy ON: a per-push signal is structurally incapable of knowing what is live, so
+          # letting it contribute a `false` would hand the closed bug its old shape back.
+          #
+          # Default to deploying. Over-deploying costs a build minute; under-deploying ships a
+          # stale site that nobody notices until a user reports it — and in the sister
+          # repository, nobody did for two days.
+          #
+          # FORCE IS STILL TESTED FIRST AND STILL WINS, unchanged — and it now also skips the
+          # comparison outright, in the `if:` on those steps, so the emergency path pays for no
+          # clone and no API call. The override has to work when the thing being escaped is the
+          # gate itself.
           should=true
           if [ "$EVENT" = "workflow_dispatch" ] && [ "$FORCE" = "true" ]; then
-            echo "Manual dispatch with force=true."
-          elif [ -f pipeline-changes/changes.env ]; then
-            cat pipeline-changes/changes.env
-            # Grepped, not sourced: only an exact `frontend=false` line can turn a deploy
-            # off, so a malformed or truncated artifact falls through to "deploy".
-            if grep -qx 'frontend=false' pipeline-changes/changes.env; then
-              should=false
-              echo "No frontend/ files changed in this push — nothing to publish."
-            fi
+            reason="Manual dispatch with force=true — published without consulting the live site."
+          elif [ "$pending" = "false" ]; then
+            should=false
+            reason="${SCOPE_REASON:-frontend/ matches what production is already serving.}"
           else
-            echo "No change summary available; deploying to be safe."
+            reason="${SCOPE_REASON:-No usable comparison against the live site; deploying to be safe.}"
           fi
+          echo "$reason"
           echo "should_deploy=$should" >> "$GITHUB_OUTPUT"
-          echo "Deploying commit $sha: should_deploy=$should" >> "$GITHUB_STEP_SUMMARY"
+
+          # Both commits, side by side, on every run. This is the line that was missing on
+          # 2026-09-17: six runs concluded `success` and not one of them said anywhere that the
+          # site was still on f4f6740. `unknown` in the first row means the live commit could not
+          # be read — which always deploys, and is worth telling apart at a glance from a
+          # comparison that ran and found nothing to do.
+          {
+            echo "### Frontend deploy decision"
+            echo ""
+            echo "| | commit |"
+            echo "| --- | --- |"
+            echo "| production is serving | \`${LIVE_SHA:-unknown}\` |"
+            echo "| this run would publish | \`${sha}\` |"
+            echo ""
+            echo "should_deploy=\`${should}\` — ${reason}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   deploy:
     needs: gate
@@ -337,12 +755,30 @@ jobs:
 
       - name: Deploy the prebuilt output to production
         id: deploy
+        env:
+          # 2026-09-20: stamped onto the deployment so the GATE of the NEXT run can read it back.
+          # Vercel's `meta.githubCommitSha` is inferred by the CLI from whatever git checkout it
+          # happened to run in — useful, but an inference, and this pipeline now makes a decision
+          # on it. `deployedCommitSha` is a value we write on purpose, from the same
+          # `needs.gate.outputs.sha` the checkout at the top of this job used, so the commit
+          # recorded on the deployment is by construction the commit that was built. WITHOUT THIS
+          # THE GATE IS DECORATIVE: it falls back to `githubCommitSha`, and if that is ever absent
+          # it goes permanently `unknown` and publishes on every run — safe, and silently no
+          # longer deciding anything. `deployedRunId` is what lets the gate ask whether the run
+          # that published the live build was ever accepted; a deployment is stamped at UPLOAD and
+          # the two assertions below can still condemn it afterwards.
+          DEPLOYED_SHA: ${{ needs.gate.outputs.sha }}
         run: |
           set -euo pipefail
           # --prebuilt uploads .vercel/output instead of rebuilding on Vercel, so what was
           # verified in the step above is byte-for-byte what goes live. --prod moves the
           # production alias (field-repository.vercel.app) onto this deployment.
-          url="$(vercel deploy --prebuilt --prod --yes --token="$VERCEL_TOKEN")"
+          # --meta is read back by the next run's gate; see the env block on this step. It is
+          # additive metadata and cannot affect the bytes that are uploaded.
+          url="$(vercel deploy --prebuilt --prod --yes \
+                   --meta "deployedCommitSha=${DEPLOYED_SHA}" \
+                   --meta "deployedRunId=${GITHUB_RUN_ID}" \
+                   --token="$VERCEL_TOKEN")"
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "Deployed $url" >> "$GITHUB_STEP_SUMMARY"
 
