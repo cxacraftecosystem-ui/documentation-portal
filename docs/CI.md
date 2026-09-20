@@ -84,9 +84,22 @@ unrelated infrastructure failure.
 The backend workflow has **no `paths:` filter** — it starts on every push to `main` and decides for
 itself whether to touch EC2. That is the fix for the obvious `workflow_run` dead-lock: if stage 1
 were filtered to `backend/**`, a frontend-only push would never start it, so stage 2 would never be
-triggered and the frontend would never ship. Instead, stage 1's `changes` job diffs the push range,
-publishes the result as the `pipeline-changes` artifact, and stages 1 and 2 skip their own work when
-their area is untouched.
+triggered and the frontend would never ship. Instead, each stage decides for itself.
+
+**Neither stage asks the per-push question any more — changed 2026-09-20.** Stage 1's `changes` job
+used to diff the PUSH RANGE alone and publish the answer as the `pipeline-changes` artifact, which
+stage 2 then downloaded and skipped on. That made deploy eligibility a pure function of ONE PUSH,
+with nothing comparing it against what is deployed — and when a deploy fails, the next push silently
+inherits a wrong answer in the dangerous direction. Stage 1 now UNIONS the push range with the range
+from the last commit it actually deployed (a run whose `deploy` job itself concluded success, since
+a run that skipped its deploy also goes green). Stage 2 reads the commit the Vercel production alias
+is serving (`meta.deployedCommitSha`, stamped by its own deploy step) and diffs that against what it
+would publish. Anything either cannot determine — API down, first deploy, force-pushed history —
+**deploys**.
+
+The `pipeline-changes` artifact is still UPLOADED by stage 1 and is now read by nobody. It is kept
+rather than deleted because removing a producer is its own change with its own readers to check;
+if it is ever wired to a gate again it may only turn a deploy ON, never off.
 
 | Push touches | 1 · backend deploy | 2 · frontend deploy | 3 · Android build | 4 · Checks |
 |---|---|---|---|---|
