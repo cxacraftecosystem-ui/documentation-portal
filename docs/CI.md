@@ -55,7 +55,7 @@ under "it runs; it does not gate", for what this still does not cover.
 | # | Workflow | File | Trigger | What it does |
 |---|---|---|---|---|
 | 1 | Deploy backend to EC2 | `.github/workflows/deploy-backend.yml` | `push` to `main` | `wait-for-checks` → python3.14 on the box, and the venv built from `backend/requirements.lock` **beside** the live one (2026-10-09) → rsync → write `.env` → install the project and generate the Prisma client into the new venv → `prisma migrate deploy` → **point `backend/.venv` at the new venv** → restart `fieldrepo` + `fieldrepo-queue` → poll `/health`. [backend/DEPLOY_AWS.md](../backend/DEPLOY_AWS.md) §9 has the layout on the box and the rollback. |
-| 2 | Deploy frontend to Vercel | `.github/workflows/deploy-frontend.yml` | `workflow_run` on **1** completing | gate → `wait-for-checks` (2026-10-09) → `vercel pull` → **refuse any project but `field-repository`** → **assert the pulled env carries what the app needs** (every `NEXT_PUBLIC_*`, `[SENSITIVE]` placeholders included), and *warn* when the project's Node.js Version is not the build's major → `vercel build --prod` → **assert those values actually reached the bundle** → `vercel deploy --prebuilt --prod` → **prove the production domain resolves to the new deployment, and `vercel promote` it when a rollback has turned auto-assignment off** (2026-10-09) → smoke-check the alias → **assert the bundle the CDN serves is the one that was verified**, starting with which deployment it is |
+| 2 | Deploy frontend to Vercel | `.github/workflows/deploy-frontend.yml` | `workflow_run` on **1** completing | gate → `wait-for-checks` (2026-10-09) → `vercel pull` → **refuse any project but `field-repository`** → **assert the pulled env carries what the app needs** (every `NEXT_PUBLIC_*`, `[SENSITIVE]` placeholders included), and *warn* when the project's Node.js Version is not `engines.node` → `vercel build --prod` → print the Node runtime the functions were stamped with → **assert those values actually reached the bundle** → `vercel deploy --prebuilt --prod` → **prove the production domain resolves to the new deployment, and `vercel promote` it when a rollback has turned auto-assignment off** (2026-10-09) → smoke-check the alias → **assert the bundle the CDN serves is the one that was verified**, starting with which deployment it is |
 | 3 | Android build | `.github/workflows/android-build.yml` | `workflow_run` on **2** completing, plus `pull_request` filtered to `android/**` | JDK 17 → `compileDebugKotlin` → `testDebugUnitTest` → `lintDebug` (advisory) → `assembleDebug` → upload APK. **Debug variants only.** Nothing it produces can install over a release build, and nothing it produces reaches a phone. |
 | 4 | Checks | `.github/workflows/checks.yml` | `pull_request`, `push` to `main`, manual | Three independent jobs: the backend suite, the web typecheck/lint/unit specs, the documentation check. **No `paths:` filter.** See **The checks** below.  |
 | 5 | Publish Android release | `.github/workflows/publish-android.yml` | `push` of a `v*` **tag**, plus a manual dry run | Builds and **signs** the release APK on the runner, proves the signer against `ANDROID_RELEASE_CERT_SHA256`, uploads it, and `POST`s `/api/app/release` so the in-app updater offers it. See [RELEASING.md](RELEASING.md). |
@@ -178,8 +178,8 @@ Three jobs, deliberately independent, so one red does not hide another's answer:
 | Job (the name branch protection needs) | Where it runs | What it runs |
 |---|---|---|
 | **Backend tests** | `backend/` | Python 3.14 (`check-latest`) → `pip install -r requirements.lock` → `pip install --no-deps -e .` → `pip check` → `python -m prisma generate` → `python -m pytest -rf --durations=15` |
-| **Web typecheck, lint and unit specs** | `frontend/` | Node 22 → `npm ci` → `npx tsc --noEmit` → `npm run lint` → `npm run test:unit` |
-| **Docs check** | repository root | Node 22 → `node docs/tools/check-docs.mjs` |
+| **Web typecheck, lint and unit specs** | `frontend/` | Node 24, read from `engines.node` in `frontend/package.json` → `npm ci` → `npx tsc --noEmit` → `npm run lint` → `npm run test:unit` |
+| **Docs check** | repository root | Node 24 (the same field) → `node docs/tools/check-docs.mjs` |
 
 Measured on the tree the workflow landed with (2026-09-14, on a laptop — a runner will differ):
 pytest 1019 passed in 54 s, `tsc` clean, `eslint` clean, 104 unit specs in 8 s, check-docs in about a
@@ -676,9 +676,25 @@ resolves to some other Vercel project. Nothing was uploaded. Compare the secret 
 names `designer-repository`, it is the sister repository's, and publishing would have replaced that
 product's live site.
 
-**Stage 2 warns "Production runs a different Node major from CI".** The project's Node.js Version is
-not the major `checks.yml` and the build run on. Set it in the dashboard
-([DEPLOYMENT_VERCEL.md](DEPLOYMENT_VERCEL.md) §1); the next publish picks it up.
+**Stage 2 warns about the Node major.** One field decides it: `engines.node` in
+`frontend/package.json`, which `checks.yml`, the build's "Set up Node" step and Vercel's function
+runtime all read (since 2026-10-09; [DEPLOYMENT_VERCEL.md](DEPLOYMENT_VERCEL.md) §1 has the
+precedence). Each warning names the side to raise, and it is always the older one, never the newer
+one lowered:
+
+- **"Vercel offers a newer Node major than this repository builds on"**: the project's Node.js Version
+  is ahead of the field. Raise `engines.node`, and `NODE_VERSION` in `frontend/Dockerfile`, which
+  refuses to build when it disagrees with the field. CI and production follow on the next run.
+- **"The project's Node.js Version is behind the Node production runs"**: the field already overrides
+  it, so production is fine. Raise the dashboard setting so it says what runs.
+- **"engines.node and the Node this build ran on disagree"**: the field is not an exact
+  major such as `24.x`, so setup-node and Vercel can resolve it differently. Make it one.
+- **"Functions were stamped with a different Node runtime from engines.node"** (after the build): Vercel
+  did not apply the field, and production runs the runtime the warning lists. Read the build log's
+  Node.js lines before changing anything.
+
+Until 2026-10-09 the first case was reported as "Production runs a different Node major from CI",
+with the advice to set the project to the build's major: the newer side lowered to meet the older.
 
 **`Error: Not authorized` / `Forbidden` from the Vercel CLI.** `VERCEL_TOKEN` expired, was revoked,
 or is scoped to a personal account instead of the team that owns the project. Re-issue it (§2).
@@ -748,7 +764,7 @@ parts that are not are exactly the parts that were wrong before.
 | The two licensed-failure lists | The heredocs inside `checks.yml` (`expected-failures.txt`, `known-doc-problems.txt`) are the authority; §1's tables describe them. **Both may only shrink.** Re-run the two commands in §4 to see the real current sets — and note that the workflow itself warns on every run about any entry that no longer describes anything, so the lists cannot rot quietly the way this prose can. |
 | The §5 non-gates | The absence of a job. A row leaves that list when a workflow gains the step — so re-read §5 against the workflow files, not against memory. Three rows left it on 2026-09-14. |
 | The measured figures in §1 (`1019 passed`, `104 specs`, `4 problems`) | Dated, and measured on a laptop rather than a runner. Totals move the day anybody adds a test or a document; re-run the §4 commands and re-date them, or delete them. The only numbers the workflow itself enforces are floors, not targets. |
-| Vercel project settings (Root Directory, Git link, `createDeployments`, Node.js Version) | **UNVERIFIED from here** — dashboard state. §3 and §6 say what they must be. At deploy time the workflow **asserts** Root Directory and the project's name (since 2026-10-09, only `field-repository` may be published to), and **warns** on a Node.js Version whose major differs from the build's; the Git link and `createDeployments` are checked by nothing. |
+| Vercel project settings (Root Directory, Git link, `createDeployments`, Node.js Version) | **UNVERIFIED from here** — dashboard state. §3 and §6 say what they must be. At deploy time the workflow **asserts** Root Directory and the project's name (since 2026-10-09, only `field-repository` may be published to), and **warns** on a Node.js Version that differs from `engines.node` in `frontend/package.json`, then prints the runtime the built functions carry; the Git link and `createDeployments` are checked by nothing. |
 | The two `wait-for-checks` copies | `GATING_JOBS` in `deploy-backend.yml` and `deploy-frontend.yml` must hold the same three names as `checks.yml`'s jobs (`grep -n "GATING_JOBS" .github/workflows/*.yml`). A renamed job makes both waits time out, with every poll in the log naming the job it is still waiting for, which is loud, not silent. Their run selection, verdict program and `cancelled` branch are byte-identical to each other and to the sister repository's two copies as of 2026-10-09: `grep -n superseded` over `.github/workflows/deploy-backend.yml` and `.github/workflows/deploy-frontend.yml` finds, in each, the job's output, the branch that writes it and the `deploy` job's refusal. Fix a defect in one copy, fix it in all four. |
 | The production domain serving the new deployment | Asserted after every publish, not measured here: the deploy job reads which deployment `field-repository.vercel.app` resolves to, promotes the upload out of a rollback, and fails if production is still elsewhere (§1, the three assertions). That a rollback turns auto-assignment off is Vercel's documented behaviour, linked there; that `field-repository.vercel.app` is a project domain rather than a hand-set alias was measured on 2026-10-09 (**Project → Settings → Domains**). |
 | The action pins (§5) | `grep -nE "^\s*(- )?uses:" .github/workflows/*.yml` — every hit must read `owner/repo@<40-hex SHA> # vX.Y.Z`. To check one against its comment, or to redo one by hand: `gh api repos/<owner>/<repo>/git/ref/tags/<vX.Y.Z> --jq .object`. A `commit` object's `sha` is the pin; a `tag` object is an annotated tag, so read the commit it points at with `gh api repos/<owner>/<repo>/git/tags/<sha> --jq .object`. Only the SHA runs and only the comment gets read, so a comment that names a different release from its SHA is the bug. |

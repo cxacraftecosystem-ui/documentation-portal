@@ -105,12 +105,13 @@ function loadAddressReference(): Promise<AddressReference> {
 /**
  * MapLibre, fetched the first time somebody actually opens the map.
  *
- * It is by far the largest thing this app can load — 1015 KB of the production build, four and a
- * half times the next biggest chunk — and a static import put all of it on the critical path of
- * every page that renders a form with a location card (/media, /questionnaire, /workshops and the
- * new/edit routes), even though the map is behind a toggle that starts closed and that most records
- * never need. Field work happens on rural connections where that is the difference between a form
- * appearing and a form not appearing.
+ * It is by far the largest thing this app can load — 1041 KB of the production build, four and a
+ * half times the next biggest chunk, plus a 496 KB worker fetched once a map starts (MapLibre 6.13,
+ * measured 2026-10-09; 5.x was about the same size with its worker inside) — and a static import
+ * put all of it on the critical path of every page that renders a form with a location card
+ * (/media, /questionnaire, /workshops and the new/edit routes), even though the map is behind a
+ * toggle that starts closed and that most records never need. Field work happens on rural
+ * connections where that is the difference between a form appearing and a form not appearing.
  *
  * Same shape as the GSAP import in components/guide: a type-only import above keeps the annotations
  * honest and compiles to nothing, and the runtime module arrives on demand. The promise is cached
@@ -127,7 +128,16 @@ function loadMapLibre(): Promise<MapLibre> {
     // The stylesheet ships separately; without it the canvas renders but every control is unstyled.
     import("maplibre-gl/dist/maplibre-gl.css")
   ])
-    .then(([module]) => module)
+    .then(([module]) => {
+      // MapLibre 6 ships as ES modules only, and its worker is a separate file. Left alone it looks
+      // for that file next to its own module URL, which inside a bundle is not where the build put
+      // anything, so the map would load and never draw a tile. MapLibre's documented Turbopack setup
+      // is exactly this line: `new URL(<literal>, import.meta.url)` is the shape that makes Next.js
+      // emit the worker as a hashed static asset and hand back its address. It has to be set before
+      // the first Map is built, which is why it lives here and not beside the constructor.
+      module.setWorkerUrl(new URL("maplibre-gl/dist/maplibre-gl-worker.mjs", import.meta.url).toString());
+      return module;
+    })
     .catch((error) => {
       maplibreRequest = null;
       throw error;
@@ -1370,8 +1380,17 @@ export function LocationFields({
           }
         });
       })
-      .catch(() => {
-        if (!cancelled) setMessage("The map could not be loaded. You can still type or tag coordinates.");
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        // MapLibre 6 draws with WebGL2 only (5 fell back to WebGL1), and its constructor throws this
+        // class when the browser cannot provide a WebGL2 context. That is the device, not the
+        // connection, and a researcher told "could not be loaded" would sensibly try again.
+        const gpuError = maplibreModule.current?.GPUInitializationError;
+        setMessage(
+          gpuError && error instanceof gpuError
+            ? "This browser cannot draw the map, because it has no WebGL2. You can still type or tag coordinates."
+            : "The map could not be loaded. You can still type or tag coordinates."
+        );
       });
 
     return () => {

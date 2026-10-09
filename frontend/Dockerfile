@@ -18,7 +18,10 @@
 # `npm install` and never carries the ~600 MB dependency tree the build needed.
 # ---------------------------------------------------------------------------------------------
 
-ARG NODE_VERSION=22
+# The repository's one Node major lives in frontend/package.json (`engines.node`), which CI and
+# Vercel both read. A FROM line cannot read a file, so this is a copy, and the deps stage below
+# refuses to build when the copy and the field disagree rather than quietly shipping another major.
+ARG NODE_VERSION=24
 
 
 # =============================================================================================
@@ -30,6 +33,9 @@ WORKDIR /app
 
 # Lockfile-only copy so an edit to a component does not reinstall the world.
 COPY frontend/package.json frontend/package-lock.json ./
+
+# The check promised above NODE_VERSION: this image's Node major must be the one engines.node names.
+RUN node -e 'const want = require("./package.json").engines?.node; const have = process.versions.node.split(".")[0] + ".x"; if (want !== have) { console.error(`frontend/package.json declares engines.node ${want}, but this image runs Node ${process.versions.node}. Set ARG NODE_VERSION in frontend/Dockerfile to match.`); process.exit(1); }'
 
 # `npm ci` rather than `npm install`: it installs exactly the locked tree and fails loudly if
 # package.json and the lockfile have drifted, instead of silently resolving something new.

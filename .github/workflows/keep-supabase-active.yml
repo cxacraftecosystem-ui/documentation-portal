@@ -17,7 +17,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "20"
+          # The repository's one Node major, `engines.node` in frontend/package.json (24.x). This
+          # job read "20" until 2026-10-09, five months after Node 20 reached end of life.
+          node-version-file: frontend/package.json
+          check-latest: true
           cache: "npm"
 
       - name: Install keep-alive dependencies

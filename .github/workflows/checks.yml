@@ -412,11 +412,14 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          # 22 to match the `node-version` in deploy-frontend.yml's "Set up Node" step, the Node that
-          # builds production: `vercel build` runs on the runner there, never on Vercel. A typecheck
-          # that passes on a different major from the one that builds production is not the check
-          # anybody thinks it is.
-          node-version: "22"
+          # `engines.node` in frontend/package.json ("24.x"), the same field deploy-frontend.yml's
+          # "Set up Node" step reads to build production and Vercel reads to choose the Node the
+          # on-demand pages run on. A typecheck that passes on a different major from the one that
+          # builds and runs production is not the check anybody thinks it is, and one field is the
+          # only arrangement in which they cannot drift apart. `check-latest` takes the newest 24.x
+          # release rather than whichever one the runner image happened to cache.
+          node-version-file: frontend/package.json
+          check-latest: true
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -541,7 +544,10 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "22"
+          # The web app's major (frontend/package.json `engines.node`), so the repository runs one
+          # Node and not two; the script itself needs nothing newer than node: builtins.
+          node-version-file: frontend/package.json
+          check-latest: true
 
       - name: Verify the documentation set
         # No `npm ci` anywhere: the script imports nothing outside node: builtins (child_process, fs,
