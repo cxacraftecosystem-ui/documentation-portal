@@ -177,6 +177,14 @@ def describe(apk, tag):
                                                              "uses-permission", "native-code"))]
     certs = sh(f'"{tools}/apksigner" verify --verbose --print-certs {apk}').stdout
     lines += [l for l in certs.splitlines() if l.startswith(("Verified using", "Number of signers", "Signer #1 certificate DN"))]
+    # Is there a v1 (JAR) signature at all? apksigner may simply not verify v1 at minSdk 26, so look
+    # for the files, and ask apksigner to verify as if for an API 23 device, which needs v1.
+    jar_sig = [l.split()[-1] for l in listing.splitlines()
+               if re.search(r"META-INF/[^/]+\.(SF|RSA|EC|DSA)$", l.strip())]
+    lines.append("v1 signature files: " + (", ".join(jar_sig) or "NONE"))
+    pre_n = sh(f'"{tools}/apksigner" verify --min-sdk-version 23 {apk}')
+    lines.append(f"apksigner verify --min-sdk-version 23: exit {pre_n.returncode} "
+                 + " ".join((pre_n.stdout + pre_n.stderr).split())[:200])
     text = "\n".join(lines)
     with open(os.path.join(TEMP, f"release-describe-{tag}.txt"), "w", encoding="utf-8") as fh:
         fh.write(text + "\n")

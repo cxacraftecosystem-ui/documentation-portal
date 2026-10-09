@@ -183,7 +183,9 @@ def wait_request(path_prefix, seconds, method=None):
 
 # ── device helpers, on top of emulator-smoke.py's ─────────────────────────────────────────────────────
 
-DISMISS = re.compile(r"^(not now|no thanks|never|cancel|dismiss|close)$", re.I)
+# Another app's sheet over this one (save-password, an account chooser) is waved away; a runtime
+# permission prompt is REFUSED, which is the answer a screen must survive.
+DISMISS = re.compile(r"^(not now|no thanks|never|cancel|dismiss|close|don.?t allow|deny)$", re.I)
 
 
 def dump(name):
@@ -494,6 +496,8 @@ def phase_release_against_stub(sdk):
             record("R: the full-screen viewer", "FAIL", "no 'Image preview' node after tapping the thumbnail")
         crash_free("R: alive after the viewer")
 
+    crawl()
+
     # Back out to the dashboard, then a cold start that must restore the session through GET /me.
     for _ in range(3):
         sh("input keyevent KEYCODE_BACK", check=False)
@@ -515,6 +519,73 @@ def phase_release_against_stub(sdk):
     smoke.launch()
     settle(4)
     crash_free("R: alive after home and resume")
+
+
+# Every destination a Professor's drawer offers, in the drawer's own order, opened from the drawer as
+# a person would. Each one composes its screen under Compose 1.12 and material3 1.4 in the release
+# build, and meets the stub's 404 for most of what it asks the server: a server error it must survive.
+CRAWL = ["Record artisan", "Record product", "Document process", "Record tool", "Take interview",
+         "Upload media", "Add craft", "Record workshop", "My Activity", "Tasks", "Browse records", "Map",
+         "Consolidated questionnaire", "Share data access", "Assign tools to artisans", "Review",
+         "Manage users", "Settings", "Give app feedback", "Walkthrough", "Dashboard"]
+
+
+def open_from_drawer(label, tag):
+    for attempt in range(2):
+        for _ in range(3):
+            sh("input swipe 540 700 540 1900 250", check=False)  # to the top, where the menu button is
+        root, hit = wait_for(r"^Open menu$", f"{tag}-menu", 10)
+        if hit:
+            break
+        # A Save / Discard question, or anything else modal, stands between this screen and the menu.
+        root = dump(f"{tag}-blocked")
+        out = smoke.find(root, r"^(discard|leave|ok|close)$", PKG) if root is not None else None
+        if out:
+            tap_control(root, out)
+        else:
+            sh("input keyevent KEYCODE_BACK", check=False)
+        settle(2)
+    else:
+        return "no menu button"
+    tap_control(root, hit)
+    settle(1.5)
+    pattern = rf"^{re.escape(label)}$"
+    root, hit = wait_for(pattern, f"{tag}-drawer", 6)
+    swipes = 0
+    while not hit and swipes < 4:
+        sh("input swipe 300 1900 300 700 350", check=False)
+        swipes += 1
+        settle(1)
+        root, hit = wait_for(pattern, f"{tag}-drawer", 4)
+    if not hit:
+        sh("input keyevent KEYCODE_BACK", check=False)  # close the drawer again
+        return "not in the drawer"
+    tap_control(root, hit)
+    return ""
+
+
+def crawl():
+    for i, label in enumerate(CRAWL):
+        slug = f"C-{i:02d}-" + re.sub(r"[^a-z]+", "-", label.lower()).strip("-")
+        problem = open_from_drawer(label, slug)
+        if problem:
+            record(f"C: open '{label}' from the drawer", "INFO" if problem == "not in the drawer" else "FAIL",
+                   problem)
+            continue
+        settle(5)
+        dump(slug)
+        smoke.screenshot(slug)
+        if label == "Walkthrough":
+            root, skip = wait_for(r"^Skip$", f"{slug}-skip", 8)
+            if skip:
+                tap_control(root, skip)
+                settle(2)
+        if not crash_free(f"C: '{label}' opens and composes in the release build"):
+            # Judge the next screen on its own: the crash is saved, and the final logcat scan still
+            # reads the main buffer, which is not cleared.
+            smoke.adb("logcat", "-b", "crash", "-c", check=False)
+            smoke.launch()
+            settle(6)
 
 
 def phase_production_apk():
