@@ -24,7 +24,7 @@ import java.util.zip.ZipFile
  * `ui/LocalNetworkAccess.kt` that spelled out the loopback URL. The file is in `src/main`, so the
  * literal shipped in the release dex as well, and the release built from that tree failed the guard:
  * every tag push would have stopped there, after the APK was built and signed. Nothing before a tag
- * runs that guard. This does, on every pull request that touches `android/**`, with the GUARD'S OWN
+ * runs that guard. This does, on every pull request that touches `android/`, with the GUARD'S OWN
  * PATTERN read out of the workflow, so the two cannot drift apart.
  *
  * WHAT IS READ: the classes compiled from `src/main` (string literals sit in each class's constant
