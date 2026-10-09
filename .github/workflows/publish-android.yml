@@ -2,7 +2,8 @@ name: Publish Android release
 
 # THE ONE WAY A SIGNED BUILD REACHES A HANDSET. Everything below exists so that "cut a release" is a
 # tag push and not a person on a laptop with a browser open, because a person on a laptop is exactly
-# how the current fielded build came to be signed with the Android debug key.
+# how the fielded build came to be signed with the Android debug key, until v1.2.0 moved the fleet to
+# the release key on 2026-09-14 (docs/RELEASING.md §0 has the reading off the live APK since).
 #
 # ─── WHAT IT REPLACES, WHICH IS NOT NOTHING ───────────────────────────────────────────────────
 # The fleet-update backend already exists and already works: `AppRelease` in

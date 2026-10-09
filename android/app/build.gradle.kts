@@ -24,7 +24,9 @@ plugins {
  * installed fleet would accept as genuine. There is now a real key, and `docs/RELEASING.md` states
  * the one-off cost of moving to it — an uninstall and reinstall on every handset, because Android
  * never lets an app change its signing certificate — along with the sync-to-empty step that has to
- * happen first.
+ * happen first. That cost was paid at v1.2.0 on 2026-09-14; every release since has been signed by
+ * this key (RELEASING.md §0 has the reading off the live APK), so a release signed by anything else
+ * would strand the whole fleet behind a second uninstall.
  *
  * THE KEY LIVES OUTSIDE THE WORKING TREE. `.gitignore` (the "ANDROID SIGNING MATERIAL" block) refuses
  * `*.p12`, `*.jks`, `*.keystore` and `fieldrepo-release.*` outright. Its location and password arrive

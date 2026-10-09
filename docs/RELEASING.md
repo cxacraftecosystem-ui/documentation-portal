@@ -9,10 +9,27 @@ perform it is to push a tag.
 
 ---
 
-## 0. Read this first: the fielded app is signed with the Android debug key
+## 0. Read this first: the fleet is on the release key, and must stay on it
 
-`GET /api/app/download` serves **v1.1.20**, and that APK is signed with the key every Android SDK
-installation generates for itself:
+On 2026-10-09 `GET /api/app/download` served **0.0.8** (versionCode 8), and that APK is signed with
+this project's release key:
+
+```
+Signer #1 certificate DN: CN=Field Repository, OU=Documentation Portal, O=CXA Craft Ecosystem, L=Kharagpur, ST=West Bengal, C=IN
+Signer #1 certificate SHA-256 digest:
+  9bd95f763743de0046e7e83974d381b8f5d7b2faf5bbbaaba4e609b5cc485f3e
+```
+
+That is `apksigner verify --print-certs` on the bytes the endpoint redirected to (18,808,487 bytes,
+SHA-256 `f4df0881c0c2226942ba4e6cfdbc30d166826479213facf561f121cb6f698414`), not an inference. Those
+bytes are identical to the run artifact of the `v0.0.8` publish run (Actions run 35463133524), whose
+GUARD 2 matched them against `ANDROID_RELEASE_CERT_SHA256`. Every publish since the first release-key
+build — v1.2.0 on 2026-09-14, then v1.3.0, then 0.0.2 to 0.0.8 after the numbering restarted — passed
+the same guard. So a release signed by the same key, with a higher code, reaches every handset on
+0.0.2 or later as an **ordinary in-app update**: nobody uninstalls, and nobody's outbox is at risk.
+
+**How it used to be, and why the guards exist.** Until 2026-09-14 the fielded build was v1.1.20,
+signed with the key every Android SDK installation generates for itself:
 
 ```
 Signer #1 certificate DN: CN=Android Debug, O=Android, C=US
@@ -20,19 +37,17 @@ Signer #1 certificate SHA-256 digest:
   691257a01e834122645488888798d6816479490e22b379692c83d98c09232c74
 ```
 
-That is a reading off the live artefact with `apksigner verify --print-certs`, not an inference. It
-happened because `android/app/build.gradle.kts` had no `signingConfigs` block at all: `assembleRelease`
-produced an unsigned APK, so whoever cut the release built a **debug** APK and uploaded it through
-the web panel. Nothing in that path asked which key had signed it.
+That too was read off the live artefact. It happened because `android/app/build.gradle.kts` had no
+`signingConfigs` block at all: `assembleRelease` produced an unsigned APK, so whoever cut the release
+built a **debug** APK and uploaded it through the web panel. Nothing in that path asked which key had
+signed it. The debug keystore is not secret and is not unique, and Android's update rule is "same
+package name, same signing certificate" — so anybody who could get a handset to accept a download
+could publish an update the app treated as genuine.
 
-**Why it matters.** The debug keystore is not secret and is not unique. Anyone can produce an APK
-signed by *a* debug key, and Android's update rule is "same package name, same signing certificate" —
-so anybody who can get a handset to accept a download can publish an update this app treats as
-genuine. There is no server-side check that would notice.
-
-There is now a real key, this repository holds the machinery to use it, and **§6 is the price of
-switching.** It is a one-off, it is irreversible, and it costs one uninstall on every handset in the
-field. Read §6 before you cut the first signed release, not afterwards.
+Moving off it cost every handset an uninstall (§6), once, and that price is paid. **What must not
+happen now is paying it again:** a build signed by any other key — the debug one included — cannot
+install over the fleet, and the release key can never be rotated. GUARD 2 makes such a build
+impossible to publish; §4 is how to check any APK by hand.
 
 ---
 
@@ -56,7 +71,7 @@ from, because nobody ever told it.
 
 ```mermaid
 flowchart LR
-  T["git push origin v1.1.21"] --> W[".github/workflows/publish-android.yml"]
+  T["git push origin v0.0.10"] --> W[".github/workflows/publish-android.yml"]
   W --> G1["GUARD 1<br/>tag == built version"]
   G1 --> G3["GUARD 3<br/>the API is ours"]
   G3 --> B["assembleRelease<br/>on the runner"]
@@ -82,8 +97,11 @@ reach a phone, and that stays true.
 - The version you are about to publish must derive a `versionCode` **strictly above** the published
   one. Devices compare codes, not names. The formula, in `android/app/build.gradle.kts` and again
   server-side in `_derive_version_code`, is `major * 1_000_000 + minor * 1_000 + patch`.
-- v1.1.20 is published, so its code is `1001020`. **The next release is v1.1.21 or higher.** Tagging
-  the tree as it stands would rebuild 1.1.20 and GUARD 4 would refuse it, correctly.
+- The numbering restarted at 0.0.1 on 2026-09-14, on the owner's instruction, past GUARD 4 with
+  `[version-reset]` in the tag (§3, GUARD 4); 0.0.1's run failed, so 0.0.2 was the first published.
+  On 2026-10-09 the published release was **0.0.8, code `8`**, and this tree builds 0.0.9 since its
+  cut. **Stay on the 0.0.x line, one patch at a time.** Tagging a tree that still builds the published
+  version would rebuild it, and GUARD 4 would refuse it, correctly.
 - `.github/workflows/publish-android.yml` must already be **on `main`**. A `push: tags:` workflow
   runs the file *as of the tagged commit*, unlike the `workflow_run` stages, which are read from the
   default branch. Tag a commit that does not contain this file and nothing happens at all — no run,
@@ -94,7 +112,7 @@ reach a phone, and that stays true.
 1. **Bump the version.** One line in `android/app/build.gradle.kts`:
 
    ```kotlin
-   val appVersionName = "1.1.21"
+   val appVersionName = "0.0.10"
    ```
 
    The `versionCode` is derived from it. There is nothing else to change.
@@ -105,12 +123,13 @@ reach a phone, and that stays true.
 3. **Tag it, annotated.**
 
    ```bash
-   git tag -a v1.1.21 -m "What changed, in a sentence somebody will read in six months."
-   git push origin v1.1.21
+   git tag -a v0.0.10 -m "What changed, in a sentence somebody will read in six months."
+   git push origin v0.0.10
    ```
 
-   The tag name must be `v` + the exact version string. `v1.1.21` over a tree building `1.1.20` is
-   GUARD 1's whole reason to exist.
+   The tag name must be `v` + the exact version string. `v0.0.10` over a tree building `0.0.9` is
+   GUARD 1's whole reason to exist. The tag's message is also what every handset shows in its update
+   prompt (and the GitHub Release's body), so write it for the researcher who reads it there.
 
 4. **Watch the run.** Actions → *Publish Android release*. It builds, signs, verifies, uploads and
    publishes; the step summary says what happened and, on a failure, which guard stopped it and what
@@ -197,10 +216,10 @@ full argument at the step. Summarised here so the set can be read in one place.
 
 ### GUARD 1 — the tag must name the version this tree builds
 
-Tagging `v1.1.21` over a tree whose `appVersionName` is still `1.1.20` builds 1.1.20 and publishes it
-under the name 1.1.21. The website then offers "1.1.21", the release row says 1.1.21, and every
-handset that installs it reports 1.1.20 — because **the version is compiled in** and nothing
-downstream can correct it. The derived `versionCode` would also be the already-published `1001020`,
+Tagging `v0.0.10` over a tree whose `appVersionName` is still `0.0.9` builds 0.0.9 and publishes it
+under the name 0.0.10. The website then offers "0.0.10", the release row says 0.0.10, and every
+handset that installs it reports 0.0.9 — because **the version is compiled in** and nothing
+downstream can correct it. The derived `versionCode` would also be the already-published `9`,
 which GUARD 4 would then refuse for a reason that looks unrelated.
 
 It runs *before* the build, so a mistyped tag costs seconds rather than a full Gradle run. It also
@@ -258,10 +277,16 @@ when `latest.versionCode > installedVersionCode` **and** the release carries a n
 
 An **equal** code is refused here, with no escape hatch. The sibling repository allows one behind a
 `[republish]` marker in the tag message; that is deliberately not copied, because the first release
-through this pipeline is a signing-key change (§6) and during that window "the same version, different
-bytes" is the most dangerous thing that could be published — half the fleet on one artefact and half
-on another, both reporting the same code, with no way to tell them apart. If a reissue is genuinely
-needed, bump the patch number. It costs nothing.
+through this pipeline was a signing-key change (§6) and during such a window "the same version,
+different bytes" is the most dangerous thing that could be published — half the fleet on one artefact
+and half on another, both reporting the same code, with no way to tell them apart. If a reissue is
+genuinely needed, bump the patch number. It costs nothing.
+
+A **lower** code has exactly one way past: `[version-reset]` in the annotated tag's message, which is
+how the numbering restarted at 0.0.x on 2026-09-14. It is a deliberate restart, not a fix: Android
+will not install a lower code over a higher one, so it costs every handset the uninstall §6
+describes, and the release is not "latest" until the higher `AppRelease` rows are removed by hand.
+The comment on the GUARD 4 step says the rest.
 
 A 401 or 403 from `/api/app/release/latest` is called out as its own failure rather than read as
 "nothing is published yet": an auth failure produces a body with no `versionCode` in it, which a naive
@@ -282,11 +307,12 @@ serves it
 (`/api/media/multipart/create`, `/presign-parts`, `/complete`, `/abort` in
 `backend/app/api/routes/media.py`) and `uploadInParts` in `frontend/lib/media.ts` is the reference.
 
-> **The release APK is smaller than the published one, and that is not a mistake.** v1.1.20 on
-> `/api/app/download` is 26,097,941 bytes because it is a *debug* build (§0): debug carries
-> `debugImplementation("androidx.compose.ui:ui-tooling")` and the debug instrumentation that release
-> does not. Both figures are `stat` on real files. The floor in this step is keyed to the **release**
-> figure, because keying it to the larger published one would fire on a correct build.
+> **The floor is keyed to a release build, because the published APK was once a debug one.** v1.1.20,
+> which the web panel had published (§0), was 26,097,941 bytes because it was a *debug* build: debug
+> carries `debugImplementation("androidx.compose.ui:ui-tooling")` and the debug instrumentation that
+> release does not. Since v1.2.0 the published APK *is* the release build — 0.0.8 on
+> `/api/app/download` measured 18,808,487 bytes on 2026-10-09. All three figures are `stat` on real
+> files. Keying the floor to the larger debug figure would have fired on a correct build.
 
 The same step enforces a **floor**. A build that dies mid-package leaves an output *file* behind, and
 a script that checks only for the file reports success over nothing. Presence is not a measurement.
@@ -367,12 +393,16 @@ repository secret:
 9bd95f763743de0046e7e83974d381b8f5d7b2faf5bbbaaba4e609b5cc485f3e
 ```
 
-> **UNVERIFIED on the machine that wrote this document.** The keystore is password-protected and the
-> password is held only in the Actions secret and in the institution's custody, so this fingerprint
-> and the SHA-1 in §5 are recorded as supplied and could not be re-derived here. The command that
-> settles both, for whoever holds the password, is
+> **Read off the live release on 2026-10-09.** The keystore is password-protected and the password is
+> held only in the Actions secret and in the institution's custody, so neither this fingerprint nor
+> the SHA-1 in §5 has been derived from the keystore by anyone who wrote this page. Both were read off
+> the 0.0.8 APK that `GET /api/app/download` served (SHA-256 above, SHA-1
+> `6051b38c46a76f97e52cf8be8a9807abe1981123`), and that APK is byte-identical to the artifact whose
+> GUARD 2 matched `ANDROID_RELEASE_CERT_SHA256` — so the value written here is the value in the
+> secret, and §5's SHA-1 belongs to the same certificate. The command that reads both off the keystore
+> itself, for whoever holds the password, is
 > `keytool -list -v -keystore fieldrepo-release.p12 -storetype PKCS12 -alias fieldrepo-release`.
-> GUARD 2 is the enforcing check either way: it compares the artefact against the secret, and neither
+> GUARD 2 is the enforcing check either way: it compares each artefact against the secret, and neither
 > value is printed.
 
 A certificate digest is **not a secret** — it is inside every copy of the APK, which is exactly why it
@@ -430,17 +460,22 @@ anybody.
 
 ---
 
-## 6. The one-off cost: every handset must be uninstalled and reinstalled
+## 6. What a key change costs: every handset uninstalls and reinstalls
 
-This is the part to plan around, and it is not negotiable — it is a property of Android.
+This cost has been **paid**: on 2026-09-14, at v1.2.0, the fleet moved off the debug key, and the
+numbering restart to 0.0.x the same day cost the same uninstall for a different reason (a lower
+`versionCode` cannot install over a higher one either; §3, GUARD 4). Since then every release has been
+signed by the one release key with a higher code (§0), and **every release from here is an ordinary
+in-app update.** This section stays because it describes the two mistakes that would make somebody
+pay it again — a build signed by any other key, or another numbering reset — and what that costs.
 
 **An app can never change its signing certificate.** Android identifies an installed app by (package
 name, signing certificate), and an APK signed by a different key is refused as an update, for ever,
-with no override. The only way onto a device already carrying the debug-signed v1.1.20 is to
-**uninstall it first**. There is no partial migration and no flag.
-
-This cost is paid **once**, on the move from the debug key to the real one. Every release after that
-is an ordinary in-app update.
+with no override. The only way onto a device carrying a build signed by another key — the
+debug-signed v1.1.20 then, anything that is not the release key now — is to **uninstall it first**.
+There is no partial migration and no flag. The same goes for a handset that still carries a debug
+build sideloaded from `android-build.yml`'s artifact: it is a different signer, and the in-app updater
+cannot move it.
 
 ### And an uninstall deletes the unsent outbox
 
@@ -535,7 +570,7 @@ so it cannot reach an automated pipeline even if somebody writes a `local.proper
 |---|---|
 | That the app works | The publish run touches no device, and this repository runs no instrumented tests anywhere. `android-emulator.yml` (by hand) launches a debug build on an emulator and checks insets, back and the local-network prompt, but it cannot sign in. A green run means built, signed and published; §2's targetSdk 37 list is the rest. |
 | That sign-in works on the release key | It depends on a Google Cloud console entry (§5) that no checkout can see. |
-| That the handsets can install it | The first release-key build cannot be installed over v1.1.20 at all (§6). That is expected, and it is a human sequence. |
+| That the handsets can install it | A handset on 0.0.2 or later carries the release key and takes a higher code as an ordinary in-app update (§0). One still carrying the debug-signed v1.1.20, a 1.x build (a higher code), or a sideloaded debug build cannot take it at all without §6's sequence, and no run can see which handsets those are. |
 | That the values in the secrets are the right ones | The workflow proves the *artefact* matches `ANDROID_RELEASE_CERT_SHA256`. If that secret itself were wrong, the check would be internally consistent and externally useless. §4 is how a person settles it independently. |
 
 ---
