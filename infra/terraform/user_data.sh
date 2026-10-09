@@ -19,7 +19,9 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y git ffmpeg nginx
+# libatomic1: the official Node 26 binary the deploy pins for the Prisma CLI links against it, and a
+# minimal image lacks it (deploy-backend.yml's build step checks for it too).
+apt-get install -y git ffmpeg nginx libatomic1
 
 # --- Python 3.14: the interpreter deploy-backend.yml builds the API's venv with ----------------
 # On 26.04 it is the system Python and comes from Ubuntu's own archive (3.14.4 there on 2026-10-09,

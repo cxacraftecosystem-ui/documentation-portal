@@ -419,9 +419,12 @@ jobs:
       #
       # WHAT IT DOES NOW, AND WHY IN THIS ORDER:
       #   1. The interpreter. python3.14 from Ubuntu's own archive where it has one (26.04), from the
-      #      deadsnakes PPA where it does not (24.04, which this box runs). Idempotent: a box that has
-      #      it never touches apt. python3.12 stays installed: it is 24.04's system Python and the
-      #      interpreter of the rollback venv (the switch in the install step keeps it).
+      #      deadsnakes PPA where it does not (24.04, which this box runs until its approved rebuild).
+      #      A box whose interpreter is present and current never touches apt; a missing one is
+      #      installed, an out-of-date one upgraded, best effort. On 24.04 python3.12 stays installed:
+      #      it is the system Python there and the interpreter of the rollback venv (the switch in the
+      #      install step keeps it). 26.04 has no python3.12 at all. backend/DEPLOY_AWS.md §9 has the
+      #      table of what comes from where.
       #   2. The venv, named after what it is built FROM: venvs/py3.14-<sha256 of requirements.lock>.
       #      A different interpreter minor or a different lock is a different name, so it is built;
       #      the same name is reused, so a deploy that changed only code installs nothing.
@@ -454,23 +457,68 @@ jobs:
           lock="$app/requirements.lock.incoming"
           py=python3.14
 
-          # 1. The interpreter. `ensurepip` is the module Debian moves into python3.X-venv, so this one
-          #    import tells "no python3.14" and "python3.14 without its venv module" apart from ready.
-          if ! "$py" -c 'import ensurepip, venv' >/dev/null 2>&1; then
-            echo "$py or its venv module is missing; installing both"
-            # `env`, not `sudo VAR=value`: sudo accepts an assignment only where its policy allows,
-            # `env` is a command and works under any policy. The lock timeout waits out
-            # unattended-upgrades instead of failing on the dpkg lock.
-            aptget() { sudo env DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 -qq "$@"; }
-            # A herestring, not a pipe: `grep -q` exits at its first match, and under pipefail the
-            # SIGPIPE that can give apt-cache would read as "no candidate" (the `changes` job above
-            # carries the same lesson).
-            if ! grep -Eq 'Candidate: [0-9]' <<< "$(apt-cache policy "$py" 2>/dev/null)"; then
+          # 1. The interpreter, and the one library the pinned Node needs. WHERE PYTHON 3.14 COMES
+          #    FROM DEPENDS ON THE RELEASE, and this works out which: Ubuntu 26.04 ships python3.14 in
+          #    its own archive (it is that release's system Python), Ubuntu 24.04 does not, and the
+          #    deadsnakes PPA supplies it there — deadsnakes never packages a release's own default
+          #    Python, so it is the source on 24.04 and never on 26.04. The PPA is added only when the
+          #    archive offers no python3.14 candidate at all.
+          #
+          #    MISSING is fatal, OUT OF DATE is not. `ensurepip` is the module Debian moves into
+          #    python3.X-venv, so one import tells "no python3.14" and "python3.14 without its venv
+          #    module" apart from ready; libatomic1 is what Node 26's official binary links against
+          #    (the install step pins the Prisma CLI's Node to it), and the 26.04 cloud image does not
+          #    ship it — found by running these scripts in ubuntu:24.04 and ubuntu:26.04 containers.
+          #    Either missing, the step installs it or fails. An interpreter whose source offers a
+          #    newer build is upgraded too, because nothing else would: unattended-upgrades applies
+          #    the archive's security pocket only, never a PPA, and this box once sat on June's
+          #    packages for months for the same reason. That upgrade is best effort, judged from the
+          #    package lists the box's apt-daily timer refreshes, and a failure only warns: the
+          #    working interpreter stays.
+          #
+          #    Herestrings, not pipes: `grep -q` exits at its first match, and under pipefail the
+          #    SIGPIPE that can give the writer would read as "absent" (the `changes` job above
+          #    carries the same lesson).
+          #
+          #    `sudo env ...` and not `sudo VAR=value ...`: sudo honours an assignment only where its
+          #    policy allows (26.04's default sudo is sudo-rs), `env` is a command and works under any
+          #    policy. NEEDRESTART_SUSPEND keeps needrestart's apt hook from restarting the API in the
+          #    middle of this deploy when a library it uses is upgraded; the end of this job restarts
+          #    both services anyway. The lock timeout waits out an unattended-upgrades run.
+          aptget() { sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 apt-get -o DPkg::Lock::Timeout=600 -qq "$@"; }
+          refresh_lists() {
+            for attempt in 1 2 3 4 5 6; do
+              aptget update && return 0
+              echo "apt-get update failed (attempt ${attempt}/6; another apt run holding its lock?)"
+              sleep 20
+            done
+            return 1
+          }
+          policy="$(apt-cache policy "$py" 2>/dev/null)"
+          installed="$(sed -n 's/^ *Installed: //p' <<< "$policy")"
+          candidate="$(sed -n 's/^ *Candidate: //p' <<< "$policy")"
+          need=()
+          "$py" -c 'import ensurepip, venv' >/dev/null 2>&1 || need+=("$py" "$py-venv")
+          grep -q 'install ok installed' <<< "$(dpkg-query -W -f='${Status}' libatomic1 2>/dev/null)" || need+=(libatomic1)
+          stale=no
+          if [ -n "$installed" ] && [ "$installed" != "(none)" ] && [ -n "$candidate" ] \
+             && [ "$candidate" != "(none)" ] && [ "$installed" != "$candidate" ]; then
+            stale=yes
+          fi
+          if [ "${#need[@]}" -gt 0 ]; then
+            [ "$stale" = no ] || need+=("$py" "$py-venv")
+            echo "installing: ${need[*]}"
+            if [[ " ${need[*]} " == *" $py "* ]] && ! grep -Eq 'Candidate: [0-9]' <<< "$policy"; then
               command -v add-apt-repository >/dev/null || aptget install -y --no-install-recommends software-properties-common
               sudo add-apt-repository -y -n ppa:deadsnakes/ppa
             fi
-            aptget update
-            aptget install -y --no-install-recommends "$py" "$py-venv"
+            refresh_lists
+            aptget install -y --no-install-recommends "${need[@]}"
+          elif [ "$stale" = yes ]; then
+            echo "upgrading ${py}: ${installed} -> ${candidate}"
+            if ! { refresh_lists && aptget install -y --no-install-recommends "$py" "$py-venv"; }; then
+              echo "::warning::could not upgrade ${py} from ${installed} to ${candidate}; this deploy carries on with ${installed}"
+            fi
           fi
           "$py" -VV
 
@@ -700,8 +748,9 @@ jobs:
           # THE SWITCH, with both services stopped. On the first deploy after 2026-10-09 `.venv` is
           # the real 3.12 directory every earlier deploy built in place: it moves to
           # venvs/py3.12-legacy and stays there as the rollback venv (python3.12 stays installed for
-          # it). From then on `.venv` is a symlink, and switching is one rename(2) of a new symlink
-          # over the old one. The switch happens even when the migration failed, because the code on
+          # it). A freshly built box has no `.venv` at all and gets the symlink straight away. From
+          # then on `.venv` is a symlink, and switching is one rename(2) of a new symlink over the
+          # old one. The switch happens even when the migration failed, because the code on
           # disk is this commit's and only this venv is built for it; the restart below has always
           # happened either way.
           previous=""

@@ -601,7 +601,10 @@ lock*) in the same pull request.
 one".** Nothing the API can see has changed: that step runs before the code sync, the API is still
 serving from its old venv, and `fieldrepo-queue` was started again on the way out. Read the apt or
 pip error in the log, fix the cause (a lock that does not install, an apt mirror or the deadsnakes
-PPA unreachable), and re-run the deploy. The half-built venv has no `.complete` and is rebuilt.
+PPA unreachable), and re-run the deploy. The half-built venv has no `.complete` and is rebuilt. Only
+a MISSING interpreter, venv module or `libatomic1` fails the step; an interpreter that could not be
+upgraded to its source's newer build is a `::warning::`, and the deploy carries on with the one that
+works ([backend/DEPLOY_AWS.md](../backend/DEPLOY_AWS.md) §9).
 
 **`Backend tests` is red with dozens of collection errors.** Almost always the environment, not the
 code: `Settings` refuses to build without its six required values (§1, *The checks*) and every module

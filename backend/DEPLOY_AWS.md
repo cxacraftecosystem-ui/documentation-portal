@@ -371,11 +371,46 @@ security advisories included, while CI tested whatever the index offered that da
 | `/home/ubuntu/app/venv-wanted`, `venv-previous` | The venv the last deploy built or chose, and the one `.venv` pointed at before it. |
 | `/home/ubuntu/.cache/prisma-python/nodeenv` | A symlink to `nodeenv-<version>`, the Node the Prisma CLI runs on, pinned in the deploy (26.11.1 on 2026-10-09; it had been 26.3.0, downloaded once and never refreshed). |
 
-**Python itself.** On this 24.04 box `python3.14` and `python3.14-venv` come from the deadsnakes PPA
-(3.14.8 on 2026-10-09); the deploy installs them the first time it does not find them, and
-`python3.12` — 24.04's system Python — stays installed. On a 26.04 box they come from Ubuntu's own
-archive, where 3.14 is the system Python (3.14.4 there on 2026-10-09, patched by Ubuntu); deadsnakes
-does not build 3.14 for 26.04. Everything else in the deploy keys on the minor version only.
+**Python itself, on 24.04 and on 26.04.** The box running on 2026-10-09 is Ubuntu 24.04 (24.04.5
+after that day's patching), and a rebuild on 26.04 is approved; the deploy works out which it is on.
+On 24.04 `python3.14` and `python3.14-venv` come from the deadsnakes PPA (3.14.8 on 2026-10-09),
+which the deploy adds the first time the archive offers no `python3.14`; `python3.12`, 24.04's system
+Python, stays installed. On 26.04 3.14 *is* the system Python and comes from Ubuntu's own archive,
+and deadsnakes is never used there — it does not package a release's own default Python. Everything
+else in the deploy keys on the minor version only.
+
+| | 24.04 (noble) | 26.04 (resolute) |
+|---|---|---|
+| `python3.14` source | deadsnakes PPA | Ubuntu archive |
+| version on 2026-10-09 | 3.14.8 (upstream's latest) | 3.14.4, with Ubuntu's security fixes backported (`3.14.4-1ubuntu0.2`) |
+| kept current by | the deploy (below) | unattended-upgrades (security pocket) and the deploy |
+| `python3.12` | installed (system Python); the rollback venv uses it | absent |
+
+Two consequences worth knowing before the rebuild. **26.04 runs Ubuntu's 3.14.4, not upstream's
+3.14.8**: Ubuntu backports security fixes into its build rather than taking every point release, and
+apt has no newer 3.14 for 26.04, so exact upstream parity there would mean a CPython from outside apt
+(python-build-standalone, `uv python install 3.14.x`) — a deliberate choice for the owner, not
+something the deploy does. And **a 26.04 box has no `python3.12` and no `py3.12-legacy` venv**, so a
+commit from before 2026-10-09 cannot be deployed to it; roll back by redeploying a later commit.
+
+**Out of date is upgraded, missing is installed.** On every deploy the build step compares the
+installed `python3.14` with what its source offers, in the package lists the box's apt-daily timer
+refreshes, and upgrades it when they differ — best effort, warning and carrying on with the working
+interpreter if the upgrade fails. Without that the PPA's interpreter would never move:
+unattended-upgrades applies the archive's security pocket only, never a PPA. A missing interpreter,
+venv module or `libatomic1` is installed or the step fails. `libatomic1` is there because the official
+Node 26 binary the Prisma CLI runs on links against it and the 26.04 cloud image does not ship it
+(its manifest, read on 2026-10-09). apt runs with needrestart's hook suspended, so an upgraded
+library cannot restart the API in the middle of a deploy that restarts it at the end anyway.
+
+The deploy's two remote scripts, extracted verbatim from `deploy-backend.yml`, were run on
+2026-10-09 in an `ubuntu:24.04` container set up like the live box (a 3.12 venv built in place, a
+stand-in for Node 26.3.0 in the Prisma cache) and in an `ubuntu:26.04` one set up like the cloud image
+(`python3.14` present, no venv module, no `libatomic1`) but holding an older `python3.14` build, so
+the upgrade path ran too, each beside `postgres:17`: install, migration, switch,
+`/health` and `/health/ready` on the new venv, reuse of an unchanged lock, a rebuilt venv for a
+changed one, a lock that cannot install leaving the API untouched, and `pip check` refusing a floor
+the lock does not meet.
 
 **Why the build cannot take the API down.** The venv is built before `backend/` is synced, while the
 API keeps serving from the old one, with `fieldrepo-queue` stopped for the install to spare memory
