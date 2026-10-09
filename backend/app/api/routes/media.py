@@ -251,7 +251,7 @@ async def complete_multipart(
         key=lambda item: item["PartNumber"],
     )
     if not parts:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="No parts to complete")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="No parts to complete")
     await asyncio.to_thread(complete_multipart_upload, payload.objectKey, payload.uploadId, parts)
     return {
         "objectKey": payload.objectKey,

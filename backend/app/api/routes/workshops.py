@@ -115,7 +115,7 @@ def _level_or_422(value: Any, fallback: str | None) -> str | None:
     level = enum_str(value)
     if not valid_level(level):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"accessLevel must be one of {', '.join(WORKSHOP_LEVELS)}",
         )
     return level
@@ -125,7 +125,7 @@ def _status_or_422(value: Any, allowed: tuple[str, ...]) -> str:
     state = enum_str(value)
     if state not in allowed:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"status must be one of {', '.join(allowed)}",
         )
     return str(state)
@@ -256,7 +256,7 @@ async def list_workshops(
         # "that is not a kind of workshop".
         if workshopType not in WORKSHOP_TYPES:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"workshopType must be one of {', '.join(sorted(WORKSHOP_TYPES))}",
             )
         where["workshopType"] = workshopType
@@ -1059,7 +1059,7 @@ async def set_workshop_questionnaire(
         instrument = await require_questionnaire(target)
         if not instrument.isActive:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"“{instrument.title}” is retired and cannot be assigned to a workshop.",
             )
     current = get_value(workshop, "questionnaireId")

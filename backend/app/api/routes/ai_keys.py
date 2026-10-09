@@ -119,7 +119,7 @@ async def set_my_key(
 
     if model is not None and ai_providers.spec_for(target).model(model) is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"{model!r} is not a model this app offers for {target.value}. Choose one from the "
                 f"list, or leave it unset to use the provider's default."
@@ -144,7 +144,7 @@ async def set_my_key(
     if not ai_providers.looks_like_key(target, raw_key):
         prefix = ai_providers.spec_for(target).key_prefix
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"That does not look like a {ai_providers.spec_for(target).label} key — they begin "
                 f"with “{prefix}”. Check you have pasted the right provider's key."

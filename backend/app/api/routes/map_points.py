@@ -709,7 +709,7 @@ async def _focus_keys(
     """
     if focus_type not in _BUCKETS:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown record type '{focus_type}'. Valid types are {', '.join(RECORD_TYPES)}.",
         )
     delegate = _delegate(focus_type)
@@ -991,7 +991,7 @@ async def point_records(
         narrowed = await _stated_narrowing(point_key, wheres, selected, admin_level)
     else:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 "A point key must be one of 'nation:india', 'state:<State>', "
                 "'district:<State>|<District>', 'pin:<size>:<lat cell>_<lon cell>' or "
@@ -1318,12 +1318,12 @@ async def _capture_narrowing(
         cell_latitude, cell_longitude = (int(part) for part in cell.split("_"))
     except ValueError as error:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="A capture point key looks like 'capture:<cell size>:<lat cell>_<lon cell>'.",
         ) from error
     if degrees <= 0:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="A capture cell size must be greater than zero.",
         )
 

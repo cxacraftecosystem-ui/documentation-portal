@@ -367,7 +367,7 @@ async def _resolve_tool_links(
             # "shorten the craft name" is not advice a researcher can act on for a box the server
             # fills in.
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     f"{len(craft_ids)} linked crafts name this tool's craft in {len(joined)} "
                     f"characters, and a tool record can hold {TOOL_CRAFT_NAME_MAX}. "

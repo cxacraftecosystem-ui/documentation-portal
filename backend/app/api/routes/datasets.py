@@ -448,7 +448,7 @@ def _csv_shape(dataset: Dataset) -> tuple[str, list[str]]:
     """
     if dataset.kind is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"The '{dataset.name}' dataset has no CSV form: it is not a record type the shared "
                 f"field registry describes. Use /api/datasets/{dataset.name}.ndjson instead."
@@ -492,7 +492,7 @@ async def mint_dataset_token(payload: LoginRequest) -> dict[str, Any]:
         # screen), and the credential this endpoint exists to issue is for a process with no
         # browser. Refusing plainly beats accepting a token that a cron job could never obtain.
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Dataset tokens are issued from an email and password, not a Google ID token.",
         )
 

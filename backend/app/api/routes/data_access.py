@@ -45,7 +45,7 @@ RECORD_DELEGATES: dict[str, tuple[Any, str]] = {
 
 def _validate_tier(tier: str | None) -> None:
     if tier is not None and tier not in TIERS:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid access tier")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Invalid access tier")
 
 
 async def _resolve_record_owner(record_type: str, record_id: str) -> str | None:
@@ -210,7 +210,7 @@ async def _require_owned_grant(grant_id: str, current_user: Any) -> Any:
 async def decide_request(grant_id: str, payload: DataAccessDecisionIn, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     """The owner approves (GRANTED) or denies (DENIED) a pending request, optionally adjusting tier/scope."""
     if payload.status not in {"GRANTED", "DENIED"}:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="status must be GRANTED or DENIED")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="status must be GRANTED or DENIED")
     _validate_tier(payload.tier)
     grant = await _require_owned_grant(grant_id, current_user)
     if _status_str(grant.status) != "PENDING":
@@ -238,7 +238,7 @@ async def decide_request(grant_id: str, payload: DataAccessDecisionIn, current_u
 async def update_grant(grant_id: str, payload: DataAccessUpdateIn, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     """The owner edits an existing grant (change tier, scope, or revoke/reinstate)."""
     if payload.status is not None and payload.status not in {"GRANTED", "REVOKED"}:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="status must be GRANTED or REVOKED")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="status must be GRANTED or REVOKED")
     _validate_tier(payload.tier)
     grant = await _require_owned_grant(grant_id, current_user)
     grant = await _upsert_grant(

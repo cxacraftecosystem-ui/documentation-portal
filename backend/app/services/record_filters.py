@@ -241,7 +241,7 @@ def resolve_types(raw: list[str] | None) -> set[str]:
     unknown = sorted(wanted - set(RECORD_TYPES))
     if unknown:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"Unknown search type{'s' if len(unknown) > 1 else ''}: {', '.join(unknown)}. "
                 f"Valid types are {', '.join(RECORD_TYPES)}."

@@ -126,7 +126,7 @@ def _too_large(max_bytes: int, purpose: str, remedy: str | None = None) -> HTTPE
     """
     detail = f"That {purpose} is over the {_limit_label(max_bytes)} limit; send a smaller file."
     return HTTPException(
-        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
         detail=f"{detail} {remedy}" if remedy else detail,
     )
 

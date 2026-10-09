@@ -454,7 +454,7 @@ async def upsert_responses(
     strays = sorted({q.id for q in questions if q.questionnaireId != questionnaire_id})
     if strays:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"These questions belong to a different questionnaire than this interview: "
                 f"{strays}. Reload the questionnaire and try again."
@@ -670,7 +670,7 @@ async def reorder_sections(
     instrument_ids = {section.questionnaireId for section in sections}
     if len(instrument_ids) != 1:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"sectionIds must all belong to one questionnaire; these span "
                 f"{len(instrument_ids)}."
@@ -745,7 +745,7 @@ async def update_question(
             # would leave those answers attached to a row that is no longer on any form they were
             # collected against. Refused rather than repaired: there is no honest destination.
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     f"A question cannot be moved between questionnaires. {question.sectionCode} "
                     f"#{question.sortOrder} belongs to «{question.questionnaireId}»; the target "
@@ -800,7 +800,7 @@ async def reorder_questions(
     )
     if strays:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"A question cannot be moved between questionnaires. These belong to a different "
                 f"one from section {section.code}: {strays}."
@@ -1037,7 +1037,7 @@ async def create_interview(
         bound = get_value(workshop, "questionnaireId") if workshop else None
         if bound and bound != payload.questionnaireId and not can_manage_questionnaire(current_user):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     "This workshop uses a different questionnaire. Record the interview on the "
                     "workshop's questionnaire, or ask a questionnaire manager to change which one "
@@ -1414,7 +1414,7 @@ async def set_completion_cell(
         return {"cleared": True}
     if payload.status not in COMPLETION_STATUSES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"status must be one of {sorted(COMPLETION_STATUSES)} or null",
         )
     record = await db.questionnairesectionstatus.upsert(
@@ -1571,7 +1571,7 @@ async def merge_interview_into(
     """
     if interview_id == target_id:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="An interview cannot be merged into itself.",
         )
     source = await require_record(db.questionnaireinterview, interview_id)
@@ -1581,7 +1581,7 @@ async def merge_interview_into(
     # cheap, non-sensitive fact first and does not have a ledger row written for a doomed merge.
     if get_value(source, "questionnaireId") != get_value(target, "questionnaireId"):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 "These two interviews were taken on different questionnaires. Answers cannot move "
                 "between instruments — they would land under questions the sitting was never asked."
@@ -2997,7 +2997,7 @@ async def _read_workbook_upload(file: UploadFile, request: Request | None = None
     )
     if not content:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="The upload was empty. Attach the filled-in pro-forma.",
         )
     return content
@@ -3018,7 +3018,7 @@ def _parse_or_422(content: bytes, filename: str | None) -> ParsedQuestionnaire:
         # The message is written to be shown to the admin as-is — it names the remedy for an old
         # .xls, a password, a truncated upload or a file that is not a workbook at all.
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
 
 
@@ -3163,7 +3163,7 @@ async def reupload_questionnaire(
         report = await apply_parsed_edit(questionnaire_id, parsed, title=title)
     except QuestionnaireWorkbookError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
     if file.filename and file.filename != getattr(record, "sourceFilename", None):
         await db.questionnaire.update(
@@ -3242,7 +3242,7 @@ async def update_questionnaire(
     if data.get("isActive") is False:
         if row.isDefault:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     "This is the default questionnaire and cannot be retired. Point the default at "
                     "another questionnaire first."
@@ -3293,7 +3293,7 @@ async def set_default_questionnaire(
     row = await require_questionnaire(questionnaire_id)
     if payload.isDefault and not row.isActive:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="A retired questionnaire cannot be the default. Reactivate it first.",
         )
     # Cleared FIRST and unconditionally, because the partial unique index

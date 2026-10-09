@@ -346,7 +346,7 @@ async def update_process(
         # whose worst case is a NOT NULL violation on the update below. 422 says what happened.
         if data["productId"] is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     "A process must belong to a product. Send another product's id to move it, or "
                     "delete the process."

@@ -458,7 +458,7 @@ async def update_artisan(
         number = data.get("pehchanCardNumber", artisan.pehchanCardNumber)
         if not number:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     "Enter the Artisan Pehchan Card number, or set the card to 'No' if the artisan "
                     "does not hold one."

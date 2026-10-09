@@ -184,7 +184,7 @@ async def require_task(task_id: str) -> Any:
 def assert_status_value(value: str) -> None:
     if value not in TASK_STATUSES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"status must be one of {sorted(TASK_STATUSES)}",
         )
 
@@ -229,7 +229,7 @@ async def assert_assignable(assigner: Any, assignee_id: str) -> Any:
         # to prevent, merely committed by the person running it.
         if not is_admin(assigner):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="You cannot assign a task to yourself",
             )
         # Return BEFORE the tier rule, which would otherwise refuse what was just allowed.
@@ -261,7 +261,7 @@ def normalize_record_types(values: list[str] | None) -> list[str]:
     unknown = sorted(requested - RECORD_TYPES)
     if unknown:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown recordTypes {unknown}; expected any of {RECORD_TYPE_ORDER}",
         )
     return [kind for kind in RECORD_TYPE_ORDER if kind in requested]
@@ -320,7 +320,7 @@ async def resolve_scope(
         missing = sorted(set(wanted_artisans) - {artisan.id for artisan in artisans})
         if missing:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Unknown artisanIds: {missing}",
             )
 
@@ -333,7 +333,7 @@ async def resolve_scope(
         missing = sorted(set(wanted_sections) - {section.id for section in sections})
         if missing:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Unknown sectionIds: {missing}",
             )
 
@@ -349,7 +349,7 @@ async def resolve_scope(
         instrument_ids = {section.questionnaireId for section in sections}
         if len(instrument_ids) > 1:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     "sectionIds must all belong to one questionnaire; these span "
                     f"{len(instrument_ids)}."
@@ -364,7 +364,7 @@ async def resolve_scope(
             if wrong:
                 instrument = await require_questionnaire(expected)
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=(
                         f"This workshop uses “{instrument.title}”. These sections belong to a "
                         f"different questionnaire and cannot be assigned here: {wrong}."
@@ -373,7 +373,7 @@ async def resolve_scope(
 
     if require_work and not types and not sections:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 "A task needs work in it: pass recordTypes "
                 f"(any of {RECORD_TYPE_ORDER}) and/or sectionIds."
@@ -1120,7 +1120,7 @@ async def create_task_batch(
     assignee_ids = dedupe(payload.assigneeIds)
     if not assignee_ids:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="assigneeIds must contain at least one user",
         )
 
@@ -1199,7 +1199,7 @@ async def list_tasks(
     """
     if view not in VIEWS:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"view must be one of {sorted(VIEWS)}",
         )
     where: dict[str, Any] = {}
@@ -1217,7 +1217,7 @@ async def list_tasks(
         # Refused rather than silently resolved. Either order of precedence would be a guess, and
         # a caller asking `status=DONE&outstanding=true` has a bug a quiet answer would hide.
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Pass either status or outstanding=true, not both",
         )
     if statusFilter:
@@ -1263,7 +1263,7 @@ async def list_task_batches(
     """
     if view not in {"created", "all"}:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="view must be one of ['all', 'created']",
         )
     where: dict[str, Any] = {}
