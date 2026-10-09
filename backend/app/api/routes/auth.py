@@ -320,7 +320,7 @@ async def login(payload: LoginRequest) -> dict[str, Any]:
 @router.post("/google", response_model=TokenResponse)
 async def google_login(payload: LoginRequest) -> dict[str, Any]:
     if not payload.googleIdToken:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Missing Google ID token")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Missing Google ID token")
     return await login(payload)
 
 

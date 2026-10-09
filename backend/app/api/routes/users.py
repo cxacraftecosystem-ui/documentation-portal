@@ -39,7 +39,7 @@ def assert_role(role: str | None, current_user: Any) -> None:
     if not role:
         return
     if role not in ALLOWED_ROLES:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid user role")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Invalid user role")
     if role == "MASTER_ADMIN" and not is_master_admin(current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the master admin can grant master admin")
     if ROLE_RANK[role] > role_rank(current_user):
@@ -73,7 +73,7 @@ def assert_not_demoting_master(target_user: Any, payload_role: str | None, curre
     if not is_master_admin(current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="The master admin account is protected")
     if payload_role and payload_role != "MASTER_ADMIN":
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="The master admin must keep MASTER_ADMIN role")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="The master admin must keep MASTER_ADMIN role")
 
 
 @router.get("/directory")
@@ -250,7 +250,7 @@ async def delete_user(user_id: str, current_user: Any = Depends(require_admin)) 
     if is_master_email(user.email):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="The master admin account cannot be deleted")
     if user.id == current_user.id:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="You cannot delete your own account")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="You cannot delete your own account")
     assert_can_manage_target(current_user, user)
     await db.user.delete(where={"id": user_id})
     # DELETING THE ACCOUNT MUST ALSO CLOSE THE DOOR. The roster is keyed by EMAIL, not by user id,

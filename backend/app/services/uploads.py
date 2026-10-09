@@ -63,7 +63,7 @@ transfer, and a claim rather than a fact on any transfer — which is why the lo
 header, is what the guarantee rests on.
 
 **WHAT DOES BOUND THE NETWORK AND THE DISK IS UPSTREAM, AND IT IS NOT IN THIS REPOSITORY'S PYTHON.**
-``client_max_body_size 200M`` on the nginx site in ``infra/terraform/user_data.sh:27`` (mirrored as
+``client_max_body_size 200M`` on the nginx site in ``infra/terraform/user_data.sh:46`` (mirrored as
 the ingress annotation in ``infra/k8s/base/ingress.yaml:9-11``) is what refuses an oversized body
 before the application ever sees it, and it is therefore the only ceiling that bounds what the spool
 can write to the instance's disk. A change to the numbers in this module is a change to heap; a
@@ -126,7 +126,7 @@ def _too_large(max_bytes: int, purpose: str, remedy: str | None = None) -> HTTPE
     """
     detail = f"That {purpose} is over the {_limit_label(max_bytes)} limit; send a smaller file."
     return HTTPException(
-        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
         detail=f"{detail} {remedy}" if remedy else detail,
     )
 

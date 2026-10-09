@@ -547,8 +547,8 @@ Alternative shapes are documented and, in the case of Kubernetes, partially vali
 ```mermaid
 flowchart LR
   subgraph compose["docker compose up -d"]
-    pg[PostgreSQL<br/>host :55432 → container :5432]
-    minio[MinIO<br/>:9000 API · :9001 console]
+    pg[PostgreSQL 17<br/>host :55432 → container :5432]
+    minio[Silo, the MinIO fork<br/>:9000 API · :9001 console]
     bucket[[one-shot: create bucket<br/>field-repository]]
   end
   next["Next.js :3000"]
@@ -561,7 +561,8 @@ flowchart LR
   fastapi --> minio
 ```
 
-Two local-only gotchas: set `AWS_S3_SSE_ALGORITHM=` (empty) or MinIO rejects multipart creates with
+Two local-only gotchas: set `AWS_S3_SSE_ALGORITHM=` (empty) or the local store (Silo, the maintained
+fork of MinIO, since 2026-10-09; [DOCKER.md](DOCKER.md) says why) rejects multipart creates with
 `NotImplemented`, and leave the queue worker **on** locally — the split into a separate service is a
 production concern.
 

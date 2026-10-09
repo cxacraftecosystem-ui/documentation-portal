@@ -13,15 +13,29 @@
 #     -var="ssh_ingress_cidr=YOUR.IP.ADDR.ESS/32"
 #
 # NEVER commit terraform.tfstate or *.tfvars (already gitignored): state can
-# contain the generated IAM secret key.
+# contain the generated IAM secret key. DO commit .terraform.lock.hcl: it is what
+# makes every `init` resolve the same provider build, and it holds no secrets.
 ###############################################################################
 
+# Versions, as of 2026-10-09: Terraform 1.16.5 and hashicorp/aws 6.68.0 were the latest
+# releases. The floors below are those lines, and .terraform.lock.hcl (committed, with hashes
+# for linux, macOS and Windows on amd64 and arm64) pins the exact provider build; Dependabot's
+# terraform entry proposes the next one. Refresh the lock by hand with
+#   terraform providers lock -platform=linux_amd64 -platform=linux_arm64 \
+#     -platform=darwin_amd64 -platform=darwin_arm64 -platform=windows_amd64
+#
+# The move from provider 5.x to 6.x needed no change to this module: v6's breaking changes that could
+# touch it are already met (`aws_ami` names its owners, `aws_eip` uses `domain` rather than the
+# removed `vpc`, nothing sets `cpu_core_count` or a bucket `region`). One v6 behaviour to know:
+# `aws_instance.user_data` is stored in state in clear text. user_data.sh carries no secret — the
+# .env reaches the box through the deploy workflow, never through this file — so that is acceptable,
+# and it must stay that way.
 terraform {
-  required_version = ">= 1.5.0"
+  required_version = ">= 1.16"
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 6.68"
     }
   }
 }
@@ -209,12 +223,22 @@ resource "aws_iam_access_key" "media" {
 
 ############################### EC2 (API server) ##############################
 
+# Ubuntu 26.04 LTS (resolute) for any box built from here since 2026-10-09. Its archive carries
+# python3.14 (the interpreter the deploy runs the API on), nginx 1.28 and ffmpeg 8. The box running
+# on 2026-10-09 (i-06f177db5c4e3b0af) is still 24.04, built from the noble filter that stood here,
+# and the deploy puts python3.14 on it from the deadsnakes PPA instead.
+#
+# ⚠ CHANGING THIS FILTER REPLACES THE INSTANCE ON THE NEXT `apply` (a new AMI forces a new
+# aws_instance). That is how the move to 26.04 is meant to happen — the box is stateless (Supabase
+# holds the data, S3 the media) and the Elastic IP is reattached — but it is a production rebuild,
+# so apply it deliberately, after a deploy has proved the 3.14 venv on the current box, and with
+# backend/DEPLOY_AWS.md's restore steps (nginx/TLS, the two systemd units) to hand.
 data "aws_ami" "ubuntu" {
   most_recent = true
   owners      = ["099720109477"] # Canonical
   filter {
     name   = "name"
-    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
+    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-resolute-26.04-amd64-server-*"]
   }
   filter {
     name   = "virtualization-type"
@@ -261,6 +285,13 @@ resource "aws_instance" "api" {
   key_name               = var.ssh_key_name
   vpc_security_group_ids = [aws_security_group.api.id]
   user_data              = file("${path.module}/user_data.sh")
+  # The SSM instance profile the live box was given BY HAND on 2026-06-17 (role `fieldrepo-ssm`, with
+  # AmazonSSMManagedInstanceCore attached), which is how the box is inspected without SSH. It is not
+  # created by this module, and until 2026-10-09 it was not named here either, so a read-only
+  # `terraform plan` against the live box showed the replacement that the 26.04 AMI filter forces
+  # launching a box WITHOUT it, unreachable over SSM. Naming it keeps a rebuilt box reachable; bringing
+  # the role and the profile themselves under this module (import both) is the fuller fix.
+  iam_instance_profile = "fieldrepo-ssm"
 
   root_block_device {
     volume_size = 30

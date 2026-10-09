@@ -37,7 +37,8 @@ override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
-.terraform.lock.hcl
+# NOT .terraform.lock.hcl, which was ignored here until 2026-10-09: it pins the provider build every
+# `terraform init` resolves, it holds no secrets, and HashiCorp's guidance is to commit it.
 
 # Keys / secrets
 *.pem

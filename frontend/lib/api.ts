@@ -190,6 +190,11 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
       // (unless they are already there). Anonymous requests — e.g. the landing page's /me probe —
       // sent no token, so they fail without navigating the visitor away from public pages.
       setToken(null);
+      // A FULL page load on purpose, which is the one thing the rule below (new in
+      // eslint-config-next 16.3) exists to discourage. This module sits outside React, so there is
+      // no router to push with, and the session has just ended: a page load is what discards the
+      // signed-out session's in-memory state instead of carrying it onto the login screen.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       if (window.location.pathname !== "/login") window.location.assign("/login");
     }
     throw new ApiError(response.status, message, body);

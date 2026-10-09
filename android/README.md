@@ -78,7 +78,7 @@ Command-line debug build:
 | compileSdk / targetSdk / minSdk | 37 / 37 / 26 |
 
 Install the `Android SDK Platform 37.0` and `Build-Tools 37.0.0` packages. Dependabot proposes Gradle,
-AGP, Kotlin and library updates weekly (`.github/dependabot.yml`); the JDK and the SDK levels are moved
+AGP, Kotlin and library updates monthly (`.github/dependabot.yml`); the JDK and the SDK levels are moved
 by hand, in the build scripts and the three Android workflows together.
 `.github/workflows/android-emulator.yml` runs the debug build on an emulator when asked.
 

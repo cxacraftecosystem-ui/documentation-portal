@@ -18,6 +18,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from fastapi import FastAPI
+from fastapi.routing import iter_route_contexts
 
 from app.api.router import api_router
 from app.api.routes import public
@@ -159,8 +160,23 @@ def test_the_census_counts_every_row_held_not_only_the_approved_ones(corpus) -> 
     assert all(kwargs == {} for _, kwargs in tables.calls), "a where clause reached a census count"
 
 
+def _mounted_routes() -> list:
+    """Every route the real router serves, at its full path, with its dependencies as served.
+
+    NOT ``api_router.routes``, which is what these two tests read until 2026-10-09 and why they
+    failed on every FastAPI from 0.137.0 on. Since that release ``.routes`` keeps ONE
+    ``_IncludedRouter`` per ``include_router`` call instead of copies of the included routes under
+    their prefixed paths — "an internal implementation detail", in FastAPI's own release notes — so a
+    walk of it finds wrappers with no ``.path``. ``iter_route_contexts`` is the public replacement
+    added in 0.137.2 for exactly this ("advanced use cases that used to use router.routes"): each item
+    carries the effective path and the effective ``dependant``, router-level dependencies included,
+    which is what the second test has to look at.
+    """
+    return list(iter_route_contexts(api_router.routes))
+
+
 def test_the_census_is_mounted_at_the_public_path_the_cdn_rule_would_be_scoped_to() -> None:
-    paths = {route.path for route in api_router.routes}
+    paths = {route.path for route in _mounted_routes()}
     assert "/api/public/census" in paths
 
 
@@ -171,7 +187,7 @@ def test_the_census_asks_for_no_token(corpus) -> None:
     user would still answer 200 here — what matters is that there is no auth dependency at all.
     """
     corpus()
-    route = next(r for r in api_router.routes if getattr(r, "path", None) == "/api/public/census")
+    route = next(r for r in _mounted_routes() if r.path == "/api/public/census")
 
     assert route.dependant.dependencies == []
     assert asyncio.run(_get(headers={})).status_code == 200

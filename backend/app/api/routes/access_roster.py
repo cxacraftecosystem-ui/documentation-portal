@@ -132,7 +132,7 @@ async def list_roster(
         wanted = status_value(status_filter).upper()
         if wanted not in DECIDABLE_STATUSES | {"PENDING"}:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Unknown access status filter",
             )
         where["status"] = wanted
@@ -170,7 +170,7 @@ async def add_to_roster(
     email = normalise_email(payload.email)
     if not email:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="An access roster entry needs an email address",
         )
     assert_role(payload.grantedRole, current_user)
@@ -243,7 +243,7 @@ async def update_roster_entry(
     new_status = status_value(values.get("status")).upper() if values.get("status") else None
     if new_status and new_status not in DECIDABLE_STATUSES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 "An access roster entry can be set to ACTIVE, REJECTED or SUSPENDED. "
                 "PENDING is written only by a refused sign-in."

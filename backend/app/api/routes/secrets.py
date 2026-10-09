@@ -85,7 +85,7 @@ async def set_secret(
     value = payload.value.strip()
     if not value:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="value must not be blank. Use DELETE to fall back to the environment value.",
         )
     return await managed_secrets.set_secret(key, value, current_user.id)

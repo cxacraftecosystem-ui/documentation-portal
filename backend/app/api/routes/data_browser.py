@@ -2983,7 +2983,7 @@ async def data_report(
     fmt = (format or "xlsx").strip().lower()
     if fmt not in ("json", "xlsx"):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="format must be 'json' or 'xlsx'",
         )
     scope = await _scope_for(current_user)
@@ -3086,7 +3086,7 @@ async def download_media(
         declared = int(media.sizeBytes or 0)
         if declared > MAX_CONVERT_BYTES:
             raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                 detail="This recording is too large to convert in-process; download the original.",
             )
         try:
@@ -3104,7 +3104,7 @@ async def download_media(
             # FastAPI builds the response.
             del raw
             raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                 detail="This recording is too large to convert in-process; download the original.",
             )
         try:

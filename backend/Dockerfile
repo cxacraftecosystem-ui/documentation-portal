@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.28
 # ---------------------------------------------------------------------------------------------
 # Field Repository API — multi-stage image.
 #
@@ -16,7 +16,19 @@
 # time can reach.
 # ---------------------------------------------------------------------------------------------
 
-ARG PYTHON_VERSION=3.12
+# THE BASE IMAGES ARE LITERAL TAGS, NOT `ARG`s, AND THAT IS FOR DEPENDABOT (2026-10-09). Its docker
+# parser reads a FROM line's tag only when the tag is written out; `FROM python:${PYTHON_VERSION}-…`,
+# which this file used until then, is invisible to it, so nothing would ever have proposed the next
+# Python. The cost is that the two python FROM lines (builder and runtime) must name the same tag,
+# and they do: Dependabot updates every line naming one image in one pull request.
+#
+#   python:3.14-slim-trixie  3.14, the interpreter CI and the EC2 box run, on Debian 13 (trixie), the
+#                            release whose regular support is current (bookworm's ended 2026-07-11).
+#                            A Dependabot pull request to 3.15 is a signal to move CI, the box and
+#                            pyproject's requires-python with it, never to be merged on its own.
+#   node:26-trixie-slim      the `prisma` stage's Node: the major deploy-backend.yml pins the box's
+#                            Prisma nodeenv to, so the image and the box generate the client with the
+#                            same Node. .github/dependabot.yml ignores its majors for that reason.
 
 # Install ffmpeg into the runtime image. OFF by default because it costs ~180 MB and nothing on
 # the request path needs it: pydub is imported lazily inside the two functions that convert audio
@@ -29,7 +41,7 @@ ARG INSTALL_FFMPEG=false
 # =============================================================================================
 # Stage 1 — builder: resolve dependencies into a self-contained virtualenv.
 # =============================================================================================
-FROM python:${PYTHON_VERSION}-slim-bookworm AS builder
+FROM python:3.14-slim-trixie AS builder
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -50,21 +62,24 @@ ENV PATH="/opt/venv/bin:${PATH}" \
 
 WORKDIR /build
 
-# Only pyproject.toml, so this layer — the slow one — is reused on every source-only change.
-COPY backend/pyproject.toml ./pyproject.toml
+# Only the lock, so this layer — the slow one — is reused on every source-only change.
+COPY backend/requirements.lock ./requirements.lock
 
-# Install the DEPENDENCIES, not the project. `pip install .` would also copy an `app` package into
+# FROM THE LOCK, EXACTLY AS CI AND THE EC2 BOX INSTALL IT (since 2026-10-09). Until then this step
+# read pyproject's `>=` floors out with tomllib and let pip take whatever the index offered on the
+# day of the build, so no two builds were promised the same set. backend/requirements.lock is
+# compiled on python:3.14 and pins every package, which makes this image and the box the same
+# install by construction. The lock carries the `dev` extra (pytest, ruff, httpx and their few
+# dependencies) because it is the one lock CI installs too; nothing imports them at run time, and
+# the optional `ai`, `ai-local` and `cache` extras are still not in it.
+#
+# The DEPENDENCIES, not the project: CI and the box follow this with `pip install --no-deps -e .`,
+# and this image deliberately does not. `pip install .` would copy an `app` package into
 # site-packages, and `app/data/questionnaire_questions.json` is not declared as package data, so
 # that copy would silently ship without it and the questionnaire seed would fail at runtime. The
-# source tree is mounted into the runtime image as a plain directory instead, which cannot lose a
-# file. tomllib is stdlib on 3.11+, so reading the list needs nothing installed first.
-#
-# The core [project.dependencies] list ONLY. Optional extras (dev, and any future cache/ai extras)
-# are deliberately not installed: this image is meant to weigh what the EC2 t3.micro weighs.
-RUN python -c "import tomllib, pathlib; \
-print('\n'.join(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['dependencies']))" \
-      > /tmp/requirements.txt \
- && pip install --no-cache-dir -r /tmp/requirements.txt
+# source tree is copied into the runtime image as a plain directory instead (PYTHONPATH=/app below),
+# which cannot lose a file.
+RUN pip install --no-cache-dir -r requirements.lock
 
 
 # =============================================================================================
@@ -79,14 +94,22 @@ print('\n'.join(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['proje
 # At run time the client talks to a standalone Rust binary (prisma-client-py uses the *binary*
 # engine, not a Node process), which is why the runtime image needs the engine and not Node.
 # =============================================================================================
+FROM node:26-trixie-slim AS node
+
 FROM builder AS prisma
 
-# Node is what runs the Prisma CLI. bookworm's nodejs is 18.x, comfortably above the CLI's
-# documented floor of 16.13. npm comes along because prisma-client-py's node resolver can reach
-# for either binary.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends nodejs npm \
- && rm -rf /var/lib/apt/lists/*
+# Node is what runs the Prisma CLI, and it comes from the official image at the box's major rather
+# than from apt: trixie's own nodejs is 20.x, past its end of life since 2026-04-30 (bookworm's, which
+# this stage installed until 2026-10-09, was 18.x). Only the binary and npm are taken, npm because
+# prisma-client-py installs the Prisma CLI with it during `py fetch`. Both images are trixie, so the
+# binary finds the glibc it was built against, and libstdc++ arrived with build-essential in the
+# builder stage this one starts from. The two --version calls fail the build if either did not land.
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+ && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+ && node --version \
+ && npm --version
 
 # Pin every cache prisma-client-py writes to, so the artefacts land in known directories that the
 # runtime stage can copy. Left at their defaults they go to $HOME/.cache, and $HOME differs
@@ -140,7 +163,7 @@ ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 # =============================================================================================
 # Stage 3 — runtime.
 # =============================================================================================
-FROM python:${PYTHON_VERSION}-slim-bookworm AS runtime
+FROM python:3.14-slim-trixie AS runtime
 
 ARG INSTALL_FFMPEG
 

@@ -38,12 +38,14 @@ from app.services import questionnaire_instruments
 
 # ⚠ `anyio`, NOT pytest-asyncio's `asyncio_mode = "auto"`, AND THE DIFFERENCE IS A CI FAILURE.
 #
-# `pyproject.toml` sets `asyncio_mode = "auto"`, which reads as though every `async def test_` in this
-# repository is collected automatically. It is not: that setting does nothing unless `pytest-asyncio`
-# is installed, `backend/` has NO LOCK FILE — every dependency is a `>=` range — and the plugin is not
-# named in any requirements file. It happens to be present in this developer's virtualenv and is
-# absent on the CI runner, so this module passed locally and failed on GitHub with
-# `Failed: async def functions are not natively supported` on five of its six async cases.
+# `pyproject.toml` used to set `asyncio_mode = "auto"` (removed on 2026-09-14; the note in its place
+# says why), which read as though every `async def test_` in this repository were collected
+# automatically. It was not: that setting does nothing unless `pytest-asyncio` is installed, and the
+# plugin is named in no requirements file — not in pyproject's extras, and not in
+# backend/requirements.lock, which every machine installs since 2026-10-09. It happened to be present
+# in this developer's virtualenv and absent on the CI runner, so this module passed locally and
+# failed on GitHub with `Failed: async def functions are not natively supported` on five of its six
+# async cases.
 #
 # Every other async module here declares `pytestmark = pytest.mark.anyio` (see
 # tests/test_user_ai_keys.py:37), and anyio arrives transitively with starlette/httpx, so it is

@@ -104,7 +104,7 @@ MULTIPART_PART_SIZE = 16 * 1024 * 1024
 # NEITHER NUMBER BOUNDS THE NETWORK OR THE DISK. The framework has already parsed the multipart
 # form and spooled it before either route function is entered — see the correction in
 # ``services/uploads``'s module docstring. What refuses an oversized body before this process sees
-# it at all is ``client_max_body_size 200M`` on the nginx site (infra/terraform/user_data.sh:27).
+# it at all is ``client_max_body_size 200M`` on the nginx site (infra/terraform/user_data.sh:46).
 # These two constants bound the HEAP, and changing them changes nothing about what the box accepts.
 MEASUREMENT_MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 DICTATION_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -251,7 +251,7 @@ async def complete_multipart(
         key=lambda item: item["PartNumber"],
     )
     if not parts:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="No parts to complete")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="No parts to complete")
     await asyncio.to_thread(complete_multipart_upload, payload.objectKey, payload.uploadId, parts)
     return {
         "objectKey": payload.objectKey,

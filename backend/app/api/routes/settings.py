@@ -50,20 +50,20 @@ async def update_app_settings(
     data = payload.model_dump(exclude_none=True)
     if "transcriptionMode" in data and data["transcriptionMode"] not in VALID_TRANSCRIPTION_MODES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"transcriptionMode must be one of {sorted(VALID_TRANSCRIPTION_MODES)}",
         )
     for field in ("batchWindowStart", "batchWindowEnd"):
         if field in data and not is_valid_hhmm(data[field]):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"{field} must be a 24-hour HH:mm time",
             )
     if "sttProviderOrder" in data:
         problem = invalid_stt_provider_order(data["sttProviderOrder"])
         if problem:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"sttProviderOrder {problem}",
             )
         # The freeze applies here too. This is the older, broader route into the same column, and a
@@ -253,7 +253,7 @@ async def update_transcription_provider_order(
     problem = invalid_stt_provider_order(payload.order)
     if problem:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"order {problem}",
         )
     verification = await _provider_verification()

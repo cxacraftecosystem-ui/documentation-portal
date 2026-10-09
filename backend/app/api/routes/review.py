@@ -357,13 +357,13 @@ async def edit_reviewed_record(
 
     if not payload.fields:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Send at least one field to change in 'fields'",
         )
     blocked = sorted(set(payload.fields) & _NOT_REVIEW_EDITABLE)
     if blocked:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"These fields cannot be changed from a review edit: {', '.join(blocked)}. "
                 "Use approve/reject/revise for the status, and the record's own edit screen for "
@@ -374,7 +374,7 @@ async def edit_reviewed_record(
         parsed = schema(**payload.fields)
     except ValidationError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=jsonable_encoder(exc.errors(include_url=False)),
         ) from exc
 
@@ -407,7 +407,7 @@ async def edit_reviewed_record(
     data = drop_masked_identity_numbers(decimal_to_string(clean_data(parsed.model_dump(exclude_unset=True))))
     if not data:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Send at least one field to change in 'fields'",
         )
     changed = sorted(
@@ -455,7 +455,7 @@ async def send_record_for_revision(
     When the creator next edits the record it returns to PENDING for a fresh review pass."""
     if not payload.notes or not payload.notes.strip():
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Comments are required when sending a record back for revision",
         )
     return await set_review_status(record_type, record_id, "NEEDS_REVISION", payload, reviewer)

@@ -29,7 +29,7 @@ The app is split into:
 - `backend/`: Python FastAPI REST API, JWT auth, Prisma ORM schema/client, PostgreSQL metadata, S3-compatible signed uploads, CSV export.
 - `frontend/`: Next.js TypeScript + Tailwind CSS web interface for admins and researchers.
 - `android/`: Kotlin + Jetpack Compose Android client using the same REST API.
-- `docker-compose.yml`: local PostgreSQL and MinIO object storage.
+- `docker-compose.yml`: local PostgreSQL 17 and S3-compatible object storage (Silo, the maintained fork of MinIO).
 
 ## Architecture
 
@@ -66,19 +66,27 @@ docker compose ps
 
 This starts:
 
-- PostgreSQL at `localhost:55432` on the host, mapped to `5432` inside the container
-- MinIO API at `localhost:9000`
-- MinIO console at `localhost:9001`
+- PostgreSQL 17 (production's major) at `localhost:55432` on the host, mapped to `5432` inside the container
+- The S3 API at `localhost:9000` (Silo, the maintained fork of MinIO; the service is still called `minio`)
+- Its console at `localhost:9001`
 - A one-shot bucket initializer for `field-repository`
+
+A `postgres_data` volume created before 2026-10-09 was initialised by PostgreSQL 16 and will not start
+under 17: `docker compose down -v` (local data only), then migrate and seed again. [docs/DOCKER.md](docs/DOCKER.md)
+has the rest.
 
 ### 2. Configure And Run Backend
 
 ```powershell
 cd backend
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
-python -m venv .venv
+py -3.14 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -e .
+# The pinned set CI and the EC2 box install. It is resolved for Linux, so on Windows leave out
+# uvloop (uvicorn's Linux-only event loop); on Linux/macOS: pip install -r requirements.lock
+(Get-Content requirements.lock) -notmatch '^uvloop==' | Set-Content "$env:TEMP\requirements.windows.txt"
+pip install -r "$env:TEMP\requirements.windows.txt"
+pip install --no-deps -e .
 python -m prisma generate --schema=prisma/schema.prisma
 python -m prisma migrate dev --schema=prisma/schema.prisma --name init
 python scripts/seed_admin.py

@@ -12,9 +12,9 @@
  * here; they get the better of the two interfaces.
  *
  * NO MAPPING LIBRARY. There is no basemap, no tiles, no zoom and no pan — this is a static outline
- * and a few dozen pins, and `maplibre-gl` (already in the bundle for the location PICKER, where a
- * real basemap earns its weight) is a quarter of a megabyte plus tile requests to draw it. The
- * whole geometry here is 18 KiB of string and one `<path>`.
+ * and a few dozen pins, and `maplibre-gl` (already a dependency for the location PICKER, where a
+ * real basemap earns its weight) is over 400 KB gzipped, module and worker together since MapLibre
+ * 6, plus tile requests to draw it. The whole geometry here is 18 KiB of string and one `<path>`.
  *
  * NOTHING RE-RENDERS ON A POINTER MOVE except the small hover layer. The outline is one memoised
  * element over a path string built once; the pin layout is memoised on the points. Hovering

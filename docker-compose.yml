@@ -1,9 +1,9 @@
 # ---------------------------------------------------------------------------------------------
 # Field Repository — local development stack.
 #
-#   docker compose up                  postgres + MinIO only. UNCHANGED from before profiles
-#                                      existed: same services, same ports, same volumes, same
-#                                      container names. Run the API and the web app from your
+#   docker compose up                  postgres + the S3 store only. UNCHANGED from before
+#                                      profiles existed: same services, same ports, same volumes,
+#                                      same container names. Run the API and the web app from your
 #                                      shell against them, exactly as you always have.
 #   docker compose --profile api up    ... plus the containerised API on :8000
 #   docker compose --profile web up    ... plus the API and the containerised web app on :3000
@@ -27,8 +27,20 @@
 # ---------------------------------------------------------------------------------------------
 
 services:
+  # -------------------------------------------------------------------------------------------
+  # PostgreSQL — production's MAJOR, not the newest one. Production is Supabase on 17 — 17.11 since
+  # the owner's upgrade of 2026-10-09 (`supabase projects list`: 17.11.0.003), the same minor this
+  # image pulled that day — and Supabase offers no 18, so 17 is what a migration written here must
+  # run on.
+  # This was 16 until 2026-10-09, one major BEHIND production. Move it to 18 in the same change that
+  # moves production, together with backup-db.yml's client.
+  #
+  # ⚠ A volume initialised by 16 does not start under 17 ("database files are incompatible with
+  # server"). Local data only, so: `docker compose down -v`, then migrate and seed again — or
+  # `pg_dumpall` out of a 16 container first if there is something in it worth keeping.
+  # -------------------------------------------------------------------------------------------
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     container_name: field-repository-postgres
     environment:
       POSTGRES_USER: postgres
@@ -44,8 +56,32 @@ services:
       timeout: 5s
       retries: 5
 
+  # -------------------------------------------------------------------------------------------
+  # The S3 store — Silo, the maintained fork of MinIO, since 2026-10-09.
+  #
+  # WHY IT CHANGED: the old images could no longer be pulled at all. minio/minio and minio/mc answer
+  # "pull access denied … repository does not exist" for every tag, the pinned ones included
+  # (checked 2026-10-09), and github.com/minio/minio is archived. A bare `docker compose up` failed on
+  # any machine that did not already have them cached.
+  #
+  # WHY THIS ONE: pgsty/silo (github.com/pgsty/silo, a fork of minio/minio, AGPL-3.0 like MinIO
+  # itself, released monthly, a million-plus pulls, signed and attested releases) keeps MinIO's
+  # command line, its MINIO_ROOT_* variables and its on-disk format (`.minio.sys`, per its README),
+  # so almost nothing else here changed: same service name (the API reaches it as `minio`), same
+  # ports, same credentials, same volume. The one edit is the healthcheck's client, `mcli`, the name
+  # the image documents (its `mc` is a symlink to it today). MEASURED 2026-10-09 against this
+  # release, through backend/app/services/s3.py itself: presigned PUT with its CORS preflight from
+  # http://localhost:3000, anonymous download of the public URL, presigned GET with an attachment
+  # override, multipart with each part's ETag exposed to the browser, abort, delete, and an anonymous
+  # PUT refused — 14 of 14. The sister repository (designer-portal) moved to this same image on the
+  # same day. RustFS (Apache-2.0) was the alternative; it is a different implementation rather than a
+  # fork, so it needs a fresh volume and an aws-cli bucket job — more change for the same result.
+  #
+  # Pinned to a release, not `latest`, so a local stack is reproducible; Dependabot's docker entry
+  # for this file proposes the next one.
+  # -------------------------------------------------------------------------------------------
   minio:
-    image: minio/minio:RELEASE.2024-07-16T23-46-41Z
+    image: docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z
     container_name: field-repository-minio
     command: server /data --console-address ":9001"
     environment:
@@ -57,21 +93,28 @@ services:
     volumes:
       - minio_data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "mcli", "ready", "local"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  # The bucket, and its anonymous-download policy, created once against the store above. THE SAME
+  # IMAGE AS `minio`, run for the client it bundles (`mcli`), so there is one image and one release
+  # to keep current — the sister repository's compose file does the same. The three commands are
+  # MinIO's and did not change. `set -e` is new: without it the container's exit status was the last
+  # command's, so a bucket that was never created could still report success, and the API waits on
+  # `service_completed_successfully`.
   create-bucket:
-    image: minio/mc:RELEASE.2024-07-15T17-46-06Z
+    image: docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z
     depends_on:
       minio:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      mc alias set local http://minio:9000 minioadmin minioadmin;
-      mc mb --ignore-existing local/field-repository;
-      mc anonymous set download local/field-repository;
+      set -e;
+      mcli alias set local http://minio:9000 minioadmin minioadmin;
+      mcli mb --ignore-existing local/field-repository;
+      mcli anonymous set download local/field-repository;
       "
 
   # -------------------------------------------------------------------------------------------
@@ -88,7 +131,10 @@ services:
   # From your host shell:    redis://localhost:56379/0
   # -------------------------------------------------------------------------------------------
   redis:
-    image: redis:7-alpine
+    # 8 since 2026-10-09 (7.4 has had security fixes only since 2025-05-02). The flags below are
+    # unchanged in 8. Redis 8 is licensed AGPLv3/SSPL/RSALv2, which is fine for an unmodified local
+    # cache; nothing in production runs it.
+    image: redis:8-alpine
     container_name: field-repository-redis
     profiles: ["cache", "full"]
     # --save "" disables RDB snapshots. A cache has nothing worth surviving a restart, and the
@@ -134,7 +180,7 @@ services:
       minio:
         condition: service_healthy
       # Not merely "started": the API's first media write would 404 against a bucket that does not
-      # exist yet, and MinIO being healthy says nothing about whether the bucket was created.
+      # exist yet, and the store being healthy says nothing about whether the bucket was created.
       create-bucket:
         condition: service_completed_successfully
     environment:
@@ -143,8 +189,8 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/field_repository}
       JWT_SECRET: ${JWT_SECRET:-local-docker-jwt-signing-key-6f2ab41d9c7e5083bd14a27fe6c390b8}
       JWT_EXPIRES_MINUTES: ${JWT_EXPIRES_MINUTES:-10080}
-      # MinIO speaks the S3 API but not KMS, and it rejects the SSE header outright. Empty is the
-      # documented local value (see backend/app/core/config.py).
+      # The local store (MinIO's fork, Silo) speaks the S3 API but not KMS, and it rejects the SSE
+      # header outright. Empty is the documented local value (see backend/app/core/config.py).
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minioadmin}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
       AWS_REGION: ${AWS_REGION:-us-east-1}

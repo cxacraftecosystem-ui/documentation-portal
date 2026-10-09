@@ -21,7 +21,7 @@ without data loss.
 - `t2.micro` is the older free-tier option; `t3.micro` is newer/faster — pick `t3.micro`.
 - **Do NOT** try to `npm run build` the Next.js frontend on 1 GiB — it OOMs. Either deploy the
   frontend to **Vercel**, or use a `t3.small` (2 GiB, *not* free) if everything must live on one box.
-- AMI: **Ubuntu Server 24.04 LTS**. Storage: **30 GiB gp3** (free-tier max).
+- AMI: **Ubuntu Server 26.04 LTS** (Terraform's filter since 2026-10-09; the box running that day is 24.04, see §9). Storage: **30 GiB gp3** (free-tier max).
 - Add a **2 GiB swap file** (below) so `pip install` / `prisma generate` don't get OOM-killed.
 
 > The "Free tier eligible" badge on larger types (m7i-flex.large etc.) refers to the new account
@@ -31,7 +31,7 @@ without data loss.
 
 ## 2. Launch + network
 
-1. **Launch instance** → Ubuntu 24.04, `t3.micro`, new key pair (download the `.pem`).
+1. **Launch instance** → Ubuntu 26.04, `t3.micro`, new key pair (download the `.pem`).
 2. **Elastic IP**: Allocate one and **associate it** with the instance. This gives a *stable* public
    IP (DHCP-style changes were exactly the LAN problem earlier — don't repeat it in the cloud).
 3. **Security group (inbound rules):**
@@ -50,10 +50,10 @@ ssh -i your-key.pem ubuntu@<ELASTIC_IP>
 sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 
-sudo apt update && sudo apt install -y python3.12-venv python3-pip git
+sudo apt update && sudo apt install -y git python3.14 python3.14-venv   # on 24.04: add-apt-repository ppa:deadsnakes/ppa first
 git clone <YOUR_REPO_URL> app && cd app/backend
-python3.12 -m venv .venv
-./.venv/bin/pip install -e .          # or: pip install -r requirements
+python3.14 -m venv .venv   # by hand a plain directory; the deploy builds its own under ~/app/venvs (§9)
+./.venv/bin/python -m pip install -r requirements.lock && ./.venv/bin/python -m pip install --no-deps -e .
 PATH="$PWD/.venv/bin:$PATH" ./.venv/bin/python -m prisma generate
 ```
 
@@ -248,7 +248,20 @@ Creates the **S3 bucket** (public-read `media/*` + CORS), an **IAM user** with
 `PutObject/GetObject/DeleteObject` and a fresh **access key**, and a **t3.micro**
 EC2 box with an **Elastic IP**, a 2 GiB swap file, **nginx** (reverse proxy on 80,
 so port 8000 is never exposed) and **ffmpeg** (needed for Whisper long-audio
-chunking), plus the `fieldrepo` systemd unit. The DB stays on Supabase.
+chunking), **Python 3.14** (Ubuntu 26.04's own; deadsnakes on an older AMI), plus the `fieldrepo`
+and `fieldrepo-queue` systemd units. The DB stays on Supabase.
+
+> **Changing the AMI filter replaces the instance on the next `apply`.** `main.tf` moved from the
+> 24.04 (noble) filter to 26.04 (resolute) on 2026-10-09 without anything being applied, and the box
+> running that day is still the noble one. Applying is the planned way to rebuild onto 26.04 — the
+> box is stateless and the Elastic IP is reattached — but it is a production rebuild: do it after a
+> deploy has run the API on the 3.14 venv (§9), and re-create nginx/TLS and the `.env` afterwards.
+> A read-only `terraform plan` against the live resources on 2026-10-09 (import blocks in a scratch
+> copy; this repository holds no state) showed exactly that: `aws_instance.api` replaced for the
+> AMI, the Elastic IP re-associated, and the bucket, its policy, CORS, lifecycle and public-access
+> block, the IAM user and its policy, and the security group all matching this code with no change.
+> It also showed the box's SSM instance profile (`fieldrepo-ssm`, made by hand) missing from the
+> code, which would have left a rebuilt box unreachable over SSM; `main.tf` names it now.
 
 > Terraform/AWS auth needs an **IAM access key pair**, not the console
 > email+password. Create an IAM admin user in the console first, then:
@@ -276,9 +289,12 @@ secret key; never commit them.
 
 ### 8.2 GitHub Actions secrets (auto-deploy on push)
 
-`.github/workflows/deploy-backend.yml` rsyncs `backend/` to the box, writes
-`.env`, installs deps, runs `prisma migrate deploy`, and restarts the service on
-every push to `main` that touches `backend/`. Set these repo secrets
+`.github/workflows/deploy-backend.yml`, on every push to `main` that touches `backend/` (once Checks
+is green on it): makes sure python3.14 is on the box, builds the venv from
+`backend/requirements.lock` **beside** the one the API is running on (§9), rsyncs `backend/`, writes
+`.env`, installs the project and generates the Prisma client into the new venv, runs
+`prisma migrate deploy`, points `backend/.venv` at the new venv, and restarts both services. Set
+these repo secrets
 (**Settings → Secrets and variables → Actions**):
 
 | Secret | Value |
@@ -334,3 +350,120 @@ The long-audio Whisper chunking (`pydub`) needs the **ffmpeg** binary. Terraform
 `user_data.sh` installs it (`apt-get install -y ffmpeg`). If you provision a box
 by hand, run `sudo apt install -y ffmpeg`, otherwise long recordings fall back to
 a single-shot transcription attempt.
+
+---
+
+## 9. Python 3.14, and the venv the deploy builds
+
+Since 2026-10-09 the API runs on **Python 3.14**, the interpreter CI tests on, from a venv built
+from `backend/requirements.lock`. Before that the box ran Python 3.12 from a venv created once on
+2026-06-17 and never rebuilt, because the deploy only created `.venv` when it was missing and
+`pip install -e .` never upgrades what is already installed: production sat on June's versions,
+security advisories included, while CI tested whatever the index offered that day.
+
+**The layout on the box** (all owned by `ubuntu`):
+
+| Path | What it is |
+|---|---|
+| `/home/ubuntu/app/venvs/py3.14-<16 hex>` | One venv per interpreter minor and lock: the hex is the start of the lock's SHA-256. `.complete` inside it is written last, holding `python -VV`; a directory without it is a build that did not finish and is rebuilt. |
+| `/home/ubuntu/app/backend/.venv` | A **symlink** to the venv in use. The two systemd units run `.venv/bin/python`, so they never change when the venv does. |
+| `/home/ubuntu/app/venvs/py3.12-legacy` | The 3.12 venv every deploy before 2026-10-09 built in place, moved aside by the first 3.14 deploy and kept for rollback. |
+| `/home/ubuntu/app/venv-wanted`, `venv-previous` | The venv the last deploy built or chose, and the one `.venv` pointed at before it. |
+| `/home/ubuntu/.cache/prisma-python/nodeenv` | A symlink to `nodeenv-<version>`, the Node the Prisma CLI runs on, pinned in the deploy (26.11.1 on 2026-10-09; it had been 26.3.0, downloaded once and never refreshed). |
+
+**Python itself, on 24.04 and on 26.04.** The box running on 2026-10-09 is Ubuntu 24.04 (24.04.5
+after that day's patching), and a rebuild on 26.04 is approved; the deploy works out which it is on.
+On 24.04 `python3.14` and `python3.14-venv` come from the deadsnakes PPA (3.14.8 on 2026-10-09),
+which the deploy adds the first time the archive offers no `python3.14`; `python3.12`, 24.04's system
+Python, stays installed. On 26.04 3.14 *is* the system Python and comes from Ubuntu's own archive,
+and deadsnakes is never used there — it does not package a release's own default Python. Everything
+else in the deploy keys on the minor version only.
+
+| | 24.04 (noble) | 26.04 (resolute) |
+|---|---|---|
+| `python3.14` source | deadsnakes PPA | Ubuntu archive |
+| version on 2026-10-09 | 3.14.8 (upstream's latest) | 3.14.4, with Ubuntu's security fixes backported (`3.14.4-1ubuntu0.2`) |
+| kept current by | the deploy (below) | unattended-upgrades (security pocket) and the deploy |
+| `python3.12` | installed (system Python); the rollback venv uses it | absent |
+
+Two consequences worth knowing before the rebuild. **26.04 runs Ubuntu's 3.14.4, not upstream's
+3.14.8**: Ubuntu backports security fixes into its build rather than taking every point release, and
+apt has no newer 3.14 for 26.04, so exact upstream parity there would mean a CPython from outside apt
+(python-build-standalone, `uv python install 3.14.x`) — a deliberate choice for the owner, not
+something the deploy does. And **a 26.04 box has no `python3.12` and no `py3.12-legacy` venv**, so a
+commit from before 2026-10-09 must not be deployed to it: its old deploy would install itself into the
+live 3.14 venv (*Going back*, below). Roll back by redeploying a later commit.
+
+**Out of date is upgraded, missing is installed.** On every deploy the build step compares the
+installed `python3.14` with what its source offers, in the package lists the box's apt-daily timer
+refreshes, and upgrades it when they differ — best effort, warning and carrying on with the working
+interpreter if the upgrade fails. Without that the PPA's interpreter would never move:
+unattended-upgrades applies the archive's security pocket only, never a PPA. A missing interpreter,
+venv module or `libatomic1` is installed or the step fails. `libatomic1` is there because the official
+Node 26 binary the Prisma CLI runs on links against it and the 26.04 cloud image does not ship it
+(its manifest, read on 2026-10-09). apt runs with needrestart's hook suspended, so an upgraded
+library cannot restart the API in the middle of a deploy that restarts it at the end anyway.
+
+The deploy's two remote scripts, extracted verbatim from `deploy-backend.yml`, were run on
+2026-10-09 in an `ubuntu:24.04` container set up like the live box (a 3.12 venv built in place, a
+stand-in for Node 26.3.0 in the Prisma cache) and in an `ubuntu:26.04` one set up like the cloud image
+(`python3.14` present, no venv module, no `libatomic1`) but holding an older `python3.14` build, so
+the upgrade path ran too, each beside `postgres:17`: install, migration, switch,
+`/health` and `/health/ready` on the new venv, reuse of an unchanged lock, a rebuilt venv for a
+changed one, a lock that cannot install leaving the API untouched, and `pip check` refusing a floor
+the lock does not meet.
+
+**Why the build cannot take the API down.** The venv is built before `backend/` is synced, while the
+API keeps serving from the old one, with `fieldrepo-queue` stopped for the install to spare memory
+(the box has 911 MB) and started again whatever the outcome. If pip fails, that step fails and
+nothing the API can see has changed. The switch to the new venv happens later, with both services
+stopped, as one atomic `rename(2)` of a symlink; an exit trap restarts both if anything between their
+stop and their restart fails, so a failed switch fails the deploy without leaving the API stopped
+(it did, before 2026-10-09's review, when run in a container with the one-line write of
+`venv-previous` made to fail). A deploy that changed only code finds its venv
+already built and installs nothing. After a healthy restart the deploy keeps the venv in use, the
+one before it and `py3.12-legacy`, and deletes older ones.
+
+**Going back.** A venv is only the dependencies; the code on disk is whatever the last deploy synced.
+So the real rollback is the same as it has always been — redeploy the commit you want — and the
+venvs are there to make that fast. What to do by hand depends on which side of 2026-10-09 that
+commit is on:
+
+* **A commit from 2026-10-09 on** carries this deploy. It picks the venv for that commit's lock
+  itself (an older lock's venv is still there if it is `venv-previous`) and switches `.venv` to it.
+  Nothing to do by hand.
+* **A commit from before 2026-10-09, and that includes a `git revert` of the change that brought this
+  section,** carries the OLD deploy, whose install step runs `pip install -e .` into whatever `.venv`
+  points at. So point `.venv` at `py3.12-legacy` BEFORE that deploy starts, never while it runs:
+
+  ```bash
+  ln -sfn /home/ubuntu/app/venvs/py3.12-legacy /home/ubuntu/app/backend/.venv
+  ```
+
+  Left on a `py3.14-*` venv, the old deploy installs the old `pyproject.toml` into it (bcrypt 4.0.1,
+  python-jose, passlib). That venv's name and `.complete` still say it holds the lock, so the next
+  forward deploy reuses it and stops at `pip check` (`bcrypt>=5.0.0`), after its code sync. To
+  recover: point `.venv` at a different venv, `rm -rf` the polluted one, and re-run the deploy, whose
+  build step makes it again. A 26.04 box has no `py3.12-legacy` to point at: roll back there by
+  redeploying a commit from 2026-10-09 on.
+
+To point the services at the previous venv by hand, without a deploy:
+
+```bash
+cat /home/ubuntu/app/venv-previous                     # the venv .venv pointed at before
+ln -sfn "$(cat /home/ubuntu/app/venv-previous)" /home/ubuntu/app/backend/.venv
+sudo systemctl restart fieldrepo fieldrepo-queue
+```
+
+That only helps when the code on disk runs on that venv. It never does on `py3.12-legacy` under
+code from 2026-10-09 on, which imports PyJWT and calls bcrypt 5 directly, neither of which is in that
+venv. Once 3.14 has served for a while, delete it: `rm -rf /home/ubuntu/app/venvs/py3.12-legacy`.
+
+**Looking without touching** (read-only, safe on the live box):
+
+```bash
+readlink -f /home/ubuntu/app/backend/.venv && cat "$(readlink -f /home/ubuntu/app/backend/.venv)/.complete"
+ls -1 /home/ubuntu/app/venvs
+/home/ubuntu/app/backend/.venv/bin/python -m pip list --format=freeze | head
+/home/ubuntu/.cache/prisma-python/nodeenv/bin/node --version
+```
