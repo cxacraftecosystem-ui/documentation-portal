@@ -920,9 +920,9 @@ jobs:
         # THE OBVIOUS CHECK IS WRONG AND WAS MEASURED TO BE WRONG BEFORE THIS SHIPPED. Grepping the
         # artefact for `://localhost` — the sibling repository's needle, chosen there because the bare
         # word `localhost` appears legitimately in
-        # `android/app/src/main/res/xml/network_security_config.xml` (lines 32-34 list `10.0.2.2`,
-        # `127.0.0.1` and `localhost` as cleartext-permitted development domains, and that resource
-        # ships inside the APK) — MATCHES A PERFECTLY CORRECT BUILD OF THIS APP. Run against a real
+        # `android/app/src/main/res/xml/network_security_config.xml` (its development `<domain-config>`
+        # lists `10.0.2.2`, `127.0.0.1` and `localhost` as cleartext-permitted domains, and that
+        # resource ships inside the APK) — MATCHES A PERFECTLY CORRECT BUILD OF THIS APP. Run against a real
         # `:app:assembleRelease` output on 2026-09-14 it hit `classes4.dex`, in OkHttp's own string
         # pool, between `http2HeadersList` and `httpCode`:
         #
@@ -947,6 +947,15 @@ jobs:
         # Measured on the same real release APK: exactly one match,
         # `https://d2b34i3e92al6i.cloudfront.net/api/`, and OkHttp's placeholder matches neither
         # pattern because it has no `/api/`.
+        #
+        # IT READS EVERY BYTE, SO A SENTENCE THAT MENTIONS A DEVELOPMENT BASE FAILS IT TOO. On
+        # 2026-10-09 a debug-only refusal toast in ui/LocalNetworkAccess.kt (src/main, so in the release
+        # dex as well) spelled out `http://127.0.0.1:8000/api/`, and a release built from that tree was
+        # refused here. That is the guard working, and it stays strict; the fix was the sentence.
+        # `android/app/src/test/.../CleartextApiBaseTest.kt` now reads this step's `grep -aoE` pattern
+        # out of this file and holds the app's own classes and resources to it on every pull request,
+        # so the next such string is found long before a tag. Change the pattern here and that test
+        # follows it; change the grep's shape and the test fails until it is pointed at the new one.
         #
         # ─── NO ABI ASSERTION, AND THAT ABSENCE IS DELIBERATE ──────────────────────────────────
         # The sibling repository asserts an exact two-ABI set because it packages tens of megabytes of

@@ -121,11 +121,19 @@ internal fun LocalNetworkAccessForDevelopmentBackend(apiBaseUrl: String = BuildC
     val context = LocalContext.current
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (!granted) {
+            /*
+             * NO `http://…/api/` IN THIS SENTENCE, AND THAT IS LOAD-BEARING. This file is in src/main, so
+             * the literal ships in the RELEASE dex too, and publish-android.yml refuses any release whose
+             * bytes hold a cleartext `http://<host>/api/` — it cannot tell help text from a localhost API
+             * base, and must not try. The first version spelled out the loopback URL here, and every tag
+             * push would have stopped at that guard. CleartextApiBaseTest holds the compiled classes to
+             * the guard's own pattern on every pull request.
+             */
             Toast.makeText(
                 context,
                 "Android 17 blocks this debug build from reaching the development backend at " +
                     "$apiBaseUrl until Nearby devices is allowed for the app. Allow it in Settings, " +
-                    "or use adb reverse with http://127.0.0.1:8000/api/.",
+                    "or use adb reverse and point apiBaseUrl at 127.0.0.1 (android/README.md).",
                 Toast.LENGTH_LONG
             ).show()
         }
