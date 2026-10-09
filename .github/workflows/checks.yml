@@ -505,10 +505,11 @@ jobs:
   # NOT ONE OF THE FOUR IS THIS WORKSTREAM'S TO FIX, and that is not an excuse, it is the whole point
   # — a gate whose green depends on edits to four documents owned by other people arrives red, stays
   # red through no fault of the pull requests it blocks, and is switched off within the week. This
-  # repository already has that failure mode written down in its own history: android-build.yml:125-139
-  # carries `continue-on-error: true` on Android Lint with the honest reason beside it, that one
-  # pre-existing manifest error means a hard gate "would fail 100% of runs from day one and train
-  # everyone to ignore red".
+  # repository already has that failure mode written down in its own history: android-build.yml
+  # carried `continue-on-error: true` on Android Lint, with the honest reason beside it that one
+  # pre-existing manifest error meant a hard gate "would fail 100% of runs from day one and train
+  # everyone to ignore red" — and it stayed advisory until 2026-10-09, when that error was fixed and
+  # the gate went on.
   #
   # WHAT THIS DOES BETTER THAN THAT PRECEDENT, because `continue-on-error` is not good enough: a
   # `continue-on-error` cannot shrink, it licenses EVERY failure including the ones nobody has seen

@@ -205,7 +205,20 @@ private fun freshCachedFix(context: Context, manager: LocationManager): Location
     if (!hasLocationPermission(context)) return null
     val cutoff = System.currentTimeMillis() - CACHED_FIX_MAX_AGE_MS
     return listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-        .mapNotNull { provider -> runCatching { manager.getLastKnownLocation(provider) }.getOrNull() }
+        .mapNotNull { provider ->
+            // The grant is checked just above, but it can be withdrawn between that check and this
+            // call, and then the call throws SecurityException. Caught by name, not by a blanket
+            // `runCatching`, so the handling is visible — Android Lint's MissingPermission cannot see
+            // through `runCatching` and called this unhandled. Anything else (a provider this device
+            // does not have) is still answered with "no fix from it".
+            try {
+                manager.getLastKnownLocation(provider)
+            } catch (e: SecurityException) {
+                null
+            } catch (e: RuntimeException) {
+                null
+            }
+        }
         .filter { it.time >= cutoff }
         .minByOrNull { it.accuracy }
 }
@@ -502,8 +515,15 @@ fun LocationCaptureCard(
                 if (metres <= GOOD_ENOUGH_FIX_METRES) listening = false
             }
             listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER).forEach { provider ->
-                runCatching {
+                // Same handling as `freshCachedFix`, for the same reason: a grant withdrawn since the
+                // check above is a SecurityException, named so the handling is visible, and a provider
+                // the device lacks fails alone while the other one still listens.
+                try {
                     locationManager.requestLocationUpdates(provider, 1000L, 0f, listener, Looper.getMainLooper())
+                } catch (e: SecurityException) {
+                    // No fix from this provider; the card's timeout says so.
+                } catch (e: RuntimeException) {
+                    // As above.
                 }
             }
             onDispose { runCatching { locationManager.removeUpdates(listener) } }

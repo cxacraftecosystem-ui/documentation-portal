@@ -247,8 +247,8 @@ From [CI.md](CI.md), restated here because a QA document should say plainly what
 | **Backend tests** | The 294-case suite is not in any workflow. A commit that breaks it deploys. |
 | **Web e2e / smoke** | Playwright specs exist and nothing runs them. |
 | **Web typecheck / lint as a separate step** | `next build` fails on TS and ESLint errors, so a broken frontend cannot reach production — but it fails **after the backend has already deployed**. |
-| **Android lint** | Advisory. One pre-existing error (`PermissionImpliesUnsupportedChromeOsHardware` — `CAMERA` with no matching optional `<uses-feature>`) would fail every run if it were a gate. |
-| **Android tests** | None exist. |
+| ~~**Android lint**~~ | Gated since 2026-10-09. It was advisory while one pre-existing error (`PermissionImpliesUnsupportedChromeOsHardware` — `CAMERA` with no matching optional `<uses-feature>`) would have failed every run; the AGP 9.4.1 upgrade fixed it and the other lint errors, and `android-build.yml` now fails on any lint error. |
+| ~~**Android tests**~~ | They exist and run: `android-build.yml` runs `:app:testDebugUnitTest` and, since 2026-10-09, the four vendored engine modules' own suites (ParityTest among them). Instrumented tests still do not exist. |
 
 The cheapest real improvement available: add `cd backend && python -m pytest -q` as a job that stage
 1 `needs:`. The suite is pure and runs in nine seconds — it needs no database, no secrets, and no

@@ -144,24 +144,19 @@ jobs:
           # android-emulator.yml, run by hand — do not bolt one onto this job.
 
       - name: Android Lint (debug)
-        # Non-blocking ON PURPOSE, and this is a measured decision, not a guess: running
-        # `./gradlew :app:lintDebug` on this tree today gives "Lint found 1 errors, 44
-        # warnings" and aborts — the error is
-        #   AndroidManifest.xml:6  PermissionImpliesUnsupportedChromeOsHardware
-        #   (uses-permission CAMERA with no matching <uses-feature required="false">)
-        # which is a pre-existing manifest nit, unrelated to any change being tested. A
-        # hard gate would therefore fail 100% of runs from day one and train everyone to
-        # ignore red. The report is uploaded on every run instead. Fix that manifest entry
-        # (or commit a lint-baseline.xml), then delete continue-on-error below and this
-        # becomes a real gate — the fix is one <uses-feature> line, but AndroidManifest.xml
-        # belongs to the Android workstream, not to this CI change.
+        # A REAL GATE SINCE 2026-10-09: errors fail the build, warnings do not.
+        #
+        # It was advisory from the day it was added, on a measured reason: the tree carried a
+        # pre-existing error (AndroidManifest.xml:6, PermissionImpliesUnsupportedChromeOsHardware —
+        # CAMERA with no `<uses-feature required="false">`), so a hard gate would have failed every
+        # run and trained everyone to ignore red. This comment said to delete continue-on-error the
+        # day that was fixed. It was fixed on 2026-10-09 with the AGP 9.4.1 upgrade, together with
+        # the other four errors the new lint reported (two MissingPermission the old lint had also
+        # been reporting, and two Compose checks that arrived with the new libraries,
+        # NonObservableLocale and RememberInComposition) — each at its source, none suppressed and
+        # no lint-baseline.xml — so the gate is on. The report is uploaded on every run either way.
         id: lint
-        continue-on-error: true
         run: ./gradlew :app:lintDebug --console=plain
-
-      - name: Flag lint failures without failing the build
-        if: ${{ steps.lint.outcome == 'failure' }}
-        run: echo "::warning::Android Lint reported problems — see the android-lint-report artifact. Not failing the build (see the comment in this workflow)."
 
       - name: Assemble the debug APK
         id: assemble
@@ -214,7 +209,7 @@ jobs:
             echo "|---|---|"
             echo "| compileDebugKotlin | ${{ steps.compile.outcome }} |"
             echo "| testDebugUnitTest + core-*:test | ${{ steps.tests.outcome }} |"
-            echo "| lintDebug | ${{ steps.lint.outcome }} (advisory, does not fail the build) |"
+            echo "| lintDebug | ${{ steps.lint.outcome }} (errors fail the build) |"
             echo "| assembleDebug | ${{ steps.assemble.outcome }} |"
             echo "| APK | \`app-debug.apk\` — debug-signed, NOT an OTA release |"
           } >> "$GITHUB_STEP_SUMMARY"

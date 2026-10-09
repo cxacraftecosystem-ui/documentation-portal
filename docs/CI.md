@@ -62,7 +62,7 @@ change: it is deferred because any edit to `deploy-backend.yml` redeploys the un
 |---|---|---|---|---|
 | 1 | Deploy backend to EC2 | `.github/workflows/deploy-backend.yml` | `push` to `main` | rsync → write `.env` → `prisma migrate deploy` → restart `fieldrepo` + `fieldrepo-queue` → poll `/health` |
 | 2 | Deploy frontend to Vercel | `.github/workflows/deploy-frontend.yml` | `workflow_run` on **1** completing | gate → `wait-for-checks` (2026-10-09) → `vercel pull` → **refuse any project but `field-repository`** → **assert the pulled env carries what the app needs** (every `NEXT_PUBLIC_*`, `[SENSITIVE]` placeholders included), and *warn* when the project's Node.js Version is not the build's major → `vercel build --prod` → **assert those values actually reached the bundle** → `vercel deploy --prebuilt --prod` → **prove the production domain resolves to the new deployment, and `vercel promote` it when a rollback has turned auto-assignment off** (2026-10-09) → smoke-check the alias → **assert the bundle the CDN serves is the one that was verified**, starting with which deployment it is |
-| 3 | Android build | `.github/workflows/android-build.yml` | `workflow_run` on **2** completing, plus `pull_request` filtered to `android/**` | JDK 25 → `compileDebugKotlin` → `testDebugUnitTest` plus the four core modules' `test` (ParityTest among them, since 2026-10-09) → `lintDebug` (advisory) → `assembleDebug` → upload APK. **Debug variants only.** Nothing it produces can install over a release build, and nothing it produces reaches a phone. |
+| 3 | Android build | `.github/workflows/android-build.yml` | `workflow_run` on **2** completing, plus `pull_request` filtered to `android/**` | JDK 25 → `compileDebugKotlin` → `testDebugUnitTest` plus the four core modules' `test` (ParityTest among them, since 2026-10-09) → `lintDebug` (a gate since 2026-10-09) → `assembleDebug` → upload APK. **Debug variants only.** Nothing it produces can install over a release build, and nothing it produces reaches a phone. |
 | 4 | Checks | `.github/workflows/checks.yml` | `pull_request`, `push` to `main`, manual | Three independent jobs: the backend suite, the web typecheck/lint/unit specs, the documentation check. **No `paths:` filter.** See **The checks** below.  |
 | 5 | Publish Android release | `.github/workflows/publish-android.yml` | `push` of a `v*` **tag**, plus a manual dry run | Builds and **signs** the release APK on the runner, proves the signer against `ANDROID_RELEASE_CERT_SHA256`, uploads it, and `POST`s `/api/app/release` so the in-app updater offers it. See [RELEASING.md](RELEASING.md). |
 | 6 | Keep Supabase active | `.github/workflows/keep-supabase-active.yml` | nightly cron | Pings Postgres so Supabase does not pause the free-tier project. |
@@ -515,13 +515,14 @@ because a `.env` that is quietly pointed at a real database is a much worse way 
   because `[tool.ruff]` in `backend/pyproject.toml` selects no rules — a lint gate today would
   enforce a default nobody chose. Choose the rule set first, with a dated per-file baseline for what
   is already there, then add the step to the backend job.
-- **Android Lint is advisory.** `./gradlew :app:lintDebug` on the current tree reports
-  *1 error, 44 warnings* and aborts. The error is pre-existing and unrelated to any code change:
-  `AndroidManifest.xml:6 PermissionImpliesUnsupportedChromeOsHardware` — `CAMERA` is requested with
-  no matching `<uses-feature android:name="android.hardware.camera" android:required="false"/>`.
-  Making lint a hard gate today would fail every run and train everyone to ignore red. The HTML/XML
-  report is uploaded on every run. Fix the manifest (or commit a `lint-baseline.xml`), then delete
-  `continue-on-error` from the lint step and it becomes a real gate.
+- **~~Android Lint is advisory.~~ It is a gate since 2026-10-09.** It was advisory because the
+  tree carried a pre-existing error — `AndroidManifest.xml:6 PermissionImpliesUnsupportedChromeOsHardware`,
+  `CAMERA` with no matching `<uses-feature android:name="android.hardware.camera" android:required="false"/>`
+  — and a hard gate would have failed every run. The AGP 9.4.1 upgrade fixed it together with the
+  four other errors the new lint reported (two `MissingPermission`, and the Compose checks
+  `NonObservableLocale` and `RememberInComposition`), each at its source, with no suppression and no
+  `lint-baseline.xml`, and `continue-on-error` came off the step. Errors fail the build; warnings do
+  not. The HTML/XML report is still uploaded on every run.
 - **~~There are no Android tests.~~ There are now, and `android-build.yml` runs them.**
   `android/app/src/test/` holds eight Kotlin test files; the step's own guard checks for sources at
   runtime and only warns when it finds none, so it started enforcing them the moment they landed —

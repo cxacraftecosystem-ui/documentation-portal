@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -10,11 +10,11 @@
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <!-- Over-the-air self-update: install the APK the master admin pushed. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-
-    <!-- Transport: TLS-only. The real policy lives in res/xml/network_security_config.xml (which
-         takes precedence on every supported API level, minSdk 26); usesCleartextTraffic="false"
-         states the same intent for the platform APIs that read the manifest flag directly. Dev hosts
-         over HTTP: that file's domain-config, plus src/debug's ACCESS_LOCAL_NETWORK for 10.0.2.2. -->
+    <!-- CAMERA must not imply a REQUIRED camera: every capture here also accepts a picked file. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- Transport: TLS-only; the policy is res/xml/network_security_config.xml (minSdk 26 reads it),
+         and usesCleartextTraffic="false" says the same to APIs that read the flag. Dev hosts over
+         HTTP: that file's domain-config, plus src/debug's ACCESS_LOCAL_NETWORK for 10.0.2.2. -->
     <application
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher"
@@ -37,7 +37,8 @@
             android:exported="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|density|fontScale"
             android:enableOnBackInvokedCallback="true"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize"
+            tools:targetApi="33">
             <!-- targetSdk 37 brings Android 16's and 17's behaviour to this activity. Three of the changes
                  meet it, and these two attributes plus the configChanges line above are how:
 
@@ -45,6 +46,7 @@
                  never delivered on Android 16+. Nothing here relied on either: every back in the app
                  is a Compose BackHandler on the OnBackPressedDispatcher. Declaring the callback here
                  puts Android 13-15 handsets on that same path, so there is one back model to test.
+                 (Below API 33 the attribute does not exist and is ignored; tools:targetApi says so.)
 
                  KEYBOARD. The window is edge-to-edge (MainActivity.onCreate), so the keyboard has to
                  arrive as insets for the root's safeDrawingPadding to consume, not as a pan of the
