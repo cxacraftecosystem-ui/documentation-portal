@@ -130,6 +130,25 @@ on and opts the app into Android 16's and 17's behaviour changes. CI proves it c
 suites pass and what lint reports. `android-emulator.yml` proves it launches on an API 37 emulator,
 keeps its content clear of the system bars in portrait, landscape and at tablet size, survives back
 and home, and that a debug build asks for the local-network permission. **None of that signs in.**
+
+**The release variant itself was run once, on 2026-10-09**, by a temporary workflow that lives only
+in the history of the `upgrade/doc-android` branch (`android-release-proof.yml`, commits `48e1bc6` to
+`73e39a0`; restore it on a branch to run it again). It built the release variant with
+publish-android.yml's own build-and-verify steps, run verbatim as a push of `v0.0.8` would run them
+with build-tools 37.0.0, signed with a key generated in the job and never the release key, and then
+drove that APK on API 37.0, 34 and 26 (minSdk) emulators against a stub API reached through
+`adb reverse`. On all three it was refused (403 `ACCESS_PENDING`) and then accepted at sign-in, drew
+the dashboard from the stub's numbers, opened all 21 destinations a Professor's drawer offers, drew an
+https and an http thumbnail through Coil 3 (checked in the screen's pixels) and the full-screen image
+viewer, split and merged a rich-text block, asked Save / Discard on Back from a half-filled form, and
+restored the session on a cold relaunch, with no crash, ANR or native fault logged by the app.
+ExoPlayer and MediaPlayer each played and were paused by Home, as the audio service reported on API
+26; the API 37 emulator image could not decode the H.264 sample at all, so **video playback on Android
+17 is still a handset check**. That run also found the one release blocker this upgrade carried, a help
+sentence that tripped publish-android's API-base guard, which `CleartextApiBaseTest` now catches on
+every pull request. What it cannot reach is everything below that needs the real API, a camera, a GPS
+fix, real uploads or the installed fleet.
+
 So before tagging, put the dry-run build on handsets — at least one on Android 15 or later, ideally
 one on Android 16 or 17 and one tablet or foldable — and, signed in:
 
