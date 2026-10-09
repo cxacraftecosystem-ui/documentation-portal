@@ -436,6 +436,12 @@ jobs:
         #
         # `npm ci` and not `npm install`, so the lockfile decides what is installed rather than the
         # index. Verified in sync on the way in: `npm ci --dry-run` from frontend/ exits 0.
+        #
+        # THREE `npm warn ERESOLVE overriding peer dependency` BLOCKS ARE EXPECTED (since 2026-10-09):
+        # eslint-plugin-react 7.37.5, eslint-plugin-import 2.32.0 and eslint-plugin-jsx-a11y 6.10.2,
+        # the newest of each and all inside eslint-config-next, still declare eslint <= 9 while this
+        # project runs ESLint 10. They are warnings, the install succeeds, and the rules run: see the
+        # Lint step and docs/CI.md, "ESLint 10 and the three plugins that predate it".
         run: npm ci
 
       - name: Typecheck (TypeScript 7)
@@ -482,6 +488,13 @@ jobs:
         #
         # (This step prints one line from jsx-ast-utils about a JSXEmptyExpression prop it could not
         # resolve. That is the plugin talking about itself, not a finding; eslint exits 0.)
+        #
+        # ESLINT 10 SINCE 2026-10-09, AND A GREEN HERE IS NOT BY ITSELF PROOF THAT RULES RAN. ESLint
+        # 10 removed rule-context methods that eslint-plugin-react and eslint-plugin-import still call;
+        # eslint-config-next 16.4.0 restores them through its own shim, and a shim that stopped
+        # wrapping would crash this step, or worse, a degraded rule would report nothing. The Unit specs
+        # step below holds the proof: e2e/eslint-rules-run-unit.spec.ts lints a file of deliberate
+        # violations through this config and fails unless every plugin reports its own.
         run: npm run lint
 
       - name: Unit specs

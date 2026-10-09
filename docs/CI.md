@@ -364,6 +364,38 @@ later), replace both entries with one `"typescript": "^7"`, move the two specs t
 another parser, and delete the `tsc6` step from `checks.yml`. `next build` needs nothing: given a 7.x
 `typescript` package, next 16.4 runs its `tsc`.
 
+### ESLint 10 and the three plugins that predate it
+
+The web app lints with ESLint 10 (10.12.0 on 2026-10-09; ESLint 9 reached end of life on 2026-08-06)
+through eslint-config-next 16.4.0 and an unchanged `frontend/eslint.config.mjs`. Three plugins inside
+eslint-config-next, each at its newest release, still declare `eslint` 9 or older as their peer:
+eslint-plugin-react 7.37.5, eslint-plugin-import 2.32.0 and eslint-plugin-jsx-a11y 6.10.2. So
+`npm ci` prints three `ERESOLVE overriding peer dependency` warnings and `npm ls eslint` calls the
+install invalid. Both are true and both are expected; the install succeeds.
+
+**Why the rules still run.** ESLint 10 removed the rule-context methods those plugins call
+(`getFilename()`, `getSourceCode()`, `getCwd()`, `getPhysicalFilename()`, `parserOptions`,
+`parserPath`). eslint-config-next 16.4.0 wraps eslint-plugin-react and eslint-plugin-import in its
+own `fixupPluginRules` (`dist/rule-context.js`), which puts them back. With that shim disabled, every
+lint dies with `Error while loading rule 'react/display-name': contextOrFilename.getFilename is not a
+function`, the crash vercel/next.js#89764 reports against eslint-config-next 16.3 and earlier.
+eslint-plugin-jsx-a11y is not wrapped, and none of the six rules eslint-config-next enables from it
+calls a removed method. One behaviour is lost, quietly: eslint-plugin-react's detection of a
+component declared only in a comment (`@extends React.Component`) calls `SourceCode#getJSDocComment`,
+which ESLint 10 also removed, inside a `try`, so it now answers "not a component"; nothing in this
+codebase is declared that way.
+
+**The proof is a test, not this paragraph.** `frontend/e2e/eslint-rules-run-unit.spec.ts` lints a
+file of deliberate violations through the real config and fails unless all 25 rules it targets fire,
+one or more from every plugin the config loads. ESLint 9.39.5 and 10.12.0 report exactly those 25
+messages, at the same lines. Disabling one rule, or the shim, turns it red.
+
+**The day it goes.** When those three plugins declare ESLint 10, the warnings stop and nothing else
+changes. If eslint-config-next drops its shim first, the spec above fails; the fallback is a flat
+config built by hand from `@next/eslint-plugin-next`, eslint-plugin-react-hooks, typescript-eslint,
+eslint-plugin-import-x and `@eslint-react/eslint-plugin`, with jsx-a11y wrapped by `@eslint/compat`'s
+`fixupPluginRules`, keeping the `react-hooks/set-state-in-effect` override.
+
 ---
 
 ## 2. Required repository secrets
@@ -809,6 +841,7 @@ parts that are not are exactly the parts that were wrong before.
 | The action pins (§5) | `grep -nE "^\s*(- )?uses:" .github/workflows/*.yml` — every hit must read `owner/repo@<40-hex SHA> # vX.Y.Z`. To check one against its comment, or to redo one by hand: `gh api repos/<owner>/<repo>/git/ref/tags/<vX.Y.Z> --jq .object`. A `commit` object's `sha` is the pin; a `tag` object is an annotated tag, so read the commit it points at with `gh api repos/<owner>/<repo>/git/tags/<sha> --jq .object`. Only the SHA runs and only the comment gets read, so a comment that names a different release from its SHA is the bug. |
 | The backend dependency lock (§1) | `backend/requirements.lock` is generated: its header names the Python that compiled it (3.14) and the command. Re-run the command in §1 and diff — an empty diff on the same day means it is current. `grep -n "requirements.lock" .github/workflows/checks.yml .github/workflows/deploy-backend.yml backend/Dockerfile` finds every place that installs it. |
 | The web app's two TypeScripts (§1) | From `frontend/`: `npx tsc --version` must print 7.x, `npx tsc6 --version` 6.x, and `node -p "require('typescript').version"` 6.x. The day typescript-eslint's peer range admits 7 (`npm view typescript-eslint peerDependencies`), the subsection's last paragraph is the removal recipe. |
+| ESLint 10 and its three out-of-range plugins (§1) | `frontend/e2e/eslint-rules-run-unit.spec.ts`, in the Unit specs step, fails if any plugin stops reporting. `npm view eslint-plugin-react peerDependencies` (and the same for eslint-plugin-import and eslint-plugin-jsx-a11y) says when the `ERESOLVE` warnings should stop. |
 | The runner image | `grep -n "runs-on" .github/workflows/*.yml` — every job names `ubuntu-26.04` (since 2026-10-09), never `ubuntu-latest`, so an image move is a reviewed diff rather than a GitHub announcement. |
 | Branch protection: whether the checks are required | **UNVERIFIED from here** — console state, and the single most load-bearing unverifiable claim on this page. Nothing in `.github/` can assert it. **Settings → Branches**, or `gh api repos/:owner/:repo/branches/main/protection`. |
 | Everything about cutting a release | [RELEASING.md](RELEASING.md), which owns it. This document states only where `publish-android.yml` sits in the pipeline and which secrets it reads; if the two disagree about anything else, RELEASING.md wins. |
