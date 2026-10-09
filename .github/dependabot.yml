@@ -151,7 +151,7 @@ updates:
     commit-message:
       prefix: deps
 
-  # The compose file's images: postgres, the S3 store (pgsty/silo, pgsty/mc) and redis.
+  # The compose file's images: postgres, the S3 store and its bucket job (both pgsty/silo) and redis.
   - package-ecosystem: docker-compose
     directory: "/"
     schedule:
