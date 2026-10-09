@@ -391,7 +391,8 @@ Two consequences worth knowing before the rebuild. **26.04 runs Ubuntu's 3.14.4,
 apt has no newer 3.14 for 26.04, so exact upstream parity there would mean a CPython from outside apt
 (python-build-standalone, `uv python install 3.14.x`) — a deliberate choice for the owner, not
 something the deploy does. And **a 26.04 box has no `python3.12` and no `py3.12-legacy` venv**, so a
-commit from before 2026-10-09 cannot be deployed to it; roll back by redeploying a later commit.
+commit from before 2026-10-09 must not be deployed to it: its old deploy would install itself into the
+live 3.14 venv (*Going back*, below). Roll back by redeploying a later commit.
 
 **Out of date is upgraded, missing is installed.** On every deploy the build step compares the
 installed `python3.14` with what its source offers, in the package lists the box's apt-daily timer
@@ -416,14 +417,37 @@ the lock does not meet.
 API keeps serving from the old one, with `fieldrepo-queue` stopped for the install to spare memory
 (the box has 911 MB) and started again whatever the outcome. If pip fails, that step fails and
 nothing the API can see has changed. The switch to the new venv happens later, with both services
-stopped, as one atomic `rename(2)` of a symlink. A deploy that changed only code finds its venv
+stopped, as one atomic `rename(2)` of a symlink; an exit trap restarts both if anything between their
+stop and their restart fails, so a failed switch fails the deploy without leaving the API stopped
+(it did, before 2026-10-09's review, when run in a container with the one-line write of
+`venv-previous` made to fail). A deploy that changed only code finds its venv
 already built and installs nothing. After a healthy restart the deploy keeps the venv in use, the
 one before it and `py3.12-legacy`, and deletes older ones.
 
 **Going back.** A venv is only the dependencies; the code on disk is whatever the last deploy synced.
 So the real rollback is the same as it has always been — redeploy the commit you want — and the
-venvs are there to make that fast. To point the services at the previous venv by hand (for example
-while that redeploy runs):
+venvs are there to make that fast. What to do by hand depends on which side of 2026-10-09 that
+commit is on:
+
+* **A commit from 2026-10-09 on** carries this deploy. It picks the venv for that commit's lock
+  itself (an older lock's venv is still there if it is `venv-previous`) and switches `.venv` to it.
+  Nothing to do by hand.
+* **A commit from before 2026-10-09, and that includes a `git revert` of the change that brought this
+  section,** carries the OLD deploy, whose install step runs `pip install -e .` into whatever `.venv`
+  points at. So point `.venv` at `py3.12-legacy` BEFORE that deploy starts, never while it runs:
+
+  ```bash
+  ln -sfn /home/ubuntu/app/venvs/py3.12-legacy /home/ubuntu/app/backend/.venv
+  ```
+
+  Left on a `py3.14-*` venv, the old deploy installs the old `pyproject.toml` into it (bcrypt 4.0.1,
+  python-jose, passlib). That venv's name and `.complete` still say it holds the lock, so the next
+  forward deploy reuses it and stops at `pip check` (`bcrypt>=5.0.0`), after its code sync. To
+  recover: point `.venv` at a different venv, `rm -rf` the polluted one, and re-run the deploy, whose
+  build step makes it again. A 26.04 box has no `py3.12-legacy` to point at: roll back there by
+  redeploying a commit from 2026-10-09 on.
+
+To point the services at the previous venv by hand, without a deploy:
 
 ```bash
 cat /home/ubuntu/app/venv-previous                     # the venv .venv pointed at before
@@ -431,8 +455,8 @@ ln -sfn "$(cat /home/ubuntu/app/venv-previous)" /home/ubuntu/app/backend/.venv
 sudo systemctl restart fieldrepo fieldrepo-queue
 ```
 
-Going back to `py3.12-legacy` only works together with a redeploy of a commit from before
-2026-10-09: the current code imports PyJWT and calls bcrypt 5 directly, neither of which is in that
+That only helps when the code on disk runs on that venv. It never does on `py3.12-legacy` under
+code from 2026-10-09 on, which imports PyJWT and calls bcrypt 5 directly, neither of which is in that
 venv. Once 3.14 has served for a while, delete it: `rm -rf /home/ubuntu/app/venvs/py3.12-legacy`.
 
 **Looking without touching** (read-only, safe on the live box):

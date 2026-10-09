@@ -736,6 +736,24 @@ jobs:
           # reclaimed yet). The app is ALWAYS restarted afterwards, so a transient migrate failure
           # never leaves the API down — but a genuine migrate failure still fails the deploy.
           # The queue worker stops first, for the switch below; it holds pooler sessions too.
+          #
+          # "ALWAYS" IS THE EXIT TRAP'S JOB, NOT ONLY THE ORDER OF THE LINES (2026-10-09). The migrate
+          # loop cannot end this script, but the switch below can: under `set -e` a failed rename, or
+          # a full disk on the one-line write of venv-previous, would exit here with both services
+          # stopped and nothing left to start them. Run in a container against this script verbatim,
+          # that case left fieldrepo and fieldrepo-queue both inactive. So any exit between the stop
+          # and the restart restarts both, onto whatever `.venv` points at by then, and the deploy
+          # still fails with the error above the trap's output.
+          services_down=no
+          bring_back() {
+            if [ "$services_down" = yes ]; then
+              echo "::error::the deploy ended between stopping the services and restarting them; restarting both on $(readlink -f .venv 2>/dev/null || echo 'an unreadable .venv') before failing"
+              sudo systemctl restart fieldrepo || true
+              sudo systemctl restart fieldrepo-queue 2>/dev/null || true
+            fi
+          }
+          trap bring_back EXIT
+          services_down=yes
           sudo systemctl stop fieldrepo-queue 2>/dev/null || true
           sudo systemctl stop fieldrepo || true
           sleep 5
@@ -752,7 +770,7 @@ jobs:
           # then on `.venv` is a symlink, and switching is one rename(2) of a new symlink over the
           # old one. The switch happens even when the migration failed, because the code on
           # disk is this commit's and only this venv is built for it; the restart below has always
-          # happened either way.
+          # happened either way, and the trap above makes that true of a failed switch too.
           previous=""
           if [ -L .venv ]; then
             previous="$(readlink -f .venv)"
@@ -773,6 +791,7 @@ jobs:
           # so it picks up the new code; '|| true' keeps deploys working on a box provisioned before
           # this service existed.
           sudo systemctl restart fieldrepo-queue 2>/dev/null || true
+          services_down=no
           if [ "$migrate_ok" != "1" ]; then echo "prisma migrate deploy failed after retries"; exit 1; fi
           # App startup connects to Supabase (cross-region), so poll instead of a fixed sleep.
           for i in $(seq 1 40); do
