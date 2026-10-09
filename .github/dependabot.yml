@@ -25,6 +25,8 @@ version: 2
 # comment, identically on every line that names it, which a reviewer can judge; three open at a time
 # because three is a queue somebody clears and fifteen is a wall somebody mutes.
 #
+# And, since 2026-10-09, the Android build under android/ — the second entry below, which says why.
+#
 # It does NOT watch npm or pip. Both are separate decisions with a test cost: a Next or FastAPI bump
 # needs the suite and a deploy behind it, and backend/ has no lock file for a pip pull request to
 # keep in step (docs/CI.md §5). Nor does it know about the Vercel CLI, which deploy-frontend.yml
@@ -47,3 +49,49 @@ updates:
     # No `labels:`. This repository has none of the custom labels the sister repository's file names
     # (checked 2026-10-09), and Dependabot's defaults — `dependencies` plus the ecosystem's — are
     # created on first use.
+
+  # ─── THE ANDROID BUILD, SO IT CANNOT FREEZE AGAIN ───────────────────────────────────────────
+  # On 2026-10-09 the handset build was found two years behind on every axis at once — Gradle 8.9,
+  # AGP 8.7.3, Kotlin 2.0.21, compileSdk 35, Compose BOM 2024.10.01 — and moving it took one large
+  # change instead of a stream of small ones, because nothing had ever offered the small ones. This
+  # entry is what offers them. It reads android/build.gradle.kts (AGP and the Kotlin plugins),
+  # android/app/build.gradle.kts and the four core-*/build.gradle.kts (the libraries; Dependabot
+  # parses the build scripts and does not run them), and android/gradle/wrapper/ — for the wrapper it
+  # DOES run Gradle, and regenerates the jar and both scripts with the properties.
+  #
+  # Every such pull request touches android/**, so android-build.yml builds, unit-tests and lints it
+  # on the pull request itself; that run is the review. What no run can say is how a new targetSdk or
+  # a new Compose behaves on a handset — that is .github/workflows/android-emulator.yml, run by hand.
+  #
+  # GROUPED WHERE VERSIONS MUST MOVE TOGETHER, AND ONLY THERE. The three Kotlin plugins are one
+  # compiler (the Compose compiler plugin refuses to run against a different Kotlin), and
+  # kotlinx-serialization-json is declared twice — :app and :core-pipeline must agree, see
+  # android/settings.gradle.kts — so one pull request carries all of them. AGP and the wrapper stay
+  # ungrouped: they are the bumps most likely to need code changes, and a red one should block nothing
+  # else. Majors are NOT ignored; a major is exactly the bump that must not wait two years.
+  - package-ecosystem: gradle
+    directory: "/android"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:30"
+      timezone: Asia/Kolkata
+    # Kotlin, AndroidX, Square, Coil, AGP and the wrapper are six possible pull requests a week; five
+    # open at once keeps the queue clearable without hiding the sixth for long.
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: android
+    groups:
+      kotlin:
+        patterns:
+          - "org.jetbrains.kotlin*"
+      androidx:
+        patterns:
+          - "androidx.*"
+          - "com.google.android.*"
+      square:
+        patterns:
+          - "com.squareup.*"
+      coil:
+        patterns:
+          - "io.coil-kt*"

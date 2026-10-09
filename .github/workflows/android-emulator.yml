@@ -10,7 +10,13 @@ name: Android emulator smoke
 # limits, and the local-network permission. `android/scripts/emulator-smoke.py` asks exactly that of
 # the same debug APK android-build.yml uploads — its docstring lists every check — plus a second
 # debug build pointed at a stub on the runner, for the local-network part. Screenshots, UI dumps,
-# the system's own inset frames and the logcat come back as an artifact.
+# the system's own inset frames and the logcat come back as an artifact. It also builds the release
+# variant, unsigned, and fails if the manifest that ships does not target 37 or declares the
+# local-network permission only debug builds may hold.
+#
+# First run on 2026-10-09, on API 37.0 and on API 34, before this file reached main: a push trigger
+# scoped to the branch that added it stood in for `workflow_dispatch`, which only fires for a file
+# on the default branch, and came out again before that branch was finished.
 #
 # What it cannot do: sign in (so it never touches production data) or play media, so Android 17's
 # background-audio silencing and everything behind the login stay on the handset checklist in
@@ -46,14 +52,6 @@ on:
           - google_apis
           - google_apis_ps16k
         default: google_apis
-  # TEMPORARY, AND REMOVED BEFORE THIS BRANCH IS DONE. `workflow_dispatch` only fires for a workflow
-  # file that exists on the default branch, so until this file reaches main the only way to run it
-  # is a push to the branch that adds it.
-  push:
-    branches: [upgrade/doc-android]
-    paths:
-      - ".github/workflows/android-emulator.yml"
-      - "android/**"
 
 permissions:
   contents: read

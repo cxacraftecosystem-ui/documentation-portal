@@ -151,7 +151,16 @@ call this API as the signed-in user". Keep `BACKEND_CORS_ORIGINS` set to the exa
   APIs that read it directly.
 
 Developing against a LAN backend from a real phone: add your machine's private IP as an extra
-`<domain>` **temporarily** and do not commit it.
+`<domain>` **temporarily** and do not commit it. On Android 17 (the app targets 37 since 2026-10-09)
+a LAN address — and the emulator's `10.0.2.2` — also needs the runtime `ACCESS_LOCAL_NETWORK`
+permission, which only debug builds declare (`android/app/src/debug/AndroidManifest.xml`); the
+release APK never asks for it, because production is public HTTPS.
+
+Two Android 17 defaults apply to this file without it changing, and both are left on deliberately:
+**Certificate Transparency** is enforced for every connection that trusts the system store (every
+host the app reaches presents CT-logged certificates, checked 2026-10-09), and **Encrypted Client
+Hello** is attempted where the networking library supports it. The comment at the top of
+`network_security_config.xml` says what each means for this app.
 
 ---
 
