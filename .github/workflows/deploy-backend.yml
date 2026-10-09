@@ -407,7 +407,7 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
 
-      # ─── PYTHON 3.14 ON THE BOX, AND A VENV REBUILT WHEN IT HAS TO BE — 2026-10-09 ──────────────
+      # ─── UPSTREAM CPYTHON ON THE BOX, AND A VENV REBUILT WHEN IT HAS TO BE ───────────────────────
       #
       # WHAT THIS REPLACED. The install step at the end of this job used to open with
       # `if [ ! -d .venv ]; then python3.12 -m venv .venv; fi` and then run `pip install -e .`, and
@@ -415,19 +415,26 @@ jobs:
       # exists, so the venv built on 2026-06-17 was never rebuilt, for a new interpreter or for
       # anything else; and `pip install -e .` never upgrades a dependency that is already satisfied,
       # so production sat on June's versions, advisories included (anyio, cryptography, pyasn1,
-      # pydantic-settings, urllib3), while CI installed whatever the index offered that day.
+      # pydantic-settings, urllib3), while CI installed whatever the index offered that day. The
+      # first fix, on 2026-10-09, took python3.14 from apt: the deadsnakes PPA on 24.04, Ubuntu's own
+      # archive on 26.04. Those are not the same interpreter — deadsnakes carried upstream 3.14.8,
+      # Ubuntu 26.04 carries 3.14.4 with its own fixes backported — so the approved rebuild onto 26.04
+      # would have moved production off the release CI tests. The same evening the owner chose
+      # upstream 3.14.8, exactly what CI tests, on both releases, and apt left the picture.
       #
       # WHAT IT DOES NOW, AND WHY IN THIS ORDER:
-      #   1. The interpreter. python3.14 from Ubuntu's own archive where it has one (26.04), from the
-      #      deadsnakes PPA where it does not (24.04, which this box runs until its approved rebuild).
-      #      A box whose interpreter is present and current never touches apt; a missing one is
-      #      installed, an out-of-date one upgraded, best effort. On 24.04 python3.12 stays installed:
-      #      it is the system Python there and the interpreter of the rollback venv (the switch in the
-      #      install step keeps it). 26.04 has no python3.12 at all. backend/DEPLOY_AWS.md §9 has the
-      #      table of what comes from where.
-      #   2. The venv, named after what it is built FROM: venvs/py3.14-<sha256 of requirements.lock>.
-      #      A different interpreter minor or a different lock is a different name, so it is built;
-      #      the same name is reused, so a deploy that changed only code installs nothing.
+      #   1. The interpreter: upstream CPython, the exact release checks.yml tests, from a pinned
+      #      python-build-standalone build whose SHA-256 is checked before a byte of it is unpacked,
+      #      installed once into a root-owned /opt/cpython/<version>+<build> that nothing changes
+      #      afterwards. The same bytes on 24.04 and on 26.04. A box that already has it downloads
+      #      nothing, and infra/terraform/user_data.sh installs the same pin on a new box, so the
+      #      first deploy there finds it in place. The script says what this leaves alone on the live
+      #      24.04 box (deadsnakes, python3.12) and why; backend/DEPLOY_AWS.md §9 has the layout.
+      #   2. The venv, named after what it is built FROM: venvs/cpython-<version>+<build>-<sha256 of
+      #      requirements.lock>. A different interpreter build or a different lock is a different
+      #      name, so it is built; the same name is reused, so a deploy that changed only code installs
+      #      nothing. The reuse is CHECKED, not inferred from the name: a venv whose python is not the
+      #      pinned interpreter is refused rather than adopted.
       #   3. BUILT BEFORE THE CODE SYNC, BESIDE THE LIVE VENV. The API serves from the old one the
       #      whole time, and nothing it can see changes until the last step points `.venv` at the
       #      new directory, so a failed install fails THIS step and leaves the box as it was: old
@@ -445,7 +452,7 @@ jobs:
       #
       # The lock travels on its own, over stdin like `.env` below, because the code sync is the NEXT
       # step: the venv is decided before anything the running API can see has changed.
-      - name: Put Python 3.14 on the box, and build the venv from the lock beside the live one
+      - name: Install the pinned CPython, and build the venv from the lock beside the live one
         run: |
           set -euo pipefail
           ssh ubuntu@${{ secrets.EC2_HOST }} \
@@ -455,30 +462,127 @@ jobs:
           set -euo pipefail
           app=/home/ubuntu/app
           lock="$app/requirements.lock.incoming"
-          py=python3.14
 
-          # 1. The interpreter, and the one library the pinned Node needs. WHERE PYTHON 3.14 COMES
-          #    FROM DEPENDS ON THE RELEASE, and this works out which: Ubuntu 26.04 ships python3.14 in
-          #    its own archive (it is that release's system Python), Ubuntu 24.04 does not, and the
-          #    deadsnakes PPA supplies it there — deadsnakes never packages a release's own default
-          #    Python, so it is the source on 24.04 and never on 26.04. The PPA is added only when the
-          #    archive offers no python3.14 candidate at all.
+          # 0. A BOX STILL IN ITS FIRST BOOT IS NOT READY FOR A DEPLOY. infra/terraform/user_data.sh
+          #    installs nginx, the two units and the interpreter below while cloud-init runs it, and the
+          #    first deploy to a new box can arrive before it has finished: it would race it for apt and
+          #    for /opt/cpython, and restart units that do not exist yet. Waiting costs nothing on a box
+          #    that booted long ago (0.4 s on the live one, 2026-10-09). A box without cloud-init skips it.
+          if command -v cloud-init >/dev/null 2>&1; then
+            timeout 1200 cloud-init status --wait >/dev/null 2>&1 || true
+            echo "cloud-init: $(cloud-init status 2>&1 || true)"
+          fi
+
+          # 1. THE INTERPRETER: UPSTREAM CPYTHON, PINNED, CHECKSUMMED, UNPACKED ONCE.
           #
-          #    MISSING is fatal, OUT OF DATE is not. `ensurepip` is the module Debian moves into
-          #    python3.X-venv, so one import tells "no python3.14" and "python3.14 without its venv
-          #    module" apart from ready; libatomic1 is what Node 26's official binary links against
-          #    (the install step pins the Prisma CLI's Node to it), and the 26.04 cloud image does not
-          #    ship it — found by running these scripts in ubuntu:24.04 and ubuntu:26.04 containers.
-          #    Either missing, the step installs it or fails. An interpreter whose source offers a
-          #    newer build is upgraded too, because nothing else would: unattended-upgrades applies
-          #    the archive's security pocket only, never a PPA, and this box once sat on June's
-          #    packages for months for the same reason. That upgrade is best effort, judged from the
-          #    package lists the box's apt-daily timer refreshes, and a failure only warns: the
-          #    working interpreter stays.
+          #    WHY NOT apt. Ubuntu 26.04's python3.14 is 3.14.4 with Ubuntu's security fixes backported;
+          #    24.04 has no python3.14 and needed the deadsnakes PPA; CI runs upstream 3.14.8. The owner's
+          #    decision on 2026-10-09 is that production runs exactly what CI tests, on both releases, so
+          #    the interpreter is upstream CPython as built by python-build-standalone
+          #    (https://github.com/astral-sh/python-build-standalone, Astral's relocatable builds, the
+          #    ones `uv python install` fetches). The x86_64 linux-gnu build asks nothing of the box but
+          #    glibc: OpenSSL, SQLite, xz, libffi and zlib are built in, so 24.04 (OpenSSL 3.0) and 26.04
+          #    (OpenSSL 3.5, sudo-rs, uutils coreutils, no python3.12) get the same interpreter.
           #
-          #    Herestrings, not pipes: `grep -q` exits at its first match, and under pipefail the
-          #    SIGPIPE that can give the writer would read as "absent" (the `changes` job above
-          #    carries the same lesson).
+          #    THE PIN. The newest release carrying 3.14.8 on 2026-10-09 is 20261003 (20261001 carries
+          #    it too), and the asset is the full `install_only` build. The SHA-256 is that asset's line
+          #    in the release's SHA256SUMS, which matched GitHub's own digest for the asset and a
+          #    download hashed by hand. A download that hashes to anything else is REFUSED: not
+          #    unpacked, and since this runs before anything is stopped, the API and the queue never
+          #    notice.
+          #
+          #    WHY 3.14 AND NOT 3.15. 3.15.0 reached python.org on 2026-10-09, and what this box needs had
+          #    not caught up that day: setup-python's manifest stopped at 3.15.0rc3, the official Docker
+          #    image had only rc tags, python-build-standalone's newest release (20261003) carried
+          #    3.15.0rc3, the lock's httptools 0.8.0 and PyYAML 6.0.3 had no cp315 wheels, and
+          #    prisma-client-py 0.15.0, its latest release and the one package the API cannot start
+          #    without, classifies itself only up to 3.12. Move when they have, and move the pin in THREE
+          #    places together: these four lines, the same four in infra/terraform/user_data.sh, and
+          #    `python-version` in checks.yml. backend/tests/test_interpreter_pin.py fails while they
+          #    disagree.
+          #
+          #    WHERE IT GOES. /opt/cpython/<version>+<build>, owned by root and writable by nobody else,
+          #    because every venv built on it runs it. Nothing changes it in place: a new pin is a new
+          #    directory, and INSTALLED_FROM inside it names the URL and the hash it came from. The
+          #    download is hashed as root inside a root-only staging directory on the same filesystem,
+          #    so what is hashed is what is unpacked; the result is proved (the version, and ssl, sqlite3,
+          #    lzma, ctypes, ensurepip and venv) as the user the services run as, and only then takes its
+          #    name, in one rename(2). A directory of that name that is NOT the pinned build stops the
+          #    deploy rather than being replaced, because a venv may be running on it.
+          #
+          #    WHAT IT LEAVES ALONE. Nothing here adds the deadsnakes PPA any more, and nothing removes
+          #    it: on a 24.04 box that has it (the live one), the PPA and its python3.14 stay exactly as
+          #    they are, because the venv this change switches the API away from was built on that
+          #    interpreter and becomes the rollback venv, and a redeploy of a commit from before this
+          #    change builds on that interpreter again. Nothing upgrades them now, which is harmless
+          #    for an interpreter nothing runs on until somebody rolls back; backend/DEPLOY_AWS.md §9
+          #    says how to remove both once that rollback is no longer wanted. python3.12, 24.04's
+          #    system Python and the py3.12-legacy venv's, stays too. A 26.04 box gets neither.
+          cpython=3.14.8
+          pbs_release=20261003
+          pbs_url=https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.14.8%2B20261003-x86_64-unknown-linux-gnu-install_only.tar.gz
+          pbs_sha256=371b6c281bbb09b29279e9e3a2996bab4ae2ea03cca52bf869f8bd89286b0ae8
+          prefix="/opt/cpython/${cpython}+${pbs_release}"
+          py="$prefix/bin/python${cpython%.*}"
+          provenance="$(printf 'url=%s\nsha256=%s' "$pbs_url" "$pbs_sha256")"
+          interpreter_ready() {
+            [ "$(cat "$prefix/INSTALLED_FROM" 2>/dev/null)" = "$provenance" ] \
+              && [ "$("$py" -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])' 2>/dev/null)" = "$cpython" ]
+          }
+          if interpreter_ready; then
+            echo "CPython ${cpython} (python-build-standalone ${pbs_release}) is already installed at ${prefix}"
+          elif [ -e "$prefix" ]; then
+            echo "::error::${prefix} exists but is not the build pinned here: its INSTALLED_FROM does not name ${pbs_url} with ${pbs_sha256}, or it does not run as CPython ${cpython}. Nothing was changed. It is not replaced automatically, because a venv may be running on it: find out what put it there, and remove it (sudo rm -rf '${prefix}') only when no venv under ${app}/venvs is built on it."
+            exit 1
+          else
+            echo "installing CPython ${cpython} from python-build-standalone ${pbs_release} into ${prefix}"
+            # Downloaded as this user, onto the disk rather than into /tmp (a tmpfs on 26.04, and
+            # this box has little RAM to spare); hashed and unpacked as root, from root's own copy.
+            dl="$(mktemp -d "$app/.cpython-download.XXXXXX")"
+            stage=""
+            trap 'rm -rf "$dl"; if [ -n "$stage" ]; then sudo rm -rf "$stage"; fi' EXIT
+            curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 5 --retry-all-errors \
+              --connect-timeout 20 --max-time 900 -o "$dl/cpython.tar.gz" "$pbs_url"
+            sudo install -d -m 0755 -o root -g root /opt/cpython
+            # Left by a run that was killed half way through, before its trap could run.
+            sudo rm -rf /opt/cpython/.stage-*
+            stage="$(sudo mktemp -d /opt/cpython/.stage-XXXXXX)"
+            sudo install -m 0600 -o root -g root "$dl/cpython.tar.gz" "$stage/cpython.tar.gz"
+            rm -f "$dl/cpython.tar.gz"
+            got="$(sudo sha256sum "$stage/cpython.tar.gz")"
+            got="${got%% *}"
+            if [ "$got" != "$pbs_sha256" ]; then
+              echo "::error::REFUSED: ${pbs_url} hashed to ${got}, and the pin says ${pbs_sha256}. Nothing was unpacked, the staging copy is deleted, and the API and the queue were not touched. Do not just paste the new hash in: check it against the SHA256SUMS of release ${pbs_release} first."
+              exit 1
+            fi
+            sudo tar -xzf "$stage/cpython.tar.gz" -C "$stage" --no-same-owner --no-same-permissions
+            sudo rm -f "$stage/cpython.tar.gz"
+            printf '%s\n' "$provenance" > "$dl/INSTALLED_FROM"
+            sudo install -m 0644 -o root -g root "$dl/INSTALLED_FROM" "$stage/python/INSTALLED_FROM"
+            sudo chmod -R u+rwX,go+rX,go-w "$stage/python"
+            sudo chmod 0755 "$stage"
+            PYTHONDONTWRITEBYTECODE=1 "$stage/python/bin/python${cpython%.*}" -c 'import sys, ssl, sqlite3, lzma, bz2, zlib, ctypes, ensurepip, venv; v = "%d.%d.%d" % sys.version_info[:3]; v == sys.argv[1] or sys.exit("expected CPython %s, the build says %s" % (sys.argv[1], v)); print("proved:", sys.version.split()[0], "|", ssl.OPENSSL_VERSION, "| SQLite", sqlite3.sqlite_version)' "$cpython"
+            if ! sudo mv -T "$stage/python" "$prefix"; then
+              interpreter_ready || { echo "::error::could not move the proved build into ${prefix}"; exit 1; }
+              echo "another installer (user_data.sh?) finished ${prefix} first; using it"
+            fi
+            sudo rm -rf "$stage"
+            stage=""
+            rm -rf "$dl"
+            trap - EXIT
+            interpreter_ready || { echo "::error::${prefix} does not answer as the pinned build after the install"; exit 1; }
+          fi
+          "$py" -VV
+
+          # 2. The one library the pinned Node needs. libatomic1 is what Node 26's official binary
+          #    links against (the install step pins the Prisma CLI's Node to it), and the 26.04 cloud
+          #    image does not ship it — found by running these scripts in ubuntu:24.04 and ubuntu:26.04
+          #    containers. Missing, the step installs it or fails; present (the live box), apt is not
+          #    touched at all.
+          #
+          #    A herestring, not a pipe: `grep -q` exits at its first match, and under pipefail the
+          #    SIGPIPE that can give the writer would read as "absent" (the `changes` job above carries
+          #    the same lesson).
           #
           #    `sudo env ...` and not `sudo VAR=value ...`: sudo honours an assignment only where its
           #    policy allows (26.04's default sudo is sudo-rs), `env` is a command and works under any
@@ -494,41 +598,29 @@ jobs:
             done
             return 1
           }
-          policy="$(apt-cache policy "$py" 2>/dev/null)"
-          installed="$(sed -n 's/^ *Installed: //p' <<< "$policy")"
-          candidate="$(sed -n 's/^ *Candidate: //p' <<< "$policy")"
-          need=()
-          "$py" -c 'import ensurepip, venv' >/dev/null 2>&1 || need+=("$py" "$py-venv")
-          grep -q 'install ok installed' <<< "$(dpkg-query -W -f='${Status}' libatomic1 2>/dev/null)" || need+=(libatomic1)
-          stale=no
-          if [ -n "$installed" ] && [ "$installed" != "(none)" ] && [ -n "$candidate" ] \
-             && [ "$candidate" != "(none)" ] && [ "$installed" != "$candidate" ]; then
-            stale=yes
-          fi
-          if [ "${#need[@]}" -gt 0 ]; then
-            [ "$stale" = no ] || need+=("$py" "$py-venv")
-            echo "installing: ${need[*]}"
-            if [[ " ${need[*]} " == *" $py "* ]] && ! grep -Eq 'Candidate: [0-9]' <<< "$policy"; then
-              command -v add-apt-repository >/dev/null || aptget install -y --no-install-recommends software-properties-common
-              sudo add-apt-repository -y -n ppa:deadsnakes/ppa
-            fi
+          if ! grep -q 'install ok installed' <<< "$(dpkg-query -W -f='${Status}' libatomic1 2>/dev/null)"; then
+            echo "installing: libatomic1"
             refresh_lists
-            aptget install -y --no-install-recommends "${need[@]}"
-          elif [ "$stale" = yes ]; then
-            echo "upgrading ${py}: ${installed} -> ${candidate}"
-            if ! { refresh_lists && aptget install -y --no-install-recommends "$py" "$py-venv"; }; then
-              echo "::warning::could not upgrade ${py} from ${installed} to ${candidate}; this deploy carries on with ${installed}"
-            fi
+            aptget install -y --no-install-recommends libatomic1
           fi
-          "$py" -VV
 
-          # 2. The venv this interpreter and this lock call for.
-          minor="$("$py" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
-          want="py${minor}-$(sha256sum "$lock" | cut -c1-16)"
+          # 3. The venv this interpreter and this lock call for. The name carries the interpreter build
+          #    as well as the lock, so only a deploy pinned to the same build can ever reuse a venv —
+          #    and the reuse is checked, not inferred: a venv marked complete whose python does not
+          #    resolve to the pinned interpreter is refused, never adopted and never deleted (it may be
+          #    the one the API is running on). On the live box the venv in use when this landed,
+          #    venvs/py3.14-<hash>, runs deadsnakes' /usr/bin/python3.14, which is exactly the venv
+          #    that must not be picked up under a name that promises /opt/cpython.
+          want="cpython-${cpython}+${pbs_release}-$(sha256sum "$lock" | cut -c1-16)"
           target="$app/venvs/$want"
           mkdir -p "$app/venvs"
           if [ -f "$target/.complete" ]; then
-            echo "venv $want is already built; reusing it"
+            built_on="$(readlink -f "$target/bin/python" 2>/dev/null || true)"
+            if [ "$built_on" != "$(readlink -f "$py")" ]; then
+              echo "::error::${target} is marked complete, but its python is '${built_on:-missing}', not ${py}. Refusing to reuse it, and leaving it where it is. Nothing was changed; backend/DEPLOY_AWS.md §9 has the layout this deploy expects."
+              exit 1
+            fi
+            echo "venv $want is already built on $py; reusing it"
           else
             queue_was_active=no
             if systemctl is-active --quiet fieldrepo-queue; then queue_was_active=yes; fi
@@ -542,9 +634,12 @@ jobs:
             "$target/bin/python" -m pip install --quiet --disable-pip-version-check -r "$lock"
             # What the API imports to start, imported before the venv can be adopted. The application
             # is not on disk yet (the next step syncs it), so this is the dependency half of "will it
-            # start"; the health poll at the end of the job is the other half.
-            "$target/bin/python" -c 'import fastapi, uvicorn, pydantic_settings, jwt, bcrypt, cryptography, boto3, prisma, pydub, anthropic, openpyxl'
-            "$target/bin/python" -VV > "$target/.complete"
+            # start"; the health poll at the end of the job is the other half. The compiled half of
+            # uvicorn[standard] (uvloop, httptools), pydantic's core and audioop (audioop-lts: 3.13
+            # removed the module pydub imports) are named, because each is a wheel built for this
+            # interpreter's ABI.
+            "$target/bin/python" -c 'import fastapi, uvicorn, uvloop, httptools, pydantic_core, pydantic_settings, jwt, bcrypt, cryptography, boto3, prisma, pydub, audioop, anthropic, openpyxl'
+            { "$target/bin/python" -VV; readlink -f "$target/bin/python"; } > "$target/.complete"
             echo "built venv $want"
           fi
           printf '%s\n' "$want" > "$app/venv-wanted"
@@ -816,5 +911,18 @@ jobs:
           for d in "$cache"/nodeenv-*; do
             [ -d "$d" ] || continue
             [ "$d" = "$cache/nodeenv-$node_pin" ] || rm -rf "$d"
+          done
+          # And an interpreter under /opt/cpython that no venv left above runs on: the pinned one
+          # always stays (the venv now running is built on it), and so does the one the previous venv
+          # needs. Only /opt/cpython is looked at. The apt interpreters, /usr/bin/python3.12 and a
+          # 24.04 box's deadsnakes /usr/bin/python3.14, are the rollback venvs' and are never touched
+          # here; a redeploy of an older commit installs its own pin again, checksum and all.
+          for d in /opt/cpython/*; do
+            [ -d "$d" ] || continue
+            used=no
+            for v in "$app"/venvs/*; do
+              case "$(readlink -f "$v/bin/python" 2>/dev/null || true)" in "$d"/*) used=yes; break ;; esac
+            done
+            [ "$used" = yes ] || sudo rm -rf "$d"
           done
           REMOTE

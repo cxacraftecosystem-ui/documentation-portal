@@ -245,7 +245,7 @@ change this; SSE-S3 protects the physical disks, not URL holders. See risk P0.
 | Media object keys / public URLs | `MediaFile.url` in Postgres, and in every client | Plaintext, and the URL alone grants read access |
 | Auth token (web) | `localStorage["field_repo_token"]` | Plaintext, readable by any script on the origin |
 | Auth token (Android) | `SharedPreferences("field_repository_auth")`, `MODE_PRIVATE` | Plaintext file in app-private storage; readable on a rooted device, and `android:allowBackup="true"` means it can leave the device in a backup |
-| `.env` on EC2 | `/home/ubuntu/app/backend/.env`, `EnvironmentFile=` | Plaintext on an unencrypted-by-default EBS volume; holds `DATABASE_URL`, `JWT_SECRET`, AWS keys, every AI provider key |
+| `.env` on EC2 | `/home/ubuntu/app/backend/.env`, `EnvironmentFile=` | Plaintext, on a root volume that is **not** encrypted on the box running on 2026-10-09 (read from AWS that day; §5 P3); holds `DATABASE_URL`, `JWT_SECRET`, AWS keys, every AI provider key |
 | Temporary media during processing | `tempfile` on the EC2 disk (ffmpeg/transcription) | Plaintext; removed after the job |
 | CSV / dataset exports | Streamed to the downloader | Plaintext; once downloaded the data is outside every control in this document |
 
@@ -476,11 +476,16 @@ served to another. This is a data-leak class bug, not a performance one.
 ### P3 — `.env` and EBS at rest on EC2
 
 `/home/ubuntu/app/backend/.env` holds `DATABASE_URL`, `JWT_SECRET` and every provider key in
-plaintext, on a volume that AWS does not encrypt unless asked.
+plaintext, on a volume that AWS does not encrypt unless asked. **Checked on 2026-10-09, read-only:**
+the live box's root volume (`vol-003bc0074543fd526`, i-06f177db5c4e3b0af) is not encrypted, and EBS
+encryption by default is off in ap-south-1. The 26.04 rebuild approved that day launches with an
+encrypted gp3 root ([backend/DEPLOY_AWS.md](../backend/DEPLOY_AWS.md) §10), which closes action 1
+for the box it builds; the old box is stopped, not encrypted in place.
 
 **Actions:**
 1. **EC2 console → Volumes:** check *Encrypted*. If `Not encrypted`, snapshot → copy snapshot with
-   encryption enabled → create a volume from the copy → attach (requires a stop/start window). Set
+   encryption enabled → create a volume from the copy → attach (requires a stop/start window), or
+   rebuild the box with an encrypted root (§10 of DEPLOY_AWS.md). Set
    *Account attributes → EBS encryption by default* so future volumes are covered.
 2. Move secrets to **AWS Systems Manager Parameter Store (SecureString)** or Secrets Manager and
    have the deploy fetch them at start, rather than writing a plaintext `.env`.
@@ -588,6 +593,7 @@ is removed and the entry stays. Both teach the reader to trust the wrong thing. 
 | §1.2 response headers | `SecurityHeadersMiddleware` in `backend/app/main.py`. Check live: `curl -sI https://d2b34i3e92al6i.cloudfront.net/health`. |
 | §1.4 docs exposure | `curl -s -o /dev/null -w "%{http_code}" https://d2b34i3e92al6i.cloudfront.net/openapi.json`. **This entry closes when that returns 404**, not when the code changes. |
 | §3 tokens | `backend/app/core/security.py`; the startup guard is `verify_jwt_configuration`. `backend/tests/test_auth_library_swap.py` pins the algorithm, `exp`/`sub` and old-token rules, and §2.2's 72-byte password rule. |
+| The API's interpreter | Upstream CPython from a pinned python-build-standalone asset whose SHA-256 the deploy and `infra/terraform/user_data.sh` compare **before** unpacking it, refusing on a mismatch, into a root-owned `/opt/cpython` (since 2026-10-09; it came from the deadsnakes PPA that morning). `backend/tests/test_interpreter_pin.py` keeps the two pins, and the version CI tests, identical, and fails if either installer unpacks before it compares. [backend/DEPLOY_AWS.md](../backend/DEPLOY_AWS.md) §9 says how a pin is chosen and checked. |
 | Dependency versions | `backend/requirements.lock` is what CI, the EC2 box and the image install (docs/CI.md, *The backend dependency lock*). To ask whether any pinned version has a published advisory, post the lock's pins to `https://api.osv.dev/v1/querybatch`; on 2026-10-09 that returned none, against seven affected packages in the venv production had run since June. |
 | §4 the ladder | [PERMISSIONS.md](PERMISSIONS.md), which is itself checked — `docs/tools/check-docs.mjs` fails if the backend and web role ladders diverge. |
 | §4.1 identity cache | `backend/app/core/deps.py`, and `backend/tests/test_user_identity_cache.py`. |

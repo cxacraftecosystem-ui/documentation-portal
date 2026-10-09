@@ -3,8 +3,9 @@ name = "field-repository-backend"
 version = "0.1.0"
 description = "API-first FastAPI backend for field documentation and repository workflows."
 # 3.14 everywhere since 2026-10-09: CI, the Docker image and the EC2 box (deploy-backend.yml installs
-# python3.14 and rebuilds the venv on it). A floor and not a range, so nobody can recreate a 3.12 venv
-# from this file by accident; the box keeps python3.12 installed only as the rollback interpreter.
+# upstream CPython 3.14.8, the release CI tests, and builds the venv on it). A floor and not a range,
+# so nobody can recreate a 3.12 venv from this file by accident; the 24.04 box keeps python3.12
+# installed only as the rollback interpreter.
 requires-python = ">=3.14"
 # FLOORS, NOT PINS, AND EACH ONE IS THE LATEST RELEASE ON 2026-10-09. What actually gets installed is
 # decided by backend/requirements.lock, compiled from this list (the command is in docs/CI.md under

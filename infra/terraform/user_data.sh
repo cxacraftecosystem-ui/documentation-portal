@@ -1,14 +1,20 @@
 #!/usr/bin/env bash
 # First-boot provisioning for the Field Repository API box (Ubuntu 26.04 since 2026-10-09: the
 # AMI filter in main.tf). Installs system deps (including ffmpeg for Whisper audio chunking and nginx
-# as the reverse proxy so port 8000 is never exposed directly), Python 3.14, prepares a swap file so
-# installs don't OOM on 1 GiB, and lays down the nginx site + systemd unit.
+# as the reverse proxy so port 8000 is never exposed directly), prepares a swap file so installs
+# don't OOM on a small box, lays down the nginx site + systemd units, and LAST installs the API's
+# interpreter: upstream CPython 3.14.8 from a pinned, checksummed python-build-standalone build,
+# under /opt/cpython (the end of this file says why it comes last and why it is not apt's).
 # The actual code is deployed by the GitHub Actions workflow (deploy-backend.yml), which also builds
 # the API's venv from backend/requirements.lock under /home/ubuntu/app/venvs and points
 # /home/ubuntu/app/backend/.venv at it; nothing here installs a Python package.
+#
+# It runs as root under cloud-init, once. To launch a box with it: backend/DEPLOY_AWS.md §10 has the
+# exact `aws ec2 run-instances` call. The file must reach EC2 with LF line endings (.gitattributes
+# keeps every *.sh LF in a checkout, Windows included); a CRLF copy fails on its first line.
 set -euxo pipefail
 
-# --- swap (protects the 1 GiB box during pip/prisma installs) ----------------
+# --- swap (protects a 1-2 GiB box during pip/prisma installs) ---------------
 if [ ! -f /swapfile ]; then
   fallocate -l 2G /swapfile
   chmod 600 /swapfile
@@ -19,24 +25,11 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-# libatomic1: the official Node 26 binary the deploy pins for the Prisma CLI links against it, and a
-# minimal image lacks it (deploy-backend.yml's build step checks for it too).
-apt-get install -y git ffmpeg nginx libatomic1
-
-# --- Python 3.14: the interpreter deploy-backend.yml builds the API's venv with ----------------
-# On 26.04 it is the system Python and comes from Ubuntu's own archive (3.14.4 there on 2026-10-09,
-# security-patched by Ubuntu); deadsnakes publishes no 3.14 for 26.04. On an older AMI the archive has
-# no python3.14 and the deadsnakes PPA supplies it (3.14.8 for 24.04 on 2026-10-09). The deploy runs
-# this same check on every run, so a box that missed it heals on its next deploy; doing it here means
-# the first deploy does not have to. `-venv` is the package that carries ensurepip, which `python3.14
-# -m venv` needs. No python3-pip: every venv brings its own pip.
-# A herestring rather than a pipe: under pipefail, `grep -q` quitting early can SIGPIPE apt-cache.
-if ! grep -Eq 'Candidate: [0-9]' <<< "$(apt-cache policy python3.14)"; then
-  apt-get install -y software-properties-common
-  add-apt-repository -y ppa:deadsnakes/ppa
-  apt-get update -y
-fi
-apt-get install -y python3.14 python3.14-venv
+# libatomic1: the official Node 26 binary the deploy pins for the Prisma CLI links against it, and the
+# 26.04 cloud image lacks it (deploy-backend.yml's build step checks for it too). curl and
+# ca-certificates fetch the interpreter at the end of this file; the cloud image has both already.
+# No python3.14, python3.14-venv or PPA: the API does not run on apt's Python (see the end).
+apt-get install -y git ffmpeg nginx libatomic1 curl ca-certificates
 
 # --- nginx reverse proxy: 80 -> 127.0.0.1:8000 -------------------------------
 cat > /etc/nginx/sites-available/fieldrepo <<'NGINX'
@@ -132,3 +125,51 @@ systemctl enable fieldrepo || true
 systemctl enable fieldrepo-queue || true
 mkdir -p /home/ubuntu/app/venvs
 chown -R ubuntu:ubuntu /home/ubuntu/app
+
+# --- The API's interpreter: upstream CPython 3.14.8, pinned and checksummed -------------------
+# The exact release CI tests (checks.yml), from python-build-standalone rather than apt: Ubuntu 26.04's
+# own python3.14 is 3.14.4 with backported fixes, a different interpreter from the one the tests ran
+# on. The four pins below are the same four as deploy-backend.yml's build step, which says how they
+# were chosen and why the box is not on 3.15 yet; backend/tests/test_interpreter_pin.py fails when the
+# two files (or checks.yml's version) disagree. The deploy installs it too, the same way, if it is
+# missing, so a box whose first boot could not fetch it is mended by its first deploy.
+#
+# LAST IN THIS FILE ON PURPOSE: a download that fails, or a file whose SHA-256 is not the pinned one,
+# stops this script (cloud-init then reports an error) only after the swap, nginx and both units are
+# already in place. A wrong hash is REFUSED, never unpacked. What passes is unpacked as root into a
+# staging directory beside its final place, proved as the user the services run as (the version, and
+# ssl, sqlite3, lzma, ctypes, ensurepip, venv), and only then renamed to /opt/cpython/<version>+<build>,
+# root-owned and writable by nobody else, with INSTALLED_FROM naming the URL and hash. The system
+# python3 stays as the cloud image shipped it: cloud-init and apt's own tooling run on it.
+cpython=3.14.8
+pbs_release=20261003
+pbs_url=https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.14.8%2B20261003-x86_64-unknown-linux-gnu-install_only.tar.gz
+pbs_sha256=371b6c281bbb09b29279e9e3a2996bab4ae2ea03cca52bf869f8bd89286b0ae8
+prefix="/opt/cpython/${cpython}+${pbs_release}"
+provenance="$(printf 'url=%s\nsha256=%s' "$pbs_url" "$pbs_sha256")"
+if [ "$(cat "$prefix/INSTALLED_FROM" 2>/dev/null)" != "$provenance" ]; then
+  if [ -e "$prefix" ]; then
+    echo "$prefix exists but is not the pinned build; leaving it alone" >&2
+    exit 1
+  fi
+  install -d -m 0755 -o root -g root /opt/cpython
+  stage="$(mktemp -d /opt/cpython/.stage-XXXXXX)"
+  curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 5 --retry-all-errors \
+    --connect-timeout 20 --max-time 900 -o "$stage/cpython.tar.gz" "$pbs_url"
+  got="$(sha256sum "$stage/cpython.tar.gz")"
+  got="${got%% *}"
+  if [ "$got" != "$pbs_sha256" ]; then
+    rm -rf "$stage"
+    echo "REFUSED: $pbs_url hashed to $got, and the pin says $pbs_sha256; nothing was installed" >&2
+    exit 1
+  fi
+  tar -xzf "$stage/cpython.tar.gz" -C "$stage" --no-same-owner --no-same-permissions
+  rm -f "$stage/cpython.tar.gz"
+  printf '%s\n' "$provenance" > "$stage/python/INSTALLED_FROM"
+  chmod -R u+rwX,go+rX,go-w "$stage/python"
+  chmod 0755 "$stage"
+  runuser -u ubuntu -- env PYTHONDONTWRITEBYTECODE=1 "$stage/python/bin/python${cpython%.*}" -c 'import sys, ssl, sqlite3, lzma, bz2, zlib, ctypes, ensurepip, venv; v = "%d.%d.%d" % sys.version_info[:3]; v == sys.argv[1] or sys.exit("expected CPython %s, the build says %s" % (sys.argv[1], v)); print("proved:", sys.version.split()[0], "|", ssl.OPENSSL_VERSION, "| SQLite", sqlite3.sqlite_version)' "$cpython"
+  mv -T "$stage/python" "$prefix"
+  rm -rf "$stage"
+fi
+"$prefix/bin/python${cpython%.*}" -VV

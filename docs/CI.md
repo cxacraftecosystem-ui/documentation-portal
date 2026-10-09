@@ -54,7 +54,7 @@ under "it runs; it does not gate", for what this still does not cover.
 
 | # | Workflow | File | Trigger | What it does |
 |---|---|---|---|---|
-| 1 | Deploy backend to EC2 | `.github/workflows/deploy-backend.yml` | `push` to `main` | `wait-for-checks` → python3.14 on the box, and the venv built from `backend/requirements.lock` **beside** the live one (2026-10-09) → rsync → write `.env` → install the project and generate the Prisma client into the new venv → `prisma migrate deploy` → **point `backend/.venv` at the new venv** → restart `fieldrepo` + `fieldrepo-queue` → poll `/health`. [backend/DEPLOY_AWS.md](../backend/DEPLOY_AWS.md) §9 has the layout on the box and the rollback. |
+| 1 | Deploy backend to EC2 | `.github/workflows/deploy-backend.yml` | `push` to `main` | `wait-for-checks` → the pinned CPython (3.14.8, the release CI tests, from a checksummed python-build-standalone build under `/opt/cpython`) on the box if it is missing, and the venv built from `backend/requirements.lock` **beside** the live one (2026-10-09) → rsync → write `.env` → install the project and generate the Prisma client into the new venv → `prisma migrate deploy` → **point `backend/.venv` at the new venv** → restart `fieldrepo` + `fieldrepo-queue` → poll `/health`. [backend/DEPLOY_AWS.md](../backend/DEPLOY_AWS.md) §9 has the layout on the box and the rollback. |
 | 2 | Deploy frontend to Vercel | `.github/workflows/deploy-frontend.yml` | `workflow_run` on **1** completing | gate → `wait-for-checks` (2026-10-09) → `vercel pull` → **refuse any project but `field-repository`** → **assert the pulled env carries what the app needs** (every `NEXT_PUBLIC_*`, `[SENSITIVE]` placeholders included), and *warn* when the project's Node.js Version is not `engines.node` → `vercel build --prod` → print the Node runtime the functions were stamped with → **assert those values actually reached the bundle** → `vercel deploy --prebuilt --prod` → **prove the production domain resolves to the new deployment, and `vercel promote` it when a rollback has turned auto-assignment off** (2026-10-09) → smoke-check the alias → **assert the bundle the CDN serves is the one that was verified**, starting with which deployment it is |
 | 3 | Android build | `.github/workflows/android-build.yml` | `workflow_run` on **2** completing, plus `pull_request` filtered to `android/**` | JDK 17 → `compileDebugKotlin` → `testDebugUnitTest` → `lintDebug` (advisory) → `assembleDebug` → upload APK. **Debug variants only.** Nothing it produces can install over a release build, and nothing it produces reaches a phone. |
 | 4 | Checks | `.github/workflows/checks.yml` | `pull_request`, `push` to `main`, manual | Three independent jobs: the backend suite, the web typecheck/lint/unit specs, the documentation check. **No `paths:` filter.** See **The checks** below.  |
@@ -177,7 +177,7 @@ Three jobs, deliberately independent, so one red does not hide another's answer:
 
 | Job (the name branch protection needs) | Where it runs | What it runs |
 |---|---|---|
-| **Backend tests** | `backend/` | Python 3.14 (`check-latest`) → `pip install -r requirements.lock` → `pip install --no-deps -e .` → `pip check` → `python -m prisma generate` → `python -m pytest -rf --durations=15` |
+| **Backend tests** | `backend/` | Python 3.14.8, the release the EC2 box runs (`backend/tests/test_interpreter_pin.py` holds the two together) → `pip install -r requirements.lock` → `pip install --no-deps -e .` → `pip check` → `python -m prisma generate` → `python -m pytest -rf --durations=15` |
 | **Web typecheck, lint and unit specs** | `frontend/` | Node 24, read from `engines.node` in `frontend/package.json` → `npm ci` → `npx tsc --noEmit` → `npm run lint` → `npm run test:unit` |
 | **Docs check** | repository root | Node 24 (the same field) → `node docs/tools/check-docs.mjs` |
 
@@ -460,7 +460,7 @@ same value in two places. Change one there and re-run this workflow (or push) to
 
 **Every check, reproduced locally, in the same directory the job uses.** These are the exact commands
 the workflow runs; if CI is red and one of these is green, the difference is the environment, and the
-first thing to check is the Python version (3.14 in CI) and whether your venv holds what
+first thing to check is the Python version (3.14.8 in CI) and whether your venv holds what
 `backend/requirements.lock` pins (`pip install -r requirements.lock && pip install --no-deps -e .`
 from `backend/`, as CI does):
 
@@ -587,24 +587,29 @@ it becomes a warning, and **not** in the workflow's licensed list.
 likelihood. **(1) The dependency set.** CI installs exactly `backend/requirements.lock`; a venv built
 any other way holds whatever the index offered when it was built, which is how two
 `test_public_census` tests once went red with no commit behind them. Reinstall from the lock (§4).
-**(2) The interpreter.** CI runs Python 3.14, as the EC2 box does; an older local Python is not
-supported (`requires-python = ">=3.14"`). **(3) Cross-module pollution.** The job runs the whole
-suite; run the named module by itself before you believe the attribution, and believe the verdict
-either way.
+**(2) The interpreter.** CI runs CPython 3.14.8, the exact release the EC2 box runs; an older local
+Python is not supported (`requires-python = ">=3.14"`). **(3) Cross-module pollution.** The job runs
+the whole suite; run the named module by itself before you believe the attribution, and believe the
+verdict either way.
 
 **`Backend tests` is red at `pip check`.** `backend/pyproject.toml` asks for a newer version of
 something than `backend/requirements.lock` pins — usually a Dependabot pull request that raised a
 floor, which it cannot follow by recompiling the lock. Recompile it (§1, *The backend dependency
 lock*) in the same pull request.
 
-**Stage 1 is red on "Put Python 3.14 on the box, and build the venv from the lock beside the live
+**Stage 1 is red on "Install the pinned CPython, and build the venv from the lock beside the live
 one".** Nothing the API can see has changed: that step runs before the code sync, the API is still
-serving from its old venv, and `fieldrepo-queue` was started again on the way out. Read the apt or
-pip error in the log, fix the cause (a lock that does not install, an apt mirror or the deadsnakes
-PPA unreachable), and re-run the deploy. The half-built venv has no `.complete` and is rebuilt. Only
-a MISSING interpreter, venv module or `libatomic1` fails the step; an interpreter that could not be
-upgraded to its source's newer build is a `::warning::`, and the deploy carries on with the one that
-works ([backend/DEPLOY_AWS.md](../backend/DEPLOY_AWS.md) §9).
+serving from its old venv, and `fieldrepo-queue` was started again on the way out. Read the error in
+the log. **`REFUSED: … hashed to …, and the pin says …`** means the interpreter download did not
+match its pinned SHA-256: nothing was unpacked and nothing was stopped. Do not paste the new hash in;
+check it against that python-build-standalone release's `SHA256SUMS` first
+([backend/DEPLOY_AWS.md](../backend/DEPLOY_AWS.md) §9, *Moving the pin*). A **curl** error is
+GitHub's release download failing, and a re-run is the fix. A **pip** error is a lock that does not
+install, or PyPI unreachable: fix the cause and re-run; the half-built venv has no `.complete` and is
+rebuilt. Two refusals stop the step on purpose and need a person: `/opt/cpython/<version>+<build>`
+existing but not being the pinned build, and a venv marked complete whose python is not the pinned
+interpreter — DEPLOY_AWS.md §9 has the layout both are checked against. apt is touched only to
+install `libatomic1` when it is missing.
 
 **`Backend tests` is red with dozens of collection errors.** Almost always the environment, not the
 code: `Settings` refuses to build without its six required values (§1, *The checks*) and every module
@@ -770,6 +775,7 @@ parts that are not are exactly the parts that were wrong before.
 | The action pins (§5) | `grep -nE "^\s*(- )?uses:" .github/workflows/*.yml` — every hit must read `owner/repo@<40-hex SHA> # vX.Y.Z`. To check one against its comment, or to redo one by hand: `gh api repos/<owner>/<repo>/git/ref/tags/<vX.Y.Z> --jq .object`. A `commit` object's `sha` is the pin; a `tag` object is an annotated tag, so read the commit it points at with `gh api repos/<owner>/<repo>/git/tags/<sha> --jq .object`. Only the SHA runs and only the comment gets read, so a comment that names a different release from its SHA is the bug. |
 | The backend dependency lock (§1) | `backend/requirements.lock` is generated: its header names the Python that compiled it (3.14) and the command. Re-run the command in §1 and diff — an empty diff on the same day means it is current. `grep -n "requirements.lock" .github/workflows/checks.yml .github/workflows/deploy-backend.yml backend/Dockerfile` finds every place that installs it. |
 | The runner image | `grep -n "runs-on" .github/workflows/*.yml` — every job names `ubuntu-26.04` (since 2026-10-09), never `ubuntu-latest`, so an image move is a reviewed diff rather than a GitHub announcement. |
+| The interpreter CI tests and the box runs (§1, §3) | `backend/tests/test_interpreter_pin.py`, in the Backend tests job: `python-version` in `checks.yml` must be the CPython version `deploy-backend.yml` and `infra/terraform/user_data.sh` pin, and those two must pin the same python-build-standalone asset and SHA-256, verified before it is unpacked. Where each pin came from, and how to move it: [backend/DEPLOY_AWS.md](../backend/DEPLOY_AWS.md) §9. |
 | Branch protection: whether the checks are required | **UNVERIFIED from here** — console state, and the single most load-bearing unverifiable claim on this page. Nothing in `.github/` can assert it. **Settings → Branches**, or `gh api repos/:owner/:repo/branches/main/protection`. |
 | Everything about cutting a release | [RELEASING.md](RELEASING.md), which owns it. This document states only where `publish-android.yml` sits in the pipeline and which secrets it reads; if the two disagree about anything else, RELEASING.md wins. |
 

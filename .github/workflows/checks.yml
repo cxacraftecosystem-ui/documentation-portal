@@ -183,15 +183,21 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          # 3.14 because that is what production runs: deploy-backend.yml builds the EC2 box's venv
-          # with python3.14 (since 2026-10-09; it was 3.12 until then, and so was this line). A suite
-          # that passes on a version production does not have is a weaker statement than it looks.
-          # backend/pyproject.toml requires >= 3.14.
+          # 3.14.8 EXACTLY, because that is what production runs: deploy-backend.yml builds the EC2
+          # box's venv on upstream CPython 3.14.8 from a pinned python-build-standalone build (since
+          # 2026-10-09; the box ran 3.12 until that morning, and so did this line). A suite that
+          # passes on a version production does not have is a weaker statement than it looks, and
+          # that is as true of a patch release as of a minor. backend/pyproject.toml requires >= 3.14.
           #
-          # `check-latest` because the runner image caches whichever 3.14.x it was built with (3.14.4
-          # on ubuntu-26.04 image 20260927) and setup-python takes that cached one unless told to
-          # look; with it, the job fetches the newest 3.14 from actions/python-versions (3.14.8 on
-          # 2026-10-09), which is the patch release the box's deadsnakes package carries too.
+          # A FULL VERSION, NOT "3.14" WITH `check-latest`. The runner image caches whichever 3.14.x
+          # it was built with (3.14.4 on ubuntu-26.04 image 20260927), so "3.14" alone tested 3.14.4;
+          # `check-latest` fixed that by fetching the newest 3.14 from actions/python-versions
+          # (3.14.8 on 2026-10-09), but the newest is not what the box runs the day a 3.14.9 lands
+          # before the box's pin moves. An exact version is fetched from that manifest when the
+          # image lacks it, and needs no `check-latest`. It moves with the box's pin, which
+          # deploy-backend.yml's build step and infra/terraform/user_data.sh carry (the build step
+          # says why it is not 3.15 yet); backend/tests/test_interpreter_pin.py fails while the
+          # three disagree.
           #
           # THE VERSION IS NOT COSMETIC HERE, AND IT USED TO BE MEASURED BY TWO RED TESTS. pydub
           # imports `audioop`, which PEP 594 removed from the standard library in 3.13, so on 3.14
@@ -199,8 +205,7 @@ jobs:
           # 503 before the size checks the two test_manifest_stream.py tests exist for. audioop-lts
           # (pyproject.toml, with a python_version >= '3.13' marker) puts the module back, and both
           # tests pass on 3.14 since 2026-10-09.
-          python-version: "3.14"
-          check-latest: true
+          python-version: "3.14.8"
           cache: pip
           # Both files: the lock decides the installed set, and pyproject is what a refresh of the
           # lock is compiled FROM, so a change to either must not reuse the other's cache.

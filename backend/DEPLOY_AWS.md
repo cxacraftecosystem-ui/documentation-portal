@@ -6,7 +6,7 @@ Architecture for the cheapest durable setup:
 |----------------|------------------------|-------------|
 | Database       | **Supabase** (already) | Managed Postgres, already persistent |
 | Object storage | **AWS S3**             | Durable, 11 9's |
-| API server     | **AWS EC2 (t3.micro)** | The only piece you host |
+| API server     | **AWS EC2** (t3.micro; t3.small from the 26.04 rebuild, §10) | The only piece you host |
 | Web frontend   | **Vercel** (free) or the same EC2 | — |
 
 Keep the DB on Supabase and media on S3 so the EC2 box is stateless and can be rebuilt anytime
@@ -16,12 +16,15 @@ without data loss.
 
 ## 1. Which EC2 instance
 
-- **Recommended: `t3.micro`** — 2 vCPU (burstable), **1 GiB RAM**, free-tier eligible (750 hrs/month
-  for 12 months). Enough to run the FastAPI/uvicorn API (DB + storage are off-box).
-- `t2.micro` is the older free-tier option; `t3.micro` is newer/faster — pick `t3.micro`.
+- **This project: `t3.small`** (2 vCPU burstable, 2 GiB RAM, *not* free tier), approved on
+  2026-10-09 with the rebuild onto 26.04 (§10). The box running that day is a **`t3.micro`** (1 GiB,
+  free-tier eligible): it runs the FastAPI/uvicorn API and the queue (DB + storage are off-box), but
+  with 122 MB available and 215 MB in swap on 2026-10-09, and a deploy building a venv beside the
+  live one needs more room than that.
+- `t2.micro` is the older free-tier option; `t3.micro` is newer/faster — for a free demo box, pick `t3.micro`.
 - **Do NOT** try to `npm run build` the Next.js frontend on 1 GiB — it OOMs. Either deploy the
   frontend to **Vercel**, or use a `t3.small` (2 GiB, *not* free) if everything must live on one box.
-- AMI: **Ubuntu Server 26.04 LTS** (Terraform's filter since 2026-10-09; the box running that day is 24.04, see §9). Storage: **30 GiB gp3** (free-tier max).
+- AMI: **Ubuntu Server 26.04 LTS** (Terraform's filter since 2026-10-09; the box running that day is 24.04, see §9). Storage: **30 GiB gp3** (free-tier max), **encrypted** on any box built since 2026-10-09 (the 24.04 box's is not).
 - Add a **2 GiB swap file** (below) so `pip install` / `prisma generate` don't get OOM-killed.
 
 > The "Free tier eligible" badge on larger types (m7i-flex.large etc.) refers to the new account
@@ -31,7 +34,8 @@ without data loss.
 
 ## 2. Launch + network
 
-1. **Launch instance** → Ubuntu 26.04, `t3.micro`, new key pair (download the `.pem`).
+1. **Launch instance** → Ubuntu 26.04, `t3.small` (§1), new key pair (download the `.pem`), and
+   *Advanced → Storage → Encrypted*. For this project's own box, §10 is the exact launch.
 2. **Elastic IP**: Allocate one and **associate it** with the instance. This gives a *stable* public
    IP (DHCP-style changes were exactly the LAN problem earlier — don't repeat it in the cloud).
 3. **Security group (inbound rules):**
@@ -46,13 +50,18 @@ without data loss.
 ```bash
 ssh -i your-key.pem ubuntu@<ELASTIC_IP>
 
-# swap (protects 1 GiB box during installs)
+# swap (protects a small box during installs)
 sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 
-sudo apt update && sudo apt install -y git python3.14 python3.14-venv   # on 24.04: add-apt-repository ppa:deadsnakes/ppa first
+sudo apt update && sudo apt install -y git libatomic1 curl
 git clone <YOUR_REPO_URL> app && cd app/backend
-python3.14 -m venv .venv   # by hand a plain directory; the deploy builds its own under ~/app/venvs (§9)
+# The interpreter, exactly as a new box gets it: upstream CPython from the pinned, checksummed
+# python-build-standalone build (§9), NOT apt's python3.14. The last block of user_data.sh is
+# self-contained: it downloads the pin, refuses a wrong SHA-256, and unpacks into /opt/cpython.
+sed -n "/^# --- The API's interpreter/,\$p" ../infra/terraform/user_data.sh | sudo bash -euo pipefail
+/opt/cpython/3.14.8+20261003/bin/python3.14 -m venv .venv   # the directory that block printed; by hand
+                                                           # a plain .venv, the deploy builds its own (§9)
 ./.venv/bin/python -m pip install -r requirements.lock && ./.venv/bin/python -m pip install --no-deps -e .
 PATH="$PWD/.venv/bin:$PATH" ./.venv/bin/python -m prisma generate
 ```
@@ -245,17 +254,22 @@ Everything below is codified in the repo so the only manual inputs are credentia
 ### 8.1 Provision with Terraform (`infra/terraform/`)
 
 Creates the **S3 bucket** (public-read `media/*` + CORS), an **IAM user** with
-`PutObject/GetObject/DeleteObject` and a fresh **access key**, and a **t3.micro**
-EC2 box with an **Elastic IP**, a 2 GiB swap file, **nginx** (reverse proxy on 80,
+`PutObject/GetObject/DeleteObject` and a fresh **access key**, and an EC2 box (**t3.small** with an
+**encrypted** gp3 root since 2026-10-09; the box running that day is a t3.micro, §10) with an
+**Elastic IP**, a 2 GiB swap file, **nginx** (reverse proxy on 80,
 so port 8000 is never exposed) and **ffmpeg** (needed for Whisper long-audio
-chunking), **Python 3.14** (Ubuntu 26.04's own; deadsnakes on an older AMI), plus the `fieldrepo`
+chunking), **upstream CPython 3.14.8** (a pinned, checksummed python-build-standalone build under
+`/opt/cpython`, not apt's; §9), plus the `fieldrepo`
 and `fieldrepo-queue` systemd units. The DB stays on Supabase.
 
-> **Changing the AMI filter replaces the instance on the next `apply`.** `main.tf` moved from the
+> **Changing the AMI filter, the instance type or the root volume's encryption replaces the instance
+> on the next `apply`.** `main.tf` moved from the
 > 24.04 (noble) filter to 26.04 (resolute) on 2026-10-09 without anything being applied, and the box
-> running that day is still the noble one. Applying is the planned way to rebuild onto 26.04 — the
-> box is stateless and the Elastic IP is reattached — but it is a production rebuild: do it after a
-> deploy has run the API on the 3.14 venv (§9), and re-create nginx/TLS and the `.env` afterwards.
+> running that day is still the noble one; the t3.small and the encrypted root followed the same
+> evening, also unapplied. The approved rebuild is done with the AWS CLI instead, blue/green, because
+> this repository holds no state: §10 has the exact launch. Either way it is a production rebuild —
+> the box is stateless and the Elastic IP is reattached — so do it after a
+> deploy has run the API on the pinned interpreter (§9), and re-create nginx/TLS and the `.env` afterwards.
 > A read-only `terraform plan` against the live resources on 2026-10-09 (import blocks in a scratch
 > copy; this repository holds no state) showed exactly that: `aws_instance.api` replaced for the
 > AMI, the Elastic IP re-associated, and the bucket, its policy, CORS, lifecycle and public-access
@@ -290,7 +304,8 @@ secret key; never commit them.
 ### 8.2 GitHub Actions secrets (auto-deploy on push)
 
 `.github/workflows/deploy-backend.yml`, on every push to `main` that touches `backend/` (once Checks
-is green on it): makes sure python3.14 is on the box, builds the venv from
+is green on it): installs the pinned CPython under `/opt/cpython` if the box does not have it yet,
+builds the venv from
 `backend/requirements.lock` **beside** the one the API is running on (§9), rsyncs `backend/`, writes
 `.env`, installs the project and generates the Prisma client into the new venv, runs
 `prisma migrate deploy`, points `backend/.venv` at the new venv, and restarts both services. Set
@@ -353,99 +368,161 @@ a single-shot transcription attempt.
 
 ---
 
-## 9. Python 3.14, and the venv the deploy builds
+## 9. The interpreter, and the venv the deploy builds
 
-Since 2026-10-09 the API runs on **Python 3.14**, the interpreter CI tests on, from a venv built
-from `backend/requirements.lock`. Before that the box ran Python 3.12 from a venv created once on
-2026-06-17 and never rebuilt, because the deploy only created `.venv` when it was missing and
-`pip install -e .` never upgrades what is already installed: production sat on June's versions,
-security advisories included, while CI tested whatever the index offered that day.
+Since 2026-10-09 the API runs on **upstream CPython 3.14.8**, the exact release CI tests on
+(`checks.yml` pins the same version), from a venv built from `backend/requirements.lock`. Before that
+day the box ran Python 3.12 from a venv created once on 2026-06-17 and never rebuilt, because the
+deploy only created `.venv` when it was missing and `pip install -e .` never upgrades what is already
+installed: production sat on June's versions, security advisories included, while CI tested whatever
+the index offered that day. The first fix, that morning, took `python3.14` from apt — deadsnakes'
+3.14.8 on 24.04, Ubuntu's own 3.14.4 on 26.04, two different interpreters — and the same evening the
+owner chose upstream 3.14.8 on both. apt is no longer where the API's Python comes from.
 
-**The layout on the box** (all owned by `ubuntu`):
+**Where it comes from.** [python-build-standalone](https://github.com/astral-sh/python-build-standalone),
+Astral's relocatable CPython builds (the ones `uv python install` fetches): release `20261003`, the
+newest carrying 3.14.8 on 2026-10-09; asset `cpython-3.14.8+20261003-x86_64-unknown-linux-gnu-install_only.tar.gz`;
+SHA-256 `371b6c281bbb09b29279e9e3a2996bab4ae2ea03cca52bf869f8bd89286b0ae8`, that release's
+`SHA256SUMS` line, which matched GitHub's own digest for the asset and a download hashed by hand. The
+x86_64 linux-gnu build needs nothing from the box but glibc: OpenSSL (3.5.9), SQLite (3.53.1), xz,
+libffi and zlib are built in, so the 24.04 box (system OpenSSL 3.0.13) and a 26.04 one (OpenSSL 3.5,
+sudo-rs, uutils coreutils, no `python3.12`) run the same bytes. The pin is four lines in
+`deploy-backend.yml`'s build step and the same four at the end of `infra/terraform/user_data.sh`;
+`backend/tests/test_interpreter_pin.py` fails when those two, or `checks.yml`'s `python-version`,
+disagree. **Why not 3.15:** 3.15.0 reached python.org on 2026-10-09, but setup-python's manifest, the
+official Docker image and python-build-standalone itself were still on 3.15.0rc3 that day, the lock's
+`httptools` 0.8.0 and `PyYAML` 6.0.3 had no cp315 wheels, and `prisma-client-py` 0.15.0 classifies
+itself only up to 3.12 — the build step's comment keeps that list next to the pin.
+
+**How it is installed** — by the deploy's build step whenever the box lacks it, and by
+`user_data.sh` on a new box, the same way: downloaded, then hashed as root inside a root-only staging
+directory under `/opt/cpython`, and **refused** unless the hash is the pinned one: not unpacked,
+nothing changed, the API and the queue untouched, because this runs before anything is stopped. What
+passes is unpacked root-owned with nothing group- or world-writable, proved as `ubuntu` (the
+version, and `ssl`, `sqlite3`, `lzma`, `ctypes`, `ensurepip`, `venv`), and only then renamed into
+place, with `INSTALLED_FROM` inside it naming the URL and hash. A box that has it downloads nothing.
+A directory of that name that is not the pinned build stops the deploy instead of being replaced,
+because a venv may be running on it.
+
+**The layout on the box:**
 
 | Path | What it is |
 |---|---|
-| `/home/ubuntu/app/venvs/py3.14-<16 hex>` | One venv per interpreter minor and lock: the hex is the start of the lock's SHA-256. `.complete` inside it is written last, holding `python -VV`; a directory without it is a build that did not finish and is rebuilt. |
+| `/opt/cpython/3.14.8+20261003` | The interpreter, owned by root. Never changed in place: a new pin is a new directory beside it. A deploy deletes one only after a healthy restart, and only when no venv under `venvs/` runs on it. |
+| `/home/ubuntu/app/venvs/cpython-3.14.8+20261003-<16 hex>` | One venv per interpreter build and lock: the hex is the start of the lock's SHA-256. `.complete` inside it is written last (`python -VV`, then the interpreter's path); a directory without it is a build that did not finish and is rebuilt. A venv whose `bin/python` does not resolve to the pinned interpreter is refused, never reused. Owned by `ubuntu`, like everything under `/home/ubuntu/app`. |
 | `/home/ubuntu/app/backend/.venv` | A **symlink** to the venv in use. The two systemd units run `.venv/bin/python`, so they never change when the venv does. |
-| `/home/ubuntu/app/venvs/py3.12-legacy` | The 3.12 venv every deploy before 2026-10-09 built in place, moved aside by the first 3.14 deploy and kept for rollback. |
+| `/home/ubuntu/app/venvs/py3.14-<16 hex>` | 24.04 box only: the venv the apt-based deploy built on the morning of 2026-10-09, on deadsnakes' `/usr/bin/python3.14`. The first deploy on the pinned interpreter switches away from it and names it in `venv-previous`, which keeps it until a later deploy moves on. |
+| `/home/ubuntu/app/venvs/py3.12-legacy` | 24.04 box only: the 3.12 venv every deploy before 2026-10-09 built in place, moved aside by the first 3.14 deploy and kept for rollback. |
 | `/home/ubuntu/app/venv-wanted`, `venv-previous` | The venv the last deploy built or chose, and the one `.venv` pointed at before it. |
 | `/home/ubuntu/.cache/prisma-python/nodeenv` | A symlink to `nodeenv-<version>`, the Node the Prisma CLI runs on, pinned in the deploy (26.11.1 on 2026-10-09; it had been 26.3.0, downloaded once and never refreshed). |
 
-**Python itself, on 24.04 and on 26.04.** The box running on 2026-10-09 is Ubuntu 24.04 (24.04.5
-after that day's patching), and a rebuild on 26.04 is approved; the deploy works out which it is on.
-On 24.04 `python3.14` and `python3.14-venv` come from the deadsnakes PPA (3.14.8 on 2026-10-09),
-which the deploy adds the first time the archive offers no `python3.14`; `python3.12`, 24.04's system
-Python, stays installed. On 26.04 3.14 *is* the system Python and comes from Ubuntu's own archive,
-and deadsnakes is never used there — it does not package a release's own default Python. Everything
-else in the deploy keys on the minor version only.
+**On 24.04 and on 26.04:**
 
-| | 24.04 (noble) | 26.04 (resolute) |
+| | 24.04 (noble): the box running on 2026-10-09 | 26.04 (resolute): the approved rebuild (§10) |
 |---|---|---|
-| `python3.14` source | deadsnakes PPA | Ubuntu archive |
-| version on 2026-10-09 | 3.14.8 (upstream's latest) | 3.14.4, with Ubuntu's security fixes backported (`3.14.4-1ubuntu0.2`) |
-| kept current by | the deploy (below) | unattended-upgrades (security pocket) and the deploy |
-| `python3.12` | installed (system Python); the rollback venv uses it | absent |
+| The API's interpreter | `/opt/cpython/3.14.8+20261003`, installed by the first deploy after this change | the same, installed by `user_data.sh` at first boot |
+| apt's `python3.14` | deadsnakes' 3.14.8, left installed, PPA and all: the rollback venv runs on it. Nothing upgrades it any more | Ubuntu's 3.14.4, the system `python3`: untouched, and not used by the API |
+| `python3.12` | installed (the system Python); `py3.12-legacy` runs on it | absent |
+| `libatomic1` (Node 26 links it) | installed | installed by `user_data.sh`; the deploy installs it whenever it is missing |
 
-Two consequences worth knowing before the rebuild. **26.04 runs Ubuntu's 3.14.4, not upstream's
-3.14.8**: Ubuntu backports security fixes into its build rather than taking every point release, and
-apt has no newer 3.14 for 26.04, so exact upstream parity there would mean a CPython from outside apt
-(python-build-standalone, `uv python install 3.14.x`) — a deliberate choice for the owner, not
-something the deploy does. And **a 26.04 box has no `python3.12` and no `py3.12-legacy` venv**, so a
-commit from before 2026-10-09 must not be deployed to it: its old deploy would install itself into the
-live 3.14 venv (*Going back*, below). Roll back by redeploying a later commit.
+**The deadsnakes PPA on the 24.04 box: left in place, harmless, until the box goes.** Nothing adds it
+any more and nothing removes it, because two rollback paths need its `python3.14`: `venv-previous`
+(deadsnakes' venv, after the first deploy on the pinned interpreter) and a redeploy of an apt-era
+commit (*Going back*, below). Nothing upgrades that interpreter now, which is harmless for one that
+nothing runs on until somebody rolls back. The rebuild onto 26.04 retires the box, PPA and all. To
+remove it before that, once no venv resolves to it (`readlink -f /home/ubuntu/app/venvs/*/bin/python`
+lists none under `/usr/bin/python3.14`) and no apt-era commit will be deployed again:
+`sudo rm /etc/apt/sources.list.d/deadsnakes-ubuntu-ppa-noble.sources && sudo apt-get update`, then
+purge deadsnakes' `python3.14` packages (`dpkg -l | grep 3.14` lists them).
 
-**Out of date is upgraded, missing is installed.** On every deploy the build step compares the
-installed `python3.14` with what its source offers, in the package lists the box's apt-daily timer
-refreshes, and upgrades it when they differ — best effort, warning and carrying on with the working
-interpreter if the upgrade fails. Without that the PPA's interpreter would never move:
-unattended-upgrades applies the archive's security pocket only, never a PPA. A missing interpreter,
-venv module or `libatomic1` is installed or the step fails. `libatomic1` is there because the official
-Node 26 binary the Prisma CLI runs on links against it and the 26.04 cloud image does not ship it
-(its manifest, read on 2026-10-09). apt runs with needrestart's hook suspended, so an upgraded
-library cannot restart the API in the middle of a deploy that restarts it at the end anyway.
+**Moving the pin** (a newer 3.14.x, or 3.15 once its blockers are gone):
 
-The deploy's two remote scripts, extracted verbatim from `deploy-backend.yml`, were run on
-2026-10-09 in an `ubuntu:24.04` container set up like the live box (a 3.12 venv built in place, a
-stand-in for Node 26.3.0 in the Prisma cache) and in an `ubuntu:26.04` one set up like the cloud image
-(`python3.14` present, no venv module, no `libatomic1`) but holding an older `python3.14` build, so
-the upgrade path ran too, each beside `postgres:17`: install, migration, switch,
-`/health` and `/health/ready` on the new venv, reuse of an unchanged lock, a rebuilt venv for a
-changed one, a lock that cannot install leaving the API untouched, and `pip check` refusing a floor
-the lock does not meet.
+1. Take the newest python-build-standalone release that carries the version, and its `install_only`
+   asset for `x86_64-unknown-linux-gnu`.
+2. Read the asset's SHA-256 from that release's `SHA256SUMS`, and check it two more ways:
+   `gh api repos/astral-sh/python-build-standalone/releases/tags/<release> --jq '.assets[] | select(.name=="<asset>") | .digest'`,
+   and `sha256sum` of a download.
+3. Change the four lines in `deploy-backend.yml`'s build step and at the end of
+   `infra/terraform/user_data.sh`, and `python-version` in `checks.yml`; from `backend/`, run
+   `python -m pytest tests/test_interpreter_pin.py`.
+4. The next deploy installs the new build beside the old one, builds a venv on it (a new name, so the
+   old venv is never reused), switches, and keeps the old venv as `venv-previous` — and with it the old
+   interpreter, until a later deploy no longer needs either.
 
-**Why the build cannot take the API down.** The venv is built before `backend/` is synced, while the
-API keeps serving from the old one, with `fieldrepo-queue` stopped for the install to spare memory
-(the box has 911 MB) and started again whatever the outcome. If pip fails, that step fails and
-nothing the API can see has changed. The switch to the new venv happens later, with both services
-stopped, as one atomic `rename(2)` of a symlink; an exit trap restarts both if anything between their
-stop and their restart fails, so a failed switch fails the deploy without leaving the API stopped
-(it did, before 2026-10-09's review, when run in a container with the one-line write of
-`venv-previous` made to fail). A deploy that changed only code finds its venv
-already built and installs nothing. After a healthy restart the deploy keeps the venv in use, the
-one before it and `py3.12-legacy`, and deletes older ones.
+**Missing is installed; nothing is upgraded in place.** The interpreter and `libatomic1` (what the
+official Node 26 binary the Prisma CLI runs on links against; the 26.04 cloud image does not ship it)
+are installed when missing, or the step fails. A different interpreter only ever arrives as a new pin
+in a commit, never as an apt upgrade in the middle of a deploy, so apt runs only for `libatomic1`,
+with needrestart's hook suspended so an upgraded library cannot restart the API mid-deploy.
+
+**Proved in containers on 2026-10-09.** The deploy's four remote scripts, extracted verbatim from
+`deploy-backend.yml` and fed to `bash -s` as `ubuntu` the way the runner's `ssh` feeds them, with
+systemd running the two real units (as `ubuntu`, from `user_data.sh`'s unit files) beside
+`postgres:17`:
+
+* **`ubuntu:24.04` set up like the live box**, by replaying its history: a 3.12 `.venv` built in
+  place, then `origin/main`'s own deploy (deadsnakes 3.14.8, `venvs/py3.14-<hash>`, `py3.12-legacy`,
+  Node 26.11.1). On that box: a first deploy whose pin does not match the download, refused with
+  nothing installed, apt never run, and the API and queue the same processes; the first real deploy
+  (download, verify, prove, venv, migrate, switch; the API and the queue running
+  `/opt/cpython/3.14.8+20261003/bin/python3.14` as `ubuntu`, `/health/ready` green, deadsnakes, its
+  venv and `py3.12-legacy` all kept); a re-run that downloaded and built nothing; a rollback by hand
+  onto `venv-previous` and forward again; a rollback by redeploying `origin/main` and forward again;
+  and a venv carrying the name a new lock would get but built on `/usr/bin/python3.14`, refused and
+  left in place. 39 checks, all passing.
+* **`ubuntu:26.04` set up like the cloud image** (sudo-rs, uutils coreutils, OpenSSL 3.5, no
+  `libatomic1`, no `python3.14-venv`): `user_data.sh` run verbatim as root, with the first deploy
+  started five seconds into it — the deploy waited out its 81 s, then found the interpreter it had
+  installed and needed no apt; a re-run; a pin bump with a wrong hash, refused with the API
+  untouched; and `user_data.sh` refusing a wrong hash itself, last, after nginx and the units were in
+  place. 24 checks, all passing. (Two stand-ins, both logged: a `cloud-init status` that answers
+  "running" until `user_data.sh` ends, and a `swapon` that only records its call, since a container
+  cannot enable a swap file.)
+* On both, every top-level module of every package in the lock imported in the new venv, with `ssl`
+  verifying `https://pypi.org`, `sqlite3` (FTS5), `lzma`, `ctypes`, `uvloop`, `pydantic-core`,
+  `cryptography`, `bcrypt`, PyYAML's C loader and `pydub` with `audioop` exercised; and Prisma's CLI
+  and query engine both got as far as `P1001: Can't reach database server` with no database behind
+  them, and reported the schema up to date against the real one.
+
+**Why the build cannot take the API down.** The interpreter is installed, and the venv built, before
+`backend/` is synced, while the API keeps serving from the old one, with `fieldrepo-queue` stopped for
+the venv install to spare memory (the box has 911 MB) and started again whatever the outcome. If the
+download is refused or pip fails, that step fails and nothing the API can see has changed. The switch
+to the new venv happens later, with both services stopped, as one atomic `rename(2)` of a symlink; an
+exit trap restarts both if anything between their stop and their restart fails, so a failed switch
+fails the deploy without leaving the API stopped (it did, before 2026-10-09's review, when run in a
+container with the one-line write of `venv-previous` made to fail). A deploy that changed only code
+finds its venv already built and installs nothing. After a healthy restart the deploy keeps the venv
+in use, the one before it and `py3.12-legacy`, deletes older ones, and deletes any `/opt/cpython`
+build that none of the kept venvs runs on.
 
 **Going back.** A venv is only the dependencies; the code on disk is whatever the last deploy synced.
 So the real rollback is the same as it has always been — redeploy the commit you want — and the
-venvs are there to make that fast. What to do by hand depends on which side of 2026-10-09 that
-commit is on:
+venvs are there to make that fast. What to do by hand depends on the commit:
 
-* **A commit from 2026-10-09 on** carries this deploy. It picks the venv for that commit's lock
-  itself (an older lock's venv is still there if it is `venv-previous`) and switches `.venv` to it.
-  Nothing to do by hand.
-* **A commit from before 2026-10-09, and that includes a `git revert` of the change that brought this
-  section,** carries the OLD deploy, whose install step runs `pip install -e .` into whatever `.venv`
-  points at. So point `.venv` at `py3.12-legacy` BEFORE that deploy starts, never while it runs:
+* **A commit from this change on** carries this deploy. It installs its own pin if the box lacks it,
+  picks the venv for that pin and lock itself (an older one is still there if it is `venv-previous`)
+  and switches `.venv` to it. Nothing to do by hand.
+* **A commit from 2026-10-09 before this change** (the apt-based deploy, `2a4a959` to `ea2a61c`)
+  builds on apt's `python3.14`: on the 24.04 box deadsnakes', still installed for exactly this, and
+  reusing `venvs/py3.14-<hash>` when its lock matches; on a 26.04 box Ubuntu's 3.14.4, which it
+  installs `python3.14-venv` for. It works on both, but on 26.04 it is not the interpreter CI tests:
+  prefer a later commit there.
+* **A commit from before 2026-10-09, and that includes a `git revert` of the change that brought
+  Python 3.14,** carries the OLD deploy, whose install step runs `pip install -e .` into whatever
+  `.venv` points at. So point `.venv` at `py3.12-legacy` BEFORE that deploy starts, never while it
+  runs:
 
   ```bash
   ln -sfn /home/ubuntu/app/venvs/py3.12-legacy /home/ubuntu/app/backend/.venv
   ```
 
-  Left on a `py3.14-*` venv, the old deploy installs the old `pyproject.toml` into it (bcrypt 4.0.1,
-  python-jose, passlib). That venv's name and `.complete` still say it holds the lock, so the next
-  forward deploy reuses it and stops at `pip check` (`bcrypt>=5.0.0`), after its code sync. To
-  recover: point `.venv` at a different venv, `rm -rf` the polluted one, and re-run the deploy, whose
-  build step makes it again. A 26.04 box has no `py3.12-legacy` to point at: roll back there by
-  redeploying a commit from 2026-10-09 on.
+  Left on a `py3.14-*` or `cpython-*` venv, the old deploy installs the old `pyproject.toml` into it
+  (bcrypt 4.0.1, python-jose, passlib). That venv's name and `.complete` still say it holds the lock,
+  so the next forward deploy reuses it and stops at `pip check` (`bcrypt>=5.0.0`), after its code
+  sync. To recover: point `.venv` at a different venv, `rm -rf` the polluted one, and re-run the
+  deploy, whose build step makes it again. A 26.04 box has no `py3.12-legacy` to point at: roll back
+  there by redeploying a commit from 2026-10-09 on.
 
 To point the services at the previous venv by hand, without a deploy:
 
@@ -464,6 +541,66 @@ venv. Once 3.14 has served for a while, delete it: `rm -rf /home/ubuntu/app/venv
 ```bash
 readlink -f /home/ubuntu/app/backend/.venv && cat "$(readlink -f /home/ubuntu/app/backend/.venv)/.complete"
 ls -1 /home/ubuntu/app/venvs
+ls -l /opt/cpython && cat /opt/cpython/*/INSTALLED_FROM
 /home/ubuntu/app/backend/.venv/bin/python -m pip list --format=freeze | head
 /home/ubuntu/.cache/prisma-python/nodeenv/bin/node --version
 ```
+
+---
+
+## 10. Rebuilding the box on 26.04 (approved 2026-10-09)
+
+The owner approved rebuilding this box on Ubuntu 26.04 as a **t3.small** with an **encrypted** gp3
+root, blue/green: build the new box, deploy to it, verify it, move the Elastic IP, stop (not
+terminate) the old one. This repository holds no Terraform state, so the launch is an AWS CLI call;
+`infra/terraform/main.tf` describes the same instance. Everything else below was read, read-only,
+from i-06f177db5c4e3b0af on 2026-10-09, and the new box takes the same values:
+
+| | The live box (i-06f177db5c4e3b0af) | The rebuild |
+|---|---|---|
+| Region / AZ | ap-south-1 / ap-south-1a | the same |
+| AMI | `ami-006f82a1d5a27da54` (noble 24.04, 20260610) | Canonical's current 26.04 amd64 gp3 image, resolved at launch from the public SSM parameter below (`ami-039bcc649e447aea2`, `ubuntu-resolute-26.04-amd64-server-20261003`, on 2026-10-09) |
+| Instance type | t3.micro (CPU credits: unlimited) | **t3.small** (unlimited) |
+| Subnet | `subnet-09cf3361e0a18df70` (the default subnet of `vpc-0010b4077934ea06d`, public IPv4 on launch) | the same |
+| Security group | `sg-0a3ffc8a00c9246f1` (`fieldrepo-api`: 22, 80 and 443 from anywhere) | the same |
+| Key pair | `fieldrepo-deploy` (its private half is the `EC2_SSH_KEY` secret) | the same |
+| Instance profile | `fieldrepo-ssm` (AmazonSSMManagedInstanceCore; SSM is the only shell that does not need the key) | the same |
+| Instance metadata | IMDSv2 required, hop limit 2 | the same |
+| Root volume | `/dev/sda1`, 30 GiB gp3, 3000 IOPS, 125 MB/s, **not encrypted** | the same, **encrypted** (the account default KMS key, `alias/aws/ebs`; EBS encryption by default is off in this account, so it must be asked for) |
+| User data | the old `user_data.sh` (2026-06-17) | `infra/terraform/user_data.sh` from the commit being deployed |
+| Elastic IP | `15.207.145.174` (`eipalloc-03a87f17914bfa85d`), the CloudFront origin | moved to the new box at cutover |
+| Tags | `Name=fieldrepo-api`, `Project=fieldrepo` | `Name=fieldrepo-api-2604` until cutover, then `fieldrepo-api` |
+
+**1. Launch**, from the repository root of a checkout of the commit that will be deployed (its
+`user_data.sh` must be LF-only, which `.gitattributes` guarantees for `*.sh`). This exact call, with
+`--dry-run` added, answered `DryRunOperation: Request would have succeeded` on 2026-10-09:
+
+```bash
+aws ec2 run-instances --region ap-south-1 \
+  --image-id resolve:ssm:/aws/service/canonical/ubuntu/server/26.04/stable/current/amd64/hvm/ebs-gp3/ami-id \
+  --instance-type t3.small \
+  --credit-specification CpuCredits=unlimited \
+  --key-name fieldrepo-deploy \
+  --subnet-id subnet-09cf3361e0a18df70 \
+  --security-group-ids sg-0a3ffc8a00c9246f1 \
+  --iam-instance-profile Name=fieldrepo-ssm \
+  --metadata-options HttpTokens=required,HttpEndpoint=enabled,HttpPutResponseHopLimit=2 \
+  --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":30,"VolumeType":"gp3","Iops":3000,"Throughput":125,"Encrypted":true,"DeleteOnTermination":true}}]' \
+  --user-data file://infra/terraform/user_data.sh \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=fieldrepo-api-2604},{Key=Project,Value=fieldrepo}]' \
+                       'ResourceType=volume,Tags=[{Key=Name,Value=fieldrepo-api-2604},{Key=Project,Value=fieldrepo}]' \
+  --count 1
+```
+
+**2. Wait for first boot**, then check what it built (SSM, so no key is needed):
+`cloud-init status --wait` must end `status: done`; `cat /opt/cpython/*/INSTALLED_FROM`,
+`systemctl is-enabled fieldrepo fieldrepo-queue`, `systemctl is-active nginx`. A `user_data.sh`
+that could not fetch or verify the interpreter fails last, after nginx and the units, and the first
+deploy installs it (or refuses it) the same way.
+
+**3. Deploy to it:** point the `EC2_HOST` secret at the new box's public IP, run *Deploy backend to
+EC2* from the Actions tab (a dispatch deploys without waiting for Checks), and check `/health` and
+`/health/ready` on that IP. **4. Cut over:** `aws ec2 associate-address --region ap-south-1
+--allocation-id eipalloc-03a87f17914bfa85d --instance-id <new id> --allow-reassociation`, set
+`EC2_HOST` back to `15.207.145.174`, check the API through CloudFront, retag both boxes, and **stop**
+the old one (`aws ec2 stop-instances`), so going back is a start and an `associate-address`.

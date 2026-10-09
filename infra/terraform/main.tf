@@ -1,6 +1,7 @@
 ###############################################################################
 # Field Repository infrastructure: S3 (media) + IAM (programmatic media access)
-# + EC2 t3.micro (FastAPI behind nginx). Database stays on Supabase, so the box
+# + EC2 (FastAPI behind nginx; a t3.micro until the 26.04 rebuild approved on
+# 2026-10-09, a t3.small from it). Database stays on Supabase, so the box
 # is stateless and can be rebuilt anytime without data loss.
 #
 # Usage:
@@ -224,9 +225,11 @@ resource "aws_iam_access_key" "media" {
 ############################### EC2 (API server) ##############################
 
 # Ubuntu 26.04 LTS (resolute) for any box built from here since 2026-10-09. Its archive carries
-# python3.14 (the interpreter the deploy runs the API on), nginx 1.28 and ffmpeg 8. The box running
-# on 2026-10-09 (i-06f177db5c4e3b0af) is still 24.04, built from the noble filter that stood here,
-# and the deploy puts python3.14 on it from the deadsnakes PPA instead.
+# nginx 1.28 and ffmpeg 8; the API's interpreter does not come from it (Ubuntu's python3.14 is
+# 3.14.4): user_data.sh and the deploy install upstream CPython 3.14.8, the release CI tests, from a
+# pinned and checksummed python-build-standalone build under /opt/cpython, on 24.04 and 26.04 alike.
+# The box running on 2026-10-09 (i-06f177db5c4e3b0af) is still 24.04, built from the noble filter
+# that stood here.
 #
 # ⚠ CHANGING THIS FILTER REPLACES THE INSTANCE ON THE NEXT `apply` (a new AMI forces a new
 # aws_instance). That is how the move to 26.04 is meant to happen — the box is stateless (Supabase
@@ -279,9 +282,15 @@ resource "aws_security_group" "api" {
   }
 }
 
+# t3.small (2 GiB) and an ENCRYPTED root volume: what the owner approved on 2026-10-09 for the 26.04
+# rebuild. The t3.micro this replaces had 909 MB, ran the API and the queue with 122 MB available and
+# 215 MB in swap that day, and its root volume was never encrypted (nor is EBS encryption on by
+# default in this account). Both change the instance on an `apply`, as the AMI filter above does. The
+# rebuild itself is done with the AWS CLI, because this repository holds no state:
+# backend/DEPLOY_AWS.md §10 has the exact run-instances call, with the same values as this resource.
 resource "aws_instance" "api" {
   ami                    = data.aws_ami.ubuntu.id
-  instance_type          = "t3.micro"
+  instance_type          = "t3.small"
   key_name               = var.ssh_key_name
   vpc_security_group_ids = [aws_security_group.api.id]
   user_data              = file("${path.module}/user_data.sh")
@@ -296,6 +305,7 @@ resource "aws_instance" "api" {
   root_block_device {
     volume_size = 30
     volume_type = "gp3"
+    encrypted   = true
   }
 
   tags = {

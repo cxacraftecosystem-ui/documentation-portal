@@ -41,7 +41,9 @@ version: 2
 #   raised floor, and pip reports the disagreement rather than letting it merge quietly.
 # • It does not know about the Vercel CLI (`npm install --global vercel@latest` in
 #   deploy-frontend.yml, unpinned on purpose), the Node the Prisma CLI runs on the EC2 box (pinned by
-#   hand in deploy-backend.yml), or the box's own packages (python3.14 from deadsnakes, nginx).
+#   hand in deploy-backend.yml), the box's CPython (a python-build-standalone build pinned by hand in
+#   deploy-backend.yml and infra/terraform/user_data.sh, with checks.yml's python-version beside it),
+#   or the box's own packages (nginx, ffmpeg).
 # • A FROM line whose tag comes from an `ARG` is invisible to its docker parser. backend/Dockerfile
 #   writes its tags out for that reason; frontend/Dockerfile still uses `node:${NODE_VERSION}-alpine`,
 #   so its entry below finds nothing until that ARG is written out the same way.
