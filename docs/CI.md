@@ -178,7 +178,7 @@ Three jobs, deliberately independent, so one red does not hide another's answer:
 | Job (the name branch protection needs) | Where it runs | What it runs |
 |---|---|---|
 | **Backend tests** | `backend/` | Python 3.14 (`check-latest`) → `pip install -r requirements.lock` → `pip install --no-deps -e .` → `pip check` → `python -m prisma generate` → `python -m pytest -rf --durations=15` |
-| **Web typecheck, lint and unit specs** | `frontend/` | Node 24, read from `engines.node` in `frontend/package.json` → `npm ci` → `npx tsc --noEmit` (TypeScript 7) → `npx tsc6 --noEmit` (TypeScript 6, what `next build` runs; *The web app's two TypeScripts* below) → `npm run lint` → `npm run test:unit` |
+| **Web typecheck, lint and unit specs** | `frontend/` | Node 24, read from `engines.node` in `frontend/package.json` → npm 12 (*npm 12 and the install-script policy* below) → `npm ci` → `npx tsc --noEmit` (TypeScript 7) → `npx tsc6 --noEmit` (TypeScript 6, what `next build` runs; *The web app's two TypeScripts* below) → `npm run lint` → `npm run test:unit` |
 | **Docs check** | repository root | Node 24 (the same field) → `node docs/tools/check-docs.mjs` |
 
 Measured on the tree the workflow landed with (2026-09-14, on a laptop — a runner will differ):
@@ -395,6 +395,41 @@ changes. If eslint-config-next drops its shim first, the spec above fails; the f
 config built by hand from `@next/eslint-plugin-next`, eslint-plugin-react-hooks, typescript-eslint,
 eslint-plugin-import-x and `@eslint-react/eslint-plugin`, with jsx-a11y wrapped by `@eslint/compat`'s
 `fixupPluginRules`, keeping the `react-hooks/set-state-in-effect` override.
+
+### npm 12 and the install-script policy
+
+Since 2026-10-10 the two jobs that install `frontend/` replace setup-node's npm with npm 12 before
+installing anything: `checks.yml`'s web job, and `deploy-frontend.yml`'s deploy job, whose
+`vercel build` runs `frontend/vercel.json`'s `npm ci` with the npm on PATH. The step is
+`npm install --global npm@12`, so every run takes the newest 12.x, the way `check-latest` takes the
+newest 24.x. No Node release bundles npm 12 yet (Node 24 ships npm 11), so the step stays until the
+Node in `engines.node` ships it, and then goes.
+
+**What npm 12 changes here.** It runs a dependency's install script only when the `allowScripts`
+field of `frontend/package.json` approves that package, and skips every other one with a warning that
+names it. This tree has exactly one dependency with an install script, `unrs-resolver` (the resolver
+inside eslint-config-next's TypeScript import resolver), and `allowScripts` approves it at the
+version that was reviewed, `unrs-resolver@1.12.2`. Its script is napi-postinstall, which fetches the
+platform's native binding only when the binding did not already arrive as an optional dependency;
+with this lockfile it always arrives. It is approved rather than denied so that an install behaves
+exactly as it did under npm 11.
+
+**When a dependency bump brings an install script**, or moves `unrs-resolver` past the approved
+version, `npm ci` prints `install scripts blocked` and names the package. Nothing fails; the script
+simply does not run. Read the script, then from `frontend/`, with npm 12, run
+`npm install-scripts approve <pkg>` (or `deny <pkg>`) and commit `package.json`;
+`npm install-scripts ls` lists anything still unreviewed. npm 11, which local machines and
+`frontend/Dockerfile`'s `node:24-alpine` still bundle, ignores the field and runs every install
+script, as it always has.
+
+**The Vercel CLI.** `npm install --global vercel@latest` has no `package.json` whose `allowScripts`
+could approve anything, so under npm 12 none of its dependencies' install scripts run. The CLI has
+one, esbuild's postinstall, which only re-checks a binary that the optional `@esbuild/<platform>`
+package already supplied, so the deploy log lists esbuild as blocked and the CLI works without it.
+
+**Not moved.** `keep-supabase-active.yml` installs the repository root with the npm its setup-node
+brings; it runs against the production database, so it was not exercised here, and it keeps npm 11
+until the Node it uses bundles 12.
 
 ---
 
@@ -842,6 +877,7 @@ parts that are not are exactly the parts that were wrong before.
 | The backend dependency lock (§1) | `backend/requirements.lock` is generated: its header names the Python that compiled it (3.14) and the command. Re-run the command in §1 and diff — an empty diff on the same day means it is current. `grep -n "requirements.lock" .github/workflows/checks.yml .github/workflows/deploy-backend.yml backend/Dockerfile` finds every place that installs it. |
 | The web app's two TypeScripts (§1) | From `frontend/`: `npx tsc --version` must print 7.x, `npx tsc6 --version` 6.x, and `node -p "require('typescript').version"` 6.x. The day typescript-eslint's peer range admits 7 (`npm view typescript-eslint peerDependencies`), the subsection's last paragraph is the removal recipe. |
 | ESLint 10 and its three out-of-range plugins (§1) | `frontend/e2e/eslint-rules-run-unit.spec.ts`, in the Unit specs step, fails if any plugin stops reporting. `npm view eslint-plugin-react peerDependencies` (and the same for eslint-plugin-import and eslint-plugin-jsx-a11y) says when the `ERESOLVE` warnings should stop. |
+| npm 12 and the install-script policy (§1) | The web job's "Install npm 12" step prints `npm --version` (12.x), and its Install step prints no `install scripts blocked` lines. From `frontend/`, with npm 12, `npm install-scripts ls` must print "No packages with unreviewed install scripts". The day the Node in `engines.node` bundles npm 12 (its release notes say so), delete the "Install npm 12" step from `checks.yml` and from `deploy-frontend.yml`. |
 | The runner image | `grep -n "runs-on" .github/workflows/*.yml` — every job names `ubuntu-26.04` (since 2026-10-09), never `ubuntu-latest`, so an image move is a reviewed diff rather than a GitHub announcement. |
 | Branch protection: whether the checks are required | **UNVERIFIED from here** — console state, and the single most load-bearing unverifiable claim on this page. Nothing in `.github/` can assert it. **Settings → Branches**, or `gh api repos/:owner/:repo/branches/main/protection`. |
 | Everything about cutting a release | [RELEASING.md](RELEASING.md), which owns it. This document states only where `publish-android.yml` sits in the pipeline and which secrets it reads; if the two disagree about anything else, RELEASING.md wins. |

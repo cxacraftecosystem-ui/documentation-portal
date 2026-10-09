@@ -423,6 +423,16 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Install npm 12
+        # The newest npm 12 on every run, as `check-latest` takes the newest 24.x. No Node release
+        # bundles npm 12 yet (Node 24 ships npm 11), so this step goes when the Node in
+        # `engines.node` ships it. npm 12 runs a dependency's install script only when
+        # `allowScripts` in frontend/package.json approves it: see docs/CI.md, "npm 12 and the
+        # install-script policy". deploy-frontend.yml's deploy job has the same step.
+        run: |
+          npm install --global npm@12
+          npm --version
+
       - name: Install
         # `npm ci` only. NO `npx playwright install`: MEASURED 2026-09-14 with
         # PLAYWRIGHT_BROWSERS_PATH pointed at an empty directory, `npm run test:unit` is 104 passed
