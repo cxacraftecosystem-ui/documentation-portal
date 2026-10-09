@@ -4,7 +4,7 @@ import com.fieldrepository.app.ui.artisanScopeNoun
 import com.fieldrepository.app.ui.artisansNotAtWorkshop
 import com.fieldrepository.app.ui.listCutNotice
 import com.fieldrepository.app.ui.outOfWorkshopNotice
-import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
+import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import kotlinx.coroutines.runBlocking
 import okhttp3.HttpUrl
 import okhttp3.Interceptor

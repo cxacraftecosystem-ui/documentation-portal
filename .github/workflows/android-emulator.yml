@@ -1,0 +1,175 @@
+name: Android emulator smoke
+
+# ─── THE ONE PLACE THE APP RUNS BEFORE A HANDSET DOES ───────────────────────────────────────
+#
+# Adapted from the designer portal's android-emulator.yml, with one difference that decides the
+# shape: that repository has instrumented tests for `connectedDebugAndroidTest` to run, and this one
+# has none — `android/app/src/androidTest/` does not exist. What there IS to ask a device, since
+# targetSdk moved to 37 on 2026-10-09, is whether the app survives Android 16's and 17's behaviour
+# changes: edge-to-edge with no opt-out, predictive back, large screens that ignore orientation
+# limits, and the local-network permission. `android/scripts/emulator-smoke.py` asks exactly that of
+# the same debug APK android-build.yml uploads — its docstring lists every check — plus a second
+# debug build pointed at a stub on the runner, for the local-network part. Screenshots, UI dumps,
+# the system's own inset frames and the logcat come back as an artifact.
+#
+# What it cannot do: sign in (so it never touches production data) or play media, so Android 17's
+# background-audio silencing and everything behind the login stay on the handset checklist in
+# docs/RELEASING.md.
+#
+# ─── WHY `workflow_dispatch` ONLY, WHICH IS A COST DECISION AND NOT A TASTE ──────────────────
+# The same argument the designer portal makes: an emulator job needs KVM, boots a system image and
+# takes far longer than every other workflow here, to re-prove behaviour that changes when the
+# targetSdk, the Compose BOM or the root layout does. So it is a tool, not a gate: run it before
+# cutting a release, after a dependency pull request that touches Compose, activity or the SDK
+# levels, or when a handset does something the JVM tests say is impossible.
+#
+#     gh workflow run android-emulator.yml --ref <branch> -f api-level=37.0
+#
+# It is NOT wired into branch protection and must not be: a required check that a human has to
+# remember to trigger blocks every pull request forever.
+#
+# The action pins below are the newest releases as of 2026-10-09 and Dependabot's github-actions
+# entry keeps them moving; `ubuntu-26.04` is the newest GA runner image, which preinstalls the
+# Android 37.x platforms and build-tools 37.0.0.
+
+on:
+  workflow_dispatch:
+    inputs:
+      api-level:
+        description: "System image API level. API 37's images are named 37.0, 37.1 and 37.2."
+        type: string
+        default: "37.0"
+      target:
+        description: "google_apis, or google_apis_ps16k for a device with 16 KB memory pages"
+        type: choice
+        options:
+          - google_apis
+          - google_apis_ps16k
+        default: google_apis
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-emulator-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Debug APK on an API ${{ inputs.api-level }} emulator (${{ inputs.target }})
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: android
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          # Same JDK, and the same reasons, as android-build.yml: it runs Gradle; the classes are
+          # still Java 17 bytecode.
+          java-version: "25"
+          cache: gradle
+
+      - name: Make the Gradle wrapper executable
+        # Committed as 100644 from Windows; same line, same reason, as android-build.yml.
+        run: chmod +x gradlew
+
+      - name: Ensure the required Android SDK packages are installed
+        # Mirrors android-build.yml: compileSdk 37 is the `android-37.0` platform package, and
+        # build-tools 37.0.0. No-ops when the image already has them.
+        run: |
+          set -euo pipefail
+          sdkmanager="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$sdkmanager" "platforms;android-37.0" "build-tools;37.0.0" > /dev/null
+
+      - name: Build the debug APK, as android-build.yml builds it
+        # No local.properties exists at this point, so this is byte-for-byte the build the Android
+        # build workflow uploads: production API base, debug-signed.
+        run: |
+          set -euo pipefail
+          ./gradlew :app:assembleDebug --console=plain --stacktrace
+          cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/app-debug.apk"
+
+      - name: Build a second debug APK pointed at the runner, for the local-network check
+        # The ONE place in this repository's CI that writes android/local.properties, and why it may:
+        # this APK never leaves the job. It exists to prove that a debug build aimed at a development
+        # backend on 10.0.2.2 asks for Android 17's local-network permission and, once granted,
+        # reaches the stub the smoke script serves on the runner. The file is deleted straight after.
+        #
+        # The dex is CHECKED, not trusted: the API base is a compile-time constant inlined into the
+        # Kotlin that uses it, so an incremental build that missed the change would carry the
+        # production URL and silently test nothing. Both directions are asserted, and a stale build is
+        # redone from scratch.
+        run: |
+          set -euo pipefail
+          printf 'apiBaseUrl=http://10.0.2.2:8000/api/\n' > local.properties
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          lan_ok() {
+            unzip -p "$apk" 'classes*.dex' > "$RUNNER_TEMP/lan-dex"
+            grep -aqF 'http://10.0.2.2:8000/api/' "$RUNNER_TEMP/lan-dex" &&
+              ! grep -aqF 'https://d2b34i3e92al6i.cloudfront.net/api/' "$RUNNER_TEMP/lan-dex"
+          }
+          ./gradlew :app:assembleDebug --console=plain
+          if ! lan_ok; then
+            echo "::warning::The incremental build kept the production API base; rebuilding :app from scratch."
+            ./gradlew :app:assembleDebug --console=plain --rerun-tasks
+            lan_ok || { echo "::error::The local-network APK still carries the production API base."; exit 1; }
+          fi
+          rm local.properties
+          cp "$apk" "$RUNNER_TEMP/app-debug-lan.apk"
+
+      - name: Enable KVM for the emulator
+        # Without this the emulator falls back to software rendering and the job times out. The
+        # image has /dev/kvm but does not grant the runner user access to it; the udev rule is the
+        # documented fix from the action's own README.
+        working-directory: .
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules > /dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
+      - name: Run the smoke script on the emulator
+        # Third-party, so SHA-pinned like every other action here (see .github/dependabot.yml).
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        env:
+          SMOKE_OUT: ${{ github.workspace }}/android/build/emulator-smoke
+          SMOKE_PROD_APK: ${{ runner.temp }}/app-debug.apk
+          SMOKE_LAN_APK: ${{ runner.temp }}/app-debug-lan.apk
+        with:
+          api-level: ${{ inputs.api-level }}
+          target: ${{ inputs.target }}
+          arch: x86_64
+          # A 1080x2400 phone; the script resizes the display itself for the large-screen check.
+          profile: pixel_7
+          cores: 4
+          ram-size: 4096M
+          emulator-boot-timeout: 900
+          # No window, no audio, no boot animation, no camera, and no snapshot either way: writing
+          # one costs minutes that nothing will read, and loading one that does not exist is a boot
+          # path with failure modes of its own.
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+            -no-snapshot-save -no-snapshot-load -camera-back none -camera-front none
+          disable-animations: true
+          working-directory: android
+          script: python3 scripts/emulator-smoke.py
+
+      - name: Upload the smoke results
+        # `always()`: a red run is exactly when the screenshots and the logcat are worth reading.
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-emulator-smoke-${{ inputs.api-level }}-${{ inputs.target }}
+          path: android/build/emulator-smoke/
+          if-no-files-found: warn
+          retention-days: 14

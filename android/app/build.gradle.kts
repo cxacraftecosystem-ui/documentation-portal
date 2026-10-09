@@ -2,8 +2,9 @@ import java.io.File
 import java.util.Properties
 
 plugins {
+    // No `org.jetbrains.kotlin.android`: AGP 9 compiles this module's Kotlin itself. See the root
+    // build.gradle.kts for why it must not be re-added.
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
 }
@@ -113,12 +114,37 @@ if (releaseKeystorePath != null && !hasReleaseSigningKey) {
 
 android {
     namespace = "com.fieldrepository.app"
-    compileSdk = 35
+    /*
+     * 37 IS ANDROID 17, AND BOTH NUMBERS MOVE TOGETHER.
+     *
+     * compileSdk 37 is not optional: core 1.19, the lifecycle-*-compose 2.11 artifacts and Compose
+     * 1.12 declare minCompileSdk 37 (and AGP 9.1 or later) in their AAR metadata. It means the
+     * `platforms;android-37.0` package, which every Android workflow installs. The 37.1 and 37.2
+     * minor platforms add APIs only — a minor release carries no behaviour change, and targetSdk has
+     * no minor — and nothing here calls one. Adopting a minor is
+     * `compileSdk { version = release(37) { minorApiLevel = 2 } }` plus the matching platform package
+     * in the workflows, the day a minor-only API is wanted.
+     *
+     * targetSdk 37 opts this app into every Android 16 and 17 behaviour change. The ones that reach
+     * this code, and where each is handled:
+     *   • edge-to-edge with no opt-out    -> MainActivity.onCreate + the root of RepositoryApp
+     *   • predictive back                 -> AndroidManifest.xml (BackHandler only, no onBackPressed)
+     *   • large screens ignore orientation and resizability -> nothing to undo: the manifest never
+     *     restricted either, and MainActivity handles its own configuration changes
+     *   • local-network permission        -> src/debug/AndroidManifest.xml + ui/LocalNetworkAccess.kt
+     *     (a development backend on 10.0.2.2 or a LAN address; production is public HTTPS)
+     *   • background audio is silenced without a foreground service -> ui/MediaPlayers.kt pauses
+     *   • Certificate Transparency and Encrypted Client Hello on by default ->
+     *     res/xml/network_security_config.xml
+     */
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.fieldrepository.app"
+        // A device floor, not a version to chase: it decides which handsets in the field can install
+        // the app at all. Every library below supports it (the newest AndroidX AARs ask for 23).
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 37
         versionCode = appVersionCode
         versionName = appVersionName
         // Default to the production backend through CloudFront over HTTPS. CloudFront is dual-stack
@@ -263,13 +289,21 @@ android {
         }
     }
 
+    /*
+     * JAVA 17 BYTECODE, ON PURPOSE, AND NOT THE JDK THAT RUNS THE BUILD.
+     *
+     * The workflows run Gradle on JDK 25 (the current Temurin LTS); this is the level the classes are
+     * compiled FOR, and the two are independent. 17 is the newest Java level Android documents for
+     * current APIs (developer.android.com/build/jdks), so it stays here until that page names a
+     * higher one — and the four vendored core modules must move with it, because they emit 17 too.
+     *
+     * There is no `kotlinOptions`/`compilerOptions.jvmTarget` beside it any more. Under AGP 9's
+     * built-in Kotlin the Kotlin target defaults to `targetCompatibility`, so this one line is the
+     * single place the level is set, and javac and kotlinc cannot disagree.
+     */
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = "17"
     }
 
     testOptions {
@@ -309,8 +343,16 @@ android {
     }
 }
 
+/*
+ * EVERY VERSION BELOW IS THE LATEST STABLE RELEASE AS OF 2026-10-09, read off Google Maven and Maven
+ * Central that day, and Dependabot (.github/dependabot.yml, the `gradle` entry) watches them from
+ * here on. Two look old and are not: material-icons-extended, whose newest release is 1.7.8, and
+ * junit:junit, whose final release is 4.13.2 — JUnit 5 and 6 are a different framework, not newer
+ * versions of this artefact, and AGP runs JVM unit tests on JUnit 4.
+ */
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
+    // Compose UI/foundation/runtime 1.12.1, material3 1.4.0, material-icons-extended 1.7.8.
+    val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
@@ -329,28 +371,56 @@ dependencies {
     implementation(project(":core-pipeline"))
     implementation(project(":core-export"))
 
-    implementation("androidx.activity:activity-compose:1.9.3")
-    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.activity:activity-compose:1.13.0")
+    implementation("androidx.core:core-ktx:1.19.1")
     implementation("androidx.compose.material3:material3")
+    // Its newest release is still 1.7.8 (February 2025) and the BOM above pins exactly that, so this
+    // IS the latest — there is simply nothing newer to move to. The icons it carries are referenced
+    // all over ui/; leaving the artefact would mean redrawing them as vector drawables, which is a
+    // design change and not a version bump.
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
     implementation("androidx.credentials:credentials:1.6.0")
     implementation("androidx.credentials:credentials-play-services-auth:1.6.0")
-    implementation("com.google.android.libraries.identity.googleid:googleid:1.2.0")
-    implementation("io.coil-kt:coil-compose:2.7.0")
-    implementation("io.coil-kt:coil-video:2.7.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.2.1")
+    /*
+     * COIL 3: a new group (`io.coil-kt.coil3`) and a new package (`coil3.*`). Coil 3 has no network
+     * stack of its own, so `coil-network-okhttp` is NOT optional — without it every `https://` model
+     * (a Data Browser thumbnail, a presigned media URL) fails to load, while `content://` and
+     * `file://` ones keep working, which is exactly the half-broken state nobody would notice on a
+     * desk. It registers itself through ServiceLoader, so the default loader and the one
+     * ui/MediaPlayers.kt builds both pick it up with no code.
+     */
+    implementation("io.coil-kt.coil3:coil-compose:3.6.3")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.6.3")
+    implementation("io.coil-kt.coil3:coil-video:3.6.3")
 
     // In-app video/audio playback
-    implementation("androidx.media3:media3-exoplayer:1.4.1")
-    implementation("androidx.media3:media3-ui:1.4.1")
+    implementation("androidx.media3:media3-exoplayer:1.11.1")
+    implementation("androidx.media3:media3-ui:1.11.1")
 
-    implementation("com.squareup.retrofit2:retrofit:2.11.0")
-    implementation("com.jakewharton.retrofit:retrofit2-kotlinx-serialization-converter:1.0.0")
-    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    /*
+     * Retrofit 3 ships its own kotlinx-serialization converter, so the JakeWharton artefact (final at
+     * 1.0.0) is gone; the import moved to `retrofit2.converter.kotlinx.serialization`.
+     *
+     * OKHTTP IS NAMED EXPLICITLY because this module calls it directly (data/FieldRepository.kt runs
+     * its own client for storage). Retrofit 3.0.0 and Coil 3 still ask for 4.12.0; 5.5.0 is the API-
+     * compatible successor (same `okhttp3` package), Gradle resolves the one version, and on Android
+     * the `okhttp` coordinate resolves to `okhttp-android` through its Gradle module metadata. In a
+     * JVM unit test that artefact finds API level 0 and falls back to the plain JDK platform, which
+     * is what the wire tests under src/test rely on. (5.5.0 is also the first release that can do
+     * Android 17's Encrypted Client Hello. It is opt-in, through OkHttp's own DNS, and this app does
+     * not opt in — see res/xml/network_security_config.xml.)
+     */
+    implementation("com.squareup.retrofit2:retrofit:3.0.0")
+    implementation("com.squareup.retrofit2:converter-kotlinx-serialization:3.0.0")
+    implementation("com.squareup.okhttp3:okhttp:5.5.0")
+    implementation("com.squareup.okhttp3:logging-interceptor:5.5.0")
+    // Must equal the version in core-pipeline/build.gradle.kts — see settings.gradle.kts.
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 

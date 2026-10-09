@@ -13,8 +13,8 @@
 
     <!-- Transport: TLS-only. The real policy lives in res/xml/network_security_config.xml (which
          takes precedence on every supported API level, minSdk 26); usesCleartextTraffic="false"
-         states the same intent for the platform APIs that read the manifest flag directly. The
-         emulator/loopback development hosts stay reachable over HTTP via that file's domain-config. -->
+         states the same intent for the platform APIs that read the manifest flag directly. Dev hosts
+         over HTTP: that file's domain-config, plus src/debug's ACCESS_LOCAL_NETWORK for 10.0.2.2. -->
     <application
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher"
@@ -35,7 +35,25 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|density|fontScale">
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|density|fontScale"
+            android:enableOnBackInvokedCallback="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- targetSdk 37 brings Android 16's and 17's behaviour to this activity. Three of the changes
+                 meet it, and these two attributes plus the configChanges line above are how:
+
+                 PREDICTIVE BACK. From targetSdk 36 onBackPressed() is never called and KEYCODE_BACK is
+                 never delivered on Android 16+. Nothing here relied on either: every back in the app
+                 is a Compose BackHandler on the OnBackPressedDispatcher. Declaring the callback here
+                 puts Android 13-15 handsets on that same path, so there is one back model to test.
+
+                 KEYBOARD. The window is edge-to-edge (MainActivity.onCreate), so the keyboard has to
+                 arrive as insets for the root's safeDrawingPadding to consume, not as a pan of the
+                 whole window; adjustResize is what delivers those insets (and the only way to get
+                 them below API 30).
+
+                 LARGE SCREENS. On a display 600dp or wider Android now ignores orientation,
+                 resizability and aspect-ratio limits. None is declared here, so nothing is ignored, and
+                 configChanges makes a resize a recomposition rather than a restart. -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

@@ -13,7 +13,23 @@
 
   Developing against a backend on your LAN (a real phone, not the emulator): add your machine's
   private IP as another <domain> below TEMPORARILY, alongside apiBaseUrl=http://<ip>:8000/api/ in
-  local.properties, and do not commit either change.
+  local.properties, and do not commit either change. On Android 17 the debug build will also ask for
+  Nearby devices (ACCESS_LOCAL_NETWORK, see src/debug/AndroidManifest.xml); allow it. Or skip both:
+  `adb reverse tcp:8000 tcp:8000` and apiBaseUrl=http://127.0.0.1:8000/api/ is loopback, already
+  permitted below and outside the local-network permission altogether.
+
+  TARGETSDK 37 (ANDROID 17) CHANGED TWO DEFAULTS HERE WITHOUT THIS FILE CHANGING, both on purpose:
+
+   • CERTIFICATE TRANSPARENCY IS ENFORCED on every connection that trusts the system store, i.e.
+     everything under base-config. Every host the app reaches presents CT-logged certificates
+     (checked 2026-10-09 for the CloudFront API, the S3 dual-stack endpoint, tile.openstreetmap.org
+     and unpkg.com), so no opt-out is needed and none should be added. CT is not applied to the user
+     anchors debug-overrides adds, so debugging through a proxy still works.
+   • ENCRYPTED CLIENT HELLO is on where the networking library supports it. Real ECH needs the
+     server's ECH config from DNS, which OkHttp 5.5 only fetches through its own resolvers
+     (DnsOverHttps, AndroidDns); this app uses the system resolver, so at most the platform sends an
+     ECH GREASE extension, which a server that does not speak ECH ignores. The WebView map uses
+     Chromium's own network stack and its own ECH policy.
 -->
 <network-security-config>
     <!-- Everything not named below: TLS required, and only the OS certificate store is trusted.

@@ -17,6 +17,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -42,6 +43,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -195,6 +197,7 @@ import com.fieldrepository.app.ui.workshopWindowNotice
 import com.fieldrepository.app.ui.workshopWindowState
 import com.fieldrepository.app.ui.ApiKeysScreen
 import com.fieldrepository.app.ui.MyAiKeysScreen
+import com.fieldrepository.app.ui.LocalNetworkAccessForDevelopmentBackend
 import com.fieldrepository.app.ui.AppPreferences
 import com.fieldrepository.app.ui.AppPreferencesStore
 import com.fieldrepository.app.ui.AppNavigationDrawerContent
@@ -258,7 +261,7 @@ import com.fieldrepository.app.ui.resolveDarkTheme
 import com.fieldrepository.app.ui.syncAppPreferences
 import com.fieldrepository.app.ui.SurfaceCard
 import kotlinx.coroutines.launch
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 import retrofit2.HttpException
 import android.app.DatePickerDialog
 import androidx.activity.compose.BackHandler
@@ -375,6 +378,19 @@ import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        /*
+         * EDGE-TO-EDGE ON EVERY API LEVEL, NOT ONLY WHERE ANDROID FORCES IT.
+         *
+         * Android 15 drew any app targeting 35 behind its status and navigation bars, and from
+         * targetSdk 36 there is no opt-out at all. Calling this makes the older handsets in the field
+         * (minSdk 26) lay out the same way, so there is ONE layout to get right and the API 37
+         * emulator run (.github/workflows/android-emulator.yml) speaks for all of them. The other
+         * half is at the root of `RepositoryApp`, which pads the whole app clear of the bars, the
+         * display cutout and the keyboard; the manifest's `adjustResize` is what delivers the
+         * keyboard's insets there. Bar colours and icon contrast are still `FieldRepositoryTheme`'s
+         * (ui/Theme.kt).
+         */
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         val tokenStore = TokenStore(applicationContext)
         val repository = FieldRepository(ApiClient.create(tokenStore), tokenStore)
@@ -591,6 +607,9 @@ private fun RepositoryApp(
     preferences: AppPreferences,
     onPreferencesChanged: (AppPreferences) -> Unit
 ) {
+    // Debug builds on Android 17 only, and only when the API base is a local-network address — see
+    // ui/LocalNetworkAccess.kt. Renders nothing; in a release build it is a no-op.
+    LocalNetworkAccessForDevelopmentBackend()
     val scope = rememberCoroutineScope()
     var user by remember { mutableStateOf(repository.cachedUser()) }
     var loading by remember { mutableStateOf(user == null && repository.hasToken()) }
@@ -668,7 +687,14 @@ private fun RepositoryApp(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            // The canvas is painted under the status and navigation bars (the window is edge-to-edge,
+            // see MainActivity.onCreate) and EVERYTHING ELSE is kept out from under them by the next
+            // line: the safe-drawing insets are the system bars, the display cutout and the open
+            // keyboard, consumed once, here, for every screen of the app. So no screen below pads for
+            // them again — Scaffold and TopAppBar see them already consumed and add nothing. Dialogs
+            // and bottom sheets are separate windows and inset themselves.
             .background(Canvas)
+            .safeDrawingPadding()
             .padding(16.dp)
     ) {
         when {

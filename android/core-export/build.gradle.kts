@@ -23,15 +23,16 @@
  * The two ways out of that are to let Gradle DOWNLOAD a JDK 17 (a toolchain resolver plugin in
  * `settings.gradle.kts`, i.e. a network fetch at configuration time, in the repository whose whole
  * premise is a handset that has been offline for a fortnight), or to compile ON the JDK that is
- * running the build and EMIT 17 bytecode. The second is what `:app` has always done —
- * `kotlinOptions.jvmTarget = "17"` with `compileOptions` at `JavaVersion.VERSION_17` — so this is
- * the module falling in line with the build it now belongs to, not a target change. The class-file
- * version produced is 61 either way; only the compiler that produces it moves, from 17 to 21.
+ * running the build and EMIT 17 bytecode. The second is what `:app` does — `compileOptions` at
+ * `JavaVersion.VERSION_17`, which AGP 9's built-in Kotlin follows (until 2026-10-09 it also spelled
+ * out `kotlinOptions.jvmTarget = "17"`) — so this is the module falling in line with the build it
+ * now belongs to, not a target change. The class-file version produced is 61 either way; only the
+ * compiler that produces it moves: 21 on that machine, 25 on the CI runners since 2026-10-09.
  *
  * THE `java { }` BLOCK IS NOT DECORATION. Without it `targetCompatibility` defaults to the JDK
- * running the build (21) while Kotlin emits 17, and the Kotlin plugin fails the build with
- * "Inconsistent JVM-target compatibility detected". It is here to keep javac and kotlinc agreeing,
- * even though this module contains no `.java` sources at all.
+ * running the build (21 there, 25 in CI) while Kotlin emits 17, and the Kotlin plugin fails the
+ * build with "Inconsistent JVM-target compatibility detected". It is here to keep javac and kotlinc
+ * agreeing, even though this module contains no `.java` sources at all.
  */
 
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -82,6 +83,10 @@ java {
  * would have been one line instead of four, and it would have taken incremental compilation away
  * from `:app` as well — where sources DO change every day and the setting would be paid for on
  * every build.
+ *
+ * NOT RE-MEASURED since the build moved to Gradle 9.8.1 / Kotlin 2.4.21 on 2026-10-09. CI runs on
+ * Linux and cannot answer a Windows question, so taking this out still needs the same evidence that
+ * put it in: four compiles from a deleted `build/` on Windows, all green.
  */
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
     incremental = false

@@ -1075,8 +1075,9 @@ class FieldRepository(
         val request = Request.Builder().url(url).get().build()
         storageClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IllegalStateException("Update download failed: HTTP ${response.code}")
-            val body = response.body ?: throw IllegalStateException("Update download returned no body")
-            body.byteStream().use { input -> FileOutputStream(out).use { output -> input.copyTo(output, 64 * 1024) } }
+            // `body` is non-null since OkHttp 5 (and `execute()` never returned a null one before it):
+            // a body-less reply arrives EMPTY, and the system installer refuses an empty file.
+            response.body.byteStream().use { input -> FileOutputStream(out).use { output -> input.copyTo(output, 64 * 1024) } }
         }
         out
     }
@@ -1596,7 +1597,7 @@ class FieldRepository(
         if (url.isNullOrBlank()) return
         storageClient.newCall(Request.Builder().url(url).build()).execute().use { resp ->
             if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
-            resp.body?.byteStream()?.copyTo(sink)
+            resp.body.byteStream().copyTo(sink)
         }
     }
 

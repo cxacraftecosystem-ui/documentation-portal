@@ -116,9 +116,40 @@ reach a phone, and that stays true.
    publishes; the step summary says what happened and, on a failure, which guard stopped it and what
    to do about it.
 
-5. **Install it on a real handset and use it.** No runner has a device, this repository runs no
-   instrumented tests, and a green run means *built, signed and published* — never *working*. Sign
-   in, capture one record, go offline, sync. That is the check nothing in CI performs.
+5. **Install it on a real handset and use it.** The publish run touches no device, this repository
+   runs no instrumented tests, and a green run means *built, signed and published* — never *working*.
+   (`android-emulator.yml`, run by hand, boots an emulator, but it cannot sign in, so it says nothing
+   about any signed-in screen.) Sign in, capture one record, go offline, sync. That is the check
+   nothing in CI performs.
+
+### Before the first release built on targetSdk 37
+
+The 2026-10-09 upgrade — Gradle 9.8.1, AGP 9.4.1, Kotlin 2.4.21, compileSdk and targetSdk 37 (Android
+17), Compose BOM 2026.09.00, Coil 3, Retrofit 3, OkHttp 5, Media3 1.11 — changes what every screen runs
+on and opts the app into Android 16's and 17's behaviour changes. CI proves it compiles, that the JVM
+suites pass and what lint reports. `android-emulator.yml` proves it launches on an API 37 emulator,
+keeps its content clear of the system bars in portrait, landscape and at tablet size, survives back
+and home, and that a debug build asks for the local-network permission. **None of that signs in.**
+So before tagging, put the dry-run build on handsets — at least one on Android 15 or later, ideally
+one on Android 16 or 17 and one tablet or foldable — and, signed in:
+
+1. **Edge to edge.** On every screen the island bar clears the status bar and the last field or
+   button clears the navigation bar; typing into a record form or into search keeps the field above
+   the keyboard. Open the drawer, a multi-select picker (a bottom sheet), the date picker and the
+   media viewer too.
+2. **Back.** From a half-filled form the back gesture asks Save / Discard; inside the admin hub it
+   goes one tool up; with the drawer open it closes the drawer; on the dashboard it leaves the app.
+3. **Rotation and large screens.** Rotate mid-form, and use a tablet: what was typed survives,
+   nothing is clipped, and the layout fills the screen (Android 16+ ignores orientation limits there).
+4. **Images and media.** Data Browser thumbnails and record photos load over https (Coil 3's network
+   fetcher), a video shows its thumbnail, a video and an audio clip play — then press Home: playback
+   pauses (Android 17 would silence it in the background anyway) and Play resumes it.
+5. **The network paths on OkHttp 5 and Retrofit 3.** Sign in with a password and with Google; upload
+   a photo and a long video (a presigned PUT and a multipart upload); capture offline and watch the
+   outbox drain when the signal returns; download a file; accept an in-app update if one is offered.
+6. **The trace engine** (now compiled by Kotlin 2.4 and reading JSON with kotlinx-serialization 1.11):
+   trace a photograph and export it.
+7. **Location and recording.** Capture a location; record an interview with the screen kept on.
 
 ### Rehearsing without publishing
 
@@ -296,8 +327,8 @@ Do this on anything you are about to install, and on anything somebody hands you
 release. It takes one command and needs no credentials.
 
 ```bash
-# Wherever the Android SDK build-tools live; 35.0.0 is what CI installs.
-APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+# Wherever the Android SDK build-tools live; 37.0.0 is what CI installs.
+APKSIGNER="$ANDROID_HOME/build-tools/37.0.0/apksigner"
 
 "$APKSIGNER" verify --verbose --print-certs app-release.apk
 ```
@@ -483,7 +514,7 @@ so it cannot reach an automated pipeline even if somebody writes a `local.proper
 
 | Not checked | Why |
 |---|---|
-| That the app works | No runner has a device or an emulator, and this repository runs no instrumented tests anywhere. A green run means built, signed and published. |
+| That the app works | The publish run touches no device, and this repository runs no instrumented tests anywhere. `android-emulator.yml` (by hand) launches a debug build on an emulator and checks insets, back and the local-network prompt, but it cannot sign in. A green run means built, signed and published; §2's targetSdk 37 list is the rest. |
 | That sign-in works on the release key | It depends on a Google Cloud console entry (§5) that no checkout can see. |
 | That the handsets can install it | The first release-key build cannot be installed over v1.1.20 at all (§6). That is expected, and it is a human sequence. |
 | That the values in the secrets are the right ones | The workflow proves the *artefact* matches `ANDROID_RELEASE_CERT_SHA256`. If that secret itself were wrong, the check would be internally consistent and externally useless. §4 is how a person settles it independently. |

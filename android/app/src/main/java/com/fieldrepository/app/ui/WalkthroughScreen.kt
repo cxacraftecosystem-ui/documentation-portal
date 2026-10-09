@@ -52,8 +52,10 @@ import androidx.compose.ui.window.DialogProperties
  * press inside the walkthrough cannot reach `MainActivity`'s dispatcher, so it cannot finish the
  * activity and drop somebody onto the launcher; and opening the walkthrough pushed nothing onto the
  * app's own back stack, so there is nothing to pop and "where the reader came from" is simply the
- * screen that was never unmounted. (Versions: activity-compose 1.9.3 and the compose-bom 2024.10.01
- * ui artifact — app/build.gradle.kts:73-82.)
+ * screen that was never unmounted. (Versions: activity-compose 1.13.0 and Compose UI 1.12.1 from
+ * compose-bom 2026.09.00 — the dependency block in app/build.gradle.kts. Re-read in 1.12.1's
+ * AndroidDialog.android.kt on 2026-10-09, when both moved from 1.9.3 / 1.7.5: `DialogWrapper` still
+ * extends `ComponentDialog` and still adds its own always-enabled back callback in its constructor.)
  * ─────────────────────────────────────────────────────────────────────────────────────────────────
  */
 

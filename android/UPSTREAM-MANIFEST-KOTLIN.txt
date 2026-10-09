@@ -51,10 +51,29 @@
 # listed below with BOTH digests, so a reader can tell a deliberate deviation from a drift:
 #
 #   vendored here                                                     upstream
-#   0db115fab6b9d701c7110fec87260ad15240b831e40f846144a5f00e9f76255e  acb71a637f8c709f6867f7027c5c795ae5358467d8ecce2d6c75d34bdfd8b959
-#   3b0bff3bfe98ff558c78a0e4e19209ec59498ed6b354389dc0b1da2fae74b8b2  44b8ea6750429d4c9ec090c8d6d7e9b855b89936e8ff0670d00d567da076b126
-#   06644fec78b281a34b8025b70eb9734e96c459d0f0fabdb29fe0f00634100e3d  6c72ec9520a9191bb41d47c5f1f2bbaf93560c741dde04e265db84f17a5a9e77
-#   450f2d3c44e5dc44015ee99fa0f9c7b72cac75b9f82d363311701973066357fe  658659276d1f01698a948c5d9ddecc82e9a60741a47f841aa36357de06868d47
+#   50d5fb45b9624649ce9158774cf7174bcfc60b4d6dd9baff0bcd19634992fd0d  acb71a637f8c709f6867f7027c5c795ae5358467d8ecce2d6c75d34bdfd8b959
+#   d7b27197048b0026f7928b63c5e1ca82b4ec4696dd90a5f80102b32785c2704b  44b8ea6750429d4c9ec090c8d6d7e9b855b89936e8ff0670d00d567da076b126
+#   9b3d07262c6b373ea63c1bf1585da12380355d9f5a8068e40ca9b5e6b3f9d9f5  6c72ec9520a9191bb41d47c5f1f2bbaf93560c741dde04e265db84f17a5a9e77
+#   f4aa0dc72aed032422336ea48bfdbb630e101c2398f8c3524cc33fded4aa58ac  658659276d1f01698a948c5d9ddecc82e9a60741a47f841aa36357de06868d47
+#
+# ── 2026-10-09: THE TOOLCHAIN MOVED, AND UPSTREAM HAS NOT BEEN CHECKED ──────────────────────────
+#
+# This build moved to Gradle 9.8.1, AGP 9.4.1 and Kotlin 2.4.21, and :core-pipeline's
+# kotlinx-serialization-json to 1.11.0, the version :app declares. Upstream pinned Kotlin 2.0.21 and
+# serialization 1.7.3 when it was vendored. F:/Offline-Tracer was not reachable from the machine that
+# made the change, so whether it has moved since is unknown; until somebody compares, read both as
+# DELIBERATE drift, not as an accident:
+#
+#   Kotlin         the plugin version lives in android/build.gradle.kts, which is not vendored, so no
+#                  file listed here changed for it. It had to move: a 2.0 compiler cannot read the
+#                  libraries :app now depends on (kotlinx-serialization 1.11 is built with Kotlin
+#                  2.3.20, Coil 3.6 with 2.4.10).
+#   serialization  core-pipeline/build.gradle.kts carries it as its third deviation, with its reason.
+#
+# The four "vendored here" digests above, and the four build-script lines at the foot of this file,
+# were regenerated that day: the header comment in all four describes :app's settings, which changed,
+# and core-pipeline's dependency line changed. No file under any src/ changed, so every source digest
+# below is untouched and still upstream's.
 #
 # ── LINE ENDINGS, WHICH WILL BITE SOMEONE ────────────────────────────────────────────────────────
 #
@@ -191,10 +210,10 @@ f73e917372897ae5c59932b60bbef9a4d29d570fcee4025f30ff9aac3db8faa3 android/core-ve
 7ef00434989c1dfef1308b499cf1285a73f7872214b1e72cfd95a826f7a910be android/core-vector/src/test/java/com/offlinetracer/vector/SvgPathDataTest.kt
 bcbcffb6e001d77d3bd11702454a2378561e27a9cb9d142039b3be7d73221a0b android/core-vector/src/test/java/com/offlinetracer/vector/SvgWriterTest.kt
 08187831a85986ea8f7374f33383d9c63afb97ce3b64d527afcdc9fd62c36b1b android/core-vector/src/test/java/com/offlinetracer/vector/VectorizeTest.kt
-0db115fab6b9d701c7110fec87260ad15240b831e40f846144a5f00e9f76255e android/core-imaging/build.gradle.kts
-3b0bff3bfe98ff558c78a0e4e19209ec59498ed6b354389dc0b1da2fae74b8b2 android/core-vector/build.gradle.kts
-06644fec78b281a34b8025b70eb9734e96c459d0f0fabdb29fe0f00634100e3d android/core-pipeline/build.gradle.kts
-450f2d3c44e5dc44015ee99fa0f9c7b72cac75b9f82d363311701973066357fe android/core-export/build.gradle.kts
+50d5fb45b9624649ce9158774cf7174bcfc60b4d6dd9baff0bcd19634992fd0d android/core-imaging/build.gradle.kts
+d7b27197048b0026f7928b63c5e1ca82b4ec4696dd90a5f80102b32785c2704b android/core-vector/build.gradle.kts
+9b3d07262c6b373ea63c1bf1585da12380355d9f5a8068e40ca9b5e6b3f9d9f5 android/core-pipeline/build.gradle.kts
+f4aa0dc72aed032422336ea48bfdbb630e101c2398f8c3524cc33fded4aa58ac android/core-export/build.gradle.kts
 31d8ac496d09701c00adb4228b3aaf4cdd8b280362e8ca0a5dec6353d523b700 docs/fixtures/gradient-blob.json
 0c0af2ef0007878bdc5928d2149642bbf4a11f0190a666c772f6dcdf83ddcd99 docs/fixtures/single-pixel.json
 b4be0d9861b6a72a01a94042a30f1ca68229062a056f924e9dfb03fe817230b5 docs/fixtures/step-edge.json
