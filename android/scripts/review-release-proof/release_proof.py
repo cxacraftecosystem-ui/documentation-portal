@@ -79,6 +79,18 @@ def png(width, height, rgb):
 
 
 MAGENTA_PNG = png(64, 64, (255, 0, 255))
+
+
+def wav(seconds=12, rate=16000, hz=440):
+    import math
+    frames = b"".join(struct.pack("<h", int(9000 * math.sin(2 * math.pi * hz * i / rate))) for i in range(seconds * rate))
+    return (b"RIFF" + struct.pack("<I", 36 + len(frames)) + b"WAVEfmt " + struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2, 2, 16)
+            + b"data" + struct.pack("<I", len(frames)) + frames)
+
+
+TONE_WAV = wav()
+# Media3's own public test asset (the URL its demo app plays), so ExoPlayer meets a real https MP4.
+HTTPS_VIDEO = "https://storage.googleapis.com/exoplayer-test-media-1/mp4/android-screens-10s.mp4"
 USER = {"id": "proof-user-1", "email": "professor@proof.test", "name": "Proof Professor", "role": "PROFESSOR",
         "canManageQuestionnaire": False, "canManageCrafts": False, "canManageWorkshops": False,
         "canReview": False, "canViewProvenance": False, "canDownloadDataset": True, "authProvider": "password"}
@@ -103,7 +115,12 @@ FOLDER_TREE = {"path": "by-workshop",
                     "mediaType": "IMAGE", "mediaId": "proof-media-1", "url": HTTPS_IMAGE, "sizeBytes": 13504},
                    {"name": "proof-http.png", "path": "by-workshop/proof-http.png", "kind": "file",
                     "mediaType": "IMAGE", "mediaId": "proof-media-2",
-                    "url": f"http://127.0.0.1:{PORT}/proof/magenta.png", "sizeBytes": len(MAGENTA_PNG)}],
+                    "url": f"http://127.0.0.1:{PORT}/proof/magenta.png", "sizeBytes": len(MAGENTA_PNG)},
+                   {"name": "proof-video.mp4", "path": "by-workshop/proof-video.mp4", "kind": "file",
+                    "mediaType": "VIDEO", "mediaId": "proof-media-3", "url": HTTPS_VIDEO, "sizeBytes": 1854368},
+                   {"name": "proof-audio.wav", "path": "by-workshop/proof-audio.wav", "kind": "file",
+                    "mediaType": "AUDIO", "mediaId": "proof-media-4",
+                    "url": f"http://127.0.0.1:{PORT}/proof/tone.wav", "sizeBytes": len(TONE_WAV)}],
                "taxonomies": [TAXONOMY], "taxonomy": "by-workshop"}
 
 seen = []
@@ -131,6 +148,8 @@ class Stub(http.server.BaseHTTPRequestHandler):
         path, _, query = self.path.partition("?")
         if path == "/proof/magenta.png":
             return self._send(200, MAGENTA_PNG, "image/png")
+        if path == "/proof/tone.wav":
+            return self._send(200, TONE_WAV, "audio/wav")
         if path == "/api/auth/login" and self.command == "POST":
             try:
                 email = (json.loads(raw or b"{}").get("email") or "").lower()
@@ -511,7 +530,7 @@ def phase_release_against_stub(sdk):
     else:
         record("R: the http:// thumbnail on screen", "FAIL", "its row never came on screen to be measured")
 
-    for step in (crawl, rich_text_and_back_guard):
+    for step in (media_players, crawl, rich_text_and_back_guard):
         try:
             step()
         except Exception as exc:  # a harness fault in one sweep must not skip the checks after it
@@ -612,6 +631,141 @@ def crawl():
             settle(6)
 
 
+def open_row(name, tag):
+    """Scroll the data browser until the row called [name] is on screen and press its own Open."""
+    for _ in range(8):
+        root = dump(tag)
+        row = smoke.find(root, rf"^{re.escape(name)}$", PKG) if root is not None else None
+        if row:
+            opens = [smoke.rect(n.get("bounds")) for n in smoke.nodes(root, PKG) if (n.get("text") or "") == "Open"]
+            opens = [r for r in opens if r and r[1] > row[1][1]]
+            if opens:
+                tap_control(root, (None, min(opens, key=lambda r: r[1])))
+                return True
+        sh("input swipe 540 1700 540 1150 400", check=False)
+        settle(1.5)
+    return False
+
+
+def has_desc(root, pattern):
+    return root is not None and smoke.find(root, pattern, PKG) is not None
+
+
+def tap_player(root):
+    """Tap the middle of the PlayerView (the union of its exo_* children), which shows its controller."""
+    boxes = [smoke.rect(n.get("bounds")) for n in smoke.nodes(root, PKG) if ":id/exo_" in (n.get("resource-id") or "")]         if root is not None else []
+    boxes = [b for b in boxes if b]
+    if boxes:
+        smoke.tap((min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)))
+    else:
+        smoke.tap((0, 1000, 1080, 1400))
+    settle(1.5)
+
+
+def home_and_back(tag):
+    sh("input keyevent KEYCODE_HOME", check=False)
+    settle(4)
+    smoke.screenshot(f"{tag}-home")
+    smoke.launch()
+    settle(4)
+
+
+def media_players():
+    """
+    Media3 1.11 (ExoPlayer + media3-ui's PlayerView) and MediaPlayer, in the release build, through the
+    data browser's viewer — and the Android 17 background-audio change this branch made: each player
+    must PAUSE when the activity stops (LifecycleEventEffect(ON_STOP)), so Home while playing and a
+    return must find it paused, not carrying on unheard.
+    """
+    # VIDEO: an https MP4 (Media3's own test asset) into ExoPlayer.
+    if not open_row("proof-video.mp4", "M-01-video-row"):
+        record("M: the video row's Open", "FAIL", "the row never came on screen")
+        return
+    deadline, root = time.time() + 25, None
+    while time.time() < deadline:
+        root = dump("M-02-video-viewer")
+        if root is not None and any(":id/exo_" in (n.get("resource-id") or "") for n in smoke.nodes(root, PKG)):
+            break
+        settle(2)
+    inflated = root is not None and any(":id/exo_" in (n.get("resource-id") or "") for n in smoke.nodes(root, PKG))
+    record("M: the viewer builds an ExoPlayer and inflates media3-ui's PlayerView", "PASS" if inflated else "FAIL")
+    smoke.screenshot("M-02-video-viewer")
+    if inflated:
+        play = smoke.find(root, r"^Play$", PKG)
+        if not play:
+            tap_player(root)
+            root = dump("M-02-video-controls")
+            play = smoke.find(root, r"^Play$", PKG) if root is not None else None
+        if play:
+            tap_control(root, play)
+            settle(5)
+            root = dump("M-03-video-playing")
+            smoke.screenshot("M-03-video-playing")
+            if not has_desc(root, r"^Pause$"):
+                tap_player(root)
+                root = dump("M-03-video-playing")
+            playing = has_desc(root, r"^Pause$")
+            record("M: ExoPlayer plays the https MP4 (its controller offers Pause)", "PASS" if playing else "FAIL")
+            if playing:
+                home_and_back("M-04-video")
+                root = dump("M-04-video-resumed")
+                if not has_desc(root, r"^(Play|Pause)$"):
+                    tap_player(root)
+                    root = dump("M-04-video-resumed")
+                smoke.screenshot("M-04-video-resumed")
+                paused = has_desc(root, r"^Play$") and not has_desc(root, r"^Pause$")
+                record("M: Home while the video plays pauses it (ON_STOP), and it is still paused on return",
+                       "PASS" if paused else "FAIL")
+        else:
+            record("M: the video controller's Play", "FAIL", "no Play control on the player")
+    crash_free("M: alive after the video viewer")
+    root = dump("M-05-video-close")
+    close = smoke.find(root, r"^Close$", PKG) if root is not None else None
+    if close:
+        tap_control(root, close)
+    else:
+        sh("input keyevent KEYCODE_BACK", check=False)
+    settle(2)
+
+    # AUDIO: a WAV from the stub over loopback into android.media.MediaPlayer.
+    if not open_row("proof-audio.wav", "M-06-audio-row"):
+        record("M: the audio row's Open", "FAIL", "the row never came on screen")
+        return
+    ready, root = False, None
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        root = dump("M-07-audio-viewer")
+        hit = smoke.find(root, r"^Play$", PKG) if root is not None else None
+        around = smoke.enclosing_clickable(root, hit[1]) if hit else None
+        if around and around[0].get("enabled") == "true":
+            ready = True
+            break
+        settle(2)
+    record("M: MediaPlayer prepares the WAV (Play becomes enabled)", "PASS" if ready else "FAIL",
+           "" if ready else ("the stub never served it" if not requested("/proof/tone.wav") else "served, never ready"))
+    if ready:
+        tap_control(root, hit)
+        settle(3)
+        root = dump("M-08-audio-playing")
+        playing = has_desc(root, r"^Pause$")
+        record("M: MediaPlayer plays it (the button offers Pause)", "PASS" if playing else "FAIL")
+        if playing:
+            home_and_back("M-09-audio")
+            root = dump("M-09-audio-resumed")
+            smoke.screenshot("M-09-audio-resumed")
+            paused = has_desc(root, r"^Play$") and not has_desc(root, r"^Pause$")
+            record("M: Home while the audio plays pauses it (ON_STOP), and the button says Play on return",
+                   "PASS" if paused else "FAIL")
+    crash_free("M: alive after the audio viewer")
+    root = dump("M-10-audio-close")
+    close = smoke.find(root, r"^Close$", PKG) if root is not None else None
+    if close:
+        tap_control(root, close)
+    else:
+        sh("input keyevent KEYCODE_BACK", check=False)
+    settle(2)
+
+
 def rich_text_and_back_guard():
     """
     The RichTextEditor change (each block's FocusRequester remembered and published from a SideEffect,
@@ -636,8 +790,10 @@ def rich_text_and_back_guard():
     if not label:
         record("T: the craft form's rich-text Description", "FAIL", "no Description label on screen")
         return
+    # The first block's top sits a few pixels ABOVE the label's bottom (run 37950283558), so "below"
+    # is measured from the label's top.
     below = sorted((r for n, r in smoke.app_content(root)
-                    if n.get("class", "").endswith("EditText") and r[1] >= label[1][3]), key=lambda r: r[1])
+                    if n.get("class", "").endswith("EditText") and r[1] > label[1][1]), key=lambda r: r[1])
     if not below:
         record("T: the craft form's rich-text Description", "FAIL", "no editable block under the label")
         return
