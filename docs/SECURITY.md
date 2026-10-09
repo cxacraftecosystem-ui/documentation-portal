@@ -218,8 +218,17 @@ change this; SSE-S3 protects the physical disks, not URL holders. See risk P0.
 
 - Supabase encrypts the underlying storage volumes and automated backups at the platform level
   (AES-256); no application configuration is required or possible.
-- Passwords are stored as bcrypt hashes (`passlib`, `CryptContext(schemes=["bcrypt"])`). Google
-  sign-in accounts have no password hash at all.
+- Passwords are stored as bcrypt hashes, cost 12 (`bcrypt` 5 called directly since 2026-10-09; it
+  was passlib's `CryptContext(schemes=["bcrypt"])` before, which wrote the same `$2b$12$` format, so
+  no stored hash changed and none needs re-hashing). Google sign-in accounts have no password hash
+  at all.
+- **bcrypt reads at most 72 bytes of a password.** passlib on bcrypt 4 cut longer input to 72 bytes
+  without a word; bcrypt 5 refuses it. So a password being SET must fit in 72 bytes of UTF-8 — the
+  user schemas answer 422 with that sentence, and it is bytes, not characters: a Devanagari letter
+  is three — while a password being CHECKED is cut to 72 bytes exactly as passlib cut it when the
+  stored hash was written, so an account whose password was set longer before 2026-10-09 still
+  signs in. `backend/tests/test_auth_library_swap.py` holds hashes written by the old passlib/bcrypt
+  pair and proves both halves.
 - **Nothing is encrypted at the column level.** Artisan names, phone numbers, addresses, GPS
   coordinates, interview transcripts and researcher notes are plaintext columns. Anyone with the
   database URL, a Supabase dashboard login, or a `DATABASE_URL` leak reads all of it. Treat the
@@ -250,8 +259,9 @@ change this; SSE-S3 protects the physical disks, not URL holders. See risk P0.
 |---|---|---|
 | Algorithm | HS256 (HMAC), **pinned on decode** | `decode_access_token(..., algorithms=[settings.jwt_algorithm])` |
 | Allowed algorithms | HS256 / HS384 / HS512 only | `Settings._normalise_jwt_algorithm` — `JWT_ALGORITHM=none` refuses to start |
-| Expiry | `JWT_EXPIRES_MINUTES`, default 10080 (7 days) | `create_access_token`; `verify_exp` + `require_exp` on decode |
-| Subject | `sub` = user id, required | `require_sub` on decode, re-checked in `deps.get_current_user` |
+| Expiry | `JWT_EXPIRES_MINUTES`, default 10080 (7 days) | `create_access_token`; `verify_exp` and `exp` in PyJWT's `require` list on decode |
+| Subject | `sub` = user id, required | `sub` in the same `require` list, re-checked in `deps.get_current_user` |
+| Library | PyJWT (since 2026-10-09; python-jose until then) | python-jose's latest release is still affected by GHSA-3qf3-8w2g-rqmx with no fix, and it pulled in `ecdsa` (CVE-2024-23342, unfixed). An HS256 token is one wire format, so every token issued before the swap still verifies; `backend/tests/test_auth_library_swap.py` decodes tokens python-jose minted. |
 | Secret | ≥ 32 characters, never the example placeholder | `verify_jwt_configuration()` at `create_app()` |
 
 Pinning the algorithm closes **algorithm confusion**: without it, a token whose header says
@@ -560,7 +570,8 @@ is removed and the entry stays. Both teach the reader to trust the wrong thing. 
 | §1.1 database TLS | `Settings._harden_database_url` in `backend/app/core/config.py`. |
 | §1.2 response headers | `SecurityHeadersMiddleware` in `backend/app/main.py`. Check live: `curl -sI https://d2b34i3e92al6i.cloudfront.net/health`. |
 | §1.4 docs exposure | `curl -s -o /dev/null -w "%{http_code}" https://d2b34i3e92al6i.cloudfront.net/openapi.json`. **This entry closes when that returns 404**, not when the code changes. |
-| §3 tokens | `backend/app/core/security.py`; the startup guard is `verify_jwt_configuration`. |
+| §3 tokens | `backend/app/core/security.py`; the startup guard is `verify_jwt_configuration`. `backend/tests/test_auth_library_swap.py` pins the algorithm, `exp`/`sub` and old-token rules, and §2.2's 72-byte password rule. |
+| Dependency versions | `backend/requirements.lock` is what CI, the EC2 box and the image install (docs/CI.md, *The backend dependency lock*). To ask whether any pinned version has a published advisory, post the lock's pins to `https://api.osv.dev/v1/querybatch`; on 2026-10-09 that returned none, against seven affected packages in the venv production had run since June. |
 | §4 the ladder | [PERMISSIONS.md](PERMISSIONS.md), which is itself checked — `docs/tools/check-docs.mjs` fails if the backend and web role ladders diverge. |
 | §4.1 identity cache | `backend/app/core/deps.py`, and `backend/tests/test_user_identity_cache.py`. |
 | §4A Aadhaar | `backend/app/services/artisan_identity.py`. The encoder-level masking is the property to re-check after any new export surface: add one, then confirm the number arrives masked. |

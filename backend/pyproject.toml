@@ -2,23 +2,55 @@
 name = "field-repository-backend"
 version = "0.1.0"
 description = "API-first FastAPI backend for field documentation and repository workflows."
-requires-python = ">=3.11"
+# 3.14 everywhere since 2026-10-09: CI, the Docker image and the EC2 box (deploy-backend.yml installs
+# python3.14 and rebuilds the venv on it). A floor and not a range, so nobody can recreate a 3.12 venv
+# from this file by accident; the box keeps python3.12 installed only as the rollback interpreter.
+requires-python = ">=3.14"
+# FLOORS, NOT PINS, AND EACH ONE IS THE LATEST RELEASE ON 2026-10-09. What actually gets installed is
+# decided by backend/requirements.lock, compiled from this list (the command is in docs/CI.md under
+# "The backend dependency lock"), and every machine installs that lock: `pip install -r
+# requirements.lock`, then `pip install --no-deps -e .`. A floor here says "older than this is not
+# supported"; the lock says "this is what runs".
 dependencies = [
-    "fastapi>=0.111.0",
-    "uvicorn[standard]>=0.30.0",
-    "pydantic>=2.7.0",
-    "pydantic-settings>=2.2.1",
-    "python-jose[cryptography]>=3.3.0",
-    "passlib[bcrypt]>=1.7.4",
-    "bcrypt>=4.0.1,<4.1.0",
-    "prisma>=0.13.1",
-    "boto3>=1.34.0",
-    "python-multipart>=0.0.9",
-    "email-validator>=2.1.1",
-    "google-auth>=2.29.0",
-    "requests>=2.32.0",
+    "fastapi>=0.143.0",
+    "uvicorn[standard]>=0.54.0",
+    "pydantic>=2.14.0",
+    "pydantic-settings>=2.15.0",
+    # JWTs. PyJWT REPLACED python-jose on 2026-10-09: python-jose 3.5.0 is its latest release and is
+    # still affected by GHSA-3qf3-8w2g-rqmx (no fixed version exists), and it dragged in ecdsa, which
+    # carries CVE-2024-23342 with no fix either. The tokens did not change: HS256 is one wire format,
+    # and tests/test_auth_library_swap.py decodes tokens minted by python-jose to prove it.
+    "PyJWT>=2.15.1",
+    # Password hashing, called directly. passlib (no release since 1.7.4 in 2020) used to sit on top
+    # and is why this line read `bcrypt>=4.0.1,<4.1.0`: passlib's own self-test hashes a 255-byte
+    # secret, which bcrypt 5 refuses, so passlib cannot run on it at all. bcrypt 5 also REFUSES a
+    # password longer than 72 bytes where 4.x truncated silently; app/core/security.py says what that
+    # changes (nothing for a stored hash) and app/schemas/users.py enforces it at the door.
+    "bcrypt>=5.0.0",
+    # Imported directly by app/services/managed_secrets.py (Fernet, HKDF) and, until 2026-10-09,
+    # declared nowhere: it only arrived as python-jose's `[cryptography]` extra. Dropping jose without
+    # this line would have removed the package that encrypts stored provider keys.
+    "cryptography>=50.0.2",
+    # PINNED EXACTLY, AND THAT IS A BLOCKER RATHER THAN A PREFERENCE. RobertCraigie/prisma-client-py
+    # is archived ("no longer being maintained", README); 0.15.0 (2024-08-16) is its final release and
+    # it drives the Prisma CLI and engines at 5.17.0, which therefore cannot move either. `==` keeps
+    # every environment on the one version that exists. The path that removes the blocker is moving
+    # the data layer to a maintained ORM (SQLAlchemy 2.x + Alembic on psycopg 3) — a project-sized
+    # change (docs/REPO_FACTS.md counts the models), which would also take Node off the deploy path.
+    "prisma==0.15.0",
+    "boto3>=1.43.110",
+    "python-multipart>=0.0.32",
+    "email-validator>=2.3.0",
+    "google-auth>=2.61.0",
+    "requests>=2.34.2",
+    # 0.25.1 (2021) is the latest pydub and it is unmaintained. It imports `audioop`, which PEP 594
+    # removed from the standard library in 3.13; audioop-lts is the maintained backport that puts the
+    # module back. Without it `import pydub` raises "No module named 'pyaudioop'" on 3.14 and the two
+    # audio paths (services/ai.py chunking, the /data audio->mp4 endpoint) answer 503. Calling ffmpeg
+    # directly — it is on the box already — is what would retire both packages.
     "pydub>=0.25.1",
-    "openpyxl>=3.1.2",
+    "audioop-lts>=0.2.2; python_version >= '3.13'",
+    "openpyxl>=3.1.5",
     # The Claude provider (app/services/anthropic_verbs.py), added with designer-supplied API keys.
     #
     # THE OFFICIAL SDK RATHER THAN `requests`, WHICH IS THE ODD ONE OUT IN THIS BACKEND. The OpenAI
@@ -31,33 +63,44 @@ dependencies = [
     # It is an IMPORT-OPTIONAL dependency all the same: anthropic_verbs imports it lazily inside the
     # call, so a deployment that has not installed it answers "Claude is unavailable on this server"
     # instead of failing to boot. Everything else in this backend keeps working.
-    "anthropic>=0.40.0",
+    #
+    # 1.x since 2026-10-09 (CI had been resolving 1.x while the box still ran 0.122.0). The two calls
+    # in anthropic_verbs pass a float timeout, an int max_retries and output_config={"effort": ...},
+    # none of which the 1.x removals (sampling parameters, Text Completions, raw output_format dicts,
+    # LegacyAPIResponse, httpx objects handed to the client) touch.
+    "anthropic>=1.12.1",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.4.0",
-    "pytest>=8.2.0",
-    "httpx>=0.27.0",
+    "ruff>=0.16.10",
+    "pytest>=9.1.1",
+    "httpx>=0.28.1",
 ]
 # Optional AI image features (app/ai_features, all flags default off — see docs/AI_FEATURES.md).
 # Nothing below is installed by `pip install -e .`, and nothing below is imported unless a
 # capability's flag is on. The split is deliberate: the hosted providers cost 3 MB, local
 # inference costs closer to 400 MB of wheels plus a 176 MB model download, and the 1 GiB
 # production box can afford exactly one of those.
+#
+# THE EXTRAS BELOW ARE NOT IN backend/requirements.lock, deliberately: it is compiled with `--extra
+# dev` and nothing else, because `ai-local` alone is ~400 MB of wheels the t3.micro must never get.
+# Install one with `pip install -e ".[ai]"` on top of the lock, knowing that it resolves from the
+# index rather than from a pin.
 ai = [
     # Pillow composites the two layers of a separation from the alpha a hosted cutout returns.
     # Hosted background removal alone needs nothing here: requests is already a core dependency.
-    "pillow>=10.3.0",
-    # Rust raster-to-SVG tracer: a small wheel, no model, no per-image charge.
-    "vtracer>=0.6.11",
+    "pillow>=12.3.0",
+    # Rust raster-to-SVG tracer: a small wheel, no model, no per-image charge. Its BYTES API
+    # segfaults on CPython 3.14 (docs/AI_FEATURES.md); the provider calls the path API, which does not.
+    "vtracer>=0.6.15",
 ]
 ai-local = [
-    "pillow>=10.3.0",
+    "pillow>=12.3.0",
     # MEASURED on a laptop: importing rembg alone costs ~130 MB, a U2Net session ~560 MB, and one
     # 1.9 MP matte peaked the process at 1,032 MB. Do not install this on the t3.micro.
-    "rembg>=2.0.50",
-    "onnxruntime>=1.17.0",
+    "rembg>=2.0.85",
+    "onnxruntime>=1.31.0",
 ]
 # Only for SCALE_CACHE_BACKEND=redis. Deliberately NOT in `dependencies`: the default cache backend
 # is in-process and needs nothing installed, so `pip install -e .` stays exactly as light as it was.
@@ -65,11 +108,14 @@ ai-local = [
 # function, after the flag check), which is what lets the flag exist on a machine without the
 # package — it logs one line and uses the in-process cache instead of failing to boot.
 cache = [
-    "redis>=5.0.0",
+    "redis>=8.1.0",
 ]
 
 [build-system]
-requires = ["setuptools>=69", "wheel"]
+# Only `pip install --no-deps -e .` ever builds this project, and build isolation fetches the newest
+# setuptools whatever the floor says; the floor records the release that was current on 2026-10-09.
+# `wheel` is gone from this list: setuptools has carried its own bdist_wheel since 70.1.
+requires = ["setuptools>=84"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
@@ -78,15 +124,16 @@ exclude = ["prisma*"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py314"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 # ⚠ NO `asyncio_mode = "auto"` HERE, AND ITS ABSENCE IS DELIBERATE. That line stood here until
 # 2026-09-14 and was worse than useless: it needs `pytest-asyncio`, which is named in NO requirements
-# file, and `backend/` has no lock file — so whether it did anything depended entirely on what
-# happened to be in the reader's virtualenv. In this developer's it was installed; on the CI runner
+# file, and `backend/` had no lock file then — so whether it did anything depended entirely on what
+# happened to be in the reader's virtualenv. (backend/requirements.lock exists since 2026-10-09 and
+# does not carry pytest-asyncio either, so everything below still holds.) In this developer's it was installed; on the CI runner
 # it was not, where pytest reported only `PytestConfigWarning: Unknown config option: asyncio_mode`
 # and every unmarked `async def test_` failed with "async def functions are not natively supported".
 #

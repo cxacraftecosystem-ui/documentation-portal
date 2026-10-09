@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# First-boot provisioning for the Field Repository API box (Ubuntu 24.04).
-# Installs system deps (including ffmpeg for Whisper audio chunking and nginx as
-# the reverse proxy so port 8000 is never exposed directly), prepares a swap file
-# so installs don't OOM on 1 GiB, and lays down the nginx site + systemd unit.
-# The actual code is deployed by the GitHub Actions workflow (deploy-backend.yml).
+# First-boot provisioning for the Field Repository API box (Ubuntu 26.04 since 2026-10-09: the
+# AMI filter in main.tf). Installs system deps (including ffmpeg for Whisper audio chunking and nginx
+# as the reverse proxy so port 8000 is never exposed directly), Python 3.14, prepares a swap file so
+# installs don't OOM on 1 GiB, and lays down the nginx site + systemd unit.
+# The actual code is deployed by the GitHub Actions workflow (deploy-backend.yml), which also builds
+# the API's venv from backend/requirements.lock under /home/ubuntu/app/venvs and points
+# /home/ubuntu/app/backend/.venv at it; nothing here installs a Python package.
 set -euxo pipefail
 
 # --- swap (protects the 1 GiB box during pip/prisma installs) ----------------
@@ -17,7 +19,21 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y python3.12-venv python3-pip git ffmpeg nginx
+apt-get install -y git ffmpeg nginx
+
+# --- Python 3.14: the interpreter deploy-backend.yml builds the API's venv with ----------------
+# On 26.04 it is the system Python and comes from Ubuntu's own archive (3.14.4 there on 2026-10-09,
+# security-patched by Ubuntu); deadsnakes publishes no 3.14 for 26.04. On an older AMI the archive has
+# no python3.14 and the deadsnakes PPA supplies it (3.14.8 for 24.04 on 2026-10-09). The deploy runs
+# this same check on every run, so a box that missed it heals on its next deploy; doing it here means
+# the first deploy does not have to. `-venv` is the package that carries ensurepip, which `python3.14
+# -m venv` needs. No python3-pip: every venv brings its own pip.
+if ! apt-cache policy python3.14 | grep -Eq 'Candidate: [0-9]'; then
+  apt-get install -y software-properties-common
+  add-apt-repository -y ppa:deadsnakes/ppa
+  apt-get update -y
+fi
+apt-get install -y python3.14 python3.14-venv
 
 # --- nginx reverse proxy: 80 -> 127.0.0.1:8000 -------------------------------
 cat > /etc/nginx/sites-available/fieldrepo <<'NGINX'
@@ -43,6 +59,9 @@ systemctl enable nginx
 systemctl restart nginx
 
 # --- systemd unit for the API (uvicorn) --------------------------------------
+# `.venv` below is a symlink the deploy maintains, to /home/ubuntu/app/venvs/py3.14-<hash of the
+# lock>; the unit never needs to change when the venv does (deploy-backend.yml says why it is a
+# symlink and not a directory).
 # IMPORTANT: a SINGLE uvicorn process (NOT --workers 2). With >1 worker uvicorn runs a
 # multiprocess supervisor that health-pings each worker over a pipe (answered by a daemon thread)
 # and SIGKILLs any worker that fails to pong within timeout_worker_healthcheck. On this small,
@@ -108,5 +127,5 @@ systemctl daemon-reload
 # the code and the .env file under /home/ubuntu/app/backend.
 systemctl enable fieldrepo || true
 systemctl enable fieldrepo-queue || true
-mkdir -p /home/ubuntu/app
+mkdir -p /home/ubuntu/app/venvs
 chown -R ubuntu:ubuntu /home/ubuntu/app

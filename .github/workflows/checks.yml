@@ -76,16 +76,17 @@ name: Checks
 # fixes in v4.x and gain no signal that you have — and on 2026-09-14 this repository had no
 # `.github/dependabot.yml` (`.github/` held `workflows/` and nothing else). It asked for that file
 # and the pins together, across every workflow rather than here for one, and both landed on
-# 2026-10-09: the file (github-actions, weekly) and a pin on every `uses:` in five of the six
-# workflows that have one (backup-db.yml uses no action). The sixth is deploy-backend.yml: its pins
-# (actions/checkout, actions/upload-artifact, webfactory/ssh-agent) are DEFERRED until the next
-# real backend change, because any edit to that file redeploys the unchanged backend (its `changes`
-# job counts the workflow file itself as a backend change); they will be resolved the same way,
-# `@v0.9.0` included. Each SHA is the commit its old tag — `@v4`, `@v5` — resolved to that day,
-# read back through `gh api`, so pinning changed nothing that runs. A bump is now a Dependabot pull
-# request that a reviewer can read. A bump by hand re-resolves the tag and changes the SHA and its
-# comment together: a SHA whose comment names a different release misleads every later reviewer.
-# The check and the recipe are in docs/CI.md, "How this document is kept true".
+# 2026-10-09: the file (github-actions, weekly) and a pin on every `uses:` in all six workflows that
+# have one (backup-db.yml uses no action). Five were pinned that morning to the commit their old tag
+# (`@v4`, `@v5`) resolved to, which changed nothing that ran; deploy-backend.yml's waited for a real
+# backend change, because any edit to that file redeploys the backend, and went in with the move to
+# Python 3.14 the same day. In that change every pin, in every workflow, moved to the LATEST release
+# of its action (actions/checkout v7.0.1, setup-python v7.0.0, setup-node v7.1.0, setup-java v6.0.1,
+# upload-artifact v7.0.2, download-artifact v8.0.2, webfactory/ssh-agent v0.10.0), each SHA read back
+# through `gh api` from the release tag. A bump is now a Dependabot pull request that a reviewer can
+# read. A bump by hand re-resolves the tag and changes the SHA and its comment together: a SHA whose
+# comment names a different release misleads every later reviewer. The check and the recipe are in
+# docs/CI.md, "How this document is kept true".
 #
 # ─── WHAT IS DELIBERATELY NOT HERE ───────────────────────────────────────────────────────
 # • NO ANDROID JOB. android-build.yml already compiles Kotlin and runs `:app:testDebugUnitTest` on a
@@ -93,11 +94,14 @@ name: Checks
 #   is missing is not a job, it is two lines in somebody else's file: `frontend/**` added to
 #   android-build.yml:32-34, without which the cross-surface parity tests named above cannot see the
 #   change that breaks them. That is an android-workstream edit; docs/CI.md §5 asks for it by name.
-# • NO RUFF. `ruff>=0.4.0` is in the dev extra and `[tool.ruff]` in backend/pyproject.toml sets only
-#   `line-length` and `target-version` — there is no rule selection, so `ruff check` runs its small
-#   default set and nothing anybody chose. Wiring a linter into CI before the rule set exists gates
-#   on an accident. Choose the rules in pyproject first (the sibling repository's `[tool.ruff.lint]`
-#   is the worked example, dated per-file baseline included), then add the step.
+# • NO RUFF. `ruff` is in the dev extra (and in backend/requirements.lock) and `[tool.ruff]` in
+#   backend/pyproject.toml sets only `line-length` and `target-version` — there is no rule selection,
+#   so `ruff check` runs whatever default set the installed release ships and nothing anybody chose.
+#   That set is not small any more: ruff 0.16.10 (the locked version) reports 424 findings on this
+#   tree at target py314 (398 at the old py311; measured 2026-10-09), none of them a gate today.
+#   Wiring a linter into CI before the rule set exists gates on an accident. Choose the rules in
+#   pyproject first (the sibling repository's `[tool.ruff.lint]` is the worked example, dated per-file
+#   baseline included), then add the step.
 # • NO PLAYWRIGHT E2E, NO BACKEND INTEGRATION. Both need a running app, a database, and credentials.
 #   That is a genuinely larger piece of work than these three jobs, and pretending otherwise by
 #   half-wiring it is how a suite ends up "running" against nothing. docs/CI.md §5 keeps it listed.
@@ -114,16 +118,13 @@ permissions:
 concurrency:
   # Safe to cancel, unlike the deploy workflows: nothing outside the runner is mutated here. Keyed per
   # pull request (or per branch on a push) so two open pull requests never cancel each other. On main a
-  # push cancels the previous commit's run while it is still going, and deploy-frontend.yml's
-  # wait-for-checks treats a run cancelled this way as SUPERSEDED once main has moved past its commit
-  # (2026-10-09): that commit's frontend stage ends green and ships nothing, and the newer commit's
-  # run ships both. A run cancelled while its commit is still main's tip is not superseded — the wait
-  # holds for a re-run or a dispatch of Checks, then fails as cancelled, not failed. A dispatch on
-  # main cancels the push run for the same commit too; the wait grades the run that was not
-  # cancelled. deploy-backend.yml's copy of the wait gets all of this — the verdict and run
-  # selection copied from deploy-frontend.yml — with the next real backend change. It is deferred
-  # because any edit to that file redeploys the unchanged backend; until then it reports a
-  # cancelled run as failed. See docs/CI.md §1 and §6.
+  # push cancels the previous commit's run while it is still going, and the deploy workflows'
+  # wait-for-checks treat a run cancelled this way as SUPERSEDED once main has moved past its commit
+  # (2026-10-09): that commit's pipeline ends green and ships nothing, and the newer commit's run ships
+  # both. A run cancelled while its commit is still main's tip is not superseded — the wait holds for a
+  # re-run or a dispatch of Checks, then fails as cancelled, not failed. A dispatch on main cancels the
+  # push run for the same commit too; the wait grades the run that was not cancelled. See docs/CI.md §1
+  # and §6.
   group: checks-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
@@ -133,7 +134,7 @@ jobs:
   # ═══════════════════════════════════════════════════════════════════════════════════════
   backend:
     name: Backend tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     defaults:
       run:
         working-directory: backend
@@ -177,65 +178,70 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        # v5, while every other action here is v4: there is no setup-python anywhere else in this
-        # repository to match. This used to go on "so this takes the current major", which v5 was
-        # not: v6.0.0 shipped on 2025-09-04, a year before this file. Moving to it is a Dependabot
-        # pull request like any other bump, not something to fold into the pin below.
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          # 3.12 because that is what production runs: deploy-backend.yml's "Install deps, migrate,
-          # restart" step builds the box's venv with `python3.12 -m venv .venv`. A suite that passes
-          # on a version production does not have is a weaker statement than it looks.
-          # backend/pyproject.toml allows >= 3.11.
+          # 3.14 because that is what production runs: deploy-backend.yml builds the EC2 box's venv
+          # with python3.14 (since 2026-10-09; it was 3.12 until then, and so was this line). A suite
+          # that passes on a version production does not have is a weaker statement than it looks.
+          # backend/pyproject.toml requires >= 3.14.
           #
-          # AND THE VERSION IS NOT COSMETIC HERE — it is measured. On the 3.14 laptop this was
-          # written from, `import pydub` fails outright (`No module named 'pyaudioop'`), because PEP
-          # 594 removed `audioop` from the standard library in 3.13 and pydub imports it. That turns
-          # backend/app/api/routes/data_browser.py:3059 into a 503 before the size checks below it
-          # ever run, so two tests in test_manifest_stream.py fail on a laptop and pass on a 3.12
-          # runner. See the expected-failure list in the suite step: it is the one place where "which
-          # interpreter" changes the answer, and it is written down there rather than rediscovered by
-          # whoever next reads a red log.
-          python-version: "3.12"
+          # `check-latest` because the runner image caches whichever 3.14.x it was built with (3.14.4
+          # on ubuntu-26.04 image 20260927) and setup-python takes that cached one unless told to
+          # look; with it, the job fetches the newest 3.14 from actions/python-versions (3.14.8 on
+          # 2026-10-09), which is the patch release the box's deadsnakes package carries too.
+          #
+          # THE VERSION IS NOT COSMETIC HERE, AND IT USED TO BE MEASURED BY TWO RED TESTS. pydub
+          # imports `audioop`, which PEP 594 removed from the standard library in 3.13, so on 3.14
+          # `import pydub` failed outright and backend/app/api/routes/data_browser.py:3059 answered
+          # 503 before the size checks the two test_manifest_stream.py tests exist for. audioop-lts
+          # (pyproject.toml, with a python_version >= '3.13' marker) puts the module back, and both
+          # tests pass on 3.14 since 2026-10-09.
+          python-version: "3.14"
+          check-latest: true
           cache: pip
-          cache-dependency-path: backend/pyproject.toml
+          # Both files: the lock decides the installed set, and pyproject is what a refresh of the
+          # lock is compiled FROM, so a change to either must not reuse the other's cache.
+          cache-dependency-path: |
+            backend/requirements.lock
+            backend/pyproject.toml
 
-      - name: Install the backend and its test extras
-        # `[dev]`, not a bare install: pytest lives there, with ruff and httpx (pyproject.toml:38-42).
+      - name: Install the backend from the lock
+        # ─── FROM backend/requirements.lock, SINCE 2026-10-09 ────────────────────────────────────
+        # The two lines below are the same two the EC2 deploy runs (and the Docker image runs the
+        # first of), so CI, the box and a developer's venv install ONE set of versions. Before the
+        # lock every dependency was a `>=` floor and this step took whatever the index offered that
+        # day, which is how two tests in test_public_census.py went red with no commit behind them:
+        # FastAPI 0.137 changed what `APIRouter.routes` holds, and the floor moved under the tests.
+        # (They are fixed; see that file's `_mounted_routes`.)
         #
-        # ─── WHAT THIS INSTALL DOES NOT GUARANTEE, AND YOU SHOULD KNOW IT BEFORE READING A RED LOG ──
-        # THERE IS NO LOCK FILE IN THIS BACKEND. Every dependency is a `>=` range
-        # (pyproject.toml:6-34), so this step resolves whatever the index offers on the day it runs,
-        # and CI, the EC2 box and a developer's venv can each end up with a different set. That is not
-        # theoretical: the two expected failures in test_public_census.py are A LIBRARY UPGRADE, not
-        # a code change — FastAPI now keeps a lazy `_IncludedRouter` object in `APIRouter.routes`
-        # instead of flattening the included routes into it, so `route.path` raises AttributeError and
-        # a test written against the old shape fails. Measured against fastapi 0.141.1. Nobody edited
-        # a route; the floor moved under it. THE FIX IS A LOCK, compiled the way the sibling
-        # repository compiles `backend/requirements.lock` (pip-compile in a 3.12 container, with
-        # `--extra dev`) and installed here instead of this line. It is a backend-workstream change,
-        # not a CI one, so this file says so rather than quietly pinning something on its own.
+        # The lock is compiled from pyproject.toml WITH the `dev` extra, so pytest, ruff and httpx
+        # come from it too; `--no-deps` on the editable install is what keeps it authoritative —
+        # without it pip re-resolves pyproject's floors and can quietly lift a pin. Refresh it
+        # deliberately, in a python:3.14 container, never as a side effect of something else; the
+        # command and its two traps are in docs/CI.md, "The backend dependency lock".
+        #
+        # `pip check` LAST, AND IT IS THE ONLY THING THAT NOTICES A STALE LOCK. `--no-deps` means
+        # nothing above compares pyproject's floors with the lock's pins, so a pull request that
+        # raises a floor without recompiling the lock — exactly what a Dependabot pip pull request
+        # does, since it cannot touch a `.lock` — would install the old pin and go green. pip check
+        # reads both and fails on the disagreement ("has requirement fastapi>=X, but you have Y").
         #
         # ─── pytest-asyncio IS NOT INSTALLED, AND THAT IS CORRECT ────────────────────────
-        # pyproject.toml:85 sets `asyncio_mode = "auto"`, which is pytest-asyncio's option, and
-        # pytest-asyncio is in NO extra. So this runner will print, once:
-        #     PytestConfigWarning: Unknown config option: asyncio_mode
-        # That warning is expected and harmless, and the reason is worth knowing before somebody
-        # "fixes" it: the only async module in the suite, tests/test_user_ai_keys.py, sets
-        # `pytestmark = pytest.mark.anyio` with its own `anyio_backend` fixture, so ANYIO's pytest
-        # plugin runs those thirteen tests — and anyio is already installed, transitively, by
-        # starlette. MEASURED 2026-09-14 with the plugin forced off (`-p no:asyncio`): that module is
-        # 18 passed, and the whole suite is 1021 passed / 2 failed, identical to a run with it on.
-        # Nothing is silently skipped. (And do not read a missing async runner as "they pass anyway":
-        # probed on this same pytest, an async test with no plugin to run it FAILS loudly with "async
-        # def functions are not natively supported" — it does not quietly go green.)
+        # It is in no extra and so not in the lock, and pyproject.toml sets no `asyncio_mode` (its
+        # note says why that line was removed on 2026-09-14). Every async module in the suite declares
+        # `pytestmark = pytest.mark.anyio`, so ANYIO's pytest plugin runs them, and anyio is installed
+        # through starlette and httpx. Do not read a missing async runner as "they pass anyway":
+        # probed on this pytest, an async test with no plugin to run it FAILS loudly with "async def
+        # functions are not natively supported" — it does not quietly go green.
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -r requirements.lock
+          pip install --no-deps -e .
+          pip check
 
       - name: Generate the Prisma client
         # `from prisma import Prisma` in app/core/db.py resolves against code that `prisma generate`
@@ -249,50 +255,38 @@ jobs:
         # the day somebody adds a file, and the guards this workflow exists for are exactly the kind
         # nobody remembers to add to a list.
         #
-        # ─── THE FOUR KNOWN FAILURES, AND WHY THIS IS A LIST AND NOT A NUMBER ────────────
-        # THIS TREE DOES NOT START GREEN. Four tests were already failing before any of today's work,
-        # and a job that is red on day one is a job somebody disables — so they are named, one at a
-        # time, with what is actually wrong with each. Not `|| true`, not `--deselect`, not a count:
+        # ─── THE EXPECTED-FAILURE LIST, WHICH IS EMPTY, AND WHY IT IS STILL A LIST ──────────
+        # THIS TREE DID NOT START GREEN. Four tests were failing when this job landed (2026-09-14), and
+        # a job that is red on day one is a job somebody disables — so they were named here, one line
+        # each, with what was wrong with each. Not `|| true`, not `--deselect`, not a count. All four
+        # were fixed on 2026-10-09 and their lines deleted:
+        #   • test_public_census.py's two route tests read `api_router.routes`, which FastAPI 0.137
+        #     turned into a tree of `_IncludedRouter` wrappers with no `.path`; they now ask FastAPI's
+        #     public `iter_route_contexts` (added in 0.137.2 for exactly that), router-level
+        #     dependencies included.
+        #   • test_manifest_stream.py's two size-refusal tests got a 503 instead of a 413 wherever
+        #     Python was 3.13+, because pydub imports the `audioop` module PEP 594 removed; the
+        #     audioop-lts backport is now a dependency, and this job runs 3.14 like production.
         #
-        #   tests/test_public_census.py::test_the_census_is_mounted_at_the_public_path_the_cdn_rule_would_be_scoped_to
-        #   tests/test_public_census.py::test_the_census_asks_for_no_token
-        #       Both read `api_router.routes` expecting the flattened route objects FastAPI used to
-        #       put there (test_public_census.py:163 and :174). Current FastAPI stores one lazy
-        #       `_IncludedRouter` per `include_router` call instead, and it has no `.path`, so the
-        #       first raises AttributeError and the second's `next(...)` raises StopIteration. THE
-        #       ROUTE ITSELF IS FINE — the same file's HTTP-level tests pass, including the one
-        #       proving the census answers 200 with no token. What is stale is how these two reach
-        #       for it. Fix: ask the app (`app.routes`), or walk `_IncludedRouter.original_router`.
+        # SO THE LIST IS EMPTY AND THE GATE IS A REAL ONE: any FAILED or ERROR line fails the job. The
+        # mechanism stays, because the next day-one red will need it, and the docs job below is the
+        # precedent for an empty licence: an empty pattern file matches nothing, so `grep -v` reports
+        # every failure as unexpected, which is the correct reading.
         #
-        #   tests/test_manifest_stream.py::test_the_declared_size_refuses_before_a_byte_moves
-        #   tests/test_manifest_stream.py::test_the_real_length_refuses_what_the_column_lied_about
-        #       INTERPRETER-DEPENDENT, AND THEY ARE EXPECTED TO PASS ON THIS RUNNER. Both assert a
-        #       413 from the audio-conversion download and get a 503, because data_browser.py:3059
-        #       does `import pydub` and answers 503 when that fails — and on Python 3.13+ it always
-        #       fails, PEP 594 having removed the `audioop` module pydub imports. This job pins 3.12,
-        #       where `audioop` still exists. MEASURED 2026-09-14 on the 3.14 laptop: the suite is
-        #       1019 passed / 4 failed, and with a stub `audioop` on PYTHONPATH — changing nothing
-        #       else — test_manifest_stream.py is 11 passed and the suite is 1021 passed / 2 failed.
-        #       THE FIRST GREEN RUN OF THIS JOB SHOULD DELETE THESE TWO LINES. They are here only
-        #       because that prediction was made on a laptop and not on a runner, and a day-one red
-        #       over a correct prediction is the exact failure mode this whole block exists to avoid.
-        #
-        # WHY A LIST OF NODE IDS RATHER THAN "expect 4 failures": a count cannot tell one failure from
-        # another. Fix the census pair, break two others, and the count still reads 4 — green, over a
-        # regression. This list GOES RED THE MOMENT A FIFTH TEST FAILS, or a different one does. It
-        # goes red on a collection ERROR too, because an ERROR line is a failure it has not licensed.
+        # WHY A LIST OF NODE IDS RATHER THAN "expect N failures", if one is ever added back: a count
+        # cannot tell one failure from another. Fix one, break another, and the count still matches —
+        # green, over a regression. A list goes red the moment a different test fails, and on a
+        # collection ERROR too, because an ERROR line is a failure it has not licensed.
         #
         # WHY A LIST RATHER THAN `--deselect`: a deselected test never runs, so the day somebody fixes
         # it nothing notices, and the day it starts failing for a SECOND, unrelated reason nothing
-        # notices either. These four run. Their tracebacks are in the log. They are simply not fatal,
-        # and exactly which four is re-checked on every single run.
+        # notices either. A listed test runs, its traceback is in the log, and it is simply not fatal.
         #
         # THE LIST MAY ONLY SHRINK. An expected failure that stops failing prints a ::warning naming
         # the line to delete, and says so in the run summary — deliberately not a hard failure,
-        # because "your tree got better" must never be the thing that turns a pull request red, and
-        # because the two pydub entries above are expected to trip exactly that warning on the first
-        # run. Deleting a line here is a one-line, reviewable diff. ADDING one is the thing to argue
-        # about in review.
+        # because "your tree got better" must never be the thing that turns a pull request red.
+        # Deleting a line is a one-line, reviewable diff. ADDING one is the thing to argue about in
+        # review.
         #
         # `-rf` and no `-q`: the failure summary at the foot is the one thing a reader scrolling to
         # the bottom of a red log came for, and it is what this gate parses. `--durations=15` because
@@ -307,10 +301,6 @@ jobs:
           set -uo pipefail
 
           cat > expected-failures.txt <<'LIST'
-          tests/test_public_census.py::test_the_census_is_mounted_at_the_public_path_the_cdn_rule_would_be_scoped_to
-          tests/test_public_census.py::test_the_census_asks_for_no_token
-          tests/test_manifest_stream.py::test_the_declared_size_refuses_before_a_byte_moves
-          tests/test_manifest_stream.py::test_the_real_length_refuses_what_the_column_lied_about
           LIST
 
           status=0
@@ -389,7 +379,7 @@ jobs:
               printf '%s\n' "$unexpected" | sed 's/^/- `/; s/$/`/'
             } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
             printf '%s\n' "$unexpected" | while IFS= read -r nodeid; do
-              echo "::error::${nodeid} failed, and it is not one of the four known pre-existing failures. That is a regression, not the baseline."
+              echo "::error::${nodeid} failed, and it is not on the expected-failure list (which is empty). That is a regression, not the baseline."
             done
             exit 1
           fi
@@ -399,7 +389,7 @@ jobs:
           # branches before this one (the floor, and the unexpected-failure check) are what make
           # doing so safe rather than a dressed-up `|| true`.
           if [ "$status" -ne 0 ]; then
-            echo "Only the known pre-existing failures fired; the comment on this step says what each one is and how to fix it."
+            echo "Only failures on the expected-failure list fired; the comment on this step says what each one is and how to fix it."
           fi
           exit 0
 
@@ -408,17 +398,17 @@ jobs:
   # ═══════════════════════════════════════════════════════════════════════════════════════
   web:
     name: Web typecheck, lint and unit specs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     defaults:
       run:
         working-directory: frontend
 
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           # 22 to match the `node-version` in deploy-frontend.yml's "Set up Node" step, the Node that
           # builds production: `vercel build` runs on the runner there, never on Vercel. A typecheck
@@ -538,16 +528,16 @@ jobs:
   # OWNED_ELSEWHERE set, docs/tools/check-docs.mjs:43-52).
   docs:
     name: Docs check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     steps:
       - name: Checkout
         # Full history is NOT needed, but a real git checkout is: check-docs shells out to
         # `git ls-files` to decide which paths a document is allowed to name.
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
 

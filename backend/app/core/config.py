@@ -324,7 +324,7 @@ class Settings(BaseSettings):
         """Pin the signing algorithm to a symmetric HMAC one, loudly rejecting anything else.
 
         This is the configuration half of the algorithm-confusion defence; the decode half is in
-        app.core.security, which passes exactly this one algorithm to jose. Failing here (at
+        app.core.security, which passes exactly this one algorithm to PyJWT. Failing here (at
         startup) rather than at token-verification time means a bad JWT_ALGORITHM can never quietly
         weaken authentication in production.
         """

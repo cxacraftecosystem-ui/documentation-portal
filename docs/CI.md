@@ -48,16 +48,13 @@ The backend's copy landed first (`deploy-backend.yml`) and runs only when `backe
 frontend's copy landed on 2026-10-09 and covers the push the backend's cannot see: a frontend-only
 push, which until then was published without anything waiting on Checks. Both skip the wait on a
 manual dispatch, which is the documented emergency override (§4). A Checks run that was
-**cancelled** is not a failed one (since 2026-10-09): when a newer push to `main` cancels it, the
-frontend's wait ends green as *superseded* and the newer commit's own run ships both (§6). The
-backend's copy gets the same verdict, copied from `deploy-frontend.yml`, with the next real backend
-change: it is deferred because any edit to `deploy-backend.yml` redeploys the unchanged backend
-(§5). Until then it reports a cancelled run as failed. See
-**The checks** below, under "it runs; it does not gate", for what this still does not cover.
+**cancelled** is not a failed one (since 2026-10-09): when a newer push to `main` cancels it, the wait
+ends green as *superseded* and the newer commit's own run ships both (§6). See **The checks** below,
+under "it runs; it does not gate", for what this still does not cover.
 
 | # | Workflow | File | Trigger | What it does |
 |---|---|---|---|---|
-| 1 | Deploy backend to EC2 | `.github/workflows/deploy-backend.yml` | `push` to `main` | rsync → write `.env` → `prisma migrate deploy` → restart `fieldrepo` + `fieldrepo-queue` → poll `/health` |
+| 1 | Deploy backend to EC2 | `.github/workflows/deploy-backend.yml` | `push` to `main` | `wait-for-checks` → python3.14 on the box, and the venv built from `backend/requirements.lock` **beside** the live one (2026-10-09) → rsync → write `.env` → install the project and generate the Prisma client into the new venv → `prisma migrate deploy` → **point `backend/.venv` at the new venv** → restart `fieldrepo` + `fieldrepo-queue` → poll `/health`. [backend/DEPLOY_AWS.md](../backend/DEPLOY_AWS.md) §9 has the layout on the box and the rollback. |
 | 2 | Deploy frontend to Vercel | `.github/workflows/deploy-frontend.yml` | `workflow_run` on **1** completing | gate → `wait-for-checks` (2026-10-09) → `vercel pull` → **refuse any project but `field-repository`** → **assert the pulled env carries what the app needs** (every `NEXT_PUBLIC_*`, `[SENSITIVE]` placeholders included), and *warn* when the project's Node.js Version is not the build's major → `vercel build --prod` → **assert those values actually reached the bundle** → `vercel deploy --prebuilt --prod` → **prove the production domain resolves to the new deployment, and `vercel promote` it when a rollback has turned auto-assignment off** (2026-10-09) → smoke-check the alias → **assert the bundle the CDN serves is the one that was verified**, starting with which deployment it is |
 | 3 | Android build | `.github/workflows/android-build.yml` | `workflow_run` on **2** completing, plus `pull_request` filtered to `android/**` | JDK 17 → `compileDebugKotlin` → `testDebugUnitTest` → `lintDebug` (advisory) → `assembleDebug` → upload APK. **Debug variants only.** Nothing it produces can install over a release build, and nothing it produces reaches a phone. |
 | 4 | Checks | `.github/workflows/checks.yml` | `pull_request`, `push` to `main`, manual | Three independent jobs: the backend suite, the web typecheck/lint/unit specs, the documentation check. **No `paths:` filter.** See **The checks** below.  |
@@ -180,7 +177,7 @@ Three jobs, deliberately independent, so one red does not hide another's answer:
 
 | Job (the name branch protection needs) | Where it runs | What it runs |
 |---|---|---|
-| **Backend tests** | `backend/` | Python 3.12 → `pip install -e ".[dev]"` → `python -m prisma generate` → `python -m pytest -rf --durations=15` |
+| **Backend tests** | `backend/` | Python 3.14 (`check-latest`) → `pip install -r requirements.lock` → `pip install --no-deps -e .` → `pip check` → `python -m prisma generate` → `python -m pytest -rf --durations=15` |
 | **Web typecheck, lint and unit specs** | `frontend/` | Node 22 → `npm ci` → `npx tsc --noEmit` → `npm run lint` → `npm run test:unit` |
 | **Docs check** | repository root | Node 22 → `node docs/tools/check-docs.mjs` |
 
@@ -226,24 +223,19 @@ that is red on day one is a job somebody disables. Both jobs therefore carry an 
 by-name list of the pre-existing failures** — never a `|| true`, never a `--deselect`, never a bare
 count. Everything runs; the listed failures are not fatal; **anything else is red**.
 
-**Backend — four tests, expected to be two on a runner:**
+**Backend — none since 2026-10-09. The list is empty, like the docs one, and that is the state to
+defend.** It began at four, and both pairs were fixed and their lines deleted on 2026-10-09:
 
-| Test | Why it fails |
+| Test | What was wrong, and the fix |
 |---|---|
-| `test_public_census.py::test_the_census_is_mounted_at_the_public_path_the_cdn_rule_would_be_scoped_to` | Reads `api_router.routes` expecting flattened route objects. Current FastAPI stores a lazy `_IncludedRouter` per `include_router`, which has no `.path`. |
-| `test_public_census.py::test_the_census_asks_for_no_token` | Same cause; its `next(...)` raises `StopIteration`. The route is fine — the file's HTTP-level tests pass. |
-| `test_manifest_stream.py::test_the_declared_size_refuses_before_a_byte_moves` | **Interpreter-dependent, and expected to PASS in CI.** On Python 3.13+ `import pydub` fails (PEP 594 removed `audioop`), so `backend/app/api/routes/data_browser.py:3059` answers 503 before the 413 check. The job pins 3.12, where it does not. |
-| `test_manifest_stream.py::test_the_real_length_refuses_what_the_column_lied_about` | Same cause. |
+| `test_public_census.py::test_the_census_is_mounted_at_the_public_path_the_cdn_rule_would_be_scoped_to` | Read `api_router.routes` expecting flattened route objects. Since FastAPI 0.137 that list holds one `_IncludedRouter` per `include_router`, with no `.path`. The tests now ask FastAPI's public `iter_route_contexts`, added in 0.137.2 for exactly this. |
+| `test_public_census.py::test_the_census_asks_for_no_token` | Same cause, same fix; the effective route it finds carries router-level dependencies, which is what the test inspects. |
+| `test_manifest_stream.py::test_the_declared_size_refuses_before_a_byte_moves` | On Python 3.13+ `import pydub` failed (PEP 594 removed `audioop`), so `backend/app/api/routes/data_browser.py:3059` answered 503 before the 413 check. `audioop-lts` is now a dependency (marker `python_version >= '3.13'`), and the job runs 3.14 like production. |
+| `test_manifest_stream.py::test_the_real_length_refuses_what_the_column_lied_about` | Same cause, same fix. |
 
-Measured both ways on 2026-09-14: on the 3.14 laptop the suite is 1019 passed / 4 failed; with
-`audioop` restored and nothing else changed it is **1021 passed / 2 failed**. So the first green CI
-run should delete the two `test_manifest_stream` lines from the list — the job prints a `::warning`
-and a run-summary line telling you exactly that.
-
-The census pair is worth reading twice, because it is not a code change: **it is a dependency
-upgrade**. `backend/` has no lock file — every dependency is a `>=` range — so each CI run installs
-whatever the index offers that day. A green branch can turn red overnight with no commit behind it.
-Compiling a `requirements.lock` for `backend/` is on the §5 list.
+The census pair is worth reading twice, because it was not a code change: **it was a dependency
+upgrade** reaching CI through a `>=` range, with no commit behind it. That is the failure
+`backend/requirements.lock` exists to stop (see *The backend dependency lock* below).
 
 **Docs — none. The list is empty, and that is the state to defend.** It began at four:
 `docs/REPO_FACTS.md is out of date`, two documents with no "How this document is kept true" section
@@ -284,10 +276,52 @@ one is the thing to argue about in review.
   steps in the same order; `RecordPickersTest.kt` and `AccessRosterTest.kt` name their own web twins
   the same way. So a frontend-only pull request can break an Android test that nothing will run.
   Adding `frontend/**` to that filter closes it.
-- **No `ruff`.** It is installed (it is in the `dev` extra) but `[tool.ruff]` in
+- **No `ruff`.** It is installed (it is in the `dev` extra, and so in the lock) but `[tool.ruff]` in
   `backend/pyproject.toml` sets only `line-length` and `target-version` — there is no rule selection,
   so a lint job today would gate on whatever the default rule set happens to be rather than on
-  anything anybody chose. Choose the rules first, then add the step.
+  anything anybody chose. That default is no longer small: ruff 0.16.10 reports 424 findings on this
+  tree at target `py314` (398 at the old `py311`; measured 2026-10-09). Choose the rules first, then
+  add the step.
+
+### The backend dependency lock
+
+`backend/requirements.lock` (since 2026-10-09) is the pinned resolution every machine installs from:
+`checks.yml`'s backend job, the EC2 deploy and `backend/Dockerfile` alike. CI and the box both run
+
+```bash
+pip install -r requirements.lock
+pip install --no-deps -e .
+pip check
+```
+
+and the Dockerfile runs the first line only (it puts `app/` on `PYTHONPATH` instead of installing
+the project; its comment says why). `--no-deps` on the editable install keeps the lock
+authoritative — without it pip re-resolves `pyproject.toml`'s `>=` floors and can quietly lift a pin
+— and `pip check` is what notices when those floors have outgrown the lock. Before the lock, CI took
+whatever the index offered each day while the box sat on the versions of its first install, June's,
+security advisories included; the two ran different `anthropic` majors.
+
+**Refresh it deliberately, never as a side effect of something else**, in a container, so the Python
+that resolves it is the Python that runs it everywhere (3.14):
+
+```bash
+docker run --rm -v "$PWD/backend:/w" -w /w python:3.14 sh -c \
+  "pip install -q pip-tools && pip-compile -q --strip-extras --extra dev \
+   --output-file requirements.lock pyproject.toml"
+```
+
+It is the same recipe the sister repository uses, and the same two traps apply:
+
+* **`--extra dev`, and NOT `--all-extras`.** The `ai-local` extra pulls `rembg` and `onnxruntime` —
+  roughly 400 MB of wheels that `backend/pyproject.toml` forbids on the API box.
+* **Do not paste the command out of the lock's own `pip-compile` header** if it ever records
+  `--no-index`: passing that for real resolves against no index at all, and the refresh fails.
+
+Two things to know about the result. It is resolved for Linux: `uvloop` (from `uvicorn[standard]`)
+is in it, and uvloop does not install on Windows, so a Windows venv installs the lock without that
+one line. And Dependabot cannot refresh it (`.github/dependabot.yml` says why): a pip pull request
+raises a floor in `pyproject.toml`, and the lock is recompiled by hand in the same pull request —
+`pip check` fails Backend tests until it is.
 - **No Playwright end-to-end, no backend integration tests.** Both need a running app, a database and
   real credentials. See §5.
 
@@ -426,8 +460,9 @@ same value in two places. Change one there and re-run this workflow (or push) to
 
 **Every check, reproduced locally, in the same directory the job uses.** These are the exact commands
 the workflow runs; if CI is red and one of these is green, the difference is the environment, and the
-first thing to check is the Python version (3.12 in CI) and the fact that CI installs from the index
-rather than from your venv:
+first thing to check is the Python version (3.14 in CI) and whether your venv holds what
+`backend/requirements.lock` pins (`pip install -r requirements.lock && pip install --no-deps -e .`
+from `backend/`, as CI does):
 
 ```bash
 # Backend — from backend/, with the same placeholder environment the job exports.
@@ -466,40 +501,36 @@ because a `.env` that is quietly pointed at a real database is a much worse way 
   2026-10-09 and covers the frontend-only push the backend's copy structurally cannot see (§1). What
   is left is the merge (the bullet above) and the manual-dispatch override, which skips both waits
   on purpose (§4).
-- **Eight backend tests' worth of failure is licensed, in two named lists.** Four pre-existing
-  pytest failures and four pre-existing documentation problems are listed by name in `checks.yml` and
-  do not fail their jobs; anything else does. Both lists are ratchets that may only shrink, and the
-  section *What is licensed to fail* in §1 says what each entry is and how to remove it. **They are
-  meant to be empty within days, not carried for months.**
-- **`backend/` has no lock file, so CI installs a different dependency set every day.** Every
-  dependency in `backend/pyproject.toml` is a `>=` range. Two of the four licensed test failures are
-  a FastAPI upgrade, not a code change — a green branch can turn red overnight with no commit behind
-  it, and the backend on the EC2 box, in CI, and in your venv are three different installs. Compile a
-  `requirements.lock` in `backend/` (`pip-compile --extra dev` inside a `python:3.12` container so the
-  interpreter that resolves it is the one that runs it) and install from it in both the CI job and
-  `deploy-backend.yml`.
+- ~~**Eight backend tests' worth of failure is licensed, in two named lists.**~~ **Both lists are
+  EMPTY**: the four documentation problems were fixed on 2026-09-14 and the four pytest failures on
+  2026-10-09. The mechanism stays in `checks.yml` for the next day-one red, a ratchet that may only
+  shrink; *What is licensed to fail* in §1 says what each former entry was.
+- ~~**`backend/` has no lock file, so CI installs a different dependency set every day.**~~ **DONE on
+  2026-10-09.** `backend/requirements.lock`, compiled on `python:3.14` with `--extra dev`, is what CI,
+  the EC2 deploy and the Docker image install (§1, *The backend dependency lock*). The same change
+  moved CI and the box to Python 3.14 and rebuilt the box's venv from the lock, which retired the
+  June-vintage versions production had been running.
 - **The Android tests cannot see the change that breaks them.** `android-build.yml`'s `pull_request`
   trigger is filtered to `android/**` (`android-build.yml:31-33`), and the Kotlin suite reads the web
   tree: `WalkthroughStepsTest.kt:385` names `frontend/components/guide/steps.ts` and asserts both
   walkthroughs declare the same steps in the same order, and `RecordPickersTest.kt` and
   `AccessRosterTest.kt` name their own web twins. Add `frontend/**` to that filter — a two-line
   change in a file `checks.yml` deliberately does not duplicate.
-- ~~**Most actions are still on mutable tags.**~~ **DONE on 2026-10-09, in every workflow but
-  `deploy-backend.yml`.** A tag (`actions/checkout@v4`) lets whoever controls that repository decide
-  what runs; a commit SHA does not. This bullet asked for the Dependabot config and the pins
-  together, because a hand-pinned SHA with nothing to refresh it rots silently, and both landed that
-  day: `.github/dependabot.yml` (github-actions, weekly), and a SHA on every `uses:` in
-  `android-build.yml`, `checks.yml`, `deploy-frontend.yml`, `keep-supabase-active.yml` and
-  `publish-android.yml`, with its release in a trailing comment (`backup-db.yml` uses no action).
-  Each SHA is the commit the line's old tag (`@v4`, `@v5`) resolved to that day, read back through
-  `gh api`, so nothing that runs changed, and a bump is now a Dependabot pull request.
-  **`deploy-backend.yml`'s pins are deferred**, not applied yet: `actions/checkout`,
-  `actions/upload-artifact` and `webfactory/ssh-agent` (`@v0.9.0`, the one action from outside
-  `actions/`). Any edit to that file redeploys the unchanged backend — its `changes` job counts the
-  workflow file itself as a backend change, and the deploy stops and restarts the production API on
-  the small EC2 box — so they go in together with the next real backend change, each SHA resolved
-  as above, along with that file's copy of the cancelled-run verdict and run selection, taken from
-  `deploy-frontend.yml` (§6). **Deliberately still unpinned:** the Vercel CLI, which
+- ~~**Most actions are still on mutable tags.**~~ **DONE on 2026-10-09, in every workflow.** A tag
+  (`actions/checkout@v4`) lets whoever controls that repository decide what runs; a commit SHA does
+  not. This bullet asked for the Dependabot config and the pins together, because a hand-pinned SHA
+  with nothing to refresh it rots silently, and both landed that day: `.github/dependabot.yml`, and a
+  SHA on every `uses:` in `android-build.yml`, `checks.yml`, `deploy-backend.yml`,
+  `deploy-frontend.yml`, `keep-supabase-active.yml` and `publish-android.yml`, with its release in a
+  trailing comment (`backup-db.yml` uses no action; `webfactory/ssh-agent` in `deploy-backend.yml` is
+  the one action from outside `actions/`). Five workflows were pinned that morning to the commit their
+  old tag resolved to, so nothing that ran changed; `deploy-backend.yml`'s pins waited for a real
+  backend change, because any edit to that file redeploys the backend, and went in with the move to
+  Python 3.14 the same day. That change also moved every pin to its action's **latest** release —
+  checkout v7.0.1, setup-python v7.0.0, setup-node v7.1.0, setup-java v6.0.1, upload-artifact
+  v7.0.2, download-artifact v8.0.2, ssh-agent v0.10.0 — and every job to `runs-on: ubuntu-26.04`.
+  Dependabot now also watches npm, pip, gradle, docker, docker-compose and terraform (monthly,
+  minor and patch grouped). **Deliberately still unpinned:** the Vercel CLI, which
   `deploy-frontend.yml` installs as `vercel@latest` (its comment says why). How to check a pin, or
   redo one by hand, is in *How this document is kept true*.
 - **The Playwright end-to-end suite is still not a gate.** `checks.yml` runs only the eight
@@ -553,13 +584,24 @@ belongs in `docs/tools/check-docs.mjs`'s own `OWNED_ELSEWHERE` set (`check-docs.
 it becomes a warning, and **not** in the workflow's licensed list.
 
 **`Backend tests` is red on a test that passes on my machine.** Three known causes, in order of
-likelihood. **(1) The interpreter.** CI pins Python 3.12 to match the EC2 box; on 3.13+ `import
-pydub` fails outright (PEP 594 removed `audioop`) and the two `test_manifest_stream` size-refusal
-tests fail with a 503 instead of a 413. **(2) The dependency set.** There is no lock file, so CI
-installs today's versions of everything while your venv holds whatever it was built with — that is
-what broke the two `test_public_census` tests, and the next one will arrive the same way. **(3)
-Cross-module pollution.** The job runs the whole suite; run the named module by itself before you
-believe the attribution, and believe the verdict either way.
+likelihood. **(1) The dependency set.** CI installs exactly `backend/requirements.lock`; a venv built
+any other way holds whatever the index offered when it was built, which is how two
+`test_public_census` tests once went red with no commit behind them. Reinstall from the lock (§4).
+**(2) The interpreter.** CI runs Python 3.14, as the EC2 box does; an older local Python is not
+supported (`requires-python = ">=3.14"`). **(3) Cross-module pollution.** The job runs the whole
+suite; run the named module by itself before you believe the attribution, and believe the verdict
+either way.
+
+**`Backend tests` is red at `pip check`.** `backend/pyproject.toml` asks for a newer version of
+something than `backend/requirements.lock` pins — usually a Dependabot pull request that raised a
+floor, which it cannot follow by recompiling the lock. Recompile it (§1, *The backend dependency
+lock*) in the same pull request.
+
+**Stage 1 is red on "Put Python 3.14 on the box, and build the venv from the lock beside the live
+one".** Nothing the API can see has changed: that step runs before the code sync, the API is still
+serving from its old venv, and `fieldrepo-queue` was started again on the way out. Read the apt or
+pip error in the log, fix the cause (a lock that does not install, an apt mirror or the deadsnakes
+PPA unreachable), and re-run the deploy. The half-built venv has no `.complete` and is rebuilt.
 
 **`Backend tests` is red with dozens of collection errors.** Almost always the environment, not the
 code: `Settings` refuses to build without its six required values (§1, *The checks*) and every module
@@ -584,16 +626,11 @@ not there yet.
 Read the error, because there are three:
 
 - *Checks failed* — a gating job is red on that commit. The job summary links the Checks run. Fix the
-  commit; the next push ships it. On stage 1 a job that was *cancelled* also reads as this until the
-  next real backend change gives stage 1 the cancelled-run verdict, deferred because any edit to
-  `deploy-backend.yml` redeploys the unchanged backend (§5). So open the job first: if it was
-  cancelled and `main` has moved past the commit, the newer commit's run ships it; if not, re-run
-  Checks, then the deploy.
-- *Checks … was CANCELLED, not failed* — stage 2 only, until stage 1 gets that verdict. The Checks
-  run was cancelled while that commit was still `main`'s tip, and nothing re-ran it within twenty
-  minutes. Re-run that Checks run (or dispatch Checks on `main`), then re-run the deploy. A gating
-  job that hits its own `timeout-minutes` also ends as cancelled, so look at the job before assuming
-  a person cancelled it.
+  commit; the next push ships it.
+- *Checks … was CANCELLED, not failed* — the Checks run was cancelled while that commit was still
+  `main`'s tip, and nothing re-ran it within twenty minutes. Re-run that Checks run (or dispatch Checks
+  on `main`), then re-run the deploy. A gating job that hits its own `timeout-minutes` also ends as
+  cancelled, so look at the job before assuming a person cancelled it.
 - *Timed out* — no verdict at all within twenty minutes.
 
 In an emergency, dispatch stage 2 with `force=true`, which skips the wait (§4); a manual dispatch of
@@ -606,10 +643,7 @@ diagnosis on any two merges a few minutes apart. It now reads `main`'s tip: when
 the commit, the newer commit's own run ships both, so this one ends green, writes `superseded=true`,
 and its `deploy` job is skipped. Look at the newer run. The wait also prefers a run for the SHA that
 was not cancelled, so a dispatch of Checks on `main`, which cancels the push run beside it, is graded
-by its own result. **Only stage 2's wait does this so far.** Stage 1's copy gets the verdict and the
-run selection, copied from `deploy-frontend.yml`, with the next real backend change: they are
-deferred because any edit to `deploy-backend.yml` redeploys the unchanged backend (§5). Until then,
-stage 1 still reports this case as *Checks failed* (above).
+by its own result. Both stages' waits do this since 2026-10-09.
 
 **Stage 2 warns "Production did not move onto this deployment".** Almost always the project was in
 Vercel's rolled-back state (§1, the three assertions): after an Instant Rollback, `--prod` deployments
@@ -712,9 +746,11 @@ parts that are not are exactly the parts that were wrong before.
 | The §5 non-gates | The absence of a job. A row leaves that list when a workflow gains the step — so re-read §5 against the workflow files, not against memory. Three rows left it on 2026-09-14. |
 | The measured figures in §1 (`1019 passed`, `104 specs`, `4 problems`) | Dated, and measured on a laptop rather than a runner. Totals move the day anybody adds a test or a document; re-run the §4 commands and re-date them, or delete them. The only numbers the workflow itself enforces are floors, not targets. |
 | Vercel project settings (Root Directory, Git link, `createDeployments`, Node.js Version) | **UNVERIFIED from here** — dashboard state. §3 and §6 say what they must be. At deploy time the workflow **asserts** Root Directory and the project's name (since 2026-10-09, only `field-repository` may be published to), and **warns** on a Node.js Version whose major differs from the build's; the Git link and `createDeployments` are checked by nothing. |
-| The two `wait-for-checks` copies | `GATING_JOBS` in `deploy-backend.yml` and `deploy-frontend.yml` must hold the same three names as `checks.yml`'s jobs (`grep -n "GATING_JOBS" .github/workflows/*.yml`). A renamed job makes both waits time out, with every poll in the log naming the job it is still waiting for, which is loud, not silent. `deploy-frontend.yml`'s run selection, verdict program and `cancelled` branch are byte-identical to the sister repository's two copies as of 2026-10-09; `deploy-backend.yml`'s copy gets the same three, copied from `deploy-frontend.yml`, with the next real backend change: they are deferred because any edit to that file redeploys the unchanged backend (§5). `grep -n superseded .github/workflows/deploy-frontend.yml` finds the job's output, the branch that writes it and the `deploy` job's refusal; the same grep over `.github/workflows/deploy-backend.yml` finds nothing until they are applied, and all three after. Fix a defect in one copy, fix it in all four. |
+| The two `wait-for-checks` copies | `GATING_JOBS` in `deploy-backend.yml` and `deploy-frontend.yml` must hold the same three names as `checks.yml`'s jobs (`grep -n "GATING_JOBS" .github/workflows/*.yml`). A renamed job makes both waits time out, with every poll in the log naming the job it is still waiting for, which is loud, not silent. Their run selection, verdict program and `cancelled` branch are byte-identical to each other and to the sister repository's two copies as of 2026-10-09: `grep -n superseded` over `.github/workflows/deploy-backend.yml` and `.github/workflows/deploy-frontend.yml` finds, in each, the job's output, the branch that writes it and the `deploy` job's refusal. Fix a defect in one copy, fix it in all four. |
 | The production domain serving the new deployment | Asserted after every publish, not measured here: the deploy job reads which deployment `field-repository.vercel.app` resolves to, promotes the upload out of a rollback, and fails if production is still elsewhere (§1, the three assertions). That a rollback turns auto-assignment off is Vercel's documented behaviour, linked there; that `field-repository.vercel.app` is a project domain rather than a hand-set alias was measured on 2026-10-09 (**Project → Settings → Domains**). |
-| The action pins (§5) | `grep -nE "^\s*(- )?uses:" .github/workflows/*.yml` — every hit must read `owner/repo@<40-hex SHA> # vX.Y.Z`, except the four in `deploy-backend.yml`, still on tags: its pins are deferred to the next real backend change, because any edit to that file redeploys the unchanged backend (§5), and are resolved with the recipe below when they go in. To check one against its comment, or to redo one by hand: `gh api repos/<owner>/<repo>/git/ref/tags/<vX.Y.Z> --jq .object`. A `commit` object's `sha` is the pin; a `tag` object is an annotated tag, so read the commit it points at with `gh api repos/<owner>/<repo>/git/tags/<sha> --jq .object`. Only the SHA runs and only the comment gets read, so a comment that names a different release from its SHA is the bug. |
+| The action pins (§5) | `grep -nE "^\s*(- )?uses:" .github/workflows/*.yml` — every hit must read `owner/repo@<40-hex SHA> # vX.Y.Z`. To check one against its comment, or to redo one by hand: `gh api repos/<owner>/<repo>/git/ref/tags/<vX.Y.Z> --jq .object`. A `commit` object's `sha` is the pin; a `tag` object is an annotated tag, so read the commit it points at with `gh api repos/<owner>/<repo>/git/tags/<sha> --jq .object`. Only the SHA runs and only the comment gets read, so a comment that names a different release from its SHA is the bug. |
+| The backend dependency lock (§1) | `backend/requirements.lock` is generated: its header names the Python that compiled it (3.14) and the command. Re-run the command in §1 and diff — an empty diff on the same day means it is current. `grep -n "requirements.lock" .github/workflows/checks.yml .github/workflows/deploy-backend.yml backend/Dockerfile` finds every place that installs it. |
+| The runner image | `grep -n "runs-on" .github/workflows/*.yml` — every job names `ubuntu-26.04` (since 2026-10-09), never `ubuntu-latest`, so an image move is a reviewed diff rather than a GitHub announcement. |
 | Branch protection: whether the checks are required | **UNVERIFIED from here** — console state, and the single most load-bearing unverifiable claim on this page. Nothing in `.github/` can assert it. **Settings → Branches**, or `gh api repos/:owner/:repo/branches/main/protection`. |
 | Everything about cutting a release | [RELEASING.md](RELEASING.md), which owns it. This document states only where `publish-android.yml` sits in the pipeline and which secrets it reads; if the two disagree about anything else, RELEASING.md wins. |
 

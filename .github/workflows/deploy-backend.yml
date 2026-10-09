@@ -29,6 +29,17 @@ name: Deploy backend to EC2
 # filtering itself, in the `changes` job below: when nothing under backend/ changed, the
 # `deploy` job is skipped (the run still completes successfully and still triggers the
 # frontend workflow), and nothing is touched on EC2.
+#
+# ─── EDITING THIS FILE REDEPLOYS THE BACKEND, SO EDITS WAIT FOR A REAL BACKEND CHANGE ──────────
+# `changes` counts this file itself as a backend change, so even a comment edit stops and restarts
+# the production API on the t3.micro. That is why three edits were held back on the morning of
+# 2026-10-09 and went in later that day WITH a real backend change, the move of the box to Python
+# 3.14 on a venv built from backend/requirements.lock (the `deploy` job's steps say how and why):
+# every `uses:` pinned to the commit SHA of its latest release, the release in a trailing comment,
+# as in every other workflow here; `wait-for-checks` given the cancelled-run verdict and the run
+# selection deploy-frontend.yml had carried since that morning, copied from it; and
+# `runs-on: ubuntu-26.04` in every job rather than whatever `ubuntu-latest` resolves to (it moves to
+# 26.04 by itself in November 2026). Batch the next cosmetic edit the same way.
 
 on:
   push:
@@ -65,14 +76,14 @@ jobs:
   # downstream workflows run in a separate `workflow_run` context and cannot read job
   # outputs across workflows — only artifacts cross that boundary.
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       backend: ${{ steps.detect.outputs.backend }}
       frontend: ${{ steps.detect.outputs.frontend }}
       android: ${{ steps.detect.outputs.android }}
     steps:
       - name: Checkout (full history, so both the push range and the live range can be diffed)
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -216,7 +227,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish the change summary for the downstream workflows
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pipeline-changes
           path: changes.env
@@ -229,15 +240,21 @@ jobs:
     # Push only, and only when a deploy would actually follow. A frontend-only push skips this
     # for the same reason it skips `deploy` — there is nothing to gate.
     if: ${{ needs.changes.outputs.backend == 'true' && github.event_name != 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # A hair over the poll's own 20-minute budget, so the loop's error message (which names what
     # it was still waiting for) is what a reader sees rather than a bare job cancellation.
     timeout-minutes: 25
     permissions:
       contents: read
       actions: read
+    # `true` only when the Checks run for this commit was cancelled AND main has moved past it; the
+    # `deploy` job's `if:` refuses on it. Unset on every other path, which reads as "not superseded".
+    # 2026-10-09: until then a cancelled run read as a failed one; the step says why it no longer does.
+    outputs:
+      superseded: ${{ steps.poll.outputs.superseded }}
     steps:
       - name: Poll for the gating jobs
+        id: poll
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SHA: ${{ github.sha }}
@@ -248,6 +265,9 @@ jobs:
         run: |
           set -euo pipefail
           api="repos/${GITHUB_REPOSITORY}/actions"
+          # What the last poll saw, for the message at the end: a cancelled run that nothing re-ran
+          # is not a slow suite, and the timeout must not say it is.
+          last=""
           # 60 × 20 s. Twenty minutes is roughly double the measured wall clock of the three
           # gating jobs, which leaves room for a queued runner without letting a stuck run hold
           # the box's deploy open indefinitely.
@@ -256,26 +276,37 @@ jobs:
             # the day somebody edits `name:` at the top of that file, and would break silently —
             # an empty result is indistinguishable from "not started yet".
             runs="$(gh api "${api}/workflows/checks.yml/runs?head_sha=${SHA}&per_page=30" 2>/dev/null || echo '{"workflow_runs":[]}')"
-            # Prefer the `push` run for this SHA; fall back to whatever run exists for it. On main
-            # the push run is the one that matters, but a re-run or a dispatch of Checks against
-            # the same commit is just as good an answer and there is no reason to ignore it.
-            run_id="$(printf '%s' "$runs" | jq -r '([.workflow_runs[] | select(.event=="push")][0] // .workflow_runs[0]) | .id // ""')"
+            # Prefer a run for this SHA that was not CANCELLED, the `push` run first among those, and
+            # fall back to whatever run exists for it. A re-run or a dispatch of Checks against the same
+            # commit is just as good an answer, and on main a dispatch is also what cancels a push run
+            # still in flight (both land in checks.yml's concurrency group), so preferring `push`
+            # outright graded the cancelled run and never looked at the green one beside it.
+            run_id="$(printf '%s' "$runs" | jq -r '([.workflow_runs[] | select(.conclusion != "cancelled")] | ([.[] | select(.event == "push")][0] // .[0])) // .workflow_runs[0] | .id // ""')"
             if [ -z "$run_id" ]; then
               echo "attempt ${attempt}/60: no Checks run for ${SHA} yet"
+              last=""
               sleep 20
               continue
             fi
             jobs="$(gh api "${api}/runs/${run_id}/jobs?per_page=100" 2>/dev/null || echo '{"jobs":[]}')"
+            # A CANCELLED JOB IS NOT A FAILED ONE, and since 2026-10-09 it has its own verdict. Checks
+            # cancels a run in progress when a newer push to main starts its own, and this loop used to
+            # file that under "failed": two merges a few minutes apart turned the earlier commit's run
+            # red with a diagnosis that was not true. Every other conclusion that is not `success`
+            # (failure, timed_out, skipped, …) still fails, and still wins over a cancelled job.
             verdict="$(printf '%s' "$jobs" | jq -r --argjson want "$GATING_JOBS" '
               [ .jobs[] | select(.name | IN($want[])) ]                       as $g
               | ($want - [ $g[].name ])                                        as $missing
               | ([ $g[] | select(.status != "completed") | .name ])            as $running
-              | ([ $g[] | select(.status == "completed" and .conclusion != "success") | .name ]) as $bad
+              | ([ $g[] | select(.status == "completed" and .conclusion == "cancelled") | .name ]) as $cancelled
+              | ([ $g[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "cancelled") | .name ]) as $bad
               | if   ($bad | length) > 0     then "fail " + ($bad | join(", "))
                 elif (($missing + $running) | length) > 0 then "wait " + (($missing + $running) | join(", "))
+                elif ($cancelled | length) > 0 then "cancelled " + ($cancelled | join(", "))
                 else "pass" end')"
             state="${verdict%% *}"
             detail="${verdict#* }"
+            last="$state"
             case "$state" in
               pass)
                 echo "Checks passed for ${SHA} — run ${run_id}"
@@ -286,12 +317,53 @@ jobs:
                 echo "::error::Checks failed for ${SHA} (${detail}). Not deploying. See ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
                 exit 1
                 ;;
+              cancelled)
+                # SUPERSEDED, OR CANCELLED WITH NOTHING NEWER BEHIND IT? Only main's tip can say. If
+                # main has moved on, the newer commit's own run of this pipeline carries this one's
+                # changes with it (every push to main starts deploy-backend.yml, and the frontend stage
+                # chains off that), so the honest end is green, with nothing shipped and a notice
+                # saying why. `superseded=true` is what the `deploy` job's `if:` refuses on, so a
+                # cancelled commit never ships from here. If this SHA is still the tip, nothing newer
+                # will ship it: keep polling, because a re-run or a dispatch of Checks may yet finish
+                # (the selection above prefers it). A tip that cannot be read counts as "still the
+                # tip", which is the direction that waits rather than the one that skips.
+                tip="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha 2>/dev/null || true)"
+                if ! grep -Eq '^[0-9a-f]{40}$' <<< "$tip"; then tip=""; fi
+                if [ -n "$tip" ] && [ "$tip" != "$SHA" ]; then
+                  echo "::notice title=Superseded by a newer commit on main::Checks on ${SHA} was cancelled (${detail}), and main has moved on to ${tip}. That commit's own run of this pipeline ships these changes with its own, so this run ships nothing."
+                  echo "superseded=true" >> "$GITHUB_OUTPUT"
+                  {
+                    echo "### Superseded by a newer commit — nothing shipped from this run"
+                    echo ""
+                    echo "Checks on \`${SHA}\` was cancelled (\`${detail}\`), and \`main\` has moved on to"
+                    echo "\`${tip}\`. That commit's own run of this pipeline ships these changes with its own."
+                    echo ""
+                    echo "[Cancelled Checks run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id})"
+                  } >> "$GITHUB_STEP_SUMMARY"
+                  exit 0
+                fi
+                echo "attempt ${attempt}/60: Checks on ${SHA} was cancelled (${detail}) and main's tip reads '${tip:-unreadable}', so nothing newer will ship it; waiting for a re-run or a dispatch of Checks"
+                ;;
               *)
                 echo "attempt ${attempt}/60: still waiting on ${detail}"
                 ;;
             esac
             sleep 20
           done
+          # Cancelled at the tip, and nothing re-ran it: say that, not "timed out", or the reader goes
+          # looking for a slow suite that never ran.
+          if [ "$last" = "cancelled" ]; then
+            echo "::error::Checks on ${SHA} was CANCELLED, not failed (${detail}), and nothing re-ran it within 20 minutes. Main's tip read '${tip:-unreadable}' at the last look, so no newer run will ship this commit, and nothing has been shipped from this one. Re-run that Checks run (or dispatch Checks on main), then re-run this workflow. A gating job that hits its own timeout-minutes also ends as cancelled: if one did, the suite is the problem."
+            {
+              echo "### Stopped — Checks on this commit was cancelled, not failed"
+              echo ""
+              echo "\`${detail}\` was cancelled on \`${SHA}\` and nothing re-ran it within twenty minutes, so"
+              echo "nothing was shipped. Re-run the Checks run, then re-run this workflow."
+              echo ""
+              echo "[Checks run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id})"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
           echo "::error::timed out after 20 minutes waiting for the Checks jobs on ${SHA}. Nothing was deployed. If the suite is genuinely this slow now, raise the loop bound here rather than deleting the gate; to ship past it in an emergency, run this workflow from the Actions tab — workflow_dispatch skips the wait by design."
           exit 1
 
@@ -309,18 +381,24 @@ jobs:
     #   • wait-for-checks succeeded            → deploy (the normal, gated path)
     #   • wait-for-checks was skipped          → deploy (manual dispatch, or nothing to gate)
     #   • wait-for-checks failed or cancelled  → DO NOT deploy
+    #   • wait-for-checks said `superseded`    → DO NOT deploy. Its job succeeded, because Checks
+    #                                            on this commit was cancelled by a newer push and
+    #                                            that push's own run deploys both (2026-10-09). This
+    #                                            run's `deploy` is then skipped, so `changes` never
+    #                                            counts it as the commit last deployed.
     if: >-
       ${{ !cancelled()
           && needs.changes.result == 'success'
           && (needs.wait-for-checks.result == 'success' || needs.wait-for-checks.result == 'skipped')
+          && needs.wait-for-checks.outputs.superseded != 'true'
           && (needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Start ssh-agent with the deploy key
-        uses: webfactory/ssh-agent@v0.9.0
+        uses: webfactory/ssh-agent@e83874834305fe9a4a2997156cb26c5de65a8555 # v0.10.0
         with:
           ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
 
@@ -328,6 +406,95 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      # ─── PYTHON 3.14 ON THE BOX, AND A VENV REBUILT WHEN IT HAS TO BE — 2026-10-09 ──────────────
+      #
+      # WHAT THIS REPLACED. The install step at the end of this job used to open with
+      # `if [ ! -d .venv ]; then python3.12 -m venv .venv; fi` and then run `pip install -e .`, and
+      # both halves were wrong in ways nothing reported. The guard asks only whether a directory
+      # exists, so the venv built on 2026-06-17 was never rebuilt, for a new interpreter or for
+      # anything else; and `pip install -e .` never upgrades a dependency that is already satisfied,
+      # so production sat on June's versions, advisories included (anyio, cryptography, pyasn1,
+      # pydantic-settings, urllib3), while CI installed whatever the index offered that day.
+      #
+      # WHAT IT DOES NOW, AND WHY IN THIS ORDER:
+      #   1. The interpreter. python3.14 from Ubuntu's own archive where it has one (26.04), from the
+      #      deadsnakes PPA where it does not (24.04, which this box runs). Idempotent: a box that has
+      #      it never touches apt. python3.12 stays installed: it is 24.04's system Python and the
+      #      interpreter of the rollback venv (the switch in the install step keeps it).
+      #   2. The venv, named after what it is built FROM: venvs/py3.14-<sha256 of requirements.lock>.
+      #      A different interpreter minor or a different lock is a different name, so it is built;
+      #      the same name is reused, so a deploy that changed only code installs nothing.
+      #   3. BUILT BEFORE THE CODE SYNC, BESIDE THE LIVE VENV. The API serves from the old one the
+      #      whole time, and nothing it can see changes until the last step points `.venv` at the
+      #      new directory, so a failed install fails THIS step and leaves the box as it was: old
+      #      code, old venv, API up. `.complete` is written last, so a build killed half way through
+      #      is rebuilt next time, never adopted.
+      #   4. fieldrepo-queue is stopped for the install and started again afterwards, success or not.
+      #      The box has 911 MB and lives in swap; the queue worker is the one process that can pause
+      #      for a minute unnoticed, and pip installing sixty-odd wheels is the minute to pause it.
+      #
+      # WHY A NEW DIRECTORY AND A SYMLINK, NOT A `.venv-new` RENAMED OVER `.venv`. A venv cannot be
+      # moved: pip writes its absolute path into the shebang of every script it installs, and
+      # `prisma generate` runs one of those scripts (`prisma-client-py`) from PATH. A venv built as
+      # `.venv-new` and then renamed would leave the generator pointing at a directory that no longer
+      # exists. Built at its final path and reached through the `.venv` symlink, nothing moves.
+      #
+      # The lock travels on its own, over stdin like `.env` below, because the code sync is the NEXT
+      # step: the venv is decided before anything the running API can see has changed.
+      - name: Put Python 3.14 on the box, and build the venv from the lock beside the live one
+        run: |
+          set -euo pipefail
+          ssh ubuntu@${{ secrets.EC2_HOST }} \
+            'umask 022 && mkdir -p /home/ubuntu/app && cat > /home/ubuntu/app/requirements.lock.incoming' \
+            < backend/requirements.lock
+          ssh ubuntu@${{ secrets.EC2_HOST }} 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          app=/home/ubuntu/app
+          lock="$app/requirements.lock.incoming"
+          py=python3.14
+
+          # 1. The interpreter. `ensurepip` is the module Debian moves into python3.X-venv, so this one
+          #    import tells "no python3.14" and "python3.14 without its venv module" apart from ready.
+          if ! "$py" -c 'import ensurepip, venv' >/dev/null 2>&1; then
+            echo "$py or its venv module is missing; installing both"
+            aptget() { sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 -qq "$@"; }
+            if ! apt-cache policy "$py" 2>/dev/null | grep -Eq 'Candidate: [0-9]'; then
+              command -v add-apt-repository >/dev/null || aptget install -y --no-install-recommends software-properties-common
+              sudo add-apt-repository -y -n ppa:deadsnakes/ppa
+            fi
+            aptget update
+            aptget install -y --no-install-recommends "$py" "$py-venv"
+          fi
+          "$py" -VV
+
+          # 2. The venv this interpreter and this lock call for.
+          minor="$("$py" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+          want="py${minor}-$(sha256sum "$lock" | cut -c1-16)"
+          target="$app/venvs/$want"
+          mkdir -p "$app/venvs"
+          if [ -f "$target/.complete" ]; then
+            echo "venv $want is already built; reusing it"
+          else
+            queue_was_active=no
+            if systemctl is-active --quiet fieldrepo-queue; then queue_was_active=yes; fi
+            # Started again however this ends, success included: the code it runs has not changed
+            # yet, and the restart at the end of this job is minutes away.
+            trap 'if [ "$queue_was_active" = yes ]; then sudo systemctl start fieldrepo-queue || true; fi' EXIT
+            if [ "$queue_was_active" = yes ]; then sudo systemctl stop fieldrepo-queue; fi
+            rm -rf "$target"
+            "$py" -m venv "$target"
+            "$target/bin/python" -m pip install --quiet --disable-pip-version-check --upgrade pip
+            "$target/bin/python" -m pip install --quiet --disable-pip-version-check -r "$lock"
+            # What the API imports to start, imported before the venv can be adopted. The application
+            # is not on disk yet (the next step syncs it), so this is the dependency half of "will it
+            # start"; the health poll at the end of the job is the other half.
+            "$target/bin/python" -c 'import fastapi, uvicorn, pydantic_settings, jwt, bcrypt, cryptography, boto3, prisma, pydub, anthropic, openpyxl'
+            "$target/bin/python" -VV > "$target/.complete"
+            echo "built venv $want"
+          fi
+          printf '%s\n' "$want" > "$app/venv-wanted"
+          REMOTE
 
       - name: Sync code to the server
         run: |
@@ -449,28 +616,101 @@ jobs:
           echo "CORS origins pinned"
           REMOTE
 
-      - name: Install deps, migrate, restart
+      # ─── THE PROJECT, THE PRISMA CLIENT, THE MIGRATION, THE SWITCH ──────────────────────────────
+      # Everything up to the switch happens inside the venv the build step chose, while the API is
+      # still serving from the old one; the switch happens with both services stopped. The order of
+      # the stop, the migration and the restart is the one this step has always had (the comment on
+      # the migration says why), with two additions: fieldrepo-queue now stops BEFORE the switch
+      # instead of only restarting after it, so no process has the old venv half-imported when
+      # `.venv` changes underneath it, and the switch itself sits between the migration and the
+      # restart.
+      - name: Install the project, migrate, switch to the new venv, restart
         run: |
           ssh ubuntu@${{ secrets.EC2_HOST }} 'bash -s' <<'REMOTE'
           set -euxo pipefail
-          cd /home/ubuntu/app/backend
-          if [ ! -d .venv ]; then python3.12 -m venv .venv; fi
-          ./.venv/bin/pip install --upgrade pip
-          ./.venv/bin/pip install -e .
-          PATH="$PWD/.venv/bin:$PATH" ./.venv/bin/python -m prisma generate
+          app=/home/ubuntu/app
+          cd "$app/backend"
+          want="$(cat "$app/venv-wanted")"
+          target="$app/venvs/$want"
+          test -f "$target/.complete"
+          py="$target/bin/python"
+          # This project, editable and WITHOUT its dependencies: the lock decided every version in the
+          # build step, and `--no-deps` is what stops pip re-resolving pyproject's floors here and
+          # quietly lifting a pin. `pip check` then refuses a lock that pyproject's floors have
+          # outgrown (Checks runs the same line; this one covers a manual dispatch, which skips the
+          # wait for Checks), before anything is stopped.
+          "$py" -m pip install --quiet --disable-pip-version-check --no-deps -e .
+          "$py" -m pip check
+
+          # THE NODE THE PRISMA CLI RUNS ON, PINNED. prisma-client-py downloads Node into
+          # ~/.cache/prisma-python/nodeenv the first time it needs one and never looks at it again:
+          # this box got 26.3.0 that way and kept it. So the version lives here, the newest 26.x (the
+          # major the box already ran; 26 becomes Node's LTS on 2026-10-28), installed beside the old
+          # one with the nodeenv module the venv already carries (prisma depends on it) and swapped in
+          # by symlink. PRISMA_USE_GLOBAL_NODE=false keeps a Node that somebody later installs
+          # system-wide from quietly taking over from the pin. Bump it by hand to the newest 26.x
+          # listed at https://nodejs.org/dist/index.json; backend/Dockerfile's prisma stage takes the
+          # same major.
+          node_pin=26.11.1
+          cache=/home/ubuntu/.cache/prisma-python
+          mkdir -p "$cache"
+          have="$("$cache/nodeenv/bin/node" --version 2>/dev/null || true)"
+          if [ "$have" != "v$node_pin" ]; then
+            dest="$cache/nodeenv-$node_pin"
+            if [ "$("$dest/bin/node" --version 2>/dev/null || true)" != "v$node_pin" ]; then
+              rm -rf "$dest"
+              "$py" -m nodeenv --prebuilt --node="$node_pin" "$dest"
+            fi
+            "$dest/bin/node" --version
+            if [ -d "$cache/nodeenv" ] && [ ! -L "$cache/nodeenv" ]; then
+              rm -rf "$cache/nodeenv-replaced"
+              mv "$cache/nodeenv" "$cache/nodeenv-replaced"
+            fi
+            ln -sfn "nodeenv-$node_pin" "$cache/nodeenv.next"
+            mv -T "$cache/nodeenv.next" "$cache/nodeenv"
+          fi
+          export PRISMA_USE_GLOBAL_NODE=false
+          "$cache/nodeenv/bin/node" --version
+
+          # Generated INTO THE NEW VENV while the API still runs from the old one. PATH first, because
+          # `prisma generate` runs the `prisma-client-py` generator it finds there.
+          PATH="$target/bin:$PATH" "$py" -m prisma generate
           # Migrations talk to the Supabase pooler in SESSION mode (pool_size 15). The running app
           # holds most of those client sessions across its uvicorn workers, so the schema engine had
           # no connection left and failed with "EMAXCONNSESSION max clients reached". Stop the app to
           # free its sessions, then migrate (with a short retry for any sessions the pooler hasn't
           # reclaimed yet). The app is ALWAYS restarted afterwards, so a transient migrate failure
           # never leaves the API down — but a genuine migrate failure still fails the deploy.
+          # The queue worker stops first, for the switch below; it holds pooler sessions too.
+          sudo systemctl stop fieldrepo-queue 2>/dev/null || true
           sudo systemctl stop fieldrepo || true
           sleep 5
           migrate_ok=0
           for attempt in 1 2 3 4 5; do
-            if PATH="$PWD/.venv/bin:$PATH" ./.venv/bin/python -m prisma migrate deploy; then migrate_ok=1; break; fi
+            if PATH="$target/bin:$PATH" "$py" -m prisma migrate deploy; then migrate_ok=1; break; fi
             echo "migrate attempt ${attempt} failed; waiting for pooler sessions to drain..."; sleep 10
           done
+
+          # THE SWITCH, with both services stopped. On the first deploy after 2026-10-09 `.venv` is
+          # the real 3.12 directory every earlier deploy built in place: it moves to
+          # venvs/py3.12-legacy and stays there as the rollback venv (python3.12 stays installed for
+          # it). From then on `.venv` is a symlink, and switching is one rename(2) of a new symlink
+          # over the old one. The switch happens even when the migration failed, because the code on
+          # disk is this commit's and only this venv is built for it; the restart below has always
+          # happened either way.
+          previous=""
+          if [ -L .venv ]; then
+            previous="$(readlink -f .venv)"
+          elif [ -d .venv ]; then
+            previous="$app/venvs/py3.12-legacy"
+            rm -rf "$previous"
+            mv .venv "$previous"
+          fi
+          ln -sfn "$target" .venv.next
+          mv -T .venv.next .venv
+          if [ -n "$previous" ] && [ "$previous" != "$target" ]; then
+            printf '%s\n' "$previous" > "$app/venv-previous"
+          fi
           sudo systemctl restart fieldrepo
           # The media queue runs in its OWN service (decoupled from uvicorn so its heavy AI/ffmpeg
           # work can never starve uvicorn's worker health-ping and get the worker SIGKILLed, which
@@ -482,8 +722,25 @@ jobs:
           # App startup connects to Supabase (cross-region), so poll instead of a fixed sleep.
           for i in $(seq 1 40); do
             if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then echo "healthy after ${i} tries"; break; fi
-            if [ "$i" = "40" ]; then echo "service did not become healthy:"; sudo journalctl -u fieldrepo -n 80 --no-pager; exit 1; fi
+            if [ "$i" = "40" ]; then
+              echo "service did not become healthy:"; sudo journalctl -u fieldrepo -n 80 --no-pager
+              echo "The venv this box ran before is $(cat "$app/venv-previous" 2>/dev/null || echo 'not recorded'); backend/DEPLOY_AWS.md says how to go back to it, and why that only helps together with a redeploy of the commit it was built for."
+              exit 1
+            fi
             sleep 2
           done
           curl -fsS http://127.0.0.1:8000/health
+
+          # Healthy, so tidy up: keep the venv now running, the one before it and the 3.12 rollback
+          # venv, and only the pinned Node. Nothing is deleted on any path that failed above.
+          keep_previous="$(cat "$app/venv-previous" 2>/dev/null || true)"
+          for d in "$app"/venvs/*; do
+            [ -d "$d" ] || continue
+            case "$d" in "$target"|"$keep_previous"|"$app/venvs/py3.12-legacy") continue ;; esac
+            rm -rf "$d"
+          done
+          for d in "$cache"/nodeenv-*; do
+            [ -d "$d" ] || continue
+            [ "$d" = "$cache/nodeenv-$node_pin" ] || rm -rf "$d"
+          done
           REMOTE
