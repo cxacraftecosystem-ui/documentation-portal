@@ -65,3 +65,18 @@ def test_both_installers_refuse_a_download_before_unpacking_it():
         where = f"{path.name}: compare at {compare}, refuse at {refuse}, unpack at {unpack}"
         assert 0 <= compare < refuse < unpack, where
         assert text.count("tar -xzf") == 1, f"{path.name} unpacks in more than one place"
+
+
+def test_both_installers_compile_the_standard_library_before_the_build_takes_its_name():
+    # The tarball ships no bytecode and the prefix is root's, so the services (which run as ubuntu)
+    # can never cache any: whatever the installer does not compile, every start compiles again from
+    # source. It has to happen after the unpack and before the rename, while the tree is still
+    # nobody's but the installer's, and both installers must do it or the two kinds of box differ.
+    for path in (DEPLOY, USER_DATA):
+        text = path.read_text(encoding="utf-8")
+        unpack = text.find("tar -xzf")
+        compile_all = text.find("-m compileall")
+        rename = text.find('mv -T "$stage/python" "$prefix"')
+        where = f"{path.name}: unpack at {unpack}, compile at {compile_all}, rename at {rename}"
+        assert 0 <= unpack < compile_all < rename, where
+        assert text.count("-m compileall") == 1, f"{path.name} compiles in more than one place"

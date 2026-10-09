@@ -481,32 +481,35 @@ jobs:
           #    the interpreter is upstream CPython as built by python-build-standalone
           #    (https://github.com/astral-sh/python-build-standalone, Astral's relocatable builds, the
           #    ones `uv python install` fetches). The x86_64 linux-gnu build asks nothing of the box but
-          #    glibc: OpenSSL, SQLite, xz, libffi and zlib are built in, so 24.04 (OpenSSL 3.0) and 26.04
-          #    (OpenSSL 3.5, sudo-rs, uutils coreutils, no python3.12) get the same interpreter.
+          #    glibc: OpenSSL, SQLite, expat, xz, libffi and zlib are built in, so 24.04 (OpenSSL 3.0)
+          #    and 26.04 (OpenSSL 3.5, sudo-rs, uutils coreutils, no python3.12) get the same interpreter.
           #
-          #    THE PIN. The newest release carrying 3.14.8 on 2026-10-09 is 20261003 (20261001 carries
-          #    it too), and the asset is the full `install_only` build. The SHA-256 is that asset's line
-          #    in the release's SHA256SUMS, which matched GitHub's own digest for the asset and a
-          #    download hashed by hand. A download that hashes to anything else is REFUSED: not
-          #    unpacked, and since this runs before anything is stopped, the API and the queue never
-          #    notice.
+          #    THE PIN. The newest release carrying 3.14.8 on 2026-10-09 is 20261009, published at 16:38
+          #    UTC that day (20261003 and 20261001 carry 3.14.8 too; 20261009 adds expat 2.9.0 and libffi
+          #    3.8.0, which this build links in), and the asset is the full `install_only` build. The
+          #    SHA-256 is that asset's line in the release's SHA256SUMS, which matched GitHub's own digest
+          #    for the asset, a download hashed by hand, and the Sigstore build provenance the project's
+          #    release workflow signs for it (`gh attestation verify`). A download that hashes to
+          #    anything else is REFUSED: not unpacked, and since this runs before anything is stopped,
+          #    the API and the queue never notice.
           #
-          #    WHY 3.14 AND NOT 3.15. 3.15.0 reached python.org on 2026-10-09, and what this box needs had
-          #    not caught up that day: setup-python's manifest stopped at 3.15.0rc3, the official Docker
-          #    image had only rc tags, python-build-standalone's newest release (20261003) carried
-          #    3.15.0rc3, the lock's httptools 0.8.0 and PyYAML 6.0.3 had no cp315 wheels, and
-          #    prisma-client-py 0.15.0, its latest release and the one package the API cannot start
-          #    without, classifies itself only up to 3.12. Move when they have, and move the pin in THREE
-          #    places together: these four lines, the same four in infra/terraform/user_data.sh, and
-          #    `python-version` in checks.yml. backend/tests/test_interpreter_pin.py fails while they
-          #    disagree.
+          #    WHY 3.14 AND NOT 3.15. 3.15.0 reached python.org on 2026-10-09, and python-build-standalone
+          #    shipped it that evening (20261009), but the rest of what this box needs had not caught up:
+          #    setup-python's manifest, which CI installs from, stopped at 3.15.0rc3; the official Docker
+          #    image had only 3.15-rc tags; the lock's httptools 0.8.0 and PyYAML 6.0.3 had no cp315
+          #    wheels; and prisma-client-py 0.15.0, its latest release and the one package the API cannot
+          #    start without, classifies itself only up to 3.12 (all four checked again that evening).
+          #    Move when they have, and move the pin in THREE places together: these four lines, the same
+          #    four in infra/terraform/user_data.sh, and `python-version` in checks.yml.
+          #    backend/tests/test_interpreter_pin.py fails while they disagree.
           #
           #    WHERE IT GOES. /opt/cpython/<version>+<build>, owned by root and writable by nobody else,
           #    because every venv built on it runs it. Nothing changes it in place: a new pin is a new
           #    directory, and INSTALLED_FROM inside it names the URL and the hash it came from. The
           #    download is hashed as root inside a root-only staging directory on the same filesystem,
-          #    so what is hashed is what is unpacked; the result is proved (the version, and ssl, sqlite3,
-          #    lzma, ctypes, ensurepip and venv) as the user the services run as, and only then takes its
+          #    so what is hashed is what is unpacked; the standard library is byte-compiled there, as
+          #    root (below says why); the result is proved (the version, and ssl, sqlite3, lzma, ctypes,
+          #    pyexpat, ensurepip and venv) as the user the services run as, and only then takes its
           #    name, in one rename(2). A directory of that name that is NOT the pinned build stops the
           #    deploy rather than being replaced, because a venv may be running on it.
           #
@@ -519,9 +522,9 @@ jobs:
           #    says how to remove both once that rollback is no longer wanted. python3.12, 24.04's
           #    system Python and the py3.12-legacy venv's, stays too. A 26.04 box gets neither.
           cpython=3.14.8
-          pbs_release=20261003
-          pbs_url=https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.14.8%2B20261003-x86_64-unknown-linux-gnu-install_only.tar.gz
-          pbs_sha256=371b6c281bbb09b29279e9e3a2996bab4ae2ea03cca52bf869f8bd89286b0ae8
+          pbs_release=20261009
+          pbs_url=https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.14.8%2B20261009-x86_64-unknown-linux-gnu-install_only.tar.gz
+          pbs_sha256=83f9cb480b702548c592443f86209cf0fc03448d90692df257f095c01791dccc
           prefix="/opt/cpython/${cpython}+${pbs_release}"
           py="$prefix/bin/python${cpython%.*}"
           provenance="$(printf 'url=%s\nsha256=%s' "$pbs_url" "$pbs_sha256")"
@@ -538,6 +541,8 @@ jobs:
             echo "installing CPython ${cpython} from python-build-standalone ${pbs_release} into ${prefix}"
             # Downloaded as this user, onto the disk rather than into /tmp (a tmpfs on 26.04, and
             # this box has little RAM to spare); hashed and unpacked as root, from root's own copy.
+            # A download dir left by a run that was killed before its trap could run goes first.
+            rm -rf "$app"/.cpython-download.*
             dl="$(mktemp -d "$app/.cpython-download.XXXXXX")"
             stage=""
             trap 'rm -rf "$dl"; if [ -n "$stage" ]; then sudo rm -rf "$stage"; fi' EXIT
@@ -559,9 +564,17 @@ jobs:
             sudo rm -f "$stage/cpython.tar.gz"
             printf '%s\n' "$provenance" > "$dl/INSTALLED_FROM"
             sudo install -m 0644 -o root -g root "$dl/INSTALLED_FROM" "$stage/python/INSTALLED_FROM"
+            # THE STANDARD LIBRARY'S BYTECODE, COMPILED ONCE, HERE, AS ROOT. The tarball ships the
+            # sources and no __pycache__, and nothing can write one later: the prefix is root's, so
+            # every process the services start as ubuntu would compile what it imports from source,
+            # on every start, for as long as the build is installed (Debian's postinst compiles
+            # deadsnakes' copy the same way). Measured in a container on 2026-10-09: 2.0 s against
+            # 1.4 s for the API's imports, each start; compiling took 2 to 4 s and 45 MB, once.
+            # `-s`/`-p` record the final path in the bytecode, not the staging one.
+            sudo "$stage/python/bin/python${cpython%.*}" -I -m compileall -q -s "$stage/python" -p "$prefix" "$stage/python/lib/python${cpython%.*}"
             sudo chmod -R u+rwX,go+rX,go-w "$stage/python"
             sudo chmod 0755 "$stage"
-            PYTHONDONTWRITEBYTECODE=1 "$stage/python/bin/python${cpython%.*}" -c 'import sys, ssl, sqlite3, lzma, bz2, zlib, ctypes, ensurepip, venv; v = "%d.%d.%d" % sys.version_info[:3]; v == sys.argv[1] or sys.exit("expected CPython %s, the build says %s" % (sys.argv[1], v)); print("proved:", sys.version.split()[0], "|", ssl.OPENSSL_VERSION, "| SQLite", sqlite3.sqlite_version)' "$cpython"
+            PYTHONDONTWRITEBYTECODE=1 "$stage/python/bin/python${cpython%.*}" -c 'import sys, ssl, sqlite3, lzma, bz2, zlib, ctypes, pyexpat, ensurepip, venv; v = "%d.%d.%d" % sys.version_info[:3]; v == sys.argv[1] or sys.exit("expected CPython %s, the build says %s" % (sys.argv[1], v)); print("proved:", sys.version.split()[0], "|", ssl.OPENSSL_VERSION, "| SQLite", sqlite3.sqlite_version, "|", pyexpat.EXPAT_VERSION)' "$cpython"
             if ! sudo mv -T "$stage/python" "$prefix"; then
               interpreter_ready || { echo "::error::could not move the proved build into ${prefix}"; exit 1; }
               echo "another installer (user_data.sh?) finished ${prefix} first; using it"
@@ -575,10 +588,10 @@ jobs:
           "$py" -VV
 
           # 2. The one library the pinned Node needs. libatomic1 is what Node 26's official binary
-          #    links against (the install step pins the Prisma CLI's Node to it), and the 26.04 cloud
-          #    image does not ship it — found by running these scripts in ubuntu:24.04 and ubuntu:26.04
-          #    containers. Missing, the step installs it or fails; present (the live box), apt is not
-          #    touched at all.
+          #    links against (the install step pins the Prisma CLI's Node to it). The live 24.04 box and
+          #    the 26.04 cloud image both have it (Canonical's manifest lists it), but a minimal image
+          #    does not: the ubuntu:26.04 container these scripts were proved in lacked it. Missing, the
+          #    step installs it or fails; present, apt is not touched at all.
           #
           #    A herestring, not a pipe: `grep -q` exits at its first match, and under pipefail the
           #    SIGPIPE that can give the writer would read as "absent" (the `changes` job above carries

@@ -25,9 +25,10 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-# libatomic1: the official Node 26 binary the deploy pins for the Prisma CLI links against it, and the
-# 26.04 cloud image lacks it (deploy-backend.yml's build step checks for it too). curl and
-# ca-certificates fetch the interpreter at the end of this file; the cloud image has both already.
+# libatomic1: the official Node 26 binary the deploy pins for the Prisma CLI links against it. The 26.04
+# cloud image ships it and a minimal image does not, so it is named here (a no-op where it is present)
+# and deploy-backend.yml's build step checks for it too. curl and ca-certificates fetch the
+# interpreter at the end of this file; the cloud image has both already.
 # No python3.14, python3.14-venv or PPA: the API does not run on apt's Python (see the end).
 apt-get install -y git ffmpeg nginx libatomic1 curl ca-certificates
 
@@ -55,9 +56,9 @@ systemctl enable nginx
 systemctl restart nginx
 
 # --- systemd unit for the API (uvicorn) --------------------------------------
-# `.venv` below is a symlink the deploy maintains, to /home/ubuntu/app/venvs/py3.14-<hash of the
-# lock>; the unit never needs to change when the venv does (deploy-backend.yml says why it is a
-# symlink and not a directory).
+# `.venv` below is a symlink the deploy maintains, to /home/ubuntu/app/venvs/cpython-<version>+<build>-
+# <hash of the lock>; the unit never needs to change when the venv does (deploy-backend.yml says why
+# it is a symlink and not a directory).
 # IMPORTANT: a SINGLE uvicorn process (NOT --workers 2). With >1 worker uvicorn runs a
 # multiprocess supervisor that health-pings each worker over a pipe (answered by a daemon thread)
 # and SIGKILLs any worker that fails to pong within timeout_worker_healthcheck. On this small,
@@ -137,14 +138,16 @@ chown -R ubuntu:ubuntu /home/ubuntu/app
 # LAST IN THIS FILE ON PURPOSE: a download that fails, or a file whose SHA-256 is not the pinned one,
 # stops this script (cloud-init then reports an error) only after the swap, nginx and both units are
 # already in place. A wrong hash is REFUSED, never unpacked. What passes is unpacked as root into a
-# staging directory beside its final place, proved as the user the services run as (the version, and
-# ssl, sqlite3, lzma, ctypes, ensurepip, venv), and only then renamed to /opt/cpython/<version>+<build>,
+# staging directory beside its final place, its standard library byte-compiled there as root (the
+# tarball ships no bytecode, and nobody but root can write it later; the deploy's build step says
+# what that costs), proved as the user the services run as (the version, and ssl, sqlite3, lzma,
+# ctypes, pyexpat, ensurepip, venv), and only then renamed to /opt/cpython/<version>+<build>,
 # root-owned and writable by nobody else, with INSTALLED_FROM naming the URL and hash. The system
 # python3 stays as the cloud image shipped it: cloud-init and apt's own tooling run on it.
 cpython=3.14.8
-pbs_release=20261003
-pbs_url=https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.14.8%2B20261003-x86_64-unknown-linux-gnu-install_only.tar.gz
-pbs_sha256=371b6c281bbb09b29279e9e3a2996bab4ae2ea03cca52bf869f8bd89286b0ae8
+pbs_release=20261009
+pbs_url=https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.14.8%2B20261009-x86_64-unknown-linux-gnu-install_only.tar.gz
+pbs_sha256=83f9cb480b702548c592443f86209cf0fc03448d90692df257f095c01791dccc
 prefix="/opt/cpython/${cpython}+${pbs_release}"
 provenance="$(printf 'url=%s\nsha256=%s' "$pbs_url" "$pbs_sha256")"
 if [ "$(cat "$prefix/INSTALLED_FROM" 2>/dev/null)" != "$provenance" ]; then
@@ -166,9 +169,10 @@ if [ "$(cat "$prefix/INSTALLED_FROM" 2>/dev/null)" != "$provenance" ]; then
   tar -xzf "$stage/cpython.tar.gz" -C "$stage" --no-same-owner --no-same-permissions
   rm -f "$stage/cpython.tar.gz"
   printf '%s\n' "$provenance" > "$stage/python/INSTALLED_FROM"
+  "$stage/python/bin/python${cpython%.*}" -I -m compileall -q -s "$stage/python" -p "$prefix" "$stage/python/lib/python${cpython%.*}"
   chmod -R u+rwX,go+rX,go-w "$stage/python"
   chmod 0755 "$stage"
-  runuser -u ubuntu -- env PYTHONDONTWRITEBYTECODE=1 "$stage/python/bin/python${cpython%.*}" -c 'import sys, ssl, sqlite3, lzma, bz2, zlib, ctypes, ensurepip, venv; v = "%d.%d.%d" % sys.version_info[:3]; v == sys.argv[1] or sys.exit("expected CPython %s, the build says %s" % (sys.argv[1], v)); print("proved:", sys.version.split()[0], "|", ssl.OPENSSL_VERSION, "| SQLite", sqlite3.sqlite_version)' "$cpython"
+  runuser -u ubuntu -- env PYTHONDONTWRITEBYTECODE=1 "$stage/python/bin/python${cpython%.*}" -c 'import sys, ssl, sqlite3, lzma, bz2, zlib, ctypes, pyexpat, ensurepip, venv; v = "%d.%d.%d" % sys.version_info[:3]; v == sys.argv[1] or sys.exit("expected CPython %s, the build says %s" % (sys.argv[1], v)); print("proved:", sys.version.split()[0], "|", ssl.OPENSSL_VERSION, "| SQLite", sqlite3.sqlite_version, "|", pyexpat.EXPAT_VERSION)' "$cpython"
   mv -T "$stage/python" "$prefix"
   rm -rf "$stage"
 fi

@@ -60,7 +60,7 @@ git clone <YOUR_REPO_URL> app && cd app/backend
 # python-build-standalone build (§9), NOT apt's python3.14. The last block of user_data.sh is
 # self-contained: it downloads the pin, refuses a wrong SHA-256, and unpacks into /opt/cpython.
 sed -n "/^# --- The API's interpreter/,\$p" ../infra/terraform/user_data.sh | sudo bash -euo pipefail
-/opt/cpython/3.14.8+20261003/bin/python3.14 -m venv .venv   # the directory that block printed; by hand
+/opt/cpython/3.14.8+20261009/bin/python3.14 -m venv .venv   # the directory that block printed; by hand
                                                            # a plain .venv, the deploy builds its own (§9)
 ./.venv/bin/python -m pip install -r requirements.lock && ./.venv/bin/python -m pip install --no-deps -e .
 PATH="$PWD/.venv/bin:$PATH" ./.venv/bin/python -m prisma generate
@@ -380,36 +380,51 @@ the index offered that day. The first fix, that morning, took `python3.14` from 
 owner chose upstream 3.14.8 on both. apt is no longer where the API's Python comes from.
 
 **Where it comes from.** [python-build-standalone](https://github.com/astral-sh/python-build-standalone),
-Astral's relocatable CPython builds (the ones `uv python install` fetches): release `20261003`, the
-newest carrying 3.14.8 on 2026-10-09; asset `cpython-3.14.8+20261003-x86_64-unknown-linux-gnu-install_only.tar.gz`;
-SHA-256 `371b6c281bbb09b29279e9e3a2996bab4ae2ea03cca52bf869f8bd89286b0ae8`, that release's
-`SHA256SUMS` line, which matched GitHub's own digest for the asset and a download hashed by hand. The
-x86_64 linux-gnu build needs nothing from the box but glibc: OpenSSL (3.5.9), SQLite (3.53.1), xz,
+Astral's relocatable CPython builds (the ones `uv python install` fetches): release `20261009`, the
+newest carrying 3.14.8 on 2026-10-09 (published at 16:38 UTC that day; `20261003` and `20261001` carry
+3.14.8 too, and `20261009` adds expat 2.9.0 and libffi 3.8.0 to it); asset
+`cpython-3.14.8+20261009-x86_64-unknown-linux-gnu-install_only.tar.gz`; SHA-256
+`83f9cb480b702548c592443f86209cf0fc03448d90692df257f095c01791dccc`, that release's `SHA256SUMS`
+line, which matched GitHub's own digest for the asset, a download hashed by hand, and the
+Sigstore-signed build provenance the project attaches to it (*Moving the pin*, below). The x86_64
+linux-gnu build needs nothing from the box but glibc: OpenSSL (3.5.9), SQLite (3.53.1), expat, xz,
 libffi and zlib are built in, so the 24.04 box (system OpenSSL 3.0.13) and a 26.04 one (OpenSSL 3.5,
 sudo-rs, uutils coreutils, no `python3.12`) run the same bytes. The pin is four lines in
 `deploy-backend.yml`'s build step and the same four at the end of `infra/terraform/user_data.sh`;
 `backend/tests/test_interpreter_pin.py` fails when those two, or `checks.yml`'s `python-version`,
-disagree. **Why not 3.15:** 3.15.0 reached python.org on 2026-10-09, but setup-python's manifest, the
-official Docker image and python-build-standalone itself were still on 3.15.0rc3 that day, the lock's
-`httptools` 0.8.0 and `PyYAML` 6.0.3 had no cp315 wheels, and `prisma-client-py` 0.15.0 classifies
-itself only up to 3.12 — the build step's comment keeps that list next to the pin.
+disagree. **Why not 3.15:** 3.15.0 reached python.org on 2026-10-09 and python-build-standalone
+shipped it that evening (`20261009`), but setup-python's manifest (what CI installs from) stopped at
+3.15.0rc3, the official Docker image had only `3.15-rc` tags, the lock's `httptools` 0.8.0 and
+`PyYAML` 6.0.3 had no cp315 wheels, and `prisma-client-py` 0.15.0 classifies itself only up to 3.12
+— the build step's comment keeps that list next to the pin.
 
 **How it is installed** — by the deploy's build step whenever the box lacks it, and by
 `user_data.sh` on a new box, the same way: downloaded, then hashed as root inside a root-only staging
 directory under `/opt/cpython`, and **refused** unless the hash is the pinned one: not unpacked,
 nothing changed, the API and the queue untouched, because this runs before anything is stopped. What
-passes is unpacked root-owned with nothing group- or world-writable, proved as `ubuntu` (the
-version, and `ssl`, `sqlite3`, `lzma`, `ctypes`, `ensurepip`, `venv`), and only then renamed into
-place, with `INSTALLED_FROM` inside it naming the URL and hash. A box that has it downloads nothing.
-A directory of that name that is not the pinned build stops the deploy instead of being replaced,
-because a venv may be running on it.
+passes is unpacked root-owned, its standard library byte-compiled there as root, nothing left group-
+or world-writable, proved as `ubuntu` (the version, and `ssl`, `sqlite3`, `lzma`, `ctypes`,
+`pyexpat`, `ensurepip`, `venv`), and only then renamed into place, with `INSTALLED_FROM` inside it
+naming the URL and hash. A box that has it downloads nothing. A directory of that name that is not
+the pinned build stops the deploy instead of being replaced, because a venv may be running on it.
+**Why the bytecode is compiled by the installer:** the tarball ships the standard library's sources
+and no `__pycache__`, and the prefix is root's, so the services, which run as `ubuntu`, can never
+write a cache of their own: without it every process start compiles from source whatever it imports,
+for as long as the build is installed (in a container on 2026-10-09, 2.0 s against 1.4 s for the
+API's imports, at every start; compiling all of it took 2 to 4 s, once). Debian compiles deadsnakes'
+copy at install for the same reason. **What the install costs the box** (measured in an
+`ubuntu:24.04` container the same day, the way the deploy runs it): hashing and unpacking under 4 MB
+of memory, compiling the standard library 45 MB at its peak, the proof 21 MB, so the API and the
+queue keep running through it; on disk, the 75 MB download (deleted once it is unpacked) and 270 MB
+that stay under `/opt/cpython` (249 MB unpacked, 21 MB of bytecode). The interpreter links nothing
+but glibc (`ldd`: libc, libm, libpthread, libdl, librt, libutil).
 
 **The layout on the box:**
 
 | Path | What it is |
 |---|---|
-| `/opt/cpython/3.14.8+20261003` | The interpreter, owned by root. Never changed in place: a new pin is a new directory beside it. A deploy deletes one only after a healthy restart, and only when no venv under `venvs/` runs on it. |
-| `/home/ubuntu/app/venvs/cpython-3.14.8+20261003-<16 hex>` | One venv per interpreter build and lock: the hex is the start of the lock's SHA-256. `.complete` inside it is written last (`python -VV`, then the interpreter's path); a directory without it is a build that did not finish and is rebuilt. A venv whose `bin/python` does not resolve to the pinned interpreter is refused, never reused. Owned by `ubuntu`, like everything under `/home/ubuntu/app`. |
+| `/opt/cpython/3.14.8+20261009` | The interpreter, owned by root, its standard library's bytecode compiled at install. Never changed in place: a new pin is a new directory beside it. A deploy deletes one only after a healthy restart, and only when no venv under `venvs/` runs on it. |
+| `/home/ubuntu/app/venvs/cpython-3.14.8+20261009-<16 hex>` | One venv per interpreter build and lock: the hex is the start of the lock's SHA-256. `.complete` inside it is written last (`python -VV`, then the interpreter's path); a directory without it is a build that did not finish and is rebuilt. A venv whose `bin/python` does not resolve to the pinned interpreter is refused, never reused. Owned by `ubuntu`, like everything under `/home/ubuntu/app`. |
 | `/home/ubuntu/app/backend/.venv` | A **symlink** to the venv in use. The two systemd units run `.venv/bin/python`, so they never change when the venv does. |
 | `/home/ubuntu/app/venvs/py3.14-<16 hex>` | 24.04 box only: the venv the apt-based deploy built on the morning of 2026-10-09, on deadsnakes' `/usr/bin/python3.14`. The first deploy on the pinned interpreter switches away from it and names it in `venv-previous`, which keeps it until a later deploy moves on. |
 | `/home/ubuntu/app/venvs/py3.12-legacy` | 24.04 box only: the 3.12 venv every deploy before 2026-10-09 built in place, moved aside by the first 3.14 deploy and kept for rollback. |
@@ -420,10 +435,10 @@ because a venv may be running on it.
 
 | | 24.04 (noble): the box running on 2026-10-09 | 26.04 (resolute): the approved rebuild (§10) |
 |---|---|---|
-| The API's interpreter | `/opt/cpython/3.14.8+20261003`, installed by the first deploy after this change | the same, installed by `user_data.sh` at first boot |
+| The API's interpreter | `/opt/cpython/3.14.8+20261009`, installed by the first deploy after this change | the same, installed by `user_data.sh` at first boot (or by the first deploy, if first boot could not fetch it) |
 | apt's `python3.14` | deadsnakes' 3.14.8, left installed, PPA and all: the rollback venv runs on it. Nothing upgrades it any more | Ubuntu's 3.14.4, the system `python3`: untouched, and not used by the API |
 | `python3.12` | installed (the system Python); `py3.12-legacy` runs on it | absent |
-| `libatomic1` (Node 26 links it) | installed | installed by `user_data.sh`; the deploy installs it whenever it is missing |
+| `libatomic1` (Node 26 links it) | installed | in the cloud image already (Canonical's manifest lists it); `user_data.sh` names it too, and the deploy installs it whenever it is missing |
 
 **The deadsnakes PPA on the 24.04 box: left in place, harmless, until the box goes.** Nothing adds it
 any more and nothing removes it, because two rollback paths need its `python3.14`: `venv-previous`
@@ -439,9 +454,12 @@ purge deadsnakes' `python3.14` packages (`dpkg -l | grep 3.14` lists them).
 
 1. Take the newest python-build-standalone release that carries the version, and its `install_only`
    asset for `x86_64-unknown-linux-gnu`.
-2. Read the asset's SHA-256 from that release's `SHA256SUMS`, and check it two more ways:
+2. Read the asset's SHA-256 from that release's `SHA256SUMS`, and check it three more ways:
    `gh api repos/astral-sh/python-build-standalone/releases/tags/<release> --jq '.assets[] | select(.name=="<asset>") | .digest'`,
-   and `sha256sum` of a download.
+   `sha256sum` of a download, and `gh attestation verify <download> --repo astral-sh/python-build-standalone`,
+   which checks the Sigstore-signed build provenance the project's own `release.yml` workflow attaches
+   to every asset. That last one is the check that does not come from the same release page as the
+   asset: `20261009`'s asset passed it on 2026-10-09.
 3. Change the four lines in `deploy-backend.yml`'s build step and at the end of
    `infra/terraform/user_data.sh`, and `python-version` in `checks.yml`; from `backend/`, run
    `python -m pytest tests/test_interpreter_pin.py`.
@@ -450,39 +468,59 @@ purge deadsnakes' `python3.14` packages (`dpkg -l | grep 3.14` lists them).
    interpreter, until a later deploy no longer needs either.
 
 **Missing is installed; nothing is upgraded in place.** The interpreter and `libatomic1` (what the
-official Node 26 binary the Prisma CLI runs on links against; the 26.04 cloud image does not ship it)
-are installed when missing, or the step fails. A different interpreter only ever arrives as a new pin
+official Node 26 binary the Prisma CLI runs on links against; the live box and the 26.04 cloud image
+have it, a minimal image does not) are installed when missing, or the step fails. A different interpreter only ever arrives as a new pin
 in a commit, never as an apt upgrade in the middle of a deploy, so apt runs only for `libatomic1`,
 with needrestart's hook suspended so an upgraded library cannot restart the API mid-deploy.
 
-**Proved in containers on 2026-10-09.** The deploy's four remote scripts, extracted verbatim from
-`deploy-backend.yml` and fed to `bash -s` as `ubuntu` the way the runner's `ssh` feeds them, with
-systemd running the two real units (as `ubuntu`, from `user_data.sh`'s unit files) beside
-`postgres:17`:
+**Proved in containers on 2026-10-09**, on the scripts as committed: the deploy's four remote scripts,
+extracted verbatim from `deploy-backend.yml` and piped to `bash -s` as `ubuntu` the way the runner's
+`ssh` sends them, from `git archive` exports so every file had the bytes the runner checks out, with a
+line after each script so that one cut short could not pass, and systemd running the two real units
+as `ubuntu` beside `postgres:17`:
 
 * **`ubuntu:24.04` set up like the live box**, by replaying its history: a 3.12 `.venv` built in
-  place, then `origin/main`'s own deploy (deadsnakes 3.14.8, `venvs/py3.14-<hash>`, `py3.12-legacy`,
-  Node 26.11.1). On that box: a first deploy whose pin does not match the download, refused with
-  nothing installed, apt never run, and the API and queue the same processes; the first real deploy
-  (download, verify, prove, venv, migrate, switch; the API and the queue running
-  `/opt/cpython/3.14.8+20261003/bin/python3.14` as `ubuntu`, `/health/ready` green, deadsnakes, its
-  venv and `py3.12-legacy` all kept); a re-run that downloaded and built nothing; a rollback by hand
-  onto `venv-previous` and forward again; a rollback by redeploying `origin/main` and forward again;
-  and a venv carrying the name a new lock would get but built on `/usr/bin/python3.14`, refused and
-  left in place. 39 checks, all passing.
-* **`ubuntu:26.04` set up like the cloud image** (sudo-rs, uutils coreutils, OpenSSL 3.5, no
-  `libatomic1`, no `python3.14-venv`): `user_data.sh` run verbatim as root, with the first deploy
-  started five seconds into it — the deploy waited out its 81 s, then found the interpreter it had
-  installed and needed no apt; a re-run; a pin bump with a wrong hash, refused with the API
-  untouched; and `user_data.sh` refusing a wrong hash itself, last, after nginx and the units were in
-  place. 24 checks, all passing. (Two stand-ins, both logged: a `cloud-init status` that answers
-  "running" until `user_data.sh` ends, and a `swapon` that only records its call, since a container
-  cannot enable a swap file.)
-* On both, every top-level module of every package in the lock imported in the new venv, with `ssl`
-  verifying `https://pypi.org`, `sqlite3` (FTS5), `lzma`, `ctypes`, `uvloop`, `pydantic-core`,
-  `cryptography`, `bcrypt`, PyYAML's C loader and `pydub` with `audioop` exercised; and Prisma's CLI
+  place, then `origin/main`'s own deploy (deadsnakes 3.14.8, `venvs/py3.14-201b3cd786cbef6a`,
+  `py3.12-legacy`, Node 26.11.1). Then three first deploys that must fail, each stopping at the build
+  step with nothing installed or left behind, apt never run, and the API and the queue the same
+  processes: the release download failing (404, after curl's retries), a pinned SHA-256 the download
+  does not match (REFUSED), and a directory squatting on the pinned name (refused and left alone).
+  Then the first real deploy, which also swept away a staging directory and a download directory
+  left by a run killed with SIGKILL: download, verify, compile, prove, rename, venv, migrate, switch,
+  with the API and the queue on `/opt/cpython/3.14.8+20261009/bin/python3.14` as `ubuntu`, loading
+  the standard library from the installer's bytecode and never trying to write any, `/health/ready`
+  green, and deadsnakes, its PPA and `python3.12` untouched. Then a re-run that downloaded and built
+  nothing; a rollback by hand onto `venv-previous` and forward again; a rollback by redeploying
+  `origin/main` and forward again; an impostor venv refused and left in place; and the pin moving
+  both ways with correct hashes (to `20261003`, installed beside `20261009`; a new lock; back), until
+  `20261003`'s venv and then its interpreter were retired by the tidy-up. The API and the queue
+  settled at 320 and 292 MB on the pinned build, against 322 and 290 MB on deadsnakes. Every
+  scenario check passed.
+* **`ubuntu:26.04` set up like the cloud image** (sudo-rs, uutils coreutils, OpenSSL 3.5; and no
+  `libatomic1`, which the cloud image does have): `user_data.sh` run verbatim as root with the first
+  deploy started five seconds into it, which waited for it, found the interpreter it had installed
+  (compiled, root's) and ran no apt; a re-run; a pin bump with a wrong hash, refused with the API
+  untouched; the deploy's own install path through sudo-rs, with the pin moved to `20261003` (its
+  correct hash) and back; and `user_data.sh` refusing a wrong hash itself, after nginx and the units,
+  and leaving alone a directory of its pinned name that is not its build. All 20 checks passed.
+* **A fresh `ubuntu:26.04` whose first boot could not reach GitHub**: `user_data.sh` put everything
+  else in place and failed last, leaving a staging directory; the first deploy saw cloud-init's
+  error, carried on, cleaned up, installed the pin itself through sudo-rs and brought the API up on
+  it, directly and through nginx.
+* **The health poll is the weak point, and it is not new.** On a host loaded by other jobs, the API
+  took 80 s and once over 140 s to answer `/health` after a restart, on deadsnakes and on the pinned
+  build alike, and the deploy's 40 × 2 s poll then failed the job while the API came up anyway
+  (the 2026-09-17 thrashing measurement says the same of the t3.micro). A red deploy whose log ends
+  `service did not become healthy` is to be checked against `/health/ready` before it is called an
+  outage.
+* On both releases every top-level module of every package in the lock imported in the new venv,
+  with `ssl` verifying `https://pypi.org`, `sqlite3` (FTS5), `lzma`, `pyexpat` and botocore's parser,
+  `ctypes` calling back into Python through libffi, `cffi`, `uvloop`, `pydantic-core`,
+  `cryptography`, `bcrypt`, PyYAML's C loader and `pydub` with `audioop` exercised, and Prisma's CLI
   and query engine both got as far as `P1001: Can't reach database server` with no database behind
-  them, and reported the schema up to date against the real one.
+  them, and reported the schema up to date against the real one. Two stand-ins, both logged: a
+  `cloud-init status` that blocks until `user_data.sh` ends and then answers `done` or `error`, and a
+  `swapon` that only records its call, since a container cannot enable a swap file.
 
 **Why the build cannot take the API down.** The interpreter is installed, and the venv built, before
 `backend/` is synced, while the API keeps serving from the old one, with `fieldrepo-queue` stopped for
