@@ -105,6 +105,26 @@ jobs:
           ./gradlew :app:assembleDebug --console=plain --stacktrace
           cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/app-debug.apk"
 
+      - name: Build the release variant, unsigned, and read what it declares
+        # Not installed — the release key never comes near this job, and nothing here signs a
+        # release with anything else — but BUILT, because it is the variant that ships and it is
+        # not the debug one: no src/debug manifest, BuildConfig.DEBUG false. aapt2 reads the
+        # packaged manifest and the job fails if the shipped variant does not target 37 or asks for
+        # the local-network permission that only debug builds may hold.
+        run: |
+          set -euo pipefail
+          ./gradlew :app:assembleRelease --console=plain
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          aapt2="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools/37.0.0/aapt2"
+          "$aapt2" dump badging "$apk" > "$RUNNER_TEMP/release-badging.txt"
+          grep -E "^(package|sdkVersion|targetSdkVersion|uses-permission)" "$RUNNER_TEMP/release-badging.txt"
+          grep -q "^targetSdkVersion:'37'" "$RUNNER_TEMP/release-badging.txt" ||
+            { echo "::error::The release variant does not target SDK 37."; exit 1; }
+          if grep -q "ACCESS_LOCAL_NETWORK" "$RUNNER_TEMP/release-badging.txt"; then
+            echo "::error::The release variant declares ACCESS_LOCAL_NETWORK; only debug builds may."
+            exit 1
+          fi
+
       - name: Build a second debug APK pointed at the runner, for the local-network check
         # The ONE place in this repository's CI that writes android/local.properties, and why it may:
         # this APK never leaves the job. It exists to prove that a debug build aimed at a development

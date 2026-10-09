@@ -160,20 +160,21 @@ def intersects(a, b):
 
 
 def check_insets(name, kinds=("statusBars", "navigationBars")):
+    """Record whether any app content sits under a visible bar; return the hierarchy it measured."""
     root = ui_dump(name)
     screenshot(name)
     if root is None:
         record(f"insets: {name}", "FAIL", "no UI hierarchy to measure")
-        return
+        return None
     bars = [(k, box) for k, box in system_bars(name) if k in kinds]
     if not bars:
         record(f"insets: {name}", "INFO",
                "no visible bar frame could be read from dumpsys window; see the screenshot")
-        return
+        return root
     content = list(app_content(root))
     if not content:
         record(f"insets: {name}", "FAIL", "the app showed nothing measurable")
-        return
+        return root
     clashes = []
     for node, r in content:
         for kind, box in bars:
@@ -185,6 +186,7 @@ def check_insets(name, kinds=("statusBars", "navigationBars")):
     else:
         record(f"insets: {name}", "PASS",
                f"{len(content)} app nodes clear of {', '.join(f'{k} {b}' for k, b in bars)}")
+    return root
 
 
 def alive():
@@ -260,12 +262,35 @@ def wait_for_request(seconds):
     return False
 
 
+def text_fields(root):
+    return [r for n, r in app_content(root) if n.get("class", "").endswith("EditText")]
+
+
+def enclosing_clickable(root, inner):
+    """The smallest clickable app node whose bounds contain [inner]: a button around its label."""
+    best = None
+    for node in nodes(root, PKG):
+        r = rect(node.get("bounds"))
+        if node.get("clickable") != "true" or not r:
+            continue
+        if r[0] <= inner[0] and r[1] <= inner[1] and r[2] >= inner[2] and r[3] >= inner[3]:
+            area = (r[2] - r[0]) * (r[3] - r[1])
+            if best is None or area < best[2]:
+                best = (node, r, area)
+    return (best[0], best[1]) if best else None
+
+
 def sign_in_attempt(tag):
-    """Type into the two text fields and press Login. Returns False if the form was not found."""
+    """
+    Fill both boxes and press Login. True only once the press has landed on an ENABLED button.
+
+    Every position is read afresh after every focus change. The first version of this tapped the
+    password box where it had been BEFORE the keyboard opened; the keyboard had moved the form up
+    (adjustResize doing its job), the tap landed between two buttons, the password went into the
+    email box, Login stayed disabled, and no request was ever made.
+    """
     root = ui_dump(f"{tag}-form")
-    if root is None:
-        return False
-    fields = [r for n, r in app_content(root) if n.get("class", "").endswith("EditText")]
+    fields = text_fields(root) if root is not None else []
     if len(fields) < 2:
         log(f"{tag}: found {len(fields)} text fields, expected email and password")
         return False
@@ -273,19 +298,52 @@ def sign_in_attempt(tag):
     settle(1.5)
     sh("input text 'smoke@example.test'")
     # The keyboard is up now: the IME is the third bar the app must keep its content clear of.
-    check_insets(f"{tag}-keyboard-open", kinds=("statusBars", "navigationBars", "ime"))
+    root = check_insets(f"{tag}-keyboard-open", kinds=("statusBars", "navigationBars", "ime"))
+    fields = text_fields(root) if root is not None else []
+    if len(fields) < 2:
+        log(f"{tag}: the password box is not on screen with the keyboard up")
+        return False
     tap(fields[1])
     settle(1.0)
     sh("input text 'not-a-real-password'")
-    sh("input keyevent KEYCODE_BACK")  # hide the keyboard so the button is on screen
+    sh("input keyevent KEYCODE_BACK")  # hide the keyboard so the whole form is on screen
     settle(1.5)
     root = ui_dump(f"{tag}-filled")
-    hit = find(root, r"^Login$", PKG) if root is not None else None
-    if not hit:
+    label = find(root, r"^Login$", PKG) if root is not None else None
+    button = enclosing_clickable(root, label[1]) if label else None
+    if not button:
         log(f"{tag}: no Login button in the hierarchy")
         return False
-    tap(hit[1])
+    if button[0].get("enabled") != "true":
+        log(f"{tag}: Login is disabled, so a box is still empty; see {tag}-filled.xml")
+        return False
+    tap(button[1])
     return True
+
+
+def answer_prompt(tag, answer):
+    """
+    Launch from a clean slate and answer the Nearby devices prompt. Returns whether it appeared.
+
+    `pm clear` empties the app, and clearing the permission flags forgets any earlier refusal, so
+    the prompt is asked again exactly as on a first launch.
+    """
+    sh(f"pm clear {PKG}", check=False)
+    sh(f"pm revoke {PKG} {LOCAL_NETWORK}", check=False)
+    sh(f"pm clear-permission-flags {PKG} {LOCAL_NETWORK} user-set user-fixed", check=False)
+    launch()
+    settle(5)
+    root = ui_dump(f"{tag}-prompt")
+    screenshot(f"{tag}-prompt")
+    prompt = root is not None and any(n.get("package") in PERMISSION_UI for n in nodes(root))
+    if prompt:
+        hit = find(root, answer, None)
+        if hit:
+            tap(hit[1])
+            settle(2)
+        else:
+            log(f"{tag}: the prompt has no button matching {answer!r}")
+    return prompt
 
 
 def local_network_phase():
@@ -293,58 +351,49 @@ def local_network_phase():
     if not ok:
         record("local network: install the 10.0.2.2 debug build", "FAIL", out)
         return
-    sh(f"pm clear {PKG}", check=False)
-    sh(f"pm revoke {PKG} {LOCAL_NETWORK}", check=False)
-    launch()
-    settle(5)
-    root = ui_dump("lan-01-prompt")
-    screenshot("lan-01-prompt")
-    prompt = root is not None and any(n.get("package") in PERMISSION_UI for n in nodes(root))
-    record("local network: the debug build asks for Nearby devices at launch",
-           "PASS" if prompt else "FAIL",
-           "" if prompt else "no permission-controller window after launch; see lan-01-prompt.png")
-
     server = http.server.ThreadingHTTPServer(("127.0.0.1", STUB_PORT), Stub)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
-        # 1. Refuse, try to sign in, and see whether the platform let the request out anyway.
-        if prompt:
-            deny = find(root, r"don.?t allow|deny", None)
-            if deny:
-                tap(deny[1])
-                settle(2)
+        # 1. Refuse, then sign in. Whether the request still leaves is the PLATFORM's answer, so it
+        #    is recorded as information; it is what says the permission is needed at all.
+        prompt = answer_prompt("lan-01", r"don.?t allow")
+        record("local network: the debug build asks for Nearby devices at launch",
+               "PASS" if prompt else "FAIL",
+               "" if prompt else "no permission-controller window after launch; see lan-01-prompt.png")
+        requests_seen.clear()
         if sign_in_attempt("lan-02-denied"):
             reached = wait_for_request(20)
-            record("local network: without the grant, 10.0.2.2 is blocked", "INFO",
-                   "blocked — nothing reached the stub in 20 s" if not reached else
+            record("local network: without the grant, sign-in to 10.0.2.2 is blocked", "INFO",
+                   "blocked: the request never reached the stub in 20 s" if not reached else
                    "NOT blocked on this image: the request reached the stub without the permission")
         else:
-            record("local network: sign-in form without the grant", "INFO", "form not found")
+            record("local network: sign-in without the grant", "FAIL", "could not submit the form")
         screenshot("lan-02-denied-after")
+        sh(f"am force-stop {PKG}", check=False)
+        settle(2)
 
-        # 2. Grant it (the prompt will not come back after a refusal) and try again. The app is
-        # stopped first, so a request still pending from the refused attempt cannot arrive late and
-        # be counted as this attempt's.
-        sh(f"pm grant {PKG} {LOCAL_NETWORK}", check=False)
+        # 2. Allow, by tapping Allow as a person would, and sign in again. The app was stopped
+        #    first, so a request still pending from the refused attempt cannot arrive late and
+        #    count as this one.
+        prompt = answer_prompt("lan-03", r"^allow$")
+        if not prompt:
+            sh(f"pm grant {PKG} {LOCAL_NETWORK}", check=False)
         package = sh(f"dumpsys package {PKG}", timeout=60)
         save("lan-dumpsys-package.txt", package)
         granted = re.search(re.escape(LOCAL_NETWORK) + r": granted=true", package) is not None
-        record("local network: ACCESS_LOCAL_NETWORK is declared and granted in the debug build",
-               "PASS" if granted else "FAIL")
-        sh(f"am force-stop {PKG}", check=False)
-        settle(2)
+        record("local network: tapping Allow grants ACCESS_LOCAL_NETWORK to the debug build",
+               "PASS" if granted and prompt else "FAIL",
+               "" if prompt else "the prompt did not come back; granted with pm instead")
         requests_seen.clear()
-        launch()
-        settle(4)
-        if sign_in_attempt("lan-03-granted"):
+        if sign_in_attempt("lan-04-granted"):
             reached = wait_for_request(30)
             record("local network: with the grant, sign-in reaches the backend at 10.0.2.2",
                    "PASS" if reached else "FAIL",
                    ", ".join(requests_seen) if reached else "nothing reached the stub in 30 s")
         else:
-            record("local network: sign-in form with the grant", "FAIL", "form not found")
-        settle(2)
-        screenshot("lan-03-granted-after")
+            record("local network: sign-in with the grant", "FAIL", "could not submit the form")
+        settle(3)
+        screenshot("lan-04-granted-after")
         check_alive("local network: the app survived the round trip")
     finally:
         server.shutdown()
