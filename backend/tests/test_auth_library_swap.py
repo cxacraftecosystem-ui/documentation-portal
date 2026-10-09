@@ -126,10 +126,15 @@ def test_an_expired_python_jose_token_is_still_refused(signing) -> None:
         security.decode_access_token(_JOSE_EXPIRED)
 
 
+@pytest.mark.filterwarnings("ignore::jwt.warnings.InsecureKeyLengthWarning")
 def test_the_configured_algorithm_and_only_it_is_accepted(signing) -> None:
     """The HS512 token is genuine — same key — and is refused under HS256 all the same: the token's
     own header never chooses the algorithm. Configured for HS512, the same token verifies, which is
-    what shows every HMAC size came across the swap, not only the default one."""
+    what shows every HMAC size came across the swap, not only the default one.
+
+    PyJWT warns that a 45-byte key is short for HS512 (RFC 7518 asks for the hash size, 64 bytes);
+    the key is the fixture's, the warning is about it and not about the code, so it is silenced here
+    only. docs/SECURITY.md §3.1 says what that warning means for a real deployment."""
     with pytest.raises(ValueError):
         security.decode_access_token(_JOSE_HS512)
 

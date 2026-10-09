@@ -262,7 +262,7 @@ change this; SSE-S3 protects the physical disks, not URL holders. See risk P0.
 | Expiry | `JWT_EXPIRES_MINUTES`, default 10080 (7 days) | `create_access_token`; `verify_exp` and `exp` in PyJWT's `require` list on decode |
 | Subject | `sub` = user id, required | `sub` in the same `require` list, re-checked in `deps.get_current_user` |
 | Library | PyJWT (since 2026-10-09; python-jose until then) | python-jose's latest release is still affected by GHSA-3qf3-8w2g-rqmx with no fix, and it pulled in `ecdsa` (CVE-2024-23342, unfixed). An HS256 token is one wire format, so every token issued before the swap still verifies; `backend/tests/test_auth_library_swap.py` decodes tokens python-jose minted. |
-| Secret | ≥ 32 characters, never the example placeholder | `verify_jwt_configuration()` at `create_app()` |
+| Secret | ≥ 32 characters, never the example placeholder | `verify_jwt_configuration()` at `create_app()`. 32 is right for the default HS256; for HS384 or HS512, PyJWT raises an `InsecureKeyLengthWarning` (a Python warning, not an error) whenever it signs or verifies with a secret shorter than the hash size (48 or 64 bytes, RFC 7518 §3.2) — use one that long before switching algorithm. |
 
 Pinning the algorithm closes **algorithm confusion**: without it, a token whose header says
 `alg: none` is unsigned-but-accepted, and one that says `alg: RS256` is verified with our shared

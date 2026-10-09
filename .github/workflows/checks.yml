@@ -210,8 +210,8 @@ jobs:
 
       - name: Install the backend from the lock
         # ─── FROM backend/requirements.lock, SINCE 2026-10-09 ────────────────────────────────────
-        # The two lines below are the same two the EC2 deploy runs (and the Docker image runs the
-        # first of), so CI, the box and a developer's venv install ONE set of versions. Before the
+        # The pip lines below are the ones the EC2 deploy runs (the Docker image runs only the lock
+        # line), so CI, the box and a developer's venv install ONE set of versions. Before the
         # lock every dependency was a `>=` floor and this step took whatever the index offered that
         # day, which is how two tests in test_public_census.py went red with no commit behind them:
         # FastAPI 0.137 changed what `APIRouter.routes` holds, and the floor moved under the tests.
@@ -294,6 +294,8 @@ jobs:
         #
         # MEASURED on this tree, not estimated, 2026-09-14 (laptop, Python 3.14.7): 1019 passed, 4
         # failed, 0 skipped, 54 s; with the 3.12 behaviour simulated, 1021 passed, 2 failed, 65 s.
+        # And 2026-10-09 on this job itself (ubuntu-26.04, Python 3.14.8, installed from the lock):
+        # 1349 passed, 0 failed, 77 s — run 37928429051.
         # Those are a snapshot of a healthy run, NOT a target — totals move the day anybody adds a
         # test, and reconciling a CI log against a number typed into a comment is how people learn to
         # argue with the log. The FLOOR below is the only number this step enforces.

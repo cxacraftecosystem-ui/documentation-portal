@@ -331,7 +331,8 @@ Node program, and the runtime image has no Node — that is the whole point of t
 build. The `migrate` service is built from the Dockerfile's `prisma` stage, which has the CLI, the
 schema, and the same entrypoint guard as the API.
 
-That stage weighs **1.49 GB**, against 408 MB for the API. This is the trade, stated plainly: the
+That stage weighs **1.55 GB**, against 493 MB for the API (measured 2026-10-09 on the 3.14/trixie
+build; 1.49 GB and 408 MB on the 3.12/bookworm one). This is the trade, stated plainly: the
 build toolchain, Node, npm and the full engine cache are what a migration needs and what a serving
 container must not carry. Compose only builds it when you name the profile, so it never
 materialises for anyone who does not migrate — and `docker image rm field-repository-migrate:local`

@@ -282,6 +282,8 @@ one is the thing to argue about in review.
   anything anybody chose. That default is no longer small: ruff 0.16.10 reports 424 findings on this
   tree at target `py314` (398 at the old `py311`; measured 2026-10-09). Choose the rules first, then
   add the step.
+- **No Playwright end-to-end, no backend integration tests.** Both need a running app, a database and
+  real credentials. See §5.
 
 ### The backend dependency lock
 
@@ -322,8 +324,6 @@ is in it, and uvloop does not install on Windows, so a Windows venv installs the
 one line. And Dependabot cannot refresh it (`.github/dependabot.yml` says why): a pip pull request
 raises a floor in `pyproject.toml`, and the lock is recompiled by hand in the same pull request —
 `pip check` fails Backend tests until it is.
-- **No Playwright end-to-end, no backend integration tests.** Both need a running app, a database and
-  real credentials. See §5.
 
 ---
 
