@@ -3401,7 +3401,7 @@ function QuestionnaireAdminEditor({
               <div className="flex items-center gap-2 font-display font-bold text-xl text-ink">
                 <button
                   type="button"
-                  className="grid h-9 w-9 cursor-grab place-items-center rounded-md border border-line-200 bg-field-50 text-ink-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-field-600 active:cursor-grabbing disabled:opacity-60"
+                  className="grid h-9 w-9 cursor-grab place-items-center rounded-md border border-line-200 bg-field-50 text-ink-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-field-600 active:cursor-grabbing disabled:opacity-60"
                   draggable={!busy}
                   disabled={busy}
                   aria-label={`Drag section ${section.code}`}
@@ -3643,7 +3643,7 @@ function QuestionTile({
     >
       <button
         type="button"
-        className="mt-0.5 grid h-8 w-8 shrink-0 cursor-grab place-items-center rounded-md border border-line-200 bg-card text-ink-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-field-600 active:cursor-grabbing disabled:opacity-60"
+        className="mt-0.5 grid h-8 w-8 shrink-0 cursor-grab place-items-center rounded-md border border-line-200 bg-card text-ink-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-field-600 active:cursor-grabbing disabled:opacity-60"
         draggable={!disabled}
         disabled={disabled}
         aria-label={`Drag question ${question.sortOrder}`}

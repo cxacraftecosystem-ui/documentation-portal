@@ -558,24 +558,24 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section
         ref={rootRef}
-        className="relative isolate flex min-h-[100svh] flex-col overflow-hidden bg-purple-950"
+        className="relative isolate flex min-h-svh flex-col overflow-hidden bg-purple-950"
         aria-label="Field Repository — living craft documentation"
       >
         {/* Mesh background: two purple orbs + one faint gold, plus fine grain. */}
         <motion.div aria-hidden style={{ y: yOrbs }} className="pointer-events-none absolute inset-0">
           <motion.div
             {...drift({ x: "4%", y: "-4%", scale: 1.05 }, 14)}
-            className="absolute -left-40 -top-48 h-[42rem] w-[42rem] rounded-full opacity-80 [will-change:transform]"
+            className="absolute -left-40 -top-48 h-168 w-168 rounded-full opacity-80 will-change-transform"
             style={{ background: "radial-gradient(circle, oklch(0.47 0.198 305 / 0.5), transparent 62%)" }}
           />
           <motion.div
             {...drift({ x: "-4%", y: "4%", scale: 1.03 }, 17)}
-            className="absolute -right-48 top-1/4 h-[40rem] w-[40rem] rounded-full opacity-70 [will-change:transform]"
+            className="absolute -right-48 top-1/4 h-160 w-160 rounded-full opacity-70 will-change-transform"
             style={{ background: "radial-gradient(circle, oklch(0.4 0.18 305 / 0.55), transparent 64%)" }}
           />
           <motion.div
             {...drift({ x: "-3%", y: "-3%", scale: 1.06 }, 21)}
-            className="absolute bottom-[-12rem] left-1/3 h-[36rem] w-[36rem] rounded-full opacity-40"
+            className="absolute -bottom-48 left-1/3 h-144 w-144 rounded-full opacity-40"
             style={{ background: "radial-gradient(circle, oklch(0.7 0.145 80 / 0.28), transparent 60%)" }}
           />
           {/* State 1 of 3: bare ground. One property change on the grain layer that was already
@@ -667,10 +667,14 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
           <div className="grid items-center gap-14 lg:grid-cols-[1.05fr_0.95fr] lg:gap-10">
             {/* Copy */}
             <div className="max-w-2xl">
-              <motion.p {...heroEntrance(reduce, 0.05, 0.5, { y: 18 })} className="eyebrow mb-5 !text-gold-300">
+              <motion.p {...heroEntrance(reduce, 0.05, 0.5, { y: 18 })} className="eyebrow mb-5 text-gold-300!">
                 Living craft documentation
               </motion.p>
-              <h1 className="font-display text-4xl font-extrabold leading-[1.05] tracking-tight text-white sm:text-5xl lg:text-6xl">
+              {/* `sm:leading-none` keeps the line height this headline has always had. Tailwind 3 let
+                  `sm:text-5xl` and `lg:text-6xl` reset it to 1 at those widths, so `leading-[1.05]`
+                  only ever applied below `sm`; Tailwind 4's size utilities defer to an explicit
+                  `leading-*` at every width, which grew the desktop headline by 9px. */}
+              <h1 className="font-display text-4xl font-extrabold leading-[1.05] tracking-tight text-white sm:text-5xl sm:leading-none lg:text-6xl">
                 {HEADLINE.map((line, index) => (
                   // The mask: each line flies up out of its own overflow-hidden slot.
                   <span key={line.text} className="block overflow-hidden pb-[0.08em]">
@@ -765,7 +769,7 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
                     Illustrative
                   </span>
                 </div>
-                <div className="space-y-3 rounded-md bg-white/[0.06] p-4 text-sm leading-relaxed text-white/80">
+                <div className="space-y-3 rounded-md bg-white/6 p-4 text-sm leading-relaxed text-white/80">
                   <p>
                     <strong className="text-gold-200">Interviewer:</strong> Each question from the
                     questionnaire, in the order it was asked.

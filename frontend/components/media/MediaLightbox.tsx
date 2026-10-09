@@ -127,14 +127,14 @@ export function MediaPreviewTile({
           }}
           aria-label={`${removeLabel} ${item.name}`}
           title={`${removeLabel} ${item.name}`}
-          className="absolute right-1.5 top-1.5 z-10 grid h-7 w-7 place-items-center rounded-full bg-black/70 text-white shadow-sm transition hover:bg-black/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          className="absolute right-1.5 top-1.5 z-10 grid h-7 w-7 place-items-center rounded-full bg-black/70 text-white shadow-sm transition hover:bg-black/85 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-white"
         >
           <X className="h-4 w-4" aria-hidden />
         </button>
       ) : null}
       <button
         type="button"
-        className="relative grid aspect-[4/3] w-full place-items-center overflow-hidden rounded-md bg-field-100 text-left text-ink-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-field-600"
+        className="relative grid aspect-4/3 w-full place-items-center overflow-hidden rounded-md bg-field-100 text-left text-ink-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-field-600"
         onClick={(event) => {
           // The outer tile handles the open; keep the button for keyboard access without firing twice.
           event.stopPropagation();

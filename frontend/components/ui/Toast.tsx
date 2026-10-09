@@ -110,7 +110,7 @@ function ToastViewport({ toasts, onDismiss }: { toasts: ToastRecord[]; onDismiss
       aria-atomic="false"
       // Bottom-right keeps clear of the floating island nav at the top of every page. The
       // container itself is click-through; only the cards take pointer events.
-      className="pointer-events-none fixed bottom-4 right-4 z-[110] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2"
+      className="pointer-events-none fixed bottom-4 right-4 z-110 flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2"
     >
       <AnimatePresence initial={false}>
         {toasts.map((item) => (

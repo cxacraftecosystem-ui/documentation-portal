@@ -170,7 +170,7 @@ export function MapPlaceList({
                   onPointerLeave={() => onHover?.(null)}
                   onFocus={() => onHover?.(point.key)}
                   onBlur={() => onHover?.(null)}
-                  className="flex w-full items-start gap-3 rounded-md px-3 py-2.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
+                  className="flex w-full items-start gap-3 rounded-md px-3 py-2.5 text-left focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
                 >
                   <span className="mt-0.5 grid shrink-0 gap-1">
                     <span
@@ -196,7 +196,7 @@ export function MapPlaceList({
 
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                      <span className="break-words font-display text-sm font-semibold text-ink-900">
+                      <span className="wrap-break-word font-display text-sm font-semibold text-ink-900">
                         <span className="text-ink-500">{ordinal}. </span>
                         {point.label}
                       </span>
@@ -210,7 +210,7 @@ export function MapPlaceList({
                       ) : null}
                     </span>
 
-                    <span className="mt-0.5 block break-words text-xs text-ink-500">{point.region}</span>
+                    <span className="mt-0.5 block wrap-break-word text-xs text-ink-500">{point.region}</span>
 
                     <span className="mt-1 block text-xs text-ink-700">
                       <span className="font-semibold text-ink-900">{point.total}</span>{" "}
@@ -223,7 +223,7 @@ export function MapPlaceList({
                       ) : null}
                     </span>
 
-                    <span className="mt-1 block break-words text-[11px] leading-4 text-ink-500">
+                    <span className="mt-1 block wrap-break-word text-[11px] leading-4 text-ink-500">
                       {precisionNote(point.precision)}
                       {point.layer === "CAPTURE" && point.fixes ? (
                         <>
@@ -277,7 +277,7 @@ export function MapPlaceList({
                       // screen reader there is somewhere to go and then loses it.
                       aria-controls={isExpanded ? panelId : undefined}
                       onClick={() => onToggleExpanded(point.key)}
-                      className="flex w-full items-center gap-1.5 rounded text-left text-[11px] font-semibold text-purple-700 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
+                      className="flex w-full items-center gap-1.5 rounded text-left text-[11px] font-semibold text-purple-700 hover:underline focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
                     >
                       <ChevronDown
                         className={`h-3.5 w-3.5 shrink-0 transition-transform ${isExpanded ? "rotate-180" : ""}`}
@@ -293,16 +293,16 @@ export function MapPlaceList({
                             <button
                               type="button"
                               onClick={() => onDrillDown(child)}
-                              className="flex w-full items-baseline gap-2 rounded border border-line-200 bg-surface-50 px-2 py-1.5 text-left transition-colors hover:border-purple-300 hover:bg-purple-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
+                              className="flex w-full items-baseline gap-2 rounded border border-line-200 bg-surface-50 px-2 py-1.5 text-left transition-colors hover:border-purple-300 hover:bg-purple-50 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
                             >
                               <span className="w-5 shrink-0 text-right font-display text-[10px] font-bold text-ink-300">
                                 {ordinal}.{childIndex + 1}
                               </span>
                               <span className="min-w-0 flex-1">
-                                <span className="block break-words text-xs font-medium text-ink-900">
+                                <span className="block wrap-break-word text-xs font-medium text-ink-900">
                                   {child.label}
                                 </span>
-                                <span className="block break-words text-[11px] leading-4 text-ink-500">
+                                <span className="block wrap-break-word text-[11px] leading-4 text-ink-500">
                                   {child.region}
                                 </span>
                               </span>

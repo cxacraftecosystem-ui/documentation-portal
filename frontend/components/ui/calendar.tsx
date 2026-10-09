@@ -71,7 +71,7 @@ const ROOT_VARS = [
 const NAV_BUTTON =
   "relative inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-ink-700 transition " +
   "hover:bg-purple-50 hover:text-purple-700 dark:hover:bg-purple-950 dark:hover:text-purple-200 " +
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-700 focus-visible:ring-offset-2 focus-visible:ring-offset-card " +
+  "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-purple-700 focus-visible:ring-offset-2 focus-visible:ring-offset-card " +
   "disabled:pointer-events-none disabled:text-ink-300 " +
   "[&_svg]:pointer-events-none [&_svg]:h-4 [&_svg]:w-4 [&_svg]:shrink-0";
 
@@ -82,7 +82,7 @@ const NAV_BUTTON =
 const DAY_BUTTON =
   "relative mx-auto flex h-9 w-9 cursor-pointer items-center justify-center rounded-md text-sm tabular-nums transition " +
   "hover:bg-purple-50 dark:hover:bg-purple-950 " +
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-700 focus-visible:ring-offset-1 focus-visible:ring-offset-card";
+  "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-purple-700 focus-visible:ring-offset-1 focus-visible:ring-offset-card";
 
 export function Calendar({
   className,
@@ -118,13 +118,13 @@ export function Calendar({
     // day the pointer is on.
     selected:
       "[&>button]:bg-purple-700 [&>button]:font-semibold [&>button]:text-white " +
-      "[&>button]:hover:bg-purple-700 dark:[&>button]:hover:bg-purple-700",
+      "hover:[&>button]:bg-purple-700 dark:hover:[&>button]:bg-purple-700",
     range_start: "rounded-l-md bg-purple-50 dark:bg-purple-950",
     range_end: "rounded-r-md bg-purple-50 dark:bg-purple-950",
     // A middle day is also `selected`, so its overrides have to be forced past the pill above.
     range_middle:
       "bg-purple-50 dark:bg-purple-950 " +
-      "[&>button]:!rounded-none [&>button]:!bg-transparent [&>button]:!font-normal [&>button]:!text-ink-900",
+      "[&>button]:rounded-none! [&>button]:bg-transparent! [&>button]:font-normal! [&>button]:text-ink-900!",
     // Today carries a ring as well as the tint, so it is still findable without colour vision.
     today:
       "[&:not([data-selected])>button]:font-semibold " +
@@ -134,7 +134,7 @@ export function Calendar({
     // Guarded the same way as `today`: an out-of-month day can also be a range endpoint, and an
     // unguarded rule would tie with `selected` on specificity and be settled by stylesheet order.
     outside: "[&:not([data-selected])>button]:font-normal [&:not([data-selected])>button]:text-ink-300",
-    disabled: "[&>button]:cursor-not-allowed [&>button]:text-ink-300 [&>button]:hover:bg-transparent",
+    disabled: "[&>button]:cursor-not-allowed [&>button]:text-ink-300 hover:[&>button]:bg-transparent",
     hidden: "invisible",
     footer: "pt-2 text-xs text-ink-500"
   };

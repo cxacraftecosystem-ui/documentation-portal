@@ -330,7 +330,7 @@ function DashboardView() {
                   key={card.label}
                   href={card.href}
                   aria-label={`${card.label}: ${card.value}. Open the full list.`}
-                  className="panel block p-4 transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-700"
+                  className="panel block p-4 transition-shadow hover:shadow-md focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-purple-700"
                 >
                   {body}
                 </Link>
@@ -364,7 +364,7 @@ function DashboardView() {
                 key={card.label}
                 href="/activity"
                 aria-label={`Your ${card.label.toLowerCase()}: ${card.value}. Open My Activity.`}
-                className="panel block p-3 transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-700"
+                className="panel block p-3 transition-shadow hover:shadow-md focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-purple-700"
               >
                 <div className="flex items-center gap-2">
                   <card.icon className="h-4 w-4 shrink-0 text-purple-700" aria-hidden />

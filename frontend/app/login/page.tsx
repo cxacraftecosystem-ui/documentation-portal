@@ -266,7 +266,7 @@ function LoginView() {
             style={{ background: "radial-gradient(circle, oklch(0.47 0.198 305 / 0.5), transparent 62%)" }}
           />
           <div
-            className="absolute -bottom-28 -right-16 h-[26rem] w-[26rem] rounded-full opacity-40"
+            className="absolute -bottom-28 -right-16 h-104 w-104 rounded-full opacity-40"
             style={{ background: "radial-gradient(circle, oklch(0.7 0.145 80 / 0.25), transparent 60%)" }}
           />
         </div>
@@ -275,7 +275,7 @@ function LoginView() {
           <span className="font-display text-xl font-bold tracking-tight text-white">Field Repository</span>
         </Link>
         <div className="relative z-10">
-          <p className="eyebrow !text-gold-300">Living craft documentation</p>
+          <p className="eyebrow text-gold-300!">Living craft documentation</p>
           <h2 className="mt-3 font-display text-3xl font-bold leading-snug tracking-tight text-white">
             Every masterpiece begins with <span className="text-gold-gradient">understanding</span>.
           </h2>
@@ -424,7 +424,7 @@ function LoginView() {
                   PROVIDER_BUTTON,
                   // The GSI button underneath carries the focus, so the ring has to be drawn
                   // by the wrapper — an outline on a transparent element is invisible.
-                  "relative w-full min-w-0 overflow-hidden focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-purple-700"
+                  "relative w-full min-w-0 overflow-hidden focus-within:outline-solid focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-purple-700"
                 )}
               >
                 <span aria-hidden className="pointer-events-none flex min-w-0 items-center gap-2.5">
@@ -435,7 +435,7 @@ function LoginView() {
                     invisible hit area cover the full 52px of chrome behind it. */}
                 <div
                   ref={googleHost}
-                  className="absolute inset-0 flex items-center justify-center opacity-0 [transform:scaleY(1.35)]"
+                  className="absolute inset-0 flex items-center justify-center opacity-0 transform-[scaleY(1.35)]"
                 />
               </div>
             ) : (

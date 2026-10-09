@@ -515,17 +515,20 @@ detectable; enable **MFA** on the AWS root and Supabase accounts.
 ## 5A. Dependency advisories in the web app
 
 Measured 2026-10-09 in `frontend/` with `npm audit`, after the security release that moved `next`
-16.2.9 → 16.4.0 and `maplibre-gl` 5.24.0 → 6.13.0.
+16.2.9 → 16.4.0 and `maplibre-gl` 5.24.0 → 6.13.0, and again after the move to Tailwind CSS 4 the same
+day. That move took out two rows this table carried until then: `postcss-selector-parser` < 7.1.6
+(GHSA-rj75-hqrm-r3gf, moderate, quadratic selector parsing), which only Tailwind 3 depended on, and
+Tailwind 3's half of the `braces` chain (chokidar, fast-glob, micromatch). Tailwind 4 depends on
+neither; `npm ls postcss-selector-parser chokidar` from `frontend/` is empty.
 
 | Advisory | State | Notes |
 |---|---|---|
 | Next.js remote code execution (GHSA-2xp9-vwfh-vxw4 in the image optimizer, GHSA-vcvr-r3jv-pc5j in `next/og`, GHSA-p293-qw3h-jr36 on Windows hosts) and fourteen more Next.js advisories against 16.2.9 | **fixed in tree, not deployed** until `deploy-frontend.yml` publishes a commit carrying 16.4.0 | The live site was built from 16.2.9. The deployment's `meta.deployedCommitSha` ([CI.md](CI.md) §1) says which tree is live. |
 | GHSA-jrc7-96c5-q579, MapLibre's `DOM.sanitize()` bypass (critical XSS, fixed in 6.4.1, never in 5.x) | **fixed in tree, not deployed**, as above | Hence the move to the 6.x line, whose migration `frontend/components/forms/LocationFields.tsx` carries. |
-| GHSA-vfj7-8cjw-p6xm, `braces` ≤ 3.0.3, stack exhaustion on deeply nested glob patterns (high) | **accepted** | Reaches us only through build and lint tooling: Tailwind 3 (chokidar, fast-glob, micromatch) and `@next/eslint-plugin-next` 16.4.0, which pins `fast-glob` 3.3.1. No patched release exists (3.0.3 is the newest `braces`, and the advisory names no fixed version), so no `overrides` entry can help. The patterns it parses are the repository's own Tailwind `content` and ESLint globs, never user input, and none of it reaches the bundle or a function. Removed by Tailwind 4 for the first path; the second goes when Next.js drops that pin or `braces` ships a fix. |
-| GHSA-rj75-hqrm-r3gf, `postcss-selector-parser` < 7.1.6, quadratic selector parsing (moderate) | **accepted** | Tailwind 3 only, directly and through `postcss-nested` 6. Tailwind 3 requires the 6.x line, so forcing 7.x under it would be a major the plugin was never built against; the input is the repository's own CSS. Removed by Tailwind 4. |
+| GHSA-vfj7-8cjw-p6xm, `braces` ≤ 3.0.3, stack exhaustion on deeply nested glob patterns (high) | **accepted** | Reaches us only through lint tooling: `eslint-config-next` 16.4.0 → `@next/eslint-plugin-next` 16.4.0, which pins `fast-glob` 3.3.1 → `micromatch` 4.0.8 → `braces` 3.0.3. No patched release exists (3.0.3 is the newest `braces`, and the advisory names no fixed version), so no `overrides` entry can help. The patterns it parses are the repository's own ESLint globs, never user input, and none of it reaches the bundle or a function. It goes when Next.js drops that pin or `braces` ships a fix. |
 
-npm counts every package on those two paths separately, which is why its summary reads 7 high and
-2 moderate for two advisories. `npm audit --omit=dev`, the packages that ship, reads 0.
+npm counts every package on that path separately, which is why its summary reads 5 high for one
+advisory. `npm audit --omit=dev`, the packages that ship, reads 0.
 
 ---
 
@@ -593,7 +596,7 @@ is removed and the entry stays. Both teach the reader to trust the wrong thing. 
 | §4.1 identity cache | `backend/app/core/deps.py`, and `backend/tests/test_user_identity_cache.py`. |
 | §4A Aadhaar | `backend/app/services/artisan_identity.py`. The encoder-level masking is the property to re-check after any new export surface: add one, then confirm the number arrives masked. |
 | §5 risk register | Each entry names a console screen. None can be confirmed from this repository. |
-| §5A dependency advisories | `cd frontend && npm audit --omit=dev` must find 0; `npm audit` must list only the two **accepted** advisories. Re-run after any dependency change, and move the two **fixed in tree** rows to fixed once the deployed commit carries next 16.4.0 and maplibre-gl 6.13.0 or later. |
+| §5A dependency advisories | `cd frontend && npm audit --omit=dev` must find 0; `npm audit` must list only the one **accepted** advisory. Re-run after any dependency change, and move the two **fixed in tree** rows to fixed once the deployed commit carries next 16.4.0 and maplibre-gl 6.13.0 or later. |
 | §6 variables | `backend/app/core/config.py` is the only source; [ENVIRONMENT.md](ENVIRONMENT.md) is the full table. |
 
 **Review triggers:** `backend/app/core/config.py`, `backend/app/core/security.py`,

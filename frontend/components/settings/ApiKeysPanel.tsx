@@ -316,7 +316,7 @@ export function ApiKeysPanel() {
                         <span className={`inline-block rounded-full border px-2.5 py-1 text-xs font-medium ${source.tone}`}>
                           {source.label}
                         </span>
-                        <p className="mt-1 max-w-[12rem] text-[0.6875rem] leading-4 text-ink-500">{source.help}</p>
+                        <p className="mt-1 max-w-48 text-[0.6875rem] leading-4 text-ink-500">{source.help}</p>
                       </td>
 
                       <td className="px-4 py-3">
@@ -327,7 +327,7 @@ export function ApiKeysPanel() {
                           {secret.lastCheckedAt ? `Checked ${formatDateTime(secret.lastCheckedAt)}` : "Never tested"}
                         </p>
                         {secret.lastError ? (
-                          <p className="mt-1 max-w-[14rem] text-[0.6875rem] leading-4 text-error-600">{secret.lastError}</p>
+                          <p className="mt-1 max-w-56 text-[0.6875rem] leading-4 text-error-600">{secret.lastError}</p>
                         ) : null}
                       </td>
 

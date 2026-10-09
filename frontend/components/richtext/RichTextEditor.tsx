@@ -308,7 +308,7 @@ const LEVEL_CLASS: Record<number, string> = {
   0: "",
   1: "ml-6",
   2: "ml-12",
-  3: "ml-[4.5rem]"
+  3: "ml-18"
 };
 
 /**
@@ -2743,7 +2743,7 @@ export function RichTextEditor({
     <div
       className={
         fullscreen
-          ? "fixed inset-0 z-[100] flex flex-col gap-2 overflow-y-auto bg-bg-0 p-4 sm:p-6"
+          ? "fixed inset-0 z-100 flex flex-col gap-2 overflow-y-auto bg-bg-0 p-4 sm:p-6"
           : "grid min-w-0 gap-2"
       }
       // A fixed overlay cannot inherit the body padding the scroll lock adds, so it repays the
@@ -2896,8 +2896,8 @@ export function RichTextEditor({
           spellCheck
           tabIndex={0}
           className={cn(
-            "field-input min-h-32 whitespace-pre-wrap break-words",
-            fullscreen ? "min-h-0 flex-1 overflow-y-auto" : "max-h-[32rem] overflow-y-auto",
+            "field-input min-h-32 whitespace-pre-wrap wrap-break-word",
+            fullscreen ? "min-h-0 flex-1 overflow-y-auto" : "max-h-128 overflow-y-auto",
             disabled ? "cursor-not-allowed opacity-70" : ""
           )}
         />

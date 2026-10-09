@@ -151,7 +151,7 @@ const INPUT_WITH_ICON = "field-input pr-10";
 const ICON_BUTTON =
   "absolute right-1 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-md text-ink-500 transition " +
   "hover:bg-purple-50 hover:text-purple-700 dark:hover:bg-purple-950 dark:hover:text-purple-200 " +
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-700 focus-visible:ring-offset-1 focus-visible:ring-offset-card " +
+  "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-purple-700 focus-visible:ring-offset-1 focus-visible:ring-offset-card " +
   "disabled:pointer-events-none disabled:text-ink-300";
 
 type TriggerInputProps = {
@@ -558,7 +558,7 @@ export function DateRangePicker({
             action={
               <button
                 type="button"
-                className="rounded-md px-2 py-1 font-medium text-purple-700 transition hover:bg-purple-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-700 dark:text-purple-300 dark:hover:bg-purple-950"
+                className="rounded-md px-2 py-1 font-medium text-purple-700 transition hover:bg-purple-50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-purple-700 dark:text-purple-300 dark:hover:bg-purple-950"
                 onClick={() => {
                   setOpen(false);
                   (lastTriggerRef.current ?? startRef.current)?.focus({ preventScroll: true });
@@ -755,7 +755,7 @@ export function TimeField({
                 }}
                 className={cn(
                   "flex items-center justify-between gap-3 rounded-md px-3 py-1.5 text-left text-sm tabular-nums transition",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-700 focus-visible:ring-offset-1 focus-visible:ring-offset-card",
+                  "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-purple-700 focus-visible:ring-offset-1 focus-visible:ring-offset-card",
                   chosen
                     ? "bg-purple-700 font-semibold text-white"
                     : "text-ink-900 hover:bg-purple-50 dark:hover:bg-purple-950"

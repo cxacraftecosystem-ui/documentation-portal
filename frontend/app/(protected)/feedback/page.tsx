@@ -119,7 +119,7 @@ function StarRating({
         <button
           aria-label={`${label}: ${n} star${n > 1 ? "s" : ""}`}
           aria-pressed={value === n}
-          className="rounded-md p-1 transition hover:bg-purple-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-600"
+          className="rounded-md p-1 transition hover:bg-purple-50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-purple-600"
           key={n}
           onClick={() => onChange(value === n ? null : n)}
           type="button"

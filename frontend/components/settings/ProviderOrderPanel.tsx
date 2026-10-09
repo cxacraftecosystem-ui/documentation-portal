@@ -660,7 +660,7 @@ export function ProviderOrderPanel() {
                   <div className="flex shrink-0 flex-col items-end gap-1.5">
                     <button
                       type="button"
-                      className="inline-flex min-h-7 items-center gap-1.5 rounded-sm border border-line-200 bg-card px-2 py-1 text-[11px] font-semibold text-ink-700 transition hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="inline-flex min-h-7 items-center gap-1.5 rounded-sm border border-line-200 bg-card px-2 py-1 text-[11px] font-semibold text-ink-700 transition hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700 disabled:cursor-not-allowed disabled:opacity-40"
                       onClick={() => test(provider)}
                       disabled={!live || testing !== null}
                       aria-label={`Test the ${provider.keyLabel} key for ${provider.name}`}
@@ -756,7 +756,7 @@ export function ProviderOrderPanel() {
         {dirty && live ? (
           <button
             type="button"
-            className="rounded-sm px-2 py-1 text-xs font-semibold text-ink-500 transition hover:text-purple-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
+            className="rounded-sm px-2 py-1 text-xs font-semibold text-ink-500 transition hover:text-purple-700 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
             onClick={reset}
           >
             Reset
@@ -814,7 +814,7 @@ function MoveButton({
     <button
       type="button"
       ref={register}
-      className="grid h-7 w-7 place-items-center rounded-sm border border-line-200 text-ink-500 transition hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:border-line-200 disabled:hover:bg-transparent aria-disabled:cursor-not-allowed aria-disabled:opacity-30 aria-disabled:hover:border-line-200 aria-disabled:hover:bg-transparent"
+      className="grid h-7 w-7 place-items-center rounded-sm border border-line-200 text-ink-500 transition hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:border-line-200 disabled:hover:bg-transparent aria-disabled:cursor-not-allowed aria-disabled:opacity-30 aria-disabled:hover:border-line-200 aria-disabled:hover:bg-transparent"
       disabled={atEnd || !live}
       aria-disabled={blocked || undefined}
       aria-describedby={blocked && provider.frozenReason ? reasonId : undefined}

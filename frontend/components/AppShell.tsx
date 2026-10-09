@@ -66,7 +66,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           past it straight to the page content. Visible only while focused. */}
       <a
         href="#main-content"
-        className="sr-only left-3 top-3 z-[60] rounded-md bg-purple-700 px-3 py-2 text-sm font-medium text-white focus:not-sr-only focus:fixed"
+        className="sr-only left-3 top-3 z-60 rounded-md bg-purple-700 px-3 py-2 text-sm font-medium text-white focus:not-sr-only focus:fixed"
       >
         Skip to content
       </a>

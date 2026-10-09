@@ -467,7 +467,7 @@ function DataTablesPanel({
 
                       {/* The grid scrolls horizontally inside its own box so a 27-column
                           tool sheet never makes the page itself scroll sideways. */}
-                      <div className="max-h-[32rem] overflow-auto border-t border-line-200">
+                      <div className="max-h-128 overflow-auto border-t border-line-200">
                         <table className="w-full text-left text-sm">
                           <thead className="sticky top-0 z-10 bg-surface-50 text-xs uppercase text-ink-500 shadow-sm">
                             <tr>
@@ -504,7 +504,7 @@ function DataTablesPanel({
                                     const value = row[cellIndex];
                                     return (
                                       <td key={cellIndex} className="max-w-md px-3 py-2 text-ink-700">
-                                        <div className="max-h-32 overflow-y-auto whitespace-pre-line break-words">
+                                        <div className="max-h-32 overflow-y-auto whitespace-pre-line wrap-break-word">
                                           {value === null || value === undefined || value === ""
                                             ? "-"
                                             : String(value)}
@@ -1190,15 +1190,15 @@ function RecordInfoCard({ info }: { info: FolderInfo }) {
             <tr key={`${field.label}-${index}`} className="align-top">
               <th
                 scope="row"
-                className="break-words border-r border-line-200 bg-surface-50 px-5 py-2.5 text-left font-semibold text-ink-900"
+                className="wrap-break-word border-r border-line-200 bg-surface-50 px-5 py-2.5 text-left font-semibold text-ink-900"
               >
                 {field.label}
               </th>
               <td className="px-5 py-2.5 text-ink-700">
                 {/* `pre-line` keeps the paragraph breaks in a 7,000-character interview note instead
-                    of running it into one line; `break-words` keeps a bare URL inside the column.
+                    of running it into one line; `wrap-break-word` keeps a bare URL inside the column.
                     The cap only bites on values that long — everything shorter shows in full. */}
-                <div className="max-h-72 overflow-y-auto whitespace-pre-line break-words leading-6">{field.value}</div>
+                <div className="max-h-72 overflow-y-auto whitespace-pre-line wrap-break-word leading-6">{field.value}</div>
               </td>
             </tr>
           ))}

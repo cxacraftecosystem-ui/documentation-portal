@@ -305,7 +305,7 @@ export function CarryContextBanner({
         onClick={onChange}
         // No ring OFFSET: the default offset colour is white, which would punch a white halo out of
         // the purple-950 banner in dark mode. A 2px ring straight on the border reads on both.
-        className="inline-flex shrink-0 items-center gap-1 rounded-sm border border-purple-200 bg-card px-2.5 py-1.5 text-xs font-medium text-purple-700 transition hover:bg-purple-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-700 dark:border-purple-800 dark:text-purple-200 dark:hover:bg-purple-900/60 dark:focus-visible:ring-purple-300"
+        className="inline-flex shrink-0 items-center gap-1 rounded-sm border border-purple-200 bg-card px-2.5 py-1.5 text-xs font-medium text-purple-700 transition hover:bg-purple-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-purple-700 dark:border-purple-800 dark:text-purple-200 dark:hover:bg-purple-900/60 dark:focus-visible:ring-purple-300"
       >
         <X className="h-3.5 w-3.5" aria-hidden />
         {changeLabel}

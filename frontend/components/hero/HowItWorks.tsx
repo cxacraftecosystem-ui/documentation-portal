@@ -162,7 +162,7 @@ export default function HowItWorks() {
               style={{ top: nodeTop }}
               // Centred on the 2px track by margins, not transforms: -4px = (2px − 10px) / 2
               // horizontally, -5px = half the dot vertically.
-              className="absolute -left-1 -mt-[5px] h-2.5 w-2.5 rounded-full bg-purple-700 ring-4 ring-purple-100"
+              className="absolute -left-1 mt-[-5px] h-2.5 w-2.5 rounded-full bg-purple-700 ring-4 ring-purple-100"
             />
           )}
         </div>

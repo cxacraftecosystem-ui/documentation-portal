@@ -1,8 +1,8 @@
 import type { Config } from "tailwindcss";
 
 /**
- * Field Repository design tokens on Tailwind v3. THIS FILE IS THE SOURCE OF TRUTH for
- * every colour, radius, shadow and gradient the web app uses.
+ * Field Repository design tokens, read by Tailwind v4 through `@config` in app/globals.css. THIS
+ * FILE IS THE SOURCE OF TRUTH for every colour, radius, shadow and gradient the web app uses.
  *
  * Purple ramp: OKLCH, hue locked at 305°; purple-700 is THE action color.
  * Tinted neutrals (ink/line/surface/bg-0) replace grey. Gold is a marketing
@@ -111,6 +111,28 @@ const config: Config = {
         muted: neutral("surface-50"),
         "muted-foreground": neutral("ink-500")
       },
+      // Tailwind 3's size scale, restated because Tailwind 4 changed one thing about it that this
+      // app can see. Each step is the same size with the same line height on the element itself, but
+      // v4 writes the line height as a RATIO (`text-sm` is `calc(1.25 / 0.875)`) where v3 wrote a
+      // length (`1.25rem`), and a ratio is inherited as a ratio: a badge at `text-[11px]` inside a
+      // `text-sm` button got 15.7px of line instead of v3's 20px, and the login page's "Coming soon"
+      // pills came out 4px shorter. Lengths here keep every inherited line height what v3 drew.
+      // 5xl and up were already unitless in v3.
+      fontSize: {
+        xs: ["0.75rem", { lineHeight: "1rem" }],
+        sm: ["0.875rem", { lineHeight: "1.25rem" }],
+        base: ["1rem", { lineHeight: "1.5rem" }],
+        lg: ["1.125rem", { lineHeight: "1.75rem" }],
+        xl: ["1.25rem", { lineHeight: "1.75rem" }],
+        "2xl": ["1.5rem", { lineHeight: "2rem" }],
+        "3xl": ["1.875rem", { lineHeight: "2.25rem" }],
+        "4xl": ["2.25rem", { lineHeight: "2.5rem" }],
+        "5xl": ["3rem", { lineHeight: "1" }],
+        "6xl": ["3.75rem", { lineHeight: "1" }],
+        "7xl": ["4.5rem", { lineHeight: "1" }],
+        "8xl": ["6rem", { lineHeight: "1" }],
+        "9xl": ["8rem", { lineHeight: "1" }]
+      },
       borderRadius: {
         sm: "8px",
         md: "12px",
@@ -151,4 +173,9 @@ const config: Config = {
   plugins: []
 };
 
-export default config;
+// A CommonJS export on purpose, since Tailwind v4. @tailwindcss/node imports this file with Node's
+// own loader, and Node 24 reads a .ts file in a package with no "type" as CommonJS first: with
+// `export default` it fails that parse, falls back to ES modules and prints a
+// MODULE_TYPELESS_PACKAGE_JSON warning on every build and every `next dev` start. The
+// `import type` above is erased before that parse, so this export is all it sees.
+module.exports = config;

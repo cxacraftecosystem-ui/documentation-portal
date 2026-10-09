@@ -56,9 +56,13 @@ Never load Google-hosted fonts.
 
 - Both `display: "swap"`.
 - **`font-serif` is not a serif.** It is a legacy slot pointed at Jakarta. Never use it to mean serif.
-- `fontSize`, `spacing`, `screens`, `letterSpacing`, `zIndex` are **stock Tailwind** — only
-  `fontFamily`, `colors`, `borderRadius`, `boxShadow`, `transitionTimingFunction`, `keyframes` and
+- `spacing`, `screens`, `letterSpacing`, `zIndex` are **stock Tailwind** — only `fontFamily`,
+  `fontSize`, `colors`, `borderRadius`, `boxShadow`, `transitionTimingFunction`, `keyframes` and
   `animation` are extended. `plugins: []`. No `tailwindcss-animate`.
+- `fontSize` restates **Tailwind 3's** scale (same sizes, line heights as lengths: `text-sm` is
+  0.875rem on 1.25rem). Tailwind 4's stock scale writes line heights as ratios, which descendants
+  inherit as ratios, so a `text-[11px]` badge inside a `text-sm` parent would lose 4px of height. Do
+  not delete it to get "stock"; the config's comment says what moves if you do.
 - Breakpoints are stock: `sm` 640 · `md` 768 · `lg` 1024 · `xl` 1280 · `2xl` 1536.
 
 ---
@@ -135,9 +139,11 @@ stock and will not pair correctly. Inside a tinted card use `amber-100` + `amber
 
 ### 3.6 Two traps that bite every new component
 
-- **`className="border"` alone** gives preflight's literal `#e5e7eb` (gray-200), which does not invert.
+- **`className="border"` alone** gives gray-200 (Tailwind 4 draws a bare border in `currentColor`;
+  `app/globals.css` restores v3's gray-200 in `@layer base`), which does not invert.
   Always `border border-line-200`.
-- **`ring-2` / `ring-4` alone** uses preflight's **blue** `rgb(59 130 246 / 0.5)`. Always name the
+- **`ring-2` / `ring-4` alone** draws in `currentColor` under Tailwind 4 (preflight's **blue**
+  `rgb(59 130 246 / 0.5)` under v3) — never the intended colour either way. Always name the
   colour: `ring-purple-600/15`, `ring-offset-card`.
 
 ---
@@ -559,9 +565,9 @@ you are looking at the last step. The identical instrument is reused on the publ
     <span className="absolute inset-0 rounded-full bg-line-200" />                        {/* track */}
     <motion.span style={{ scaleY: progress }} className="absolute inset-0 origin-top rounded-full bg-purple-700" />
     {reduce ? null : <motion.span style={{ top: nodeTop }}
-      className="absolute -left-1 -mt-[5px] h-2.5 w-2.5 rounded-full bg-purple-700 ring-4 ring-purple-100" />}
+      className="absolute -left-1 mt-[-5px] h-2.5 w-2.5 rounded-full bg-purple-700 ring-4 ring-purple-100" />}
 ```
-The node is centred by **margins** (`-left-1` = (2−10)/2, `-mt-[5px]` = half of 10), never by a
+The node is centred by **margins** (`-left-1` = (2−10)/2, `mt-[-5px]` = half of 10), never by a
 translate class — see §9.6. `inset-y-6` lines the track's ends up with the first and last bubbles
 (each `mt-6`).
 
@@ -788,7 +794,7 @@ under `LocalAppPreferences.current.reducedMotion`. `FLASH_MILLIS = 1400L` — th
 
 | Class | Renders |
 |---|---|
-| `.field-input` | `w-full rounded-md border border-line-200 bg-card px-3.5 py-2.5 text-sm text-ink-900 outline-none transition placeholder:text-ink-300 focus:border-purple-600 focus:ring-4 focus:ring-purple-600/15` |
+| `.field-input` | `w-full rounded-md border border-line-200 bg-card px-3.5 py-2.5 text-sm text-ink-900 outline-hidden transition placeholder:text-ink-300 focus:border-purple-600 focus:ring-4 focus:ring-purple-600/15` |
 | `.field-label` | `text-xs font-medium uppercase tracking-wide text-ink-500` |
 | `.field-button` | `inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-purple-700 px-4 py-2 text-sm font-medium text-white transition hover:bg-purple-800 hover:shadow-cta disabled:cursor-not-allowed disabled:bg-line-200 disabled:text-ink-500 disabled:shadow-none` |
 | `.field-button-secondary` | same box, `border border-line-200 bg-card text-ink-900`, `hover:border-purple-300 hover:bg-purple-50`, `disabled:opacity-60` |
@@ -802,18 +808,29 @@ under `LocalAppPreferences.current.reducedMotion`. `FLASH_MILLIS = 1400L` — th
 | `.fr-flash-row` | §10.2 |
 | `.nav-sheet` / `.nav-sheet-overlay` / `.nav-island-frame` | §7 |
 
-`@layer utilities`: `.grad-brand`, `.grad-mesh`, `.text-gold-gradient`, `.glass-card`, `.glass-dark`,
-plus legacy aliases `.ambient-light`, `.text-gradient-violet`.
+`@utility` (Tailwind 4; `@layer utilities` classes in v3): `.grad-brand`, `.grad-mesh`,
+`.text-gold-gradient`, `.glass-card`, `.glass-dark`, plus legacy aliases `.ambient-light`,
+`.text-gradient-violet`.
+
+⚠ **Every rule in `globals.css` sits in a cascade layer**, and the file's header says which and why.
+Under Tailwind 4 a rule outside every layer beats every utility, whatever its specificity, so a new
+rule goes in `@layer base` (an element default), `@layer components` (a recipe) or the
+`@layer utilities` block (a rule that must tie or beat a utility, as the focus ring does).
 
 ⚠ **`cn()` in `lib/utils.ts` is `classes.filter(Boolean).join(" ")`** — not `tailwind-merge`, and
 neither `clsx` nor `tailwind-merge` is a dependency. Later classes do **not** win; CSS source order
 decides. A `@layer components` class is always beaten by any utility (so `class="field-button w-full"`
-works), but to beat another **utility** you need `!` (e.g. `!bg-transparent`).
+works), but to beat another **utility** you need `!` (Tailwind 4 writes it last: `bg-transparent!`).
+Which of two utilities that set the same property wins is an accident of Tailwind's sort order, and
+v4 sorts differently from v3 (arbitrary values after named ones, numeric scales numerically): the
+upgrade found one element relying on v3's order (the `auth` button size) and one on its
+responsive line-height reset (the hero headline). Never give one element two utilities for one property.
 
 ⚠ **Content globs are `./app`, `./components`, `./lib` only, `.ts`/`.tsx`.** A class written elsewhere,
 or built by string concatenation, is purged. Always write complete literal class strings.
-⚠ `postcss.config.js` loads only `tailwindcss` + `autoprefixer` — **no nesting plugin**. Arbitrary CSS
-nesting in `globals.css` will not compile; `@layer` blocks and plain at-rules do.
+⚠ `postcss.config.js` loads only `@tailwindcss/postcss` (Tailwind 4 adds vendor prefixes itself, so
+autoprefixer is gone). `globals.css` reaches the tokens through `@config "../tailwind.config.ts"`, and
+`source(none)` keeps the scan to the config's content globs above.
 
 ### 11.2 Which primitives are live, and which are dormant
 
@@ -855,7 +872,7 @@ default offset 6, `CLOSE_ON_SCROLL_GRACE_MS 600`. Data attributes: `data-anchore
 ### 11.5 `SearchableSelect` / `SearchableMultiSelect`
 
 `SEARCH_THRESHOLD 8`, `RENDER_CAP 80`, `SUMMARY_NAMES 6`, `PANEL_MAX_WIDTH 520`,
-`PANEL_CLASS "!overflow-hidden !p-0 flex flex-col"` (the `!`s beat `AnchoredPopover`'s own
+`PANEL_CLASS "overflow-hidden! p-0! flex flex-col"` (the `!`s beat `AnchoredPopover`'s own
 `overflow-y-auto p-3` — see the `cn` note), list `max-h-72`, typeahead window 700ms.
 
 - **Highlight is derived through `safeHighlight` every render, never trusted raw** — a stored index goes
@@ -1447,7 +1464,7 @@ Each of these looks wrong and is deliberate. Most were a shipped bug.
 **Tokens & CSS**
 - `bg-surface-100/200/300` do not compile → use `bg-field-100/200/300`.
 - `field-500/600/700` are purple-**600/700/800** — the scale is shifted by one stop.
-- `border` alone = literal gray-200; `ring-2` alone = stock **blue**.
+- `border` alone = gray-200 (restored in `globals.css`); `ring-2` alone = `currentColor` (v4).
 - `rounded-2xl` == `rounded-lg` (16px); `rounded` is 4px, tighter than `rounded-sm`.
 - `font-serif` is Plus Jakarta Sans.
 - `ease-out` the *class* is the brand expo curve; `ease-out` in *handwritten CSS* is the spec curve.
@@ -1476,7 +1493,11 @@ Each of these looks wrong and is deliberate. Most were a shipped bug.
 - No `MotionConfig reducedMotion="user"` — framer animations must branch in JS themselves.
 - `Toast` honours the OS preference but **not** the in-app toggle.
 - Guide may branch `initial` on `reduce`; the hero may **not**.
-- Never centre a framer-animated element with a translate class — inline `transform` wins.
+- Never centre a framer-animated element with a translate class. Under Tailwind 3 the class wrote
+  `transform` and framer's inline `transform` erased it; under Tailwind 4 it writes the separate
+  `translate` property and the two COMPOSE, so the position depends on both. (TeamSection's cards
+  animate `y` and carry `hover:-translate-y-0.5`: the lift was erased under v3 and works under v4.
+  The hero's scroll chevron is safe either way: framer animates only its opacity.)
 - The guide's step card must **not** be `overflow-hidden` (the focus outline).
 - No `aria-live` on a scroll-position readout.
 - `aria-controls` only while the panel is mounted.
