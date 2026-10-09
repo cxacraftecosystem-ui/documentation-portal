@@ -46,6 +46,14 @@ on:
           - google_apis
           - google_apis_ps16k
         default: google_apis
+  # TEMPORARY, AND REMOVED BEFORE THIS BRANCH IS DONE. `workflow_dispatch` only fires for a workflow
+  # file that exists on the default branch, so until this file reaches main the only way to run it
+  # is a push to the branch that adds it.
+  push:
+    branches: [upgrade/doc-android]
+    paths:
+      - ".github/workflows/android-emulator.yml"
+      - "android/**"
 
 permissions:
   contents: read
@@ -56,7 +64,7 @@ concurrency:
 
 jobs:
   smoke:
-    name: Debug APK on an API ${{ inputs.api-level }} emulator (${{ inputs.target }})
+    name: Debug APK on an API ${{ inputs.api-level || '37.0' }} emulator (${{ inputs.target || 'google_apis' }})
     runs-on: ubuntu-26.04
     timeout-minutes: 60
     defaults:
@@ -146,8 +154,9 @@ jobs:
           SMOKE_PROD_APK: ${{ runner.temp }}/app-debug.apk
           SMOKE_LAN_APK: ${{ runner.temp }}/app-debug-lan.apk
         with:
-          api-level: ${{ inputs.api-level }}
-          target: ${{ inputs.target }}
+          # The fallbacks are the inputs' own defaults, for any trigger that carries no inputs.
+          api-level: ${{ inputs.api-level || '37.0' }}
+          target: ${{ inputs.target || 'google_apis' }}
           arch: x86_64
           # A 1080x2400 phone; the script resizes the display itself for the large-screen check.
           profile: pixel_7
@@ -169,7 +178,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: android-emulator-smoke-${{ inputs.api-level }}-${{ inputs.target }}
+          name: android-emulator-smoke-${{ inputs.api-level || '37.0' }}-${{ inputs.target || 'google_apis' }}
           path: android/build/emulator-smoke/
           if-no-files-found: warn
           retention-days: 14
