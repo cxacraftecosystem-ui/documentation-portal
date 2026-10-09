@@ -438,7 +438,7 @@ jobs:
         # index. Verified in sync on the way in: `npm ci --dry-run` from frontend/ exits 0.
         run: npm ci
 
-      - name: Typecheck
+      - name: Typecheck (TypeScript 7)
         # `next build` also fails on a type error, but only during the deploy — i.e. AFTER the backend
         # has already shipped and the live site is pointed at it (docs/CI.md §1 explains why the
         # backend goes first). Running it here moves the answer to before the merge. Measured
@@ -446,7 +446,26 @@ jobs:
         #
         # `npx tsc --noEmit` rather than `npm run typecheck`, which is literally the same command
         # (frontend/package.json:10): this way the log of the step says what the step ran.
+        #
+        # TWO COMPILERS SINCE 2026-10-09, AND THIS ONE IS 7. frontend/package.json installs
+        # TypeScript 7 under the name `@typescript/native`, which provides the `tsc` binary, and
+        # TypeScript 6 under the name `typescript`, which provides `tsc6` and the JavaScript compiler
+        # API that 7 no longer ships. That is the TypeScript team's documented side-by-side setup;
+        # docs/CI.md, "The web app's two TypeScripts", says who uses which and when it collapses back
+        # to one.
         run: npx tsc --noEmit
+
+      - name: Typecheck (TypeScript 6, the compiler next build runs)
+        # Not a duplicate of the step above. `next build` finds its compiler through the `typescript`
+        # package and runs that package's `tsc6` binary (next 16.4's getTypeScriptPackageInfo, in
+        # dist/lib/typescript/runTypeScriptCli.js, takes the package's `bin.tsc` and falls back to a
+        # `tsc<N>` entry; measured by recording what a build spawned), so the type check that gates
+        # the deploy is TypeScript 6, not 7. The two are meant to agree, and on
+        # 2026-10-09 both exited 0 on this tree with and without a .next directory. A file on which
+        # they ever disagree fails here, before the merge, instead of in the deploy after the backend
+        # has shipped — the reason the step above exists at all. Measured on a laptop: 7 takes 5 s,
+        # 6 takes 19 s.
+        run: npx tsc6 --noEmit
 
       - name: Lint
         # `npm run lint` — the repository's own script (frontend/package.json:9), deliberately,
