@@ -920,20 +920,22 @@ jobs:
           # the API and the site that calls it come from the same tree.
           ref: ${{ needs.gate.outputs.sha }}
 
-      # ─── TWO NODE VERSIONS MEET IN THIS JOB, AND ONLY ONE OF THEM IS SET HERE — 2026-10-09 ──
-      # This step decides the Node that COMPILES the site: `vercel build` below runs on the runner.
-      # The Node that RUNS the on-demand pages in production is a different setting, the project's
-      # Node.js Version. `vercel pull` writes it into `.vercel/project.json` and `vercel build` hands
-      # it to the Next.js builder, which stamps it on every function. The comment here used to say
-      # "22 matches Vercel's current build image", and that was wrong twice. This pipeline never
-      # builds on Vercel, and the project read 24.x when it was measured on 2026-10-09. 22 is the major
-      # checks.yml's web job type-checks, lints and unit-tests on, so the project should read 22.x
-      # too (docs/DEPLOYMENT_VERCEL.md §1). The step after `vercel pull` warns on every run where the
-      # two majors differ.
+      # ─── TWO NODE VERSIONS MEET IN THIS JOB, AND ONE FIELD NOW SETS BOTH — 2026-10-09 ─────────
+      # This step decides the Node that COMPILES the site: `vercel build` below runs on the runner,
+      # never on Vercel. The Node that RUNS the on-demand pages is chosen by `vercel build` as well,
+      # and it reads `engines.node` in frontend/package.json BEFORE the project's Node.js Version:
+      # the field overrides the dashboard (vercel.com/docs/functions/runtimes/node-js/node-js-versions,
+      # "Version overrides in package.json"), and the Next.js builder stamps the result on every
+      # function. So both come from `"engines": { "node": "24.x" }`, which checks.yml's web and docs
+      # jobs read too and frontend/Dockerfile asserts. 24 is the newest LTS and the newest major
+      # Vercel offers. Until 2026-10-09 this said "22", and the advice beside it was to set the
+      # project to 22.x as well: the newer side was being lowered to meet the older one. When Vercel
+      # lists 26 (LTS from 2026-10-28), raise the field and everything follows it.
       - name: Set up Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "22" # Next 16 needs ≥ 20.9; 22 is also checks.yml's web job and should be the project's Node.js Version
+          node-version-file: frontend/package.json # engines.node; Next 16 needs >= 20.9
+          check-latest: true # the newest 24.x, not whichever patch the runner image cached
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -982,20 +984,36 @@ jobs:
             exit 1
           fi
 
-      - name: Say so when production would run on a different Node major from this build
-        # 2026-10-09. The "Set up Node" step carries the argument: this runner compiles on Node 22, and
-        # the on-demand pages then run on whatever the project's Node.js Version says, which read 24.x
-        # that day. A WARNING, not a failure, because a mismatch is a risk and not a broken site. Both
-        # majors run this bundle today, and failing the publish over a dashboard setting would hold
-        # back work that has nothing to do with it. What the warning buys is that the mismatch is
-        # visible on every run, instead of known only to whoever last opened the project settings.
+      - name: Say so when the project's Node.js Version disagrees with engines.node
+        # 2026-10-09. The "Set up Node" step carries the argument: `engines.node` in
+        # frontend/package.json decides both the Node this runner compiles on and the Node the
+        # on-demand pages run on, because `vercel build` prefers it to the project's Node.js Version.
+        # So a dashboard that disagrees no longer changes what production runs. It is still worth a
+        # line on every run: the dashboard is what anybody checking reads, and it is the major a
+        # build falls back to if the field is ever removed. A WARNING, not a failure, because nothing
+        # that runs is wrong. WHICHEVER SIDE IS OLDER IS THE ONE TO RAISE, never the newer one to
+        # lower: a project ahead of the field means Vercel offers a newer major and the repository
+        # moves up to it (docs/DEPLOYMENT_VERCEL.md §1). Until 2026-10-09 this step told operators to
+        # set the project to the build's major: the advice that took the sister project,
+        # designer-repository, from 24.x down to 22.x.
         run: |
           set -euo pipefail
           build="$(node -p 'process.versions.node.split(".")[0]')"
+          declared="$(node -p "require('./frontend/package.json').engines?.node ?? ''")"
           runtime="$(node -p "require('./.vercel/project.json').settings?.nodeVersion ?? ''")"
-          echo "build Node ${build}; project Node.js Version '${runtime:-<unset>}'"
-          if [ "$runtime" != "${build}.x" ]; then
-            echo "::warning title=Production runs a different Node major from CI::The Vercel project's Node.js Version is '${runtime:-<unset>}', so its on-demand pages run on that while checks.yml and this build run on Node ${build}. Set it to ${build}.x in Vercel -> Project -> Settings -> Node.js Version; the next publish picks it up."
+          echo "build Node ${build}; frontend/package.json engines.node '${declared:-<unset>}'; project Node.js Version '${runtime:-<unset>}'"
+          if [ "$declared" != "${build}.x" ]; then
+            echo "::warning title=engines.node and the Node this build ran on disagree::frontend/package.json declares '${declared:-<unset>}' and this runner compiled on Node ${build}. Keep the field an exact major such as 24.x: setup-node, frontend/Dockerfile and Vercel each read it, and only an exact major puts all three on the same one."
+          elif [ -n "$runtime" ] && [ "$runtime" != "$declared" ]; then
+            case "${runtime%%.*}" in
+              ''|*[!0-9]*) newer=0 ;;
+              *) if [ "${runtime%%.*}" -gt "$build" ]; then newer=1; else newer=0; fi ;;
+            esac
+            if [ "$newer" -eq 1 ]; then
+              echo "::warning title=Vercel offers a newer Node major than this repository builds on::The project's Node.js Version is '${runtime}', newer than engines.node '${declared}'. Raise engines.node in frontend/package.json to '${runtime}', and NODE_VERSION in frontend/Dockerfile with it: checks.yml, this build and production all follow the field. Do not lower the project."
+            else
+              echo "::warning title=The project's Node.js Version is behind the Node production runs::The project's Node.js Version is '${runtime}', but engines.node '${declared}' overrides it, so production runs Node ${build}. Raise the setting to ${declared} in Vercel -> Project -> Settings -> Build and Deployment -> Node.js Version, so the dashboard says what runs."
+            fi
           fi
 
       - name: Assert the pulled environment carries the values the app cannot run without
@@ -1089,6 +1107,25 @@ jobs:
 
       - name: Build (uses the project's own install/build commands from frontend/vercel.json)
         run: vercel build --prod --token="$VERCEL_TOKEN"
+
+      - name: Show the Node runtime the build stamped on its functions
+        # 2026-10-09. The evidence for the "Set up Node" step's claim, read from the artifact rather
+        # than from Vercel's documentation: every function in .vercel/output records the runtime it
+        # will execute on, and each Node.js one should read nodejs<engines.node major>.x whatever the
+        # dashboard says. A WARNING, not a failure, for the same reason as the comparison step above,
+        # and `continue-on-error` so that nothing in a report can stop a publish.
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          want="nodejs$(node -p "String(require('./frontend/package.json').engines?.node ?? '').split('.')[0]").x"
+          found="$(find .vercel/output/functions -name .vc-config.json -exec cat {} + 2>/dev/null \
+                   | grep -oE '"runtime": *"[^"]+"' | sed -E 's/.*"([^"]+)"$/\1/' | sort | uniq -c || true)"
+          echo "expected ${want}; function runtimes in .vercel/output:"
+          echo "${found:-  none found}"
+          other="$(printf '%s\n' "$found" | awk '$2 ~ /^nodejs/ && $2 != w { print $2 }' w="$want" | sort -u | paste -sd ' ' - || true)"
+          if [ -n "$other" ]; then
+            echo "::warning title=Functions were stamped with a different Node runtime from engines.node::Expected ${want} from frontend/package.json, found: ${other}. Vercel did not apply engines.node to this build, so production runs the runtime listed. Compare 'vercel --version' and the build log's Node.js Version line against vercel.com/docs/functions/runtimes/node-js/node-js-versions."
+          fi
 
       - name: Assert the values actually reached the bundle we are about to publish
         # The step above checks an *input* to the build; this one checks the artifact. A
