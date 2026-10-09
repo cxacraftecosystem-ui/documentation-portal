@@ -33,23 +33,28 @@ name: Checks
 # DELIBERATELY NOT HERE" below — it writes it down with a file and a line so the next person can.
 #
 # ─── THIS WORKFLOW RUNS. IT DOES NOT, BY ITSELF, GATE ANYTHING ───────────────────────────
-# Nothing in `.github/` can prove a job BLOCKS a merge or a deploy: required status checks live in
-# the repository's branch-protection settings, not in a workflow file. Read a green Checks tick as
-# "the guards were asked", not as "main is protected".
+# Nothing in `.github/` can prove a job BLOCKS a merge: required status checks live in the
+# repository's branch-protection settings, not in a workflow file. (A deploy is different: the two
+# deploy workflows wait for this one — item 2.) Read a green Checks tick as "the guards were asked",
+# not as "main is protected".
 #
 # Two specific things it does NOT do, stated because a green tick read as more than it is costs more
 # than no tick at all:
 #   1. It does not block a merge unless `Backend tests`, `Web typecheck, lint and unit specs` and
 #      `Docs check` are named as required checks on `main` (Settings → Branches → branch protection).
 #      Those names are stable on purpose; renaming a job silently un-requires it.
-#   2. It does not block a DEPLOY. deploy-backend.yml fires on its own `push: main` trigger and one
-#      workflow cannot `needs:` a job in another, so on main this workflow and the deploy chain start
-#      together and the deploy usually wins — an rsync starts faster than a minute of pytest. The
-#      sibling repository closed that race from the other end (a `wait-for-checks` job inside each
-#      deploy stage that polls for the Checks run at the exact SHA and refuses to hand over until
-#      these three jobs are green). That is the right fix and it is NOT done here, because
-#      deploy-backend.yml and deploy-frontend.yml belong to another workstream today. docs/CI.md §5
-#      carries it as a named, open gap rather than as a sentence in a workflow nobody re-reads.
+#   2. It does not block a DEPLOY by itself; each deploy stage waits for it. deploy-backend.yml fires
+#      on its own `push: main` trigger and one workflow cannot `needs:` a job in another, so on main
+#      this workflow and the deploy chain still START together, and when this header was written
+#      the deploy usually won — an rsync starts faster than a minute of pytest. The sibling
+#      repository's fix, now ported to both stages, closes that race from the other end: a
+#      `wait-for-checks` job inside each deploy stage polls for the Checks run at the exact SHA
+#      being shipped and refuses to hand over until these three jobs are green. deploy-backend.yml's
+#      copy (2026-09-20) runs on a push that touches backend/; deploy-frontend.yml's (2026-10-09)
+#      covers the frontend-only push the backend's copy never sees. Both find these jobs by the
+#      names in their `GATING_JOBS` lists, so renaming one here also stalls every gated deploy until
+#      its twenty-minute wait fails, naming the job it was waiting for. The manual-dispatch override
+#      skips both waits on purpose (docs/CI.md §4).
 #
 # ─── WHY NO `paths:` FILTER ──────────────────────────────────────────────────────────────
 # Deliberate, and it is the specific mistake this file exists to not repeat. The sibling repository's
@@ -61,17 +66,26 @@ name: Checks
 # laptop 2026-09-14: 65 s of pytest, 8 s of Playwright, under a second of docs check) and
 # independent of each other. DO NOT ADD ONE.
 #
-# ─── WHY THE `uses:` LINES ARE TAGS AND NOT COMMIT SHAS ──────────────────────────────────
+# ─── WHY THE `uses:` LINES ARE COMMIT SHAS — THEY WERE TAGS UNTIL 2026-10-09 ─────────────
 # `actions/checkout@v4` is a MUTABLE tag: whoever controls that repository can move it, and the next
-# run then executes different code with no diff to review. The sibling repository pins every action
-# to a SHA for exactly that reason — and it can, because it carries a `.github/dependabot.yml` whose
-# github-actions ecosystem bumps them weekly. THIS REPOSITORY HAS NO dependabot.yml (checked
-# 2026-09-14: `.github/` holds `workflows/` and nothing else), and a hand-pinned SHA with nothing to
-# refresh it is a pin that silently rots — you lose the fixes in v4.x and gain no signal that you
-# have. So this file matches the five workflows beside it, all of which use `@v4`. THE UPGRADE IS ONE
-# FILE: add `.github/dependabot.yml` with the github-actions ecosystem at `directory: "/"`, then pin
-# every `uses:` in every workflow in one commit. Do it there, for all six files at once, not here for
-# one.
+# run then executes different code with no diff to review. A commit SHA cannot move, so every `uses:`
+# below names one, with the release it was taken from in a trailing comment for the reader.
+#
+# Until 2026-10-09 this paragraph argued for tags, and the argument was about what was missing, not
+# about pins: a hand-pinned SHA with nothing to refresh it is a pin that silently rots — you lose the
+# fixes in v4.x and gain no signal that you have — and on 2026-09-14 this repository had no
+# `.github/dependabot.yml` (`.github/` held `workflows/` and nothing else). It asked for that file
+# and the pins together, across every workflow rather than here for one, and both landed on
+# 2026-10-09: the file (github-actions, weekly) and a pin on every `uses:` in five of the six
+# workflows that have one (backup-db.yml uses no action). The sixth is deploy-backend.yml: its pins
+# (actions/checkout, actions/upload-artifact, webfactory/ssh-agent) are DEFERRED until the next
+# real backend change, because any edit to that file redeploys the unchanged backend (its `changes`
+# job counts the workflow file itself as a backend change); they will be resolved the same way,
+# `@v0.9.0` included. Each SHA is the commit its old tag — `@v4`, `@v5` — resolved to that day,
+# read back through `gh api`, so pinning changed nothing that runs. A bump is now a Dependabot pull
+# request that a reviewer can read. A bump by hand re-resolves the tag and changes the SHA and its
+# comment together: a SHA whose comment names a different release misleads every later reviewer.
+# The check and the recipe are in docs/CI.md, "How this document is kept true".
 #
 # ─── WHAT IS DELIBERATELY NOT HERE ───────────────────────────────────────────────────────
 # • NO ANDROID JOB. android-build.yml already compiles Kotlin and runs `:app:testDebugUnitTest` on a
@@ -98,9 +112,18 @@ permissions:
   contents: read
 
 concurrency:
-  # Safe to cancel, unlike the deploy workflows: nothing outside the runner is mutated here, and a
-  # superseded commit's result is noise. Keyed per pull request (or per branch on a push) so two open
-  # pull requests never cancel each other.
+  # Safe to cancel, unlike the deploy workflows: nothing outside the runner is mutated here. Keyed per
+  # pull request (or per branch on a push) so two open pull requests never cancel each other. On main a
+  # push cancels the previous commit's run while it is still going, and deploy-frontend.yml's
+  # wait-for-checks treats a run cancelled this way as SUPERSEDED once main has moved past its commit
+  # (2026-10-09): that commit's frontend stage ends green and ships nothing, and the newer commit's
+  # run ships both. A run cancelled while its commit is still main's tip is not superseded — the wait
+  # holds for a re-run or a dispatch of Checks, then fails as cancelled, not failed. A dispatch on
+  # main cancels the push run for the same commit too; the wait grades the run that was not
+  # cancelled. deploy-backend.yml's copy of the wait gets all of this — the verdict and run
+  # selection copied from deploy-frontend.yml — with the next real backend change. It is deferred
+  # because any edit to that file redeploys the unchanged backend; until then it reports a
+  # cancelled run as failed. See docs/CI.md §1 and §6.
   group: checks-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
@@ -154,17 +177,19 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Python
         # v5, while every other action here is v4: there is no setup-python anywhere else in this
-        # repository to match, so this takes the current major rather than importing an old one for
-        # the sake of a column of identical version numbers.
-        uses: actions/setup-python@v5
+        # repository to match. This used to go on "so this takes the current major", which v5 was
+        # not: v6.0.0 shipped on 2025-09-04, a year before this file. Moving to it is a Dependabot
+        # pull request like any other bump, not something to fold into the pin below.
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          # 3.12 because that is what production runs: deploy-backend.yml:262 builds the box's venv
-          # with `python3.12 -m venv .venv`. A suite that passes on a version production does not
-          # have is a weaker statement than it looks. backend/pyproject.toml allows >= 3.11.
+          # 3.12 because that is what production runs: deploy-backend.yml's "Install deps, migrate,
+          # restart" step builds the box's venv with `python3.12 -m venv .venv`. A suite that passes
+          # on a version production does not have is a weaker statement than it looks.
+          # backend/pyproject.toml allows >= 3.11.
           #
           # AND THE VERSION IS NOT COSMETIC HERE — it is measured. On the 3.14 laptop this was
           # written from, `import pydub` fails outright (`No module named 'pyaudioop'`), because PEP
@@ -390,14 +415,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          # 22 to match deploy-frontend.yml:196, which matches Vercel's current build image. A
-          # typecheck that passes on a different major from the one that builds production is not the
-          # check anybody thinks it is.
+          # 22 to match the `node-version` in deploy-frontend.yml's "Set up Node" step, the Node that
+          # builds production: `vercel build` runs on the runner there, never on Vercel. A typecheck
+          # that passes on a different major from the one that builds production is not the check
+          # anybody thinks it is.
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
@@ -518,10 +544,10 @@ jobs:
       - name: Checkout
         # Full history is NOT needed, but a real git checkout is: check-docs shells out to
         # `git ls-files` to decide which paths a document is allowed to name.
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
 

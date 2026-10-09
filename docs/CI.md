@@ -30,21 +30,35 @@ flowchart LR
     PR([pull request]) --> C["<b>checks.yml</b><br/>Checks"]
     P([push to main]) --> C
     P --> B["<b>deploy-backend.yml</b><br/>Deploy backend to EC2"]
+    C -.->|polled by<br/>wait-for-checks| B
     B -->|workflow_run:<br/>success only| F["<b>deploy-frontend.yml</b><br/>Deploy frontend to Vercel"]
+    C -.->|polled by<br/>wait-for-checks| F
     F -->|workflow_run:<br/>any outcome| A["<b>android-build.yml</b><br/>Android build"]
     A --> R([app-debug.apk artifact])
     T([push tag v*]) --> V["<b>publish-android.yml</b><br/>Publish Android release"]
     V --> H([signed APK on handsets])
 ```
 
-Note what that diagram does **not** contain: an arrow from `checks.yml` into the deploy chain. There
-is none, and that is a real gap rather than a simplification — see **The checks** below, under
-"it runs; it does not gate".
+~~Note what that diagram does **not** contain: an arrow from `checks.yml` into the deploy chain.~~
+**The two dotted arrows are a WAIT, not a trigger.** A workflow still cannot `needs:` a job in another
+workflow file. Instead each deploy workflow carries a `wait-for-checks` job that polls the REST API
+for the `checks.yml` run at the exact SHA it is about to ship, and refuses to hand over to its
+`deploy` job until `Backend tests`, `Web typecheck, lint and unit specs` and `Docs check` are green.
+The backend's copy landed first (`deploy-backend.yml`) and runs only when `backend/` changed. The
+frontend's copy landed on 2026-10-09 and covers the push the backend's cannot see: a frontend-only
+push, which until then was published without anything waiting on Checks. Both skip the wait on a
+manual dispatch, which is the documented emergency override (§4). A Checks run that was
+**cancelled** is not a failed one (since 2026-10-09): when a newer push to `main` cancels it, the
+frontend's wait ends green as *superseded* and the newer commit's own run ships both (§6). The
+backend's copy gets the same verdict, copied from `deploy-frontend.yml`, with the next real backend
+change: it is deferred because any edit to `deploy-backend.yml` redeploys the unchanged backend
+(§5). Until then it reports a cancelled run as failed. See
+**The checks** below, under "it runs; it does not gate", for what this still does not cover.
 
 | # | Workflow | File | Trigger | What it does |
 |---|---|---|---|---|
 | 1 | Deploy backend to EC2 | `.github/workflows/deploy-backend.yml` | `push` to `main` | rsync → write `.env` → `prisma migrate deploy` → restart `fieldrepo` + `fieldrepo-queue` → poll `/health` |
-| 2 | Deploy frontend to Vercel | `.github/workflows/deploy-frontend.yml` | `workflow_run` on **1** completing | `vercel pull` → **assert the pulled env carries what the app needs** → `vercel build --prod` → **assert those values actually reached the bundle** → `vercel deploy --prebuilt --prod` → smoke-check the alias → **assert the bundle the CDN serves is the one that was verified** |
+| 2 | Deploy frontend to Vercel | `.github/workflows/deploy-frontend.yml` | `workflow_run` on **1** completing | gate → `wait-for-checks` (2026-10-09) → `vercel pull` → **refuse any project but `field-repository`** → **assert the pulled env carries what the app needs** (every `NEXT_PUBLIC_*`, `[SENSITIVE]` placeholders included), and *warn* when the project's Node.js Version is not the build's major → `vercel build --prod` → **assert those values actually reached the bundle** → `vercel deploy --prebuilt --prod` → **prove the production domain resolves to the new deployment, and `vercel promote` it when a rollback has turned auto-assignment off** (2026-10-09) → smoke-check the alias → **assert the bundle the CDN serves is the one that was verified**, starting with which deployment it is |
 | 3 | Android build | `.github/workflows/android-build.yml` | `workflow_run` on **2** completing, plus `pull_request` filtered to `android/**` | JDK 17 → `compileDebugKotlin` → `testDebugUnitTest` → `lintDebug` (advisory) → `assembleDebug` → upload APK. **Debug variants only.** Nothing it produces can install over a release build, and nothing it produces reaches a phone. |
 | 4 | Checks | `.github/workflows/checks.yml` | `pull_request`, `push` to `main`, manual | Three independent jobs: the backend suite, the web typecheck/lint/unit specs, the documentation check. **No `paths:` filter.** See **The checks** below.  |
 | 5 | Publish Android release | `.github/workflows/publish-android.yml` | `push` of a `v*` **tag**, plus a manual dry run | Builds and **signs** the release APK on the runner, proves the signer against `ANDROID_RELEASE_CERT_SHA256`, uploads it, and `POST`s `/api/app/release` so the in-app updater offers it. See [RELEASING.md](RELEASING.md). |
@@ -103,12 +117,13 @@ if it is ever wired to a gate again it may only turn a deploy ON, never off.
 
 | Push touches | 1 · backend deploy | 2 · frontend deploy | 3 · Android build | 4 · Checks |
 |---|---|---|---|---|
-| `backend/**` only | **runs** | skipped (nothing to publish) | runs | **all three jobs** |
-| `frontend/**` only | skipped (run still succeeds) | **runs** | runs | **all three jobs** |
+| `backend/**` only | **runs**, after Checks is green on that SHA | skipped (nothing to publish) | runs | **all three jobs** |
+| `frontend/**` only | skipped (run still succeeds) | **runs**, after Checks is green on that SHA | runs | **all three jobs** |
 | `android/**` only | skipped | skipped | **runs** | **all three jobs** |
-| several areas | **runs** | **runs**, after 1 is green | runs | **all three jobs** |
+| several areas | **runs**, after Checks is green | **runs**, after 1 is green *and* Checks is green | runs | **all three jobs** |
 | docs only | skipped | skipped | runs | **all three jobs** |
 | backend deploy **fails** | ❌ red | **refuses to deploy**, says why in the summary | still runs | unaffected |
+| **Checks red** | **refuses to deploy** *if `backend/` was touched*: its wait is scoped to that | **refuses to deploy** whatever changed (since 2026-10-09) | still runs — `android-build.yml` has no conclusion filter | ❌ red |
 
 Anything the diff cannot be computed for — manual dispatch, the first push of a branch, a force-push
 that orphaned the previous head — is treated as "everything changed". The pipeline over-deploys
@@ -140,6 +155,19 @@ and each fails the run loudly:
 Assertion 3 is the one that catches a class the other two cannot: a correct build published behind a
 stale alias. Together they turn "the site is live but nobody can log in" from a support ticket days
 later into a red run in five minutes.
+
+**A host search cannot tell one good build from another, so since 2026-10-09 identity is asserted
+first.** After an Instant Rollback (the dashboard button, or `vercel rollback`), Vercel turns **off**
+auto-assignment of production domains: every later `vercel deploy --prod` is *staged*, never receives
+`field-repository.vercel.app`, and still exits 0, while the site stays on the rolled-back build until a
+deployment is promoted ([Vercel: Undo a rollback](https://vercel.com/docs/instant-rollback#undo-a-rollback)).
+That build answers 200 and carries the same API host, so the smoke check and assertion 3 both passed
+it, and production would have frozen behind green runs. The step *Prove production is serving this
+deployment* now reads which deployment the domain resolves to, through the same Vercel API call the
+gate already makes, and compares it with the upload. If they differ it runs `vercel promote` on the
+new deployment, which moves the domains and turns auto-assignment back on, reads again, and fails the
+run if production is still elsewhere. Assertion 3 repeats the identity read before it searches the
+bundle.
 
 ### The checks
 
@@ -182,14 +210,14 @@ costs more than no tick at all:
 1. **It does not block a merge** until `Backend tests`, `Web typecheck, lint and unit specs` and
    `Docs check` are named as required status checks on `main` (**Settings → Branches**). That is
    console state; nothing in a checkout can prove it. **UNVERIFIED from here.**
-2. **It does not block a deploy.** `deploy-backend.yml` fires on its own `push: main` trigger, and
-   one workflow cannot `needs:` a job in another — so on `main` the checks and the deploy start
-   together and the deploy usually wins the race, because an rsync starts faster than a minute of
-   pytest. The ordinary case is therefore a breaking commit reaching production with the red tick
-   arriving afterwards. **The fix is a `wait-for-checks` job inside each deploy workflow** that polls
-   for the Checks run at the exact SHA being shipped and refuses to hand over until those three jobs
-   are green; the sibling repository runs exactly that. It is not done here because those two files
-   belong to another workstream — it is the single most valuable thing left on the §5 list.
+2. ~~**It does not block a deploy.**~~ **It now blocks both deploys, and it did not used to.**
+   `deploy-backend.yml` fires on its own `push: main` trigger, and one workflow cannot `needs:` a
+   job in another, so on `main` the checks and the deploy start together and the deploy used to win
+   the race: an rsync starts faster than a minute of pytest. The fix this item asked for is in
+   place. A `wait-for-checks` job inside each deploy workflow polls for the Checks run at the exact
+   SHA being shipped and refuses to hand over until those three jobs are green. The backend's copy
+   came first, and the frontend's followed on 2026-10-09 (the diagram above). **What it still does
+   not do is block a MERGE**, which is item 1, and a manual dispatch skips both waits by design (§4).
 
 #### What is licensed to fail, and how the ratchets work
 
@@ -274,13 +302,16 @@ one is the thing to argue about in review.
 | `EC2_HOST` | backend | Public/Elastic IP of the API box. `cd infra/terraform && terraform output api_public_ip`, or EC2 console → Instances → the `fieldrepo` instance → Public IPv4. Currently `15.207.145.174`. |
 | `EC2_SSH_KEY` | backend | The **entire** private key file for the instance's key pair, `-----BEGIN…` through `-----END…` inclusive, with the trailing newline: `infra/terraform/fieldrepo-deploy.pem`. Paste the file contents, not the path. `*.pem` is gitignored — never commit it. |
 | `BACKEND_ENV` | backend | The full contents of the production `backend/.env`: `DATABASE_URL`, `JWT_SECRET`, `AWS_*`, `OPENAI_API_KEY`, `GEMINI_API_KEYS`, `ELEVENLABS_*`, `DEEPGRAM_*`, `BACKEND_CORS_ORIGINS`, … Every key and its meaning is in [ENVIRONMENT.md](ENVIRONMENT.md). Easiest source of truth: `ssh ubuntu@$EC2_HOST cat /home/ubuntu/app/backend/.env`. The workflow pipes it over the SSH tunnel; it is never on a command line. |
-| `VERCEL_TOKEN` | frontend | <https://vercel.com/account/tokens> → **Create Token**. Scope it to the **team that owns `field-repository`**, not "Personal Account", or the CLI 403s. Set an expiry you will actually remember — the deploy starts failing with `Error: Not authorized` the day it lapses. This is the only genuinely sensitive value of the three Vercel ones. |
+| `VERCEL_TOKEN` | frontend | <https://vercel.com/account/tokens> → **Create Token**. Scope it to the **team that owns `field-repository`**, not "Personal Account", or the CLI 403s. Set an expiry you will actually remember — the deploy starts failing with `Error: Not authorized` the day it lapses. This is the only genuinely sensitive value of the three Vercel ones. **Measured 2026-10-09 (token metadata, never the value):** the token this repository uses had USER scope and NO expiry, so a leak would give permanent control of every project on the account. Replacing it with a team-scoped, expiring one, then revoking the old one, is an open owner decision; record the expiry date here when it is made. |
 | `VERCEL_ORG_ID` | frontend | `team_pcTf4Alb2DCIwq2IZcdu00dS`. Also at Vercel → Team Settings → General → **Team ID**, or in `frontend/.vercel/project.json` (`orgId`) after a local `vercel link`. An identifier, not a credential. |
 | `VERCEL_PROJECT_ID` | frontend | `prj_EzXN8hhGKpMciFBrZRdxpcgUUzN0`. Also at Vercel → Project `field-repository` → Settings → General → **Project ID**, or `frontend/.vercel/project.json` (`projectId`). An identifier, not a credential. |
 | `SUPABASE_DATABASE_URL` *or* `DATABASE_URL` | keep-alive cron | The Supabase Postgres connection string (Supabase → Project → Connect). Pre-existing; unrelated to deploys. |
 
-`GITHUB_TOKEN` is **not** something you create — GitHub injects it per run. Stage 2 uses it only to
-download stage 1's change-detection artifact (`permissions: actions: read`).
+`GITHUB_TOKEN` is **not** something you create — GitHub injects it per run. ~~Stage 2 uses it only to
+download stage 1's change-detection artifact.~~ Stage 2 no longer downloads that artifact (2026-09-20).
+It uses the token, with `permissions: actions: read`, to ask whether the run that published what is
+live concluded success, and, since 2026-10-09, to read the Checks run and its jobs for the commit it
+is about to publish.
 
 **The Vercel project is deliberately NOT linked to the GitHub repository.** It was, and every push
 produced a second, competing build: Vercel's own Git integration cloning the repo and building it
@@ -297,11 +328,14 @@ at all — verified by deploying successfully immediately after unlinking. The c
 requests no longer get automatic preview deployments; if those are ever wanted back, re-link in the
 dashboard and rely on `ignoreCommand` to keep Git builds off `main`.
 
-**Until the three Vercel secrets exist, stage 2 skips instead of failing.** Its gate job checks for
-`VERCEL_TOKEN` and, when it is absent, writes the table above into the run summary and reports
-`should_deploy=false`. The run stays green, stage 3 still fires, and the backend deploy's tick keeps
-meaning "the backend deployed". This is deliberate: a red X that everyone knows to ignore is worse
-than no X at all.
+~~**Until the three Vercel secrets exist, stage 2 skips instead of failing.**~~ **Since 2026-10-09,
+stage 2 FAILS when `VERCEL_TOKEN` is missing.** Its gate job checks for the secret and, when it is
+absent, writes the table above into the run summary, reports `should_deploy=false` and exits 1. The
+paragraph that stood here defended a green skip ("a red X that everyone knows to ignore is worse than
+no X at all"). The sister repository's copy of that skip concluded `success` on 2026-08-23 while
+publishing nothing, and the owner found out by looking for changes the live site had never received.
+A green run that published nothing is the more expensive lie. Stage 3 still fires either way,
+because `android-build.yml` chains on completion, not success.
 
 > **UNVERIFIED:** which secrets the repository currently holds cannot be read from a checkout. An
 > earlier version of this document asserted the set was `BACKEND_ENV`, `DATABASE_URL`, `EC2_HOST` and
@@ -382,8 +416,8 @@ same value in two places. Change one there and re-run this workflow (or push) to
 
 | Goal | How |
 |---|---|
-| Deploy the backend now | Actions → *Deploy backend to EC2* → **Run workflow**. Manual dispatch always deploys (it skips change detection). Stage 2 does **not** chain off a manual dispatch of stage 1 unless the run completes on `main`. |
-| Deploy the frontend now | Actions → *Deploy frontend to Vercel* → **Run workflow**. Leave `force` = true to deploy regardless of what changed. This bypasses the backend gate — that is the escape hatch, use it knowing why. |
+| Deploy the backend now | Actions → *Deploy backend to EC2* → **Run workflow**. Manual dispatch always deploys (it skips change detection and the wait for Checks). Stage 2 does **not** chain off a manual dispatch of stage 1 unless the run completes on `main`. |
+| Deploy the frontend now | Actions → *Deploy frontend to Vercel* → **Run workflow**. A manual dispatch bypasses the backend gate whatever `force` says. Leave `force` = true to deploy regardless of what changed: it also skips the comparison with the live site and, **since 2026-10-09, the wait for Checks on that SHA** — that is the escape hatch, use it knowing why. **Untick `force` to keep those two.** |
 | Build the APK now | Actions → *Android build* → **Run workflow**, or open a PR touching `android/**`. |
 | Re-deploy after changing a Vercel env var | Re-run *Deploy frontend to Vercel*. `NEXT_PUBLIC_*` values are baked at build time; changing them in the dashboard does nothing until something rebuilds. |
 | Get the APK | The run's **Artifacts** section → `app-debug-<sha>`. Debug-signed: sideload-only, and Android will refuse to install it over a release-signed build. |
@@ -425,13 +459,13 @@ because a `.env` that is quietly pointed at a real database is a much worse way 
 
 - **The checks run, but nothing is required yet.** Branch protection has to name the three job names
   before a red Checks run can block a merge (§3.5). **UNVERIFIED from a checkout** — console state.
-- **The checks do not gate the deploy, and on `main` they lose the race.** `deploy-backend.yml`
-  starts on the same push, an rsync starts faster than a minute of pytest, and one workflow cannot
-  `needs:` a job in another. **This is the most valuable thing left on this list.** The fix is a
-  `wait-for-checks` job at the top of `deploy-backend.yml` and of `deploy-frontend.yml` that polls
-  the Checks run for the exact SHA being shipped and refuses to hand over until the three jobs are
-  green. Both stages need it: a frontend-only push does not deploy the backend, so the backend's copy
-  structurally cannot see that case.
+- ~~**The checks do not gate the deploy, and on `main` they lose the race.**~~ **BUILT, in both
+  stages.** The `wait-for-checks` job this bullet asked for polls the Checks run for the exact SHA
+  being shipped and refuses to hand over until the three jobs are green. `deploy-backend.yml`'s copy
+  came first and is scoped to pushes that touch `backend/`. `deploy-frontend.yml`'s landed on
+  2026-10-09 and covers the frontend-only push the backend's copy structurally cannot see (§1). What
+  is left is the merge (the bullet above) and the manual-dispatch override, which skips both waits
+  on purpose (§4).
 - **Eight backend tests' worth of failure is licensed, in two named lists.** Four pre-existing
   pytest failures and four pre-existing documentation problems are listed by name in `checks.yml` and
   do not fail their jobs; anything else does. Both lists are ratchets that may only shrink, and the
@@ -450,11 +484,24 @@ because a `.env` that is quietly pointed at a real database is a much worse way 
   walkthroughs declare the same steps in the same order, and `RecordPickersTest.kt` and
   `AccessRosterTest.kt` name their own web twins. Add `frontend/**` to that filter — a two-line
   change in a file `checks.yml` deliberately does not duplicate.
-- **No actions are pinned, and there is no Dependabot config in `.github/`.** Every `uses:` in every
-  workflow here names a mutable tag (`actions/checkout@v4`), so whoever controls that repository
-  decides what runs. Pinning by SHA is the fix, but a hand-pinned SHA with nothing to refresh it rots
-  silently: add the Dependabot config (github-actions ecosystem, `directory: "/"`) **and** pin all
-  seven workflows in the same commit, or do neither.
+- ~~**Most actions are still on mutable tags.**~~ **DONE on 2026-10-09, in every workflow but
+  `deploy-backend.yml`.** A tag (`actions/checkout@v4`) lets whoever controls that repository decide
+  what runs; a commit SHA does not. This bullet asked for the Dependabot config and the pins
+  together, because a hand-pinned SHA with nothing to refresh it rots silently, and both landed that
+  day: `.github/dependabot.yml` (github-actions, weekly), and a SHA on every `uses:` in
+  `android-build.yml`, `checks.yml`, `deploy-frontend.yml`, `keep-supabase-active.yml` and
+  `publish-android.yml`, with its release in a trailing comment (`backup-db.yml` uses no action).
+  Each SHA is the commit the line's old tag (`@v4`, `@v5`) resolved to that day, read back through
+  `gh api`, so nothing that runs changed, and a bump is now a Dependabot pull request.
+  **`deploy-backend.yml`'s pins are deferred**, not applied yet: `actions/checkout`,
+  `actions/upload-artifact` and `webfactory/ssh-agent` (`@v0.9.0`, the one action from outside
+  `actions/`). Any edit to that file redeploys the unchanged backend — its `changes` job counts the
+  workflow file itself as a backend change, and the deploy stops and restarts the production API on
+  the small EC2 box — so they go in together with the next real backend change, each SHA resolved
+  as above, along with that file's copy of the cancelled-run verdict and run selection, taken from
+  `deploy-frontend.yml` (§6). **Deliberately still unpinned:** the Vercel CLI, which
+  `deploy-frontend.yml` installs as `vercel@latest` (its comment says why). How to check a pin, or
+  redo one by hand, is in *How this document is kept true*.
 - **The Playwright end-to-end suite is still not a gate.** `checks.yml` runs only the eight
   `*-unit.spec.ts` files, which touch no server. The rest of `frontend/e2e/` signs in against a real
   API and drives real records, and `frontend/scripts/pw-smoke.mjs` is a login-and-visit smoke run.
@@ -533,6 +580,69 @@ designed. Fix the backend deploy, re-run it, and stage 2 will follow automatical
 the frontend anyway, dispatch it manually (§4) and know that the site may call endpoints that are
 not there yet.
 
+**Stage 1 or 2 is red on "Wait for Checks on this commit".** Working as designed since 2026-10-09.
+Read the error, because there are three:
+
+- *Checks failed* — a gating job is red on that commit. The job summary links the Checks run. Fix the
+  commit; the next push ships it. On stage 1 a job that was *cancelled* also reads as this until the
+  next real backend change gives stage 1 the cancelled-run verdict, deferred because any edit to
+  `deploy-backend.yml` redeploys the unchanged backend (§5). So open the job first: if it was
+  cancelled and `main` has moved past the commit, the newer commit's run ships it; if not, re-run
+  Checks, then the deploy.
+- *Checks … was CANCELLED, not failed* — stage 2 only, until stage 1 gets that verdict. The Checks
+  run was cancelled while that commit was still `main`'s tip, and nothing re-ran it within twenty
+  minutes. Re-run that Checks run (or dispatch Checks on `main`), then re-run the deploy. A gating
+  job that hits its own `timeout-minutes` also ends as cancelled, so look at the job before assuming
+  a person cancelled it.
+- *Timed out* — no verdict at all within twenty minutes.
+
+In an emergency, dispatch stage 2 with `force=true`, which skips the wait (§4); a manual dispatch of
+stage 1 always skips it.
+
+**A deploy run is green with a "Superseded by a newer commit on main" notice and nothing shipped.**
+Working as designed since 2026-10-09. `checks.yml` cancels a run in progress when a newer push to
+`main` starts its own, and the wait used to report that as *Checks failed*, a red run with a false
+diagnosis on any two merges a few minutes apart. It now reads `main`'s tip: when `main` has moved past
+the commit, the newer commit's own run ships both, so this one ends green, writes `superseded=true`,
+and its `deploy` job is skipped. Look at the newer run. The wait also prefers a run for the SHA that
+was not cancelled, so a dispatch of Checks on `main`, which cancels the push run beside it, is graded
+by its own result. **Only stage 2's wait does this so far.** Stage 1's copy gets the verdict and the
+run selection, copied from `deploy-frontend.yml`, with the next real backend change: they are
+deferred because any edit to `deploy-backend.yml` redeploys the unchanged backend (§5). Until then,
+stage 1 still reports this case as *Checks failed* (above).
+
+**Stage 2 warns "Production did not move onto this deployment".** Almost always the project was in
+Vercel's rolled-back state (§1, the three assertions): after an Instant Rollback, `--prod` deployments
+are staged and never receive the domain. The step promoted the new deployment, which moves the domain
+and turns auto-assignment back on, and the run carried on only because production then resolved to
+it. Nothing to do, but find out who rolled back and why: the push after a rollback is meant to be the
+fix or a revert. (Its sibling warning, "Could not read which deployment production serves", means the
+Vercel API did not answer; the same promote-and-read-again follows.)
+
+**Stage 2 is red on "Prove production is serving this deployment…".** The deployment was uploaded and
+is **not** live. Either `vercel promote` was refused (the error names the deployment production still
+serves: promote the new one by hand with **Undo Rollback** on the production tile, or `vercel promote
+<url>`), or the Vercel API never said which deployment the domain resolves to (check that
+`VERCEL_TOKEN` can still read the project, then re-run).
+
+**Stage 2 is red on "Assert the bundle the CDN is serving is the one that was verified".** That build
+is already live, so restore the site first: `vercel alias set <last-good-deployment-url>
+field-repository.vercel.app`, with the URL from **Project → Deployments** or
+`vercel ls field-repository --prod`. Instant Rollback works too, but it turns off auto-assignment of
+production domains until a deployment is promoted; the next run's promote step turns it back on. Then
+make the next push to `main` the fix or a revert, and do not re-run the failed workflow: every run
+compares `main` with what production serves, so a re-run or any other push publishes the same
+frontend again (and now promotes it).
+
+**Stage 2 is red on "Refuse to publish to any project but field-repository".** `VERCEL_PROJECT_ID`
+resolves to some other Vercel project. Nothing was uploaded. Compare the secret with §2's row; if it
+names `designer-repository`, it is the sister repository's, and publishing would have replaced that
+product's live site.
+
+**Stage 2 warns "Production runs a different Node major from CI".** The project's Node.js Version is
+not the major `checks.yml` and the build run on. Set it in the dashboard
+([DEPLOYMENT_VERCEL.md](DEPLOYMENT_VERCEL.md) §1); the next publish picks it up.
+
 **`Error: Not authorized` / `Forbidden` from the Vercel CLI.** `VERCEL_TOKEN` expired, was revoked,
 or is scoped to a personal account instead of the team that owns the project. Re-issue it (§2).
 
@@ -601,7 +711,10 @@ parts that are not are exactly the parts that were wrong before.
 | The two licensed-failure lists | The heredocs inside `checks.yml` (`expected-failures.txt`, `known-doc-problems.txt`) are the authority; §1's tables describe them. **Both may only shrink.** Re-run the two commands in §4 to see the real current sets — and note that the workflow itself warns on every run about any entry that no longer describes anything, so the lists cannot rot quietly the way this prose can. |
 | The §5 non-gates | The absence of a job. A row leaves that list when a workflow gains the step — so re-read §5 against the workflow files, not against memory. Three rows left it on 2026-09-14. |
 | The measured figures in §1 (`1019 passed`, `104 specs`, `4 problems`) | Dated, and measured on a laptop rather than a runner. Totals move the day anybody adds a test or a document; re-run the §4 commands and re-date them, or delete them. The only numbers the workflow itself enforces are floors, not targets. |
-| Vercel project settings (Root Directory, Git link, `createDeployments`) | **UNVERIFIED from here** — dashboard state. §3 and §6 say what they must be; the workflow's own "Assert the project is still rooted at frontend/" step is the only thing that actually checks one of them, and it checks it at deploy time. |
+| Vercel project settings (Root Directory, Git link, `createDeployments`, Node.js Version) | **UNVERIFIED from here** — dashboard state. §3 and §6 say what they must be. At deploy time the workflow **asserts** Root Directory and the project's name (since 2026-10-09, only `field-repository` may be published to), and **warns** on a Node.js Version whose major differs from the build's; the Git link and `createDeployments` are checked by nothing. |
+| The two `wait-for-checks` copies | `GATING_JOBS` in `deploy-backend.yml` and `deploy-frontend.yml` must hold the same three names as `checks.yml`'s jobs (`grep -n "GATING_JOBS" .github/workflows/*.yml`). A renamed job makes both waits time out, with every poll in the log naming the job it is still waiting for, which is loud, not silent. `deploy-frontend.yml`'s run selection, verdict program and `cancelled` branch are byte-identical to the sister repository's two copies as of 2026-10-09; `deploy-backend.yml`'s copy gets the same three, copied from `deploy-frontend.yml`, with the next real backend change: they are deferred because any edit to that file redeploys the unchanged backend (§5). `grep -n superseded .github/workflows/deploy-frontend.yml` finds the job's output, the branch that writes it and the `deploy` job's refusal; the same grep over `.github/workflows/deploy-backend.yml` finds nothing until they are applied, and all three after. Fix a defect in one copy, fix it in all four. |
+| The production domain serving the new deployment | Asserted after every publish, not measured here: the deploy job reads which deployment `field-repository.vercel.app` resolves to, promotes the upload out of a rollback, and fails if production is still elsewhere (§1, the three assertions). That a rollback turns auto-assignment off is Vercel's documented behaviour, linked there; that `field-repository.vercel.app` is a project domain rather than a hand-set alias was measured on 2026-10-09 (**Project → Settings → Domains**). |
+| The action pins (§5) | `grep -nE "^\s*(- )?uses:" .github/workflows/*.yml` — every hit must read `owner/repo@<40-hex SHA> # vX.Y.Z`, except the four in `deploy-backend.yml`, still on tags: its pins are deferred to the next real backend change, because any edit to that file redeploys the unchanged backend (§5), and are resolved with the recipe below when they go in. To check one against its comment, or to redo one by hand: `gh api repos/<owner>/<repo>/git/ref/tags/<vX.Y.Z> --jq .object`. A `commit` object's `sha` is the pin; a `tag` object is an annotated tag, so read the commit it points at with `gh api repos/<owner>/<repo>/git/tags/<sha> --jq .object`. Only the SHA runs and only the comment gets read, so a comment that names a different release from its SHA is the bug. |
 | Branch protection: whether the checks are required | **UNVERIFIED from here** — console state, and the single most load-bearing unverifiable claim on this page. Nothing in `.github/` can assert it. **Settings → Branches**, or `gh api repos/:owner/:repo/branches/main/protection`. |
 | Everything about cutting a release | [RELEASING.md](RELEASING.md), which owns it. This document states only where `publish-android.yml` sits in the pipeline and which secrets it reads; if the two disagree about anything else, RELEASING.md wins. |
 

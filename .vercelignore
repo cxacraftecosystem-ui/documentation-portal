@@ -1,0 +1,86 @@
+# Created 2026-10-09, copied from the sister repository's (`designer-portal`) and extended. Until then
+# this repository had none, and that mattered more here than there: the root `.env` holds this
+# deployment's production secrets, beside `fieldrepo-release.p12` and `fieldrepo-debug.keystore`.
+# All of them are gitignored, but the Vercel CLI does not read .gitignore, and its own default ignore
+# list covers `.env.local` and `.env.*.local` but NOT `.env`. So a manual non-prebuilt `vercel
+# deploy` from the repository root (an Actions outage is when somebody reaches for one) would upload
+# every production secret as a source file of a deployment that everybody in the team can read for
+# as long as it exists. CI is not exposed either way: it deploys with `--prebuilt`, which uploads
+# only `.vercel/output` (see the last section for the one way this file still reaches that path).
+#
+# WHY A DEPLOY STARTS AT THE ROOT. The project's Root Directory is `frontend`, so a deploy MUST be
+# launched from the repository root (from inside frontend/ Vercel looks for frontend/frontend and
+# fails with "No Next.js version detected"). The upload would otherwise also carry the FastAPI
+# backend, the Android application, the docs and the CodeGraph index; the sister repository hit
+# "Error: Request body too large. Limit: 10mb" that way on 2026-08-23, before any build ran.
+#
+# DO NOT REWRITE THIS AS AN ALLOWLIST. `/*` followed by `!/frontend/` is the standard gitignore recipe,
+# and Vercel's matcher does not honour the re-include: the sister repository tried it and the deploy
+# died on "The specified Root Directory "frontend" does not exist". A denylist goes stale when somebody
+# adds a heavy top-level directory, so if a deploy fails on the 10 MB limit, name the new directory
+# here rather than reaching for the negation form.
+#
+# THE CLI NEVER READS .gitignore, WITH OR WITHOUT THIS FILE. Vercel CLI 59.5.0 builds its upload
+# ignore set from a built-in list plus this file (or a `.nowignore`) and nothing else, so build and
+# dev output has to be named below even though git ignores it. Deleting this file would therefore
+# not hand the job back to .gitignore: only the built-in list would apply (`.git`, `.vercel`, `.next`,
+# `node_modules`, `.env.local`, `.env.*.local` and a few more), which excludes neither `.env` nor the
+# keystores named above, nor any of the directories below.
+#
+# `next build` under Root Directory `frontend` reads nothing outside frontend/ (checked 2026-10-09:
+# no import, config file or package script reaches a parent path). `shared/` is left in
+# deliberately: only test specs read it, it is a few kilobytes, and excluding a directory a future
+# import might reach is the more expensive mistake.
+
+# The other products in this repository. Nothing here is read by `next build`.
+/backend/
+/android/
+/docker/
+/infra/
+
+# Prose, tooling and agent configuration.
+/docs/
+/scripts/
+/.github/
+/.claude/
+/.agents/
+*.docx
+/README.md
+/KEYSTORE-CUSTODY.md
+
+# Generated locally, never an input to a build.
+/.codegraph/
+/.ruff_cache/
+/test-results/
+/node_modules/
+/frontend/node_modules/
+/frontend/.next/
+/frontend/out/
+/frontend/coverage/
+/frontend/playwright-report/
+/frontend/test-results/
+
+# Secrets and key material never travel in a deployment payload; Vercel supplies the environment.
+#
+# `/.env` AND `/.env.*` ARE ANCHORED, AND THAT IS NOT STYLE. An unanchored `.env.*` matches a basename
+# at any depth, so it would also exclude `frontend/.env.example` and `frontend/.env.local.example`,
+# committed templates with no secret in them. The Next.js builder attaches every `.env` and `.env.*`
+# file in the ROOT DIRECTORY (frontend/) to every function (checked against the source of Vercel CLI
+# 59.5.0 and its bundled @vercel/next 6.0.0 on 2026-10-09), and on a `--prebuilt` deploy a function
+# file this list matches is not uploaded, so Vercel then fails on the missing file. The sister
+# repository's CI deploys failed exactly that way on 2026-08-23 with
+# `ENOENT: no such file or directory, lstat '/vercel/path0/frontend/.env.example'`. The builder reads
+# no other directory for them, so anchored root patterns cannot cause it.
+#
+# The key-material patterns are unanchored on purpose: a keystore, a private key or Terraform state is
+# never a build input, wherever it sits. None of them matches a file under frontend/ outside
+# node_modules/, and a function file under node_modules/ is uploaded whatever this file says.
+/.env
+/.env.*
+.env.local
+.env.*.local
+*.p12
+*.jks
+*.keystore
+*.pem
+*.tfstate*

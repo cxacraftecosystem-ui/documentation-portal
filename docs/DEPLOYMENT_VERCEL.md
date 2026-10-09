@@ -14,7 +14,7 @@ Vercel account. Sister documents:
 
 | Piece | Where it runs | Notes |
 |---|---|---|
-| Next.js web app | **Vercel** | Deployed by `.github/workflows/deploy-frontend.yml`, **after** the backend deploy succeeds ([docs/CI.md](CI.md)) — not by Vercel's Git integration (§3). 30 of 33 routes prerender to static HTML; the three `[id]/edit` routes render on demand (§8). No route handlers, no server actions, no `fs` access — see §8. |
+| Next.js web app | **Vercel** | Deployed by `.github/workflows/deploy-frontend.yml`, **after** the backend deploy succeeds and the Checks run for the same commit is green ([docs/CI.md](CI.md)) — not by Vercel's Git integration (§3). Every page under a dynamic segment renders on demand in a function pinned to `bom1` (Mumbai); every other page prerenders to static HTML (§8). No route handlers, no server actions, no `fs` access — see §8. |
 | FastAPI API | **AWS EC2** `t3.micro`, behind nginx | Not deployed by Vercel. Auto-deployed by `.github/workflows/deploy-backend.yml`. |
 | HTTPS + IPv6 edge for the API | **CloudFront** `https://d2b34i3e92al6i.cloudfront.net` | The value the browser actually talks to. |
 | Database | **Supabase** Postgres | Reached only by the backend. |
@@ -40,7 +40,8 @@ backend is not optional** (§4).
    | **Build Command** | `next build` | From `frontend/vercel.json`. Leave the override off. |
    | **Install Command** | `npm ci` | From `frontend/vercel.json`; installs exactly what `frontend/package-lock.json` pins. If the build fails with `npm ci can only install packages when your package.json and package-lock.json are in sync`, run `npm install` locally and commit the updated lockfile. |
    | **Output Directory** | `.next` | Default for Next.js. |
-   | **Node.js Version** | 20.x or newer | Next 16 requires ≥ 20; the project currently reads 24.x, which is fine. Note this setting governs Vercel's own builds only — CI compiles on the runner and `vercel deploy --prebuilt` just uploads the result, so the version that actually built production is the one pinned in `deploy-frontend.yml` (Node 22). |
+   | **Node.js Version** | `22.x` | The major CI builds and tests on: `checks.yml`'s web job and `deploy-frontend.yml` both run Node 22. ~~This setting governs Vercel's own builds only~~. **Corrected 2026-10-09: it also decides what production RUNS on.** CI compiles on the runner, but `vercel pull` fetches this setting and `vercel build` stamps it onto every function, so the on-demand pages execute on the major chosen here. It read `24.x` when measured that day. The deploy prints a warning on every run where the two majors differ. |
+   | **Function Region** | `bom1` (Mumbai) | Pinned by `"regions"` in `frontend/vercel.json`, which the CLI sends with every deployment, so the dashboard value is overridden on each publish. The people using the app and the API box are in or near Mumbai. Measured 2026-10-09 with the project default `iad1` (Washington, D.C.), every on-demand page answered through `bom1::iad1`: a round trip to the US East coast and back on every hard load and client-side navigation. |
 
 4. **Do not deploy yet** — add the environment variables first (§2). A first build without
    `NEXT_PUBLIC_API_URL` succeeds but silently ships a bundle pointing at `http://localhost:8000`.
@@ -66,10 +67,12 @@ at all, which is correct and explained below. The live production alias is
 
 ### 2.1 The trailing `/api` trap — read this before anything else
 
-`frontend/lib/api.ts` line 3 reads the variable and every request is built as:
+`frontend/lib/api.ts` reads the variable into `API_BASE` (a blank value counts as missing) and every
+request is built as:
 
 ```ts
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const configuredBase = (process.env.NEXT_PUBLIC_API_URL ?? "").trim();
+export const API_BASE = configuredBase || LOCAL_DEV_BASE; // "http://localhost:8000"
 …
 fetch(`${API_BASE}/api${path}`, …)
 ```
@@ -134,9 +137,15 @@ the same name and value as Encrypted, ticked for all three environments — and 
 because the bad bundle is already published and keeps serving `undefined` until something rebuilds.
 
 The pipeline no longer lets this through. `deploy-frontend.yml` now asserts twice: once on the
-*input*, that `vercel pull` actually wrote `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_GOOGLE_CLIENT_ID`
-into `.vercel/.env.production.local` with a plausible shape, and once on the *artifact*, that both
-values are genuinely present somewhere in `.vercel/output` before anything is published. The second
+*input*, that `vercel pull` wrote every `NEXT_PUBLIC_*` it returned into
+`.vercel/.env.production.local` as a real value — not empty, not `undefined`, and not the
+`[SENSITIVE]` placeholder the CLI writes for a withheld one — with a plausible shape for the two
+whose shape is knowable, `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_GOOGLE_CLIENT_ID`; and once on the
+*artifact*, that those two values are genuinely present somewhere in `.vercel/output` before anything
+is published. Until 2026-10-09 the first check named only those two and missed the placeholder, so a
+Sensitive `NEXT_PUBLIC_MAPTILER_API_KEY` would have published a site with no map, and a Sensitive
+`NEXT_PUBLIC_API_URL` would have been reported as a malformed URL. `NEXT_PUBLIC_APP_URL` is exempt, because
+nothing in the bundle reads it. The second
 check exists because a value can pull correctly and still fail to be inlined — a wrong Root
 Directory, or `process.env` accessed in a form Next.js cannot statically substitute — which is a
 different bug wearing the same symptom. Both fail the run with the fix in the error message, and
@@ -166,9 +175,10 @@ that no such client exists. It reads as though somebody deleted the OAuth client
 into the Google Cloud console to audit credentials nobody has touched.
 
 Email/password login fails at the same moment, which looks like a second, unrelated outage and
-tempts you into the backend. It is the same cause: with `NEXT_PUBLIC_API_URL` missing, the fallback
-in `frontend/lib/api.ts:3` takes over and the bundle aims every request at `http://localhost:8000` —
-the developer's own machine — which an HTTPS page is not even allowed to send (§7.1).
+tempts you into the backend. It is the same cause: with `NEXT_PUBLIC_API_URL` missing, the
+`LOCAL_DEV_BASE` fallback in `frontend/lib/api.ts` takes over and the bundle aims every request at
+`http://localhost:8000` — the developer's own machine — which an HTTPS page is not even allowed to
+send (§7.1).
 
 One command settles it. Fetch the live JavaScript and grep it for the two values that must be in
 there; both are public by definition, so nothing here leaks:
@@ -231,7 +241,7 @@ does. Two caveats if you later split them:
 > **Production deploys are now done by GitHub Actions, not by Vercel's Git integration.**
 > `.github/workflows/deploy-frontend.yml` runs `vercel pull` → `vercel build --prod` →
 > `vercel deploy --prebuilt --prod`, and it is chained to run **only after the backend deploy
-> succeeds**. That ordering is the whole point: the browser calls the FastAPI box directly (§0), so
+> succeeds** and, since 2026-10-09, only once the Checks run for the same commit is green. That ordering is the whole point: the browser calls the FastAPI box directly (§0), so
 > a frontend published ahead of its backend spends the gap calling endpoints that answer 404 — and
 > the backend deploy stops the API service to run migrations, so the gap is real. Full pipeline,
 > secrets and troubleshooting: **[docs/CI.md](CI.md)**.
@@ -278,6 +288,36 @@ almost nothing, because it renders just as happily from a bundle with no API URL
 4. The request must be `POST https://d2b34i3e92al6i.cloudfront.net/api/auth/login` — HTTPS, single
    `/api`, and a `200` (or a `401` for wrong credentials, which still proves connectivity).
 
+### 3.1 Rolling back, and what a rollback leaves behind
+
+`field-repository.vercel.app` is this project's **domain**, not an alias set by hand (measured
+2026-10-09, **Project → Settings → Domains**). So `vercel deploy --prod`, Instant Rollback,
+`vercel rollback` and `vercel promote` all move it. The sister repository's production address was a
+hand-set alias that none of those move, which is why its runbook differs from this one.
+
+**A rollback leaves something behind.** Instant Rollback, from the dashboard or as `vercel rollback`,
+turns **off** auto-assignment of production domains
+([Vercel: Undo a rollback](https://vercel.com/docs/instant-rollback#undo-a-rollback)). Until a
+deployment is promoted (`vercel promote <url>`, or **Undo Rollback** on the production tile), every
+`vercel deploy --prod` is staged and never receives the domain, and the CLI still exits 0. Until
+2026-10-09 nothing in stage 2 could see that: its checks passed on the rolled-back build, which
+answers 200 and carries the same API host. Stage 2 now proves after every publish which deployment
+the domain resolves to and promotes its own upload out of that state ([CI.md](CI.md) §1, *The three
+assertions*), so a rollback lasts until the next publish and no longer freezes production behind
+green runs.
+
+**Rolling the web app back:**
+
+```bash
+vercel ls field-repository --prod                     # the last deployment known to work
+vercel alias set <that-deployment-url> field-repository.vercel.app
+```
+
+`vercel alias set` moves the domain and leaves auto-assignment alone; Instant Rollback works too.
+Either way, make the next push to `main` the fix or a revert, and do not re-run the failed workflow:
+stage 2's gate compares `main` with what production serves, so a re-run or any other push publishes
+the broken frontend again, and now promotes it.
+
 ---
 
 ## 4. Backend changes required for the Vercel origin
@@ -294,10 +334,15 @@ origins (scheme + host, **no trailing slash, no path, no wildcards**) that FastA
 BACKEND_CORS_ORIGINS=https://your-project.vercel.app,https://repo.example.org,http://localhost:3000
 ```
 
-To apply it on the live box, edit the `BACKEND_ENV` GitHub Actions secret (**Settings → Secrets and
-variables → Actions**), which holds the whole `backend/.env` file, then re-run
-`.github/workflows/deploy-backend.yml` (or push any change under `backend/`). The workflow rewrites
-`.env` on the instance and restarts `fieldrepo` and `fieldrepo-queue`.
+~~To apply it on the live box, edit the `BACKEND_ENV` GitHub Actions secret, which holds the whole
+`backend/.env` file, then re-run `.github/workflows/deploy-backend.yml`.~~ **Corrected 2026-10-09:
+production's value does not come from that secret.** The deploy's step *Pin the CORS origins*
+deletes any `BACKEND_CORS_ORIGINS` line the secret carries and writes
+`https://field-repository.vercel.app,http://localhost:3000` in its place, on every deploy. So to
+change production's origins, change that step in `.github/workflows/deploy-backend.yml` and push: a
+change to that file counts as a backend change and deploys. The workflow rewrites `.env` on the
+instance and restarts `fieldrepo` and `fieldrepo-queue`. Editing the secret changes nothing the box
+reads for this key.
 
 To apply it by hand, SSH to the box, edit `/home/ubuntu/app/backend/.env` and
 `sudo systemctl restart fieldrepo fieldrepo-queue`.
@@ -359,7 +404,8 @@ deploy, so use **Run workflow** rather than an empty commit.
 3. Wait for the certificate to be issued (usually minutes; Vercel provisions Let's Encrypt).
 4. Then, in this order:
    - update `NEXT_PUBLIC_APP_URL` to the custom domain and redeploy (§5);
-   - add the domain to `BACKEND_CORS_ORIGINS` (§4.1) and redeploy the backend;
+   - add the domain to `BACKEND_CORS_ORIGINS` in `.github/workflows/deploy-backend.yml`'s pin step
+     (§4.1) and redeploy the backend;
    - add it to the S3 bucket CORS (§4.2);
    - add it to the Google OAuth authorised origins (§4.3).
 
@@ -463,13 +509,17 @@ Audited on the current tree:
 - **Fonts are local** (`frontend/fonts/*.woff2` via `next/font/local`), so builds do not depend on
   a network fetch to Google Fonts.
 - Every data-fetching page is a client component that calls the API from the browser, so no
-  request-time secrets exist. `next build` on the current tree (Next 16.2.9, Turbopack) reports 30
-  of 33 routes as `○` (prerendered static). The three exceptions are `ƒ` (server-rendered on demand):
-  `/artisans/[id]/edit`, `/products/[id]/edit`, `/tools/[id]/edit` — they have a dynamic segment
-  and no `generateStaticParams`, so Vercel deploys a small Node function that renders the client
-  shell and hands off to the browser. It fetches nothing and reads no environment variable at
-  request time. Adding `generateStaticParams` is not possible here (the id set is unbounded), so
-  this is expected, not a defect.
+  request-time secrets exist. Every page under a dynamic segment is `ƒ` (server-rendered on
+  demand); the rest are `○` (prerendered static). ~~The three exceptions are the `[id]/edit`
+  routes.~~ **Re-measured 2026-10-09, there were four:** `/artisans/[id]/edit`,
+  `/products/[id]/edit`, `/tools/[id]/edit` and `/questionnaire/consolidated/[artisanId]`. List them
+  with `find frontend/app -name page.tsx -path '*[*'` rather than trusting this sentence. They have a
+  dynamic segment and no `generateStaticParams`, so Vercel deploys a small Node function that
+  renders the client shell and hands off to the browser. It fetches nothing and reads no environment
+  variable at request time. Adding `generateStaticParams` is not possible here (the id sets are
+  unbounded), so this is expected, not a defect. **Where that function runs is the one thing that
+  matters about it:** it sits between every visitor and every hard load or client-side navigation
+  to those pages, so it is pinned to `bom1` (Mumbai) by `"regions"` in `frontend/vercel.json`.
 
 If you add any of the following, revisit this document: a route handler that proxies the API
 (then CORS stops mattering but Vercel bandwidth starts to), `next/image` on a host not listed in
@@ -503,9 +553,11 @@ out of the console and into an assertion should be.
 | The `NEXT_PUBLIC_*` variables and what each does | `frontend/lib/api.ts`, and the complete table in [ENVIRONMENT.md](ENVIRONMENT.md). One source; this document explains the *traps*, not the list. |
 | §2.2 the Sensitive-vs-Encrypted trap | Now **enforced**, not just documented: stage 2 of the pipeline fails when a required value is missing from the pull, from the build, or from the served bundle ([CI.md §1](CI.md)). That is the model to follow — a trap that a runbook can only warn about is a trap that will be hit. |
 | §3 the deploy flow | `.github/workflows/deploy-frontend.yml`. |
-| §4.1 CORS, §4.2 bucket CORS, §4.3 Google origins | `BACKEND_CORS_ORIGINS` is in the `BACKEND_ENV` secret; the other two are AWS and Google console state. All three **UNVERIFIED from here**. §7.3 is the symptom-side check for the first. |
+| §3.1 the domain and rolling back | That `field-repository.vercel.app` is a project domain is dashboard state, measured 2026-10-09 and **UNVERIFIED** from a checkout (**Project → Settings → Domains**). What a rollback does to auto-assignment is Vercel's documented behaviour, linked in §3.1. Which deployment the domain serves is **asserted** by the workflow after every publish, which promotes its upload out of a rollback, so a wrong belief here costs a warning, not a frozen site. |
+| §4.1 CORS, §4.2 bucket CORS, §4.3 Google origins | `BACKEND_CORS_ORIGINS` is pinned by `.github/workflows/deploy-backend.yml`, which fails the deploy if the line does not land. The other two are AWS and Google console state, **UNVERIFIED from here**. §7.3 is the symptom-side check for the first. |
 | §8 what makes this Vercel-compatible | `frontend/next.config.ts`, plus the absence of route handlers and server actions. `grep -rl "use server\|export async function GET" frontend/app` returning nothing is the check, and it is the property the whole section rests on. |
-| Project settings: Root Directory, Git link, env types | Dashboard state. **UNVERIFIED.** One of the three — Root Directory — is asserted by the workflow at deploy time; the other two are not, and both have caused an incident. |
+| Project settings: Root Directory, Git link, env types, Node.js Version | Dashboard state. Root Directory is **asserted** by the workflow at deploy time, and so, since 2026-10-09, is the project's name (`field-repository`, the only one this workflow publishes to). A Node.js Version whose major differs from the build's is **warned about** on every deploy. Git link and env types are **UNVERIFIED** here, and both have caused an incident; the env-type half is caught at deploy time instead, by the assertions in §2.2. |
+| §8's function region | `frontend/vercel.json`, in the repository. |
 
 **Review triggers:** `frontend/next.config.ts`, `frontend/vercel.json`,
 `.github/workflows/deploy-frontend.yml`, or any new server-side code under `frontend/app`.

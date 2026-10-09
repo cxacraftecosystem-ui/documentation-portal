@@ -17,6 +17,24 @@ name: Deploy frontend to Vercel
 # every push to main and skips its own deploy job when backend/ is untouched. That is what
 # stops a frontend-only change from dead-locking here waiting for a run that never starts.
 #
+# ─── THE CHECKS GATE, AND WHY THE BACKEND'S COPY CANNOT COVER THIS STAGE — 2026-10-09 ──
+# deploy-backend.yml has a `wait-for-checks` job that refuses to hand over to its deploy until the
+# Checks run for the same commit is green. It protects the EC2 box and it does NOT protect this
+# stage, for the reason in the paragraph above: it runs only when backend/ changed, so the backend
+# run skips its own deploy — and its own wait — on every push that left backend/ alone. A
+# FRONTEND-ONLY PUSH WITH A RED CHECKS RUN IS EXACTLY THAT CASE. The backend run concludes
+# `success` because it correctly did nothing, this workflow starts on that success, and until
+# 2026-10-09 the site was published over a commit the suite had already failed. It is also the
+# push whose red tick is most likely to be a FRONTEND one — a type error, an eslint finding, a
+# failing unit spec — and `next build` runs none of those. The `wait-for-checks` job below closes
+# it by polling the Checks run for the exact commit the deploy job checks out.
+#
+# The sister repository (`designer-portal`) closed that hole on 2026-09-03. This file took the fix
+# on 2026-10-09 together with the rest of that repository's hardening, each piece carrying its own
+# comment below: a timeout on the deploy job, a red run when VERCEL_TOKEN is missing, an environment
+# assertion that discovers every NEXT_PUBLIC_* and recognises the CLI's `[SENSITIVE]` placeholder, a
+# refusal to publish to any project but `field-repository`, and actions pinned to commit SHAs.
+#
 # ─── ONE-TIME SETUP THIS WORKFLOW ASSUMES ─────────────────────────────────────────────
 # Vercel's own Git integration must NOT also be auto-deploying `main`, or it will race
 # ahead of the backend and re-create exactly the bug this ordering exists to prevent.
@@ -50,7 +68,12 @@ on:
         # api.vercel.com calls that test needs: the emergency override has to work when the thing
         # being escaped IS the gate. On 2026-09-17, in the sister repository, a forced dispatch was
         # the only thing that got production off a two-day-old commit.
-        description: "Deploy even if production is already serving this frontend/ tree"
+        #
+        # 2026-10-09: and it now also means "do not wait for Checks", the emergency path the
+        # `wait-for-checks` job below spells out. The description says both, because a dispatch box
+        # that under-states what it does is how an override gets used by accident. The default
+        # stays TRUE, so the ordinary manual run is already the override; untick it to get the gate.
+        description: "Deploy even if production is already serving this frontend/ tree, and skip the wait for Checks"
         type: boolean
         default: true
 
@@ -68,7 +91,24 @@ permissions:
   # deploy-backend.yml still UPLOADS `pipeline-changes`, deliberately and untouched: other readers
   # may appear, and deleting a producer is a separate change from deleting one consumer's
   # dependency on it. Nothing in this file reads it any more.
+  #
+  # 2026-10-09: a second caller. `wait-for-checks` reads the Checks workflow's runs and their jobs
+  # through the same API, and without this scope `gh api` answers 404, which that poll cannot tell
+  # apart from "Checks has not started yet". A narrowed token would wait out the full twenty minutes
+  # and then fail for the wrong stated reason.
   actions: read
+
+# ─── EVERY `uses:` IN THIS FILE IS A COMMIT SHA, SINCE 2026-10-09 ──────────────────────────
+# A version tag is mutable and the action's owner can repoint it, so `@v4` is a promise from a
+# third party rather than a fact about what runs. The SHA is the fact; the release it was taken from
+# rides along in a trailing comment for readability. `.github/dependabot.yml`, added in the same
+# change, is what keeps the pins from rotting: it proposes a bump, comment and all, when the action
+# releases. These SHAs are what `@v4` resolved to that day, so pinning changed nothing that runs.
+# Every other workflow in this repository was pinned the same way that day (docs/CI.md §5) except
+# deploy-backend.yml, whose pins (actions/checkout, actions/upload-artifact, webfactory/ssh-agent)
+# are DEFERRED until the next real backend change, because any edit to that file redeploys the
+# unchanged backend; they will be resolved the same way when they go in. (The
+# Vercel CLI a step below installs is deliberately NOT pinned — its own comment says why.)
 
 concurrency:
   group: deploy-frontend
@@ -104,6 +144,12 @@ jobs:
     outputs:
       should_deploy: ${{ steps.decide.outputs.should_deploy }}
       sha: ${{ steps.decide.outputs.sha }}
+      # 2026-10-09: whether this run has to wait for Checks. Decided in the shell below rather
+      # than in the `if:` of `wait-for-checks`, so that `force` is read in exactly ONE place, as a
+      # string, with the same comparison the eligibility test already uses. A boolean dispatch input
+      # is a string here and a real boolean in an `if:` expression, and a gate that hinges on which
+      # of those two a reader assumed is not a gate.
+      wait_for_checks: ${{ steps.decide.outputs.wait_for_checks }}
     steps:
       # ───────────────────────────────────────────────────────────────────────────────────
       # DEPLOY ELIGIBILITY IS MEASURED AGAINST WHAT IS LIVE — REWRITTEN 2026-09-20
@@ -155,7 +201,7 @@ jobs:
         # Refusing to publish because a checkout flaked would be this whole exercise re-creating its
         # own bug in a new place.
         continue-on-error: true
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # The same commit `decide` resolves as `${HEAD_SHA:-$GITHUB_SHA}` and the deploy job
           # checks out as `needs.gate.outputs.sha`. It is spelled out a third time here rather than
@@ -266,8 +312,9 @@ jobs:
           # obvious-looking alternative is `/v6/deployments?projectId=..&target=production&limit=1`,
           # which answers "what is the NEWEST production deployment". That is a different question.
           # An alias that was ever assigned by hand stops tracking new production deployments and
-          # `--prod` does not move it back — the failure the last step of the deploy job below
-          # exists to catch ("the production alias is still pointing at an older deployment").
+          # `--prod` does not move it back, and after an Instant Rollback no `--prod` deployment
+          # receives the domain until one is promoted (2026-10-09) — the failures the deploy job's
+          # step "Prove production is serving this deployment" exists to catch, and to undo.
           # When the two disagree, the list reports a commit NEWER than the one visitors are being
           # served, which shrinks the diff below and SKIPS a deploy that was needed. It errs in the
           # one direction this gate exists to make impossible, so it is not used, not even as a
@@ -430,6 +477,26 @@ jobs:
           sha="${HEAD_SHA:-$GITHUB_SHA}"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
+          # ── THE CHECKS OVERRIDE, DECIDED BEFORE ANY BRANCH BELOW CAN EXIT ────────────
+          # 2026-10-09. `wait-for-checks` reads this output, so it has to be written on EVERY
+          # path out of this step — including the ones that exit early — or an unset output
+          # would read as `!= 'true'`, i.e. "do not wait", which is the failure this whole
+          # gate exists to prevent, arrived at by omission.
+          #
+          # `force` defaults to TRUE, so the ordinary manual dispatch skips the wait, and that
+          # is the documented emergency override rather than an oversight: when the site is
+          # broken and the fix is known, waiting twenty minutes for a docs check is not a
+          # safety property, it is an outage extended by process, and the person typing `gh
+          # workflow run` has already decided. Untick `force` to publish through the gate. The
+          # skip is a visibly skipped job in the run graph, so the override leaves a trace.
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$FORCE" = "true" ]; then
+            wait_for_checks=false
+            echo "Manual dispatch with force=true — not waiting for the Checks run on $sha."
+          else
+            wait_for_checks=true
+          fi
+          echo "wait_for_checks=$wait_for_checks" >> "$GITHUB_OUTPUT"
+
           # ── THE ONE FACT, NORMALISED ONCE, ABOVE EVERY BRANCH THAT CAN EXIT ──────────
           # 2026-09-20. Three paths below consume this and two of them exit the step, so it is
           # resolved here or it is not resolved on the path that caused the incident. If you add
@@ -510,14 +577,26 @@ jobs:
             exit 0
           fi
 
-          # ── Not configured yet is a skip, not a failure ──────────────────────────────
-          # Until VERCEL_TOKEN exists the Vercel CLI cannot authenticate, and letting the
-          # deploy job start anyway paints the whole pipeline red for a setup step nobody
-          # has done yet — which trains people to ignore a red X on the release pipeline.
-          # Skip with the instructions instead, so the backend stage's green tick still
-          # means what it says and stage 3 still runs.
+          # ── NOT CONFIGURED IS A FAILURE. IT USED TO BE A SILENT SKIP — 2026-10-09 ────
+          # The heading here read "Not configured yet is a skip, not a failure", and the
+          # reasoning was sound when it was written: a red X for a setup step nobody had done
+          # yet is permanent noise, and permanent noise trains people to ignore a release
+          # pipeline. What changed is the cost on the other side, and the sister repository
+          # paid it first. On 2026-08-23 its copy of this branch published NOTHING and the
+          # workflow concluded `success`, because the gate exited 0 and the deploy job was
+          # skipped. Read from the runs list — "Deploy frontend to Vercel: success" — that is
+          # indistinguishable from a real deploy. The owner went looking for UI changes on the
+          # live site and found the old build.
+          #
+          # A step summary cannot fix that, and this one was already there and correct: nobody
+          # reads a summary on a green run. The conclusion is the only part of a run that gets
+          # read at a glance, so the conclusion has to be honest. This path is not reachable
+          # from a fork or a pull request — the triggers are `workflow_run` on the backend
+          # deploy (main only) and `workflow_dispatch` — so a missing token here is never an
+          # outside contributor. It is always this repository misconfigured on its own release
+          # path. Stage 3 still runs: android-build.yml chains on this workflow COMPLETING.
           if [ "${HAVE_VERCEL_TOKEN}" != "true" ]; then
-            echo "VERCEL_TOKEN is not set — skipping the frontend publish."
+            echo "::error title=Frontend publish is not configured::VERCEL_TOKEN is not set, so nothing was published. This job FAILS rather than reporting success over a skipped deploy."
             {
               echo "### Frontend deploy skipped — not configured"
               echo ""
@@ -533,9 +612,13 @@ jobs:
               echo ""
               echo "Also turn Vercel's own Git auto-deploy for \`main\` off first, or it"
               echo "will publish ahead of the backend — see \`docs/CI.md\`."
+              echo ""
+              echo "**This job fails on purpose.** It used to exit 0 here, which made the"
+              echo "run conclude \`success\` while publishing nothing — see the comment above"
+              echo "this branch in the workflow."
             } >> "$GITHUB_STEP_SUMMARY"
             echo "should_deploy=false" >> "$GITHUB_OUTPUT"
-            exit 0
+            exit 1
           fi
 
           # ── THE ELIGIBILITY TEST, AGAINST THE LIVE SITE — REWRITTEN 2026-09-20 ───────
@@ -586,12 +669,241 @@ jobs:
             echo "should_deploy=\`${should}\` — ${reason}"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  deploy:
+  # ═══════════════════════════════════════════════════════════════════════════════════════
+  # THE HALF OF THE CHECKS GATE THE BACKEND'S COPY CANNOT SEE — ADDED 2026-10-09
+  # ═══════════════════════════════════════════════════════════════════════════════════════
+  #
+  # WHAT IT DOES. Polls the REST API for the Checks run whose head SHA is exactly the commit this
+  # run is about to publish, and waits for the three jobs branch protection names. Success hands
+  # over to `deploy`; a failure or a timeout fails the run before anything reaches Vercel. A run
+  # that was CANCELLED is neither (2026-10-09): if main has moved past this commit, the newer
+  # commit's own run publishes both, so this one ends green as `superseded` and publishes nothing.
+  # The header of this file says why deploy-backend.yml's gate does not already cover
+  # this: it skips itself on a frontend-only push, which is the push this one is for.
+  #
+  # IT IS USUALLY ONE API CALL. The backend's copy starts racing Checks from the same push; this
+  # one starts only after the backend workflow has finished, so the Checks run for this commit has
+  # almost always concluded before the first poll. The twenty-minute budget is for the case where it
+  # has not: a queued runner, or a re-run of an older backend deploy beside a re-run of its Checks.
+  #
+  # WHY ALL THREE JOBS AND NOT JUST THE WEB ONE. "Publishing the frontend can only depend on the
+  # frontend's checks" is FALSE in this repository. backend/tests/test_questionnaire_form_contract.py
+  # reads the web questionnaire form and the walkthrough register out of frontend/, so a
+  # frontend-only edit can go red in `Backend tests` and nowhere else. `Docs check` is the same
+  # shape: docs/REPO_FACTS.md carries per-directory file and line counts for frontend/app,
+  # frontend/components and frontend/lib, so adding or deleting a component goes red there until
+  # somebody regenerates it. Keeping this gate exactly as wide as deploy-backend.yml's (same three
+  # names, same JSON list) keeps ONE definition of "fit to ship".
+  #
+  # WHY THE NAMED JOBS AND NOT THE WHOLE RUN. checks.yml holds exactly these three jobs as of
+  # 2026-10-09, so today the two readings agree. Naming them is what keeps a fourth, advisory job
+  # added later — the backend integration suite docs/CI.md §5 still lists, say — from becoming the
+  # thing that decides whether the site can be updated, by accident, through a timeout. IF ONE OF
+  # THE THREE IS RENAMED IN checks.yml THIS GOES RED WITH A MESSAGE SAYING SO, rather than passing
+  # over a list that matches nothing.
+  #
+  # THIS LOOP IS A COPY OF deploy-backend.yml'S, plus the empty-SHA guard the sister repository's
+  # copy carries and, since 2026-10-09, the CANCELLED verdict above and the run selection that
+  # prefers a run that was not cancelled. deploy-backend.yml's copy receives those two, copied
+  # from here, with the next real backend change; they are deferred because any edit to that
+  # file redeploys the unchanged backend.
+  # The duplication is deliberate: the alternative is a composite action, a fourth thing to pin,
+  # audit and keep in dependabot, to hold twenty lines of `gh` and `jq`. Fix a defect in one, fix it
+  # in both.
+  #
+  # A RED RUN HERE DOES NOT SEVER STAGE 3. android-build.yml chains off this workflow COMPLETING,
+  # so the APK is still built for a commit this stage refused to publish.
+  wait-for-checks:
+    name: Wait for Checks on this commit
     needs: gate
-    if: ${{ needs.gate.outputs.should_deploy == 'true' }}
+    # Only when something is actually going to be published, and only when the gate did not record
+    # the override. That is also why this cannot double-red a failure the backend already caught: on
+    # a push that touches backend/, a red Checks fails deploy-backend.yml's own wait, the backend run
+    # concludes `failure`, the gate above refuses, and this job never starts.
+    if: ${{ needs.gate.outputs.should_deploy == 'true' && needs.gate.outputs.wait_for_checks == 'true' }}
+    runs-on: ubuntu-latest
+    # A hair over the poll's own 20-minute budget, so the loop's error message — which names what it
+    # was still waiting for — is what a reader sees rather than a bare job cancellation. It is also
+    # the bound on how long this run holds the `deploy-frontend` concurrency group, which does not
+    # cancel in progress.
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    # `true` only when the Checks run for this commit was cancelled AND main has moved past it; the
+    # `deploy` job's `if:` refuses on it. Unset on every other path, which reads as "not superseded".
+    outputs:
+      superseded: ${{ steps.poll.outputs.superseded }}
+    steps:
+      - name: Poll for the gating jobs
+        id: poll
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The commit the deploy job checks out, resolved once by the gate — the backend run's
+          # `head_sha` on the chained trigger, `github.sha` on a dispatch. Reading it from the gate
+          # rather than re-deriving it is what guarantees the commit that is GRADED is the commit
+          # that is PUBLISHED; a `workflow_run` job otherwise defaults to the tip of main, which may
+          # already have moved on.
+          SHA: ${{ needs.gate.outputs.sha }}
+          # The same three names as deploy-backend.yml's GATING_JOBS. JSON because jq consumes it as
+          # a list; a shell string of names with spaces in them is how this kind of loop quietly
+          # starts matching nothing.
+          GATING_JOBS: '["Backend tests","Web typecheck, lint and unit specs","Docs check"]'
+        run: |
+          set -euo pipefail
+          # AN EMPTY SHA WOULD PASS THIS GATE OVER SOMEBODY ELSE'S COMMIT. `?head_sha=` with no value
+          # is not a filter that matches nothing, it is an absent filter: the API answers with the
+          # most recent Checks runs for ANY commit, and a green one from an hour ago would let this
+          # publish an untested tree. Unreachable today — the gate always writes a SHA — which is
+          # exactly why it is asserted rather than assumed.
+          if [ -z "${SHA}" ]; then
+            echo "::error::the gate produced no commit SHA to check. An empty head_sha filter returns the newest Checks runs for any commit, so this gate would grade a different tree and pass. Refusing to guess; nothing has been published."
+            exit 1
+          fi
+          api="repos/${GITHUB_REPOSITORY}/actions"
+          # What the last poll saw, for the message at the end: a cancelled run that nothing re-ran
+          # is not a slow suite, and the timeout must not say it is.
+          last=""
+          # 60 × 20 s. Generous rather than tight here: by the time this job starts the answer
+          # usually exists already, and the budget is headroom for a queued runner.
+          for attempt in $(seq 1 60); do
+            # `checks.yml` BY FILENAME. Looking the workflow up by its display name would break the
+            # day somebody edits `name:` at the top of that file, and would break silently — an empty
+            # result is indistinguishable from "not started yet".
+            runs="$(gh api "${api}/workflows/checks.yml/runs?head_sha=${SHA}&per_page=30" 2>/dev/null || echo '{"workflow_runs":[]}')"
+            # Prefer a run for this SHA that was not CANCELLED, the `push` run first among those, and
+            # fall back to whatever run exists for it. A re-run or a dispatch of Checks against the same
+            # commit is just as good an answer, and on main a dispatch is also what cancels a push run
+            # still in flight (both land in checks.yml's concurrency group), so preferring `push`
+            # outright graded the cancelled run and never looked at the green one beside it.
+            run_id="$(printf '%s' "$runs" | jq -r '([.workflow_runs[] | select(.conclusion != "cancelled")] | ([.[] | select(.event == "push")][0] // .[0])) // .workflow_runs[0] | .id // ""')"
+            if [ -z "$run_id" ]; then
+              echo "attempt ${attempt}/60: no Checks run for ${SHA} yet"
+              last=""
+              sleep 20
+              continue
+            fi
+            jobs="$(gh api "${api}/runs/${run_id}/jobs?per_page=100" 2>/dev/null || echo '{"jobs":[]}')"
+            # A CANCELLED JOB IS NOT A FAILED ONE, and since 2026-10-09 it has its own verdict. Checks
+            # cancels a run in progress when a newer push to main starts its own, and this loop used to
+            # file that under "failed": two merges a few minutes apart turned the earlier commit's run
+            # red with a diagnosis that was not true. Every other conclusion that is not `success`
+            # (failure, timed_out, skipped, …) still fails, and still wins over a cancelled job.
+            verdict="$(printf '%s' "$jobs" | jq -r --argjson want "$GATING_JOBS" '
+              [ .jobs[] | select(.name | IN($want[])) ]                       as $g
+              | ($want - [ $g[].name ])                                        as $missing
+              | ([ $g[] | select(.status != "completed") | .name ])            as $running
+              | ([ $g[] | select(.status == "completed" and .conclusion == "cancelled") | .name ]) as $cancelled
+              | ([ $g[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "cancelled") | .name ]) as $bad
+              | if   ($bad | length) > 0     then "fail " + ($bad | join(", "))
+                elif (($missing + $running) | length) > 0 then "wait " + (($missing + $running) | join(", "))
+                elif ($cancelled | length) > 0 then "cancelled " + ($cancelled | join(", "))
+                else "pass" end')"
+            state="${verdict%% *}"
+            detail="${verdict#* }"
+            last="$state"
+            case "$state" in
+              pass)
+                echo "Checks passed for ${SHA} — run ${run_id}"
+                echo "Checks green for \`${SHA}\`: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+                ;;
+              fail)
+                echo "::error::Checks failed for ${SHA} (${detail}). Not publishing. See ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
+                {
+                  echo "### Frontend deploy stopped — Checks are red"
+                  echo ""
+                  echo "\`${detail}\` failed on \`${SHA}\`, so this commit was not published."
+                  echo "The live site is still serving the previous build."
+                  echo ""
+                  echo "[Checks run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id})"
+                } >> "$GITHUB_STEP_SUMMARY"
+                exit 1
+                ;;
+              cancelled)
+                # SUPERSEDED, OR CANCELLED WITH NOTHING NEWER BEHIND IT? Only main's tip can say. If
+                # main has moved on, the newer commit's own run of this pipeline carries this one's
+                # changes with it (every push to main starts deploy-backend.yml, and the frontend stage
+                # chains off that), so the honest end is green, with nothing shipped and a notice
+                # saying why. `superseded=true` is what the `deploy` job's `if:` refuses on, so a
+                # cancelled commit never ships from here. If this SHA is still the tip, nothing newer
+                # will ship it: keep polling, because a re-run or a dispatch of Checks may yet finish
+                # (the selection above prefers it). A tip that cannot be read counts as "still the
+                # tip", which is the direction that waits rather than the one that skips.
+                tip="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha 2>/dev/null || true)"
+                if ! grep -Eq '^[0-9a-f]{40}$' <<< "$tip"; then tip=""; fi
+                if [ -n "$tip" ] && [ "$tip" != "$SHA" ]; then
+                  echo "::notice title=Superseded by a newer commit on main::Checks on ${SHA} was cancelled (${detail}), and main has moved on to ${tip}. That commit's own run of this pipeline ships these changes with its own, so this run ships nothing."
+                  echo "superseded=true" >> "$GITHUB_OUTPUT"
+                  {
+                    echo "### Superseded by a newer commit — nothing shipped from this run"
+                    echo ""
+                    echo "Checks on \`${SHA}\` was cancelled (\`${detail}\`), and \`main\` has moved on to"
+                    echo "\`${tip}\`. That commit's own run of this pipeline ships these changes with its own."
+                    echo ""
+                    echo "[Cancelled Checks run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id})"
+                  } >> "$GITHUB_STEP_SUMMARY"
+                  exit 0
+                fi
+                echo "attempt ${attempt}/60: Checks on ${SHA} was cancelled (${detail}) and main's tip reads '${tip:-unreadable}', so nothing newer will ship it; waiting for a re-run or a dispatch of Checks"
+                ;;
+              *)
+                echo "attempt ${attempt}/60: still waiting on ${detail}"
+                ;;
+            esac
+            sleep 20
+          done
+          # Cancelled at the tip, and nothing re-ran it: say that, not "timed out", or the reader goes
+          # looking for a slow suite that never ran.
+          if [ "$last" = "cancelled" ]; then
+            echo "::error::Checks on ${SHA} was CANCELLED, not failed (${detail}), and nothing re-ran it within 20 minutes. Main's tip read '${tip:-unreadable}' at the last look, so no newer run will ship this commit, and nothing has been shipped from this one. Re-run that Checks run (or dispatch Checks on main), then re-run this workflow. A gating job that hits its own timeout-minutes also ends as cancelled: if one did, the suite is the problem."
+            {
+              echo "### Stopped — Checks on this commit was cancelled, not failed"
+              echo ""
+              echo "\`${detail}\` was cancelled on \`${SHA}\` and nothing re-ran it within twenty minutes, so"
+              echo "nothing was shipped. Re-run the Checks run, then re-run this workflow."
+              echo ""
+              echo "[Checks run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id})"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "::error::timed out after 20 minutes waiting for the Checks jobs on ${SHA}. Nothing was published and the live site is still serving the previous build, which is the safe end of this failure. If the suite is genuinely this slow now, raise the loop bound here rather than deleting the gate; to publish past it in an emergency, run this workflow from the Actions tab with force=true — that skips the wait by design."
+          exit 1
+
+  deploy:
+    needs: [gate, wait-for-checks]
+    # 2026-10-09: bounded, on the argument the `gate` job was bounded with, applied to the job that
+    # does the expensive, hangable things — `npm install -g vercel`, `vercel pull`, `vercel build`,
+    # `vercel deploy` and two CDN fetches, any of which can stall on a network that never answers.
+    # This job sits in a concurrency group that does not cancel in progress, so a hang would hold
+    # the publish lane for GitHub's six-hour default with every later frontend deploy queued behind
+    # it and nothing red anywhere. Bounded well above the few minutes a real publish takes.
+    timeout-minutes: 25
+    # ─── WHY THIS CONDITION HAS A STATUS FUNCTION — 2026-10-09 ──────────────────────────────
+    # `wait-for-checks` SKIPS ITSELF on the emergency override and on any run that was never going
+    # to publish. GitHub's default is that a job whose dependency was skipped is skipped too, so the
+    # plain `should_deploy` test would silently turn the documented override into "a forced dispatch
+    # never deploys". A status function in the `if` removes the implicit `success()` and lets this
+    # job judge the results itself:
+    #   • wait-for-checks succeeded            → deploy (the normal, gated path)
+    #   • wait-for-checks was skipped          → deploy IF the gate still said so (force=true)
+    #   • wait-for-checks failed or cancelled  → DO NOT deploy
+    #   • wait-for-checks said `superseded`    → DO NOT deploy. Its job succeeded, because Checks
+    #                                            on this commit was cancelled by a newer push and
+    #                                            that push's own run publishes both (2026-10-09).
+    # `needs.gate.result == 'success'` restates what that implicit `success()` used to carry, so an
+    # edit that ever fails the gate AFTER writing `true` cannot publish through the hole.
+    if: >-
+      ${{ !cancelled()
+          && needs.gate.result == 'success'
+          && needs.gate.outputs.should_deploy == 'true'
+          && (needs.wait-for-checks.result == 'success' || needs.wait-for-checks.result == 'skipped')
+          && needs.wait-for-checks.outputs.superseded != 'true' }}
     runs-on: ubuntu-latest
     environment:
       name: production-web
+      # A literal, and safe as one since 2026-10-09: the step after `vercel pull` refuses to go on
+      # unless the project it resolved is `field-repository`, whose production domain this is.
       url: https://field-repository.vercel.app
     env:
       # The CLI reads these two to resolve the project without a committed .vercel/ link
@@ -601,17 +913,27 @@ jobs:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
     steps:
       - name: Checkout the commit the backend deployed
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # A workflow_run run defaults to the tip of the default branch, which may already
           # have moved on. Pin to the exact commit whose backend deploy just went green so
           # the API and the site that calls it come from the same tree.
           ref: ${{ needs.gate.outputs.sha }}
 
+      # ─── TWO NODE VERSIONS MEET IN THIS JOB, AND ONLY ONE OF THEM IS SET HERE — 2026-10-09 ──
+      # This step decides the Node that COMPILES the site: `vercel build` below runs on the runner.
+      # The Node that RUNS the on-demand pages in production is a different setting, the project's
+      # Node.js Version. `vercel pull` writes it into `.vercel/project.json` and `vercel build` hands
+      # it to the Next.js builder, which stamps it on every function. The comment here used to say
+      # "22 matches Vercel's current build image", and that was wrong twice. This pipeline never
+      # builds on Vercel, and the project read 24.x when it was measured on 2026-10-09. 22 is the major
+      # checks.yml's web job type-checks, lints and unit-tests on, so the project should read 22.x
+      # too (docs/DEPLOYMENT_VERCEL.md §1). The step after `vercel pull` warns on every run where the
+      # two majors differ.
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "22" # Next 16 needs ≥ 20.9; 22 matches Vercel's current build image
+          node-version: "22" # Next 16 needs ≥ 20.9; 22 is also checks.yml's web job and should be the project's Node.js Version
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -642,6 +964,40 @@ jobs:
             exit 1
           fi
 
+      - name: Refuse to publish to any project but field-repository
+        # 2026-10-09. A project id is a deploy TARGET: the wrong VERCEL_PROJECT_ID does not fail, it
+        # AUTHENTICATES and publishes this build over somebody else's live site, and the checks after
+        # the deploy would then grade `field-repository.vercel.app` — this product's healthy page —
+        # and pass. The sister repository's project, `designer-repository`, sits in the same Vercel
+        # team, and its copy of this workflow refuses `field-repository` by name for the same reason.
+        # Stopping here, after `vercel pull` and before the build, means nothing has been uploaded.
+        # An allow-list of one rather than a deny-list: this workflow publishes exactly one site.
+        run: |
+          set -euo pipefail
+          name="$(node -p "require('./.vercel/project.json').projectName ?? ''")"
+          echo "Vercel project '${name:-<none>}'"
+          if [ "$name" != "field-repository" ]; then
+            echo "::error::vercel pull resolved the project '${name:-<none>}', and this repository publishes only to 'field-repository'. Nothing has been deployed."
+            echo "::error::Check the VERCEL_PROJECT_ID repository secret against docs/CI.md section 2. If it names designer-repository, it belongs to the sister repository and publishing would replace that product's live site."
+            exit 1
+          fi
+
+      - name: Say so when production would run on a different Node major from this build
+        # 2026-10-09. The "Set up Node" step carries the argument: this runner compiles on Node 22, and
+        # the on-demand pages then run on whatever the project's Node.js Version says, which read 24.x
+        # that day. A WARNING, not a failure, because a mismatch is a risk and not a broken site. Both
+        # majors run this bundle today, and failing the publish over a dashboard setting would hold
+        # back work that has nothing to do with it. What the warning buys is that the mismatch is
+        # visible on every run, instead of known only to whoever last opened the project settings.
+        run: |
+          set -euo pipefail
+          build="$(node -p 'process.versions.node.split(".")[0]')"
+          runtime="$(node -p "require('./.vercel/project.json').settings?.nodeVersion ?? ''")"
+          echo "build Node ${build}; project Node.js Version '${runtime:-<unset>}'"
+          if [ "$runtime" != "${build}.x" ]; then
+            echo "::warning title=Production runs a different Node major from CI::The Vercel project's Node.js Version is '${runtime:-<unset>}', so its on-demand pages run on that while checks.yml and this build run on Node ${build}. Set it to ${build}.x in Vercel -> Project -> Settings -> Node.js Version; the next publish picks it up."
+          fi
+
       - name: Assert the pulled environment carries the values the app cannot run without
         # 2026-07-26: these variables were marked Sensitive in the dashboard. Vercel never
         # returns a sensitive value to `vercel pull`, and this pipeline builds on the runner
@@ -658,15 +1014,47 @@ jobs:
             exit 1
           fi
 
+          # EVERY `NEXT_PUBLIC_*` THE PULL RETURNS, not a hand-written pair — 2026-10-09. The list
+          # used to be exactly NEXT_PUBLIC_API_URL and NEXT_PUBLIC_GOOGLE_CLIENT_ID, so a
+          # NEXT_PUBLIC_MAPTILER_API_KEY re-added as Sensitive would have gone straight through and
+          # published a bundle with `undefined` inlined for it: a site that signs in fine and shows
+          # no map. The sister repository found all FOUR of its public variables stored Sensitive on
+          # 2026-08-23, which is how it learned to discover the keys from the pulled file. A
+          # variable added in the dashboard next month is then covered without anybody remembering
+          # to come back here.
+          #
+          # NEXT_PUBLIC_APP_URL is exempt, and only because it is genuinely inert: nothing under
+          # `frontend/` reads it (docs/DEPLOYMENT_VERCEL.md §2.1), so its value cannot reach a bundle
+          # and being withheld cannot break one. If anything ever starts reading it, delete it from
+          # this filter in the same change.
           fail=0
-          for var in NEXT_PUBLIC_API_URL NEXT_PUBLIC_GOOGLE_CLIENT_ID; do
-            # Never echoed. These two are public by definition (they are compiled into the
-            # JavaScript every visitor downloads), but a workflow that prints env values is
-            # the template someone copies the day the variable is not public.
+          # No `tr` and no quoting below: `for var in $discovered` word-splits on IFS, which
+          # includes newline, so the pulled keys need no flattening. `|| true` because a pull with
+          # no NEXT_PUBLIC_* left in it — the very case the branch below exists to explain — makes
+          # `grep` exit 1, and under `pipefail` and `set -e` that would kill the step with no message.
+          discovered="$(grep -oE '^NEXT_PUBLIC_[A-Z0-9_]+' "$env_file" | sort -u | grep -v '^NEXT_PUBLIC_APP_URL$' || true)"
+          if [ -z "$discovered" ]; then
+            echo "::error::the pulled production environment contains no NEXT_PUBLIC_* variables at all, so the build would inline undefined for every one of them."
+            exit 1
+          fi
+          echo "checking: ${discovered}"
+          for var in $discovered; do
+            # Never echoed. Every `NEXT_PUBLIC_*` is public by definition — they are compiled into
+            # the JavaScript every visitor downloads — but a workflow that prints env values is the
+            # template someone copies the day the variable is not public. Only the two whose shape
+            # is knowable get a format check below; the rest are presence-only, which is the part
+            # that actually fails.
             value="$(sed -n "s/^${var}=//p" "$env_file" | tail -n 1 | sed -e 's/^"//' -e 's/"$//')"
 
-            if [ -z "$value" ] || [ "$value" = "undefined" ]; then
-              echo "::error::${var} is missing or empty in the pulled production environment."
+            # `[SENSITIVE]` IS THE SENTINEL THE CLI ACTUALLY WRITES, and until 2026-10-09 this step
+            # did not test for it. A Sensitive variable does not arrive empty: the CLI writes the
+            # literal placeholder `"[SENSITIVE]"`, which is neither empty nor `undefined`. Untested,
+            # it falls through to the shape checks below and is reported as "set but is not an
+            # absolute http(s) origin", sending the reader after a malformed URL that does not
+            # exist. The sister repository spent an afternoon on exactly that on 2026-08-23. A guard
+            # whose diagnosis is wrong costs nearly as much as no guard.
+            if [ -z "$value" ] || [ "$value" = "undefined" ] || [ "$value" = "[SENSITIVE]" ]; then
+              echo "::error::${var} is missing, empty, or withheld as Sensitive in the pulled production environment (value read: '${value:-<empty>}')."
               echo "::error::Almost always this means it is stored as Sensitive in Vercel. A Sensitive variable is withheld from 'vercel pull' by design, this pipeline builds on the GitHub runner, and Next.js therefore inlines undefined - the build and the deploy both still succeed and the live site is broken."
               echo "::error::Fix: Vercel -> Project -> Settings -> Environment Variables, delete ${var} and re-add it as Encrypted (not Sensitive) for Production, Preview and Development, then re-run this workflow."
               fail=1
@@ -766,13 +1154,14 @@ jobs:
           # it goes permanently `unknown` and publishes on every run — safe, and silently no
           # longer deciding anything. `deployedRunId` is what lets the gate ask whether the run
           # that published the live build was ever accepted; a deployment is stamped at UPLOAD and
-          # the two assertions below can still condemn it afterwards.
+          # the checks below can still condemn it afterwards.
           DEPLOYED_SHA: ${{ needs.gate.outputs.sha }}
         run: |
           set -euo pipefail
           # --prebuilt uploads .vercel/output instead of rebuilding on Vercel, so what was
           # verified in the step above is byte-for-byte what goes live. --prod moves the
-          # production alias (field-repository.vercel.app) onto this deployment.
+          # production domain (field-repository.vercel.app) onto this deployment, except after an
+          # Instant Rollback, which the next step exists for.
           # --meta is read back by the next run's gate; see the env block on this step. It is
           # additive metadata and cannot affect the bytes that are uploaded.
           url="$(vercel deploy --prebuilt --prod --yes \
@@ -781,6 +1170,87 @@ jobs:
                    --token="$VERCEL_TOKEN")"
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "Deployed $url" >> "$GITHUB_STEP_SUMMARY"
+
+      # ─── `--prod` IS NOT PROOF, AND AFTER A ROLLBACK IT DOES NOTHING — 2026-10-09 ───────────────
+      #
+      # An Instant Rollback (the dashboard button, or `vercel rollback`) TURNS OFF AUTO-ASSIGNMENT OF
+      # PRODUCTION DOMAINS. From then on every `vercel deploy --prod` creates a STAGED deployment that
+      # never receives field-repository.vercel.app, the CLI still exits 0, and production stays on the
+      # rolled-back build until a deployment is promoted (vercel.com/docs/instant-rollback, "Undo a
+      # rollback"). A smoke check and a host search are both blind to that: the smoke check gets its
+      # 200 from the rolled-back build, and the bundle step's host search finds the API host in that
+      # build's chunks too, because every good build carries it. The gate of every later run reads the
+      # domain, finds the rolled-back commit, publishes, and is staged again, so production would
+      # freeze behind a column of green runs. The sister repository lost a week to the same class of
+      # failure: an address that stopped following new deployments while every deploy reported success.
+      #
+      # So this step asks the API the gate already uses which deployment the domain resolves to, and
+      # compares it with the one just uploaded. On an ordinary run they match at the first read. When
+      # they do not, it runs `vercel promote` on this deployment, the documented way out of the
+      # rolled-back state: it moves the production domains AND turns auto-assignment back on, so the
+      # next run publishes normally again. Then it reads once more and fails the run if production is
+      # still not serving this build. Promoting without asking is deliberate. By this point the gate
+      # has chosen this commit and the pre-deploy assertions have passed it, and a rollback here was
+      # only ever a way to restore service until the next publish: every run publishes what `main`
+      # holds, so the push after a rollback has to be the fix or a revert (the live-bundle step's
+      # advice says so).
+      - name: Prove production is serving this deployment, and promote it out of a rollback if not
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+          want="${DEPLOY_URL#https://}"
+          live=""
+          # The deployment field-repository.vercel.app resolves to, by its unique `url`: the same
+          # endpoint as the gate's step 2, with the token in a header, never in the URL. Six reads
+          # five seconds apart: on an ordinary run the CLI returns only after the domain has moved,
+          # so the reads absorb API lag and nothing else.
+          serving_this() {
+            local i
+            for i in $(seq 1 6); do
+              live="$(curl -sS --max-time 20 --retry 2 --retry-delay 3 --retry-connrefused \
+                        -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+                        -H "Accept: application/json" \
+                        "https://api.vercel.com/v13/deployments/field-repository.vercel.app?teamId=${VERCEL_ORG_ID}" \
+                      | jq -r '.url // empty' 2>/dev/null || true)"
+              if [ "$live" = "$want" ]; then
+                return 0
+              fi
+              echo "read ${i}/6: field-repository.vercel.app resolves to '${live:-<unreadable>}'"
+              sleep 5
+            done
+            return 1
+          }
+
+          if serving_this; then
+            echo "field-repository.vercel.app is serving ${want}"
+            exit 0
+          fi
+
+          # Promoted on an unreadable answer too: promoting this deployment is what the publish is for,
+          # and the read after it is the verdict either way.
+          if [ -n "$live" ]; then
+            echo "::warning title=Production did not move onto this deployment::field-repository.vercel.app resolves to ${live}, not to ${want}. The usual cause is an Instant Rollback, which turns off auto-assignment of production domains. Promoting ${want}, which moves the domains and turns auto-assignment back on."
+          else
+            echo "::warning title=Could not read which deployment production serves::The Vercel API did not say which deployment field-repository.vercel.app resolves to. Promoting ${want} anyway, then reading again."
+          fi
+          # Not fatal by itself: the read below is the verdict, whatever the CLI said.
+          if ! vercel promote "$DEPLOY_URL" --yes --token="$VERCEL_TOKEN"; then
+            echo "::warning::vercel promote exited non-zero; reading production again before deciding."
+          fi
+
+          if serving_this; then
+            echo "Promoted ${want}: production was not confirmed on it after the upload (an Instant Rollback is the usual cause). field-repository.vercel.app now serves it, and auto-assignment of production domains is back on." >> "$GITHUB_STEP_SUMMARY"
+            echo "promoted: field-repository.vercel.app is serving ${want}"
+            exit 0
+          fi
+
+          if [ -n "$live" ]; then
+            echo "::error::field-repository.vercel.app still resolves to ${live}, not to ${want}, after vercel promote. This deployment is uploaded but NOT live, and the smoke and bundle checks cannot tell the difference. Promote it by hand: Vercel -> Project -> the production deployment tile -> Undo Rollback (choose this deployment), or 'vercel promote ${DEPLOY_URL}'."
+          else
+            echo "::error::The Vercel API never said which deployment field-repository.vercel.app resolves to, before or after vercel promote, so nothing proves ${want} is live. Check that VERCEL_TOKEN can read this project with VERCEL_ORG_ID as its team, then re-run this workflow."
+          fi
+          exit 1
 
       - name: Smoke-check the production alias
         env:
@@ -815,6 +1285,8 @@ jobs:
         # alias or a `--prod` that aliased a different deployment reads as a clean green run.
         # Fetching /login and grepping its own chunks for the API host is exactly the check
         # that was run by hand to diagnose 2026-07-26, promoted out of the incident channel.
+        # Since 2026-10-09 it starts by asserting WHICH deployment the domain resolves to,
+        # because the host search alone passes any good build, including a rolled-back one.
         run: |
           set -euo pipefail
           site="https://field-repository.vercel.app"
@@ -827,6 +1299,28 @@ jobs:
             echo "::error::There is no API host to look for in the live bundle, so this check cannot say anything about it. The pulled production environment should have failed the earlier assertion - do not treat this deployment as verified."
             exit 1
           fi
+
+          # IDENTITY FIRST. The host search below proves that the bundle on the domain calls the
+          # right API; it cannot prove which build that is, because every good build carries the
+          # same host, so production left on an older deployment (a rollback, a staged `--prod`)
+          # passes it. The step "Prove production is serving this deployment" proved or promoted
+          # the deployment the domain resolves to; this reads it again, so nothing that moved
+          # production since then goes unnoticed. Same endpoint, same token rule, as that step.
+          want="${DEPLOY_URL#https://}"
+          live="$(curl -sS --max-time 20 --retry 2 --retry-delay 3 --retry-connrefused \
+                    -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+                    -H "Accept: application/json" \
+                    "https://api.vercel.com/v13/deployments/field-repository.vercel.app?teamId=${VERCEL_ORG_ID}" \
+                  | jq -r '.url // empty' 2>/dev/null || true)"
+          if [ "$live" != "$want" ]; then
+            if [ -n "$live" ]; then
+              echo "::error::field-repository.vercel.app resolves to ${live}, not to ${want}, the deployment this run built and checked. Whatever that bundle shows, it is not this build's, so this deployment is NOT verified. The step 'Prove production is serving this deployment' says how to promote it."
+            else
+              echo "::error::The Vercel API did not say which deployment field-repository.vercel.app resolves to, so the bundle below could be any build's and this deployment is NOT verified. The step 'Prove production is serving this deployment' read it moments ago: re-run this workflow, and check VERCEL_TOKEN if it happens again."
+            fi
+            exit 1
+          fi
+          echo "field-repository.vercel.app resolves to ${want}"
 
           work="$(mktemp -d)"
           paths=()
@@ -893,7 +1387,16 @@ jobs:
             echo "::error::Nothing readable came back from ${site}/login on any of 6 attempts - either the page never answered or it loaded no JavaScript at all - so there is no evidence this deployment works."
           else
             echo "::error::The live site is serving a login page whose JavaScript never mentions the API host from NEXT_PUBLIC_API_URL (${#host} characters, taken from the environment this build was pulled with). Searched ${searched} of the ${total} chunks that ${site}/login loads, on each of 6 attempts."
-            echo "::error::The upload was checked and did contain that host, so the bytes on the alias are not the bytes that were built - either the production alias is still pointing at an older deployment, or --prod aliased a different one. Whichever it is, the site is in the state it was in on 2026-07-26: every page loads, and nobody can sign in."
+            echo "::error::The upload was checked and did contain that host, and the domain resolves to this deployment (asserted at the top of this step), so the bytes the edge hands out for it are not the bytes that were built. The site is in the state it was in on 2026-07-26: every page loads, and nobody can sign in."
           fi
-          echo "::error::This deployment is ALREADY live, so fix the site before fixing the cause. Roll back first: Vercel -> Project -> Deployments -> the last deployment known to work -> Instant Rollback (or 'vercel rollback <that deployment url>'). Then re-run this workflow to publish ${DEPLOY_URL} again and watch this step."
+          # 2026-10-09: this advice used to be Instant Rollback, then a re-run of this workflow,
+          # argued from `field-repository.vercel.app` being this project's DOMAIN (measured that
+          # day), which `--prod` and a rollback both move. Both do. But a rollback also turns OFF
+          # auto-assignment of production domains, so the re-run it recommended was staged behind the
+          # rolled-back build and went green, and so was every publish after it. The step "Prove
+          # production is serving this deployment" now promotes its way out of that state, which
+          # makes Instant Rollback safe again; `vercel alias set` is still the plainer rollback,
+          # because it moves the domain and leaves auto-assignment alone. Re-running this workflow
+          # is no longer the advice either way: it would publish, and now promote, this same build.
+          echo "::error::This deployment is ALREADY live, so fix the site before fixing the cause. Roll back first, by pointing production at the last deployment known to work: 'vercel alias set <last-good-deployment-url> field-repository.vercel.app' (the URL is in Vercel -> Project -> Deployments, or 'vercel ls field-repository --prod'). Instant Rollback restores the site too, but it turns off auto-assignment of production domains until a deployment is promoted; the next run of this workflow promotes its own deployment, which turns it back on. Then make the next push to main the fix or a revert, and do not re-run this workflow: every run compares main with what production serves, so a re-run or any other push publishes this same frontend again."
           exit 1

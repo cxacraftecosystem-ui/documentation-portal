@@ -1,0 +1,49 @@
+version: 2
+
+# ─── WHY THIS FILE EXISTS: SHA PINS ROT, AND A ROTTEN PIN IS WORSE THAN A TAG — 2026-10-09 ──────
+#
+# Every `uses:` under `.github/workflows/` is pinned to a commit SHA as of 2026-10-09, with the
+# release it was taken from in a trailing comment, except deploy-backend.yml's: those pins
+# (actions/checkout, actions/upload-artifact, webfactory/ssh-agent) are DEFERRED until the next
+# real backend change, because any edit to that file redeploys the unchanged backend (its `changes`
+# job counts the workflow file itself as a backend change). Pinning closes a real hole: a version
+# tag is mutable, so `@v4` is a standing promise from a third party that the code behind it will
+# not change. The SHA is a fact about what runs; the tag is not.
+#
+# Pinning alone creates the problem checks.yml's header names: a pinned SHA never picks up a
+# security fix, a Node-runtime bump or a deprecation shim on its own, so it trades "somebody else can
+# change my CI" for "my CI silently ages until it stops working". This file is the other half.
+# Dependabot opens a pull request when an action releases, and the diff is reviewable: one SHA, one
+# comment, one action. The sister repository (`designer-portal`) has run the same pair since
+# 2026-09-03.
+#
+# ─── WHAT IT COVERS, SAID PLAINLY ─────────────────────────────────────────────────────────────
+# Every workflow under .github/workflows, all of them SHA-pinned since 2026-10-09 except
+# deploy-backend.yml (deferred, as above), so a Dependabot bump is a new SHA with its comment on
+# every line but deploy-backend.yml's, which stay tags until that file's pins go in.
+# Weekly because these bumps are the security-relevant ones and each changes one action's SHA and
+# comment, identically on every line that names it, which a reviewer can judge; three open at a time
+# because three is a queue somebody clears and fifteen is a wall somebody mutes.
+#
+# It does NOT watch npm or pip. Both are separate decisions with a test cost: a Next or FastAPI bump
+# needs the suite and a deploy behind it, and backend/ has no lock file for a pip pull request to
+# keep in step (docs/CI.md §5). Nor does it know about the Vercel CLI, which deploy-frontend.yml
+# installs as `vercel@latest` on purpose.
+
+updates:
+  - package-ecosystem: github-actions
+    # "/" and not "/.github/workflows": for this ecosystem the directory is the REPOSITORY ROOT and
+    # Dependabot looks under .github/workflows itself. Naming the workflows directory here is the
+    # common mistake, and it produces a configuration that silently finds nothing.
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Asia/Kolkata
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: ci
+    # No `labels:`. This repository has none of the custom labels the sister repository's file names
+    # (checked 2026-10-09), and Dependabot's defaults — `dependencies` plus the ecosystem's — are
+    # created on first use.
