@@ -64,7 +64,7 @@ concurrency:
 
 jobs:
   smoke:
-    name: Debug APK on an API ${{ inputs.api-level || '37.0' }} emulator (${{ inputs.target || 'google_apis' }})
+    name: Debug APK on an API ${{ inputs.api-level || '34' }} emulator (${{ inputs.target || 'google_apis' }})
     runs-on: ubuntu-26.04
     timeout-minutes: 60
     defaults:
@@ -175,7 +175,7 @@ jobs:
           SMOKE_LAN_APK: ${{ runner.temp }}/app-debug-lan.apk
         with:
           # The fallbacks are the inputs' own defaults, for any trigger that carries no inputs.
-          api-level: ${{ inputs.api-level || '37.0' }}
+          api-level: ${{ inputs.api-level || '34' }}
           target: ${{ inputs.target || 'google_apis' }}
           arch: x86_64
           # A 1080x2400 phone; the script resizes the display itself for the large-screen check.
@@ -198,7 +198,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: android-emulator-smoke-${{ inputs.api-level || '37.0' }}-${{ inputs.target || 'google_apis' }}
+          name: android-emulator-smoke-${{ inputs.api-level || '34' }}-${{ inputs.target || 'google_apis' }}
           path: android/build/emulator-smoke/
           if-no-files-found: warn
           retention-days: 14

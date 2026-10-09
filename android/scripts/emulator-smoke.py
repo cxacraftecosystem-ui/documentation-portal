@@ -16,9 +16,11 @@ WHAT IT CHECKS, AND WHY EACH IS A DEVICE QUESTION RATHER THAN A UNIT TEST
   • BACK at the root and HOME, then resuming, do not crash (predictive back: Android 16+ no longer
     calls onBackPressed() for targetSdk 36+);
   • LOCAL-NETWORK PERMISSION (only with SMOKE_LAN_APK, a debug build pointed at http://10.0.2.2:8000):
-    the app asks for ACCESS_LOCAL_NETWORK at launch, and once granted its sign-in request reaches a
-    stub server on the runner. Whether the platform blocked the request BEFORE the grant is recorded
-    as information, not as a failure: that is the platform's behaviour, not the app's.
+    on API 37+ the app asks for ACCESS_LOCAL_NETWORK at launch; "Don't allow" is answered on one
+    clean launch and "Allow" on another, and only after Allow must its sign-in request reach a stub
+    server on the runner. Whether the platform blocked the request after the refusal is recorded as
+    information, not as a failure: that is the platform's behaviour, not the app's. Below 37 the app
+    must NOT prompt, and the request must get through with no grant at all.
 
 Every hard check is PASS or FAIL; the exit status is 1 if any FAILed. Screenshots, UI dumps, the
 system's inset frames, `dumpsys package` and the full logcat land in SMOKE_OUT for the artifact.
@@ -346,7 +348,7 @@ def answer_prompt(tag, answer):
     return prompt
 
 
-def local_network_phase():
+def local_network_phase(sdk):
     ok, out = install(LAN_APK)
     if not ok:
         record("local network: install the 10.0.2.2 debug build", "FAIL", out)
@@ -354,6 +356,26 @@ def local_network_phase():
     server = http.server.ThreadingHTTPServer(("127.0.0.1", STUB_PORT), Stub)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
+        if sdk < 37:
+            # Below Android 17 every app holding INTERNET is granted local-network access
+            # implicitly, and the app must not ask: ui/LocalNetworkAccess.kt only prompts from 37.
+            prompt = answer_prompt("lan-01", r"^allow$")
+            record(f"local network: no Nearby devices prompt on API {sdk}",
+                   "FAIL" if prompt else "PASS",
+                   "the app asked for a permission this Android version does not have" if prompt else "")
+            requests_seen.clear()
+            if sign_in_attempt("lan-02-implicit"):
+                reached = wait_for_request(30)
+                record(f"local network: sign-in reaches 10.0.2.2 on API {sdk} with no grant",
+                       "PASS" if reached else "FAIL",
+                       ", ".join(requests_seen) if reached else "nothing reached the stub in 30 s")
+            else:
+                record("local network: sign-in", "FAIL", "could not submit the form")
+            settle(3)
+            screenshot("lan-02-implicit-after")
+            check_alive("local network: the app survived the round trip")
+            return
+
         # 1. Refuse, then sign in. Whether the request still leaves is the PLATFORM's answer, so it
         #    is recorded as information; it is what says the permission is needed at all.
         prompt = answer_prompt("lan-01", r"don.?t allow")
@@ -469,7 +491,7 @@ def main():
     check_insets("05-after-resume")
 
     if LAN_APK:
-        local_network_phase()
+        local_network_phase(int(facts["ro.build.version.sdk"] or "0"))
     else:
         record("local network", "INFO", "skipped: SMOKE_LAN_APK not given")
     return finish()
