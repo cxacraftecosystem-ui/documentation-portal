@@ -703,7 +703,9 @@ def audio_states(uid):
     uiautomator from capturing at all (run 37953157106).
     """
     text = sh("dumpsys audio", check=False, timeout=60)
-    return re.findall(rf"u/pid:{uid}/\d+\s+state:(\w+)", text)
+    smoke.save(f"dumpsys-audio-{int(time.time())}.txt", text)
+    # Two spellings: toString() writes "u/pid:U/P state:started", the dump writes "u/pid:U/P -- state:started".
+    return re.findall(rf"u/pid:{uid}/\d+\s+(?:--\s+)?state:(\w+)", text)
 
 
 def system_bar_frames():
