@@ -107,7 +107,7 @@ single-worker uvicorn invocation at `backend/DEPLOY_AWS.md:81`.
 >
 > What it said, and what was true when it said it: the pooler hostname in `backend/.env` was
 > `aws-1-ap-northeast-1.pooler.supabase.com` while EC2 and S3 are provisioned in `ap-south-1`
-> (`DEPLOY_AWS.md:186,268`) — every query crossed roughly 5,000 km, and the 690 ms round trip
+> (`DEPLOY_AWS.md:186,274`) — every query crossed roughly 5,000 km, and the 690 ms round trip
 > measured above is what that cost. That finding is why `hydrate_relations` exists: the read path
 > was rebuilt to spend three database waits per page instead of 2+N, because each wait was
 > expensive. **Do not delete that machinery now that the distance is gone** — it is still correct,

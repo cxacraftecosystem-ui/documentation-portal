@@ -256,6 +256,12 @@ and `fieldrepo-queue` systemd units. The DB stays on Supabase.
 > running that day is still the noble one. Applying is the planned way to rebuild onto 26.04 — the
 > box is stateless and the Elastic IP is reattached — but it is a production rebuild: do it after a
 > deploy has run the API on the 3.14 venv (§9), and re-create nginx/TLS and the `.env` afterwards.
+> A read-only `terraform plan` against the live resources on 2026-10-09 (import blocks in a scratch
+> copy; this repository holds no state) showed exactly that: `aws_instance.api` replaced for the
+> AMI, the Elastic IP re-associated, and the bucket, its policy, CORS, lifecycle and public-access
+> block, the IAM user and its policy, and the security group all matching this code with no change.
+> It also showed the box's SSM instance profile (`fieldrepo-ssm`, made by hand) missing from the
+> code, which would have left a rebuilt box unreachable over SSM; `main.tf` names it now.
 
 > Terraform/AWS auth needs an **IAM access key pair**, not the console
 > email+password. Create an IAM admin user in the console first, then:

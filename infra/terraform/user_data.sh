@@ -28,7 +28,8 @@ apt-get install -y git ffmpeg nginx
 # this same check on every run, so a box that missed it heals on its next deploy; doing it here means
 # the first deploy does not have to. `-venv` is the package that carries ensurepip, which `python3.14
 # -m venv` needs. No python3-pip: every venv brings its own pip.
-if ! apt-cache policy python3.14 | grep -Eq 'Candidate: [0-9]'; then
+# A herestring rather than a pipe: under pipefail, `grep -q` quitting early can SIGPIPE apt-cache.
+if ! grep -Eq 'Candidate: [0-9]' <<< "$(apt-cache policy python3.14)"; then
   apt-get install -y software-properties-common
   add-apt-repository -y ppa:deadsnakes/ppa
   apt-get update -y

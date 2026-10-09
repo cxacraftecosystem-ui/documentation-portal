@@ -285,6 +285,13 @@ resource "aws_instance" "api" {
   key_name               = var.ssh_key_name
   vpc_security_group_ids = [aws_security_group.api.id]
   user_data              = file("${path.module}/user_data.sh")
+  # The SSM instance profile the live box was given BY HAND on 2026-06-17 (role `fieldrepo-ssm`, with
+  # AmazonSSMManagedInstanceCore attached), which is how the box is inspected without SSH. It is not
+  # created by this module, and until 2026-10-09 it was not named here either, so a read-only
+  # `terraform plan` against the live box showed the replacement that the 26.04 AMI filter forces
+  # launching a box WITHOUT it, unreachable over SSM. Naming it keeps a rebuilt box reachable; bringing
+  # the role and the profile themselves under this module (import both) is the fuller fix.
+  iam_instance_profile = "fieldrepo-ssm"
 
   root_block_device {
     volume_size = 30
