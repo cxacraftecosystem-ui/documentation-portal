@@ -103,12 +103,11 @@ permissions:
 # third party rather than a fact about what runs. The SHA is the fact; the release it was taken from
 # rides along in a trailing comment for readability. `.github/dependabot.yml`, added in the same
 # change, is what keeps the pins from rotting: it proposes a bump, comment and all, when the action
-# releases. These SHAs are what `@v4` resolved to that day, so pinning changed nothing that runs.
-# Every other workflow in this repository was pinned the same way that day (docs/CI.md §5) except
-# deploy-backend.yml, whose pins (actions/checkout, actions/upload-artifact, webfactory/ssh-agent)
-# are DEFERRED until the next real backend change, because any edit to that file redeploys the
-# unchanged backend; they will be resolved the same way when they go in. (The
-# Vercel CLI a step below installs is deliberately NOT pinned — its own comment says why.)
+# releases. The first SHAs were what `@v4` resolved to that morning, so pinning changed nothing that
+# ran; later the same day every pin in the repository moved to its action's latest release
+# (checkout v7.0.1, setup-node v7.1.0 here), together with deploy-backend.yml's, which had waited
+# for a real backend change because any edit to that file redeploys the backend (docs/CI.md §5).
+# (The Vercel CLI a step below installs is deliberately NOT pinned — its own comment says why.)
 
 concurrency:
   group: deploy-frontend
@@ -132,7 +131,7 @@ jobs:
   # backlog with it. A refusal here is a delay again rather than a dead end, which is what that
   # "second red X is noise" argument always assumed and, until today, was wrong to assume.
   gate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # 2026-09-20: this job used to be a download and a shell and could not hang. It now clones the
     # repository and calls api.vercel.com, and it sits inside a concurrency group that does NOT
     # cancel in progress (see the top of this file) — so a stalled fetch would hold the publish
@@ -201,7 +200,7 @@ jobs:
         # Refusing to publish because a checkout flaked would be this whole exercise re-creating its
         # own bug in a new place.
         continue-on-error: true
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The same commit `decide` resolves as `${HEAD_SHA:-$GITHUB_SHA}` and the deploy job
           # checks out as `needs.gate.outputs.sha`. It is spelled out a third time here rather than
@@ -678,7 +677,7 @@ jobs:
   # over to `deploy`; a failure or a timeout fails the run before anything reaches Vercel. A run
   # that was CANCELLED is neither (2026-10-09): if main has moved past this commit, the newer
   # commit's own run publishes both, so this one ends green as `superseded` and publishes nothing.
-  # The header of this file says why deploy-backend.yml's gate does not already cover
+  # The header of this file says why deploy-backend.yml's identical gate does not already cover
   # this: it skips itself on a frontend-only push, which is the push this one is for.
   #
   # IT IS USUALLY ONE API CALL. The backend's copy starts racing Checks from the same push; this
@@ -703,13 +702,12 @@ jobs:
   # over a list that matches nothing.
   #
   # THIS LOOP IS A COPY OF deploy-backend.yml'S, plus the empty-SHA guard the sister repository's
-  # copy carries and, since 2026-10-09, the CANCELLED verdict above and the run selection that
-  # prefers a run that was not cancelled. deploy-backend.yml's copy receives those two, copied
-  # from here, with the next real backend change; they are deferred because any edit to that
-  # file redeploys the unchanged backend.
-  # The duplication is deliberate: the alternative is a composite action, a fourth thing to pin,
-  # audit and keep in dependabot, to hold twenty lines of `gh` and `jq`. Fix a defect in one, fix it
-  # in both.
+  # copy carries. The CANCELLED verdict above and the run selection that prefers a run that was not
+  # cancelled started here on 2026-10-09 and were copied into deploy-backend.yml's loop the same
+  # day, with the next real backend change (any edit to that file redeploys the backend). The
+  # duplication is deliberate: the alternative is a composite action, a fourth thing to pin, audit
+  # and keep in dependabot, to hold twenty lines of `gh` and `jq`. Fix a defect in one, fix it in
+  # both.
   #
   # A RED RUN HERE DOES NOT SEVER STAGE 3. android-build.yml chains off this workflow COMPLETING,
   # so the APK is still built for a commit this stage refused to publish.
@@ -721,7 +719,7 @@ jobs:
     # a push that touches backend/, a red Checks fails deploy-backend.yml's own wait, the backend run
     # concludes `failure`, the gate above refuses, and this job never starts.
     if: ${{ needs.gate.outputs.should_deploy == 'true' && needs.gate.outputs.wait_for_checks == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # A hair over the poll's own 20-minute budget, so the loop's error message — which names what it
     # was still waiting for — is what a reader sees rather than a bare job cancellation. It is also
     # the bound on how long this run holds the `deploy-frontend` concurrency group, which does not
@@ -899,7 +897,7 @@ jobs:
           && needs.gate.outputs.should_deploy == 'true'
           && (needs.wait-for-checks.result == 'success' || needs.wait-for-checks.result == 'skipped')
           && needs.wait-for-checks.outputs.superseded != 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment:
       name: production-web
       # A literal, and safe as one since 2026-10-09: the step after `vercel pull` refuses to go on
@@ -913,7 +911,7 @@ jobs:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
     steps:
       - name: Checkout the commit the backend deployed
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # A workflow_run run defaults to the tip of the default branch, which may already
           # have moved on. Pin to the exact commit whose backend deploy just went green so
@@ -931,7 +929,7 @@ jobs:
       # too (docs/DEPLOYMENT_VERCEL.md §1). The step after `vercel pull` warns on every run where the
       # two majors differ.
       - name: Set up Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22" # Next 16 needs ≥ 20.9; 22 is also checks.yml's web job and should be the project's Node.js Version
           cache: npm

@@ -2,13 +2,11 @@ version: 2
 
 # ─── WHY THIS FILE EXISTS: SHA PINS ROT, AND A ROTTEN PIN IS WORSE THAN A TAG — 2026-10-09 ──────
 #
-# Every `uses:` under `.github/workflows/` is pinned to a commit SHA as of 2026-10-09, with the
-# release it was taken from in a trailing comment, except deploy-backend.yml's: those pins
-# (actions/checkout, actions/upload-artifact, webfactory/ssh-agent) are DEFERRED until the next
-# real backend change, because any edit to that file redeploys the unchanged backend (its `changes`
-# job counts the workflow file itself as a backend change). Pinning closes a real hole: a version
-# tag is mutable, so `@v4` is a standing promise from a third party that the code behind it will
-# not change. The SHA is a fact about what runs; the tag is not.
+# Every `uses:` under `.github/workflows/` is pinned to a commit SHA, with the release it was taken
+# from in a trailing comment, in every workflow that has one (deploy-backend.yml's since its
+# 2026-10-09 backend change; the rest since that morning). Pinning closes a real hole: a version tag
+# is mutable, so `@v4` is a standing promise from a third party that the code behind it will not
+# change. The SHA is a fact about what runs; the tag is not.
 #
 # Pinning alone creates the problem checks.yml's header names: a pinned SHA never picks up a
 # security fix, a Node-runtime bump or a deprecation shim on its own, so it trades "somebody else can
@@ -17,20 +15,39 @@ version: 2
 # comment, one action. The sister repository (`designer-portal`) has run the same pair since
 # 2026-09-03.
 #
-# ─── WHAT IT COVERS, SAID PLAINLY ─────────────────────────────────────────────────────────────
-# Every workflow under .github/workflows, all of them SHA-pinned since 2026-10-09 except
-# deploy-backend.yml (deferred, as above), so a Dependabot bump is a new SHA with its comment on
-# every line but deploy-backend.yml's, which stay tags until that file's pins go in.
-# Weekly because these bumps are the security-relevant ones and each changes one action's SHA and
-# comment, identically on every line that names it, which a reviewer can judge; three open at a time
-# because three is a queue somebody clears and fifteen is a wall somebody mutes.
+# ─── SINCE 2026-10-09 IT WATCHES EVERYTHING WITH A VERSION, NOT ONLY THE ACTIONS ────────────────
+# The owner's rule is that every runtime, toolchain, action, image and dependency sits on its latest
+# stable release, and a rule nothing enforces is a rule that held for one afternoon. So: npm (the web
+# client and the root scripts), pip (the backend), gradle (the Android build), docker (the two
+# Dockerfiles and the compose file) and terraform (the AWS module), as well as the actions.
 #
-# It does NOT watch npm or pip. Both are separate decisions with a test cost: a Next or FastAPI bump
-# needs the suite and a deploy behind it, and backend/ has no lock file for a pip pull request to
-# keep in step (docs/CI.md §5). Nor does it know about the Vercel CLI, which deploy-frontend.yml
-# installs as `vercel@latest` on purpose.
+# THE CADENCES ARE DIFFERENT ON PURPOSE, as in the sister repository. github-actions is WEEKLY because
+# those bumps are the security-relevant ones and each is a two-line diff a reviewer can judge. The
+# rest are MONTHLY because they are not: a Next or FastAPI bump needs the suite and a deploy behind
+# it, and a weekly stream of them is how people learn to close Dependabot pull requests unread. An
+# ignored bot is worth less than no bot.
+#
+# MINOR AND PATCH ARE GROUPED, MAJORS STAY ALONE. One pull request per ecosystem for the routine
+# stream instead of a dozen; a major is a piece of work, not a bump, and grouping it with six patches
+# would hide it in a diff nobody reads to the end. The open-PR limits are small for the same reason
+# the sister repository gives: three is a queue somebody clears, fifteen is a wall somebody mutes.
+#
+# ─── WHAT IT DOES NOT DO, SAID PLAINLY ────────────────────────────────────────────────────────────
+# • It does NOT refresh backend/requirements.lock. That file is pip-compile output named `.lock`, which
+#   Dependabot's pip support does not recognise, so a pip pull request moves a FLOOR in
+#   backend/pyproject.toml and nothing else. The lock has to be recompiled in that same pull request
+#   (docs/CI.md, "The backend dependency lock", has the command). If it is not, the Backend tests
+#   job goes red at `pip check`: it installs the old pins from the lock, then this project with its
+#   raised floor, and pip reports the disagreement rather than letting it merge quietly.
+# • It does not know about the Vercel CLI (`npm install --global vercel@latest` in
+#   deploy-frontend.yml, unpinned on purpose), the Node the Prisma CLI runs on the EC2 box (pinned by
+#   hand in deploy-backend.yml), or the box's own packages (python3.14 from deadsnakes, nginx).
+# • A FROM line whose tag comes from an `ARG` is invisible to its docker parser. backend/Dockerfile
+#   writes its tags out for that reason; frontend/Dockerfile still uses `node:${NODE_VERSION}-alpine`,
+#   so its entry below finds nothing until that ARG is written out the same way.
 
 updates:
+  # ── GitHub Actions ─────────────────────────────────────────────────────────────────────────────
   - package-ecosystem: github-actions
     # "/" and not "/.github/workflows": for this ecosystem the directory is the REPOSITORY ROOT and
     # Dependabot looks under .github/workflows itself. Naming the workflows directory here is the
@@ -44,6 +61,118 @@ updates:
     open-pull-requests-limit: 3
     commit-message:
       prefix: ci
-    # No `labels:`. This repository has none of the custom labels the sister repository's file names
-    # (checked 2026-10-09), and Dependabot's defaults — `dependencies` plus the ecosystem's — are
-    # created on first use.
+    # No `labels:` anywhere in this file. This repository has none of the custom labels the sister
+    # repository's file names (checked 2026-10-09), and Dependabot's defaults — `dependencies` plus
+    # the ecosystem's — are created on first use.
+
+  # ── The web client ─────────────────────────────────────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: deps
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # ── The root scripts: pg for keep-supabase-active.mjs, libsodium for vercel-ci-setup.mjs ─────────
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: deps
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # ── The backend ────────────────────────────────────────────────────────────────────────────────
+  # backend/pyproject.toml's floors. Read the first bullet of "WHAT IT DOES NOT DO" above before
+  # merging one of these: the lock is recompiled by hand in the same pull request.
+  - package-ecosystem: pip
+    directory: "/backend"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: deps
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # `prisma==0.15.0` is pinned because it is the FINAL release of an archived project
+      # (pyproject.toml says so at the pin). There is nothing newer to propose, and a proposal would
+      # only ever be noise; the way off it is a data-layer change, not a bump.
+      - dependency-name: prisma
+
+  # ── The Android build ──────────────────────────────────────────────────────────────────────────
+  - package-ecosystem: gradle
+    directory: "/android"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: deps
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # ── Container images ───────────────────────────────────────────────────────────────────────────
+  - package-ecosystem: docker
+    directory: "/backend"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: deps
+    ignore:
+      # The `prisma` stage's Node follows the major deploy-backend.yml pins the EC2 box's Prisma
+      # nodeenv to, and the two move together by hand (backend/Dockerfile says so at the FROM line).
+      - dependency-name: node
+        update-types:
+          - version-update:semver-major
+
+  - package-ecosystem: docker
+    directory: "/frontend"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: deps
+
+  # The compose file's images: postgres, the S3 store (pgsty/silo, pgsty/mc) and redis.
+  - package-ecosystem: docker-compose
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: deps
+    ignore:
+      # postgres follows PRODUCTION's major, not the newest one: production is Supabase on 17, which
+      # offers no 18 (docker-compose.yml says so at the image). It moves with production, by hand.
+      - dependency-name: postgres
+        update-types:
+          - version-update:semver-major
+
+  # ── The AWS module ─────────────────────────────────────────────────────────────────────────────
+  # The provider constraint in infra/terraform/main.tf and the committed .terraform.lock.hcl. A pull
+  # request here changes what the next `terraform apply` would use; it applies nothing by itself.
+  - package-ecosystem: terraform
+    directory: "/infra/terraform"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: deps

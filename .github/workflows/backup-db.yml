@@ -97,7 +97,7 @@ concurrency:
 jobs:
   dump:
     name: pg_dump to S3
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
 
     env:
@@ -113,7 +113,7 @@ jobs:
         # THE MAJOR VERSION IS A HARD REQUIREMENT, NOT A PREFERENCE. pg_dump refuses to dump a
         # server newer than itself ("server version 17.x; pg_dump version 16.x" — it errors, it
         # does not degrade), this project's Supabase instance reports 17.6.1 (checked 2026-09-13
-        # via the Management API), and ubuntu-latest ships whatever client its image was built
+        # via the Management API), and the runner image ships whatever client it was built
         # with. Pinning the client to 17 means the runner image can move under us without
         # silently ending the backups. If the managed database is upgraded past 17, this number
         # moves with it.
