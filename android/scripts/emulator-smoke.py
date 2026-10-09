@@ -8,6 +8,9 @@ here can reach production data; the one network exchange it causes is with a stu
 
 WHAT IT CHECKS, AND WHY EACH IS A DEVICE QUESTION RATHER THAN A UNIT TEST
   • install + cold launch, and the installed package really targets 37 (`dumpsys package`);
+  • every display change it makes (rotation, the large-screen size) is CHECKED to have happened
+    before anything is measured on it, and a change that did not happen is a FAIL — a measurement
+    of the wrong screen reported under the right name is the one result this script must not give;
   • EDGE-TO-EDGE: no piece of the app's text or controls intersects a visible status bar,
     navigation bar or keyboard — read from `uiautomator dump` against the system's own inset frames
     (`dumpsys window`) — in portrait, in landscape, at a large-screen size (sw >= 600dp, where
@@ -119,25 +122,49 @@ def nodes(root, package=None):
             yield node
 
 
+def clip(a, b):
+    """The overlap of two rectangles, or None when they do not overlap."""
+    r = (max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3]))
+    return r if r[2] > r[0] and r[3] > r[1] else None
+
+
 def app_content(root):
     """
-    Every node of the app that SHOWS something: text, a description, or a control to press. A node
-    as large as the window is a container (a clickable backdrop, a scrim), not content, and is meant
-    to run under the bars, so it is left out.
+    Every node of the app that SHOWS something — text, a description, or a control to press — with
+    the part of it that is actually on screen.
+
+    A node inside a scroll container reports its whole bounds even where the container has scrolled
+    it out of view, so each one is clipped to every scrollable ancestor: a field scrolled half out of
+    sight is not a field under the navigation bar. A node as large as the window is a container (a
+    clickable backdrop, a scrim), not content, and is meant to run under the bars, so it is left out.
     """
     window = None
     for node in nodes(root, PKG):
         window = rect(node.get("bounds"))
         break
-    for node in nodes(root, PKG):
+    found = []
+
+    def walk(node, visible_area):
         r = rect(node.get("bounds"))
-        if not r or r[2] <= r[0] or r[3] <= r[1]:
-            continue
-        if window and (r[2] - r[0]) >= (window[2] - window[0]) and                 (r[3] - r[1]) >= 0.9 * (window[3] - window[1]):
-            continue
-        if (node.get("text") or node.get("content-desc")
-                or node.get("clickable") == "true" or node.get("class", "").endswith("EditText")):
-            yield node, r
+        shown = clip(r, visible_area) if (r and visible_area) else r
+        if node.get("package") == PKG and shown:
+            whole_window = window and (r[2] - r[0]) >= (window[2] - window[0]) and \
+                (r[3] - r[1]) >= 0.9 * (window[3] - window[1])
+            if not whole_window and (
+                    node.get("text") or node.get("content-desc") or node.get("clickable") == "true"
+                    or node.get("class", "").endswith("EditText")):
+                found.append((node, shown))
+        inner = visible_area
+        if node.get("scrollable") == "true" and r:
+            inner = clip(r, visible_area) if visible_area else r
+        if inner is None and visible_area is not None:
+            return  # a scroll container entirely out of view shows nothing below it
+        for child in node:
+            walk(child, inner)
+
+    for top in root:
+        walk(top, None)
+    return found
 
 
 INSET = re.compile(
@@ -421,6 +448,35 @@ def local_network_phase(sdk):
         server.shutdown()
 
 
+def set_rotation(quarter_turns):
+    """
+    Lock the display at 0..3 quarter turns from portrait.
+
+    `wm user-rotation lock` is WindowManager's own command (Android 11 and later). The system
+    setting is the older route and only a fallback: on 2026-10-09 it turned an API 37 image and left
+    an API 34 one in portrait, and the landscape check then measured a portrait screen and reported
+    it as landscape. So the result is checked by [wait_for_rotation], never assumed.
+    """
+    out = sh(f"wm user-rotation lock {quarter_turns}", check=False)
+    if re.search(r"(?i)unknown|error|usage", out):
+        sh("settings put system accelerometer_rotation 0", check=False)
+        sh(f"settings put system user_rotation {quarter_turns}", check=False)
+
+
+def wait_for_rotation(name, quarter_turns, seconds=20):
+    """Dump the UI until the hierarchy reports [quarter_turns]. Returns whether it ever did."""
+    deadline = time.time() + seconds
+    while True:
+        root = ui_dump(name)
+        if root is not None and root.get("rotation") == str(quarter_turns):
+            return True
+        if time.time() >= deadline:
+            got = root.get("rotation") if root is not None else "no hierarchy"
+            log(f"{name}: wanted rotation {quarter_turns}, the hierarchy says {got}")
+            return False
+        settle(2)
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     facts = {k: sh(f"getprop {k}", check=False).strip() for k in
@@ -436,7 +492,7 @@ def main():
     sh("input keyevent KEYCODE_WAKEUP", check=False)
     sh("wm dismiss-keyguard", check=False)
     sh("settings put system accelerometer_rotation 0", check=False)
-    sh("settings put system user_rotation 0", check=False)
+    set_rotation(0)
 
     ok, out = install(PROD_APK)
     record("install the debug APK android-build.yml uploads", "PASS" if ok else "FAIL", "" if ok else out)
@@ -457,18 +513,29 @@ def main():
     check_alive("alive after launch")
     check_insets("01-portrait")
 
-    sh("settings put system user_rotation 1")
-    settle(4)
-    check_alive("alive after rotating to landscape")
-    check_insets("02-landscape")
-    sh("settings put system user_rotation 0")
+    set_rotation(1)
     settle(3)
+    turned = wait_for_rotation("02-landscape", 1)
+    record("the display turned to landscape", "PASS" if turned else "FAIL",
+           "" if turned else "the UI hierarchy still reports portrait, so landscape was NOT exercised")
+    check_alive("alive after rotating to landscape")
+    if turned:
+        check_insets("02-landscape")
+    set_rotation(0)
+    settle(3)
+    if not wait_for_rotation("02-back-to-portrait", 0):
+        record("the display turned back to portrait", "FAIL", "every later check would measure landscape")
 
     sh("wm size 1600x2560")
     sh("wm density 320")  # 1600 px / 2.0 = 800 dp: a large screen
     settle(5)
+    size = sh("wm size", check=False)
+    resized = "Override size: 1600x2560" in size
+    record("the display took the large-screen size (sw 800dp)", "PASS" if resized else "FAIL",
+           "" if resized else f"wm size says: {' '.join(size.split())}")
     check_alive("alive at a large-screen size (sw 800dp)")
-    check_insets("03-large-screen")
+    if resized:
+        check_insets("03-large-screen")
     sh("wm size reset")
     sh("wm density reset")
     settle(4)
