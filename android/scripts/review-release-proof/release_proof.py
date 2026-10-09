@@ -264,11 +264,27 @@ def crash_free(name):
     return True
 
 
-def type_into(field_rect, text):
+def type_into(field_rect, text, current=""):
+    """
+    Replace whatever the field holds with [text]. The form is NOT always recreated after a refused
+    sign-in: against a stub on loopback the 403 can come back before the next frame, so the "Loading"
+    state never draws and the boxes keep what was typed (run 37956642571 sent
+    "pending@proof.testprofessor@proof.test"). So the field is emptied first, whatever it holds.
+    """
     smoke.tap(field_rect)
     settle(1.2)
+    if current:
+        sh("input keyevent KEYCODE_MOVE_END", check=False)
+        sh("input keyevent " + " ".join(["KEYCODE_DEL"] * (len(current) + 4)), check=False)
+        settle(0.8)
     sh(f"input text '{text}'")
     settle(0.8)
+
+
+def field_texts(root):
+    """The text each EditText of the app holds, in screen order (a password shows as bullets)."""
+    edits = [n for n in smoke.nodes(root, PKG) if n.get("class", "").endswith("EditText")] if root is not None else []
+    return [n.get("text") or "" for n in sorted(edits, key=lambda n: smoke.rect(n.get("bounds"))[1])]
 
 
 def sign_in(tag, email):
@@ -278,12 +294,17 @@ def sign_in(tag, email):
     if len(fields) < 2:
         log(f"{tag}: {len(fields)} text fields on screen")
         return False
-    type_into(fields[0], email)
+    held = field_texts(root)
+    type_into(fields[0], email, held[0] if held else "")
     root = dump(f"{tag}-typed-email")
     fields = smoke.text_fields(root) if root is not None else []
     if len(fields) < 2:
         return False
-    type_into(fields[1], "release-proof-password")
+    held = field_texts(root)
+    if held and held[0].strip().lower() != email:
+        log(f"{tag}: the email box holds {held[0]!r} after typing {email!r}")
+        return False
+    type_into(fields[1], "release-proof-password", held[1] if len(held) > 1 else "")
     sh("input keyevent KEYCODE_BACK", check=False)  # the keyboard, so the whole form is on screen
     settle(1.5)
     root = dump(f"{tag}-filled")
