@@ -307,6 +307,8 @@ def count_near(screen, box, colours, tolerance=60, step=1):
 
 def image_node(root, description):
     """The AsyncImage itself: the node whose content-desc (not text) is the file name."""
+    if root is None:
+        return None
     for node in smoke.nodes(root, PKG):
         if (node.get("content-desc") or "") == description:
             return smoke.rect(node.get("bounds"))
@@ -471,10 +473,6 @@ def phase_release_against_stub(sdk):
     hit_png = wait_request("/proof/magenta.png", 15, "GET")
     record("R: Coil's network fetcher (ServiceLoader-registered) fetched the http:// thumbnail",
            "PASS" if hit_png else "FAIL", f"User-Agent: {hit_png[0]['ua']}" if hit_png else "the stub never saw it")
-    if http_box:
-        magenta = pixels_show("R-08-thumbnails-http", http_box, MAGENTA, 300)
-        record("R: ...and drew it (magenta pixels in its bounds)", "PASS" if magenta >= 300 else "FAIL",
-               f"{magenta} matching pixels in {http_box}")
     crash_free("R: alive with the thumbnails loaded")
 
     # The full-screen viewer: MediaViewerDialog's AsyncImage, from an android.net.Uri model.
@@ -495,6 +493,23 @@ def phase_release_against_stub(sdk):
         else:
             record("R: the full-screen viewer", "FAIL", "no 'Image preview' node after tapping the thumbnail")
         crash_free("R: alive after the viewer")
+
+    # The http:// row is the second file and can sit below the fold, where uiautomator does not list
+    # it at all: bring it on screen rather than skip it. (Run 37943651014 skipped this silently.)
+    if not http_box:
+        for _ in range(3):
+            sh("input swipe 540 1700 540 1100 400", check=False)
+            settle(2)
+            scrolled = dump("R-08-data-browser-scrolled")
+            http_box = image_node(scrolled, "proof-http.png") if scrolled is not None else None
+            if http_box:
+                break
+    if http_box:
+        magenta = pixels_show("R-08-thumbnails-http", http_box, MAGENTA, 300)
+        record("R: ...and Coil drew the http:// thumbnail (magenta pixels in its bounds)",
+               "PASS" if magenta >= 300 else "FAIL", f"{magenta} matching pixels in {http_box}")
+    else:
+        record("R: the http:// thumbnail on screen", "FAIL", "its row never came on screen to be measured")
 
     crawl()
 
@@ -531,13 +546,14 @@ CRAWL = ["Record artisan", "Record product", "Document process", "Record tool", 
 
 
 def open_from_drawer(label, tag):
-    for attempt in range(2):
+    for attempt in range(4):
         for _ in range(3):
             sh("input swipe 540 700 540 1900 250", check=False)  # to the top, where the menu button is
-        root, hit = wait_for(r"^Open menu$", f"{tag}-menu", 10)
+        root, hit = wait_for(r"^Open menu$", f"{tag}-menu", 8)
         if hit:
             break
-        # A Save / Discard question, or anything else modal, stands between this screen and the menu.
+        # A screen with a header of its own (the data browser), a Save / Discard question, or anything
+        # else modal stands between this screen and the menu: answer it, or go back one level.
         root = dump(f"{tag}-blocked")
         out = smoke.find(root, r"^(discard|leave|ok|close)$", PKG) if root is not None else None
         if out:
@@ -549,14 +565,18 @@ def open_from_drawer(label, tag):
         return "no menu button"
     tap_control(root, hit)
     settle(1.5)
+    # The drawer keeps its scroll position between openings, so start from its top every time.
+    for _ in range(4):
+        sh("input swipe 540 700 540 2000 250", check=False)
+    settle(1)
     pattern = rf"^{re.escape(label)}$"
-    root, hit = wait_for(pattern, f"{tag}-drawer", 6)
+    root, hit = wait_for(pattern, f"{tag}-drawer", 4)
     swipes = 0
-    while not hit and swipes < 4:
-        sh("input swipe 300 1900 300 700 350", check=False)
+    while not hit and swipes < 5:
+        sh("input swipe 540 1900 540 900 400", check=False)
         swipes += 1
         settle(1)
-        root, hit = wait_for(pattern, f"{tag}-drawer", 4)
+        root, hit = wait_for(pattern, f"{tag}-drawer", 3)
     if not hit:
         sh("input keyevent KEYCODE_BACK", check=False)  # close the drawer again
         return "not in the drawer"
@@ -634,6 +654,15 @@ def main():
     smoke.adb("logcat", "-b", "crash", "-c", check=False)
     sh("input keyevent KEYCODE_WAKEUP", check=False)
     sh("wm dismiss-keyguard", check=False)
+    # The emulator's own launcher, starved on a software-rendered image, raises "isn't responding"
+    # dialogs that steal the taps typing into a form (run 37945614025, API 34). Hide every app's error
+    # dialogs: this script's verdicts never read a dialog — a crash is the crash buffer, an ANR is
+    # ActivityManager's "ANR in" line, both still written. A font-scale nudge makes the system re-read
+    # the setting, which it otherwise does only on the next configuration change.
+    sh("settings put global hide_error_dialogs 1", check=False)
+    sh("settings put system font_scale 1.01", check=False)
+    settle(1)
+    sh("settings put system font_scale 1.0", check=False)
     server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), Stub)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
