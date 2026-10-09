@@ -511,7 +511,11 @@ def phase_release_against_stub(sdk):
     else:
         record("R: the http:// thumbnail on screen", "FAIL", "its row never came on screen to be measured")
 
-    crawl()
+    for step in (crawl, rich_text_and_back_guard):
+        try:
+            step()
+        except Exception as exc:  # a harness fault in one sweep must not skip the checks after it
+            record(f"{step.__name__} ran to its end", "FAIL", f"{type(exc).__name__}: {exc}")
 
     # Back out to the dashboard, then a cold start that must restore the session through GET /me.
     for _ in range(3):
@@ -606,6 +610,82 @@ def crawl():
             smoke.adb("logcat", "-b", "crash", "-c", check=False)
             smoke.launch()
             settle(6)
+
+
+def rich_text_and_back_guard():
+    """
+    The RichTextEditor change (each block's FocusRequester remembered and published from a SideEffect,
+    for the caret-moving LaunchedEffect to find) exercised for real, in the release build: Enter
+    splits a block and the caret must FOLLOW into the new one; Backspace at the start of a block
+    merges it back and the caret must land at the join. Then Back from the half-filled form, which on
+    Android 16+ reaches the app only through the predictive-back path, must ask Save / Discard.
+    """
+    problem = open_from_drawer("Add craft", "T-00-add-craft")
+    if problem:
+        record("T: open the craft form", "FAIL", problem)
+        return
+    settle(4)
+    root, label = None, None
+    for _ in range(6):
+        root = dump("T-01-craft-form")
+        label = smoke.find(root, r"^Description$", PKG) if root is not None else None
+        if label and label[1][1] < 1500:
+            break
+        sh("input swipe 540 1700 540 1100 400", check=False)
+        settle(1.5)
+    if not label:
+        record("T: the craft form's rich-text Description", "FAIL", "no Description label on screen")
+        return
+    below = sorted((r for n, r in smoke.app_content(root)
+                    if n.get("class", "").endswith("EditText") and r[1] >= label[1][3]), key=lambda r: r[1])
+    if not below:
+        record("T: the craft form's rich-text Description", "FAIL", "no editable block under the label")
+        return
+    smoke.tap(below[0])
+    settle(1.5)
+    sh("input text 'alpha'", check=False)
+    settle(1)
+    sh("input keyevent KEYCODE_ENTER", check=False)
+    settle(2)
+    sh("input text 'beta'", check=False)
+    settle(1.5)
+    root = dump("T-02-after-enter")
+    smoke.screenshot("T-02-after-enter")
+    edits = [n for n in smoke.nodes(root, PKG) if n.get("class", "").endswith("EditText")] if root is not None else []
+    texts = [(n.get("text") or "").strip().lower() for n in edits]
+    focused = [(n.get("text") or "").strip().lower() for n in edits if n.get("focused") == "true"]
+    split = "alpha" in texts and "beta" in texts and focused == ["beta"]
+    record("T: Enter splits a rich-text block and the caret follows into the new block",
+           "PASS" if split else "FAIL", f"blocks seen: {[t for t in texts if t][:6]}; focused: {focused}")
+    if split:
+        sh("input keyevent KEYCODE_MOVE_HOME", check=False)
+        settle(1)
+        sh("input keyevent KEYCODE_DEL", check=False)
+        settle(2)
+        sh("input text 'X'", check=False)
+        settle(1.5)
+        root = dump("T-03-after-merge")
+        smoke.screenshot("T-03-after-merge")
+        edits = [n for n in smoke.nodes(root, PKG) if n.get("class", "").endswith("EditText")] if root is not None else []
+        texts = [(n.get("text") or "").strip().lower() for n in edits]
+        merged = "alphaxbeta" in texts and "beta" not in texts
+        record("T: Backspace at a block's start merges it back and the caret lands at the join",
+               "PASS" if merged else "FAIL", f"blocks seen: {[t for t in texts if t][:6]}")
+    crash_free("T: alive after editing rich text")
+    sh("input keyevent KEYCODE_BACK", check=False)  # the keyboard
+    settle(1.5)
+    sh("input keyevent KEYCODE_BACK", check=False)  # the form
+    settle(2)
+    root, hit = wait_for(r"^Unsaved changes$", "T-04-back-from-dirty-form", 8)
+    record("T: Back from a half-filled form asks Save / Discard (predictive back on Android 16+)",
+           "PASS" if hit else "FAIL", "" if hit else "no 'Unsaved changes' question; see T-04-back-from-dirty-form.png")
+    smoke.screenshot("T-04-back-from-dirty-form")
+    if hit:
+        discard = smoke.find(root, r"^Discard$", PKG)
+        if discard:
+            tap_control(root, discard)
+            settle(2)
+    crash_free("T: alive after leaving the form")
 
 
 def phase_production_apk():
