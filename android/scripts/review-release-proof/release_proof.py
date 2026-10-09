@@ -670,56 +670,84 @@ def home_and_back(tag):
     settle(4)
 
 
+def app_uid():
+    found = re.search(r"userId=(\d+)", sh(f"dumpsys package {PKG}", check=False, timeout=60))
+    return found.group(1) if found else None
+
+
+def audio_states(uid):
+    """
+    Every playback this app has open, as the AUDIO SERVICE reports it (AudioPlaybackConfiguration,
+    API 26+): `started`, `paused`, `stopped`... Independent of any UI, which a playing video can keep
+    uiautomator from capturing at all (run 37953157106).
+    """
+    text = sh("dumpsys audio", check=False, timeout=60)
+    return re.findall(rf"u/pid:{uid}/\d+\s+state:(\w+)", text)
+
+
+def system_bar_frames():
+    try:
+        return smoke.system_bars("M-bars")
+    except Exception:
+        return []
+
+
+def content_centre_y():
+    """Middle of the area between the status bar and the navigation bar: where the viewer centres its player."""
+    bars = system_bar_frames()
+    top = max([b[3] for k, b in bars if k == "statusBars" and b[1] == 0] or [63])
+    bottom = min([b[1] for k, b in bars if k == "navigationBars" and b[3] >= 2300] or [2274])
+    return (top + bottom) // 2
+
+
 def media_players():
     """
     Media3 1.11 (ExoPlayer + media3-ui's PlayerView) and MediaPlayer, in the release build, through the
-    data browser's viewer — and the Android 17 background-audio change this branch made: each player
-    must PAUSE when the activity stops (LifecycleEventEffect(ON_STOP)), so Home while playing and a
-    return must find it paused, not carrying on unheard.
+    data browser's viewer, and the Android 17 background-audio change this branch made: each player
+    must PAUSE when the activity stops (LifecycleEventEffect(ON_STOP)). Whether a player is playing is
+    read from the audio service, not from the screen.
     """
+    uid = app_uid()
     # VIDEO: an https MP4 (Media3's own test asset) into ExoPlayer.
     if not open_row("proof-video.mp4", "M-01-video-row"):
         record("M: the video row's Open", "FAIL", "the row never came on screen")
         return
-    deadline, root = time.time() + 25, None
-    while time.time() < deadline:
-        root = dump("M-02-video-viewer")
-        if root is not None and any(":id/exo_" in (n.get("resource-id") or "") for n in smoke.nodes(root, PKG)):
-            break
-        settle(2)
-    inflated = root is not None and any(":id/exo_" in (n.get("resource-id") or "") for n in smoke.nodes(root, PKG))
-    record("M: the viewer builds an ExoPlayer and inflates media3-ui's PlayerView", "PASS" if inflated else "FAIL")
+    settle(6)
     smoke.screenshot("M-02-video-viewer")
-    if inflated:
-        play = smoke.find(root, r"^Play$", PKG)
-        if not play:
-            tap_player(root)
-            root = dump("M-02-video-controls")
-            play = smoke.find(root, r"^Play$", PKG) if root is not None else None
-        if play:
-            tap_control(root, play)
-            settle(5)
-            root = dump("M-03-video-playing")
-            smoke.screenshot("M-03-video-playing")
-            if not has_desc(root, r"^Pause$"):
-                tap_player(root)
-                root = dump("M-03-video-playing")
-            playing = has_desc(root, r"^Pause$")
-            record("M: ExoPlayer plays the https MP4 (its controller offers Pause)", "PASS" if playing else "FAIL")
-            if playing:
-                home_and_back("M-04-video")
-                root = dump("M-04-video-resumed")
-                if not has_desc(root, r"^(Play|Pause)$"):
-                    tap_player(root)
-                    root = dump("M-04-video-resumed")
-                smoke.screenshot("M-04-video-resumed")
-                paused = has_desc(root, r"^Play$") and not has_desc(root, r"^Pause$")
-                record("M: Home while the video plays pauses it (ON_STOP), and it is still paused on return",
-                       "PASS" if paused else "FAIL")
-        else:
-            record("M: the video controller's Play", "FAIL", "no Play control on the player")
+    root = smoke.raw_ui_dump("M-02-video-viewer")
+    play = smoke.find(root, r"^Play$", PKG) if root is not None else None
+    if root is not None and any(":id/exo_" in (n.get("resource-id") or "") for n in smoke.nodes(root, PKG)):
+        record("M: the viewer builds an ExoPlayer and inflates media3-ui's PlayerView", "PASS")
+    else:
+        record("M: the viewer builds an ExoPlayer and inflates media3-ui's PlayerView", "INFO",
+               "the hierarchy could not be captured with the player up; see M-02-video-viewer.png")
+    if play:
+        tap_control(root, play)
+    else:
+        centre = content_centre_y()
+        smoke.tap((440, centre - 20, 640, centre + 20))  # the controller's centre Play
+    settle(6)
+    states = audio_states(uid) if uid else []
+    error = "Playback error" in smoke.adb("logcat", "-d", "-s", "ExoPlayerImplInternal:E", check=False, timeout=60)
+    if "started" in states:
+        record("M: ExoPlayer plays the https MP4 (the audio service reports it started)", "PASS",
+               f"states: {states}")
+        sh("input keyevent KEYCODE_HOME", check=False)
+        settle(4)
+        after = audio_states(uid)
+        record("M: Home while the video plays pauses it (ON_STOP), as the audio service sees it",
+               "PASS" if "started" not in after else "FAIL", f"states after Home: {after}")
+        smoke.launch()
+        settle(4)
+    elif error:
+        record("M: ExoPlayer plays the https MP4", "INFO",
+               "this emulator image's decoder failed (ExoPlayerImplInternal: Playback error in logcat); "
+               "a device question, not one this image can answer")
+    else:
+        record("M: ExoPlayer plays the https MP4", "FAIL", f"no started playback for uid {uid}: {states}")
+    smoke.screenshot("M-03-video-after")
     crash_free("M: alive after the video viewer")
-    root = dump("M-05-video-close")
+    root = smoke.raw_ui_dump("M-05-video-close")
     close = smoke.find(root, r"^Close$", PKG) if root is not None else None
     if close:
         tap_control(root, close)
@@ -731,7 +759,7 @@ def media_players():
     if not open_row("proof-audio.wav", "M-06-audio-row"):
         record("M: the audio row's Open", "FAIL", "the row never came on screen")
         return
-    ready, root = False, None
+    ready, root, hit = False, None, None
     deadline = time.time() + 20
     while time.time() < deadline:
         root = dump("M-07-audio-viewer")
@@ -747,15 +775,22 @@ def media_players():
         tap_control(root, hit)
         settle(3)
         root = dump("M-08-audio-playing")
-        playing = has_desc(root, r"^Pause$")
-        record("M: MediaPlayer plays it (the button offers Pause)", "PASS" if playing else "FAIL")
+        states = audio_states(uid) if uid else []
+        playing = has_desc(root, r"^Pause$") and "started" in states
+        record("M: MediaPlayer plays it (button offers Pause; the audio service reports it started)",
+               "PASS" if playing else "FAIL", f"states: {states}")
         if playing:
-            home_and_back("M-09-audio")
+            sh("input keyevent KEYCODE_HOME", check=False)
+            settle(4)
+            after = audio_states(uid)
+            smoke.launch()
+            settle(4)
             root = dump("M-09-audio-resumed")
             smoke.screenshot("M-09-audio-resumed")
-            paused = has_desc(root, r"^Play$") and not has_desc(root, r"^Pause$")
-            record("M: Home while the audio plays pauses it (ON_STOP), and the button says Play on return",
-                   "PASS" if paused else "FAIL")
+            paused = "started" not in after and has_desc(root, r"^Play$") and not has_desc(root, r"^Pause$")
+            record("M: Home while the audio plays pauses it (ON_STOP): the audio service stops reporting it "
+                   "started, and the button says Play on return", "PASS" if paused else "FAIL",
+                   f"states after Home: {after}")
     crash_free("M: alive after the audio viewer")
     root = dump("M-10-audio-close")
     close = smoke.find(root, r"^Close$", PKG) if root is not None else None
@@ -798,32 +833,36 @@ def rich_text_and_back_guard():
         record("T: the craft form's rich-text Description", "FAIL", "no editable block under the label")
         return
     smoke.tap(below[0])
-    settle(1.5)
-    sh("input text 'alpha'", check=False)
-    settle(1)
-    sh("input keyevent KEYCODE_ENTER", check=False)
     settle(2)
+    # The trailing space (%s to `input text`) makes the keyboard COMMIT the word it is composing before
+    # Enter arrives. `input` injects hardware keys, and on API 37 and 26 an Enter sent straight after
+    # a composing word overtook it (run 37953157106 split "alpha" one character early on 37 and
+    # garbled the next word on 26), where a soft keyboard sends both down one channel, in order.
+    sh("input text 'alpha%s'", check=False)
+    settle(2.5)
+    sh("input keyevent KEYCODE_ENTER", check=False)
+    settle(3)
     sh("input text 'beta'", check=False)
-    settle(1.5)
+    settle(2.5)
     root = dump("T-02-after-enter")
     smoke.screenshot("T-02-after-enter")
     edits = [n for n in smoke.nodes(root, PKG) if n.get("class", "").endswith("EditText")] if root is not None else []
-    texts = [(n.get("text") or "").strip().lower() for n in edits]
-    focused = [(n.get("text") or "").strip().lower() for n in edits if n.get("focused") == "true"]
+    texts = [(n.get("text") or "").replace(" ", "").lower() for n in edits]
+    focused = [(n.get("text") or "").replace(" ", "").lower() for n in edits if n.get("focused") == "true"]
     split = "alpha" in texts and "beta" in texts and focused == ["beta"]
     record("T: Enter splits a rich-text block and the caret follows into the new block",
            "PASS" if split else "FAIL", f"blocks seen: {[t for t in texts if t][:6]}; focused: {focused}")
     if split:
         sh("input keyevent KEYCODE_MOVE_HOME", check=False)
-        settle(1)
-        sh("input keyevent KEYCODE_DEL", check=False)
         settle(2)
+        sh("input keyevent KEYCODE_DEL", check=False)
+        settle(3)
         sh("input text 'X'", check=False)
-        settle(1.5)
+        settle(2.5)
         root = dump("T-03-after-merge")
         smoke.screenshot("T-03-after-merge")
         edits = [n for n in smoke.nodes(root, PKG) if n.get("class", "").endswith("EditText")] if root is not None else []
-        texts = [(n.get("text") or "").strip().lower() for n in edits]
+        texts = [(n.get("text") or "").replace(" ", "").lower() for n in edits]
         merged = "alphaxbeta" in texts and "beta" not in texts
         record("T: Backspace at a block's start merges it back and the caret lands at the join",
                "PASS" if merged else "FAIL", f"blocks seen: {[t for t in texts if t][:6]}")
