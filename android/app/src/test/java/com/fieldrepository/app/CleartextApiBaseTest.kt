@@ -51,7 +51,10 @@ class CleartextApiBaseTest {
 
     /** Every class compiled from this module's `src/main`, by path, whichever form the test runtime holds them in. */
     private fun compiledClasses(): Map<String, ByteArray> {
-        val root = File(ApiClient::class.java.protectionDomain.codeSource.location.toURI())
+        // Both links are nullable in the JDK's own annotations; a missing one is a failure, never a pass.
+        val location = ApiClient::class.java.protectionDomain?.codeSource?.location
+            ?: throw AssertionError("cannot tell where :app's compiled classes are: ApiClient has no code source")
+        val root = File(location.toURI())
         return if (root.isDirectory) {
             root.walkTopDown()
                 .filter { it.isFile && it.name.endsWith(".class") }
@@ -100,7 +103,8 @@ class CleartextApiBaseTest {
     @Test
     fun `no resource under src main res carries a cleartext API base`() {
         val res = repoFile("src/main/res/values/strings.xml", "android/app/src/main/res/values/strings.xml")
-            .parentFile.parentFile
+            .parentFile?.parentFile
+            ?: throw AssertionError("strings.xml was found outside any src/main/res/values directory")
         val xml = res.walkTopDown().filter { it.isFile && it.name.endsWith(".xml") }.toList()
         assertTrue("no resource XML found under ${res.absolutePath}", xml.isNotEmpty())
         val comment = Regex("<!--.*?-->", RegexOption.DOT_MATCHES_ALL)
