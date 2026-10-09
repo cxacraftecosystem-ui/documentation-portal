@@ -1,7 +1,8 @@
 # Docker
 
 Containers for local development: the two application images, and the profile-gated Compose
-stack that runs them next to PostgreSQL, MinIO and (optionally) Redis.
+stack that runs them next to PostgreSQL 17, an S3-compatible store (Silo, the maintained fork of
+MinIO, still reached as the `minio` service) and (optionally) Redis 8.
 
 Production does **not** use any of this. The API runs from a systemd unit on a single EC2
 t3.micro behind nginx behind CloudFront (`docs/ARCHITECTURE.md`), and the web app is built by
@@ -77,13 +78,30 @@ docker compose config --services            # postgres, minio, create-bucket. No
 
 ```
 postgres  (healthy: pg_isready)  ─┐
-minio     (healthy: mc ready)    ─┼─→ api (healthy: /health) ──→ web
+minio     (healthy: mcli ready)  ─┼─→ api (healthy: /health) ──→ web
 create-bucket (exited 0)         ─┘
 ```
 
-`create-bucket` is waited on with `service_completed_successfully`, not `service_started` — MinIO
-being healthy says nothing about whether the bucket exists, and the first media write would 404
-against a bucket that does not.
+`create-bucket` is waited on with `service_completed_successfully`, not `service_started` — the
+store being healthy says nothing about whether the bucket exists, and the first media write would
+404 against a bucket that does not.
+
+### The images the stack pulls, and why those
+
+Changed on 2026-10-09; `docker-compose.yml` carries the reasoning beside each image.
+
+| Service | Image | Why this one |
+|---|---|---|
+| `postgres` | `postgres:17-alpine` | Production's **major**, not the newest: production is Supabase on 17, which offers no 18. It was 16 until 2026-10-09, one major behind production. |
+| `minio` | `pgsty/silo:RELEASE.2026-09-16T00-00-00Z` | The old `minio/minio` and `minio/mc` images can no longer be pulled at all (`pull access denied`; the upstream repository is archived), so a clean `docker compose up` failed. Silo is the maintained fork: same command line, `MINIO_ROOT_*` variables and on-disk format, AGPL-3.0 like MinIO. Its client is `mcli` (the healthcheck uses that name). Measured through `backend/app/services/s3.py`: presigned PUT with a CORS preflight from `http://localhost:3000`, anonymous download, presigned GET with an attachment override, multipart with the ETag exposed to the browser, abort, delete, and an anonymous PUT refused. |
+| `create-bucket` | `pgsty/mc:RELEASE.2026-09-16T00-00-00Z` | The same fork's `mc`; the three commands are unchanged. |
+| `redis` | `redis:8-alpine` | 7.4 has had security fixes only since 2025-05-02. The flags in use are unchanged in 8. |
+
+**A `postgres_data` volume made before 2026-10-09 will not start under 17** — PostgreSQL refuses a
+data directory written by another major ("database files are incompatible with server"). It holds
+local data only: `docker compose down -v`, then migrate and seed again (*Running it*, below), or
+`pg_dumpall` out of a `postgres:16-alpine` container first if something in it is worth keeping.
+A `minio_data` volume needs nothing: Silo reads MinIO's format.
 
 `web` waits for the API to be **healthy**, not merely started: server components render on the
 first request, and an API still spawning its Prisma engine turns that into an error page.
@@ -140,7 +158,11 @@ a package manager's build toolchain, or the source of the stage that produced it
 
 ### Backend
 
-Three stages: `builder` (pip, a C toolchain), `prisma` (adds Node.js), `runtime` (neither).
+Three stages: `builder` (pip, a C toolchain), `prisma` (adds Node.js), `runtime` (neither). The
+Python stages are `python:3.14-slim-trixie` — the interpreter CI and the EC2 box run, on Debian 13 —
+and the `prisma` stage takes `node` and `npm` from `node:26-trixie-slim`, the major the EC2 box's
+Prisma nodeenv is pinned to. Both base tags are written out rather than passed as build `ARG`s so
+that Dependabot can see them (the Dockerfile says why).
 
 The `prisma` stage is what makes the image work at all, and it is the part worth understanding
 before changing anything. `prisma-client-py` ships **no generated code** — the `prisma` package on
@@ -170,13 +192,15 @@ Two details in that stage exist to stop the image being subtly broken rather tha
   the binary cache — and a wrong path raises `BinaryNotFoundError` naming it, rather than
   attempting the silent re-download an unpinned cache directory invites.
 
-Dependencies are installed from `[project.dependencies]` only, read out of `pyproject.toml` with
-`tomllib`. Optional extras are deliberately not installed: the image is meant to weigh what the
-t3.micro weighs. It installs the *dependencies* rather than the project, because `pip install .`
-would also copy an `app` package into site-packages without
-`app/data/questionnaire_questions.json` — which is not declared as package data — and the
-questionnaire seed would fail at run time. The source is copied in as a plain directory instead,
-which cannot lose a file.
+Dependencies are installed from `backend/requirements.lock` (since 2026-10-09; before that from
+`pyproject.toml`'s `>=` floors read out with `tomllib`, so no two builds were promised the same set).
+It is the lock CI and the EC2 box install, so the image and the box are the same install by
+construction. That lock carries the `dev` extra too (pytest, ruff, httpx), which nothing imports at
+run time; the optional `ai`, `ai-local` and `cache` extras are not in it. The image installs the
+*dependencies* rather than the project, because `pip install .` would also copy an `app` package
+into site-packages without `app/data/questionnaire_questions.json` — which is not declared as package
+data — and the questionnaire seed would fail at run time. The source is copied in as a plain
+directory instead, which cannot lose a file.
 
 `ffmpeg` is **not** installed by default. It costs ~180 MB and nothing on the request path needs
 it: `pydub` is imported lazily inside the two functions that convert audio, and both degrade with
