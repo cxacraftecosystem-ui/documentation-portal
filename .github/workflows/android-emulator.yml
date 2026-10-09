@@ -52,13 +52,6 @@ on:
           - google_apis
           - google_apis_ps16k
         default: google_apis
-  # TEMPORARY, AND REMOVED BEFORE THIS BRANCH IS DONE: `workflow_dispatch` only fires for a workflow
-  # file on the default branch. A push run covers API 34 and 37.0 at once (the matrix below).
-  push:
-    branches: [upgrade/doc-android]
-    paths:
-      - ".github/workflows/android-emulator.yml"
-      - "android/**"
 
 permissions:
   contents: read
@@ -69,12 +62,7 @@ concurrency:
 
 jobs:
   smoke:
-    name: Debug APK on an API ${{ matrix.api-level }} emulator (${{ inputs.target || 'google_apis' }})
-    strategy:
-      fail-fast: false
-      matrix:
-        # TEMPORARY with the push trigger: a push runs both levels; a dispatch runs the one asked for.
-        api-level: ${{ fromJSON(github.event_name == 'push' && '["34", "37.0"]' || format('["{0}"]', inputs.api-level)) }}
+    name: Debug APK on an API ${{ inputs.api-level || '37.0' }} emulator (${{ inputs.target || 'google_apis' }})
     runs-on: ubuntu-26.04
     timeout-minutes: 60
     defaults:
@@ -185,7 +173,7 @@ jobs:
           SMOKE_LAN_APK: ${{ runner.temp }}/app-debug-lan.apk
         with:
           # The fallbacks are the inputs' own defaults, for any trigger that carries no inputs.
-          api-level: ${{ matrix.api-level }}
+          api-level: ${{ inputs.api-level || '37.0' }}
           target: ${{ inputs.target || 'google_apis' }}
           arch: x86_64
           # A 1080x2400 phone; the script resizes the display itself for the large-screen check.
@@ -208,7 +196,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: android-emulator-smoke-${{ matrix.api-level }}-${{ inputs.target || 'google_apis' }}
+          name: android-emulator-smoke-${{ inputs.api-level || '37.0' }}-${{ inputs.target || 'google_apis' }}
           path: android/build/emulator-smoke/
           if-no-files-found: warn
           retention-days: 14
