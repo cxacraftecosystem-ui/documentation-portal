@@ -392,32 +392,70 @@ def sign_in_attempt(tag):
     return True
 
 
-def answer_prompt(tag, answer):
+def launch_clean(tag):
     """
-    Launch from a clean slate and answer the Nearby devices prompt. Returns whether it appeared.
+    Launch from a clean slate and wait for something to come up. Returns ("prompt" | "app" |
+    "nothing", the last UI hierarchy).
 
-    `pm clear` empties the app, and clearing the permission flags forgets any earlier refusal, so
-    the prompt is asked again exactly as on a first launch.
+    `pm clear` empties the app, and clearing the permission flags forgets any earlier answer, so the
+    prompt is asked again exactly as on a first launch. The launch is then CONFIRMED rather than
+    assumed: on 2026-10-09 an API 37 run started the app straight after `pm clear` killed a
+    half-started process, the dead process's pending start swallowed `am start`, and the home screen
+    was measured as "no prompt". So this polls until either the permission window or this app is on
+    screen, launches once more if neither appears, and says "nothing" if that fails too — an answer
+    the callers turn into a FAIL, because the absence of a prompt from an app that never started
+    proves nothing.
     """
+    sh(f"am force-stop {PKG}", check=False)
     sh(f"pm clear {PKG}", check=False)
     sh(f"pm revoke {PKG} {LOCAL_NETWORK}", check=False)
     sh(f"pm clear-permission-flags {PKG} {LOCAL_NETWORK} user-set user-fixed", check=False)
-    launch()
-    settle(5)
-    root = ui_dump(f"{tag}-prompt")
+    settle(2)
+    root = None
+    for attempt in (1, 2):
+        launch()
+        app_seen = False
+        deadline = time.time() + 20
+        while time.time() < deadline:
+            settle(2)
+            root = ui_dump(f"{tag}-prompt")
+            if root is None:
+                continue
+            if any(n.get("package") in PERMISSION_UI for n in nodes(root)):
+                screenshot(f"{tag}-prompt")
+                return "prompt", root
+            if any(True for _ in nodes(root, PKG)):
+                app_seen = True  # up, but the prompt may still be on its way: keep watching
+        if app_seen:
+            screenshot(f"{tag}-prompt")
+            return "app", root
+        log(f"{tag}: neither this app nor a permission prompt came up after launch {attempt}")
     screenshot(f"{tag}-prompt")
-    prompt = root is not None and any(n.get("package") in PERMISSION_UI for n in nodes(root))
-    if prompt:
+    return "nothing", root
+
+
+def answer_prompt(tag, answer):
+    """Launch clean (see [launch_clean]) and, if the Nearby devices prompt shows, tap [answer]."""
+    state, root = launch_clean(tag)
+    if state == "prompt":
         hit = find(root, answer, None)
         if hit:
             tap(hit[1])
             settle(2)
         else:
             log(f"{tag}: the prompt has no button matching {answer!r}")
-    return prompt
+    return state
+
+
+NEVER_STARTED = "the app never came to the front after two launches; see the -prompt.png screenshot"
 
 
 def local_network_phase(sdk):
+    # Out of the foreground BEFORE the reinstall: replacing the package under a visible activity
+    # makes the system relaunch it, and that relaunch is what raced the first clean launch below.
+    sh("input keyevent KEYCODE_HOME", check=False)
+    sh(f"am force-stop {PKG}", check=False)
+    settle(2)
     ok, out = install(LAN_APK)
     if not ok:
         record("local network: install the 10.0.2.2 debug build", "FAIL", out)
@@ -428,10 +466,12 @@ def local_network_phase(sdk):
         if sdk < 37:
             # Below Android 17 every app holding INTERNET is granted local-network access
             # implicitly, and the app must not ask: ui/LocalNetworkAccess.kt only prompts from 37.
-            prompt = answer_prompt("lan-01", r"^allow$")
-            record(f"local network: no Nearby devices prompt on API {sdk}",
-                   "FAIL" if prompt else "PASS",
-                   "the app asked for a permission this Android version does not have" if prompt else "")
+            state = answer_prompt("lan-01", r"^allow$")
+            record(f"local network: the app starts with no Nearby devices prompt on API {sdk}",
+                   "PASS" if state == "app" else "FAIL",
+                   {"app": "",
+                    "prompt": "the app asked for a permission this Android version does not have",
+                    "nothing": NEVER_STARTED}[state])
             requests_seen.clear()
             if sign_in_attempt("lan-02-implicit"):
                 reached = wait_for_request(30)
@@ -447,10 +487,12 @@ def local_network_phase(sdk):
 
         # 1. Refuse, then sign in. Whether the request still leaves is the PLATFORM's answer, so it
         #    is recorded as information; it is what says the permission is needed at all.
-        prompt = answer_prompt("lan-01", r"don.?t allow")
+        state = answer_prompt("lan-01", r"don.?t allow")
         record("local network: the debug build asks for Nearby devices at launch",
-               "PASS" if prompt else "FAIL",
-               "" if prompt else "no permission-controller window after launch; see lan-01-prompt.png")
+               "PASS" if state == "prompt" else "FAIL",
+               {"prompt": "",
+                "app": "the app came up and never asked; see lan-01-prompt.png",
+                "nothing": NEVER_STARTED}[state])
         requests_seen.clear()
         if sign_in_attempt("lan-02-denied"):
             reached = wait_for_request(20)
@@ -466,15 +508,19 @@ def local_network_phase(sdk):
         # 2. Allow, by tapping Allow as a person would, and sign in again. The app was stopped
         #    first, so a request still pending from the refused attempt cannot arrive late and
         #    count as this one.
-        prompt = answer_prompt("lan-03", r"^allow$")
-        if not prompt:
+        state = answer_prompt("lan-03", r"^allow$")
+        if state != "prompt":
             sh(f"pm grant {PKG} {LOCAL_NETWORK}", check=False)
+            if state == "nothing":
+                launch()
+                settle(5)
         package = sh(f"dumpsys package {PKG}", timeout=60)
         save("lan-dumpsys-package.txt", package)
         granted = re.search(re.escape(LOCAL_NETWORK) + r": granted=true", package) is not None
         record("local network: tapping Allow grants ACCESS_LOCAL_NETWORK to the debug build",
-               "PASS" if granted and prompt else "FAIL",
-               "" if prompt else "the prompt did not come back; granted with pm instead")
+               "PASS" if granted and state == "prompt" else "FAIL",
+               "" if state == "prompt" else
+               ("the prompt did not come back; granted with pm instead" if state == "app" else NEVER_STARTED))
         requests_seen.clear()
         if sign_in_attempt("lan-04-granted"):
             reached = wait_for_request(30)
