@@ -40,6 +40,7 @@ import time
 import xml.etree.ElementTree as ET
 
 PKG = "com.fieldrepository.app"
+APP_LABEL = "Field Repository"  # res/values/strings.xml app_name: what a system dialog calls this app
 ACTIVITY = f"{PKG}/.MainActivity"
 OUT = os.environ.get("SMOKE_OUT", "build/emulator-smoke")
 PROD_APK = os.environ.get("SMOKE_PROD_APK", "app/build/outputs/apk/debug/app-debug.apk")
@@ -91,7 +92,48 @@ def settle(seconds=3.0):
     time.sleep(seconds)
 
 
+SYSTEM_DIALOG = re.compile(r"^(.+?) (?:isn.t responding|keeps stopping|has stopped)$", re.I)
+
+
 def ui_dump(name):
+    """
+    The UI hierarchy, with any system "isn't responding" / "keeps stopping" dialog that belongs to
+    ANOTHER app cleared out of the way first.
+
+    On 2026-10-09 an API 34 run measured "Pixel Launcher isn't responding" — the emulator's own
+    launcher, starved on a software-rendered emulator — instead of this app, three times over. A
+    dialog like that says nothing about this app, so it is answered with Wait and recorded as INFO.
+    The same dialog naming THIS app is the opposite: a FAIL, left on screen for the screenshot.
+    """
+    for _ in range(3):
+        root = raw_ui_dump(name)
+        if root is None:
+            return None
+        owner = None
+        for node in nodes(root, "android"):
+            match = SYSTEM_DIALOG.match((node.get("text") or "").strip())
+            if match:
+                owner = match.group(1).strip()
+                break
+        if owner is None:
+            return root
+        if owner.lower() == APP_LABEL.lower():
+            record(f"system dialog: {owner} stopped responding or crashed", "FAIL",
+                   f"seen while capturing '{name}'; see {name}.png and logcat.txt")
+            return root
+        record(f"cleared a system dialog before '{name}'", "INFO",
+               f"'{owner}' (not this app) stopped responding; answered Wait")
+        screenshot(f"{name}-system-dialog")
+        button = find(root, r"^wait$", "android") or find(root, r"^(close app|ok)$", "android")
+        if button:
+            tap(button[1])
+        else:
+            sh("input keyevent KEYCODE_BACK", check=False)
+        settle(3)
+    return raw_ui_dump(name)
+
+
+def raw_ui_dump(name):
     """The UI hierarchy as XML, or None. Retried: uiautomator refuses while anything animates."""
     for attempt in range(4):
         out = sh("uiautomator dump /sdcard/smoke-ui.xml", check=False, timeout=60)
