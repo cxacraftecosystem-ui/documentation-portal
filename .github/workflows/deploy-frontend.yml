@@ -201,7 +201,7 @@ jobs:
         # Refusing to publish because a checkout flaked would be this whole exercise re-creating its
         # own bug in a new place.
         continue-on-error: true
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The same commit `decide` resolves as `${HEAD_SHA:-$GITHUB_SHA}` and the deploy job
           # checks out as `needs.gate.outputs.sha`. It is spelled out a third time here rather than
@@ -913,7 +913,7 @@ jobs:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
     steps:
       - name: Checkout the commit the backend deployed
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # A workflow_run run defaults to the tip of the default branch, which may already
           # have moved on. Pin to the exact commit whose backend deploy just went green so

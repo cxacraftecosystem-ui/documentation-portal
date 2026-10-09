@@ -72,7 +72,7 @@ jobs:
       android: ${{ steps.detect.outputs.android }}
     steps:
       - name: Checkout (full history, so both the push range and the live range can be diffed)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -317,7 +317,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Start ssh-agent with the deploy key
         uses: webfactory/ssh-agent@v0.9.0
