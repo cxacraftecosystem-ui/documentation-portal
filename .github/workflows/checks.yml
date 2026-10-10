@@ -711,3 +711,42 @@ jobs:
             echo "Only the known pre-existing documentation problems were reported; the comment on this job says what each one is and who fixes it."
           fi
           exit 0
+
+  # ═══════════════════════════════════════════════════════════════════════════════════════
+  # TEMPORARY (2026-10-10), removed by the commit after the one that adds it: one run of
+  # deploy-frontend.yml's install-and-build path under npm 12, without its secrets. Nothing is
+  # pulled from Vercel, deployed or published: `vercel build` only writes .vercel/output on this
+  # runner, against a project link written here that names no real project.
+  # ═══════════════════════════════════════════════════════════════════════════════════════
+  npm12-vercel-proof:
+    name: TEMPORARY npm 12 and Vercel CLI proof
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/package.json
+          check-latest: true
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install npm 12
+        run: |
+          npm install --global npm@12
+          npm --version
+
+      - name: Install the Vercel CLI, exactly as deploy-frontend.yml does
+        run: npm install --global vercel@latest
+
+      - name: vercel build against a local project link, no token
+        run: |
+          set -euo pipefail
+          vercel --version
+          mkdir -p .vercel
+          printf '%s\n' '{"projectId":"prj_npm12_proof","orgId":"team_npm12_proof","projectName":"npm12-proof","settings":{"framework":"nextjs","rootDirectory":"frontend","nodeVersion":"24.x","installCommand":null,"buildCommand":null,"outputDirectory":null,"devCommand":null}}' > .vercel/project.json
+          vercel build --prod --yes
+          test -d .vercel/output/static
+          find .vercel/output/functions -name .vc-config.json | head -3 | xargs -r grep -h '"runtime"'
