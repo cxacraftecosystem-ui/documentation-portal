@@ -2969,19 +2969,14 @@ export function RichTextEditor({
       </div>
 
       {/*
-        THE VISIBLE DEGRADATION CHANNEL, AND THE WORDING IS SPECIFIC TO THIS APPLICATION.
+        WHAT THIS BOX KEEPS, IN ONE PANEL.
 
-        In the application this editor was ported from, the honest list was "what survives into the
-        generated .docx and .pdf". Field Repository generates no such file, and it has no rich-text
-        reader on the server or on Android either (see the file header) — so the true statement here
-        is a different and blunter one: FORMATTING IS FAITHFUL IN THIS BOX AND NOWHERE ELSE YET.
-
-        Saying it is not optional politeness. `encodeStoredRichText` writes plain prose for as long
-        as the field is unformatted, which is why typing and dictating are completely safe; the
-        moment somebody bolds a word the column holds a document, and the CSV, the Excel workbook,
-        the review panel and the Android app show that document's stored form rather than the
-        sentence. A researcher who is told this once picks correctly. A researcher who is not finds
-        out from a colleague looking at an export three weeks later, and by then it is in fifty rows.
+        `encodeStoredRichText` writes plain prose for as long as the field is unformatted, which is
+        why typing and dictating are completely safe. Field Repository has no rich-text reader on the
+        server or on Android (see the file header): the moment somebody bolds a word the column holds a
+        document, and the CSV, the Excel workbook, the review panel and the Android app show that
+        document's stored form rather than the sentence. That export gap is a known defect tracked in
+        docs/OPEN_FINDINGS.md; it is fixed in the exports, not narrated on this panel.
 
         One panel and not a tooltip per control: twenty-five tooltips are twenty-five places to keep
         in step, and none of them is readable before the control is pressed.
@@ -2997,19 +2992,8 @@ export function RichTextEditor({
               with its caption.
             </li>
             <li>
-              <span className="font-medium">Not carried into exports yet:</span> the CSV and Excel downloads and the
-              review panel do not read formatting. A field you have formatted appears there as its stored form rather
-              than as the sentence you typed. If a field has to read cleanly in an export today, leave it unformatted.
-            </li>
-            <li>
-              <span className="font-medium">Unaffected by all of this:</span> plain typing and dictation. A field with no
-              formatting applied is saved as ordinary text, exactly as it was before this editor existed — searchable,
-              exportable, and identical on a handset.
-            </li>
-            <li>
-              <span className="font-medium">Not offered at all:</span> links, text colour and font choices. The document
-              format has no way to carry them, so a button for them here would look as though it worked and leave
-              nothing behind.
+              <span className="font-medium">Plain typing and dictation:</span> a field with no formatting applied is saved as
+              ordinary text — searchable, exportable, and identical on a handset.
             </li>
             <li>
               Pasted text arrives as words and list structure only — the source&apos;s own formatting is not carried across.

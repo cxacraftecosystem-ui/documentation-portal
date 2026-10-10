@@ -259,8 +259,8 @@ export default function AdminHubPage() {
         <div className="border-b border-line-200 px-4 py-3">
           <h2 className="font-display font-bold text-ink-900">Recovered recordings</h2>
           <p className="text-sm text-ink-500">
-            Media still tagged to a deleted record. The files are intact in object storage — relink them to a live record from
-            the Media page.
+            These files belonged to a deleted record. They’re still saved — link them to another record from the Media
+            page.
           </p>
         </div>
         {!orphans ? (

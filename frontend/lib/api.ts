@@ -65,8 +65,7 @@ export class ApiUnconfiguredError extends ApiError {
   constructor() {
     super(
       503,
-      "This site was published without the address of its data service, so it cannot sign you in or load any records. " +
-        "Refreshing or signing in again will not help — an administrator needs to redeploy the site with its API address configured.",
+      "The site can’t connect right now. Please try again later.",
       null
     );
     this.name = "ApiUnconfiguredError";
@@ -184,7 +183,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     const detail = typeof body === "object" && body && "detail" in body ? (body as { detail: unknown }).detail : undefined;
     // `statusText` is empty over HTTP/2 — which every deployed request is — so it cannot be the last
     // resort on its own, or a body-less failure reaches the screen as a blank error box.
-    const message = describeApiDetail(detail, response.statusText || `The server refused the request (HTTP ${response.status}).`);
+    const message = describeApiDetail(detail, response.statusText || "Something went wrong. Try again.");
     if (response.status === 401 && token && typeof window !== "undefined") {
       // A previously-valid session expired: drop the stored token and send the user to login
       // (unless they are already there). Anonymous requests — e.g. the landing page's /me probe —

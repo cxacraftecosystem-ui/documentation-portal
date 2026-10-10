@@ -2456,7 +2456,10 @@ def _sheet(
     capped = truncated or len(rows) > REPORT_TAKE
     if capped:
         rows = rows[:REPORT_TAKE]
-        note = f"Note: capped at {REPORT_TAKE} rows — the full data set has more."
+        note = (
+            f"Note: this report shows the first {REPORT_TAKE} entries; download a narrower folder "
+            "for the rest."
+        )
         rows = [*rows, [note] + [""] * (len(columns) - 1)]
     return {
         "name": name,
@@ -3060,7 +3063,7 @@ async def download_media(
         except Exception as exc:  # pragma: no cover - environment-dependent
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Audio conversion unavailable: pydub is not installed on the server.",
+                detail="This recording can't be converted right now; download the original instead.",
             ) from exc
         # TWO CHECKS, BECAUSE THE COLUMN IS A CLAIM AND THE LENGTH IS A FACT.
         #
@@ -3095,7 +3098,7 @@ async def download_media(
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Could not fetch the audio bytes from object storage.",
+                detail="The recording couldn't be loaded. Try again.",
             ) from exc
         if len(raw) > MAX_CONVERT_BYTES:
             # Same answer as the declared-size refusal, deliberately: the caller asked for a
@@ -3113,7 +3116,7 @@ async def download_media(
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Audio conversion to mp4 failed (is ffmpeg installed?): {exc}",
+                detail="This recording couldn't be converted; download the original instead.",
             ) from exc
         stem = display_stem(media, fallback=media.id)
         return StreamingResponse(
@@ -3130,7 +3133,7 @@ async def download_media(
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Could not fetch the media bytes from object storage.",
+            detail="The file couldn't be loaded. Try again.",
         ) from exc
     name = display_filename(media, fallback=media.id)
     return Response(

@@ -195,13 +195,13 @@ def test_a_passing_verdict_on_an_environment_key_outlives_the_process(stack) -> 
 
 
 def test_a_failing_verdict_persists_with_its_reason(stack) -> None:
-    s = stack(probe=(False, "Key rejected by the provider (HTTP 401)"))
+    s = stack(probe=(False, "The provider rejected this key."))
 
     described = asyncio.run(managed_secrets.test_secret(ELEVENLABS))
 
     assert described["lastStatus"] == "FAILED"
     assert s.verdicts.rows[ELEVENLABS].status == "FAILED"
-    assert s.verdicts.rows[ELEVENLABS].error == "Key rejected by the provider (HTTP 401)"
+    assert s.verdicts.rows[ELEVENLABS].error == "The provider rejected this key."
 
 
 def test_the_listing_shows_the_stored_verdict_for_an_environment_key(stack) -> None:

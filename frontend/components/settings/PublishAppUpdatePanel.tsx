@@ -144,7 +144,7 @@ export function PublishAppUpdatePanel() {
               onChange={(event) => setVersionName(event.target.value)}
               placeholder="1.1.18"
             />
-            <p className="mt-1 text-xs text-ink-500">Three numbers, the same value as android/app/build.gradle.kts.</p>
+            <p className="mt-1 text-xs text-ink-500">Three numbers, e.g. 1.4.2, matching the app being published.</p>
           </Field>
           <Field label="Version code">
             <TextInput name="versionCode" value={derived ? String(derived) : ""} readOnly onChange={() => undefined} />

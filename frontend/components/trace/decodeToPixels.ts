@@ -223,17 +223,12 @@ export async function fetchImageBlob(url: string): Promise<Blob | DecodeRefusal>
     response = await fetch(url);
   } catch {
     return {
-      reason:
-        "The image could not be fetched from storage, so there is nothing to trace yet. On a working " +
-        "connection this usually means the storage bucket is not returning the headers a browser needs " +
-        "to read a file from another origin; the image itself is unaffected."
+      reason: "The image couldn’t be loaded. Check your connection and try again."
     };
   }
   if (!response.ok) {
     return {
-      reason:
-        `The image could not be fetched from storage (HTTP ${response.status}). Reload the record and ` +
-        "try again — a stored link goes stale after a while, and reloading mints a fresh one."
+      reason: "The image couldn’t be loaded. Reload the record and try again."
     };
   }
   return await response.blob();

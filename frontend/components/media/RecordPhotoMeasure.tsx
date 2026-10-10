@@ -1278,9 +1278,8 @@ function MeasurementReadout({
           })}
         </div>
         <p className="text-xs leading-5 text-ink-500">
-          The figure is rounded to the precision its own error bar reaches, because once it is in the box the error bar
-          is gone — the record has a column for the dimension and none for the doubt, so the number of digits is the
-          only thing left saying how well it was measured.
+          The figure is rounded to the precision its own error bar reaches, because the record keeps the number but not
+          its margin of error, so the number of digits is the only thing left saying how well it was measured.
         </p>
       </div>
     </div>

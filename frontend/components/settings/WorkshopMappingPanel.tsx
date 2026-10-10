@@ -171,7 +171,7 @@ export function WorkshopMappingPanel() {
           {totals.unassigned === 0 ? (
             <p className="mt-3 flex items-center gap-2 rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-xs text-ink-700">
               <Check className="h-4 w-4 shrink-0 text-success-600" aria-hidden />
-              Every record in the repository names the workshop it was captured at. Nothing is hidden from a
+              Every record names the workshop it was captured at. Nothing is hidden from a
               workshop scope.
             </p>
           ) : (
@@ -302,7 +302,7 @@ export function WorkshopMappingPanel() {
             </ul>
           ) : (
             <p className="mt-3 text-[11px] leading-4 text-ink-500">
-              No workshop in the repository has a date, so nothing can be filed by when it was recorded.
+              No workshop has a date, so nothing can be filed by when it was recorded.
               Adding a start and end date to a workshop makes that evidence available.
             </p>
           )}

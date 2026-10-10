@@ -69,7 +69,7 @@ export function GetTheAppPanel() {
           <p className="mt-0.5 text-xs leading-5 text-ink-500">
             The phone app is the one that goes into the workshop: it records interviews, captures photos and GPS with
             no signal at all, and queues everything until you are back in range. This portal is for reviewing,
-            browsing and administration. Same account, same repository.
+            browsing and administration. Same account.
           </p>
         </div>
       </div>
@@ -107,8 +107,7 @@ export function GetTheAppPanel() {
             <p className="flex items-start gap-1.5 text-xs text-ink-500">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />
               <span>
-                Could not reach the repository to check which version is current. The download itself resolves the
-                newest build when you click it, so it is still worth trying.
+                Couldn’t check the latest version. The download still gets the newest app.
               </span>
             </p>
           )}

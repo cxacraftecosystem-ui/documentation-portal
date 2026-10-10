@@ -770,7 +770,6 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
     the photograph, moving it is a real act and the picture around it is where a new one is drawn.
   */
   const boxGesture: DragMode = isWhole ? "draw" : "move";
-  const taps = 2 * Math.max(1, Math.ceil(3 * sharpen.radius)) + 1;
 
   return (
     <div className="mb-3 rounded-md border border-line-200 bg-card p-3">
@@ -1095,21 +1094,19 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
         </div>
 
         {/*
-          THE COST, STATED BEFORE THE PRESS, IN ARITHMETIC RATHER THAN IN PREDICTED SECONDS.
+          THE COST, STATED BEFORE THE PRESS, IN SIZE RATHER THAN IN PREDICTED SECONDS.
 
           A figure like "about 2 seconds" that turns out to be nine on a five-year-old handset is worse
           than no figure, and this repository's rule is that a measured number is quoted only by
-          whoever measured it. So this says what the work IS — megapixels, taps, passes — says that a
-          large photograph takes seconds on a phone, and says where it runs. The MEASURED time of the
-          run that actually happened is printed underneath, afterwards.
+          whoever measured it. So this says how large the photograph is and that a large one takes
+          seconds on a phone. The MEASURED time of the run that actually happened is printed
+          underneath, afterwards.
         */}
         {sharpen.amount > 0 ? (
           <p className="mt-3 text-xs leading-5 text-ink-500">
-            {(cropped / 1_000_000).toFixed(1)} megapixels through a {taps}-tap kernel, in two passes —
-            about {Math.round((cropped * taps * 2) / 1_000_000)} million multiply-adds. On a laptop that
-            is under a second; on a phone a full-size photograph can take several seconds. It runs in a
-            worker, so the page stays usable while it does, and nothing is recomputed until you press
-            the button below.
+            Sharpening {(cropped / 1_000_000).toFixed(1)} megapixels takes under a second on a laptop; on a
+            phone a full-size photograph can take several seconds. The page stays usable while it runs,
+            and nothing is recomputed until you press the button below.
           </p>
         ) : null}
 

@@ -1676,8 +1676,7 @@ async def merge_interview_into(
                 "code": _MERGE_CONFLICT_CODE,
                 "message": (
                     f"Both interviews answer {len(named)} question(s) differently. Nothing was "
-                    "moved. Reconcile these answers first — whichever wording is right has to be "
-                    "chosen by somebody who was there, not by the server."
+                    "moved. Make the answers match, then try again."
                 ),
                 "questions": named,
             },
@@ -2135,8 +2134,8 @@ def _answers_not_imported_reason(answer_rows: int, evidence: str | None) -> str:
     origin = f" (it came out of the platform — {evidence})" if evidence else ""
     plural = "answer was" if answer_rows == 1 else "answers were"
     return (
-        f"The {answer_rows} {plural} typed into this workbook{origin} and NOT imported. An answer in "
-        "this repository belongs to an interview: it names the artisan who gave it, where it was "
+        f"The {answer_rows} {plural} typed into this workbook{origin} and NOT imported. An answer "
+        "belongs to an interview: it names the artisan who gave it, where it was "
         "recorded and who recorded it, and a spreadsheet column cannot say any of that. The "
         "questions on those rows were imported in full. Record answers on the Questionnaire page, "
         "against an artisan."
@@ -2430,7 +2429,7 @@ async def apply_parsed_edit(
                     f"Question {orphan.id} in this questionnaire is not attached to any section, so "
                     "it cannot be in this workbook and was left exactly as it is. It is invisible on "
                     "every screen that reads the questionnaire, and any answers recorded against it "
-                    "are still in the database. Move it into a section from the questionnaire "
+                    "are kept. Move it into a section from the questionnaire "
                     "builder if it should be asked, or ask an admin to remove it if it should not."
                 ),
                 "value": (orphan.prompt or "")[:120],

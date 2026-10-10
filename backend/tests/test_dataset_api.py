@@ -186,7 +186,7 @@ def test_a_dataset_token_is_refused_by_every_other_route(api) -> None:
     response = api.get("/api/session-only", token=api.token("admin", scope=deps.DATASET_READ_SCOPE))
 
     assert response.status_code == 403
-    assert "scoped to 'dataset:read'" in response.json()["detail"]
+    assert response.json()["detail"] == "This sign-in can't be used here. Please sign in again."
 
 
 def test_an_ordinary_session_token_still_works_everywhere(api) -> None:
@@ -686,7 +686,7 @@ def test_a_dataset_the_registry_does_not_describe_has_no_csv_form(api) -> None:
     response = api.get("/api/datasets/media.csv", token=api.token("admin"))
 
     assert response.status_code == 422
-    assert "media.ndjson" in response.json()["detail"]
+    assert response.json()["detail"] == "The 'media' dataset is available as NDJSON only."
 
 
 # =================================================================================================

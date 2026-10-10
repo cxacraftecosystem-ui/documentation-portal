@@ -329,7 +329,7 @@ export default function AccessRosterPage() {
   const header = (
     <PageHeader
       title="Access roster"
-      description="Who may sign in to the repository at all. An address on this list with the status “May sign in” is admitted; everybody else is turned away and lands in the queue below."
+      description="Who may sign in. Addresses marked “May sign in” are admitted; everyone else waits for a decision in the queue below."
       icon={<ShieldCheck className="h-5 w-5" aria-hidden />}
     />
   );
@@ -347,11 +347,7 @@ export default function AccessRosterPage() {
         <RestrictedPanel
           title="Admin access required"
           body={
-            `The access roster decides who may sign in at all and holds the addresses of people who tried and were turned away, ` +
-            // `roleLabel` answers "" for an absent user. AppShell never renders a protected page
-            // without one, but a sentence reading "  does not open it" is a worse way to find that
-            // out than a fallback nobody will ever see.
-            `so it is admin work: ${roleLabel(user?.role) || "your tier"} does not open it, and the API refuses the same request for the same reason. ` +
+            `The access roster decides who may sign in, so only admins can manage it. ` +
             `An admin or the master admin can approve, refuse, suspend and restore addresses here.`
           }
         />
@@ -519,7 +515,7 @@ export default function AccessRosterPage() {
               body={
                 applied || statusFilter
                   ? "No entry matches this search. Clear it to see every address the roster knows about, refused and suspended ones included."
-                  : "Nobody is on the roster yet. Add the first address above — every account that existed when the sign-in gate shipped was admitted automatically, so an empty list here is worth investigating."
+                  : "No one is on the roster yet. Add the first address above."
               }
             />
           </div>
@@ -634,9 +630,7 @@ export default function AccessRosterPage() {
 
       {/* The one fact about this screen that is not visible anywhere on it: the break-glass. */}
       <p className="mt-4 text-xs leading-5 text-ink-500">
-        The master admin address is never gated and cannot be taken off this list. The roster is a table only an
-        administrator can edit, so an administrator locked out by it would be an outage with no remedy inside the
-        product — that one exemption is what makes the rest of this screen safe to use.
+        The master admin can always sign in and can’t be removed from this list.
         {pendingCount !== null && pendingCount > 0 ? ` ${pendingCount} request${pendingCount === 1 ? "" : "s"} waiting.` : ""}
       </p>
     </>

@@ -171,7 +171,7 @@ export type ProgressGap = {
 
 export function progressGap(reported: number, derived: number | null | undefined): ProgressGap {
   if (derived === null || derived === undefined) {
-    return { tone: "unknown", delta: 0, label: "Repository count unavailable" };
+    return { tone: "unknown", delta: 0, label: "Count unavailable" };
   }
   // Two zeroes agree, but agreeing about nothing is not an achievement: a green "matches" tick on an
   // untouched task would read as reassurance on exactly the row that deserves a chase.
@@ -180,10 +180,10 @@ export function progressGap(reported: number, derived: number | null | undefined
   }
   const delta = reported - derived;
   if (delta > 0) {
-    return { tone: "behind", delta, label: `${delta} more reported than the repository can find` };
+    return { tone: "behind", delta, label: `${delta} more reported than recorded` };
   }
   if (delta < 0) {
-    return { tone: "ahead", delta, label: `${-delta} more in the repository than reported` };
+    return { tone: "ahead", delta, label: `${-delta} more recorded than reported` };
   }
-  return { tone: "match", delta: 0, label: "Reported figure matches the repository" };
+  return { tone: "match", delta: 0, label: "Reported matches recorded" };
 }

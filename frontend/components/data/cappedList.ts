@@ -151,7 +151,7 @@ export type CutReach = "none" | "pager" | "search";
 export function cappedListNotice(cut: ListCut | null, reach: CutReach = "none"): string {
   if (!cut) return "";
   if (cut.loaded === 0) {
-    return `None of the ${cut.total} ${cut.noun} could be listed here — this is not an empty repository.`;
+    return `None of the ${cut.total} ${cut.noun} could be loaded. Try again.`;
   }
   if (reach === "pager") {
     return `Showing ${cut.loaded} of ${cut.total} ${cut.noun} — use the pager to reach the rest, which are not searched by the box above.`;

@@ -245,8 +245,7 @@ async def update_roster_entry(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
-                "An access roster entry can be set to ACTIVE, REJECTED or SUSPENDED. "
-                "PENDING is written only by a refused sign-in."
+                "Choose May sign in, Refused or Suspended."
             ),
         )
     if new_status and new_status != ADMITTING_STATUS and is_master_admin_email(row.email):

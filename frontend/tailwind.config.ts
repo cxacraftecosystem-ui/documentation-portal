@@ -115,8 +115,9 @@ const config: Config = {
       // app can see. Each step is the same size with the same line height on the element itself, but
       // v4 writes the line height as a RATIO (`text-sm` is `calc(1.25 / 0.875)`) where v3 wrote a
       // length (`1.25rem`), and a ratio is inherited as a ratio: a badge at `text-[11px]` inside a
-      // `text-sm` button got 15.7px of line instead of v3's 20px, and the login page's "Coming soon"
-      // pills came out 4px shorter. Lengths here keep every inherited line height what v3 drew.
+      // `text-sm` button got 15.7px of line instead of v3's 20px (the login page's badges, since
+      // removed, came out 4px shorter), and digits in the guide's step badges sat 1px higher.
+      // Lengths here keep every inherited line height what v3 drew.
       // 5xl and up were already unitless in v3.
       fontSize: {
         xs: ["0.75rem", { lineHeight: "1rem" }],

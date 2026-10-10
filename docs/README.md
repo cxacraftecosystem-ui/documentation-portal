@@ -72,6 +72,7 @@ flowchart TD
 |---|---|
 | [SCALABILITY.md](SCALABILITY.md) | What breaks first, what it costs to fix, and the measured finding that relations — not rows — drive the latency |
 | [QA_AUDIT.md](QA_AUDIT.md) | What is tested, what is not, the open failure modes, and the regressions that were documented as working while broken |
+| [OPEN_FINDINGS.md](OPEN_FINDINGS.md) | Which features users might look for are missing, which known defects they can meet, and what closing each one takes. These are recorded here because no screen talks about them. |
 | [AI_FEATURES.md](AI_FEATURES.md) | Background removal, layer separation, vectorisation: providers, costs, and how to turn one on |
 | [REPO_FACTS.md](REPO_FACTS.md) | **Generated.** Model and enum counts, the API surface, the role ladder, test counts, code volume |
 | [DATASET_API.md](DATASET_API.md) | The bearer-token bulk export: how to authenticate, what datasets exist, the filters, and what the identity-number scope costs |

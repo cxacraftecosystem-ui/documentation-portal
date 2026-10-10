@@ -26,7 +26,7 @@ declare global {
   }
 }
 
-/** Official provider marks (inline SVG — no external requests). */
+/** Google's official mark (inline SVG — no external requests). */
 function GoogleMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 48 48" className={className} aria-hidden>
@@ -50,48 +50,13 @@ function GoogleMark({ className }: { className?: string }) {
   );
 }
 
-function MicrosoftMark({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 21 21" className={className} aria-hidden>
-      <rect x="1" y="1" width="9" height="9" fill="#f25022" />
-      <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
-      <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
-      <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
-    </svg>
-  );
-}
-
-function YahooMark({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} aria-hidden>
-      <path
-        d="M0 6.71h4.62l2.69 6.88 2.72-6.88h4.5L7.76 22.5H3.23l1.86-4.32L0 6.71zm17.62 5.05h-5.03L17.06 1.5h5.02l-4.46 10.26zm-3.03 1.4c1.55 0 2.8 1.26 2.8 2.81a2.8 2.8 0 1 1-5.61 0c0-1.55 1.26-2.8 2.81-2.8z"
-        fill="#5f01d1"
-      />
-    </svg>
-  );
-}
-
-/**
- * Below ~420px the badge and the full provider name cannot both fit on one 52px row, and
- * something has to give: the badge hides and the tap still raises the "Coming soon" toast,
- * which beats truncating the provider's name to "Continue with Micro…".
- */
-function ComingSoonBadge() {
-  return (
-    <span className="hidden shrink-0 rounded-full bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-700 min-[420px]:inline-block">
-      Coming soon
-    </span>
-  );
-}
-
 const BRAND_POINTS = [
   "Artisans, crafts, workshops, products, tools and interviews — one connected archive.",
   "Recordings transcribed and translated to English automatically.",
   "Six-tier access control; every edit audited."
 ];
 
-/** Shared chrome for the four sign-in actions, so they are one height and one radius. */
+/** Provider-button chrome for the Google sign-in action, one height and one radius with the rest of the card. */
 const PROVIDER_BUTTON = buttonVariants({ variant: "provider", size: "auth" });
 
 export default function LoginPage() {
@@ -240,20 +205,10 @@ function LoginView() {
       // 401 with the same sentence it has always had; a correct credential for an address the
       // roster does not admit is a 403 carrying a code and its own sentence.
       setRefusal(accessRefusalCode(err));
-      setError(err instanceof Error ? err.message : "Unable to sign in or reach the server.");
+      setError(err instanceof Error ? err.message : "Couldn’t sign in. Check your connection and try again.");
     } finally {
       setLoading(false);
     }
-  }
-
-  /** Fires the notice and nothing else — these providers have no endpoint behind them yet. */
-  function comingSoon(provider: string) {
-    toast({
-      id: `coming-soon-${provider}`,
-      title: `${provider} sign-in is coming soon`,
-      description: "Use Google, or your email and password, for now.",
-      tone: "info"
-    });
   }
 
   return (
@@ -440,23 +395,9 @@ function LoginView() {
               </div>
             ) : (
               <div className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-500">
-                Add NEXT_PUBLIC_GOOGLE_CLIENT_ID and GOOGLE_CLIENT_ID to enable Google sign-in.
+                Google sign-in isn’t available right now. Use your email and password.
               </div>
             )}
-            {/* The badge rides in the flex row rather than floating over it — absolutely
-                positioned it sat on top of the longer label and clipped it. */}
-            {/* `min-w-0` on the grid item is load-bearing: the labels are nowrap, so without it
-                the button refuses to shrink below its content and overflows the card on phones. */}
-            <Button type="button" variant="provider" size="auth" onClick={() => comingSoon("Microsoft")} className="w-full min-w-0">
-              <MicrosoftMark className="h-5 w-5 shrink-0" />
-              <span className="min-w-0 truncate">Continue with Microsoft</span>
-              <ComingSoonBadge />
-            </Button>
-            <Button type="button" variant="provider" size="auth" onClick={() => comingSoon("Yahoo")} className="w-full min-w-0">
-              <YahooMark className="h-5 w-5 shrink-0" />
-              <span className="min-w-0 truncate">Continue with Yahoo</span>
-              <ComingSoonBadge />
-            </Button>
           </div>
 
           {/* The brand panel carries this on a wide screen, but it is `hidden … lg:flex` — so on a

@@ -105,7 +105,7 @@ export default function TasksPage() {
     <>
       <PageHeader
         title="Tasks"
-        description="The documentation work assigned to you — what it covers, how far along you are, and what the repository has already recorded against it."
+        description="The documentation work assigned to you — what it covers, how far along you are, and what has already been recorded for it."
         icon={<ClipboardCheck className="h-5 w-5" aria-hidden />}
         actions={
           assigner ? (

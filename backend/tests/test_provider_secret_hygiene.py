@@ -199,8 +199,8 @@ def test_a_failed_transcription_names_the_fault_not_the_providers_words(transpor
     assert SECRET not in message
     # Each provider is still accounted for by name and by how it failed — that is what an admin
     # reading transcriptError needs, and it is all they get.
-    assert "elevenlabs: unreachable (ConnectionError)" in message
-    assert "deepgram" in message and "whisper" in message
+    assert "ElevenLabs couldn't be reached" in message
+    assert "Deepgram" in message and "Whisper" in message
 
 
 def test_a_refused_gemini_key_reports_the_status_without_the_body(transport) -> None:
@@ -212,7 +212,8 @@ def test_a_refused_gemini_key_reports_the_status_without_the_body(transport) -> 
 
     assert result["status"] == "FAILED"
     assert SECRET not in result["message"]
-    assert "HTTP 429" in result["message"]
+    assert "HTTP" not in result["message"]
+    assert "manually" in result["message"]
 
 
 def test_a_failed_refinement_leaves_the_transcript_and_says_so(transport, monkeypatch) -> None:

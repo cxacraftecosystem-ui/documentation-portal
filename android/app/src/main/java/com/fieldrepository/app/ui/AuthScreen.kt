@@ -1,6 +1,5 @@
 package com.fieldrepository.app.ui
 
-import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -46,10 +45,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.drawscope.scale
-import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
@@ -73,8 +69,7 @@ import com.fieldrepository.app.R
  * THE WEB LAYOUT is a two-column brand/auth split: a deep purple (purple-950) brand panel on the
  * left carrying the logo in a cream tile, a gold eyebrow, a gold-accented headline and three
  * value bullets; and on the right a frosted card floating on a mesh backdrop with email + password,
- * then "Continue with Google" (live) plus Microsoft and Yahoo, which raise a "Coming soon" notice
- * rather than fire a dead request. All four sign-in controls are one height (52px) and one radius.
+ * then "Continue with Google". All the sign-in controls are one height (52px) and one radius.
  *
  * ON A PHONE the split becomes a STACK — brand band above, card below — which is the same reading
  * order the web produces when its columns collapse, and the copy, the colours, the type scale and
@@ -114,7 +109,6 @@ fun AuthScreen(
     onGoogleLogin: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -126,15 +120,6 @@ fun AuthScreen(
             focusManager.clearFocus()
             onLogin(email, password)
         }
-    }
-
-    /** Fires the notice and nothing else — these providers have no endpoint behind them yet. */
-    fun comingSoon(provider: String) {
-        Toast.makeText(
-            context,
-            "$provider sign-in is coming soon — use Google, or your email and password, for now.",
-            Toast.LENGTH_LONG
-        ).show()
     }
 
     Column(
@@ -155,8 +140,7 @@ fun AuthScreen(
             onToggleShowPassword = { showPassword = !showPassword },
             canSubmit = canSubmit,
             onSubmit = ::submit,
-            onGoogleLogin = onGoogleLogin,
-            onComingSoon = ::comingSoon
+            onGoogleLogin = onGoogleLogin
         )
     }
 }
@@ -302,8 +286,7 @@ private fun AuthCard(
     onToggleShowPassword: () -> Unit,
     canSubmit: Boolean,
     onSubmit: () -> Unit,
-    onGoogleLogin: () -> Unit,
-    onComingSoon: (String) -> Unit
+    onGoogleLogin: () -> Unit
 ) {
     val tokens = MaterialTheme.field
     val scheme = MaterialTheme.colorScheme
@@ -494,20 +477,6 @@ private fun AuthCard(
                     )
                 }
             )
-            ProviderButton(
-                label = "Continue with Microsoft",
-                enabled = !busy,
-                onClick = { onComingSoon("Microsoft") },
-                comingSoon = true,
-                mark = { MicrosoftMark() }
-            )
-            ProviderButton(
-                label = "Continue with Yahoo",
-                enabled = !busy,
-                onClick = { onComingSoon("Yahoo") },
-                comingSoon = true,
-                mark = { YahooMark() }
-            )
 
             // Android-only guidance (see the file header): most researchers hold Google accounts and
             // the password fields exist for admin-issued accounts alone.
@@ -634,8 +603,7 @@ private fun ProviderButton(
     label: String,
     enabled: Boolean,
     onClick: () -> Unit,
-    mark: @Composable () -> Unit,
-    comingSoon: Boolean = false
+    mark: @Composable () -> Unit
 ) {
     val tokens = MaterialTheme.field
     val scheme = MaterialTheme.colorScheme
@@ -666,58 +634,5 @@ private fun ProviderButton(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false)
         )
-        if (comingSoon) {
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "Coming soon",
-                // web: rounded-full bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-700
-                style = FieldTextStyles.Badge,
-                color = scheme.onPrimaryContainer,
-                maxLines = 1,
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(scheme.primaryContainer)
-                    .padding(horizontal = 8.dp, vertical = 2.dp)
-            )
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
-// Provider marks — the official artwork, drawn from the same geometry as the web's inline SVGs so
-// no new drawable resources are needed and the two clients cannot drift.
-// ---------------------------------------------------------------------------------------------
-
-/** Four squares in a 21×21 box, exactly as `MicrosoftMark` lays them out. */
-@Composable
-private fun MicrosoftMark(size: androidx.compose.ui.unit.Dp = 20.dp) {
-    androidx.compose.foundation.Canvas(modifier = Modifier.size(size)) {
-        val unit = this.size.minDimension / 21f
-        fun cell(x: Float, y: Float, color: Color) = drawRect(
-            color = color,
-            topLeft = Offset(x * unit, y * unit),
-            size = androidx.compose.ui.geometry.Size(9 * unit, 9 * unit)
-        )
-        cell(1f, 1f, Color(0xFFF25022))
-        cell(11f, 1f, Color(0xFF7FBA00))
-        cell(1f, 11f, Color(0xFF00A4EF))
-        cell(11f, 11f, Color(0xFFFFB900))
-    }
-}
-
-/** The Yahoo mark, from the identical SVG path data the web ships, parsed at runtime. */
-private const val YAHOO_PATH =
-    "M0 6.71h4.62l2.69 6.88 2.72-6.88h4.5L7.76 22.5H3.23l1.86-4.32L0 6.71zm17.62 5.05h-5.03L17.06 " +
-        "1.5h5.02l-4.46 10.26zm-3.03 1.4c1.55 0 2.8 1.26 2.8 2.81a2.8 2.8 0 1 1-5.61 0c0-1.55 " +
-        "1.26-2.8 2.81-2.8z"
-
-@Composable
-private fun YahooMark(size: androidx.compose.ui.unit.Dp = 20.dp) {
-    val path = remember { PathParser().parsePathString(YAHOO_PATH).toPath() }
-    androidx.compose.foundation.Canvas(modifier = Modifier.size(size)) {
-        val scale = this.size.minDimension / 24f
-        scale(scale, scale, pivot = Offset.Zero) {
-            drawPath(path, Color(0xFF5F01D1))
-        }
     }
 }

@@ -83,7 +83,7 @@ test.describe("the bar refuses to exist rather than lie", () => {
     // would pick the first reading and put it on screen as a fact about the person.
     const bar = summaryBar(summary({ taskCount: 3, remainingCount: 3, percentComplete: 0, measuredCount: 0 }));
     expect(bar.percent).toBeNull();
-    expect(bar.caption).toContain("no honest bar");
+    expect(bar.caption).toContain("No progress to show");
     // And it must not leave the reader thinking the COUNTS are unreliable too — those are exact.
     expect(bar.caption).toContain("exact");
   });
@@ -113,7 +113,7 @@ test.describe("the caption says WHICH measure the bar is showing", () => {
     // rectangles, two completely different claims. The per-task note and the card's caption both
     // have to name the source.
     expect(progressSourceNote("derived")).not.toBe(progressSourceNote("reported"));
-    expect(progressSourceNote("derived")).toContain("repository");
+    expect(progressSourceNote("derived")).toContain("automatically");
     expect(progressSourceNote("reported")).toContain("Self-reported");
   });
 
@@ -124,7 +124,7 @@ test.describe("the caption says WHICH measure the bar is showing", () => {
   });
 
   test("no source at all explains the ABSENCE of a bar rather than describing one", () => {
-    expect(progressSourceNote(null)).toContain("no honest bar");
+    expect(progressSourceNote(null)).toContain("No progress to show");
   });
 
   test("all measured, some measured and none measured are three different sentences", () => {
@@ -260,7 +260,7 @@ test.describe("the approval dialog — what an admin is shown before they agree"
       targetCount: 10,
       derivedCount: 2
     });
-    expect(copy.note).toContain("can find 2");
+    expect(copy.note).toContain("2 recorded");
     expect(copy.note).toContain("10 of 10");
   });
 
@@ -276,8 +276,8 @@ test.describe("the approval dialog — what an admin is shown before they agree"
       derivedCount: null
     });
     expect(copy.note).toContain("not available");
-    expect(copy.note).toContain("their word alone");
-    expect(copy.note).not.toMatch(/can find 0\b/);
+    expect(copy.note).toContain("based on what they reported");
+    expect(copy.note).not.toMatch(/\b0 recorded\b/);
   });
 
   test("approving carries NO quota-rewrite warning, because the fill already happened", () => {
@@ -307,7 +307,7 @@ test.describe("the approval dialog — what an admin is shown before they agree"
     expect(copy.confirmLabel).toBe("Approve");
   });
 
-  test("SENDING BACK ADMITS THAT NO REASON TRAVELS WITH IT", () => {
+  test("SENDING BACK TELLS THE ADMIN THAT NO REASON TRAVELS WITH IT", () => {
     // There is no comment column on a task row. An admin who assumes the button delivers their
     // reason is sending silent rejections, and the researcher gets a task back with no explanation
     // and no way to ask for one.
@@ -319,8 +319,8 @@ test.describe("the approval dialog — what an admin is shown before they agree"
       targetCount: 10,
       derivedCount: 1
     });
-    expect(copy.note).toContain("not told a reason");
-    expect(copy.note).toContain("say why some other way");
+    expect(copy.note).toContain("won't see a reason here");
+    expect(copy.note).toContain("let them know why");
     expect(copy.confirmLabel).toBe("Send back");
   });
 

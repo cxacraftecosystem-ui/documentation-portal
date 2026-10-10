@@ -646,8 +646,7 @@ async def decide_workshop_access_request(
     if enum_str(row.status) != "PENDING":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Only a PENDING request can be decided. Use the workshop's assignment endpoints to "
-            "change an already-decided row.",
+            detail="This request has already been decided. Change access from the roster.",
         )
     await db.workshopassignment.update(
         where={"id": row.id},
@@ -972,9 +971,8 @@ async def revoke_workshop_assignment(
 _LIVE_TASK_STATUSES = ["OPEN", "IN_PROGRESS"]
 
 _REBIND_NOTE = (
-    "Cancelled automatically: this workshop's questionnaire was changed and this task was scoped to "
-    "sections of the previous one. There is no honest mapping between the two instruments' sections "
-    "— the codes collide and the meanings do not — so the work has to be re-assigned deliberately."
+    "Cancelled because this workshop's questionnaire changed and this task covered sections of the "
+    "previous one. Assign the work again."
 )
 
 

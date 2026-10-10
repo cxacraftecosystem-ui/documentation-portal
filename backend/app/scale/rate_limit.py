@@ -143,10 +143,7 @@ class RateLimitMiddleware:
         response = JSONResponse(
             status_code=429,
             content={
-                "detail": (
-                    "Too many requests. Wait a moment and try again — this limit exists to keep "
-                    "the server responsive for everyone."
-                ),
+                "detail": "Too many requests. Wait a moment and try again.",
                 "retryAfterSeconds": int(retry_after) + 1,
             },
             headers={

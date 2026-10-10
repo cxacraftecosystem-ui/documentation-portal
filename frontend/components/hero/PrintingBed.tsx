@@ -246,7 +246,7 @@ export default function PrintingBed({ census = CORPUS_CENSUS }: { census?: Corpu
             variants={item}
             className="font-display text-3xl font-bold tracking-tight text-white sm:text-4xl"
           >
-            What the repository holds today.
+            What the archive holds today.
           </motion.h2>
           <motion.p variants={item} className="mt-4 text-sm leading-relaxed text-white/60">
             Records held, as of {asOf}.

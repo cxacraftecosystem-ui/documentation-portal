@@ -1445,9 +1445,9 @@ Never reintroduce another mark.
 
 **Auth** is a split shell: left brand panel (deep purple, logo in a cream tile, gold-accent copy), right
 frosted `.glass-card` on a `.grad-mesh` backdrop. `android/.../ui/AuthScreen.kt` is built against this
-same description — **change them together.** Buttons: email+password, then "Continue with Google"
-(live), "Continue with Microsoft" and "Continue with Yahoo" — both render a **"Coming soon"** badge and
-toast, never a dead request.
+same description — **change them together.** Buttons: email+password, then "Continue with Google".
+Only providers that work get a button: never a disabled or "coming soon" one. Microsoft and Yahoo
+sign-in are recorded in docs/OPEN_FINDINGS.md (F3).
 
 **When a feature lands on both clients**, the shared vocabulary must come from the **server**
 (`rungCopy`, `reasonCopy`, `childLevel`, `levels`, `overridesAreRepositoryWide` …) so the two cannot

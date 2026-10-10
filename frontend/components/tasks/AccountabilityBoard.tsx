@@ -177,8 +177,7 @@ function TaskOverrideControls({
               : `You set this to ${taskStatusText(mark.next).toLowerCase()}`}
           </span>{" "}
           — {mark.from === "SUBMITTED" ? "your decision" : "an override"}, not{" "}
-          {assigneeName || "the assignee"}&apos;s own report. This sentence lives in this tab only; a reload shows the
-          status alone, because the repository has no column for who changed it.
+          {assigneeName || "the assignee"}&apos;s own report.
         </p>
       ) : null}
 
@@ -409,7 +408,7 @@ export function AccountabilityBoard({
     return (
       <EmptyState
         title="Nobody has been given work here yet"
-        body="Assign work on the first tab and this becomes the accountability view: who has what, what they say they have done, and what the repository can actually find."
+        body="Assign work on the first tab and this becomes the accountability view: who has what, what they say they have done, and what’s actually been recorded."
       />
     );
   }
@@ -458,8 +457,8 @@ export function AccountabilityBoard({
 
       <p className="text-xs leading-5 text-ink-500">
         <span className="font-semibold text-ink-700">Reported</span> is what the person says they have done.{" "}
-        <span className="font-semibold text-ink-700">In repository</span>{" "}
-        is what the database can find them having actually created inside the task&apos;s scope. Neither overwrites the
+        <span className="font-semibold text-ink-700">Recorded</span>{" "}
+        is what they&apos;ve actually created for this task. Neither overwrites the
         other — a wide gap is the thing to ask about.
         {canOverride ? (
           <>

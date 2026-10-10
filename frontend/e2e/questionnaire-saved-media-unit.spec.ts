@@ -386,7 +386,7 @@ test("f. the conflicting-questions 409 is listed question by question, never swa
   // The panel names the section and the prompt, which is what a researcher can act on — the server
   // resolves both for exactly this reason.
   expect(CODE).toMatch(/\{row\.sectionCode \? `\[\$\{row\.sectionCode\}\] ` : ""\}/);
-  expect(CODE).toMatch(/\{row\.prompt \?\? "A question this client could not name"\}/);
+  expect(CODE).toMatch(/\{row\.prompt \?\? "Unnamed question"\}/);
   expect(CODE).toMatch(/row\.fields\.map\(conflictFieldLabel\)/);
   // `answerText` / `notes` are columns; the reader should not have to know the schema.
   expect(CODE).toMatch(/answerText: "the written answer", notes: "the notes"/);

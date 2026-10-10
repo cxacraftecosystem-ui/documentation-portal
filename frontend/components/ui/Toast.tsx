@@ -13,7 +13,7 @@
  *  - the live region is rendered even when the queue is empty, because assistive tech only
  *    announces mutations *inside* a region that already existed; creating the region together
  *    with its first message is silently dropped by most screen readers;
- *  - `aria-live="polite"` never interrupts, which is right for "Coming soon" but means a toast
+ *  - `aria-live="polite"` never interrupts, which is right for a passing notice but means a toast
  *    is the wrong home for anything the user must act on;
  *  - the countdown pauses on hover *and* on focus, so a keyboard user tabbing to the dismiss
  *    button does not have the toast vanish mid-reach.

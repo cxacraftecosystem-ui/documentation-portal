@@ -265,7 +265,7 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         body = "Open the workshop you are documenting under — or create it — before you record " +
             "anything else. Every record you make is scoped to a workshop. Products, tools and " +
             "interviews all carry a linked workshop, and the Data Browser opens on \"By workshop\", " +
-            "which files the whole repository under the workshop it was recorded in. On a create " +
+            "which files every record under the workshop it was recorded in. On a create " +
             "form the most recent workshop you have access to is preselected, so getting this right " +
             "once saves you picking it on every screen afterwards.",
         // One string literal per line, and never a `+` concatenation inside an entry: these are
@@ -295,7 +295,7 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.Brush,
         destination = NavDestination.ADD_CRAFT,
         body = "Add the craft being documented so artisans, products and tools have something to " +
-            "hang off. Craft is the shared vocabulary of the repository: artisans link to a craft, " +
+            "hang off. Craft is the shared vocabulary everyone uses: artisans link to a craft, " +
             "products and tools inherit the craft name from it, and the Data Browser groups every " +
             "workshop's contents by craft. Adding it once keeps spellings consistent across " +
             "everyone's records.",
@@ -477,8 +477,8 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
             // handset's sheet as well as for the browser's dropdown.
             "A tool can be linked to several crafts and several artisans at once — tick as many as " +
                 "apply, and the craft name box fills with all of them in the order you picked.",
-            "\"Process stages\" archives your captures in order as STAGE_STEP_1, STAGE_STEP_2, … " +
-                "so shoot them in sequence.",
+            "\"Process stages\" keeps your captures in the order you take them, so shoot them in " +
+                "sequence.",
             // "Assign tools to artisans" is this handset's own menu row, at AppNavigation.kt:364,
             // with the identical label. Verbatim holds.
             "You can also hand tools to specific artisans later from \"Assign tools to artisans\" " +
@@ -493,7 +493,7 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         destination = NavDestination.TAKE_INTERVIEW,
         body = "Sit down with the artisan and work through the interview sections, recording each " +
             "answer as audio. The questionnaire is the artisan speaking in their own voice and " +
-            "their own language. Recorded audio is auto-transcribed on the server, so you get both " +
+            "their own language. Recorded audio is transcribed automatically, so you get both " +
             "the original recording and searchable text without typing during the interview.",
         // REGENERATED AGAINST THE FORM ON 2026-09-16, and now held to it rather than to the other
         // register: `shared/questionnaire-form-contract.json` declares this form's boxes once and
@@ -545,7 +545,7 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         body = "Upload the photographs, video, audio and files that do not belong to any single " +
             "record. Field work produces context that no form has a slot for: the road into the " +
             "village, the market, an unplanned conversation. Miscellaneous Media keeps that " +
-            "material inside the repository instead of on a phone that gets wiped.",
+            "material with your records instead of on a phone that gets wiped.",
         fields = listOf(
             "Capture media — images, video, audio and documents",
             "Media title / object name",
@@ -586,9 +586,8 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         body = "Everything you submit goes into the review queue and comes back Approved, " +
             "Rejected, or Sent for revision. Review is what turns a pile of field notes into a " +
             "dataset anyone can cite. It also means you are never the last check on your own work " +
-            "— a reviewer above your tier reads every record before it counts as final. This " +
-            "handset has no separate review queue: the \"Review\" row opens the record browser, " +
-            "which is the one surface where a reviewer can read a submission and act on it.",
+            "— a reviewer above your tier reads every record before it counts as final. On the " +
+            "phone, \"Review\" opens the record browser, where you read a submission and act on it.",
         fields = listOf(
             "Pending — submitted, waiting for a reviewer",
             "Approved — final, counted in the dataset",
@@ -609,8 +608,8 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         title = "View Data · Browse records",
         icon = Icons.Filled.Storage,
         destination = NavDestination.VIEW_DATA,
-        body = "Browse the whole repository as a directory tree and export a report of any " +
-            "subtree. This is where the documentation stops being data entry and starts being " +
+        body = "Browse every record as folders and export a report of any " +
+            "folder. This is where the documentation stops being data entry and starts being " +
             "research material: the same records, filed three different ways, previewable in place " +
             "and downloadable as a spreadsheet.",
         fields = listOf(
@@ -621,8 +620,8 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
             "Download any folder as a zip, with content-type filters",
         ),
         watch = listOf(
-            "Pick a folder, then use the breadcrumb to move back up — the tree loads lazily as you " +
-                "expand it.",
+            "Pick a folder, then use the breadcrumb to move back up — each folder loads when you " +
+                "open it.",
             "Transcripts and AI text render as formatted Markdown in the preview pane, not raw text.",
             /*
              * ⚠ THE LAST FIVE WORDS ARE NOT THE WEB'S. The web ends "use Search to find records
@@ -684,8 +683,8 @@ private val walkthroughOutro = WalkStep(
         "the steps have video. Every tool has a material, a maker and a replacement cost. The " +
         "interview has no unexplained gaps. Anything you shot that has no home is in " +
         "Miscellaneous Media. And before the signal goes for good, check that everything you " +
-        "recorded has actually left this handset — a record still waiting here is a record the " +
-        "repository has never seen.",
+        "recorded has actually left this handset — a record still waiting here has not been " +
+        "uploaded.",
 )
 
 /**

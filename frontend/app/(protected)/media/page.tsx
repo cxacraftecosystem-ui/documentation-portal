@@ -344,7 +344,7 @@ function MediaPageBody() {
         "Remove this media file?",
         // Android's "Permanently delete recording?" says the same thing: the file leaves storage, so
         // there is nothing left to re-link afterwards.
-        "This deletes the file from storage and its record from the database. It cannot be undone, and the file can no longer be re-linked.",
+        "This permanently deletes the file. It can’t be undone.",
         "Any transcript generated from it is deleted with it."
       ),
       confirmLabel: "Remove file"
@@ -368,7 +368,7 @@ function MediaPageBody() {
     <>
       <PageHeader
         title="Miscellaneous Media"
-        description="Upload media — images, videos, audio and files go to the same repository backend. Audio is queued for transcription after upload."
+        description="Upload images, videos, audio and files. Audio is transcribed after upload."
         icon={<Images className="h-5 w-5" aria-hidden />}
       />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
@@ -378,7 +378,7 @@ function MediaPageBody() {
           files={selectedFiles}
           onFilesChange={setSelectedFiles}
           title="Capture media"
-          description="Images, videos, audio and files upload to the same repository backend. Audio is queued for transcription after upload."
+          description="Upload images, videos, audio and files. Audio is transcribed after upload."
         />
         {/*
           THE ONE PLACE THIS FORM EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.

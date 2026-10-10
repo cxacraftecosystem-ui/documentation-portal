@@ -307,7 +307,7 @@ function DashboardView() {
       <section className="mt-8">
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <h2 className="font-display text-lg font-bold text-ink-900">At a glance</h2>
-          <p className="text-xs text-ink-500">Everything in the repository, not only your own entries.</p>
+          <p className="text-xs text-ink-500">Every record, not only your own.</p>
         </div>
         {!stats && !error ? (
           <div className="panel p-4 text-sm text-ink-500">Loading...</div>
@@ -381,7 +381,7 @@ function DashboardView() {
         <div className="border-b border-line-200 px-4 py-3">
           <h2 className="font-display font-bold text-ink-900">Recent submissions</h2>
           <p className="mt-0.5 text-xs text-ink-500">
-            The newest entries across the repository, whoever filed them.
+            The newest records, whoever added them.
           </p>
         </div>
         {!stats ? (

@@ -703,7 +703,7 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
                     href={enterHref}
                     className="inline-flex h-12 items-center rounded-md bg-purple-700 px-8 font-display text-lg font-bold tracking-tight text-white shadow-cta transition hover:-translate-y-0.5 hover:bg-purple-600 active:translate-y-0 active:scale-[0.98]"
                   >
-                    {user ? "Open the app" : "Enter the repository"}
+                    {user ? "Open the app" : "Sign in"}
                   </Link>
                 </motion.div>
                 <motion.div {...heroEntrance(reduce, 0.78, 0.5, { y: 16 })}>
@@ -797,8 +797,8 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
                   ))}
                 </ul>
                 <p className="mt-4 text-xs leading-relaxed text-white/50">
-                  The anatomy of a finished transcript — the wording is illustrative, not an
-                  interview from the repository. The spoken language is detected rather than assumed:
+                  The anatomy of a finished transcript — the wording is illustrative, not a real
+                  interview from the archive. The spoken language is detected rather than assumed:
                   these recordings code-switch between Hindi and English, and some are in Marwari or
                   Garhwali.
                 </p>
@@ -822,7 +822,7 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
 
       {/* ── What the repository holds ────────────────────────────────────── */}
       <section id="records" className="mx-auto max-w-6xl px-6 py-24">
-        <p className="eyebrow mb-3">One connected repository</p>
+        <p className="eyebrow mb-3">One connected archive</p>
         <h2 className="max-w-2xl font-display text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
           Eight record types, linked to each other from the moment they are captured.
         </h2>
@@ -910,7 +910,7 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
             href={enterHref}
             className="inline-flex h-12 items-center rounded-md bg-white px-8 font-display text-lg font-bold tracking-tight text-purple-800 shadow-lg transition hover:-translate-y-0.5 active:translate-y-0"
           >
-            {user ? "Open the app" : "Enter the repository"}
+            {user ? "Open the app" : "Sign in"}
           </Link>
           <Link
             href="/guide"
@@ -966,7 +966,7 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
               sentence this one replaced is the proof of how easily such a claim travels.
             */}
             <p className="text-base leading-relaxed text-ink-700">
-              A Centre of Excellence project at IIT Kharagpur. The fieldwork this repository holds
+              A Centre of Excellence project at IIT Kharagpur. The fieldwork this archive holds
               was recorded at the Centre of Excellence, Handicrafts on the Kharagpur campus, while
               the crafts themselves come from the artisans&rsquo; own places, a long way from it. The
               Office of the Development Commissioner (Handicrafts), under the Ministry of Textiles,
@@ -1038,9 +1038,8 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
             institutional images above avoid with an empty alt, for the same reason.
           */}
           <p className="max-w-2xl text-sm leading-relaxed text-ink-500">
-            The Centre keeps its own site — its account of itself, its research, and the crafts it
-            holds. It is a separate application rather than a section of this one, so this link
-            leaves the repository:{" "}
+            The Centre keeps its own website — its account of itself, its research, and the crafts it
+            holds:{" "}
             <a
               href={CENTRE_OF_EXCELLENCE_HREF}
               target="_blank"

@@ -1264,9 +1264,8 @@ QUESTION_SET_CONTENTS = "Questions only — no answers, no artisans' names, no r
 _QUESTION_SET_NOTE = (
     "This is a QUESTION SET: one questionnaire's questions and nothing else. It carries no answers, "
     "no artisans' names and no recorded interviews, which is what makes it safe to start a new "
-    "questionnaire from. 'Questionnaire ID' is blank and the Question ID column is empty ON "
-    "PURPOSE — uploading this file creates a NEW questionnaire rather than editing the one it came "
-    "from. The Answer column is inert: answers are recorded in the app, against an artisan."
+    "questionnaire from. Leave 'Questionnaire ID' and the Question ID column blank: uploading this "
+    "file creates a NEW questionnaire rather than editing the one it came from. The Answer column is inert: answers are recorded in the app, against an artisan."
 )
 
 

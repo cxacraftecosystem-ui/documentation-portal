@@ -30,7 +30,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-bg-0 text-sm text-ink-500">
-        Opening the repository…
+        Loading…
       </main>
     );
   }
@@ -144,8 +144,7 @@ function AdminViewHidden({ route, onEnable }: { route: AdminChromeRoute; onEnabl
         {route.label} is hidden while admin view is off
       </h1>
       <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-ink-500">
-        {route.blurb} You switched admin view off, so the repository is behaving exactly as it does for an ordinary
-        user.
+        {route.blurb} You’ve turned admin view off, so you see what a regular user sees.
       </p>
       <p className="mt-3 text-xs text-ink-500">
         Your access has not changed — this is your own setting, not a permission you are missing.

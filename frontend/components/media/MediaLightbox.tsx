@@ -201,7 +201,7 @@ export function MediaPreviewTile({
 async function saveToDevice(url: string, name: string) {
   try {
     const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) throw new Error("The file couldn’t be downloaded.");
     const blob = await response.blob();
     const objectUrl = URL.createObjectURL(blob);
     const anchor = document.createElement("a");

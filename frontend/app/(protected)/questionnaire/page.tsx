@@ -1216,9 +1216,9 @@ function QuestionnairePageBody() {
       note: (
         <>
           Only what is <span className="font-semibold">already saved</span> on this interview moves. Anything
-          typed or recorded in this form since it was opened has not reached the server and will be lost — cancel,
-          write it down, and put the original artisans back if you need to keep it. If both interviews answer the
-          same question differently the move is refused and nothing at all changes.
+          you’ve typed or recorded since opening this form hasn’t been saved and will be lost — cancel, write it
+          down, and put the original artisans back if you need to keep it. If the two interviews answer a question
+          differently, nothing is moved.
         </>
       ),
       confirmLabel: "Move this interview in",
@@ -1724,16 +1724,15 @@ function QuestionnairePageBody() {
             differently in both interviews
           </h2>
           <p className="mt-1 text-sm text-amber-800">
-            Both interviews already answer these questions, and they disagree. The move was refused rather than a
-            winner picked, so every word on both sides is still where it was. Decide which wording is right, correct
-            it by hand so the two agree, then ask for the move again.
+            Both interviews answer these questions differently, so nothing was moved and both are unchanged. Decide
+            which wording is right, make the answers match, then try again.
           </p>
           <ul className="mt-3 grid gap-2">
             {mergeConflicts.map((row, index) => (
               <li key={row.questionId || index} className="rounded-md border border-amber-500 bg-card/70 p-2 text-xs">
                 <div className="font-semibold text-ink">
                   {row.sectionCode ? `[${row.sectionCode}] ` : ""}
-                  {row.prompt ?? "A question this client could not name"}
+                  {row.prompt ?? "Unnamed question"}
                 </div>
                 <div className="mt-1 text-amber-800">
                   {row.fields.length
@@ -2095,9 +2094,8 @@ function QuestionnairePageBody() {
               {editing ? (
                 <>
                   Another interview — <span className="font-medium">{existingEntry.title}</span> — already covers this
-                  exact set of artisans on this questionnaire. There is one entry per set, so saving this edit with
-                  these artisans ticked will be refused. Put the original artisans back, or cancel and edit that
-                  interview instead.
+                  exact set of artisans on this questionnaire. This edit can’t be saved with these artisans ticked.
+                  Put the original artisans back, or cancel and edit that interview instead.
                 </>
               ) : (
                 <>
@@ -2183,7 +2181,7 @@ function QuestionnairePageBody() {
           files={mediaFiles}
           onFilesChange={setMediaFiles}
           title="Interview audio"
-          description="Record or upload interview audio. The backend will transcribe it when a transcription provider API key (ElevenLabs, Deepgram, or OpenAI) is configured; otherwise the audio is still saved."
+          description="Record or upload interview audio. It is transcribed automatically when transcription is available, and always saved."
           allowDocuments={false}
           allowedTypes={["AUDIO"]}
         />
@@ -2885,8 +2883,8 @@ function CompletionMatrixPanel({
       {matrix && (matrix.unassignedInterviews ?? 0) > 0 ? (
         <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-100 px-3 py-2 text-xs leading-5 text-amber-800">
           <span className="font-semibold">
-            {matrix.unassignedInterviews} interview{matrix.unassignedInterviews === 1 ? "" : "s"} in the
-            repository name no workshop
+            {matrix.unassignedInterviews} interview{matrix.unassignedInterviews === 1 ? " has" : "s have"} no
+            workshop
           </span>
           , so {matrix.unassignedInterviews === 1 ? "it counts" : "they count"} towards no workshop scope and
           nothing {matrix.unassignedInterviews === 1 ? "it holds" : "they hold"} turns a cell green here.
@@ -2984,9 +2982,8 @@ function CompletionMatrixPanel({
               that stays green when the scope moves. */}
           {matrix.overridesAreRepositoryWide ? (
             <p className="mt-2 text-[11px] leading-4 text-ink-500">
-              The workshop scope narrows the green derived from recordings. An admin override is a judgement
-              about that artisan&rsquo;s section across the whole repository, so a marked cell keeps its
-              colour under every scope.
+              The workshop scope narrows the green derived from recordings. An admin&rsquo;s mark applies
+              across all workshops, so a marked cell keeps its colour under every scope.
             </p>
           ) : null}
         </>

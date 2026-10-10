@@ -278,8 +278,8 @@ test("the value written matches the two decimals the button prints and the box a
 test("a failed read says WHICH failure it was, because they need different things done about them", () => {
   /*
     THE ERRORS ARE BUILT THE WAY `apiFetch` BUILDS THEM, PAYLOAD AND ALL, and that is not decoration.
-    `apiFetch` sets `message = describeApiDetail(detail, statusText || "The server refused the request
-    (HTTP ${status}).")` and `payload = body`, so the BODY is the only place "the server put a sentence
+    `apiFetch` sets `message = describeApiDetail(detail, statusText || "Something went wrong. Try
+    again.")` and `payload = body`, so the BODY is the only place "the server put a sentence
     here" is visible — `statusText` is EMPTY over HTTP/2, which every deployed request is. An error
     constructed as `new ApiError(503, sentence, null)` is a shape `apiFetch` cannot produce, and a test
     written that way could not catch a classifier that quotes a fabricated message.
@@ -304,20 +304,20 @@ test("a failed read says WHICH failure it was, because they need different thing
   //    send an operator to add a key that changes nothing. `ApiUnconfiguredError` IS an `ApiError`
   //    with status 503, so this is the guard that has to be explicit rather than ordering-dependent.
   const appUnconfigured = gridFailureStatus(new ApiUnconfiguredError());
-  expect(appUnconfigured).toContain("address of its data service");
+  expect(appUnconfigured).toContain("connect right now");
   expect(classifyMeasurementFailure(new ApiUnconfiguredError()).kind).toBe("app-unconfigured");
   expect(classifyMeasurementFailure(new ApiUnconfiguredError()).serverSaidIt, "no server said this").toBe(false);
 
   // 4. AND A 503 WITH NO BODY BEHIND IT IS NOT THE UNCONFIGURED SENTENCE. A gateway in a deploy window
   //    answers with no `detail`, so `ApiError.message` is `apiFetch`'s own last resort — the literal
-  //    "The server refused the request (HTTP 503)." Printing that would show a status code on a screen
-  //    whose whole promise is that it never does, dressed as the server naming a missing key.
-  const bodyless = new ApiError(503, "The server refused the request (HTTP 503).", null);
-  expect(gridFailureStatus(bodyless)).not.toContain("HTTP 503");
+  //    "Something went wrong. Try again." Printing that would say nothing useful on a screen whose
+  //    whole promise is a specific answer, dressed as the server naming a missing key.
+  const bodyless = new ApiError(503, "Something went wrong. Try again.", null);
+  expect(gridFailureStatus(bodyless)).not.toContain("Something went wrong");
   expect(gridFailureStatus(bodyless)).not.toBe(GRID_FAILED_STATUS);
   expect(classifyMeasurementFailure(bodyless).serverSaidIt, "the reply carried no words").toBe(false);
   // It still says the true thing — nobody has switched this on here, and it is not the photograph.
-  expect(gridFailureStatus(bodyless)).toContain("administers the server");
+  expect(gridFailureStatus(bodyless)).toContain("an administrator can turn it on");
 
   // And they are genuinely distinguishable, which is the whole claim.
   const said = [

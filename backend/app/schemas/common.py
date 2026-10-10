@@ -109,10 +109,9 @@ LOCATION_REQUIRED_MESSAGE = (
 # reaches it — an old client, a hand-written request — is told which two boxes to fill and where the
 # names come from, rather than being told a field is missing.
 STATED_ADDRESS_REQUIRED_MESSAGE = (
-    "The state and the district of the place this record is about are required. They are a "
-    "STATEMENT about the subject, not a reading from the device: the coordinates say where the "
-    "device was when the record was made, which is often a desk in another state. Choose both from "
-    "the lists GET /reference/address serves."
+    "The state and the district of the place this record is about are required. They describe the "
+    "subject, not the device: the coordinates say where the device was when the record was made, "
+    "which is often a desk in another state. Choose the state and district from the lists."
 )
 
 LOCATION_NOT_CLEARABLE_MESSAGE = (

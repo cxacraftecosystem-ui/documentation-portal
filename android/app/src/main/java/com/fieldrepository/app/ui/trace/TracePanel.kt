@@ -1121,9 +1121,8 @@ private fun TracePanelOpen(
         if (missing.isNotEmpty()) {
             TracePanelNote(
                 warning = true,
-                text = "${missing.size} of this app's ${TRACE_PARAM_COUNT} settings were not offered " +
-                    "by the tracing engine on this device and are not shown: ${missing.joinToString(", ")}. " +
-                    "The trace still runs; this app and the engine are a version apart.",
+                text = "${missing.size} of ${TRACE_PARAM_COUNT} settings aren't available on this " +
+                    "phone, so they are not shown. The trace still works.",
             )
         }
 
@@ -1665,10 +1664,8 @@ private fun TraceAdvancedSection(
             */
             TracePanelLabel("The other settings")
             Text(
-                "None of this app's other $TRACE_ADVANCED_COUNT settings were offered by the " +
-                    "tracing engine on this device, so there is nothing behind this section. The " +
-                    "trace still runs on the settings above; this app and the engine are a version " +
-                    "apart.",
+                "None of the other $TRACE_ADVANCED_COUNT settings are available on this phone. " +
+                    "The trace still works with the settings above.",
                 color = MaterialTheme.field.muted,
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
@@ -1756,16 +1753,6 @@ private fun TraceAdvancedSection(
                     onPatch = onPatch,
                 )
             }
-        }
-        TRACE_CUT.forEach { (key, why) ->
-            // The cut list is DRAWN, not merely commented. Somebody looking for the thinning control
-            // needs to find the answer where they looked for the control.
-            Text(
-                "“$key” is deliberately not offered here. $why",
-                color = MaterialTheme.field.muted,
-                fontSize = 11.sp,
-                lineHeight = 16.sp,
-            )
         }
     }
 }
