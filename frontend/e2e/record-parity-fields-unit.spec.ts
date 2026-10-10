@@ -258,9 +258,9 @@ test("both height boxes point at one sentence that says which is which", () => {
   expect(paragraph, "the retired instruction is gone from the screen").not.toContain("leave it empty unless");
   expect(paragraph, "and the new truth is stated").toContain("filling either fills the other");
   expect(paragraph, "with the factor, so nobody has to guess what it converted by").toContain("2.54");
-  // It must stay honest about the rows that predate the pairing: this form NEVER converts on load,
-  // so an old record can show two figures that disagree and the note is the only thing that says so.
-  expect(paragraph, "it admits the old rows").toContain("before this pairing existed");
+  // This form NEVER converts on load, so an old record can show two figures that disagree and the
+  // note is the only thing that says so.
+  expect(paragraph, "it warns about disagreeing pairs").toContain("may have two numbers that disagree");
   // The standalone box is named as standalone, or a reader is left to infer it from an absence.
   expect(paragraph, "and Length is declared to have no partner").toContain("has no centimetre box");
 });

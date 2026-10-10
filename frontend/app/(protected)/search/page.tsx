@@ -250,11 +250,11 @@ export default function SearchPage() {
     <>
       <PageHeader
         title="Search"
-        description="Search across artisans, workshops, products, tools and media with shared API filters."
+        description="Search artisans, workshops, products, tools and media with shared filters."
         icon={<Search className="h-5 w-5" aria-hidden />}
       />
       <form onSubmit={submit} className="panel mb-5 grid gap-3 p-4 md:grid-cols-[1fr_220px_auto]">
-        <input className="field-input" placeholder="Search repository" value={query} onChange={(event) => setQuery(event.target.value)} />
+        <input className="field-input" placeholder="Search records" value={query} onChange={(event) => setQuery(event.target.value)} />
         <input
           className="field-input"
           placeholder="Place filter"

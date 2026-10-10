@@ -78,7 +78,7 @@ import {
 import { apiFetch, buildQuery } from "@/lib/api";
 
 const SCOPE_COPY: Record<MapPointsResponse["scope"], string> = {
-  all: "Everything in the repository",
+  all: "All records",
   filtered: "The records matching your filters",
   record: "One record, shown in context"
 };
@@ -659,8 +659,8 @@ export default function MapPage() {
                           {/* The bucket names arrive lower-case from the API, and this is the start
                               of a sentence — "media carry no place" read as a broken line. */}
                           <span className="capitalize">{summary.originExcludes.join(", ")}</span>{" "}
-                          carry no place column of their own, so they are placed only by the address on
-                          the location they were captured at.
+                          have no place of their own, so they’re shown at the address where they were
+                          captured.
                         </>
                       ) : null}
                       {summary.captureTruncated ? (

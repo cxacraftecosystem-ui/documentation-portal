@@ -217,7 +217,7 @@ export default function UsersPage() {
           <span className="font-medium text-ink-900">{user.name || user.email}</span> loses access immediately and
           cannot sign in again. This action cannot be undone.
         </>,
-        "Records they documented stay in the repository, still attributed to them."
+        "Their records are kept and still credited to them."
       )
     );
     if (!ok) return;

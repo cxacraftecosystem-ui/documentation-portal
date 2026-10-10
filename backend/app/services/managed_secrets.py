@@ -105,9 +105,7 @@ SOURCE_ENVIRONMENT = "environment"
 SOURCE_UNSET = "unset"
 
 _UNDECRYPTABLE_ERROR = (
-    "Stored value could not be decrypted (SECRETS_ENCRYPTION_KEY changed, or JWT_SECRET was rotated "
-    "while no SECRETS_ENCRYPTION_KEY was set). Re-enter the key to fix it; the environment value is "
-    "being used meanwhile."
+    "This saved key can't be read. Enter it again; the default is used meanwhile."
 )
 
 
@@ -223,7 +221,7 @@ def _probe_http(
 ) -> tuple[bool, str | None]:
     """GET *url* and turn the outcome into (ok, short human error).
 
-    Deliberately reports only the status code, never the response body: provider error payloads
+    Reports a fixed sentence per outcome, never the response body: provider error payloads
     sometimes echo the offending key back, and this string is persisted and shown in the UI.
     """
     try:
@@ -231,16 +229,16 @@ def _probe_http(
             url, headers=headers or {}, params=params or {}, timeout=_PROBE_TIMEOUT_SECONDS
         )
     except requests.Timeout:
-        return False, f"No response within {_PROBE_TIMEOUT_SECONDS}s"
-    except requests.RequestException as exc:
-        return False, _redact(f"Network error: {type(exc).__name__}", secret)
+        return False, "The provider didn't answer in time. Try again later."
+    except requests.RequestException:
+        return False, "The provider couldn't be reached. Try again later."
     if response.ok:
         return True, None
     if response.status_code in {401, 403}:
-        return False, f"Key rejected by the provider (HTTP {response.status_code})"
+        return False, "The provider rejected this key."
     if response.status_code == 429:
-        return False, "Key reached its rate limit (HTTP 429) — it is valid but throttled"
-    return False, f"Provider returned HTTP {response.status_code}"
+        return False, "This key works but has reached its usage limit. Try again later."
+    return False, "The provider couldn't check this key. Try again later."
 
 
 def _redact(message: str, secret: str) -> str:
@@ -331,7 +329,7 @@ MANAGED_KEYS: dict[str, ManagedKey] = {
             label="OpenAI",
             description=(
                 "Transcript refinement and translation (chat model), and Whisper transcription when "
-                "neither ElevenLabs nor Deepgram is configured."
+                "neither ElevenLabs nor Deepgram has a key."
             ),
             settings_attr="openai_api_key",
             probe=_probe_openai,
@@ -392,8 +390,7 @@ MANAGED_KEYS: dict[str, ManagedKey] = {
             key="GOOGLE_CLIENT_ID",
             label="Google OAuth client ID",
             description=(
-                "Web client ID accepted for Google sign-in. Public by nature, but rotating it here "
-                "beats redeploying. (Format-checked only — a client ID has no test endpoint.)"
+                "Used for Google sign-in. Only its format is checked."
             ),
             settings_attr="google_client_id",
             probe=_probe_google_client_id,
@@ -765,5 +762,6 @@ def _safe_probe(spec: ManagedKey, value: str) -> tuple[bool, str | None]:
     try:
         ok, error = spec.probe(value)
     except Exception as exc:  # noqa: BLE001 - any provider client quirk becomes a readable verdict
-        return False, _redact(f"Probe failed: {type(exc).__name__}", value)
+        logger.warning("Managed secret %s probe raised %s", spec.key, type(exc).__name__)
+        return False, "This key couldn't be checked. Try again later."
     return ok, _redact(error, value) if error else None

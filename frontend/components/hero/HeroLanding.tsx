@@ -558,24 +558,24 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section
         ref={rootRef}
-        className="relative isolate flex min-h-[100svh] flex-col overflow-hidden bg-purple-950"
+        className="relative isolate flex min-h-svh flex-col overflow-hidden bg-purple-950"
         aria-label="Field Repository — living craft documentation"
       >
         {/* Mesh background: two purple orbs + one faint gold, plus fine grain. */}
         <motion.div aria-hidden style={{ y: yOrbs }} className="pointer-events-none absolute inset-0">
           <motion.div
             {...drift({ x: "4%", y: "-4%", scale: 1.05 }, 14)}
-            className="absolute -left-40 -top-48 h-[42rem] w-[42rem] rounded-full opacity-80 [will-change:transform]"
+            className="absolute -left-40 -top-48 h-168 w-168 rounded-full opacity-80 will-change-transform"
             style={{ background: "radial-gradient(circle, oklch(0.47 0.198 305 / 0.5), transparent 62%)" }}
           />
           <motion.div
             {...drift({ x: "-4%", y: "4%", scale: 1.03 }, 17)}
-            className="absolute -right-48 top-1/4 h-[40rem] w-[40rem] rounded-full opacity-70 [will-change:transform]"
+            className="absolute -right-48 top-1/4 h-160 w-160 rounded-full opacity-70 will-change-transform"
             style={{ background: "radial-gradient(circle, oklch(0.4 0.18 305 / 0.55), transparent 64%)" }}
           />
           <motion.div
             {...drift({ x: "-3%", y: "-3%", scale: 1.06 }, 21)}
-            className="absolute bottom-[-12rem] left-1/3 h-[36rem] w-[36rem] rounded-full opacity-40"
+            className="absolute -bottom-48 left-1/3 h-144 w-144 rounded-full opacity-40"
             style={{ background: "radial-gradient(circle, oklch(0.7 0.145 80 / 0.28), transparent 60%)" }}
           />
           {/* State 1 of 3: bare ground. One property change on the grain layer that was already
@@ -667,10 +667,14 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
           <div className="grid items-center gap-14 lg:grid-cols-[1.05fr_0.95fr] lg:gap-10">
             {/* Copy */}
             <div className="max-w-2xl">
-              <motion.p {...heroEntrance(reduce, 0.05, 0.5, { y: 18 })} className="eyebrow mb-5 !text-gold-300">
+              <motion.p {...heroEntrance(reduce, 0.05, 0.5, { y: 18 })} className="eyebrow mb-5 text-gold-300!">
                 Living craft documentation
               </motion.p>
-              <h1 className="font-display text-4xl font-extrabold leading-[1.05] tracking-tight text-white sm:text-5xl lg:text-6xl">
+              {/* `sm:leading-none` keeps the line height this headline has always had. Tailwind 3 let
+                  `sm:text-5xl` and `lg:text-6xl` reset it to 1 at those widths, so `leading-[1.05]`
+                  only ever applied below `sm`; Tailwind 4's size utilities defer to an explicit
+                  `leading-*` at every width, which grew the desktop headline by 9px. */}
+              <h1 className="font-display text-4xl font-extrabold leading-[1.05] tracking-tight text-white sm:text-5xl sm:leading-none lg:text-6xl">
                 {HEADLINE.map((line, index) => (
                   // The mask: each line flies up out of its own overflow-hidden slot.
                   <span key={line.text} className="block overflow-hidden pb-[0.08em]">
@@ -699,7 +703,7 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
                     href={enterHref}
                     className="inline-flex h-12 items-center rounded-md bg-purple-700 px-8 font-display text-lg font-bold tracking-tight text-white shadow-cta transition hover:-translate-y-0.5 hover:bg-purple-600 active:translate-y-0 active:scale-[0.98]"
                   >
-                    {user ? "Open the app" : "Enter the repository"}
+                    {user ? "Open the app" : "Sign in"}
                   </Link>
                 </motion.div>
                 <motion.div {...heroEntrance(reduce, 0.78, 0.5, { y: 16 })}>
@@ -765,7 +769,7 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
                     Illustrative
                   </span>
                 </div>
-                <div className="space-y-3 rounded-md bg-white/[0.06] p-4 text-sm leading-relaxed text-white/80">
+                <div className="space-y-3 rounded-md bg-white/6 p-4 text-sm leading-relaxed text-white/80">
                   <p>
                     <strong className="text-gold-200">Interviewer:</strong> Each question from the
                     questionnaire, in the order it was asked.
@@ -793,8 +797,8 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
                   ))}
                 </ul>
                 <p className="mt-4 text-xs leading-relaxed text-white/50">
-                  The anatomy of a finished transcript — the wording is illustrative, not an
-                  interview from the repository. The spoken language is detected rather than assumed:
+                  The anatomy of a finished transcript — the wording is illustrative, not a real
+                  interview from the archive. The spoken language is detected rather than assumed:
                   these recordings code-switch between Hindi and English, and some are in Marwari or
                   Garhwali.
                 </p>
@@ -818,7 +822,7 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
 
       {/* ── What the repository holds ────────────────────────────────────── */}
       <section id="records" className="mx-auto max-w-6xl px-6 py-24">
-        <p className="eyebrow mb-3">One connected repository</p>
+        <p className="eyebrow mb-3">One connected archive</p>
         <h2 className="max-w-2xl font-display text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
           Eight record types, linked to each other from the moment they are captured.
         </h2>
@@ -906,7 +910,7 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
             href={enterHref}
             className="inline-flex h-12 items-center rounded-md bg-white px-8 font-display text-lg font-bold tracking-tight text-purple-800 shadow-lg transition hover:-translate-y-0.5 active:translate-y-0"
           >
-            {user ? "Open the app" : "Enter the repository"}
+            {user ? "Open the app" : "Sign in"}
           </Link>
           <Link
             href="/guide"
@@ -962,7 +966,7 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
               sentence this one replaced is the proof of how easily such a claim travels.
             */}
             <p className="text-base leading-relaxed text-ink-700">
-              A Centre of Excellence project at IIT Kharagpur. The fieldwork this repository holds
+              A Centre of Excellence project at IIT Kharagpur. The fieldwork this archive holds
               was recorded at the Centre of Excellence, Handicrafts on the Kharagpur campus, while
               the crafts themselves come from the artisans&rsquo; own places, a long way from it. The
               Office of the Development Commissioner (Handicrafts), under the Ministry of Textiles,
@@ -1034,9 +1038,8 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
             institutional images above avoid with an empty alt, for the same reason.
           */}
           <p className="max-w-2xl text-sm leading-relaxed text-ink-500">
-            The Centre keeps its own site — its account of itself, its research, and the crafts it
-            holds. It is a separate application rather than a section of this one, so this link
-            leaves the repository:{" "}
+            The Centre keeps its own website — its account of itself, its research, and the crafts it
+            holds:{" "}
             <a
               href={CENTRE_OF_EXCELLENCE_HREF}
               target="_blank"

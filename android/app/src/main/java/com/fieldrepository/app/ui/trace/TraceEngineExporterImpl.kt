@@ -357,8 +357,7 @@ private fun traceExportEngineFormat(format: TraceExportFormat): ExportFormat? {
  * is a button that does nothing.
  */
 private fun traceUnwritableSentence(format: TraceExportFormat): String =
-    "This app cannot write ${format.label} files. The SVG and the picture still save, and the portal " +
-        "can write every format from this same photograph on a laptop when you next have a connection."
+    "This drawing couldn't be saved as ${format.label}. Save it as an SVG or a picture instead."
 
 /**
  * The sentence for an export that ran out of memory.

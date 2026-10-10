@@ -1082,7 +1082,7 @@ class FieldRepository(
         val out = File(dir, "field-repository-v$versionCode.apk")
         val request = Request.Builder().url(url).get().build()
         storageClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw IllegalStateException("Update download failed: HTTP ${response.code}")
+            if (!response.isSuccessful) throw IllegalStateException("The update didn't download. Try again.")
             // `body` is non-null since OkHttp 5 (and `execute()` never returned a null one before it):
             // a body-less reply arrives EMPTY, and the system installer refuses an empty file.
             response.body.byteStream().use { input -> FileOutputStream(out).use { output -> input.copyTo(output, 64 * 1024) } }
@@ -1509,8 +1509,8 @@ class FieldRepository(
      */
     suspend fun downloadReport(context: Context, path: String = ""): String = withContext(Dispatchers.IO) {
         val response = api.dataReport(format = "xlsx", path = path)
-        if (!response.isSuccessful) throw IllegalStateException("Report request failed (HTTP ${response.code()})")
-        val body = response.body() ?: throw IllegalStateException("The report response was empty")
+        if (!response.isSuccessful) throw IllegalStateException("The report didn't download. Try again.")
+        val body = response.body() ?: throw IllegalStateException("The report didn't download. Try again.")
         val stamp = DateTimeFormatter.ofPattern("ddMMyyyyHHmmss").withZone(ZoneId.systemDefault()).format(Instant.now())
         val name = "FieldRepository_report_$stamp.xlsx"
         val tmp = File(context.cacheDir, name)
@@ -1604,7 +1604,7 @@ class FieldRepository(
     private fun writeObject(url: String?, sink: java.io.OutputStream) {
         if (url.isNullOrBlank()) return
         storageClient.newCall(Request.Builder().url(url).build()).execute().use { resp ->
-            if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
+            if (!resp.isSuccessful) throw IllegalStateException("The download didn't finish. Try again.")
             resp.body.byteStream().copyTo(sink)
         }
     }
@@ -1621,8 +1621,8 @@ class FieldRepository(
         format: String? = null
     ): String = withContext(Dispatchers.IO) {
         val response = api.downloadDataMedia(mediaId, format?.blankToNull())
-        if (!response.isSuccessful) throw IllegalStateException("Download failed (HTTP ${response.code()})")
-        val body = response.body() ?: throw IllegalStateException("The download response was empty")
+        if (!response.isSuccessful) throw IllegalStateException("The download didn't finish. Try again.")
+        val body = response.body() ?: throw IllegalStateException("The download didn't finish. Try again.")
         val name = filename.blankToNull()?.replace(Regex("[^A-Za-z0-9._-]+"), "_") ?: mediaId
         val tmp = File(context.cacheDir, name)
         body.byteStream().use { input -> FileOutputStream(tmp).use { out -> input.copyTo(out) } }
@@ -2171,7 +2171,7 @@ class FieldRepository(
                         // bytes already counted.
                         digest.update(bytes, bytes.size)
                         val url = partUrls[partNumber.toString()]
-                            ?: throw IllegalStateException("Missing presigned URL for part $partNumber")
+                            ?: throw IllegalStateException("The upload didn't finish. Try again.")
                         val base = sentTotal
                         val etag = putPart(
                             url = url,
@@ -2269,25 +2269,25 @@ class FieldRepository(
                 executeCancellable(storageClient.newCall(Request.Builder().url(target).put(body).build())).use { response ->
                     if (response.isSuccessful) {
                         return response.header("ETag")
-                            ?: throw IllegalStateException("S3 returned no ETag for the uploaded part")
+                            ?: throw IllegalStateException("The upload didn't finish. Try again.")
                     }
                     if (response.code == 403 && !refreshed) expired = true
-                    else if (response.code < 500) throw IllegalStateException("Part upload failed: HTTP ${response.code}")
-                    lastError = IllegalStateException("Part upload failed: HTTP ${response.code}")
+                    else if (response.code < 500) throw IllegalStateException("The upload didn't finish. Try again.")
+                    lastError = IllegalStateException("The upload didn't finish. Try again.")
                 }
             } catch (e: IOException) {
                 lastError = e
             }
             if (expired) {
                 refreshed = true
-                target = repesign() ?: throw (lastError ?: IllegalStateException("Part upload failed: HTTP 403"))
+                target = repesign() ?: throw (lastError ?: IllegalStateException("The upload didn't finish. Try again."))
                 continue
             }
             failures++
             if (failures >= maxAttempts) break
             delay(800L * failures)
         }
-        throw lastError ?: IllegalStateException("Part upload failed")
+        throw lastError ?: IllegalStateException("The upload didn't finish. Try again.")
     }
 
     /** Attach an already-uploaded staged object to a saved record, applying the final filename. */
@@ -2542,7 +2542,7 @@ class FieldRepository(
                 throw e
             } catch (e: Throwable) {
                 return if (isTransient(e)) ReplayOutcome.Retry
-                else ReplayOutcome.Rejected(e.apiErrorMessage("The server rejected this record."))
+                else ReplayOutcome.Rejected(e.apiErrorMessage("This record couldn't be saved."))
             }
             entry = entry.copy(createdId = created.id, createdStepIds = created.stepIds)
             OfflineOutbox.update(context, entry)
@@ -2598,8 +2598,8 @@ class FieldRepository(
             // The record IS saved, so the entry must never be replayed — but its files are still only
             // here, so it must not be deleted either. Kept, with the reason, exactly as the web does.
             return ReplayOutcome.Rejected(
-                "It was saved, but ${refused.size} file(s) were refused: ${refused.distinct().joinToString(" ")} " +
-                    "Re-attach them on the record."
+                "It was saved, but ${refused.size} file(s) couldn't be uploaded: " +
+                    "${refused.distinct().joinToString(" ")} Attach them again on the record."
             )
         }
         return ReplayOutcome.Synced
@@ -2657,7 +2657,7 @@ class FieldRepository(
                 } catch (e: Throwable) {
                     if (isTransient(e)) throw e
                     landed.add(
-                        FileOutcome.Refused(index, "\"${pm.originalFilename}\": ${e.apiErrorMessage("refused by the server.")}")
+                        FileOutcome.Refused(index, "\"${pm.originalFilename}\": ${e.apiErrorMessage("couldn't be uploaded.")}")
                     )
                 }
             }
@@ -2941,16 +2941,16 @@ class FieldRepository(
                     if (response.isSuccessful) return
                     // Client errors (4xx) won't fix themselves — fail immediately.
                     if (response.code < 500) {
-                        throw IllegalStateException("Object storage upload failed: HTTP ${response.code}")
+                        throw IllegalStateException("The upload didn't finish. Try again.")
                     }
-                    lastError = IllegalStateException("Object storage upload failed: HTTP ${response.code}")
+                    lastError = IllegalStateException("The upload didn't finish. Try again.")
                 }
             } catch (e: IOException) {
                 lastError = e
             }
             if (attempt < maxAttempts) delay(800L * attempt)
         }
-        throw lastError ?: IllegalStateException("Object storage upload failed")
+        throw lastError ?: IllegalStateException("The upload didn't finish. Try again.")
     }
 
     /** A re-openable upload source: exact byte size, a fresh stream per attempt, and cleanup. */

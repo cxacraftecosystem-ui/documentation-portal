@@ -255,7 +255,6 @@ function BatchReport({ ledger, busy, onRetry, onDismiss }: { ledger: Ledger; bus
               <X className="mt-0.5 h-4 w-4 shrink-0 text-error-600 dark:text-red-400" aria-hidden />
               <span className="min-w-0">
                 <span className="font-medium text-ink-900">{row.label}</span> — {row.error}
-                {row.status ? <span className="text-ink-500"> (HTTP {row.status})</span> : null}
               </span>
             </li>
           ))}
@@ -697,7 +696,7 @@ export default function SharingPage() {
       ...deleteConfirm(
         "Remove this sharing entry?",
         "This permanently deletes the grant record, along with the history of who asked for what and when.",
-        "As the owner this clears a denied or revoked row; as the requester it withdraws the request or drops access you hold."
+        "As the owner this clears a denied or revoked request; as the requester it withdraws the request or drops access you hold."
       ),
       confirmLabel: "Remove entry"
     });
@@ -734,7 +733,7 @@ export default function SharingPage() {
         }
         try {
           const response = await fetch(file.url);
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          if (!response.ok) throw new Error("The download didn’t finish. Try again.");
           zip.file(file.path, await response.blob());
         } catch {
           failed.push(file.path);
@@ -753,8 +752,8 @@ export default function SharingPage() {
     // itself as complete is worse than a failed one, because nobody goes back for the rest.
     if (capped) {
       setMessage(
-        "Download ready — but this export hit the server's row cap, so it does NOT contain all of " +
-          `${ownerLabel}'s data. Ask an admin for a full extract.`
+        `Download ready — but it doesn’t include all of ${ownerLabel}’s records. ` +
+          "Ask an admin for the full set."
       );
     }
   }
@@ -808,7 +807,7 @@ export default function SharingPage() {
                 confirmOnSelect={false}
               />
             ) : (
-              <TextInput value={reqOwnerText} onChange={(e) => setReqOwnerText(e.target.value)} placeholder="Researcher user id" />
+              <TextInput value={reqOwnerText} onChange={(e) => setReqOwnerText(e.target.value)} placeholder="Researcher ID" />
             )}
           </Field>
           {/* Single-select on purpose: the tiers are a ladder, not a set. See TIER_RANK. */}

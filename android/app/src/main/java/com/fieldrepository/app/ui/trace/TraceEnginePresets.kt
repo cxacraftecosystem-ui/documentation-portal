@@ -62,9 +62,10 @@ import com.offlinetracer.pipeline.TraceParams
  *
  * This file takes **the upstream twelve**, because they are what the engine actually contains and a
  * filtered copy of somebody else's register is a second register that drifts. It then says so where a
- * researcher can see it: [TRACE_SUBJECT_DIVERGENCE_NOTES] puts a sentence on each of the three rows the
- * portal has no match for, and [traceNoSuchSubjectSentence] answers a portal-only id with the remedy
- * rather than with "no such thing".
+ * researcher needs it: [traceNoSuchSubjectSentence] answers a portal-only id with the remedy rather than
+ * with "no such thing". The extra rows themselves carry no note ([TRACE_SUBJECT_DIVERGENCE_NOTES] is
+ * empty): a sentence about what the other client lacks is not one a researcher can act on, and the gap
+ * is recorded in docs/OPEN_FINDINGS.md.
  *
  * ── AND THE ONE BEHAVIOURAL DIFFERENCE, WHICH MATTERS MORE THAN EITHER LIST ───────────────────
  *
@@ -108,24 +109,13 @@ internal val TRACE_SUBJECTS_ONLY_ON_THIS_ENGINE: List<String> =
 /** The reverse: the portal's subject ids this engine has no row for. Same pinning. */
 internal val TRACE_SUBJECTS_ONLY_ON_THE_PORTAL: List<String> = listOf("carving")
 
-/** Shared by the two halves of the portal's single `carving` row. Declared once so it reads once. */
-private const val TRACE_SPLIT_CARVING_NOTE: String =
-    "The portal carries wood and stone as one “Wood & stone carving” material, so a laptop cannot " +
-        "tell which of the two was chosen here."
-
 /**
  * The sentence each unmatched subject row carries, on screen, under the material's own hint.
  *
- * Keyed by id and covering exactly [TRACE_SUBJECTS_ONLY_ON_THIS_ENGINE] — the test asserts the two
- * agree, so a row cannot be added to one without the other. Two sentences rather than one because the
- * two facts are different: two rows here are one row there, and one row here is no row there.
+ * Keyed by id. Empty: none of [TRACE_SUBJECTS_ONLY_ON_THIS_ENGINE] carries a note, and the test asserts
+ * that, so a note cannot come back without somebody deciding it should.
  */
-internal val TRACE_SUBJECT_DIVERGENCE_NOTES: Map<String, String> = linkedMapOf(
-    "wood-carving" to TRACE_SPLIT_CARVING_NOTE,
-    "stone-carving" to TRACE_SPLIT_CARVING_NOTE,
-    "metalwork" to
-        "The portal has no metalwork material at all, so this choice exists only on the handset.",
-)
+internal val TRACE_SUBJECT_DIVERGENCE_NOTES: Map<String, String> = emptyMap()
 
 /* ────────────────────────────────────────────────────────────────────────────
  * The tables
@@ -323,9 +313,8 @@ internal fun traceNoSuchStyleSentence(styleId: String): String =
 internal fun traceNoSuchSubjectSentence(subjectId: String): String {
     val bare = "There is no subject called \"${subjectId.trim()}\"."
     if (subjectId.trim() !in TRACE_SUBJECTS_ONLY_ON_THE_PORTAL) return bare
-    return bare + " The portal's list has ten materials and this engine's has twelve: “Wood & stone " +
-        "carving” is split into “Wood carving” and “Stone carving”, and “Metalwork” is added. Choose " +
-        "one of those."
+    return bare + " On this phone “Wood & stone carving” is two materials, “Wood carving” and " +
+        "“Stone carving”. Choose one of those."
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

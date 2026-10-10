@@ -76,13 +76,6 @@ def redact_secrets(text: str) -> str:
     return _URL_SECRET.sub(r"\1REDACTED", text)
 
 
-def _fault(exc: Exception) -> str:
-    """How a provider failed, in the only terms safe to repeat: the status it answered with, or the
-    class of transport error."""
-    code = getattr(getattr(exc, "response", None), "status_code", None)
-    return f"HTTP {code}" if code else f"unreachable ({type(exc).__name__})"
-
-
 # HTTP statuses that mean "this key won't work right now" (quota, auth, bad key) -> rotate to next.
 _GEMINI_ROTATE_STATUSES = {400, 401, 403, 429, 500, 503}
 
@@ -590,7 +583,6 @@ def _rate_limited_result(provider: str, response: Any, code: int) -> dict[str, A
             retry_after = float(header) if header else None
         except (TypeError, ValueError):
             retry_after = None
-    reason = "rate-limited" if code == 429 else "temporarily unavailable"
     return {
         "available": True,
         "status": "RATE_LIMITED",
@@ -598,7 +590,7 @@ def _rate_limited_result(provider: str, response: Any, code: int) -> dict[str, A
         "formattedTranscript": None,
         "retryAfter": retry_after,
         "provider": provider,
-        "message": f"{provider} transcription {reason} (HTTP {code}); will retry automatically.",
+        "message": "Transcription is busy; it will retry automatically.",
     }
 
 
@@ -635,15 +627,14 @@ def _transcribe_sync(
                 rate_limited = rate_limited or _rate_limited_result(provider, response, code)
                 logger.warning("%s transcription throttled (HTTP %s); trying next provider", provider, code)
             elif code in _AUTH_STATUSES:
-                key_name = _PROVIDER_KEYS.get(provider, "the provider key")
-                errors.append(
-                    f"{provider}: API key rejected (HTTP {code}); set a working {key_name} in Settings"
-                )
+                name = _PROVIDER_NAMES.get(provider, provider)
+                errors.append(f"{name}'s key isn't working; an admin can update it in Settings")
                 logger.error(
                     "%s rejected the configured API key (HTTP %s); trying next provider", provider, code
                 )
             else:
-                errors.append(f"{provider}: {_fault(exc)}")
+                name = _PROVIDER_NAMES.get(provider, provider)
+                errors.append(f"{name} couldn't transcribe this recording")
                 logger.warning(
                     "%s transcription failed (%s); trying next provider",
                     provider,
@@ -651,7 +642,7 @@ def _transcribe_sync(
                 )
             continue
         except requests.RequestException as exc:
-            errors.append(f"{provider}: {_fault(exc)}")
+            errors.append(f"{_PROVIDER_NAMES.get(provider, provider)} couldn't be reached")
             logger.warning(
                 "%s transcription network error (%s); trying next provider",
                 provider,
@@ -669,13 +660,15 @@ def _transcribe_sync(
     if rate_limited and not errors:
         return rate_limited
     if rate_limited:
-        errors.append(str(rate_limited.get("message")))
+        errors.append(f"{_PROVIDER_NAMES.get(rate_limited.get('provider'), 'a provider')} is busy")
     return {
         "available": True,
         "status": "FAILED",
         "text": None,
         "formattedTranscript": None,
-        "message": "; ".join(errors) or "All transcription providers failed.",
+        "message": (
+            f"Transcription failed: {'; '.join(errors)}." if errors else "Transcription failed."
+        ),
     }
 
 
@@ -819,8 +812,8 @@ async def transcribe_audio_bytes(
             "text": None,
             "formattedTranscript": None,
             "message": (
-                "Transcription unavailable: configure ELEVENLABS_API_KEY, DEEPGRAM_API_KEY, "
-                "or OPENAI_API_KEY."
+                "Transcription isn't available right now. An administrator can turn it on in "
+                "Settings."
             ),
         }
     try:
@@ -851,7 +844,7 @@ async def transcribe_audio_bytes(
                 "text": None,
                 "formattedTranscript": None,
                 "retryAfter": retry_after,
-                "message": f"Transcription rate-limited (HTTP {code}); will retry automatically.",
+                "message": "Transcription is busy; it will retry automatically.",
             }
         logger.error("Transcription failed: %s", redact_secrets(str(exc)))
         return {
@@ -859,7 +852,7 @@ async def transcribe_audio_bytes(
             "status": "FAILED",
             "text": None,
             "formattedTranscript": None,
-            "message": f"Transcription failed ({_fault(exc)}). The provider's reply is in the server log.",
+            "message": "Transcription failed. Try again later.",
         }
     except requests.RequestException as exc:
         logger.error("Transcription failed: %s", redact_secrets(str(exc)))
@@ -868,7 +861,7 @@ async def transcribe_audio_bytes(
             "status": "FAILED",
             "text": None,
             "formattedTranscript": None,
-            "message": f"Transcription failed ({_fault(exc)}). The provider's reply is in the server log.",
+            "message": "Transcription failed. Try again later.",
         }
 
 
@@ -950,7 +943,7 @@ async def refine_transcript_text(
             "available": False,
             "status": "UNAVAILABLE",
             "refined": None,
-            "message": "Refinement unavailable because OPENAI_API_KEY is not configured.",
+            "message": "Refinement isn't available right now.",
         }
     if not text or not text.strip():
         return {
@@ -968,8 +961,7 @@ async def refine_transcript_text(
             "status": "FAILED",
             "refined": None,
             "message": (
-                f"Refinement failed ({_fault(exc)}). The raw transcript is unchanged; the "
-                "provider's reply is in the server log."
+                "Refinement failed; the original transcript is unchanged. Try again later."
             ),
         }
 
@@ -1090,8 +1082,8 @@ def _post_gemini_measurement(content: bytes, mime_type: str, settings: Settings,
             continue
 
         if response.status_code in _GEMINI_ROTATE_STATUSES:
-            # The provider's body stays in the log. The raised error carries the response so the
-            # caller can name the status and nothing else — see ``_fault``.
+            # The provider's body stays in the log. The raised error carries only the status, and
+            # the caller's message repeats none of it.
             last_error = requests.HTTPError(
                 f"Gemini rejected the request (HTTP {response.status_code})", response=response
             )
@@ -1176,8 +1168,7 @@ async def analyze_measurement_image_bytes(
             "status": "FAILED",
             "analysis": None,
             "message": (
-                f"Measurement analysis failed ({_fault(exc)}); measure the object and enter the "
-                "value manually. The provider's reply is in the server log."
+                "Measuring failed; measure the object and enter the value manually."
             ),
             # ``requiresAcceptance`` is on the FAILURES too, deliberately: it is a statement about
             # what kind of thing this endpoint produces, not about one reading, and a client has to

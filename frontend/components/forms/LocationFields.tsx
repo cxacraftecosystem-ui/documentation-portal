@@ -1388,7 +1388,7 @@ export function LocationFields({
         const gpuError = maplibreModule.current?.GPUInitializationError;
         setMessage(
           gpuError && error instanceof gpuError
-            ? "This browser cannot draw the map, because it has no WebGL2. You can still type or tag coordinates."
+            ? "This browser can’t show the map. You can still type or tag coordinates."
             : "The map could not be loaded. You can still type or tag coordinates."
         );
       });
@@ -1649,7 +1649,7 @@ export function LocationFields({
     <div ref={mapRef} className="h-80 overflow-hidden rounded-md border border-line-200" />
   ) : (
     <CardNotice tone="info">
-      Add NEXT_PUBLIC_MAPTILER_API_KEY to enable map pointing. Coordinates can still be entered manually.
+      The map isn’t available right now. Type the coordinates instead.
     </CardNotice>
   );
 
@@ -1726,7 +1726,7 @@ export function LocationFields({
               {[review.found.district, review.found.state].filter(Boolean).join(", ")}
             </strong>
             , but the place recorded is &ldquo;{review.stated}&rdquo;. Those coordinates are where the device was when
-            the record was made, not where {subjectLabel} is — which is exactly the gap these fields now close. Nothing
+            the record was made, not where {subjectLabel} is. Nothing
             has been changed and nothing will be until you save. Set the state and district below if you know them.
           </CardNotice>
         ) : null}
@@ -2182,7 +2182,7 @@ export function LocationFields({
                * gap while they are here, and one who is at a desk should be told not to.
                */
               <CardNotice tone="info">
-                This record was created before a coordinate was required, so it still saves without one. If you are at
+                This record can be saved without coordinates. If you are at
                 the place right now, press <strong>Use current GPS</strong> to fill the gap — do not add one from
                 somewhere else.
               </CardNotice>

@@ -146,7 +146,7 @@ def verify_google_token(token: str) -> dict[str, Any]:
     if not settings.google_client_ids:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Google OAuth is not configured on this server",
+            detail="Google sign-in isn't available. Use your email and password.",
         )
     last_error: ValueError | None = None
     for client_id in settings.google_client_ids:

@@ -254,7 +254,7 @@ fun AccessRosterScreen(
             )
         }
         Text(
-            "Who may sign in to the repository at all. An address here marked “May sign in” is " +
+            "Who may sign in at all. An address here marked “May sign in” is " +
                 "admitted; everybody else is turned away and lands in the queue below.",
             color = Muted,
             fontSize = 12.sp

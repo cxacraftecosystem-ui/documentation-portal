@@ -190,7 +190,7 @@ fun unsavedBeforeMergeNotice(typedAnswers: Int, recordings: Int, attachments: In
     }
     if (parts.isEmpty()) return null
     val verb = if (typedAnswers + recordings + attachments == 1) "is" else "are"
-    return "The save was refused, so ${joinWithAnd(parts)} on this screen $verb still only here. " +
+    return "The save didn't go through, so ${joinWithAnd(parts)} on this screen $verb still only here. " +
         "Moving this interview will not carry them across — note them down, or cancel and save them " +
         "somewhere else first."
 }

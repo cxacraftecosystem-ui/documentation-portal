@@ -46,7 +46,7 @@ export default function ApiKeysPage() {
       title="API keys"
       description={
         master
-          ? "The provider keys the repository runs on — rotate one here and it is live everywhere immediately, without a restart."
+          ? "The service keys the app uses. A change here applies to everyone straight away."
           : "Which speech-to-text provider transcribes field recordings first. You can test whether each provider's key works; the keys themselves are held by the master admin."
       }
       icon={<KeyRound className="h-5 w-5" aria-hidden />}
@@ -68,7 +68,7 @@ export default function ApiKeysPage() {
         {header}
         <RestrictedPanel
           title="Admin access required"
-          body="Provider keys and the transcription provider order are managed by the repository's admins. Ask one of them if a key needs rotating."
+          body="Service keys and the transcription order are managed by admins. Ask one if a key needs changing."
         />
       </>
     );

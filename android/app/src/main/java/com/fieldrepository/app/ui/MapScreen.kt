@@ -200,7 +200,7 @@ private fun levelHint(level: String): String? = when (level) {
 
 /** The web's `SCOPE_COPY`. `scope` defaults to "" in the DTO, and an absent enum is not a claim. */
 private fun scopeCopy(scope: String): String = when (scope) {
-    "all" -> "Everything in the repository"
+    "all" -> "All records"
     "filtered" -> "The records matching your filters"
     "record" -> "One record, shown in context"
     else -> "The records on this map"
@@ -615,7 +615,7 @@ fun MapScreen(
                                 "No records with a mapped address in the chosen workshops. Widen " +
                                     "the workshop scope, or choose All records."
                             } else {
-                                "No records with a mapped address anywhere in the repository yet."
+                                "No records with a mapped address yet."
                             },
                             color = MaterialTheme.field.muted,
                             fontSize = 13.sp
@@ -1570,8 +1570,8 @@ private fun MapSummaryCard(
                             }
                         )
                         append(
-                            " carry no place column of their own, so they are placed only by the " +
-                                "address on the location they were captured at."
+                            " have no address of their own, so they are placed only by the " +
+                                "address of the location they were captured at."
                         )
                     }
                     if (summary.captureTruncated) {

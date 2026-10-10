@@ -59,7 +59,7 @@ export const GUIDE_STEPS: GuideStep[] = [
     summary:
       "Open the workshop you are documenting under — or create it — before you record anything else.",
     why:
-      "Every record you make is scoped to a workshop. Products, tools and interviews all carry a linked workshop, and the Data Browser opens on \"By workshop\", which files the whole repository under the workshop it was recorded in. On a create form the most recent workshop you have access to is preselected, so getting this right once saves you picking it on every screen afterwards.",
+      "Every record you make is scoped to a workshop. Products, tools and interviews all carry a linked workshop, and the Data Browser opens on \"By workshop\", which files every record under the workshop it was recorded in. On a create form the most recent workshop you have access to is preselected, so getting this right once saves you picking it on every screen afterwards.",
     fields: [
       "Workshop title (required)",
       "Place (required)",
@@ -84,7 +84,7 @@ export const GUIDE_STEPS: GuideStep[] = [
     href: "/crafts?new=1",
     summary: "Add the craft being documented so artisans, products and tools have something to hang off.",
     why:
-      "Craft is the shared vocabulary of the repository: artisans link to a craft, products and tools inherit the craft name from it, and the Data Browser groups every workshop's contents by craft. Adding it once keeps spellings consistent across everyone's records.",
+      "Craft is the shared vocabulary everyone uses: artisans link to a craft, products and tools inherit the craft name from it, and the Data Browser groups every workshop's contents by craft. Adding it once keeps spellings consistent across everyone's records.",
     fields: ["Craft name (required)", "Local name", "Category", "Place", "Description", "Craft media"],
     watch: [
       "Check the list first — if the craft already exists, reuse it instead of creating a near-duplicate spelling.",
@@ -229,7 +229,7 @@ export const GUIDE_STEPS: GuideStep[] = [
       "Fill only the dimensions that make sense for the tool — a blade has a length and thickness, a wheel has a radius.",
       "Height (cm) and Height (inches) are one measurement: fill either and the other fills itself. Width (cm) pairs with Breadth (inches) the same way; Length (inches) has no centimetre box.",
       "A tool can be linked to several crafts and several artisans at once — tick as many as apply, and the craft name box fills with all of them in the order you picked.",
-      "\"Process stages\" archives your captures in order as STAGE_STEP_1, STAGE_STEP_2, … so shoot them in sequence.",
+      "\"Process stages\" keeps your captures in the order you take them, so shoot them in sequence.",
       "You can also hand tools to specific artisans later from \"Assign tools to artisans\" — for your own artisans, ones shared with you for editing, or any artisan if you are an admin."
     ]
   },
@@ -241,7 +241,7 @@ export const GUIDE_STEPS: GuideStep[] = [
     href: "/questionnaire?new=1",
     summary: "Sit down with the artisan and work through the interview sections, recording each answer as audio.",
     why:
-      "The questionnaire is the artisan speaking in their own voice and their own language. Recorded audio is auto-transcribed on the server, so you get both the original recording and searchable text without typing during the interview.",
+      "The questionnaire is the artisan speaking in their own voice and their own language. Recorded audio is transcribed automatically, so you get both the original recording and searchable text without typing during the interview.",
     // Regenerated against the form on 2026-09-16 and now held to `shared/questionnaire-form-
     // contract.json` by `backend/tests/test_questionnaire_form_contract.py`, together with the
     // Android register and the printed guide. It listed a "Date" the form has not had since the
@@ -275,7 +275,7 @@ export const GUIDE_STEPS: GuideStep[] = [
     href: "/media",
     summary: "Upload the photographs, video, audio and files that do not belong to any single record.",
     why:
-      "Field work produces context that no form has a slot for: the road into the village, the market, an unplanned conversation. Miscellaneous Media keeps that material inside the repository instead of on a phone that gets wiped.",
+      "Field work produces context that no form has a slot for: the road into the village, the market, an unplanned conversation. Miscellaneous Media keeps that material with your records instead of on a phone that gets wiped.",
     fields: [
       "Capture media — images, video, audio and documents",
       "Media title / object name",
@@ -317,7 +317,7 @@ export const GUIDE_STEPS: GuideStep[] = [
     action: "Browse records",
     icon: Eye,
     href: "/data",
-    summary: "Browse the whole repository as a directory tree and export a report of any subtree.",
+    summary: "Browse every record as folders and export a report of any folder.",
     why:
       "This is where the documentation stops being data entry and starts being research material: the same records, filed three different ways, previewable in place and downloadable as a spreadsheet.",
     fields: [
@@ -328,7 +328,7 @@ export const GUIDE_STEPS: GuideStep[] = [
       "Download any folder as a zip, with content-type filters"
     ],
     watch: [
-      "Pick a folder, then use the breadcrumb to move back up — the tree loads lazily as you expand it.",
+      "Pick a folder, then use the breadcrumb to move back up — each folder loads when you open it.",
       "Transcripts and AI text render as formatted Markdown in the preview pane, not raw text.",
       "Dataset download is a granted permission. If your role does not have it the browser shows a restricted notice — use Search to find records instead."
     ]

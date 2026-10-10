@@ -61,7 +61,7 @@ test.describe("Location on records that predate the rule", () => {
     await expect(latitude).toHaveJSProperty("validity.valid", true);
     await expect(latitude).not.toHaveAttribute("required", /.*/);
     // ...and the card explains the exception rather than leaving it to be inferred.
-    await expect(page.getByText(/created before a coordinate was required/i)).toBeVisible();
+    await expect(page.getByText(/can be saved without coordinates/i)).toBeVisible();
 
     // The stated address is off too, for the same reason and on the same record: all fifteen live
     // locations have a NULL state and district, and demanding them here would be demanding a guess.

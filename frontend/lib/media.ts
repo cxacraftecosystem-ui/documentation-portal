@@ -521,16 +521,16 @@ function putBlob({
           onProgress?.(total, total);
           resolve({ etag: (xhr.getResponseHeader("ETag") ?? "").replace(/"/g, "") || null });
         } else {
-          reject(new StorageError(`Object storage upload failed: HTTP ${xhr.status}`, xhr.status));
+          reject(new StorageError("The upload didn’t finish. Check your connection and try again.", xhr.status));
         }
       });
-    xhr.onerror = () => settle(() => reject(new StorageError("Object storage upload failed: network error")));
+    xhr.onerror = () => settle(() => reject(new StorageError("The upload didn’t finish. Check your connection and try again.")));
     xhr.onabort = () =>
       settle(() =>
         reject(
           new StorageError(
             stalled
-              ? `Object storage upload stalled — no data moved for ${Math.round(STALL_TIMEOUT_MS / 1000)}s`
+              ? "The upload stopped. Check your connection and try again."
               : "Upload cancelled"
           )
         )
@@ -695,7 +695,7 @@ async function uploadWhole(options: ObjectUploadOptions, mediaType: MediaType, m
       if (attempt < UPLOAD_MAX_ATTEMPTS) await delay(800 * attempt);
     }
   }
-  throw lastError instanceof Error ? lastError : new StorageError(`Object storage upload failed for ${file.name}`);
+  throw lastError instanceof Error ? lastError : new StorageError(`${file.name} didn’t upload. Try again.`);
 }
 
 /**
@@ -1500,7 +1500,7 @@ export async function transcribeMediaFile(file: File, mediaType = inferMediaType
   return {
     transcriptText: result.formattedTranscript ?? result.text ?? null,
     transcriptStatus: result.status,
-    transcriptError: result.available ? null : result.message ?? "Transcription unavailable for now"
+    transcriptError: result.available ? null : result.message ?? "Transcription isn’t available right now."
   };
 }
 

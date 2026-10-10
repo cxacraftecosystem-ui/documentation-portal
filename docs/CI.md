@@ -182,7 +182,7 @@ Three jobs, deliberately independent, so one red does not hide another's answer:
 | Job (the name branch protection needs) | Where it runs | What it runs |
 |---|---|---|
 | **Backend tests** | `backend/` | Python 3.14 (`check-latest`) → `pip install -r requirements.lock` → `pip install --no-deps -e .` → `pip check` → `python -m prisma generate` → `python -m pytest -rf --durations=15` |
-| **Web typecheck, lint and unit specs** | `frontend/` | Node 24, read from `engines.node` in `frontend/package.json` → `npm ci` → `npx tsc --noEmit` → `npm run lint` → `npm run test:unit` |
+| **Web typecheck, lint and unit specs** | `frontend/` | Node 24, read from `engines.node` in `frontend/package.json` → npm 12 (*npm 12 and the install-script policy* below) → `npm ci` → `npx tsc --noEmit` (TypeScript 7) → `npx tsc6 --noEmit` (TypeScript 6, what `next build` runs; *The web app's two TypeScripts* below) → `npm run lint` → `npm run test:unit` |
 | **Docs check** | repository root | Node 24 (the same field) → `node docs/tools/check-docs.mjs` |
 
 Measured on the tree the workflow landed with (2026-09-14, on a laptop — a runner will differ):
@@ -328,6 +328,112 @@ is in it, and uvloop does not install on Windows, so a Windows venv installs the
 one line. And Dependabot cannot refresh it (`.github/dependabot.yml` says why): a pip pull request
 raises a floor in `pyproject.toml`, and the lock is recompiled by hand in the same pull request —
 `pip check` fails Backend tests until it is.
+
+### The web app's two TypeScripts
+
+Since 2026-10-09 `frontend/` installs two TypeScript compilers on purpose, in the side-by-side
+arrangement the TypeScript team documents for 7.0 ("Running side-by-side with TypeScript 6.0" in the
+7.0 announcement):
+
+| `frontend/package.json` | What it installs | What it provides | Who uses it |
+|---|---|---|---|
+| `"@typescript/native": "npm:typescript@^7.0.2"` | TypeScript 7, the native compiler | the `tsc` binary | `npx tsc --noEmit` in `checks.yml`, `npm run typecheck` |
+| `"typescript": "npm:@typescript/typescript6@^6.0.2"` | TypeScript 6.0 (6.0.3, through that wrapper's `@typescript/old` dependency) | the `tsc6` binary, and `require("typescript")`: the JavaScript compiler API | `next build`'s type check, which runs `tsc6`; typescript-eslint inside `npm run lint`; the two specs that parse source with the API (`e2e/trace-frame-geometry-unit.spec.ts`, `e2e/trace-frame-panel.spec.ts`) |
+
+**Why not TypeScript 7 alone.** 7.0 ships no JavaScript compiler API: `require("typescript")` on
+7.0.2 returns `{ version, versionMajorMinor }` and nothing else. typescript-eslint 8.71.1, the newest,
+declares `typescript >=4.8.4 <6.1.0`. Measured with a plain `typescript@7.0.2` and
+eslint-config-next 16.4.0: `npm install` succeeds with the peer range reported invalid, and then
+every lint stops with `typescript-eslint does not support TS 7.0`, pointing at this setup and at
+typescript-eslint#10940, which tracks support for 7.1 and later. The two specs call
+`ts.createSourceFile` and `ts.transpileModule`.
+
+**Why `next build` gets 6.** next 16.4 finds its compiler by resolving `typescript/package.json` and
+running that package's `bin.tsc`, or failing that a `tsc<N>` entry; here that is `tsc6`. Recorded
+from a real build on 2026-10-09: it spawned `node_modules/typescript/bin/tsc6 --showConfig …` and then
+`… tsc6 --project tsconfig.json --noEmit …`. So the type check that gates the deploy is TypeScript 6,
+and `checks.yml` runs `npx tsc6 --noEmit` beside the 7 check: a file the two ever disagree about fails
+before the merge, not in the deploy.
+
+**What else to know.** `tsconfig.json` names `"types": ["node"]`: 6.0 and 7.0 stopped loading every
+installed `@types/*` package by default. It is not load-bearing today (`next-env.d.ts` already pulls
+Node's types in through `next`'s own reference, and both compilers passed without the line); it
+states the dependency instead of inheriting it. No option 7.0 removed is in use. The `next` plugin
+listed in `tsconfig.json` runs only in a TypeScript 6 language server, because 7's runs no plugins; an
+editor set to the workspace TypeScript should point at `node_modules/@typescript/old/lib`, since the
+`typescript` wrapper does not carry `tsserver.js`.
+
+**The day it collapses back to one.** When a typescript-eslint release accepts TypeScript 7 (7.1 or
+later), replace both entries with one `"typescript": "^7"`, move the two specs to the 7.x API or to
+another parser, and delete the `tsc6` step from `checks.yml`. `next build` needs nothing: given a 7.x
+`typescript` package, next 16.4 runs its `tsc`.
+
+### ESLint 10 and the three plugins that predate it
+
+The web app lints with ESLint 10 (10.12.0 on 2026-10-09; ESLint 9 reached end of life on 2026-08-06)
+through eslint-config-next 16.4.0 and an unchanged `frontend/eslint.config.mjs`. Three plugins inside
+eslint-config-next, each at its newest release, still declare `eslint` 9 or older as their peer:
+eslint-plugin-react 7.37.5, eslint-plugin-import 2.32.0 and eslint-plugin-jsx-a11y 6.10.2. So
+`npm ci` prints three `ERESOLVE overriding peer dependency` warnings and `npm ls eslint` calls the
+install invalid. Both are true and both are expected; the install succeeds.
+
+**Why the rules still run.** ESLint 10 removed the rule-context methods those plugins call
+(`getFilename()`, `getSourceCode()`, `getCwd()`, `getPhysicalFilename()`, `parserOptions`,
+`parserPath`). eslint-config-next 16.4.0 wraps eslint-plugin-react and eslint-plugin-import in its
+own `fixupPluginRules` (`dist/rule-context.js`), which puts them back. With that shim disabled, every
+lint dies with `Error while loading rule 'react/display-name': contextOrFilename.getFilename is not a
+function`, the crash vercel/next.js#89764 reports against eslint-config-next 16.3 and earlier.
+eslint-plugin-jsx-a11y is not wrapped, and none of the six rules eslint-config-next enables from it
+calls a removed method. One behaviour is lost, quietly: eslint-plugin-react's detection of a
+component declared only in a comment (`@extends React.Component`) calls `SourceCode#getJSDocComment`,
+which ESLint 10 also removed, inside a `try`, so it now answers "not a component"; nothing in this
+codebase is declared that way.
+
+**The proof is a test, not this paragraph.** `frontend/e2e/eslint-rules-run-unit.spec.ts` lints a
+file of deliberate violations through the real config and fails unless all 25 rules it targets fire,
+one or more from every plugin the config loads. ESLint 9.39.5 and 10.12.0 report exactly those 25
+messages, at the same lines. Disabling one rule, or the shim, turns it red.
+
+**The day it goes.** When those three plugins declare ESLint 10, the warnings stop and nothing else
+changes. If eslint-config-next drops its shim first, the spec above fails; the fallback is a flat
+config built by hand from `@next/eslint-plugin-next`, eslint-plugin-react-hooks, typescript-eslint,
+eslint-plugin-import-x and `@eslint-react/eslint-plugin`, with jsx-a11y wrapped by `@eslint/compat`'s
+`fixupPluginRules`, keeping the `react-hooks/set-state-in-effect` override.
+
+### npm 12 and the install-script policy
+
+Since 2026-10-10 the two jobs that install `frontend/` replace setup-node's npm with npm 12 before
+installing anything: `checks.yml`'s web job, and `deploy-frontend.yml`'s deploy job, whose
+`vercel build` runs `frontend/vercel.json`'s `npm ci` with the npm on PATH. The step is
+`npm install --global npm@12`, so every run takes the newest 12.x, the way `check-latest` takes the
+newest 24.x. No Node release bundles npm 12 yet (Node 24 ships npm 11), so the step stays until the
+Node in `engines.node` ships it, and then goes.
+
+**What npm 12 changes here.** It runs a dependency's install script only when the `allowScripts`
+field of `frontend/package.json` approves that package, and skips every other one with a warning that
+names it. This tree has exactly one dependency with an install script, `unrs-resolver` (the resolver
+inside eslint-config-next's TypeScript import resolver), and `allowScripts` approves it at the
+version that was reviewed, `unrs-resolver@1.12.2`. Its script is napi-postinstall, which fetches the
+platform's native binding only when the binding did not already arrive as an optional dependency;
+with this lockfile it always arrives. It is approved rather than denied so that an install behaves
+exactly as it did under npm 11.
+
+**When a dependency bump brings an install script**, or moves `unrs-resolver` past the approved
+version, `npm ci` prints `install scripts blocked` and names the package. Nothing fails; the script
+simply does not run. Read the script, then from `frontend/`, with npm 12, run
+`npm install-scripts approve <pkg>` (or `deny <pkg>`) and commit `package.json`;
+`npm install-scripts ls` lists anything still unreviewed. npm 11, which local machines and
+`frontend/Dockerfile`'s `node:24-alpine` still bundle, ignores the field and runs every install
+script, as it always has.
+
+**The Vercel CLI.** `npm install --global vercel@latest` has no `package.json` whose `allowScripts`
+could approve anything, so under npm 12 none of its dependencies' install scripts run. The CLI has
+one, esbuild's postinstall, which only re-checks a binary that the optional `@esbuild/<platform>`
+package already supplied, so the deploy log lists esbuild as blocked and the CLI works without it.
+
+**Not moved.** `keep-supabase-active.yml` installs the repository root with the npm its setup-node
+brings; it runs against the production database, so it was not exercised here, and it keeps npm 11
+until the Node it uses bundles 12.
 
 ---
 
@@ -477,8 +583,8 @@ AWS_ACCESS_KEY_ID=ci-placeholder AWS_SECRET_ACCESS_KEY=ci-placeholder \
 AWS_S3_BUCKET=ci-placeholder MASTER_ADMIN_EMAIL=ci@example.invalid \
 python -m pytest -rf --durations=15
 
-# Web — from frontend/.
-npx tsc --noEmit && npm run lint && npm run test:unit
+# Web — from frontend/. tsc is TypeScript 7, tsc6 is the TypeScript 6 that next build runs.
+npx tsc --noEmit && npx tsc6 --noEmit && npm run lint && npm run test:unit
 
 # Docs — from the repository root. Add --write to regenerate REPO_FACTS.md.
 node docs/tools/check-docs.mjs
@@ -784,6 +890,9 @@ parts that are not are exactly the parts that were wrong before.
 | The production domain serving the new deployment | Asserted after every publish, not measured here: the deploy job reads which deployment `field-repository.vercel.app` resolves to, promotes the upload out of a rollback, and fails if production is still elsewhere (§1, the three assertions). That a rollback turns auto-assignment off is Vercel's documented behaviour, linked there; that `field-repository.vercel.app` is a project domain rather than a hand-set alias was measured on 2026-10-09 (**Project → Settings → Domains**). |
 | The action pins (§5) | `grep -nE "^\s*(- )?uses:" .github/workflows/*.yml` — every hit must read `owner/repo@<40-hex SHA> # vX.Y.Z`. To check one against its comment, or to redo one by hand: `gh api repos/<owner>/<repo>/git/ref/tags/<vX.Y.Z> --jq .object`. A `commit` object's `sha` is the pin; a `tag` object is an annotated tag, so read the commit it points at with `gh api repos/<owner>/<repo>/git/tags/<sha> --jq .object`. Only the SHA runs and only the comment gets read, so a comment that names a different release from its SHA is the bug. |
 | The backend dependency lock (§1) | `backend/requirements.lock` is generated: its header names the Python that compiled it (3.14) and the command. Re-run the command in §1 and diff — an empty diff on the same day means it is current. `grep -n "requirements.lock" .github/workflows/checks.yml .github/workflows/deploy-backend.yml backend/Dockerfile` finds every place that installs it. |
+| The web app's two TypeScripts (§1) | From `frontend/`: `npx tsc --version` must print 7.x, `npx tsc6 --version` 6.x, and `node -p "require('typescript').version"` 6.x. The day typescript-eslint's peer range admits 7 (`npm view typescript-eslint peerDependencies`), the subsection's last paragraph is the removal recipe. |
+| ESLint 10 and its three out-of-range plugins (§1) | `frontend/e2e/eslint-rules-run-unit.spec.ts`, in the Unit specs step, fails if any plugin stops reporting. `npm view eslint-plugin-react peerDependencies` (and the same for eslint-plugin-import and eslint-plugin-jsx-a11y) says when the `ERESOLVE` warnings should stop. |
+| npm 12 and the install-script policy (§1) | The web job's "Install npm 12" step prints `npm --version` (12.x), and its Install step prints no `install scripts blocked` lines. From `frontend/`, with npm 12, `npm install-scripts ls` must print "No packages with unreviewed install scripts". The day the Node in `engines.node` bundles npm 12 (its release notes say so), delete the "Install npm 12" step from `checks.yml` and from `deploy-frontend.yml`. |
 | The runner image | `grep -n "runs-on" .github/workflows/*.yml` — every job names `ubuntu-26.04` (since 2026-10-09), never `ubuntu-latest`, so an image move is a reviewed diff rather than a GitHub announcement. |
 | Branch protection: whether the checks are required | **UNVERIFIED from here** — console state, and the single most load-bearing unverifiable claim on this page. Nothing in `.github/` can assert it. **Settings → Branches**, or `gh api repos/:owner/:repo/branches/main/protection`. |
 | Everything about cutting a release | [RELEASING.md](RELEASING.md), which owns it. This document states only where `publish-android.yml` sits in the pipeline and which secrets it reads; if the two disagree about anything else, RELEASING.md wins. |

@@ -25,8 +25,8 @@ Learn that order and you can work without the guide.
 ## Two things to know before you start
 
 1. **Every record is scoped to a workshop.** Products, tools and interviews all carry a linked
-   workshop, and the Data Browser opens on *By workshop*, filing the entire repository under the
-   workshop each record was made in. On a create
+   workshop, and the Data Browser opens on *By workshop*, filing every record under the
+   workshop it was made in. On a create
    form, the most recent workshop you have access to is preselected — so getting the workshop right
    once saves you picking it on every screen afterwards.
 2. **Everything you submit is reviewed.** Below the Professor tier the status chip on every form is
@@ -73,8 +73,8 @@ Open the workshop you are documenting under — or create it — before you reco
 Description, Notes, Linked artisans, Crafts covered, Workshop media, Location (GPS fix or map pin).
 
 **Why it exists.** The workshop is the container everything else drops into. Products, tools and
-interviews all link to one, and *View Data* opens on **By workshop**, which files the whole
-repository under the workshop each record was made in.
+interviews all link to one, and *View Data* opens on **By workshop**, which files every
+record under the workshop it was made in.
 
 **Watch out for:**
 
@@ -93,7 +93,7 @@ Add the craft being documented so artisans, products and tools have something to
 **What the screen asks for:** Craft name *(required)*, Local name, Category, Place, Description,
 Craft media.
 
-**Why it exists.** Craft is the shared vocabulary of the repository: artisans link to a craft,
+**Why it exists.** Craft is the shared vocabulary everyone uses: artisans link to a craft,
 products and tools inherit the craft name from it, and the Data Browser groups every workshop's
 contents by craft. Adding it once keeps spellings consistent across everyone's records.
 
@@ -211,8 +211,7 @@ record whether the toolchain behind the craft is still alive.
 
 - Fill only the dimensions that make sense for the tool. A blade has a length and a thickness; a
   wheel has a radius.
-- **Process stages** archives your captures in order as `STAGE_STEP_1`, `STAGE_STEP_2`, … so shoot
-  them in sequence.
+- **Process stages** keeps your captures in the order you take them, so shoot them in sequence.
 - You can also hand tools to specific artisans later from **Assign tools to artisans** — for your
   own artisans, ones shared with you for editing, or any artisan if you are an admin.
 
@@ -229,7 +228,7 @@ Sit down with the artisan and work through the interview sections, recording eac
 question"** audio clip or a typed answer, and Interview notes at the foot of the form.
 
 **Why it exists.** The questionnaire is the artisan speaking in their own voice and their own
-language. Recorded audio is auto-transcribed on the server, so you get both the original recording
+language. Recorded audio is transcribed automatically, so you get both the original recording
 and searchable text without typing during the interview.
 
 **Watch out for:**
@@ -255,8 +254,8 @@ object name, **Linked record type** *(required)*, Linked entry *(optional)*, Cap
 fix or map pin).
 
 **Why it exists.** Field work produces context that no form has a slot for: the road into the
-village, the market, an unplanned conversation. Miscellaneous Media keeps that material inside the
-repository instead of on a phone that gets wiped.
+village, the market, an unplanned conversation. Miscellaneous Media keeps that material with your
+records instead of on a phone that gets wiped.
 
 **Watch out for:**
 
@@ -299,7 +298,7 @@ also means you are never the last check on your own work.
 
 **Screen:** View Data / Data Browser (`/data`)
 
-Browse the whole repository as a directory tree and export a report of any subtree. The root offers
+Browse every record as folders and export a report of any folder. The root offers
 the same records filed three ways:
 
 - **By workshop** *(the view it opens on)* — every record filed under the workshop it was made in.
@@ -311,7 +310,7 @@ content-type filters, or take the whole subtree as a **`.xlsx` report**.
 
 **Watch out for:**
 
-- Pick a folder, then use the breadcrumb to move back up. The tree loads lazily as you expand it.
+- Pick a folder, then use the breadcrumb to move back up. Each folder loads when you open it.
 - Transcripts and AI text render as formatted Markdown in the preview pane, not raw text.
 - Dataset download is a **granted permission**. If your role does not have it, the browser shows a
   restricted notice — use **Search** to find records instead.

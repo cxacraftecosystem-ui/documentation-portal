@@ -331,24 +331,21 @@ fun taskOverrideConfirm(current: String, next: String, assigneeName: String?): T
         next == TASK_STATUS_DONE -> TaskOverrideCopy(
             title = "Mark this done for them?",
             body = "$whom has not handed this in. You would be recording it as finished on their behalf.",
-            note = "The repository stores no trace of who pressed this — the row reads exactly as it " +
-                "would if they had finished it themselves. If you only mean \"I think this is done\", " +
-                "ask them first.",
+            note = "This marks it done for them. If you only think it's done, ask them first.",
             confirmLabel = "Mark done for them"
         )
         current == TASK_STATUS_SUBMITTED -> TaskOverrideCopy(
             title = "Send this back?",
             body = "$whom said this was finished. Sending it back refuses that and reopens the task.",
-            note = "It returns to their list as unfinished work, and the app is where they will find " +
-                "out. Nothing here carries a message, so tell them why yourself.",
+            note = "It returns to their list as unfinished work. Let them know why.",
             confirmLabel = "Send back"
         )
         else -> TaskOverrideCopy(
             title = "Reopen this task?",
             body = "This is approved. Reopening puts it back on ${whom}'s list as " +
                 "${taskStatusLabel(next).lowercase()}.",
-            note = "The completion date is cleared. Whatever they have already recorded stays in the " +
-                "repository — only the task's state moves.",
+            note = "The completion date is cleared. What they have already recorded is kept; only " +
+                "the task's status changes.",
             confirmLabel = "Back to ${taskStatusLabel(next).lowercase()}"
         )
     }
@@ -576,8 +573,8 @@ fun taskSummaryBar(summary: TaskSummaryDto): TaskSummaryBar {
         // The server declined to count records for a list this long. Not a failure and not hidden:
         // the alternative is a bar that looks measured and is not, which is the outcome ruled out
         // above.
-        caveats += "You have too many tasks for the repository counts to be worked out in one go, " +
-            "so nothing here was counted from records."
+        caveats += "You have too many tasks to count from records in one go, so nothing here was " +
+            "counted from records."
     }
 
     if (summary.taskCount == 0) {
@@ -604,17 +601,17 @@ fun taskSummaryBar(summary: TaskSummaryDto): TaskSummaryBar {
             // Both halves are said because the card cannot tell which one is true from this payload,
             // and guessing would put one of two different explanations on screen as if it were
             // certain.
-            "Nothing has been counted from the repository yet and nothing has been reported against " +
-                "a target, so there is no honest bar to draw. The counts above are exact.",
+            "Nothing has been recorded or reported against these tasks yet, so there is no progress " +
+                "to show.",
             measured,
             caveats
         )
     }
 
     val caption = when (measured) {
-        "all" -> "All $active of your tasks are counted from the repository — this bar moves on its " +
+        "all" -> "All $active of your tasks are counted from your records — this bar moves on its " +
             "own as you record."
-        "some" -> "${summary.measuredCount} of $active tasks counted from the repository; the rest " +
+        "some" -> "${summary.measuredCount} of $active tasks counted from records; the rest " +
             "from what you reported or handed in."
         else -> "Based on what you have reported and handed in — none of these tasks could be " +
             "counted from records."
@@ -820,15 +817,15 @@ private enum class GapTone { UNKNOWN, IDLE, MATCH, AHEAD, BEHIND }
 private data class ProgressGap(val tone: GapTone, val label: String)
 
 private fun progressGap(reported: Int, derived: Int?): ProgressGap {
-    if (derived == null) return ProgressGap(GapTone.UNKNOWN, "Repository count unavailable")
+    if (derived == null) return ProgressGap(GapTone.UNKNOWN, "Count unavailable")
     // Two zeroes agree, but agreeing about nothing is not an achievement: a green "matches" tick on
     // an untouched task would read as reassurance on exactly the row that deserves a chase.
     if (reported == 0 && derived == 0) return ProgressGap(GapTone.IDLE, "Nothing reported or recorded yet")
     val delta = reported - derived
     return when {
-        delta > 0 -> ProgressGap(GapTone.BEHIND, "$delta more reported than the repository can find")
-        delta < 0 -> ProgressGap(GapTone.AHEAD, "${-delta} more in the repository than reported")
-        else -> ProgressGap(GapTone.MATCH, "Reported figure matches the repository")
+        delta > 0 -> ProgressGap(GapTone.BEHIND, "$delta more reported than recorded")
+        delta < 0 -> ProgressGap(GapTone.AHEAD, "${-delta} more recorded than reported")
+        else -> ProgressGap(GapTone.MATCH, "Reported figure matches what is recorded")
     }
 }
 
@@ -1004,7 +1001,7 @@ fun TaskAdminScreen(
         }
         Text(
             "Hand documentation work to the people below you, then watch what they report against " +
-                "what the repository can actually find.",
+                "what has actually been recorded.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -1261,7 +1258,7 @@ private fun AssignWorkTab(
                 number = 2,
                 title = "Who does the work",
                 hint = "Only people ranked below you can be given a task. Narrow by tier first if the " +
-                    "list is long — one task row is created per person."
+                    "list is long — each person gets their own task."
             )
             FieldLabel("Filter by tier")
             SingleSelectField(
@@ -1363,7 +1360,7 @@ private fun AssignWorkTab(
             )
             PickedHint(
                 labels = artisanNames,
-                empty = if (workshopId.isNotBlank()) "Every artisan at this workshop." else "Every artisan in the repository."
+                empty = if (workshopId.isNotBlank()) "Every artisan at this workshop." else "Every artisan."
             )
 
             FieldLabel("Target count")
@@ -1475,7 +1472,7 @@ private fun AssignWorkTab(
             SummaryRow("Task title", form.title.trim().ifBlank { generatedTitle })
             SummaryRow("Workshop", workshopTitle ?: "Not tied to a workshop")
             SummaryRow(
-                "Repository counts against",
+                "Counted against",
                 if (derivedTarget != null) {
                     "$derivedTarget item${if (derivedTarget == 1) "" else "s"} per person"
                 } else {
@@ -1566,7 +1563,7 @@ private fun AccountabilityTab(
         report.assignees.isEmpty() -> EmptyStateBlock(
             title = "Nobody has been given work here yet",
             body = "Assign work on the first tab and this becomes the accountability view: who has " +
-                "what, what they say they have done, and what the repository can actually find."
+                "what, what they say they have done, and what has actually been recorded."
         )
         else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
             StatTileGrid(
@@ -1598,8 +1595,8 @@ private fun AccountabilityTab(
             }
 
             Text(
-                "Reported is what the person says they have done. In repository is what the database " +
-                    "can find them having actually created inside the task's scope. Neither overwrites " +
+                "Reported is what the person says they have done. Recorded is what they have " +
+                    "actually created inside the task's scope. Neither overwrites " +
                     "the other — a wide gap is the thing to ask about.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1768,7 +1765,7 @@ private fun TaskEffectiveProgress(task: TaskDto) {
             // somebody moved by typing a number into the box below it, and on this screen of all
             // screens that is the distinction worth a line of text.
             Text(
-                "Counted from the repository — this moves on its own as records are filed" +
+                "Counted automatically — this moves on its own as records are saved" +
                     (task.derivedArtisanCount?.let { ", across $it in scope" } ?: "") + ".",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -2062,7 +2059,7 @@ private fun BatchCard(batch: TaskBatchDto, busy: Boolean, onRemove: () -> Unit) 
                     Text(
                         "reported ${assignee.progressCount}" +
                             (batch.targetCount?.let { " / $it" } ?: "") +
-                            " · in repository ${assignee.derivedCount?.toString() ?: "—"}",
+                            " · recorded ${assignee.derivedCount?.toString() ?: "—"}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f)
@@ -2729,7 +2726,7 @@ private fun ProgressGapMeter(reported: Int, derived: Int?, target: Int?) {
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text(
-                "In repository",
+                "Recorded",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.width(88.dp)

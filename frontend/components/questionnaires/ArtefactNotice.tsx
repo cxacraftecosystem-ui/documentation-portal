@@ -130,9 +130,9 @@ function ArtefactDetail() {
           <li className="flex items-start gap-2">
             <FileSpreadsheet className="mt-1 h-3.5 w-3.5 shrink-0 text-ink-500" aria-hidden />
             <span>
-              <span className="font-medium text-ink-900">They are counted, reported and not stored.</span> The Answer
-              column is inert in this app, in both directions: neither download carries one out, and no upload brings one
-              in. The report after the upload says how many it found.
+              <span className="font-medium text-ink-900">They are counted, not saved.</span> Answers typed into the
+              spreadsheet aren’t imported — record answers on the Questionnaire page. The report after the upload says how
+              many it found.
             </span>
           </li>
           <li className="flex items-start gap-2">

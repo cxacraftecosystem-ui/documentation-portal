@@ -48,7 +48,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
@@ -327,8 +326,7 @@ fun ProviderOrderPanel(
             state.trouble?.let { trouble ->
                 ProviderTroubleCard(trouble = trouble, busy = state.loading, onRetry = state::load)
                 Text(
-                    "Showing the app's built-in default order. This is not the live ranking, and nothing " +
-                        "below will do anything until the panel can reach the server.",
+                    "Showing the default order. It can be changed once the current order loads.",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = tokens.muted
@@ -391,12 +389,6 @@ fun ProviderOrderPanel(
                     Text(
                         trouble.advice,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                    Text(
-                        trouble.technical,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontFamily = FontFamily.Monospace,
                         color = MaterialTheme.colorScheme.onErrorContainer
                     )
                 }
@@ -699,12 +691,6 @@ private fun ProviderTroubleCard(trouble: SttTrouble, busy: Boolean, onRetry: () 
         Text(
             trouble.advice,
             style = MaterialTheme.typography.bodySmall,
-            color = tokens.onWarningContainer
-        )
-        Text(
-            trouble.technical,
-            style = MaterialTheme.typography.labelSmall,
-            fontFamily = FontFamily.Monospace,
             color = tokens.onWarningContainer
         )
         if (trouble.retryable) {

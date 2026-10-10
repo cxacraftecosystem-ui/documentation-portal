@@ -73,7 +73,7 @@ def assert_not_demoting_master(target_user: Any, payload_role: str | None, curre
     if not is_master_admin(current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="The master admin account is protected")
     if payload_role and payload_role != "MASTER_ADMIN":
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="The master admin must keep MASTER_ADMIN role")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="The master admin's role can't be changed.")
 
 
 @router.get("/directory")

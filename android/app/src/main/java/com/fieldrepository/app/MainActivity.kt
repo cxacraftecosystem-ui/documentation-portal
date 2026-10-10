@@ -701,7 +701,7 @@ private fun RepositoryApp(
                         user = null
                         error = "Your session expired. Please sign in again."
                     } else if (user == null) {
-                        error = err.message ?: "Unable to reach the server. Check your connection and try again."
+                        error = err.message ?: "Couldn't connect. Check your connection and try again."
                     }
                 }
         }
@@ -759,7 +759,7 @@ private fun RepositoryApp(
             .padding(16.dp)
     ) {
         when {
-            loading -> Text("Loading repository...", color = Muted, modifier = Modifier.align(Alignment.Center))
+            loading -> Text("Loading…", color = Muted, modifier = Modifier.align(Alignment.Center))
             user == null -> LoginScreen(
                 error = error,
                 refusalCode = refusalCode,
@@ -2237,8 +2237,8 @@ private fun AdminViewHiddenCard(
     RecordCard(title = title, icon = Icons.Filled.VisibilityOff) {
         Text(
             if (canToggle) {
-                "$blurb You switched admin view off, so the repository is behaving exactly as it does " +
-                    "for an ordinary user."
+                "$blurb You switched admin view off, so you see exactly what an ordinary user " +
+                    "sees."
             } else {
                 "$blurb Those tools belong to administrators; everything your role does reach is in " +
                     "the menu."
@@ -2264,8 +2264,8 @@ private fun AdminViewHiddenCard(
 private fun DataBrowserEntryCard(onOpen: () -> Unit) {
     RecordCard(title = "Data Browser", icon = Icons.Filled.Storage) {
         Text(
-            "Browse the repository as a directory tree, preview media and transcripts, and download " +
-                "any folder as a zip with content-type filters.",
+            "Browse every record as folders, preview media and transcripts, and download " +
+                "any folder as a zip, filtered by file type.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -2753,7 +2753,7 @@ private fun StatsCard(
         Column(modifier = Modifier.padding(18.dp)) {
             Text("At a glance", display = true, color = MaterialTheme.field.onBrandTile, fontSize = 24.sp)
             Text(
-                "Everything in the repository, not only your own entries.",
+                "Every record, not only your own.",
                 color = MaterialTheme.field.onBrandTileMuted,
                 fontSize = 12.sp
             )
@@ -2965,7 +2965,7 @@ private fun RecentSubmissionsCard(stats: DashboardStats?, onOpenRecord: (EntryMo
                 color = MaterialTheme.colorScheme.onSurface
             )
             Text(
-                "The newest entries across the repository, whoever filed them.",
+                "The newest records, whoever added them.",
                 color = Muted,
                 fontSize = 11.sp
             )
@@ -4149,7 +4149,7 @@ private fun WorkshopField(state: WorkshopPickerState, saving: Boolean = false) {
         ) { state.selectedId = it }
         if (blocked) {
             Text(
-                "You are not assigned to this workshop, so saving will be refused. Ask an admin to " +
+                "You are not assigned to this workshop, so this can't be saved. Ask an admin to " +
                     "assign you to it, or pick another workshop.",
                 color = MaterialTheme.colorScheme.error,
                 fontSize = 12.sp
@@ -5026,7 +5026,7 @@ private fun MediaCaptureSection(
             HorizontalDivider()
             Text("Grid-sheet measurement image (optional)", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
             Text(
-                "If the server has GEMINI_API_KEY, dimensions are estimated from the grid and fill empty length/breadth. Otherwise enter them manually.",
+                "Length and breadth are estimated from the grid where possible and fill any empty boxes. You can always enter them yourself.",
                 color = Muted,
                 fontSize = 11.sp
             )
@@ -6125,7 +6125,7 @@ private fun ArtisanForm(
         // this form saves offline, so a form that only learned the number was missing from a 422
         // would let a researcher walk away from the artisan with an unsavable record in hand.
         if (aadhaarRequired && aadhaar.isBlank()) {
-            aadhaarError = "Enter the artisan's 12-digit Aadhaar number. It is how the repository " +
+            aadhaarError = "Enter the artisan's 12-digit Aadhaar number. It is how the app " +
                 "recognises someone another researcher has already documented."
             runCatching { aadhaarFocus.requestFocus() }
             onError("The Aadhaar number is required — see the highlighted field."); return
@@ -8048,7 +8048,7 @@ private fun ToolStagesSection(
         HorizontalDivider()
         Text("Process stages", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
         Text(
-            "Document each step of making or using this tool. Captures are archived in order as STAGE_STEP_1, STAGE_STEP_2, …",
+            "Document each step of making or using this tool. Captures are kept in the order you take them.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -9201,14 +9201,14 @@ private data class WalkStep(val title: String, val body: String)
 private val walkthroughSteps = listOf(
     WalkStep(
         "Ten steps, in this order",
-        "This is the documentation process the whole repository is built around, and it is the same ten steps in the same order on the web. Work down it once and you will not need the guide again. You can leave at any point and reopen this from the menu."
+        "This is the documentation process the app is built around, and it is the same ten steps in the same order on the web. Work down it once and you will not need the guide again. You can leave at any point and reopen this from the menu."
     ),
     WalkStep(
         "1. Workshop \u00b7 Record workshop",
         "Open the workshop you are documenting under — or create it — before you record anything " +
             "else. Every record you make is scoped to a workshop. Products, tools and interviews all " +
-            "carry a linked workshop, and the Data Browser opens on \"By workshop\", which files the " +
-            "whole repository under the workshop it was recorded in. On a create form the most recent " +
+            "carry a linked workshop, and the Data Browser opens on \"By workshop\", which files " +
+            "every record under the workshop it was recorded in. On a create form the most recent " +
             "workshop you have access to is preselected, so getting this right once saves you picking " +
             "it on every screen afterwards. Watch out: Create the workshop before you leave for the " +
             "field — it is the container everything else drops into."
@@ -9216,7 +9216,7 @@ private val walkthroughSteps = listOf(
     WalkStep(
         "2. Craft \u00b7 Add craft",
         "Add the craft being documented so artisans, products and tools have something to hang " +
-            "off. Craft is the shared vocabulary of the repository: artisans link to a craft, " +
+            "off. Craft is the shared vocabulary everyone uses: artisans link to a craft, " +
             "products and tools inherit the craft name from it, and the Data Browser groups every " +
             "workshop's contents by craft. Adding it once keeps spellings consistent across " +
             "everyone's records. Watch out: Check the list first — if the craft already exists, reuse " +
@@ -9262,7 +9262,7 @@ private val walkthroughSteps = listOf(
         "7. Questionnaire \u00b7 Take interview",
         "Sit down with the artisan and work through the interview sections, recording each answer " +
             "as audio. The questionnaire is the artisan speaking in their own voice and their own " +
-            "language. Recorded audio is auto-transcribed on the server, so you get both the original " +
+            "language. Recorded audio is transcribed automatically, so you get both the original " +
             "recording and searchable text without typing during the interview. Watch out: There is " +
             "one interview per exact set of artisans. If an entry already exists for that set, saving " +
             "adds your answers to it — it never creates a duplicate."
@@ -9271,8 +9271,8 @@ private val walkthroughSteps = listOf(
         "8. Miscellaneous Media \u00b7 Upload media",
         "Upload the photographs, video, audio and files that do not belong to any single record. " +
             "Field work produces context that no form has a slot for: the road into the village, the " +
-            "market, an unplanned conversation. Miscellaneous Media keeps that material inside the " +
-            "repository instead of on a phone that gets wiped. Watch out: Upload stays disabled until " +
+            "market, an unplanned conversation. Miscellaneous Media keeps that material with your " +
+            "records instead of on a phone that gets wiped. Watch out: Upload stays disabled until " +
             "you pick a Linked record type. If the file belongs to nothing in particular, pick " +
             "\"Miscellaneous Media\" and leave the entry blank."
     ),
@@ -9287,11 +9287,11 @@ private val walkthroughSteps = listOf(
     ),
     WalkStep(
         "10. View Data \u00b7 Browse records",
-        "Browse the whole repository as a directory tree and export a report of any subtree. This " +
+        "Browse every record as folders and export a report of any folder. This " +
             "is where the documentation stops being data entry and starts being research material: " +
             "the same records, filed three different ways, previewable in place and downloadable as a " +
-            "spreadsheet. Watch out: Pick a folder, then use the breadcrumb to move back up — the " +
-            "tree loads lazily as you expand it."
+            "spreadsheet. Watch out: Pick a folder, then use the breadcrumb to move back up — each " +
+            "folder loads when you open it."
     ),
     WalkStep(
         "Before you leave the field",
@@ -10026,8 +10026,7 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
             title = { Text("Permanently delete recording?") },
             text = {
                 Text(
-                    "This removes the file from storage and the database for good. It cannot be undone, " +
-                        "and the recording can no longer be re-linked. Delete “${toDelete.originalFilename}”?"
+                    "This permanently deletes “${toDelete.originalFilename}”. It cannot be undone."
                 )
             },
             confirmButton = {
@@ -10089,7 +10088,7 @@ private enum class AdminHubEntry(
     // credentials (reveal returns plaintext) is a different class of power from managing people.
     API_KEYS(
         "API keys",
-        "Rotate, test and reveal the provider keys the repository runs on.",
+        "Change, test and view the service keys the app uses.",
         Icons.Filled.VpnKey,
         masterOnly = true
     ),
@@ -11013,8 +11012,7 @@ private fun DatasetDownloadCard(repository: FieldRepository, onError: (String) -
                         // shape of a wrong answer that reads as a right one.
                         resultMessage = "Saved to ${res.displayLocation} — ${res.saved}/${res.total} files" +
                             (if (res.failed > 0) " (${res.failed} could not be fetched)" else "") +
-                            (if (res.truncated) " — the repository is larger than one export can " +
-                                "carry, so this archive is not all of it" else "")
+                            (if (res.truncated) " — this download doesn't include every record" else "")
                     }.onFailure { onError(it.message ?: "Unable to download the dataset") }
                     downloading = false
                 }
@@ -11166,7 +11164,7 @@ private fun CompletionMatrixCard(
                     .padding(10.dp)
             ) {
                 Text(
-                    "$hidden interview${if (hidden == 1) "" else "s"} in the repository name no workshop",
+                    "$hidden interview${if (hidden == 1) " has" else "s have"} no workshop",
                     color = MaterialTheme.field.onWarningContainer,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold
@@ -11205,7 +11203,7 @@ private fun CompletionMatrixCard(
         if (matrix?.overridesAreRepositoryWide == true) {
             Text(
                 "The workshop scope narrows the green derived from recordings. An admin override is a " +
-                    "judgement about that artisan's section across the whole repository, so a marked cell " +
+                    "judgement about that artisan's section across every workshop, so a marked cell " +
                     "keeps its colour under every scope.",
                 color = MaterialTheme.field.muted,
                 fontSize = 11.sp
@@ -11757,7 +11755,7 @@ private fun AndroidMediaForm(
         // (ElevenLabs → Deepgram → Whisper), so naming one of them tells the researcher something
         // that is only sometimes true. The web misc-media screen already says it this way.
         Text(
-            "Images, videos, audio and files upload to the same repository backend. Audio is queued for transcription after upload.",
+            "Upload images, videos, audio and files. Audio is transcribed after upload.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -12963,7 +12961,7 @@ private fun QuestionnaireForm(
                 syncing -> "Synchronizing…"
                 syncStatus == ActionStatus.SUCCESS -> "Synchronised ✓"
                 syncStatus == ActionStatus.ERROR -> "Sync failed — tap to retry"
-                else -> "Synchronize with Database"
+                else -> "Sync now"
             }
         )
     }
@@ -14745,7 +14743,7 @@ private fun WorkshopAssignmentCard(
         val onRoster = roster.map { it.userId }.toSet()
         val addable = directory.filterNot { it.id in onRoster }
         if (addable.isEmpty()) {
-            Text("Everyone in the directory already has a row on this workshop.", color = Muted, fontSize = 12.sp)
+            Text("Everyone already has access to this workshop.", color = Muted, fontSize = 12.sp)
         } else {
             DropdownField(
                 label = "Researcher",
@@ -14972,7 +14970,7 @@ private fun WorkshopAccessQueueCard(
         when {
             loading -> Text("Loading requests…", color = Muted, fontSize = 12.sp)
             rows.isEmpty() -> Text(
-                if (showAll) "No workshop access rows yet." else "Nothing waiting — the queue is clear. 🎉",
+                if (showAll) "No workshop access yet." else "Nothing waiting — the queue is clear. 🎉",
                 color = Muted,
                 fontSize = 12.sp
             )
@@ -15255,7 +15253,7 @@ private fun TaskCard(
                     append("Reported ${task.progressCount}")
                     if (target != null) append(" of $target")
                     if (derived != null) {
-                        append(" · repository sees $derived")
+                        append(" · recorded $derived")
                         task.derivedTarget?.let { append(" of $it") }
                     }
                 },
@@ -15407,7 +15405,7 @@ private fun WorkshopMappingCard(
 
             current.totals.unassigned == 0 ->
                 Text(
-                    "Every record in the repository names the workshop it was captured at. Nothing is hidden " +
+                    "Every record names the workshop it was captured at. Nothing is hidden " +
                         "from a workshop scope.",
                     color = MaterialTheme.field.body,
                     fontSize = 12.sp
@@ -15565,7 +15563,7 @@ private fun WorkshopMappingCard(
         plan?.let { current ->
             if (current.workshops.isEmpty()) {
                 Text(
-                    "No workshop in the repository has a date, so nothing can be filed by when it was " +
+                    "No workshop has a date, so nothing can be filed by when it was " +
                         "recorded. Adding a start and end date to a workshop makes that evidence available.",
                     color = MaterialTheme.field.muted,
                     fontSize = 11.sp

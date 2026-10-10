@@ -196,7 +196,7 @@ def render(kind: str, params: dict[str, Any], *, settings: Settings | None = Non
         link = app_url("/login", settings)
         lead = (
             f"An administrator has given this address access to the {PRODUCT_NAME}. "
-            "Sign in with Google using this e-mail address."
+            "Sign in using this e-mail address."
         )
         unasked = "If you were not expecting this, you can ignore this message."
         text = "\n\n".join([greeting, lead, f"Sign in: {link}", unasked, sign_off]) + "\n"

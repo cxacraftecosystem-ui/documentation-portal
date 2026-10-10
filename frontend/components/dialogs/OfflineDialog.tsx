@@ -49,7 +49,7 @@ export function OfflineDialog({ open, onDismiss }: { open: boolean; onDismiss: (
       <p className="mt-2 text-sm leading-6 text-ink-500">
         Queued entries are listed at the top of the page until they send, and they live in THIS browser
         &mdash; do not clear its data or hand the laptop on while the outbox still has something in it.
-        Searching the repository and opening records you have not already loaded still need a connection.
+        Searching and opening records you haven’t loaded yet still need a connection.
       </p>
     </FieldDialog>
   );

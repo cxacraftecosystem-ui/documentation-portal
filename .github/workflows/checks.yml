@@ -424,6 +424,16 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Install npm 12
+        # The newest npm 12 on every run, as `check-latest` takes the newest 24.x. No Node release
+        # bundles npm 12 yet (Node 24 ships npm 11), so this step goes when the Node in
+        # `engines.node` ships it. npm 12 runs a dependency's install script only when
+        # `allowScripts` in frontend/package.json approves it: see docs/CI.md, "npm 12 and the
+        # install-script policy". deploy-frontend.yml's deploy job has the same step.
+        run: |
+          npm install --global npm@12
+          npm --version
+
       - name: Install
         # `npm ci` only. NO `npx playwright install`: MEASURED 2026-09-14 with
         # PLAYWRIGHT_BROWSERS_PATH pointed at an empty directory, `npm run test:unit` is 104 passed
@@ -437,9 +447,15 @@ jobs:
         #
         # `npm ci` and not `npm install`, so the lockfile decides what is installed rather than the
         # index. Verified in sync on the way in: `npm ci --dry-run` from frontend/ exits 0.
+        #
+        # THREE `npm warn ERESOLVE overriding peer dependency` BLOCKS ARE EXPECTED (since 2026-10-09):
+        # eslint-plugin-react 7.37.5, eslint-plugin-import 2.32.0 and eslint-plugin-jsx-a11y 6.10.2,
+        # the newest of each and all inside eslint-config-next, still declare eslint <= 9 while this
+        # project runs ESLint 10. They are warnings, the install succeeds, and the rules run: see the
+        # Lint step and docs/CI.md, "ESLint 10 and the three plugins that predate it".
         run: npm ci
 
-      - name: Typecheck
+      - name: Typecheck (TypeScript 7)
         # `next build` also fails on a type error, but only during the deploy — i.e. AFTER the backend
         # has already shipped and the live site is pointed at it (docs/CI.md §1 explains why the
         # backend goes first). Running it here moves the answer to before the merge. Measured
@@ -447,7 +463,26 @@ jobs:
         #
         # `npx tsc --noEmit` rather than `npm run typecheck`, which is literally the same command
         # (frontend/package.json:10): this way the log of the step says what the step ran.
+        #
+        # TWO COMPILERS SINCE 2026-10-09, AND THIS ONE IS 7. frontend/package.json installs
+        # TypeScript 7 under the name `@typescript/native`, which provides the `tsc` binary, and
+        # TypeScript 6 under the name `typescript`, which provides `tsc6` and the JavaScript compiler
+        # API that 7 no longer ships. That is the TypeScript team's documented side-by-side setup;
+        # docs/CI.md, "The web app's two TypeScripts", says who uses which and when it collapses back
+        # to one.
         run: npx tsc --noEmit
+
+      - name: Typecheck (TypeScript 6, the compiler next build runs)
+        # Not a duplicate of the step above. `next build` finds its compiler through the `typescript`
+        # package and runs that package's `tsc6` binary (next 16.4's getTypeScriptPackageInfo, in
+        # dist/lib/typescript/runTypeScriptCli.js, takes the package's `bin.tsc` and falls back to a
+        # `tsc<N>` entry; measured by recording what a build spawned), so the type check that gates
+        # the deploy is TypeScript 6, not 7. The two are meant to agree, and on
+        # 2026-10-09 both exited 0 on this tree with and without a .next directory. A file on which
+        # they ever disagree fails here, before the merge, instead of in the deploy after the backend
+        # has shipped — the reason the step above exists at all. Measured on a laptop: 7 takes 5 s,
+        # 6 takes 19 s.
+        run: npx tsc6 --noEmit
 
       - name: Lint
         # `npm run lint` — the repository's own script (frontend/package.json:9), deliberately,
@@ -464,6 +499,13 @@ jobs:
         #
         # (This step prints one line from jsx-ast-utils about a JSXEmptyExpression prop it could not
         # resolve. That is the plugin talking about itself, not a finding; eslint exits 0.)
+        #
+        # ESLINT 10 SINCE 2026-10-09, AND A GREEN HERE IS NOT BY ITSELF PROOF THAT RULES RAN. ESLint
+        # 10 removed rule-context methods that eslint-plugin-react and eslint-plugin-import still call;
+        # eslint-config-next 16.4.0 restores them through its own shim, and a shim that stopped
+        # wrapping would crash this step, or worse, a degraded rule would report nothing. The Unit specs
+        # step below holds the proof: e2e/eslint-rules-run-unit.spec.ts lints a file of deliberate
+        # violations through this config and fails unless every plugin reports its own.
         run: npm run lint
 
       - name: Unit specs

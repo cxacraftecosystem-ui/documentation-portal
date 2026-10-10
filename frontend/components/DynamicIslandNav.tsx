@@ -506,7 +506,7 @@ export function DynamicIslandNav() {
               aria-hidden
               onClick={closeSheet}
               style={{ touchAction: "none" }}
-              className="absolute inset-0 bg-ink-900/20 backdrop-blur-sm"
+              className="absolute inset-0 bg-ink-900/20 backdrop-blur-xs"
             />
             <motion.div
               ref={sheetRef}

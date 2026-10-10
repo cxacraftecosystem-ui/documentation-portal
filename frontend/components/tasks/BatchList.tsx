@@ -145,7 +145,7 @@ export function BatchList({
                   <div className="flex items-center gap-3">
                     <span className="text-xs tabular-nums text-ink-500">
                       reported {assignee.progressCount}
-                      {batch.targetCount ? ` / ${batch.targetCount}` : ""} · in repository {assignee.derivedCount ?? "—"}
+                      {batch.targetCount ? ` / ${batch.targetCount}` : ""} · recorded {assignee.derivedCount ?? "—"}
                     </span>
                     <TaskStatusPill status={assignee.status} />
                   </div>

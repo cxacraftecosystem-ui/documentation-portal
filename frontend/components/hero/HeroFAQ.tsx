@@ -21,15 +21,15 @@ import { useHeroReducedMotion } from "@/components/hero/useHeroMotion";
 const FAQS = [
   {
     q: "Who can sign in?",
-    a: "Only addresses an administrator has admitted. Signing in — by password or with Google — checks your address against the platform allow-list first; if it is not on the list, no account is created and your request goes to the administrators as a pending approval. Everyone already using the repository when the allow-list was introduced was carried onto it, so nothing changed for existing accounts. Once you are admitted you join the six-tier ladder, and an admin raises you up it (field contributor, researcher, professor, admin) as your role in the project grows."
+    a: "Only addresses an administrator has admitted. Signing in — by password or with Google — checks your address against the platform allow-list first; if it is not on the list, no account is created and your request goes to the administrators as a pending approval. Once you are admitted you join the six-tier ladder, and an admin raises you up it (field contributor, researcher, professor, admin) as your role in the project grows."
   },
   {
     q: "I signed in with Google and was told I need approval. Why?",
-    a: "Because a verified Google address is proof of who you are, not permission to be here. Google sign-in used to create an account for any address that could authenticate; now it is checked against the same allow-list as a password, so an address nobody has admitted gets no account and no token. Your request is queued for an administrator, and you will be able to sign in once they approve it. A refused password and an address awaiting approval are answered differently, so you are never left guessing which of the two you are looking at."
+    a: "Because a verified Google address is proof of who you are, not permission to be here. Google sign-in checks the same approved list as passwords; if your address isn't approved, your request goes to an administrator, and you will be able to sign in once they approve it. A refused password and an address awaiting approval are answered differently, so you are never left guessing which of the two you are looking at."
   },
   {
     q: "What happens to my recordings?",
-    a: "They upload to secure storage and join the transcription queue, where a chain of three speech-to-text providers with automatic failover transcribes them and translates them into English. The finished transcript is linked back to the artisan, craft, and workshop it belongs to."
+    a: "They're transcribed automatically and translated into English. The finished transcript is linked back to the artisan, craft, and workshop it belongs to."
   },
   {
     // ⚠ THE SECOND HALF IS NEW AND IS NOT A RESTATEMENT OF THE FIRST. Records and assigned TASKS
@@ -65,7 +65,7 @@ const FAQS = [
     // §1 asserts that absence by reading the source. An artisan who was not asked for a recording
     // must not get one.
     q: "Can a researcher speak instead of type?",
-    a: "Yes. Record forms carry a microphone on their free-text boxes — names, places, addresses, descriptions, remarks — in the browser and on the Android app. Boxes that are not free text deliberately stay silent: closed dropdowns, calendar dates, every numeric and money box, and the Aadhaar and Pehchan fields, where one mis-heard digit would file an artisan under somebody else's number. Dictation runs on the device's own recogniser — nothing is recorded to a file, nothing is uploaded and nothing is stored. It is the keyboard's microphone, not a second recording of the interview."
+    a: "Yes. Record forms carry a microphone on their free-text boxes — names, places, addresses, descriptions, remarks — in the browser and on the Android app. Boxes that aren't free text have no microphone: closed dropdowns, calendar dates, every numeric and money box, and the Aadhaar and Pehchan fields, where one mis-heard digit would file an artisan under somebody else's number. Dictation runs on the device's own recogniser — nothing is recorded to a file, nothing is uploaded and nothing is stored. It is the keyboard's microphone, not a second recording of the interview."
   },
   {
     q: "Who can download the data?",
@@ -90,7 +90,7 @@ const FAQS = [
     // GPS and the questionnaire recorder, and `components/settings/GetTheAppPanel.tsx` says the same
     // thing in the same order to a signed-in user. Two surfaces, one sentence.
     q: "Does it work offline?",
-    a: "Both clients do. The Android app is offline-first — interviews, media and GPS positions captured with no signal at all, queued until you are back in range — and the browser now keeps an outbox of the same kind: a save made with no connection is held locally with its attachments and replayed when the network returns, and a record the server refuses waits with the reason attached instead of blocking everything behind it. The phone is still the one that goes into the workshop, because it has the camera, the GPS and the questionnaire recorder; the portal is where reviewing, browsing and administration happen."
+    a: "Both the app and the website do. The Android app is offline-first — interviews, media and GPS positions captured with no signal at all, queued until you are back in range — and on the website a save made offline is kept with its attachments and sent when you're back online; if one can't be saved, it waits with the reason shown instead of holding up the rest. The phone is still the one that goes into the workshop, because it has the camera, the GPS and the questionnaire recorder; the portal is where reviewing, browsing and administration happen."
   },
   {
     // "THE ANDROID APP IS OFFLINE-FIRST" HAS BEEN ON THIS PAGE SINCE IT WAS WRITTEN, AND THE PAGE
@@ -111,7 +111,7 @@ const FAQS = [
     // ⚠ DO NOT NAME A VERSION HERE. The current one is on the card itself, resolved live; a number
     // typed into this page would be wrong by the next release and nothing would report it.
     q: "How do I get the Android app?",
-    a: "Sign in, open Settings, and the “Get the Android app” card downloads whichever build is current at the moment you press it. It is not on the Play Store — the repository serves the file itself — so Android will ask you to allow installing from your browser the first time. After that the app takes its own updates: when a new build is published, the phone is prompted to install it. Same account and same repository as the portal."
+    a: "Sign in, open Settings, and the “Get the Android app” card downloads whichever build is current at the moment you press it. It's not on the Play Store, so Android will ask you to allow installing from your browser the first time. After that the app takes its own updates: when a new build is published, the phone is prompted to install it. Same account as the website."
   },
   {
     q: "What about privacy?",

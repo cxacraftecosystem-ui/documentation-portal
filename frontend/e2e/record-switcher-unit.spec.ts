@@ -367,7 +367,7 @@ test.describe("the handset's copy of all of it", () => {
       "typing here searches only the ",
       " — use the pager to reach the rest, which are not ",
       "searched by the box above.",
-      " could be listed here — this is not an empty repository."
+      " could be loaded. Try again."
     ]) {
       expect(source, `RecordPickers.kt no longer contains: ${fragment}`).toContain(fragment);
     }

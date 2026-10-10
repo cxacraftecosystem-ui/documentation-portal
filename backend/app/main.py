@@ -296,7 +296,7 @@ class UnhandledErrorMiddleware:
                 # surface so the server closes the connection rather than emitting a half-response.
                 raise
             payload = {
-                "detail": "Something went wrong on the server. The error has been logged.",
+                "detail": "Something went wrong. Please try again.",
                 # The exception TYPE is safe and genuinely useful to whoever is debugging; the
                 # message may carry internals, so it stays in the log only.
                 "error": type(exc).__name__,

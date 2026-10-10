@@ -92,7 +92,7 @@ export default function SettingsPage() {
       title="Settings"
       description={
         admin
-          ? "How this account looks and reads, plus the repository administration you are entitled to."
+          ? "Your display settings, plus the admin tools you can use."
           : "How this account looks and reads, and the workshops you can ask to work in."
       }
       icon={<SettingsIcon className="h-5 w-5" aria-hidden />}
@@ -133,7 +133,7 @@ export default function SettingsPage() {
 
         {links.length ? (
           <section className="panel p-5">
-            <h2 className="font-display font-bold text-ink-900">Repository administration</h2>
+            <h2 className="font-display font-bold text-ink-900">Administration</h2>
             <p className="mt-1 text-sm text-ink-500">Settings that apply to everyone, not just this account.</p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               {links.map((link) => (

@@ -110,7 +110,7 @@ ACCESS_PENDING_DETAIL = (
 # pending sentence, because telling a rejected person they are "awaiting approval" is a lie that
 # guarantees they wait forever.
 ACCESS_REJECTED_DETAIL = (
-    "This address is not approved for access to the repository. "
+    "This address isn't approved to sign in. "
     "Contact your administrator if you believe this is a mistake."
 )
 
@@ -119,7 +119,7 @@ ACCESS_REJECTED_DETAIL = (
 # telling them "not approved" hides that they are looking at a revocation they may be able to get
 # reversed today.
 ACCESS_SUSPENDED_DETAIL = (
-    "Your access to the repository has been suspended. Contact your administrator."
+    "Your access has been suspended. Contact your administrator."
 )
 
 #: Status -> the sentence that status is refused with. A status missing from here would fall back to

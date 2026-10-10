@@ -58,7 +58,7 @@ function describeFailure(error: unknown): { message: string; status?: number } {
     // A rejected fetch means the request never got an answer, which is a different thing from a
     // refusal — and the difference decides whether retrying is worth anything.
     if (/failed to fetch|networkerror|load failed/i.test(error.message)) {
-      return { message: "The request never reached the server — check the connection and try again." };
+      return { message: "Couldn’t connect — check your connection and try again." };
     }
     return { message: error.message };
   }

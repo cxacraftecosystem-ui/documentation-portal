@@ -126,8 +126,6 @@ type Trouble = {
   headline: string;
   /** What it means and who can fix it. */
   advice: string;
-  /** The bit an engineer needs, kept out of the sentence above. */
-  technical: string;
   /** Whether pressing the same button again could plausibly work. */
   retryable: boolean;
 };
@@ -143,29 +141,22 @@ type Trouble = {
 function describeTrouble(error: unknown, action: string): Trouble {
   const status = error instanceof ApiError ? error.status : 0;
   const serverSentence = error instanceof Error ? error.message : "";
-  const technical = `HTTP ${status || "—"} from /settings/transcription-providers${
-    serverSentence ? ` — “${serverSentence}”` : ""
-  }`;
 
-  // The build shipped without an API address; lib/api already writes a full explanation for that.
+  // The build shipped without an API address; lib/api already writes the user-facing sentence for that.
   if (error instanceof Error && error.name === "ApiUnconfiguredError") {
     return {
-      headline: "This site does not know where its data service is.",
+      headline: "Couldn’t load the transcription order.",
       advice: serverSentence,
-      technical,
       retryable: false
     };
   }
 
   if (status === 404) {
     return {
-      headline: "This server does not have the provider ranking yet.",
+      headline: "The transcription order isn’t available right now.",
       advice:
-        `The screen is newer than the API it is talking to — the address it asked for simply is not there. ` +
-        `Nothing is wrong with your account or your recordings, and no setting has been lost. Whoever deploys ` +
-        `the backend needs to release the current version; until they do, the order below is the app's built-in ` +
-        `default rather than the live one, and cannot be changed from here.`,
-      technical,
+        `Your account and recordings are fine, and no setting has been lost. The default order is shown below. ` +
+        `Try again later.`,
       retryable: true
     };
   }
@@ -176,7 +167,6 @@ function describeTrouble(error: unknown, action: string): Trouble {
         `Choosing which engine transcribes recordings needs the Admin role or above. Ask a master admin either ` +
         `to raise your role or to make the change for you — this is a permission, not a fault, so retrying will ` +
         `give the same answer.`,
-      technical,
       retryable: false
     };
   }
@@ -184,35 +174,26 @@ function describeTrouble(error: unknown, action: string): Trouble {
     return {
       headline: "Your session has ended.",
       advice: `Sign in again and come back to this page; the ranking itself is untouched.`,
-      technical,
       retryable: false
     };
   }
   if (status >= 500) {
     return {
-      headline: "The server ran into a problem of its own.",
-      advice:
-        `This one is on the API side, not on anything you did, and it is not fixable from this screen. Give it a ` +
-        `minute and press Try again. If it keeps happening, send whoever looks after the backend the line below ` +
-        `and roughly what time it was — that is enough for them to find it in the logs.`,
-      technical,
+      headline: "Something went wrong.",
+      advice: `It wasn’t anything you did. Try again in a minute; if it keeps happening, tell an administrator.`,
       retryable: true
     };
   }
   if (status === 0) {
     return {
-      headline: "The page could not reach the server at all.",
-      advice:
-        `No answer came back, which is usually this device's internet connection or the API being down entirely. ` +
-        `Check you are online and press Try again.`,
-      technical,
+      headline: "Couldn’t connect.",
+      advice: `Check your connection and try again.`,
       retryable: true
     };
   }
   return {
-    headline: `The server refused to ${action} the provider order.`,
-    advice: serverSentence || `It gave no reason. Press Try again, and tell an administrator if it persists.`,
-    technical,
+    headline: `Couldn’t ${action} the transcription order.`,
+    advice: serverSentence || `Try again, and tell an administrator if it keeps happening.`,
     retryable: true
   };
 }
@@ -533,7 +514,6 @@ export function ProviderOrderPanel() {
             {trouble.headline}
           </p>
           <p className="leading-6">{trouble.advice}</p>
-          <p className="font-mono text-[11px] leading-5 text-ink-500">{trouble.technical}</p>
           {trouble.retryable ? (
             <div>
               <button
@@ -560,7 +540,7 @@ export function ProviderOrderPanel() {
           {trouble ? (
             <p className="text-xs font-medium text-ink-500" data-testid="provider-order-stale-note">
               {
-                "Showing the app’s built-in default order. This is not the live ranking, and none of the controls below will do anything until the panel can reach the server."
+                "Showing the default order. You can change it once the page reconnects."
               }
             </p>
           ) : null}
@@ -660,7 +640,7 @@ export function ProviderOrderPanel() {
                   <div className="flex shrink-0 flex-col items-end gap-1.5">
                     <button
                       type="button"
-                      className="inline-flex min-h-7 items-center gap-1.5 rounded-sm border border-line-200 bg-card px-2 py-1 text-[11px] font-semibold text-ink-700 transition hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="inline-flex min-h-7 items-center gap-1.5 rounded-sm border border-line-200 bg-card px-2 py-1 text-[11px] font-semibold text-ink-700 transition hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700 disabled:cursor-not-allowed disabled:opacity-40"
                       onClick={() => test(provider)}
                       disabled={!live || testing !== null}
                       aria-label={`Test the ${provider.keyLabel} key for ${provider.name}`}
@@ -735,7 +715,6 @@ export function ProviderOrderPanel() {
         >
           <p className="font-semibold">{actionTrouble.headline}</p>
           <p className="leading-6">{actionTrouble.advice}</p>
-          <p className="font-mono text-[11px] leading-5 text-ink-500">{actionTrouble.technical}</p>
         </div>
       ) : null}
       {warning ? (
@@ -756,7 +735,7 @@ export function ProviderOrderPanel() {
         {dirty && live ? (
           <button
             type="button"
-            className="rounded-sm px-2 py-1 text-xs font-semibold text-ink-500 transition hover:text-purple-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
+            className="rounded-sm px-2 py-1 text-xs font-semibold text-ink-500 transition hover:text-purple-700 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
             onClick={reset}
           >
             Reset
@@ -814,7 +793,7 @@ function MoveButton({
     <button
       type="button"
       ref={register}
-      className="grid h-7 w-7 place-items-center rounded-sm border border-line-200 text-ink-500 transition hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:border-line-200 disabled:hover:bg-transparent aria-disabled:cursor-not-allowed aria-disabled:opacity-30 aria-disabled:hover:border-line-200 aria-disabled:hover:bg-transparent"
+      className="grid h-7 w-7 place-items-center rounded-sm border border-line-200 text-ink-500 transition hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:border-line-200 disabled:hover:bg-transparent aria-disabled:cursor-not-allowed aria-disabled:opacity-30 aria-disabled:hover:border-line-200 aria-disabled:hover:bg-transparent"
       disabled={atEnd || !live}
       aria-disabled={blocked || undefined}
       aria-describedby={blocked && provider.frozenReason ? reasonId : undefined}

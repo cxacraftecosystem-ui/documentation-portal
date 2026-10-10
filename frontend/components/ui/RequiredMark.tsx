@@ -45,9 +45,9 @@
  * `text-error-600` is `#dc2626` (`tailwind.config.ts:93`); it is a literal status colour and does
  * not invert, which on `--card` in dark lands near 4:1 — thin for a mark whose whole job is to be
  * caught out of the corner of an eye, and that is what `dark:text-red-400` is for. `red-400` is
- * stock Tailwind `#f87171` and resolves because `tailwind.config.ts:51` extends rather than replaces
- * the default palette. It is deliberately not introduced as a project token: the only thing in the
- * product that needs it is this one glyph.
+ * stock Tailwind (`oklch(70.4% 0.191 22.216)` since v4; `#f87171` in v3) and resolves because
+ * `tailwind.config.ts:51` extends rather than replaces the default palette. It is deliberately not
+ * introduced as a project token: the only thing in the product that needs it is this one glyph.
  *
  * ── IT IS NOT `aria-hidden`, AND THAT IS A DELIBERATE NON-CHANGE ────────────────────────────────
  *

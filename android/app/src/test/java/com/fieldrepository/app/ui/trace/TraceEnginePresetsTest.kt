@@ -69,13 +69,13 @@ class TraceEnginePresetsTest {
         }
     }
 
-    /** A row cannot be added to one list without the other: the notes cover exactly the extra three. */
+    /**
+     * The extra three are offered with no note about the other client: a sentence about what the portal
+     * lacks is not one a researcher can act on (the gap is in docs/OPEN_FINDINGS.md).
+     */
     @Test
-    fun everyUnmatchedSubjectCarriesItsOwnSentence() {
-        assertEquals(
-            TRACE_SUBJECTS_ONLY_ON_THIS_ENGINE.toSet(),
-            TRACE_SUBJECT_DIVERGENCE_NOTES.keys,
-        )
+    fun noUnmatchedSubjectCarriesANoteAboutThePortal() {
+        assertEquals(emptySet<String>(), TRACE_SUBJECT_DIVERGENCE_NOTES.keys)
     }
 
     /**
@@ -194,7 +194,7 @@ class TraceEnginePresetsTest {
         val sentence = traceNoSuchSubjectSentence("carving")
         assertTrue(sentence.contains("Wood carving"))
         assertTrue(sentence.contains("Stone carving"))
-        assertTrue(sentence.contains("Metalwork"))
+        assertTrue("no talk of engines or of the portal", !sentence.contains("engine") && !sentence.contains("portal"))
 
         val bare = traceNoSuchSubjectSentence("not-a-subject")
         assertTrue(bare.contains("not-a-subject"))

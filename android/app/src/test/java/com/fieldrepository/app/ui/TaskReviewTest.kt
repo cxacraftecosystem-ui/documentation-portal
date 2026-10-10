@@ -292,21 +292,21 @@ class TaskReviewTest {
     }
 
     @Test
-    fun `the send-back note says the researcher finds out from the app and nowhere else`() {
+    fun `the send-back note asks the admin to tell them why`() {
         // Nothing on the wire carries a message with a send-back. An admin who assumes one is sent
         // leaves somebody in the field re-reading a task they thought was finished.
         val copy = taskOverrideConfirm(TASK_STATUS_SUBMITTED, TASK_STATUS_IN_PROGRESS, "Meera Joshi")
-        assertTrue(copy.note.contains("tell them why yourself"))
+        assertTrue(copy.note.contains("Let them know why"))
         assertEquals("Send back", copy.confirmLabel)
     }
 
     @Test
-    fun `marking done for somebody who never claimed it says the row keeps no trace`() {
+    fun `marking done for somebody who never claimed it says to ask them first`() {
         // `test_an_override_leaves_no_trace_of_who_performed_it` pins this server-side: the row is
         // identical to one the assignee wrote themselves. The only place that can be said is here,
         // before the press.
         val copy = taskOverrideConfirm(TASK_STATUS_OPEN, TASK_STATUS_DONE, "Meera Joshi")
-        assertTrue(copy.note.contains("no trace"))
+        assertTrue(copy.note.contains("ask them first"))
         assertEquals("Mark done for them", copy.confirmLabel)
     }
 
@@ -506,8 +506,7 @@ class TaskReviewTest {
         // about the person. So: no bar, and a sentence saying why.
         val bar = taskSummaryBar(summary(taskCount = 4, remainingCount = 4, measuredCount = 0, percentComplete = 0))
         assertNull(bar.percent)
-        assertTrue(bar.caption.contains("no honest bar to draw"))
-        assertTrue(bar.caption.contains("The counts above are exact"))
+        assertTrue(bar.caption.contains("no progress to show"))
     }
 
     @Test
@@ -534,7 +533,7 @@ class TaskReviewTest {
         // said to the person it is a promise to.
         val bar = taskSummaryBar(summary(taskCount = 6, remainingCount = 6, measuredCount = 6, percentComplete = 25))
         assertEquals("all", bar.measured)
-        assertTrue(bar.caption.contains("All 6 of your tasks are counted from the repository"))
+        assertTrue(bar.caption.contains("All 6 of your tasks are counted from your records"))
         assertTrue(bar.caption.contains("moves on its own as you record"))
     }
 
@@ -542,7 +541,7 @@ class TaskReviewTest {
     fun `a partly measured card says how much of itself was counted`() {
         val bar = taskSummaryBar(summary(taskCount = 6, remainingCount = 6, measuredCount = 2, percentComplete = 30))
         assertEquals("some", bar.measured)
-        assertTrue(bar.caption.contains("2 of 6 tasks counted from the repository"))
+        assertTrue(bar.caption.contains("2 of 6 tasks counted from records"))
         assertTrue(bar.caption.contains("the rest from what you reported or handed in"))
     }
 
@@ -769,7 +768,7 @@ class TaskReviewTest {
         val bar = taskSummaryBar(decoded)
         assertEquals(48, bar.percent)
         assertEquals("some", bar.measured)
-        assertTrue(bar.caption.contains("4 of 7 tasks counted from the repository"))
+        assertTrue(bar.caption.contains("4 of 7 tasks counted from records"))
         assertTrue(bar.caveats.isEmpty())
         val due = taskDueSentence(decoded)!!
         assertTrue(due.startsWith("1 task is past its due date · 2 due within the next two days · next due 20 Sep"))

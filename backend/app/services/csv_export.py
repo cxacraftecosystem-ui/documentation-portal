@@ -39,6 +39,6 @@ def records_to_csv(kind: str, records: list[Any], truncated: bool = False) -> st
     for record in records:
         writer.writerow([get_value(record, "id"), *sheet_row(kind, record, record_media(record))])
     if truncated:
-        note = f"Note: capped at {len(records)} rows — the full data set has more."
+        note = f"Note: this file shows only the newest {len(records)} entries; there are more."
         writer.writerow([note] + [""] * (len(columns) - 1))
     return output.getvalue()

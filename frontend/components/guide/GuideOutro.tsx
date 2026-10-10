@@ -33,7 +33,7 @@ const NEXT: Array<{ label: string; href: string; icon: LucideIcon; note: string 
   { label: "Dashboard", href: "/dashboard", icon: LayoutGrid, note: "Every screen in this guide, one tap away" },
   { label: "Review", href: "/review", icon: ClipboardCheck, note: "What is waiting on a decision" },
   { label: "My Activity", href: "/activity", icon: Activity, note: "Everything you have recorded so far" },
-  { label: "Search", href: "/search", icon: Search, note: "Find a record across the repository" },
+  { label: "Search", href: "/search", icon: Search, note: "Find any record" },
   { label: "Sharing", href: "/sharing", icon: Share2, note: "Give a colleague access to your records" },
   { label: "Give app feedback", href: "/feedback", icon: MessageSquare, note: "Tell us what slowed you down" }
 ];

@@ -1895,7 +1895,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
           <h4
             ref={headingRef}
             tabIndex={-1}
-            className="text-sm font-medium text-ink-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-600/40"
+            className="text-sm font-medium text-ink-900 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-purple-600/40"
           >
             {CARD_TITLE}
           </h4>
@@ -2514,7 +2514,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
                       `advancedMounted`.
                     */
                     hidden={!advancedOpen}
-                    className="mt-3 grid gap-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-600/40"
+                    className="mt-3 grid gap-4 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-purple-600/40"
                   >
                     {/*
                       `onEdited={setEdited}` IS THE WHOLE WIRING, and it is a bare setter deliberately.
