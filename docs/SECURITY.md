@@ -438,6 +438,24 @@ misrepresents the subject's location; publishing it at all discloses the researc
 
 ---
 
+## 4B. E-mail
+
+The product e-mails exactly three things, through Amazon SES, and only when `MAIL_FROM_ADDRESS` is set
+([ENVIRONMENT.md](ENVIRONMENT.md)):
+
+1. **"You can now sign in"**, to an address an administrator admits on the access roster — only when
+   that administrator ticks "E-mail them" (`sendInvite`). It carries the sign-in address of the web app
+   and nothing else: no credential, no role, no note.
+2. **A task handed in for approval**, to the person who gave the task out.
+3. **A task approved or sent back**, to its assignee.
+
+(2) and (3) name the task's title and who moved it, and link to Tasks; each person can switch them off
+in Settings (`UserPreference.emailTaskUpdates`, opt-out). Nobody is e-mailed about their own move.
+Bodies are rendered in the queue worker at send time and are never stored or logged. `EmailMessage` is
+the send log: kind, address, subject, the template parameters above, status, attempts, SES's message id
+and the SES error code. Log lines carry the message id, the kind and the recipient's account id —
+never an address or a body. A notice that cannot be queued never fails the request that caused it.
+
 ## 5. Open risks, in priority order
 
 Each item names the exact console action a human must take. Nothing here can be fixed by the

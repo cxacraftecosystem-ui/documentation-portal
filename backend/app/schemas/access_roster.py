@@ -30,6 +30,9 @@ class AccessRosterCreate(APIModel):
     # Passing ACTIVE=false creates a row that is on the list and refused — useful only for
     # pre-recording somebody who is not to be let in yet.
     isActive: bool = True
+    # E-mail the address that it may now sign in. Honoured only when the row is admitted (ACTIVE)
+    # and mail is configured; the web offers the choice only then.
+    sendInvite: bool = False
 
 
 class AccessRosterUpdate(APIModel):
@@ -45,3 +48,6 @@ class AccessRosterUpdate(APIModel):
     grantedRole: str | None = None
     fullName: str | None = Field(default=None, max_length=MAX_FULL_NAME_LENGTH)
     notes: str | None = Field(default=None, max_length=MAX_NOTES_LENGTH)
+    # With ``status: "ACTIVE"`` (the approval): e-mail the address that it may now sign in. Ignored
+    # on every other change, and when mail is not configured. Not a column: nothing is stored.
+    sendInvite: bool = False

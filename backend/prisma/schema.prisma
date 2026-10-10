@@ -200,6 +200,8 @@ model User {
   appReleases AppRelease[] @relation("AppReleasePublishedBy")
   feedback    Feedback?    @relation("FeedbackUser")
   preferences UserPreference? @relation("UserPreferenceUser")
+  /// Every e-mail queued for this account. See `EmailMessage`.
+  emailMessages EmailMessage[] @relation("EmailMessageRecipient")
   sectionStatusesSet QuestionnaireSectionStatus[] @relation("SectionStatusSetBy")
   workshopAssignments     WorkshopAssignment[] @relation("WorkshopAssignmentUser")
   workshopAssignmentsMade WorkshopAssignment[] @relation("WorkshopAssignmentAssignedBy")
@@ -412,6 +414,9 @@ model UserPreference {
   reducedMotion Boolean  @default(false)
   largerText    Boolean  @default(false)
   highContrast  Boolean  @default(false)
+  /// Opt-out, so true until the person turns it off in Settings: e-mail me when a task of mine is
+  /// handed in for my approval, approved, or sent back. Read only when mail is configured.
+  emailTaskUpdates Boolean @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -1821,4 +1826,36 @@ model UserAiCredential {
   /// a given job should use, so the second replaces the first.
   @@unique([userId, provider])
   @@index([userId])
+}
+
+// ======================================================================================
+// E-mail: the outbox the queue worker drains, and the send log
+// ======================================================================================
+
+/// ONE ROW PER E-MAIL THIS PRODUCT HAS QUEUED — the outbox the queue worker drains
+/// (`app/services/email_outbox.py`) and, once drained, the send log: who it went to, what kind of
+/// message it was, when it went, SES's message id, or why it did not. THE BODY IS NEVER STORED:
+/// `kind` + `params` are rendered at send time. `status` is QUEUED | SENDING | SENT | FAILED.
+model EmailMessage {
+  id                String    @id @default(cuid())
+  kind              String
+  toAddress         String
+  recipientId       String?
+  recipient         User?     @relation("EmailMessageRecipient", fields: [recipientId], references: [id], onDelete: SetNull)
+  subject           String
+  params            Json?
+  status            String    @default("QUEUED")
+  attempts          Int       @default(0)
+  maxAttempts       Int       @default(5)
+  runAfter          DateTime  @default(now())
+  lockedAt          DateTime?
+  lockedBy          String?
+  sentAt            DateTime?
+  providerMessageId String?
+  error             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([status, runAfter, createdAt])
+  @@index([recipientId])
 }

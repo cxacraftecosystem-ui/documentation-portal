@@ -84,6 +84,7 @@ from app.core.deps import (
     role_value,
 )
 from app.schemas.tasks import TaskBatchCreate, TaskCreate, TaskUpdate
+from app.services.email_outbox import notify_task_change
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.questionnaire_instruments import (
     default_questionnaire_id,
@@ -1742,6 +1743,15 @@ async def update_task(
     if not data:
         return (await serialize_tasks([task]))[0]
     updated = await db.assignedtask.update(where={"id": task_id}, data=data, include=INCLUDE)
+    # The other side of a status move hears about it by e-mail: the approver when work is handed in,
+    # the assignee when it is approved or sent back. Never raises; a no-op without mail.
+    await notify_task_change(
+        updated,
+        before=str(getattr(task.status, "value", task.status) or ""),
+        after=data.get("status"),
+        actor=current_user,
+        by_manager=is_manager,
+    )
     return (await serialize_tasks([updated]))[0]
 
 
