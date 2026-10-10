@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { adminChromeVisible, useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { AppSettingsPanel } from "@/components/settings/AppSettingsPanel";
+import { EmailNotificationsCard } from "@/components/settings/EmailNotificationsCard";
 import { GetTheAppPanel } from "@/components/settings/GetTheAppPanel";
 import { PublishAppUpdatePanel } from "@/components/settings/PublishAppUpdatePanel";
 import { MyAiKeysPanel } from "@/components/settings/MyAiKeysPanel";
@@ -116,6 +117,9 @@ export default function SettingsPage() {
           <AppearanceCard />
           <AccessibilityCard />
         </div>
+
+        {/* This account's e-mail opt-out. Draws nothing on a deployment that sends no e-mail. */}
+        <EmailNotificationsCard />
 
         {/* Everyone sees this: the two apps are one product and each is better at half the job. */}
         <GetTheAppPanel />

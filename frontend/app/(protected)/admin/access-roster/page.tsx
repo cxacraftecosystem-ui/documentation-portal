@@ -62,6 +62,7 @@ import {
   type AccessStatus
 } from "@/lib/accessRoster";
 import { formatDate, formatDateTime } from "@/lib/format";
+import { fetchNotificationPreferences } from "@/lib/notifications";
 import { assignableRoles, canManageAccessRoster, roleLabel } from "@/lib/permissions";
 import type { PageResult, UserRole } from "@/lib/types";
 
@@ -104,6 +105,20 @@ export default function AccessRosterPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Whether the e-mail choices are drawn at all: false until the answer arrives, and for good on a
+  // deployment without mail. `inviteOnApprove` is the queue's own switch, on by default.
+  const [mailAvailable, setMailAvailable] = useState(false);
+  const [inviteOnApprove, setInviteOnApprove] = useState(true);
+
+  useEffect(() => {
+    let live = true;
+    void fetchNotificationPreferences().then((answer) => {
+      if (live) setMailAvailable(answer.available);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const skipFirstDebounce = useRef(true);
@@ -196,6 +211,7 @@ export default function AccessRosterPage() {
     const fullName = String(form.get("fullName") ?? "").trim();
     const notes = String(form.get("notes") ?? "").trim();
     const grantedRole = String(form.get("grantedRole") ?? "").trim();
+    const sendInvite = mailAvailable && form.get("sendInvite") === "on";
     if (!email) return;
 
     setSaving(true);
@@ -206,10 +222,13 @@ export default function AccessRosterPage() {
         email,
         fullName: fullName || null,
         notes: notes || null,
-        grantedRole: (grantedRole || null) as UserRole | null
+        grantedRole: (grantedRole || null) as UserRole | null,
+        ...(sendInvite ? { sendInvite: true } : {})
       });
       setNotice(
-        `${created.email} is on the access roster as ${roleLabel(created.grantedRole)}. They can sign in with that address — the account is created the first time they do.`
+        `${created.email} is on the access roster as ${roleLabel(created.grantedRole)}. They can sign in with that address — the account is created the first time they do.${
+          sendInvite ? " An e-mail telling them so is on its way." : ""
+        }`
       );
       formElement.reset();
       await reloadEverything();
@@ -235,9 +254,16 @@ export default function AccessRosterPage() {
     setBusyId(entry.id);
     setError(null);
     try {
-      const updated = await updateAccessRosterEntry(entry.id, { status: "ACTIVE", grantedRole });
+      const invite = mailAvailable && inviteOnApprove;
+      const updated = await updateAccessRosterEntry(entry.id, {
+        status: "ACTIVE",
+        grantedRole,
+        ...(invite ? { sendInvite: true } : {})
+      });
       setNotice(
-        `${updated.email} can sign in, as ${roleLabel(updated.grantedRole)}. Their date of joining is ${formatDate(updated.joinedAt)}.`
+        `${updated.email} can sign in, as ${roleLabel(updated.grantedRole)}. Their date of joining is ${formatDate(updated.joinedAt)}.${
+          invite ? " An e-mail telling them so is on its way." : ""
+        }`
       );
       await reloadEverything();
     } catch (err) {
@@ -395,6 +421,17 @@ export default function AccessRosterPage() {
               have been told they are waiting for an administrator, and nothing else happens until you decide.
             </p>
           </div>
+          {mailAvailable ? (
+            <label className="flex items-center gap-2 text-sm text-ink-700">
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={inviteOnApprove}
+                onChange={(event) => setInviteOnApprove(event.target.checked)}
+              />
+              E-mail each person I approve
+            </label>
+          ) : null}
         </div>
 
         {queue === null ? (
@@ -476,6 +513,12 @@ export default function AccessRosterPage() {
             placeholder="Who they are and why they were admitted — the record you will want in a year."
           />
         </Field>
+        {mailAvailable ? (
+          <label className="flex items-center gap-2 text-sm text-ink-700">
+            <input type="checkbox" name="sendInvite" className="h-4 w-4" defaultChecked />
+            E-mail them that they can sign in
+          </label>
+        ) : null}
         <div className="flex flex-wrap gap-2">
           <button className="field-button" disabled={saving}>
             <MailPlus className="h-4 w-4" aria-hidden />

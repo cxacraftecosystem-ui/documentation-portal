@@ -16,19 +16,19 @@ API lags the tree by however many commits have not been deployed; see
 
 | | Count |
 |---|---|
-| Prisma models | **37** |
+| Prisma models | **38** |
 | Prisma enums | **16** |
-| `@@index` declarations | 93 |
+| `@@index` declarations | 95 |
 | `@@unique` declarations | 14 |
 
-Models: `User`, `AccessRoster`, `AssignedTask`, `Feedback`, `UserPreference`, `AppRelease`, `Craft`, `Location`, `Artisan`, `Workshop`, `WorkshopArtisan`, `WorkshopCraft`, `ProductDocumentation`, `ToolDocumentation`, `ToolArtisan`, `ToolCraft`, `MediaFile`, `MediaProcessingJob`, `Questionnaire`, `QuestionnaireSection`, `QuestionnaireSectionStatus`, `QuestionnaireQuestion`, `QuestionnaireInterview`, `QuestionnaireInterviewArtisan`, `QuestionnaireResponse`, `Process`, `ProcessStep`, `ReviewLog`, `AppSetting`, `WorkshopAssignment`, `ManagedSecret`, `SecretTestResult`, `DataAccessGrant`, `DataAccessScopeItem`, `EntryComment`, `RecordRevision`, `UserAiCredential`.
+Models: `User`, `AccessRoster`, `AssignedTask`, `Feedback`, `UserPreference`, `AppRelease`, `Craft`, `Location`, `Artisan`, `Workshop`, `WorkshopArtisan`, `WorkshopCraft`, `ProductDocumentation`, `ToolDocumentation`, `ToolArtisan`, `ToolCraft`, `MediaFile`, `MediaProcessingJob`, `Questionnaire`, `QuestionnaireSection`, `QuestionnaireSectionStatus`, `QuestionnaireQuestion`, `QuestionnaireInterview`, `QuestionnaireInterviewArtisan`, `QuestionnaireResponse`, `Process`, `ProcessStep`, `ReviewLog`, `AppSetting`, `WorkshopAssignment`, `ManagedSecret`, `SecretTestResult`, `DataAccessGrant`, `DataAccessScopeItem`, `EntryComment`, `RecordRevision`, `UserAiCredential`, `EmailMessage`.
 
 Enums: `UserRole`, `AuthProvider`, `AccessStatus`, `RecordStatus`, `WorkshopType`, `MediaType`, `ProductType`, `MarketDemand`, `MakerType`, `TraditionType`, `ReviewRecordType`, `MediaProcessingJobType`, `MediaProcessingJobStatus`, `ProcessStepType`, `DataAccessTier`, `DataAccessStatus`.
 
 ## API surface
 
-**157 operations** in the working tree — 74 GET, 46 POST, 18 DELETE,
-11 PATCH, 8 PUT. 2 of them (`/health`, `/health/ready`) are declared
+**159 operations** in the working tree — 75 GET, 46 POST, 18 DELETE,
+11 PATCH, 9 PUT. 2 of them (`/health`, `/health/ready`) are declared
 on the app rather than on a router; the rest are spread across `backend/app/api/routes/`:
 
 | Route module | Operations |
@@ -51,11 +51,11 @@ on the app rather than on a router; the rest are spread across `backend/app/api/
 | `settings.py` | 5 |
 | `users.py` | 5 |
 | `auth.py` | 4 |
+| `preferences.py` | 4 |
 | `app_release.py` | 3 |
 | `export.py` | 3 |
 | `feedback.py` | 3 |
 | `map_points.py` | 2 |
-| `preferences.py` | 2 |
 | `reference.py` | 2 |
 | `dashboard.py` | 1 |
 | `public.py` | 1 |
@@ -103,7 +103,7 @@ no key is skipped wherever it sits.
 
 | Surface | Files | Cases | Runner |
 |---|---|---|---|
-| Backend unit (`backend/tests/`) | 63 | 1018 `def test_` | `python -m pytest -q` from `backend/` |
+| Backend unit (`backend/tests/`) | 66 | 1039 `def test_` | `python -m pytest -q` from `backend/` |
 | Web end-to-end (`frontend/e2e/`) | 43 | 673 `test(` | Playwright, `frontend/playwright.config.ts` |
 | Android unit (`android/app/src/test/`) | 33 | 562 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
 | Android instrumented | **none** — the `src/androidTest` source set does not exist | — | not run in CI |
@@ -116,10 +116,10 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 
 | Area | Tracked files | Tracked lines | Tree files | Tree lines |
 |---|---|---|---|---|
-| `backend/app` | 118 | 43,490 | 118 | 43,490 |
-| `frontend/app` | 41 | 17,562 | 41 | 17,562 |
-| `frontend/components` | 175 | 52,811 | 175 | 52,811 |
-| `frontend/lib` | 72 | 27,333 | 72 | 27,333 |
+| `backend/app` | 120 | 44,084 | 120 | 44,084 |
+| `frontend/app` | 41 | 17,609 | 41 | 17,609 |
+| `frontend/components` | 176 | 52,888 | 176 | 52,888 |
+| `frontend/lib` | 73 | 27,376 | 73 | 27,376 |
 | `android/app/src/main/java` | 83 | 74,993 | 83 | 74,993 |
 
 Two columns because the two numbers get quoted interchangeably and disagree by however much work is
