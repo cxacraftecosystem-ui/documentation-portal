@@ -25,6 +25,10 @@ enum UserRole {
 enum AuthProvider {
   LOCAL
   GOOGLE
+  /// Microsoft and Yahoo sign-in (app/services/oidc_sign_in.py): the provider that created the
+  /// account, or the first one that signed in to an account that had none of its own.
+  MICROSOFT
+  YAHOO
 }
 
 /// Where one email address stands with the institution — the SIGN-IN GATE's only vocabulary.
