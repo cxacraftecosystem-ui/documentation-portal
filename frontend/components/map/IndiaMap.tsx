@@ -197,7 +197,7 @@ export function IndiaMap({
             cx={pin.anchorX}
             cy={pin.anchorY}
             r={pin.uncertainty}
-            className="fill-purple-700/[0.06] stroke-purple-300"
+            className="fill-purple-700/6 stroke-purple-300"
             strokeWidth={1}
             strokeDasharray="4 5"
           />

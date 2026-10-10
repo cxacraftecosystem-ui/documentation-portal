@@ -28,7 +28,7 @@ const STEPS = [
     icon: Languages,
     title: "Transcribe & translate automatically",
     copy:
-      "Every recording moves through a three-provider speech-to-text chain with automatic failover, then arrives as clean English text linked to its artisan, craft, and workshop."
+      "Every recording is transcribed automatically and arrives as clean English text linked to its artisan, craft, and workshop."
   },
   {
     // THE THIRD SENTENCE IS ABOUT TASKS, NOT RECORDS, and the two are separate ladders — see
@@ -46,7 +46,7 @@ const STEPS = [
     icon: FolderDown,
     title: "Explore & export the dataset",
     copy:
-      "Browse the whole repository like a file system, grant collaborators tiered access, and — from Professor upwards, or with an explicit grant — export research-ready records, media, and transcripts."
+      "Browse every record like folders on a computer, grant collaborators tiered access, and — from Professor upwards, or with an explicit grant — export research-ready records, media, and transcripts."
   }
 ];
 
@@ -162,7 +162,7 @@ export default function HowItWorks() {
               style={{ top: nodeTop }}
               // Centred on the 2px track by margins, not transforms: -4px = (2px − 10px) / 2
               // horizontally, -5px = half the dot vertically.
-              className="absolute -left-1 -mt-[5px] h-2.5 w-2.5 rounded-full bg-purple-700 ring-4 ring-purple-100"
+              className="absolute -left-1 mt-[-5px] h-2.5 w-2.5 rounded-full bg-purple-700 ring-4 ring-purple-100"
             />
           )}
         </div>

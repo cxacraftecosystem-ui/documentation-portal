@@ -343,8 +343,8 @@ export function AadhaarField({
             Open that artisan instead
           </Link>
           <p className="mt-1 text-xs">
-            You can still save — a genuine duplicate will be refused by the server, so open the
-            existing record if this is the same person.
+            You can still save, but a true duplicate won’t be accepted. Open the existing record if this
+            is the same person.
           </p>
         </div>
       ) : null}

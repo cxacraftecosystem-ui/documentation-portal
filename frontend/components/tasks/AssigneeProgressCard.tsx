@@ -89,7 +89,7 @@ export function summaryBar(summary: TaskSummary): SummaryBar {
     // The server declined to count records for a list this long. Not a failure and not hidden: the
     // alternative is a bar that looks measured and is not, which is the one outcome ruled out above.
     caveats.push(
-      "You have too many tasks for the repository counts to be worked out in one go, so nothing here was counted from records."
+      "You have too many tasks to count automatically, so nothing here was counted from records."
     );
   }
 
@@ -114,7 +114,7 @@ export function summaryBar(summary: TaskSummary): SummaryBar {
       // Both halves are said because the card cannot tell which one is true from this payload, and
       // guessing would put one of two different explanations on screen as if it were certain.
       caption:
-        "Nothing has been counted from the repository yet and nothing has been reported against a target, so there is no honest bar to draw. The counts above are exact.",
+        "No progress to show yet. The counts above are exact.",
       measured,
       caveats
     };
@@ -122,9 +122,9 @@ export function summaryBar(summary: TaskSummary): SummaryBar {
 
   const caption =
     measured === "all"
-      ? `All ${active} of your tasks are counted from the repository — this bar moves on its own as you record.`
+      ? `All ${active} of your tasks are counted automatically as you record.`
       : measured === "some"
-        ? `${summary.measuredCount} of ${active} tasks counted from the repository; the rest from what you reported or handed in.`
+        ? `${summary.measuredCount} of ${active} tasks counted automatically; the rest from what you reported or handed in.`
         : "Based on what you have reported and handed in — none of these tasks could be counted from records.";
 
   return { percent: summary.percentComplete, caption, measured, caveats };

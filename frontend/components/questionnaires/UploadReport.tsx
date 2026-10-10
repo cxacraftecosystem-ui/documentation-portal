@@ -253,7 +253,7 @@ function ProblemList({
                   {problem.sheet ? ` · sheet "${problem.sheet}"` : ""}
                 </p>
                 <p className="mt-0.5 leading-6">{problem.reason}</p>
-                {problem.value ? <p className="mt-1 break-words text-xs opacity-80">Cell text: {problem.value}</p> : null}
+                {problem.value ? <p className="mt-1 wrap-break-word text-xs opacity-80">Cell text: {problem.value}</p> : null}
               </div>
             </div>
           </li>

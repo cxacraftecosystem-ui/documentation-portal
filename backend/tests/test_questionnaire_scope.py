@@ -569,7 +569,7 @@ def test_a_rebind_with_reassign_cancels_a_questionnaire_only_task_and_empties_a_
     assert response.status_code == 200, response.text
     tasks = {row.id: row for row in rebindable.assignedtask.rows}
     assert tasks["t-only"].status == "CANCELLED"
-    assert "Cancelled automatically" in tasks["t-only"].description
+    assert "Cancelled because this workshop's questionnaire changed" in tasks["t-only"].description
     assert tasks["t-mixed"].status == "OPEN"
     assert tasks["t-mixed"].sectionIds == {"set": []}
     assert tasks["t-mixed"].recordTypes == ["product"]

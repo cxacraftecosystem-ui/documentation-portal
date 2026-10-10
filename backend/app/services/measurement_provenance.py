@@ -751,7 +751,7 @@ def marker_body_problems(markers: Any, *, present_fields: Any) -> list[str]:
             # would turn an unrecognised token into an assertion about how somebody measured
             # something. Refused here it costs the client one corrected string instead.
             problems.append(
-                f"{where} states a measurement method this server does not know: {raw_method!r}. "
+                f"{where} states a measurement method that wasn't recognised: {raw_method!r}. Update the app. "
                 f"Send one of {', '.join(sorted(known_methods))}."
             )
             continue
@@ -778,7 +778,7 @@ def marker_body_problems(markers: Any, *, present_fields: Any) -> list[str]:
         if technique is not None:
             if technique not in GEOMETRY_TECHNIQUES:
                 problems.append(
-                    f"{where} names a photo-measurement technique this server does not know: "
+                    f"{where} names a photo-measurement technique that wasn't recognised: "
                     f"{technique!r}. Send {' or '.join(sorted(GEOMETRY_TECHNIQUES))}, or leave "
                     f"technique out."
                 )
@@ -803,7 +803,7 @@ def marker_body_problems(markers: Any, *, present_fields: Any) -> list[str]:
             self_reported_confidence(marker, key=MARKER_CONFIDENCE_KEY) is None
         ):
             problems.append(
-                f"{where} carries a {MARKER_CONFIDENCE_KEY} this server cannot read: "
+                f"{where} carries a {MARKER_CONFIDENCE_KEY} that can't be read: "
                 f"{marker.get(MARKER_CONFIDENCE_KEY)!r}. Send a number from 0 to 1, or leave the "
                 f"key out."
             )

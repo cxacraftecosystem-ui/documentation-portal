@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DEBUG BUILDS ONLY. The manifest merger adds this to the debug variant and never to release: there is
+  no src/release/, and src/main/AndroidManifest.xml does not declare it.
+
+  From targetSdk 37 (Android 17) a connection to a local-network address — RFC 1918, link-local,
+  100.64/10, IPv6 link-local and unique-local — times out unless the app holds ACCESS_LOCAL_NETWORK, a
+  runtime permission in the Nearby devices group. The production API is public HTTPS through CloudFront
+  and needs nothing of the kind, so the shipped APK must not ask for it — and the APK that
+  .github/workflows/publish-android.yml ships is the release variant, which this file never reaches.
+
+  A DEVELOPMENT backend does need it: the emulator reaches the host machine at 10.0.2.2, and a handset
+  reaches a laptop at its LAN address (android/README.md, "Run"). ui/LocalNetworkAccess.kt asks for the
+  grant at launch when the compiled-in API base is such an address. Loopback is outside the restricted
+  ranges, so `adb reverse tcp:8000 tcp:8000` with apiBaseUrl=http://127.0.0.1:8000/api/ needs neither
+  this nor the prompt.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+</manifest>

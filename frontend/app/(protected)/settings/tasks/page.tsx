@@ -174,7 +174,7 @@ export default function TaskAssignmentBoardPage() {
   const header = (
     <PageHeader
       title="Task assignment"
-      description="Hand documentation work to the people below you, watch what they report against what the repository can actually find, and approve it when they hand it in."
+      description="Hand documentation work to the people below you, compare what they report with the records actually saved, and approve it when they hand it in."
       icon={<ClipboardCheck className="h-5 w-5" aria-hidden />}
       actions={
         <Link href="/tasks" className="field-button-secondary">

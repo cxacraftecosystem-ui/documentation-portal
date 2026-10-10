@@ -403,7 +403,7 @@ test.describe("the sentence under a capped list", () => {
   test("nothing loaded over a non-empty repository gets its own words", () => {
     const cut = cutOf(0, 749, "artisans") as ListCut;
     expect(cappedListNotice(cut)).toBe(
-      "None of the 749 artisans could be listed here — this is not an empty repository."
+      "None of the 749 artisans could be loaded. Try again."
     );
   });
 });

@@ -1,153 +1,270 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
 /*
- * Semantic neutrals live here as bare "R G B" triplets so tailwind.config.ts can consume them as
- * `rgb(var(--token) / <alpha-value>)` and every opacity modifier keeps working. Flipping a theme is
- * therefore a matter of re-pointing these eleven-odd numbers — no page ever hardcodes a neutral.
+ * TAILWIND CSS v4 SINCE 2026-10-09, AND WHY EVERY RULE IN THIS FILE SITS IN A LAYER.
  *
- * The purple and gold ramps stay literal in the Tailwind config: brand colour does not invert.
- */
-:root {
-  color-scheme: light;
-  /* Page canvas, cards and the tinted panel ladder (surface-50 → 300 = legacy field-50 → 300). */
-  --bg-0: 247 246 251; /* #f7f6fb */
-  --card: 255 255 255;
-  --surface-50: 250 249 253; /* #faf9fd */
-  --surface-100: 243 241 250; /* #f3f1fa */
-  --surface-200: 233 230 245; /* #e9e6f5 */
-  --surface-300: 220 215 238; /* #dcd7ee */
-  --line-200: 228 226 239; /* #e4e2ef */
-  /* Type ladder: headings → body → muted → placeholder. */
-  --ink-900: 30 27 46; /* #1e1b2e */
-  --ink-700: 58 54 81; /* #3a3651 */
-  --ink-500: 97 93 122; /* #615d7a */
-  --ink-300: 167 163 188; /* #a7a3bc */
-  /* Legacy aliases — derived, so they follow the triplets into whichever theme is active. */
-  --background: rgb(var(--bg-0));
-  --foreground: rgb(var(--ink-900));
-  --purple-700: oklch(0.47 0.198 305);
-  --purple-900: oklch(0.34 0.15 305);
-  --purple-950: oklch(0.255 0.108 305);
-  /* Gradients — exactly two recipes (ChartMate DESIGN.md §2.5) + the gold headline span. */
-  --grad-brand: linear-gradient(135deg, oklch(0.47 0.198 305) 0%, oklch(0.34 0.15 305) 100%);
-  --grad-mesh:
-    radial-gradient(40rem 40rem at 12% 18%, oklch(0.648 0.19 305 / 0.16), transparent 60%),
-    radial-gradient(34rem 34rem at 88% 12%, rgba(245, 158, 11, 0.1), transparent 60%),
-    radial-gradient(46rem 46rem at 70% 90%, oklch(0.56 0.205 305 / 0.12), transparent 65%);
-  --grad-gold: linear-gradient(115deg, oklch(0.9 0.08 88) 0%, oklch(0.7 0.145 80) 42%, oklch(0.85 0.11 86) 58%, oklch(0.6 0.13 75) 100%);
-  --header-clearance: 5.5rem;
-}
-
-/*
- * Dark theme. The neutrals stay purple-tinted (never pure grey) so the brand cast survives the
- * inversion, and the ink ladder mirrors the light one: 900 = headings, 300 = placeholders.
- * `data-theme` is stamped onto <html> before first paint by the boot script in app/layout.tsx.
- */
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --bg-0: 17 15 25; /* #110f19 */
-  --card: 26 23 37; /* #1a1725 */
-  --surface-50: 32 28 45; /* #201c2d */
-  --surface-100: 38 33 53; /* #262135 */
-  --surface-200: 46 40 64; /* #2e2840 */
-  --surface-300: 58 51 80; /* #3a3350 */
-  --line-200: 52 46 71; /* #342e47 */
-  --ink-900: 242 240 249; /* #f2f0f9 */
-  --ink-700: 208 203 223; /* #d0cbdf */
-  --ink-500: 158 152 178; /* #9e98b2 */
-  --ink-300: 110 104 132; /* #6e6884 */
-  /* The mesh backdrop needs more punch to read against a dark canvas. */
-  --grad-mesh:
-    radial-gradient(40rem 40rem at 12% 18%, oklch(0.648 0.19 305 / 0.24), transparent 60%),
-    radial-gradient(34rem 34rem at 88% 12%, rgba(245, 158, 11, 0.08), transparent 60%),
-    radial-gradient(46rem 46rem at 70% 90%, oklch(0.56 0.205 305 / 0.2), transparent 65%);
-}
-
-/*
- * Accessibility: high contrast. Re-points the low-contrast end of each ladder (borders, muted and
- * placeholder text) rather than patching individual components — every page inherits it for free.
- * Declared after the dark block so the dark+contrast pairing wins on specificity.
- */
-:root[data-high-contrast="true"] {
-  --line-200: 124 118 152;
-  --surface-300: 124 118 152;
-  --ink-500: 58 54 81; /* muted text → body strength */
-  --ink-300: 97 93 122; /* placeholders → muted strength */
-}
-
-:root[data-theme="dark"][data-high-contrast="true"] {
-  --line-200: 150 143 180;
-  --surface-300: 150 143 180;
-  --ink-700: 236 233 246;
-  --ink-500: 214 209 229;
-  --ink-300: 176 170 196;
-}
-
-/* Accessibility: larger text. Everything is sized in rem, so scaling the root scales the UI. */
-:root[data-larger-text="true"] {
-  font-size: 112.5%; /* 16px → 18px */
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body {
-  min-height: 100%;
-}
-
-body {
-  margin: 0;
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-}
-
-button,
-input,
-select,
-textarea {
-  font: inherit;
-}
-
-/* Visible keyboard focus for interactive elements (inputs keep their own focus ring). */
-a:focus-visible,
-button:focus-visible,
-[role="button"]:focus-visible,
-[tabindex]:focus-visible,
-summary:focus-visible {
-  outline: 2px solid var(--purple-700);
-  outline-offset: 2px;
-  border-radius: 6px;
-}
-
-/* High contrast also thickens the focus ring, since the outline is the only cue for keyboard users. */
-:root[data-high-contrast="true"] a:focus-visible,
-:root[data-high-contrast="true"] button:focus-visible,
-:root[data-high-contrast="true"] [role="button"]:focus-visible,
-:root[data-high-contrast="true"] [tabindex]:focus-visible,
-:root[data-high-contrast="true"] summary:focus-visible,
-:root[data-high-contrast="true"] :is(input, select, textarea):focus-visible {
-  outline-width: 3px;
-  outline-offset: 3px;
-}
-
-/* Respect users who prefer reduced motion.
+ * `source(none)` plus `@config` keeps v3's arrangement. tailwind.config.ts stays the source of truth
+ * for the tokens, and its `content` globs (app/, components/, lib/; .ts and .tsx only) are the only
+ * files scanned for class names. Without `source(none)` v4 would also scan every other file git does
+ * not ignore, e2e/ and scripts/ included, and generate CSS for whatever looks like a class there.
  *
- * `transition-delay` has to be zeroed alongside the duration, and it was not. A zero-duration
- * transition that still honours its delay is not "no motion" — it is a staggered pop. The printing
- * bed cascades its impressions with a per-column `transition-delay`, so without this line a reduced-
- * motion reader would watch a ~150ms ripple travel across the cloth. Any staggered effect anywhere
- * in the app had the same hole; this closes it once for all of them. */
-@media (prefers-reduced-motion: reduce) {
+ * v4 emits real CSS cascade layers (theme, base, components, utilities), and a rule outside every
+ * layer beats every utility not marked `!`, whatever its specificity. v3 had no such thing: it
+ * printed each hand-written rule here AFTER all of its utilities, so such a rule beat a utility
+ * exactly when its selector was at least as specific. Each rule below is placed to keep the answer
+ * v3 gave:
+ *  - the :root token blocks (custom properties, and root settings no utility on <html> competes with)
+ *    and the rules made only of element and universal selectors never beat a utility, so they sit in
+ *    `@layer base`, where every utility beats them by layer;
+ *  - every other hand-written rule could tie or beat one, so it sits in `@layer utilities`, after the
+ *    generated utilities — the comment on that block says why;
+ *  - the recipe classes stay in `@layer components`, below every utility, which is what
+ *    `class="field-button w-full"` relies on;
+ *  - v3's `@layer utilities` classes are v4 `@utility` declarations, so variants still apply to them.
+ * NOTHING HERE IS OUTSIDE A LAYER, and nothing new should be: an un-layered rule beats the utilities.
+ */
+@import "tailwindcss" source(none);
+@config "../tailwind.config.ts";
+
+/*
+ * Four places where v4's preflight differs from v3's in a way this app can see, each restored at its
+ * v3 value and in `base`, so a utility still overrides it:
+ *  - v4 draws a bare `border` in currentcolor; v3 drew it gray-200 (the upgrade tool's own rule);
+ *  - v3 gave buttons `cursor: pointer`; v4 leaves the arrow, and this app relies on the old default
+ *    (`cursor-pointer` appears 17 times across some 300 `<button>`s);
+ *  - v3 coloured placeholders gray-400; v4 uses the text colour at half opacity. `.field-input` and
+ *    the rest that set `placeholder:text-*` are unaffected either way;
+ *  - v4 strips a file input's "Choose File" button to bare text (no border, padding or fill), which
+ *    stops it reading as a button. v3 left the browser's own button, and three visible file inputs
+ *    (the APK upload in Settings, the photo pickers in RecordPhotoMeasure and GridMeasurement) show
+ *    it, so `revert` hands those properties back to the browser.
+ */
+@layer base {
   *,
-  *::before,
-  *::after {
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--color-gray-400);
+  }
+
+  ::file-selector-button {
+    margin: revert;
+    padding: revert;
+    border: revert;
+    border-radius: revert;
+    background-color: revert;
+    color: revert;
+  }
+}
+
+@layer base {
+  /*
+   * Semantic neutrals live here as bare "R G B" triplets so tailwind.config.ts can consume them as
+   * `rgb(var(--token) / <alpha-value>)` and every opacity modifier keeps working. Flipping a theme is
+   * therefore a matter of re-pointing these eleven-odd numbers — no page ever hardcodes a neutral.
+   *
+   * The purple and gold ramps stay literal in the Tailwind config: brand colour does not invert.
+   */
+  :root {
+    color-scheme: light;
+    /* Page canvas, cards and the tinted panel ladder (surface-50 → 300 = legacy field-50 → 300). */
+    --bg-0: 247 246 251; /* #f7f6fb */
+    --card: 255 255 255;
+    --surface-50: 250 249 253; /* #faf9fd */
+    --surface-100: 243 241 250; /* #f3f1fa */
+    --surface-200: 233 230 245; /* #e9e6f5 */
+    --surface-300: 220 215 238; /* #dcd7ee */
+    --line-200: 228 226 239; /* #e4e2ef */
+    /* Type ladder: headings → body → muted → placeholder. */
+    --ink-900: 30 27 46; /* #1e1b2e */
+    --ink-700: 58 54 81; /* #3a3651 */
+    --ink-500: 97 93 122; /* #615d7a */
+    --ink-300: 167 163 188; /* #a7a3bc */
+    /* Legacy aliases — derived, so they follow the triplets into whichever theme is active. */
+    --background: rgb(var(--bg-0));
+    --foreground: rgb(var(--ink-900));
+    --purple-700: oklch(0.47 0.198 305);
+    --purple-900: oklch(0.34 0.15 305);
+    --purple-950: oklch(0.255 0.108 305);
+    /* Gradients — exactly two recipes (ChartMate DESIGN.md §2.5) + the gold headline span. */
+    --grad-brand: linear-gradient(135deg, oklch(0.47 0.198 305) 0%, oklch(0.34 0.15 305) 100%);
+    --grad-mesh:
+      radial-gradient(40rem 40rem at 12% 18%, oklch(0.648 0.19 305 / 0.16), transparent 60%),
+      radial-gradient(34rem 34rem at 88% 12%, rgba(245, 158, 11, 0.1), transparent 60%),
+      radial-gradient(46rem 46rem at 70% 90%, oklch(0.56 0.205 305 / 0.12), transparent 65%);
+    --grad-gold: linear-gradient(115deg, oklch(0.9 0.08 88) 0%, oklch(0.7 0.145 80) 42%, oklch(0.85 0.11 86) 58%, oklch(0.6 0.13 75) 100%);
+    --header-clearance: 5.5rem;
+  }
+
+  /*
+   * Dark theme. The neutrals stay purple-tinted (never pure grey) so the brand cast survives the
+   * inversion, and the ink ladder mirrors the light one: 900 = headings, 300 = placeholders.
+   * `data-theme` is stamped onto <html> before first paint by the boot script in app/layout.tsx.
+   */
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg-0: 17 15 25; /* #110f19 */
+    --card: 26 23 37; /* #1a1725 */
+    --surface-50: 32 28 45; /* #201c2d */
+    --surface-100: 38 33 53; /* #262135 */
+    --surface-200: 46 40 64; /* #2e2840 */
+    --surface-300: 58 51 80; /* #3a3350 */
+    --line-200: 52 46 71; /* #342e47 */
+    --ink-900: 242 240 249; /* #f2f0f9 */
+    --ink-700: 208 203 223; /* #d0cbdf */
+    --ink-500: 158 152 178; /* #9e98b2 */
+    --ink-300: 110 104 132; /* #6e6884 */
+    /* The mesh backdrop needs more punch to read against a dark canvas. */
+    --grad-mesh:
+      radial-gradient(40rem 40rem at 12% 18%, oklch(0.648 0.19 305 / 0.24), transparent 60%),
+      radial-gradient(34rem 34rem at 88% 12%, rgba(245, 158, 11, 0.08), transparent 60%),
+      radial-gradient(46rem 46rem at 70% 90%, oklch(0.56 0.205 305 / 0.2), transparent 65%);
+  }
+
+  /*
+   * Accessibility: high contrast. Re-points the low-contrast end of each ladder (borders, muted and
+   * placeholder text) rather than patching individual components — every page inherits it for free.
+   * Declared after the dark block so the dark+contrast pairing wins on specificity.
+   */
+  :root[data-high-contrast="true"] {
+    --line-200: 124 118 152;
+    --surface-300: 124 118 152;
+    --ink-500: 58 54 81; /* muted text → body strength */
+    --ink-300: 97 93 122; /* placeholders → muted strength */
+  }
+
+  :root[data-theme="dark"][data-high-contrast="true"] {
+    --line-200: 150 143 180;
+    --surface-300: 150 143 180;
+    --ink-700: 236 233 246;
+    --ink-500: 214 209 229;
+    --ink-300: 176 170 196;
+  }
+
+  /* Accessibility: larger text. Everything is sized in rem, so scaling the root scales the UI. */
+  :root[data-larger-text="true"] {
+    font-size: 112.5%; /* 16px → 18px */
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    min-height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  /* Themed scrollbars — bg-0 track, line-200 thumb, purple on hover. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: rgb(var(--bg-0));
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: rgb(var(--line-200));
+    border-radius: 9999px;
+    border: 2px solid rgb(var(--bg-0));
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: oklch(0.828 0.1 305); /* purple-300 */
+  }
+
+  /* Firefox fallback only: guarded because setting scrollbar-color in Chromium would
+     disable the styled ::-webkit-scrollbar above. */
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: rgb(var(--line-200)) rgb(var(--bg-0));
+    }
+  }
+}
+
+/*
+ * EVERY RULE BELOW CAN TIE OR BEAT A UTILITY, so each sits in the utilities layer, after the
+ * utilities Tailwind generates: the same layer, then the same specificity-then-source-order
+ * contest v3 ran, because v3 printed all of them after its utilities. Moving one into `base`
+ * would hand every utility the win; leaving it outside a layer would hand it every win.
+ */
+@layer utilities {
+  /* Visible keyboard focus for interactive elements (inputs keep their own focus ring). */
+  a:focus-visible,
+  button:focus-visible,
+  [role="button"]:focus-visible,
+  [tabindex]:focus-visible,
+  summary:focus-visible {
+    outline: 2px solid var(--purple-700);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  /* High contrast also thickens the focus ring, since the outline is the only cue for keyboard users. */
+  :root[data-high-contrast="true"] a:focus-visible,
+  :root[data-high-contrast="true"] button:focus-visible,
+  :root[data-high-contrast="true"] [role="button"]:focus-visible,
+  :root[data-high-contrast="true"] [tabindex]:focus-visible,
+  :root[data-high-contrast="true"] summary:focus-visible,
+  :root[data-high-contrast="true"] :is(input, select, textarea):focus-visible {
+    outline-width: 3px;
+    outline-offset: 3px;
+  }
+
+  /* Respect users who prefer reduced motion.
+   *
+   * `transition-delay` has to be zeroed alongside the duration, and it was not. A zero-duration
+   * transition that still honours its delay is not "no motion" — it is a staggered pop. The printing
+   * bed cascades its impressions with a per-column `transition-delay`, so without this line a reduced-
+   * motion reader would watch a ~150ms ripple travel across the cloth. Any staggered effect anywhere
+   * in the app had the same hole; this closes it once for all of them. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-delay: 0s !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      transition-delay: 0s !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* ...and users who asked for it in Settings. A separate rule (a media query cannot be OR-ed with a
+     selector) so the two sources union: the app-level toggle can only ever ADD reduction, and there
+     is deliberately no `="false"` rule that would undo the OS preference above. */
+  :root[data-reduced-motion="true"] *,
+  :root[data-reduced-motion="true"] *::before,
+  :root[data-reduced-motion="true"] *::after {
     animation-duration: 0.01ms !important;
     animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
@@ -155,148 +272,105 @@ summary:focus-visible {
     transition-delay: 0s !important;
     scroll-behavior: auto !important;
   }
-}
 
-/* ...and users who asked for it in Settings. A separate rule (a media query cannot be OR-ed with a
-   selector) so the two sources union: the app-level toggle can only ever ADD reduction, and there
-   is deliberately no `="false"` rule that would undo the OS preference above. */
-:root[data-reduced-motion="true"] *,
-:root[data-reduced-motion="true"] *::before,
-:root[data-reduced-motion="true"] *::after {
-  animation-duration: 0.01ms !important;
-  animation-delay: 0s !important;
-  animation-iteration-count: 1 !important;
-  transition-duration: 0.01ms !important;
-  transition-delay: 0s !important;
-  scroll-behavior: auto !important;
-}
-
-/* Themed scrollbars — bg-0 track, line-200 thumb, purple on hover. */
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-::-webkit-scrollbar-track {
-  background: rgb(var(--bg-0));
-}
-
-::-webkit-scrollbar-thumb {
-  background-color: rgb(var(--line-200));
-  border-radius: 9999px;
-  border: 2px solid rgb(var(--bg-0));
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background-color: oklch(0.828 0.1 305); /* purple-300 */
-}
-
-/* Firefox fallback only: guarded because setting scrollbar-color in Chromium would
-   disable the styled ::-webkit-scrollbar above. */
-@supports not selector(::-webkit-scrollbar) {
-  * {
-    scrollbar-width: thin;
-    scrollbar-color: rgb(var(--line-200)) rgb(var(--bg-0));
+  /*
+   * Background scroll lock, worn by <html> while the navigation sheet is open.
+   *
+   * It is the root element and not <body> because iOS Safari quietly ignores `overflow: hidden` on the
+   * body and keeps panning the page under the open menu — the exact complaint this answers. The gutter
+   * variable is measured and set by the sheet in the instant before this class lands: freezing the
+   * document takes the scrollbar away with it, and without paying that width back as padding every
+   * centred thing on the page jumps sideways as the menu opens.
+   */
+  html.nav-scroll-locked,
+  html.nav-scroll-locked body {
+    overflow: hidden;
+    overscroll-behavior: none;
   }
-}
 
-/*
- * Background scroll lock, worn by <html> while the navigation sheet is open.
- *
- * It is the root element and not <body> because iOS Safari quietly ignores `overflow: hidden` on the
- * body and keeps panning the page under the open menu — the exact complaint this answers. The gutter
- * variable is measured and set by the sheet in the instant before this class lands: freezing the
- * document takes the scrollbar away with it, and without paying that width back as padding every
- * centred thing on the page jumps sideways as the menu opens.
- */
-html.nav-scroll-locked,
-html.nav-scroll-locked body {
-  overflow: hidden;
-  overscroll-behavior: none;
-}
+  html.nav-scroll-locked body {
+    padding-right: var(--nav-scroll-gutter, 0px);
+  }
 
-html.nav-scroll-locked body {
-  padding-right: var(--nav-scroll-gutter, 0px);
-}
+  /* Clean number inputs — no native spinner arrows; values change by typing. */
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
 
-/* Clean number inputs — no native spinner arrows; values change by typing. */
-input[type="number"]::-webkit-inner-spin-button,
-input[type="number"]::-webkit-outer-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
+  input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
 
-input[type="number"] {
-  -moz-appearance: textfield;
-  appearance: textfield;
-}
+  /* react-day-picker root — site tokens (per-part Tailwind classes live in ui/calendar.tsx). */
+  .rdp-root {
+    --rdp-accent-color: oklch(0.47 0.198 305); /* purple-700 */
+    --rdp-accent-background-color: oklch(0.977 0.013 305); /* purple-50 */
+    --rdp-today-color: oklch(0.47 0.198 305);
+    --rdp-outside-opacity: 0.6;
+    font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+    color: rgb(var(--ink-900));
+  }
 
-/* react-day-picker root — site tokens (per-part Tailwind classes live in ui/calendar.tsx). */
-.rdp-root {
-  --rdp-accent-color: oklch(0.47 0.198 305); /* purple-700 */
-  --rdp-accent-background-color: oklch(0.977 0.013 305); /* purple-50 */
-  --rdp-today-color: oklch(0.47 0.198 305);
-  --rdp-outside-opacity: 0.6;
-  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  color: rgb(var(--ink-900));
-}
+  /* Keep the light hover wash off solid purple selected cells (endpoints / single pick). */
+  .rdp-root td[data-selected]:not(.cal-middle) > button:hover {
+    background-color: transparent;
+  }
 
-/* Keep the light hover wash off solid purple selected cells (endpoints / single pick). */
-.rdp-root td[data-selected]:not(.cal-middle) > button:hover {
-  background-color: transparent;
-}
+  /* Inline audio player seek bar (components/ui/AudioPlayer). The played portion is painted
+     via the --audio-range-fill gradient set inline by the component. */
+  .audio-range {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 16px;
+    background: transparent;
+    cursor: pointer;
+  }
 
-/* Inline audio player seek bar (components/ui/AudioPlayer). The played portion is painted
-   via the --audio-range-fill gradient set inline by the component. */
-.audio-range {
-  -webkit-appearance: none;
-  appearance: none;
-  height: 16px;
-  background: transparent;
-  cursor: pointer;
-}
+  .audio-range::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--audio-range-fill, rgb(var(--line-200)));
+  }
 
-.audio-range::-webkit-slider-runnable-track {
-  height: 6px;
-  border-radius: 9999px;
-  background: var(--audio-range-fill, rgb(var(--line-200)));
-}
+  .audio-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    margin-top: -4px;
+    height: 14px;
+    width: 14px;
+    border-radius: 9999px;
+    background: oklch(0.47 0.198 305); /* purple-700 */
+    border: 2px solid rgb(var(--card));
+    box-shadow: 0 1px 2px rgba(46, 16, 101, 0.3);
+  }
 
-.audio-range::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  margin-top: -4px;
-  height: 14px;
-  width: 14px;
-  border-radius: 9999px;
-  background: oklch(0.47 0.198 305); /* purple-700 */
-  border: 2px solid rgb(var(--card));
-  box-shadow: 0 1px 2px rgba(46, 16, 101, 0.3);
-}
+  .audio-range::-moz-range-track {
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--audio-range-fill, rgb(var(--line-200)));
+  }
 
-.audio-range::-moz-range-track {
-  height: 6px;
-  border-radius: 9999px;
-  background: var(--audio-range-fill, rgb(var(--line-200)));
-}
+  .audio-range::-moz-range-thumb {
+    height: 14px;
+    width: 14px;
+    border-radius: 9999px;
+    background: oklch(0.47 0.198 305);
+    border: 2px solid rgb(var(--card));
+    box-shadow: 0 1px 2px rgba(46, 16, 101, 0.3);
+  }
 
-.audio-range::-moz-range-thumb {
-  height: 14px;
-  width: 14px;
-  border-radius: 9999px;
-  background: oklch(0.47 0.198 305);
-  border: 2px solid rgb(var(--card));
-  box-shadow: 0 1px 2px rgba(46, 16, 101, 0.3);
-}
-
-.audio-range:focus-visible {
-  outline: 2px solid var(--purple-700);
-  outline-offset: 2px;
+  .audio-range:focus-visible {
+    outline: 2px solid var(--purple-700);
+    outline-offset: 2px;
+  }
 }
 
 @layer components {
   .field-input {
-    @apply w-full rounded-md border border-line-200 bg-card px-3.5 py-2.5 text-sm text-ink-900 outline-none transition placeholder:text-ink-300 focus:border-purple-600 focus:ring-4 focus:ring-purple-600/15;
+    @apply w-full rounded-md border border-line-200 bg-card px-3.5 py-2.5 text-sm text-ink-900 outline-hidden transition placeholder:text-ink-300 focus:border-purple-600 focus:ring-4 focus:ring-purple-600/15;
   }
 
   .field-label {
@@ -424,49 +498,47 @@ input[type="number"] {
   }
 }
 
-@layer utilities {
-  .grad-brand {
-    background-image: var(--grad-brand);
-  }
+@utility grad-brand {
+  background-image: var(--grad-brand);
+}
 
-  .grad-mesh {
-    background-image: var(--grad-mesh);
-  }
+@utility grad-mesh {
+  background-image: var(--grad-mesh);
+}
 
-  /* Gold gradient text — hero headline spans and auth marketing copy ONLY. */
-  .text-gold-gradient {
-    background-image: var(--grad-gold);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
+/* Gold gradient text — hero headline spans and auth marketing copy ONLY. */
+@utility text-gold-gradient {
+  background-image: var(--grad-gold);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
 
-  /* Frosted glass card on light mesh backdrops (auth). */
-  .glass-card {
-    background: rgba(255, 255, 255, 0.72);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    border: 1px solid rgba(255, 255, 255, 0.6);
-  }
+/* Frosted glass card on light mesh backdrops (auth). */
+@utility glass-card {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+}
 
-  .glass-dark {
-    background: rgba(30, 27, 46, 0.5);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-  }
+@utility glass-dark {
+  background: rgba(30, 27, 46, 0.5);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
 
-  /* Legacy utilities kept as no-surprise aliases. */
-  .ambient-light {
-    background-image: var(--grad-mesh);
-  }
+/* Legacy utilities kept as no-surprise aliases. */
+@utility ambient-light {
+  background-image: var(--grad-mesh);
+}
 
-  .text-gradient-violet {
-    background-image: var(--grad-brand);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
+@utility text-gradient-violet {
+  background-image: var(--grad-brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -475,39 +547,41 @@ input[type="number"] {
    the national outline, printing in as the section crosses the reading line.
    ──────────────────────────────────────────────────────────────────────────── */
 
-/* One impression. Its position and misregistration live in a `transform` ATTRIBUTE on the parent
-   <g> and never change; only opacity and the stamp-scale animate here, so a scroll frame touches
-   nothing but the compositor.
+@layer utilities {
+  /* One impression. Its position and misregistration live in a `transform` ATTRIBUTE on the parent
+     <g> and never change; only opacity and the stamp-scale animate here, so a scroll frame touches
+     nothing but the compositor.
 
-   `transform-box: fill-box` is not optional. A CSS transform on an SVG element resolves its origin
-   against the nearest viewBox by default, so `scale()` on an impression sitting at (60, 90) would
-   fling it toward the corner instead of pressing it onto its own centre. Pinning the box to the
-   element makes the stamp mean the same thing in every engine. */
-.fr-buti {
-  transform-box: fill-box;
-  transform-origin: 50% 50%;
-  transition:
-    opacity 200ms ease-out,
-    transform 200ms ease-out;
-}
+     `transform-box: fill-box` is not optional. A CSS transform on an SVG element resolves its origin
+     against the nearest viewBox by default, so `scale()` on an impression sitting at (60, 90) would
+     fling it toward the corner instead of pressing it onto its own centre. Pinning the box to the
+     element makes the stamp mean the same thing in every engine. */
+  .fr-buti {
+    transform-box: fill-box;
+    transform-origin: 50% 50%;
+    transition:
+      opacity 200ms ease-out,
+      transform 200ms ease-out;
+  }
 
-/* The site marks resolve once, at the end of the print — one fade, not ninety-seven. */
-.fr-mark {
-  transition: opacity 420ms ease-out;
-}
+  /* The site marks resolve once, at the end of the print — one fade, not ninety-seven. */
+  .fr-mark {
+    transition: opacity 420ms ease-out;
+  }
 
-/* Place names are sized in viewBox units, so their rendered size follows the map's width. Below
-   640px the map is narrow enough that this lands under 9px — decoration pretending to be a label —
-   so it is withheld rather than shrunk. Every name is in the <figcaption> at every width, and the
-   SVG is aria-hidden, so this hides nothing from anyone. */
-.fr-map-label {
-  display: none;
-  font-size: 2.7px;
-  letter-spacing: 0.02em;
-}
-
-@media (min-width: 640px) {
+  /* Place names are sized in viewBox units, so their rendered size follows the map's width. Below
+     640px the map is narrow enough that this lands under 9px — decoration pretending to be a label —
+     so it is withheld rather than shrunk. Every name is in the <figcaption> at every width, and the
+     SVG is aria-hidden, so this hides nothing from anyone. */
   .fr-map-label {
-    display: block;
+    display: none;
+    font-size: 2.7px;
+    letter-spacing: 0.02em;
+  }
+
+  @media (min-width: 640px) {
+    .fr-map-label {
+      display: block;
+    }
   }
 }

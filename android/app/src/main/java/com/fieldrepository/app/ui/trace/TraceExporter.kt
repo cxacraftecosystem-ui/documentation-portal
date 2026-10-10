@@ -229,9 +229,8 @@ class TraceExporterUnavailable(reason: String = TRACE_NO_EXPORTER_SENTENCE) : Tr
  * download needs nothing extra and works either way."
  */
 const val TRACE_NO_EXPORTER_SENTENCE: String =
-    "This phone can save the drawing as an SVG, which is the full vector line work, and as a " +
-        "picture. PDF, EPS and DXF are not available here yet — the portal can write all three from " +
-        "this same photograph on a laptop when you next have a connection."
+    "This drawing couldn't be saved in that format. Save it as an SVG, which keeps the full " +
+        "line work, or as a picture instead."
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Which route a save takes

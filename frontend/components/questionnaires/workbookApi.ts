@@ -110,7 +110,7 @@ async function fetchWorkbook(path: string, fallbackName: string): Promise<QWorkb
     // last resort on its own, or a body-less failure reaches the screen as a blank error box.
     throw new ApiError(
       response.status,
-      describeApiDetail(detail, response.statusText || `The server refused the request (HTTP ${response.status}).`),
+      describeApiDetail(detail, response.statusText || "The request didn’t go through. Try again."),
       payload
     );
   }

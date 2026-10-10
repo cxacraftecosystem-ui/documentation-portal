@@ -331,7 +331,7 @@ class ApiKeysState internal constructor(
                     hide(row.key)
                     confirmingClear = null
                     notice = if (row.source == SOURCE_ENVIRONMENT) {
-                        "${row.label} override cleared — the deployed environment value applies again."
+                        "${row.label} override cleared — the default value applies again."
                     } else {
                         "${row.label} override cleared — there is no value for this key anywhere now."
                     }
@@ -468,7 +468,7 @@ fun ApiKeysScreen(
         }
 
         Text(
-            "Every key the repository can be configured with. Test one to check it against the " +
+            "Every service key the app can use. Test one to check it against the " +
                 "provider before a field team depends on it.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -518,8 +518,7 @@ private fun ApiKeysLiveBanner() {
             color = MaterialTheme.colorScheme.onPrimaryContainer
         )
         Text(
-            "A key stored here overrides the deployed environment on the very next provider call — " +
-                "the API and the transcription queue both pick it up without a restart or a redeploy. " +
+            "A key saved here applies to everyone straight away. " +
                 "Values are encrypted at rest, are never written to logs, and revealing one is " +
                 "recorded against your account.",
             style = MaterialTheme.typography.bodySmall,
@@ -847,7 +846,7 @@ private fun ApiKeyEditPanel(secret: ManagedSecretDto, state: ApiKeysState, busy:
             modifier = Modifier.fillMaxWidth()
         )
         Text(
-            "Saving replaces the value for the whole repository at once, effective immediately.",
+            "Saving changes it for everyone, effective immediately.",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onPrimaryContainer
         )
@@ -891,9 +890,8 @@ private fun ApiKeyClearPanel(secret: ManagedSecretDto, state: ApiKeysState, busy
             color = MaterialTheme.colorScheme.onErrorContainer
         )
         Text(
-            "The saved override is deleted and the deployed environment value applies again from " +
-                "the next call. If the environment has no value for this key, the features that " +
-                "need it stop working.",
+            "The saved key is deleted and the default value applies again. If there is no " +
+                "default for this key, the features that need it stop working.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onErrorContainer
         )
@@ -931,8 +929,12 @@ private fun ApiKeyClearPanel(secret: ManagedSecretDto, state: ApiKeysState, busy
 
 @Composable
 private fun ApiKeyFieldLabel(text: String) {
+    // ROOT, as every other uppercased label in the app does (MainActivity's own field labels): the
+    // label is an English word written in this file, so the handset's language has no say in how it
+    // capitalises. It was the handset's default locale, read during composition — which Compose's
+    // lint now refuses (NonObservableLocale), because a language change would not recompose it.
     Text(
-        text.uppercase(Locale.getDefault()),
+        text.uppercase(Locale.ROOT),
         style = MaterialTheme.typography.labelSmall,
         fontWeight = FontWeight.SemiBold,
         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -957,13 +959,13 @@ private fun ApiKeySourceBadge(source: String) {
     val tokens = MaterialTheme.field
     when (source) {
         SOURCE_DATABASE -> ApiKeyBadge(
-            text = "Database",
+            text = "Saved here",
             container = MaterialTheme.colorScheme.primaryContainer,
             content = MaterialTheme.colorScheme.onPrimaryContainer,
             border = MaterialTheme.colorScheme.primary
         )
         SOURCE_ENVIRONMENT -> ApiKeyBadge(
-            text = "Environment",
+            text = "Default",
             container = tokens.surface50,
             content = tokens.body,
             border = tokens.hairline
@@ -1007,8 +1009,8 @@ private fun ApiKeyStatusBadge(status: String) {
 // ---------------------------------------------------------------------------------------------
 
 private fun apiKeySourceHelp(source: String): String = when (source) {
-    SOURCE_DATABASE -> "Saved here — this value overrides the deployed environment."
-    SOURCE_ENVIRONMENT -> "Coming from the deployed environment. Saving here overrides it."
+    SOURCE_DATABASE -> "Saved here — this value replaces the default."
+    SOURCE_ENVIRONMENT -> "Default value. Saving here replaces it."
     else -> "No value anywhere — the features that need it are switched off."
 }
 

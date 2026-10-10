@@ -5,7 +5,8 @@ from fastapi.encoders import jsonable_encoder
 
 from app.core.db import db
 from app.core.deps import get_current_user
-from app.schemas.preferences import PreferencesUpdateRequest
+from app.schemas.preferences import NotificationPreferencesUpdate, PreferencesUpdateRequest
+from app.services import mailer
 
 router = APIRouter(prefix="/preferences", tags=["preferences"])
 
@@ -55,3 +56,31 @@ async def upsert_my_preferences(
         },
     )
     return _serialize(preferences)
+
+
+@router.get("/notifications")
+async def my_notification_preferences(current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Whether this deployment sends e-mail at all, and this person's opt-out. ``available`` is what
+    the web reads before drawing ANY e-mail control; false means none is drawn, and nothing is said."""
+    row = await db.userpreference.find_unique(where={"userId": current_user.id})
+    return {
+        "available": mailer.mail_configured(),
+        "emailTaskUpdates": bool(getattr(row, "emailTaskUpdates", True)) if row else True,
+    }
+
+
+@router.put("/notifications")
+async def update_my_notification_preferences(
+    payload: NotificationPreferencesUpdate,
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Save this person's e-mail opt-out. Stored even while mail is off, so the choice holds later."""
+    fields = {"emailTaskUpdates": payload.emailTaskUpdates}
+    row = await db.userpreference.upsert(
+        where={"userId": current_user.id},
+        data={
+            "create": {**fields, "user": {"connect": {"id": current_user.id}}},
+            "update": fields,
+        },
+    )
+    return {"available": mailer.mail_configured(), "emailTaskUpdates": row.emailTaskUpdates}

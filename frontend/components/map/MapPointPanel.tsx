@@ -86,7 +86,7 @@ export function MapPointPanel({
           {/* Every finer place name that folded into this point. Grouping to a district does not lose
               the town it was documented in — it says so here. */}
           {point.places?.length ? (
-            <p className="mt-1 break-words text-[11px] leading-4 text-ink-500">
+            <p className="mt-1 wrap-break-word text-[11px] leading-4 text-ink-500">
               Covers {point.places.slice(0, 4).join(", ")}
               {point.places.length > 4 ? ` and ${point.places.length - 4} more` : ""}.
             </p>
@@ -105,7 +105,7 @@ export function MapPointPanel({
           type="button"
           onClick={onClose}
           aria-label={`Close ${point.label}`}
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-line-200 text-ink-500 transition-colors hover:border-purple-300 hover:text-purple-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-line-200 text-ink-500 transition-colors hover:border-purple-300 hover:text-purple-700 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
         >
           <X className="h-4 w-4" aria-hidden />
         </button>
@@ -124,7 +124,7 @@ export function MapPointPanel({
               <li key={`${item.type}-${item.id}`} className="min-w-0">
                 <Link
                   href={RECORD_HREF[item.type](item.id)}
-                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-purple-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
+                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-purple-50 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
                 >
                   <span className="w-16 shrink-0 text-[10px] font-medium uppercase tracking-wide text-ink-500">
                     {item.type}
@@ -152,7 +152,7 @@ export function MapPointPanel({
 
       <Link
         href={browseHref}
-        className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-purple-700 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
+        className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-purple-700 hover:underline focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
       >
         Open these in Browse records
         <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />

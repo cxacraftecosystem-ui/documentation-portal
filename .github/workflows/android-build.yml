@@ -57,16 +57,21 @@ jobs:
           # moved past the commit that was deployed. Build the commit that went out.
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-      - name: Set up JDK 17
+      - name: Set up JDK 25
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
-          # 17 is not a free choice: android/app/build.gradle.kts pins
-          # sourceCompatibility/targetCompatibility to VERSION_17 and kotlinOptions.jvmTarget
-          # to "17". AGP 8.7 rejects a lower JDK, and a higher one changes the default
-          # bytecode target, so this must track that file.
-          java-version: "17"
-          # Caches ~/.gradle/caches and the wrapper distribution (Gradle 8.9, ~130 MB),
+          # The JDK that RUNS Gradle, not the bytecode level. 25 is the current Temurin LTS; Gradle
+          # 9.8 runs on 17-27 and AGP 9.4 needs at least 17. The output is unchanged by it: every
+          # module still compiles Java 17 bytecode (`compileOptions` in android/app/build.gradle.kts,
+          # which AGP's built-in Kotlin follows; `jvmTarget` + `java {}` in the four core modules),
+          # because 17 is the newest level Android documents. Not 27, the newest GA: Kotlin 2.4
+          # documents Java only up to 26, and 26 is already end-of-life — move to 27 when a stable
+          # Kotlin documents it.
+          # publish-android.yml pins the same value, so a release is built on the JDK these
+          # checks ran on.
+          java-version: "25"
+          # Caches ~/.gradle/caches and the wrapper distribution (Gradle 9.8.1, ~145 MB),
           # keyed on the gradle files. Without it every run re-downloads the whole
           # AndroidX/Compose dependency graph, which dominates the wall-clock time.
           cache: gradle
@@ -78,14 +83,16 @@ jobs:
 
       - name: Ensure the required Android SDK packages are installed
         # The runner image ships an Android SDK, but which platform/build-tools versions are
-        # preinstalled drifts with the runner image. compileSdk/targetSdk are 35 and AGP
-        # 8.7.3 wants build-tools 35.x, so install them explicitly rather than betting on
-        # the image. Both are no-ops when already present.
+        # preinstalled drifts with the image. compileSdk/targetSdk are 37, which is the
+        # `android-37.0` platform package (API 37's packages carry the minor in their name), and
+        # build-tools 37.0.0 is the newest (AGP 9.4 needs at least 36.0.0), so install them
+        # explicitly rather than betting on the image. Both are no-ops when already present.
+        # Must move with android/app/build.gradle.kts, and publish-android.yml installs the same.
         run: |
           set -euo pipefail
           sdkmanager="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
           yes | "$sdkmanager" --licenses > /dev/null 2>&1 || true
-          "$sdkmanager" "platforms;android-35" "build-tools;35.0.0" > /dev/null
+          "$sdkmanager" "platforms;android-37.0" "build-tools;37.0.0" > /dev/null
 
       # android/local.properties is gitignored, so it does not exist here. Two consequences,
       # both intended:
@@ -102,10 +109,18 @@ jobs:
 
       - name: Unit tests
         id: tests
-        # HONEST STATUS, measured on this tree (not assumed): `app/src/test/` now holds 27
-        # Kotlin files and 526 `@Test` cases, so this step runs them for real and a red tick
-        # here is a real failure. `src/androidTest/` still does not exist, so nothing
-        # instrumented runs — see the note at the foot of this step.
+        # HONEST STATUS: `app/src/test/` holds real suites (their counts are generated into
+        # docs/REPO_FACTS.md — this comment used to restate them and they went stale), so this
+        # step runs them for real and a red tick here is a real failure. `src/androidTest/`
+        # still does not exist, so nothing instrumented runs — see the note at the foot of
+        # this step.
+        #
+        # AND THE VENDORED TRACE ENGINE'S OWN SUITES, since 2026-10-09. The four core modules
+        # are plain Kotlin/JVM with their own `test` tasks, including :core-pipeline's
+        # ParityTest — the one check that the handset's engine draws what the browser's does —
+        # and until then CI never ran them. They are here because that date moved their
+        # compiler (Kotlin 2.0.21 -> 2.4.21) and their JSON library (kotlinx-serialization
+        # 1.7.3 -> 1.11.0) at once, and "the app compiled" says nothing about either.
         #
         # THIS COMMENT USED TO SAY THE OPPOSITE, and the shape of that is worth keeping: it
         # read "android/app/src contains only `main/` … so it passes without asserting
@@ -123,30 +138,25 @@ jobs:
           else
             echo "::warning::No app/src/test sources exist; :app:testDebugUnitTest is a placeholder (NO-SOURCE) and asserts nothing."
           fi
-          ./gradlew :app:testDebugUnitTest --console=plain
+          ./gradlew :app:testDebugUnitTest             :core-imaging:test :core-vector:test :core-pipeline:test :core-export:test             --console=plain
           # Instrumented tests (src/androidTest) are NOT run: there are none, and they would
-          # need an emulator/AVD on the runner. Add a separate job with an emulator action
-          # if that ever changes — do not bolt it onto this one.
+          # need an emulator on the runner. The emulator lives in its own workflow,
+          # android-emulator.yml, run by hand — do not bolt one onto this job.
 
       - name: Android Lint (debug)
-        # Non-blocking ON PURPOSE, and this is a measured decision, not a guess: running
-        # `./gradlew :app:lintDebug` on this tree today gives "Lint found 1 errors, 44
-        # warnings" and aborts — the error is
-        #   AndroidManifest.xml:6  PermissionImpliesUnsupportedChromeOsHardware
-        #   (uses-permission CAMERA with no matching <uses-feature required="false">)
-        # which is a pre-existing manifest nit, unrelated to any change being tested. A
-        # hard gate would therefore fail 100% of runs from day one and train everyone to
-        # ignore red. The report is uploaded on every run instead. Fix that manifest entry
-        # (or commit a lint-baseline.xml), then delete continue-on-error below and this
-        # becomes a real gate — the fix is one <uses-feature> line, but AndroidManifest.xml
-        # belongs to the Android workstream, not to this CI change.
+        # A REAL GATE SINCE 2026-10-09: errors fail the build, warnings do not.
+        #
+        # It was advisory from the day it was added, on a measured reason: the tree carried a
+        # pre-existing error (AndroidManifest.xml:6, PermissionImpliesUnsupportedChromeOsHardware —
+        # CAMERA with no `<uses-feature required="false">`), so a hard gate would have failed every
+        # run and trained everyone to ignore red. This comment said to delete continue-on-error the
+        # day that was fixed. It was fixed on 2026-10-09 with the AGP 9.4.1 upgrade, together with
+        # the other four errors the new lint reported (two MissingPermission the old lint had also
+        # been reporting, and two Compose checks that arrived with the new libraries,
+        # NonObservableLocale and RememberInComposition) — each at its source, none suppressed and
+        # no lint-baseline.xml — so the gate is on. The report is uploaded on every run either way.
         id: lint
-        continue-on-error: true
         run: ./gradlew :app:lintDebug --console=plain
-
-      - name: Flag lint failures without failing the build
-        if: ${{ steps.lint.outcome == 'failure' }}
-        run: echo "::warning::Android Lint reported problems — see the android-lint-report artifact. Not failing the build (see the comment in this workflow)."
 
       - name: Assemble the debug APK
         id: assemble
@@ -181,9 +191,11 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-unit-test-results
-          path: android/app/build/reports/tests/
-          # `warn`, not `error`: with no test sources there is no report to upload, and
-          # that is the expected state today.
+          path: |
+            android/app/build/reports/tests/
+            android/core-*/build/reports/tests/
+          # `warn`, not `error`: a run that failed before the tests leaves no report, and the
+          # missing artifact must not replace the real error.
           if-no-files-found: warn
           retention-days: 14
 
@@ -196,8 +208,8 @@ jobs:
             echo "| step | result |"
             echo "|---|---|"
             echo "| compileDebugKotlin | ${{ steps.compile.outcome }} |"
-            echo "| testDebugUnitTest | ${{ steps.tests.outcome }} (no test sources yet) |"
-            echo "| lintDebug | ${{ steps.lint.outcome }} (advisory, does not fail the build) |"
+            echo "| testDebugUnitTest + core-*:test | ${{ steps.tests.outcome }} |"
+            echo "| lintDebug | ${{ steps.lint.outcome }} (errors fail the build) |"
             echo "| assembleDebug | ${{ steps.assemble.outcome }} |"
             echo "| APK | \`app-debug.apk\` — debug-signed, NOT an OTA release |"
           } >> "$GITHUB_STEP_SUMMARY"

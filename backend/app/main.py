@@ -15,6 +15,7 @@ from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.db import connect_db, db, disconnect_db
 from app.core.security import verify_jwt_configuration
+from app.services.email_outbox import process_next_email_jobs
 from app.services.media_queue import process_next_media_jobs
 
 logger = logging.getLogger(__name__)
@@ -164,6 +165,11 @@ async def _media_queue_worker() -> None:
             )
         except Exception:
             logger.exception("Media processing queue worker failed")
+        # The e-mail outbox drains wherever the media queue does (see app/worker.py).
+        try:
+            await process_next_email_jobs(worker_id="fastapi-background", settings=settings)
+        except Exception:
+            logger.exception("E-mail outbox drain failed")
         await asyncio.sleep(interval)
 
 
@@ -290,7 +296,7 @@ class UnhandledErrorMiddleware:
                 # surface so the server closes the connection rather than emitting a half-response.
                 raise
             payload = {
-                "detail": "Something went wrong on the server. The error has been logged.",
+                "detail": "Something went wrong. Please try again.",
                 # The exception TYPE is safe and genuinely useful to whoever is debugging; the
                 # message may carry internals, so it stays in the log only.
                 "error": type(exc).__name__,

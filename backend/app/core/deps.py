@@ -349,8 +349,7 @@ async def _user_from_bearer(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
-                f"This token is scoped to '{scope}' and cannot be used on this endpoint. "
-                "Sign in normally for full API access."
+                "This sign-in can't be used here. Please sign in again."
             ),
         )
 

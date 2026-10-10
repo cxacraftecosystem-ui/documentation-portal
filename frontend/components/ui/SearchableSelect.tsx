@@ -66,7 +66,7 @@ const RENDER_CAP = 80;
 const SUMMARY_NAMES = 6;
 
 const TRIGGER_CLASS =
-  "flex w-full items-center justify-between gap-2 rounded-md border border-line-200 bg-card px-3.5 py-2.5 text-left text-sm text-ink-900 outline-none transition hover:border-purple-300 focus:border-purple-600 focus:ring-4 focus:ring-purple-600/15 disabled:cursor-not-allowed disabled:opacity-60";
+  "flex w-full items-center justify-between gap-2 rounded-md border border-line-200 bg-card px-3.5 py-2.5 text-left text-sm text-ink-900 outline-hidden transition hover:border-purple-300 focus:border-purple-600 focus:ring-4 focus:ring-purple-600/15 disabled:cursor-not-allowed disabled:opacity-60";
 
 /**
  * `!` because `cn` is a plain join, not tailwind-merge: `overflow-y-auto` and `p-3` from
@@ -74,7 +74,7 @@ const TRIGGER_CLASS =
  * appended here. The panel must not scroll as a whole — the search box and the footer stay put
  * while only the list moves — so the override has to actually take.
  */
-const PANEL_CLASS = "!overflow-hidden !p-0 flex flex-col";
+const PANEL_CLASS = "overflow-hidden! p-0! flex flex-col";
 
 /** Widest a panel gets, so a full-width field on a laptop does not produce a 1200px list. */
 const PANEL_MAX_WIDTH = 520;
@@ -283,7 +283,7 @@ function SearchRow({
           placeholder={placeholder}
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={onKeyDown}
-          className="w-full rounded-sm border border-line-200 bg-card py-1.5 pl-8 pr-2 text-sm text-ink-900 outline-none transition placeholder:text-ink-300 focus:border-purple-600 focus:ring-2 focus:ring-purple-600/15"
+          className="w-full rounded-sm border border-line-200 bg-card py-1.5 pl-8 pr-2 text-sm text-ink-900 outline-hidden transition placeholder:text-ink-300 focus:border-purple-600 focus:ring-2 focus:ring-purple-600/15"
         />
       </div>
       {trailing}
@@ -915,7 +915,7 @@ export function SearchableMultiSelect({
         type="button"
         onClick={applyBulk}
         onMouseDown={(event) => event.preventDefault()}
-        className="shrink-0 whitespace-nowrap rounded-sm border border-line-200 bg-card px-2 py-1.5 text-xs font-medium text-purple-700 outline-none transition hover:border-purple-300 hover:bg-purple-50 focus-visible:border-purple-600 focus-visible:ring-2 focus-visible:ring-purple-600/20 dark:text-purple-300 dark:hover:bg-purple-950"
+        className="shrink-0 whitespace-nowrap rounded-sm border border-line-200 bg-card px-2 py-1.5 text-xs font-medium text-purple-700 outline-hidden transition hover:border-purple-300 hover:bg-purple-50 focus-visible:border-purple-600 focus-visible:ring-2 focus-visible:ring-purple-600/20 dark:text-purple-300 dark:hover:bg-purple-950"
       >
         {bulkLabel}
       </button>

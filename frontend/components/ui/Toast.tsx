@@ -13,7 +13,7 @@
  *  - the live region is rendered even when the queue is empty, because assistive tech only
  *    announces mutations *inside* a region that already existed; creating the region together
  *    with its first message is silently dropped by most screen readers;
- *  - `aria-live="polite"` never interrupts, which is right for "Coming soon" but means a toast
+ *  - `aria-live="polite"` never interrupts, which is right for a passing notice but means a toast
  *    is the wrong home for anything the user must act on;
  *  - the countdown pauses on hover *and* on focus, so a keyboard user tabbing to the dismiss
  *    button does not have the toast vanish mid-reach.
@@ -110,7 +110,7 @@ function ToastViewport({ toasts, onDismiss }: { toasts: ToastRecord[]; onDismiss
       aria-atomic="false"
       // Bottom-right keeps clear of the floating island nav at the top of every page. The
       // container itself is click-through; only the cards take pointer events.
-      className="pointer-events-none fixed bottom-4 right-4 z-[110] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2"
+      className="pointer-events-none fixed bottom-4 right-4 z-110 flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2"
     >
       <AnimatePresence initial={false}>
         {toasts.map((item) => (

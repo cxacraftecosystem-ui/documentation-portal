@@ -264,7 +264,7 @@ _ANTHROPIC = ProviderSpec(
         "Open Settings → API keys and choose “Create key”.",
         "Copy the key immediately — it starts with “sk-ant-” and is shown only once.",
         "Claude cannot transcribe audio: no Claude model accepts a sound file. Everything else on "
-        "this page works, and transcription will keep using whatever this server is configured with.",
+        "this page works, and transcription uses the app's standard service.",
         "Paste it below and press Test.",
     ),
     models=(

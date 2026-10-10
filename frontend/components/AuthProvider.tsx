@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 import { ApiError, apiFetch, setToken } from "@/lib/api";
+import type { loginBody } from "@/lib/oidcSignIn";
 import type { User } from "@/lib/types";
 
 type AuthContextValue = {
@@ -10,6 +11,8 @@ type AuthContextValue = {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   loginWithGoogle: (googleIdToken: string) => Promise<void>;
+  /** Microsoft or Yahoo: the code the provider sent back, with this tab's half of the flow. See `lib/oidcSignIn.ts`. */
+  loginWithOidc: (body: ReturnType<typeof loginBody>) => Promise<void>;
   logout: () => Promise<void>;
   refreshMe: () => Promise<void>;
 };
@@ -58,6 +61,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(result.user);
   }, []);
 
+  const loginWithOidc = useCallback(async (body: ReturnType<typeof loginBody>) => {
+    const result = await apiFetch<{ accessToken: string; user: User }>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify(body)
+    });
+    setToken(result.accessToken);
+    setUser(result.user);
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await apiFetch("/auth/logout", { method: "POST" });
@@ -68,8 +80,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, login, loginWithGoogle, logout, refreshMe }),
-    [user, loading, login, loginWithGoogle, logout, refreshMe]
+    () => ({ user, loading, login, loginWithGoogle, loginWithOidc, logout, refreshMe }),
+    [user, loading, login, loginWithGoogle, loginWithOidc, logout, refreshMe]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

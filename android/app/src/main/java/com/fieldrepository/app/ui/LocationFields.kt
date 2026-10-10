@@ -1305,11 +1305,10 @@ fun LocationFieldsSection(
         )
         if (place.state.isNotBlank() && districts.isEmpty() && !districtsKnown) {
             Text(
-                "This phone has not received the district list yet — the server it last reached " +
-                    "does not serve one. Connect once and it is cached for good, after which this " +
-                    "dropdown works with no signal. Until then a NEW record cannot be started, " +
-                    "because the API asks every new record for a district; an existing one can " +
-                    "still be corrected and saved.",
+                "The district list hasn't downloaded to this phone yet. Connect once and it is " +
+                    "kept, after which this dropdown works with no signal. Until then a new record " +
+                    "can't be started, because every new record needs a district; an existing one " +
+                    "can still be corrected and saved.",
                 color = MaterialTheme.field.muted,
                 fontSize = 12.sp
             )
@@ -1410,8 +1409,8 @@ fun LocationFieldsSection(
             GroupNotice(
                 warn = true,
                 text = "Add a captured location below — a GPS fix, a map pin or typed coordinates. " +
-                    "The state, district, village and pincode are stored on the same row as the " +
-                    "coordinates, and without one they are not saved."
+                    "The state, district, village and pincode are saved together with the " +
+                    "coordinates, so without a location they are not saved."
             )
         }
 

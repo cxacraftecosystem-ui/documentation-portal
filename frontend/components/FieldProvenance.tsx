@@ -83,7 +83,7 @@ export function FieldProvenance({
   const hasReview = Boolean(reviewedBy?.name || reviewedAt);
   if (!canView || (entries.length === 0 && !recordLocation && !hasReview)) return null;
 
-  const headerCell = "py-2 pr-4 [resize:horizontal] overflow-hidden";
+  const headerCell = "py-2 pr-4 resize-x overflow-hidden";
 
   return (
     <section className="panel p-4">
@@ -122,7 +122,7 @@ export function FieldProvenance({
                 <tr>
                   <th className={headerCell}>Field</th>
                   <th className={headerCell}>Recorded by</th>
-                  <th className="py-2 [resize:horizontal] overflow-hidden">Date &amp; time</th>
+                  <th className="py-2 resize-x overflow-hidden">Date &amp; time</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line-200">

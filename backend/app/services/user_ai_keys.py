@@ -65,8 +65,7 @@ SOURCE_USER = "user"
 SOURCE_APP = "app"
 
 _UNDECRYPTABLE_ERROR = (
-    "This key could not be decrypted — the server's encryption key changed after it was saved. "
-    "Paste it again to fix it. Nothing is using it meanwhile."
+    "This saved key can't be read. Paste it again to fix it. Nothing is using it meanwhile."
 )
 
 

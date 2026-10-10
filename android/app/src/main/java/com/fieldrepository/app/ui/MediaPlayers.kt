@@ -51,16 +51,25 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
-import coil.ImageLoader
-import coil.compose.AsyncImage
-import coil.decode.VideoFrameDecoder
-import coil.request.ImageRequest
+import coil3.ImageLoader
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.crossfade
+import coil3.video.VideoFrameDecoder
 import kotlinx.coroutines.delay
 
-/** A Coil loader that can decode a frame from a video file/URL for use as a thumbnail. */
+/**
+ * A Coil loader that can decode a frame from a video file/URL for use as a thumbnail.
+ *
+ * Coil 3: `crossfade` is an extension in `coil3.request` now, and the http(s) fetcher is not built in
+ * — `coil-network-okhttp` registers it through ServiceLoader, which a loader built here picks up as
+ * well as the default one does (see the Coil block in app/build.gradle.kts).
+ */
 @Composable
 fun rememberMediaImageLoader(): ImageLoader {
     val context = LocalContext.current
@@ -124,6 +133,19 @@ fun VideoPlayer(uri: Uri, modifier: Modifier = Modifier) {
     DisposableEffect(Unit) {
         onDispose { player.release() }
     }
+    /*
+     * PAUSE WHEN THE APP STOPS BEING VISIBLE. Android 17 silences any app's audio once it has no
+     * visible activity and no foreground service, and for targetSdk 37 even a foreground service must
+     * hold while-in-use rights — this viewer runs neither, and must not grow one for a preview. Left
+     * alone, a clip playing when the researcher pressed Home would go on "playing" in silence and be
+     * minutes further on when they came back. ON_STOP and not ON_PAUSE: in split screen or
+     * picture-in-picture the activity is paused but still visible, and the platform lets it keep
+     * playing there.
+     *
+     * Inside the viewer's `Dialog` this is still the ACTIVITY's lifecycle: Compose gives the dialog's
+     * content the view-tree lifecycle owner of the view that hosts it.
+     */
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { player.pause() }
     AndroidView(
         modifier = modifier
             .fillMaxWidth()
@@ -166,6 +188,14 @@ fun AudioPlayer(uri: Uri, modifier: Modifier = Modifier) {
     }
     DisposableEffect(Unit) {
         onDispose { runCatching { player.release() } }
+    }
+    // Same rule and same reason as [VideoPlayer]: silenced in the background on Android 17, so stop
+    // honestly and leave the button saying Play.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        if (playing) {
+            runCatching { player.pause() }
+            playing = false
+        }
     }
     LaunchedEffect(playing) {
         while (playing) {

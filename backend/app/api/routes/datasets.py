@@ -450,8 +450,7 @@ def _csv_shape(dataset: Dataset) -> tuple[str, list[str]]:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
-                f"The '{dataset.name}' dataset has no CSV form: it is not a record type the shared "
-                f"field registry describes. Use /api/datasets/{dataset.name}.ndjson instead."
+                f"The '{dataset.name}' dataset is available as NDJSON only."
             ),
         )
     return dataset.kind, _csv_columns(dataset.kind)

@@ -239,14 +239,14 @@ export default function PrintingBed({ census = CORPUS_CENSUS }: { census?: Corpu
       >
         {/* ── The accession ledger ──────────────────────────────────────── */}
         <div className="fr-ledger">
-          <motion.p variants={item} className="eyebrow mb-3 !text-gold-300">
+          <motion.p variants={item} className="eyebrow mb-3 text-gold-300!">
             The pilot collection
           </motion.p>
           <motion.h2
             variants={item}
             className="font-display text-3xl font-bold tracking-tight text-white sm:text-4xl"
           >
-            What the repository holds today.
+            What the archive holds today.
           </motion.h2>
           <motion.p variants={item} className="mt-4 text-sm leading-relaxed text-white/60">
             Records held, as of {asOf}.

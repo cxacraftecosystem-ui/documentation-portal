@@ -369,7 +369,7 @@ class RecordPickersTest {
     @Test
     fun `nothing loaded over a non-empty repository gets its own words`() {
         assertEquals(
-            "None of the 749 artisans could be listed here — this is not an empty repository.",
+            "None of the 749 artisans could be loaded. Try again.",
             listCutNotice(loaded = 0, total = 749, noun = "artisans")
         )
     }

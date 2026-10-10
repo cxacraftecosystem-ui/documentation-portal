@@ -1505,9 +1505,9 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
             filling either fills the other (1&nbsp;inch = 2.54&nbsp;cm, rounded to two decimals).{" "}
             <strong className="font-semibold">Width (cm)</strong> and{" "}
             <strong className="font-semibold">Breadth (inches)</strong> pair the same way.{" "}
-            <strong className="font-semibold">Length (inches)</strong> has no centimetre box. Records saved
-            before this pairing existed can hold two numbers that disagree — opening one never rewrites either
-            box, so correct whichever is wrong and its partner follows.
+            <strong className="font-semibold">Length (inches)</strong> has no centimetre box.{" "}
+            Some records may have two numbers that disagree — opening one never rewrites either box, so correct
+            whichever is wrong and its partner follows.
           </p>
           <Field label="Thickness">
             <TextInput name="thickness" type="number" step="0.01" min={0} defaultValue={initial?.thickness ?? ""} />
@@ -1740,7 +1740,7 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
             markDirty();
           }}
           title="Process stages"
-          description="Document each step of making or using this tool. Captures are archived in order as STAGE_STEP_1, STAGE_STEP_2, …"
+          description="Document each step of making or using this tool. Photos are saved in the order you take them, as step 1, step 2, …"
         />
         {initial ? <ExistingMedia linkedRecordType="tool" linkedRecordId={initial.id} /> : null}
         <MediaCaptureField

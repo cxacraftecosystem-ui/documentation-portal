@@ -216,7 +216,7 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
   return (
     <section className="panel mb-4 grid gap-3 p-4">
       <div>
-        <h2 className="font-display text-base font-bold text-ink-900">Search the repository</h2>
+        <h2 className="font-display text-base font-bold text-ink-900">Search records</h2>
         <p className="mt-0.5 text-xs text-ink-500">
           Artisans, products, tools, workshops and media by name, place or caption. Open a hit, or show it where it
           sits in the folders below.
@@ -230,7 +230,7 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search by name, place or caption"
-          aria-label="Search the repository"
+          aria-label="Search records"
           className="field-input w-full pl-9 pr-9"
         />
         {query ? (

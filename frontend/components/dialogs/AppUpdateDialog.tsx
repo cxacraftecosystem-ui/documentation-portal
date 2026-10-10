@@ -63,8 +63,7 @@ export function AppUpdateDialog({ open, reloading, onReload }: { open: boolean; 
       title="Update required"
       description={
         <>
-          A new version of Field Repository has been deployed since this tab was opened, and this one can
-          no longer load parts of the app. Reload to continue.
+          A new version of Field Repository is available. Reload to continue.
         </>
       }
       footer={

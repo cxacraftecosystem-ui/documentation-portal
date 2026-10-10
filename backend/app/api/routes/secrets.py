@@ -86,7 +86,7 @@ async def set_secret(
     if not value:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="value must not be blank. Use DELETE to fall back to the environment value.",
+            detail="Enter a value, or use Clear override to go back to the default.",
         )
     return await managed_secrets.set_secret(key, value, current_user.id)
 

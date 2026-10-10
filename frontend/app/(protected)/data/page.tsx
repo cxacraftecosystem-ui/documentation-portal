@@ -348,7 +348,7 @@ function DataTablesPanel({
       const response = await fetch(`${API_BASE}/api/data/report${buildQuery({ path, format: "xlsx" })}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
-      if (!response.ok) throw new Error(`Report download failed (HTTP ${response.status})`);
+      if (!response.ok) throw new Error("The report didn’t download. Try again.");
       const blob = await response.blob();
       saveBlobToDevice(blob, reportFilename(folderName));
     } catch (err) {
@@ -460,14 +460,14 @@ function DataTablesPanel({
 
                       {sheet.truncated ? (
                         <p className="mx-4 mb-3 rounded-md bg-amber-100 px-3 py-2 text-xs text-amber-800">
-                          This sheet hit the server row cap, so it shows the first slice of a larger
-                          set. Download the .xlsx or browse a narrower folder for the rest.
+                          Showing the first part of this sheet. Download the .xlsx or open a narrower
+                          folder to see the rest.
                         </p>
                       ) : null}
 
                       {/* The grid scrolls horizontally inside its own box so a 27-column
                           tool sheet never makes the page itself scroll sideways. */}
-                      <div className="max-h-[32rem] overflow-auto border-t border-line-200">
+                      <div className="max-h-128 overflow-auto border-t border-line-200">
                         <table className="w-full text-left text-sm">
                           <thead className="sticky top-0 z-10 bg-surface-50 text-xs uppercase text-ink-500 shadow-sm">
                             <tr>
@@ -504,7 +504,7 @@ function DataTablesPanel({
                                     const value = row[cellIndex];
                                     return (
                                       <td key={cellIndex} className="max-w-md px-3 py-2 text-ink-700">
-                                        <div className="max-h-32 overflow-y-auto whitespace-pre-line break-words">
+                                        <div className="max-h-32 overflow-y-auto whitespace-pre-line wrap-break-word">
                                           {value === null || value === undefined || value === ""
                                             ? "-"
                                             : String(value)}
@@ -891,7 +891,7 @@ function BrowseByTypePanel() {
         }
         try {
           const response = await fetch(file.url);
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          if (!response.ok) throw new Error("A file couldn’t be downloaded. Try again.");
           zip.file(file.path, await response.blob());
         } catch {
           failed.push(file.path);
@@ -906,9 +906,9 @@ function BrowseByTypePanel() {
       const blob = await zip.generateAsync({ type: "blob" });
       saveBlobToDevice(blob, "field-repository-dataset.zip");
       // A capped export that presents itself as complete is the worst outcome here — the researcher
-      // archives it and never learns what is missing — so the server's flag is surfaced verbatim.
+      // archives it and never learns what is missing — so the server's flag is always surfaced.
       const capNote = manifest.truncated
-        ? " This export hit the server's row cap, so it does NOT contain the whole data set — narrow it down or ask an admin for a full extract."
+        ? " This download doesn’t include every record. Narrow it down, or ask an admin for the full set."
         : "";
       setDatasetNote(
         (failed.length
@@ -1137,7 +1137,7 @@ function TaxonomySwitcher({
       {/* The descriptions are the only place the folder shapes are spelled out, so keep
           the active one visible rather than hiding it in a tooltip. */}
       <p className="mt-3 text-xs leading-5 text-ink-500">
-        {current?.description ?? "Pick how the repository should be grouped."}
+        {current?.description ?? "Choose how to group the records."}
       </p>
     </section>
   );
@@ -1190,15 +1190,15 @@ function RecordInfoCard({ info }: { info: FolderInfo }) {
             <tr key={`${field.label}-${index}`} className="align-top">
               <th
                 scope="row"
-                className="break-words border-r border-line-200 bg-surface-50 px-5 py-2.5 text-left font-semibold text-ink-900"
+                className="wrap-break-word border-r border-line-200 bg-surface-50 px-5 py-2.5 text-left font-semibold text-ink-900"
               >
                 {field.label}
               </th>
               <td className="px-5 py-2.5 text-ink-700">
                 {/* `pre-line` keeps the paragraph breaks in a 7,000-character interview note instead
-                    of running it into one line; `break-words` keeps a bare URL inside the column.
+                    of running it into one line; `wrap-break-word` keeps a bare URL inside the column.
                     The cap only bites on values that long — everything shorter shows in full. */}
-                <div className="max-h-72 overflow-y-auto whitespace-pre-line break-words leading-6">{field.value}</div>
+                <div className="max-h-72 overflow-y-auto whitespace-pre-line wrap-break-word leading-6">{field.value}</div>
               </td>
             </tr>
           ))}
@@ -1492,18 +1492,18 @@ export default function DataBrowserPage() {
               // Conversion failed (odd codec, oversized, ffmpeg missing) — keep the original.
               const original = await fetch(file.url);
               if (!original.ok) {
-                throw new Error(`MP4 failed (HTTP ${response.status}); original failed (HTTP ${original.status})`);
+                throw new Error("The video couldn’t be downloaded. Try again.");
               }
               zip.file(file.originalPath ?? file.path, await original.blob());
             } else {
-              throw new Error(`MP4 download failed (HTTP ${response.status})`);
+              throw new Error("The video couldn’t be downloaded. Try again.");
             }
           } else if (file.url) {
             const response = await fetch(file.url);
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            if (!response.ok) throw new Error("The file couldn’t be downloaded. Try again.");
             zip.file(file.path, await response.blob());
           } else {
-            throw new Error("Manifest entry has neither content nor URL");
+            throw new Error("There was nothing to download for this file.");
           }
         } catch (err) {
           failed.push({ path: file.path, reason: err instanceof Error ? err.message : "Fetch failed" });
@@ -1528,7 +1528,7 @@ export default function DataBrowserPage() {
       saveBlobToDevice(blob, zipFilename(selectedPath));
       setFailures(failed);
       const truncatedNote = manifest.truncated
-        ? " Note: the listing hit the server cap — this folder holds more files than were included; download narrower subfolders for a complete archive."
+        ? " This folder has more files than one download can hold. Download its subfolders to get everything."
         : "";
       setDownloadNote(
         (failed.length
@@ -1555,7 +1555,7 @@ export default function DataBrowserPage() {
   const header = (
     <PageHeader
       title="Data Browser"
-      description="Browse the repository as a directory tree, preview media and transcripts, and download any folder as a zip with content-type filters."
+      description="Browse all records as folders, preview media and transcripts, and download any folder as a zip."
       icon={<Database className="h-5 w-5" aria-hidden />}
     />
   );
@@ -1734,7 +1734,7 @@ export default function DataBrowserPage() {
 
             {currentTree?.truncated ? (
               <div className="border-b border-amber-500/30 bg-amber-100 px-4 py-2 text-xs text-amber-800">
-                This listing was truncated at the server cap — open subfolders to see everything it holds.
+                Showing the first part of this folder. Open its subfolders to see everything.
               </div>
             ) : null}
 

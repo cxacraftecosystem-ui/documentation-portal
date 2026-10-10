@@ -368,7 +368,7 @@ async function runSync(): Promise<SyncResult> {
             const files = pendingFileCount(progress);
             await markFailure(
               progress,
-              "The server accepted this but did not say what it saved, so it cannot be confirmed or its files " +
+              "This may have been saved, but it couldn’t be confirmed and its files couldn’t be " +
                 `attached. This entry${files ? ` and its ${files} file(s)` : ""} are still on this device. If you were ` +
                 "on a wi-fi network that asks you to sign in, connect properly and check whether the record arrived " +
                 "before discarding this."
@@ -389,7 +389,7 @@ async function runSync(): Promise<SyncResult> {
             const files = pendingFileCount(progress);
             await markFailure(
               progress,
-              `The server refused this as a duplicate. ${error.message} Nothing has been sent and nothing has been ` +
+              `This looks like a duplicate. ${error.message} Nothing has been sent and nothing has been ` +
                 `thrown away — this entry${files ? ` and its ${files} file(s)` : ""} are still on this device. Open the ` +
                 "record it clashes with, carry across anything it is missing, then discard this entry."
             );
@@ -457,7 +457,7 @@ async function runSync(): Promise<SyncResult> {
         stoppedOffline = true;
         break; // Still offline (or the API is down) — everything behind this stays queued.
       }
-      await markFailure(progress, error instanceof Error ? error.message : "The server rejected this entry.");
+      await markFailure(progress, error instanceof Error ? error.message : "This entry couldn’t be saved.");
       failed += 1;
     }
   }

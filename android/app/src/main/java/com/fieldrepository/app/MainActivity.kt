@@ -17,6 +17,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -42,6 +43,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -94,6 +96,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -151,6 +154,12 @@ import com.fieldrepository.app.data.ARTISAN_PAGE_BUDGET
 import com.fieldrepository.app.data.EVERY_WORKSHOP
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.GoogleAuthClient
+import com.fieldrepository.app.data.OidcAuthClient
+import com.fieldrepository.app.data.OidcLoginRequest
+import com.fieldrepository.app.data.OidcProvider
+import com.fieldrepository.app.data.OidcProviderId
+import com.fieldrepository.app.data.oidcCallbackErrorMessage
+import com.fieldrepository.app.ui.OidcProviderMark
 import com.fieldrepository.app.data.LocationRequest
 import com.fieldrepository.app.data.MeasurementMarkers
 import com.fieldrepository.app.data.geometryMarker
@@ -195,6 +204,7 @@ import com.fieldrepository.app.ui.workshopWindowNotice
 import com.fieldrepository.app.ui.workshopWindowState
 import com.fieldrepository.app.ui.ApiKeysScreen
 import com.fieldrepository.app.ui.MyAiKeysScreen
+import com.fieldrepository.app.ui.LocalNetworkAccessForDevelopmentBackend
 import com.fieldrepository.app.ui.AppPreferences
 import com.fieldrepository.app.ui.AppPreferencesStore
 import com.fieldrepository.app.ui.AppNavigationDrawerContent
@@ -258,7 +268,7 @@ import com.fieldrepository.app.ui.resolveDarkTheme
 import com.fieldrepository.app.ui.syncAppPreferences
 import com.fieldrepository.app.ui.SurfaceCard
 import kotlinx.coroutines.launch
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 import retrofit2.HttpException
 import android.app.DatePickerDialog
 import androidx.activity.compose.BackHandler
@@ -375,10 +385,26 @@ import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        /*
+         * EDGE-TO-EDGE ON EVERY API LEVEL, NOT ONLY WHERE ANDROID FORCES IT.
+         *
+         * Android 15 drew any app targeting 35 behind its status and navigation bars, and from
+         * targetSdk 36 there is no opt-out at all. Calling this makes the older handsets in the field
+         * (minSdk 26) lay out the same way, so there is ONE layout to get right and the API 37
+         * emulator run (.github/workflows/android-emulator.yml) speaks for all of them. The other
+         * half is at the root of `RepositoryApp`, which pads the whole app clear of the bars, the
+         * display cutout and the keyboard; the manifest's `adjustResize` is what delivers the
+         * keyboard's insets there. Bar colours and icon contrast are still `FieldRepositoryTheme`'s
+         * (ui/Theme.kt).
+         */
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         val tokenStore = TokenStore(applicationContext)
         val repository = FieldRepository(ApiClient.create(tokenStore), tokenStore)
         val googleAuthClient = GoogleAuthClient(this)
+        // Microsoft and Yahoo. Created with the activity because AppAuth binds the browser's
+        // custom-tab service to it; the client disposes of that binding when the activity goes.
+        val oidcAuthClient = OidcAuthClient(this)
         // Appearance is read SYNCHRONOUSLY, before the first frame is composed. That is the whole
         // point of the device-local copy: the account's row arrives over the network, and deciding
         // the theme from it would flash a light app at somebody who chose Dark. The store outlives
@@ -394,6 +420,7 @@ class MainActivity : ComponentActivity() {
                     RepositoryApp(
                         repository = repository,
                         googleAuthClient = googleAuthClient,
+                        oidcAuthClient = oidcAuthClient,
                         preferences = preferences,
                         onPreferencesChanged = { next ->
                             // Apply first, persist second: the switch must feel instant. The screen
@@ -588,9 +615,14 @@ private fun EntryMode.icon(): ImageVector = when (this) {
 private fun RepositoryApp(
     repository: FieldRepository,
     googleAuthClient: GoogleAuthClient,
+    /** Microsoft and Yahoo sign-in; its `providers` is empty when this build configures neither. */
+    oidcAuthClient: OidcAuthClient,
     preferences: AppPreferences,
     onPreferencesChanged: (AppPreferences) -> Unit
 ) {
+    // Debug builds on Android 17 only, and only when the API base is a local-network address — see
+    // ui/LocalNetworkAccess.kt. Renders nothing; in a release build it is a no-op.
+    LocalNetworkAccessForDevelopmentBackend()
     val scope = rememberCoroutineScope()
     var user by remember { mutableStateOf(repository.cachedUser()) }
     var loading by remember { mutableStateOf(user == null && repository.hasToken()) }
@@ -609,6 +641,54 @@ private fun RepositoryApp(
      */
     var refusalCode by remember { mutableStateOf<String?>(null) }
 
+    /*
+     * ── MICROSOFT AND YAHOO: THE ANSWER FROM THE BROWSER TAB ─────────────────────────────────────
+     *
+     * The provider and the RAW nonce of the sign-in in flight, as "PROVIDER|nonce". Saveable, so the
+     * activity being recreated while the tab is open does not lose the half the backend needs;
+     * AppAuth keeps the PKCE verifier on its own request for the same reason.
+     */
+    var pendingOidc by rememberSaveable { mutableStateOf<String?>(null) }
+    val oidcLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val started = pendingOidc?.split('|', limit = 2)
+        pendingOidc = null
+        val provider = started?.getOrNull(0)?.let { name -> OidcProviderId.entries.firstOrNull { it.name == name } }
+        val rawNonce = started?.getOrNull(1)
+        if (provider == null || rawNonce == null) {
+            loading = false
+            return@rememberLauncherForActivityResult
+        }
+        when (val outcome = oidcAuthClient.finish(result.data)) {
+            is OidcAuthClient.Outcome.Failed -> {
+                refusalCode = null
+                error = oidcCallbackErrorMessage(provider, outcome.error)
+                loading = false
+            }
+            is OidcAuthClient.Outcome.Code -> scope.launch {
+                runCatching {
+                    repository.loginWithOidc(
+                        OidcLoginRequest(
+                            oidcProvider = provider.name,
+                            oidcCode = outcome.code,
+                            oidcCodeVerifier = outcome.codeVerifier,
+                            oidcRedirectUri = outcome.redirectUri,
+                            oidcNonce = rawNonce,
+                        )
+                    )
+                }
+                    .onSuccess { user = it }
+                    // The roster's own sentence and code, as on the Google path — a person waiting
+                    // on an administrator must read that, not "sign-in failed".
+                    .onFailure {
+                        val failure = it.apiFailure(oidcCallbackErrorMessage(provider, null))
+                        error = failure.message
+                        refusalCode = failure.code
+                    }
+                loading = false
+            }
+        }
+    }
+
     // Persistent login: start from the cached profile so minimise/resume never logs the user out.
     // Refresh in the background and only clear the session if the token is genuinely rejected (401).
     LaunchedEffect(Unit) {
@@ -621,7 +701,7 @@ private fun RepositoryApp(
                         user = null
                         error = "Your session expired. Please sign in again."
                     } else if (user == null) {
-                        error = err.message ?: "Unable to reach the server. Check your connection and try again."
+                        error = err.message ?: "Couldn't connect. Check your connection and try again."
                     }
                 }
         }
@@ -668,15 +748,37 @@ private fun RepositoryApp(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            // The canvas is painted under the status and navigation bars (the window is edge-to-edge,
+            // see MainActivity.onCreate) and EVERYTHING ELSE is kept out from under them by the next
+            // line: the safe-drawing insets are the system bars, the display cutout and the open
+            // keyboard, consumed once, here, for every screen of the app. So no screen below pads for
+            // them again — Scaffold and TopAppBar see them already consumed and add nothing. Dialogs
+            // and bottom sheets are separate windows and inset themselves.
             .background(Canvas)
+            .safeDrawingPadding()
             .padding(16.dp)
     ) {
         when {
-            loading -> Text("Loading repository...", color = Muted, modifier = Modifier.align(Alignment.Center))
+            loading -> Text("Loading…", color = Muted, modifier = Modifier.align(Alignment.Center))
             user == null -> LoginScreen(
                 error = error,
                 refusalCode = refusalCode,
                 busy = loading,
+                oidcProviders = oidcAuthClient.providers,
+                onOidcLogin = { provider ->
+                    loading = true
+                    error = null
+                    refusalCode = null
+                    runCatching { oidcAuthClient.start(provider) }
+                        .onSuccess { started ->
+                            pendingOidc = "${provider.id.name}|${started.rawNonce}"
+                            oidcLauncher.launch(started.intent)
+                        }
+                        .onFailure {
+                            loading = false
+                            error = oidcCallbackErrorMessage(provider.id, null)
+                        }
+                },
                 onLogin = { email, password ->
                     scope.launch {
                         loading = true
@@ -781,7 +883,10 @@ private fun LoginScreen(
     refusalCode: String?,
     busy: Boolean,
     onLogin: (String, String) -> Unit,
-    onGoogleLogin: () -> Unit
+    onGoogleLogin: () -> Unit,
+    /** Microsoft and Yahoo, ONLY those this build is configured for — an empty list draws nothing. */
+    oidcProviders: List<OidcProvider> = emptyList(),
+    onOidcLogin: (OidcProvider) -> Unit = {}
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -890,6 +995,20 @@ private fun LoginScreen(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(if (busy) "Please wait..." else "Sign in with Google")
+                    }
+                }
+                // Microsoft and Yahoo, each only when configured.
+                for (provider in oidcProviders) {
+                    OutlinedButton(
+                        enabled = !busy,
+                        onClick = { onOidcLogin(provider) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                            OidcProviderMark(provider.id)
+                            Spacer(Modifier.width(8.dp))
+                            Text(if (busy) "Please wait..." else "Sign in with ${provider.label}")
+                        }
                     }
                 }
                 // Steer researchers to Google sign-in. Many were typing into the email/password fields
@@ -2118,8 +2237,8 @@ private fun AdminViewHiddenCard(
     RecordCard(title = title, icon = Icons.Filled.VisibilityOff) {
         Text(
             if (canToggle) {
-                "$blurb You switched admin view off, so the repository is behaving exactly as it does " +
-                    "for an ordinary user."
+                "$blurb You switched admin view off, so you see exactly what an ordinary user " +
+                    "sees."
             } else {
                 "$blurb Those tools belong to administrators; everything your role does reach is in " +
                     "the menu."
@@ -2145,8 +2264,8 @@ private fun AdminViewHiddenCard(
 private fun DataBrowserEntryCard(onOpen: () -> Unit) {
     RecordCard(title = "Data Browser", icon = Icons.Filled.Storage) {
         Text(
-            "Browse the repository as a directory tree, preview media and transcripts, and download " +
-                "any folder as a zip with content-type filters.",
+            "Browse every record as folders, preview media and transcripts, and download " +
+                "any folder as a zip, filtered by file type.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -2634,7 +2753,7 @@ private fun StatsCard(
         Column(modifier = Modifier.padding(18.dp)) {
             Text("At a glance", display = true, color = MaterialTheme.field.onBrandTile, fontSize = 24.sp)
             Text(
-                "Everything in the repository, not only your own entries.",
+                "Every record, not only your own.",
                 color = MaterialTheme.field.onBrandTileMuted,
                 fontSize = 12.sp
             )
@@ -2846,7 +2965,7 @@ private fun RecentSubmissionsCard(stats: DashboardStats?, onOpenRecord: (EntryMo
                 color = MaterialTheme.colorScheme.onSurface
             )
             Text(
-                "The newest entries across the repository, whoever filed them.",
+                "The newest records, whoever added them.",
                 color = Muted,
                 fontSize = 11.sp
             )
@@ -4030,7 +4149,7 @@ private fun WorkshopField(state: WorkshopPickerState, saving: Boolean = false) {
         ) { state.selectedId = it }
         if (blocked) {
             Text(
-                "You are not assigned to this workshop, so saving will be refused. Ask an admin to " +
+                "You are not assigned to this workshop, so this can't be saved. Ask an admin to " +
                     "assign you to it, or pick another workshop.",
                 color = MaterialTheme.colorScheme.error,
                 fontSize = 12.sp
@@ -4907,7 +5026,7 @@ private fun MediaCaptureSection(
             HorizontalDivider()
             Text("Grid-sheet measurement image (optional)", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
             Text(
-                "If the server has GEMINI_API_KEY, dimensions are estimated from the grid and fill empty length/breadth. Otherwise enter them manually.",
+                "Length and breadth are estimated from the grid where possible and fill any empty boxes. You can always enter them yourself.",
                 color = Muted,
                 fontSize = 11.sp
             )
@@ -6006,7 +6125,7 @@ private fun ArtisanForm(
         // this form saves offline, so a form that only learned the number was missing from a 422
         // would let a researcher walk away from the artisan with an unsavable record in hand.
         if (aadhaarRequired && aadhaar.isBlank()) {
-            aadhaarError = "Enter the artisan's 12-digit Aadhaar number. It is how the repository " +
+            aadhaarError = "Enter the artisan's 12-digit Aadhaar number. It is how the app " +
                 "recognises someone another researcher has already documented."
             runCatching { aadhaarFocus.requestFocus() }
             onError("The Aadhaar number is required — see the highlighted field."); return
@@ -7929,7 +8048,7 @@ private fun ToolStagesSection(
         HorizontalDivider()
         Text("Process stages", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
         Text(
-            "Document each step of making or using this tool. Captures are archived in order as STAGE_STEP_1, STAGE_STEP_2, …",
+            "Document each step of making or using this tool. Captures are kept in the order you take them.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -9082,14 +9201,14 @@ private data class WalkStep(val title: String, val body: String)
 private val walkthroughSteps = listOf(
     WalkStep(
         "Ten steps, in this order",
-        "This is the documentation process the whole repository is built around, and it is the same ten steps in the same order on the web. Work down it once and you will not need the guide again. You can leave at any point and reopen this from the menu."
+        "This is the documentation process the app is built around, and it is the same ten steps in the same order on the web. Work down it once and you will not need the guide again. You can leave at any point and reopen this from the menu."
     ),
     WalkStep(
         "1. Workshop \u00b7 Record workshop",
         "Open the workshop you are documenting under — or create it — before you record anything " +
             "else. Every record you make is scoped to a workshop. Products, tools and interviews all " +
-            "carry a linked workshop, and the Data Browser opens on \"By workshop\", which files the " +
-            "whole repository under the workshop it was recorded in. On a create form the most recent " +
+            "carry a linked workshop, and the Data Browser opens on \"By workshop\", which files " +
+            "every record under the workshop it was recorded in. On a create form the most recent " +
             "workshop you have access to is preselected, so getting this right once saves you picking " +
             "it on every screen afterwards. Watch out: Create the workshop before you leave for the " +
             "field — it is the container everything else drops into."
@@ -9097,7 +9216,7 @@ private val walkthroughSteps = listOf(
     WalkStep(
         "2. Craft \u00b7 Add craft",
         "Add the craft being documented so artisans, products and tools have something to hang " +
-            "off. Craft is the shared vocabulary of the repository: artisans link to a craft, " +
+            "off. Craft is the shared vocabulary everyone uses: artisans link to a craft, " +
             "products and tools inherit the craft name from it, and the Data Browser groups every " +
             "workshop's contents by craft. Adding it once keeps spellings consistent across " +
             "everyone's records. Watch out: Check the list first — if the craft already exists, reuse " +
@@ -9143,7 +9262,7 @@ private val walkthroughSteps = listOf(
         "7. Questionnaire \u00b7 Take interview",
         "Sit down with the artisan and work through the interview sections, recording each answer " +
             "as audio. The questionnaire is the artisan speaking in their own voice and their own " +
-            "language. Recorded audio is auto-transcribed on the server, so you get both the original " +
+            "language. Recorded audio is transcribed automatically, so you get both the original " +
             "recording and searchable text without typing during the interview. Watch out: There is " +
             "one interview per exact set of artisans. If an entry already exists for that set, saving " +
             "adds your answers to it — it never creates a duplicate."
@@ -9152,8 +9271,8 @@ private val walkthroughSteps = listOf(
         "8. Miscellaneous Media \u00b7 Upload media",
         "Upload the photographs, video, audio and files that do not belong to any single record. " +
             "Field work produces context that no form has a slot for: the road into the village, the " +
-            "market, an unplanned conversation. Miscellaneous Media keeps that material inside the " +
-            "repository instead of on a phone that gets wiped. Watch out: Upload stays disabled until " +
+            "market, an unplanned conversation. Miscellaneous Media keeps that material with your " +
+            "records instead of on a phone that gets wiped. Watch out: Upload stays disabled until " +
             "you pick a Linked record type. If the file belongs to nothing in particular, pick " +
             "\"Miscellaneous Media\" and leave the entry blank."
     ),
@@ -9168,11 +9287,11 @@ private val walkthroughSteps = listOf(
     ),
     WalkStep(
         "10. View Data \u00b7 Browse records",
-        "Browse the whole repository as a directory tree and export a report of any subtree. This " +
+        "Browse every record as folders and export a report of any folder. This " +
             "is where the documentation stops being data entry and starts being research material: " +
             "the same records, filed three different ways, previewable in place and downloadable as a " +
-            "spreadsheet. Watch out: Pick a folder, then use the breadcrumb to move back up — the " +
-            "tree loads lazily as you expand it."
+            "spreadsheet. Watch out: Pick a folder, then use the breadcrumb to move back up — each " +
+            "folder loads when you open it."
     ),
     WalkStep(
         "Before you leave the field",
@@ -9907,8 +10026,7 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
             title = { Text("Permanently delete recording?") },
             text = {
                 Text(
-                    "This removes the file from storage and the database for good. It cannot be undone, " +
-                        "and the recording can no longer be re-linked. Delete “${toDelete.originalFilename}”?"
+                    "This permanently deletes “${toDelete.originalFilename}”. It cannot be undone."
                 )
             },
             confirmButton = {
@@ -9970,7 +10088,7 @@ private enum class AdminHubEntry(
     // credentials (reveal returns plaintext) is a different class of power from managing people.
     API_KEYS(
         "API keys",
-        "Rotate, test and reveal the provider keys the repository runs on.",
+        "Change, test and view the service keys the app uses.",
         Icons.Filled.VpnKey,
         masterOnly = true
     ),
@@ -10894,8 +11012,7 @@ private fun DatasetDownloadCard(repository: FieldRepository, onError: (String) -
                         // shape of a wrong answer that reads as a right one.
                         resultMessage = "Saved to ${res.displayLocation} — ${res.saved}/${res.total} files" +
                             (if (res.failed > 0) " (${res.failed} could not be fetched)" else "") +
-                            (if (res.truncated) " — the repository is larger than one export can " +
-                                "carry, so this archive is not all of it" else "")
+                            (if (res.truncated) " — this download doesn't include every record" else "")
                     }.onFailure { onError(it.message ?: "Unable to download the dataset") }
                     downloading = false
                 }
@@ -11047,7 +11164,7 @@ private fun CompletionMatrixCard(
                     .padding(10.dp)
             ) {
                 Text(
-                    "$hidden interview${if (hidden == 1) "" else "s"} in the repository name no workshop",
+                    "$hidden interview${if (hidden == 1) " has" else "s have"} no workshop",
                     color = MaterialTheme.field.onWarningContainer,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold
@@ -11086,7 +11203,7 @@ private fun CompletionMatrixCard(
         if (matrix?.overridesAreRepositoryWide == true) {
             Text(
                 "The workshop scope narrows the green derived from recordings. An admin override is a " +
-                    "judgement about that artisan's section across the whole repository, so a marked cell " +
+                    "judgement about that artisan's section across every workshop, so a marked cell " +
                     "keeps its colour under every scope.",
                 color = MaterialTheme.field.muted,
                 fontSize = 11.sp
@@ -11638,7 +11755,7 @@ private fun AndroidMediaForm(
         // (ElevenLabs → Deepgram → Whisper), so naming one of them tells the researcher something
         // that is only sometimes true. The web misc-media screen already says it this way.
         Text(
-            "Images, videos, audio and files upload to the same repository backend. Audio is queued for transcription after upload.",
+            "Upload images, videos, audio and files. Audio is transcribed after upload.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -12844,7 +12961,7 @@ private fun QuestionnaireForm(
                 syncing -> "Synchronizing…"
                 syncStatus == ActionStatus.SUCCESS -> "Synchronised ✓"
                 syncStatus == ActionStatus.ERROR -> "Sync failed — tap to retry"
-                else -> "Synchronize with Database"
+                else -> "Sync now"
             }
         )
     }
@@ -14626,7 +14743,7 @@ private fun WorkshopAssignmentCard(
         val onRoster = roster.map { it.userId }.toSet()
         val addable = directory.filterNot { it.id in onRoster }
         if (addable.isEmpty()) {
-            Text("Everyone in the directory already has a row on this workshop.", color = Muted, fontSize = 12.sp)
+            Text("Everyone already has access to this workshop.", color = Muted, fontSize = 12.sp)
         } else {
             DropdownField(
                 label = "Researcher",
@@ -14853,7 +14970,7 @@ private fun WorkshopAccessQueueCard(
         when {
             loading -> Text("Loading requests…", color = Muted, fontSize = 12.sp)
             rows.isEmpty() -> Text(
-                if (showAll) "No workshop access rows yet." else "Nothing waiting — the queue is clear. 🎉",
+                if (showAll) "No workshop access yet." else "Nothing waiting — the queue is clear. 🎉",
                 color = Muted,
                 fontSize = 12.sp
             )
@@ -15136,7 +15253,7 @@ private fun TaskCard(
                     append("Reported ${task.progressCount}")
                     if (target != null) append(" of $target")
                     if (derived != null) {
-                        append(" · repository sees $derived")
+                        append(" · recorded $derived")
                         task.derivedTarget?.let { append(" of $it") }
                     }
                 },
@@ -15288,7 +15405,7 @@ private fun WorkshopMappingCard(
 
             current.totals.unassigned == 0 ->
                 Text(
-                    "Every record in the repository names the workshop it was captured at. Nothing is hidden " +
+                    "Every record names the workshop it was captured at. Nothing is hidden " +
                         "from a workshop scope.",
                     color = MaterialTheme.field.body,
                     fontSize = 12.sp
@@ -15446,7 +15563,7 @@ private fun WorkshopMappingCard(
         plan?.let { current ->
             if (current.workshops.isEmpty()) {
                 Text(
-                    "No workshop in the repository has a date, so nothing can be filed by when it was " +
+                    "No workshop has a date, so nothing can be filed by when it was " +
                         "recorded. Adding a start and end date to a workshop makes that evidence available.",
                     color = MaterialTheme.field.muted,
                     fontSize = 11.sp

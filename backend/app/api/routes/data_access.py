@@ -216,8 +216,7 @@ async def decide_request(grant_id: str, payload: DataAccessDecisionIn, current_u
     if _status_str(grant.status) != "PENDING":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Only a PENDING request can be decided. Use the grant edit/revoke endpoints to "
-            "change an already-decided grant.",
+            detail="This request has already been decided. Change access from the list.",
         )
     grant = await _upsert_grant(
         grant.ownerId,

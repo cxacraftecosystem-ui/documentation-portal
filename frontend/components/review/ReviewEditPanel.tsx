@@ -58,7 +58,7 @@ export function ReviewEditPanel({
     let cancelled = false;
     const endpoint = reviewRecordEndpoint(recordType, recordId);
     if (!endpoint || fields.length === 0) {
-      setError(`This build has no review editor for a ${recordType} record.`);
+      setError("This record type can’t be edited here.");
       return;
     }
     (async () => {

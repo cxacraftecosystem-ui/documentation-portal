@@ -375,8 +375,7 @@ private val BODY_EXTENDED: Map<String, String> = mapOf(
      * would conclude is that they cannot find it rather than that it is not there.
      */
     "review" to
-        " This handset has no separate review queue: the \"Review\" row opens the record browser, " +
-        "which is the one surface where a reviewer can read a submission and act on it.",
+        " On the phone, \"Review\" opens the record browser, where you read a submission and act on it.",
 )
 
 // ── Reading the web's own step list ─────────────────────────────────────────────────────────────

@@ -133,8 +133,8 @@ export function OutboxBanner() {
             </h2>
             <p className="mt-0.5 text-xs text-ink-700">
               {waiting
-                ? "They were made without a connection and have not reached the repository yet. They send themselves when the connection returns — but they live in this browser, so do not clear its data or hand the laptop on until the outbox is empty."
-                : "Nothing is waiting on the network. The entries below were refused by the server and need a decision."}
+                ? "They were made offline and haven’t been uploaded yet. They send themselves when the connection returns — but they live in this browser, so do not clear its data or hand the laptop on until the outbox is empty."
+                : "The entries below couldn’t be saved and need your attention."}
             </p>
           </div>
         </div>

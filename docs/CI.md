@@ -13,7 +13,7 @@ in that order, and every secret it needs. Sister documents:
 
 ## 1. The pipeline
 
-**Seven workflow files, in four groups that do not talk to each other.** Only the first group is a
+**Eight workflow files, in five groups that do not talk to each other.** Only the first group is a
 chain; the rest are named here rather than counted, because a count is the one fact a new file
 falsifies silently.
 
@@ -24,6 +24,9 @@ falsifies silently.
    that can reach a handset.
 4. **The crons** — `keep-supabase-active.yml` and `backup-db.yml`. Neither asserts anything about the
    code.
+5. **The emulator smoke** — `android-emulator.yml`, run by hand only (`workflow_dispatch`, since
+   2026-10-09). Boots an emulator and drives the debug APK through what targetSdk 37 changed. Gates
+   nothing.
 
 ```mermaid
 flowchart LR
@@ -56,11 +59,12 @@ under "it runs; it does not gate", for what this still does not cover.
 |---|---|---|---|---|
 | 1 | Deploy backend to EC2 | `.github/workflows/deploy-backend.yml` | `push` to `main` | `wait-for-checks` → the pinned CPython (3.14.8, the release CI tests, from a checksummed python-build-standalone build under `/opt/cpython`) on the box if it is missing, and the venv built from `backend/requirements.lock` **beside** the live one (2026-10-09) → rsync → write `.env` → install the project and generate the Prisma client into the new venv → `prisma migrate deploy` → **point `backend/.venv` at the new venv** → restart `fieldrepo` + `fieldrepo-queue` → poll `/health`. [backend/DEPLOY_AWS.md](../backend/DEPLOY_AWS.md) §9 has the layout on the box and the rollback. |
 | 2 | Deploy frontend to Vercel | `.github/workflows/deploy-frontend.yml` | `workflow_run` on **1** completing | gate → `wait-for-checks` (2026-10-09) → `vercel pull` → **refuse any project but `field-repository`** → **assert the pulled env carries what the app needs** (every `NEXT_PUBLIC_*`, `[SENSITIVE]` placeholders included), and *warn* when the project's Node.js Version is not `engines.node` → `vercel build --prod` → print the Node runtime the functions were stamped with → **assert those values actually reached the bundle** → `vercel deploy --prebuilt --prod` → **prove the production domain resolves to the new deployment, and `vercel promote` it when a rollback has turned auto-assignment off** (2026-10-09) → smoke-check the alias → **assert the bundle the CDN serves is the one that was verified**, starting with which deployment it is |
-| 3 | Android build | `.github/workflows/android-build.yml` | `workflow_run` on **2** completing, plus `pull_request` filtered to `android/**` | JDK 17 → `compileDebugKotlin` → `testDebugUnitTest` → `lintDebug` (advisory) → `assembleDebug` → upload APK. **Debug variants only.** Nothing it produces can install over a release build, and nothing it produces reaches a phone. |
+| 3 | Android build | `.github/workflows/android-build.yml` | `workflow_run` on **2** completing, plus `pull_request` filtered to `android/**` | JDK 25 → `compileDebugKotlin` → `testDebugUnitTest` plus the four core modules' `test` (ParityTest among them, since 2026-10-09) → `lintDebug` (a gate since 2026-10-09) → `assembleDebug` → upload APK. **Debug variants only.** Nothing it produces can install over a release build, and nothing it produces reaches a phone. |
 | 4 | Checks | `.github/workflows/checks.yml` | `pull_request`, `push` to `main`, manual | Three independent jobs: the backend suite, the web typecheck/lint/unit specs, the documentation check. **No `paths:` filter.** See **The checks** below.  |
 | 5 | Publish Android release | `.github/workflows/publish-android.yml` | `push` of a `v*` **tag**, plus a manual dry run | Builds and **signs** the release APK on the runner, proves the signer against `ANDROID_RELEASE_CERT_SHA256`, uploads it, and `POST`s `/api/app/release` so the in-app updater offers it. See [RELEASING.md](RELEASING.md). |
 | 6 | Keep Supabase active | `.github/workflows/keep-supabase-active.yml` | nightly cron | Pings Postgres so Supabase does not pause the free-tier project. |
 | 7 | Back up the database | `.github/workflows/backup-db.yml` | scheduled | `pg_dump` to S3. |
+| 8 | Android emulator smoke | `.github/workflows/android-emulator.yml` | manual only (`workflow_dispatch`; inputs `api-level`, default `37.0`, and `target`) | Builds the same debug APK as row 3, and the release variant unsigned to check what its manifest declares (target 37, no local-network permission); boots an emulator and runs `android/scripts/emulator-smoke.py`: launch, edge-to-edge insets in portrait, landscape and at a large-screen size, back and home, and — with a second debug build aimed at a stub on the runner — the Android 17 local-network permission. Screenshots and logcat come back as an artifact. Signs nothing in, publishes nothing. |
 
 **Rows 3 and 5 are the two halves of one rule worth stating plainly: `android-build.yml` builds
 DEBUG and only debug, and `publish-android.yml` is the only workflow that reaches a handset.** A
@@ -178,7 +182,7 @@ Three jobs, deliberately independent, so one red does not hide another's answer:
 | Job (the name branch protection needs) | Where it runs | What it runs |
 |---|---|---|
 | **Backend tests** | `backend/` | Python 3.14.8, the release the EC2 box runs (`backend/tests/test_interpreter_pin.py` holds the two together) → `pip install -r requirements.lock` → `pip install --no-deps -e .` → `pip check` → `python -m prisma generate` → `python -m pytest -rf --durations=15` |
-| **Web typecheck, lint and unit specs** | `frontend/` | Node 24, read from `engines.node` in `frontend/package.json` → `npm ci` → `npx tsc --noEmit` → `npm run lint` → `npm run test:unit` |
+| **Web typecheck, lint and unit specs** | `frontend/` | Node 24, read from `engines.node` in `frontend/package.json` → npm 12 (*npm 12 and the install-script policy* below) → `npm ci` → `npx tsc --noEmit` (TypeScript 7) → `npx tsc6 --noEmit` (TypeScript 6, what `next build` runs; *The web app's two TypeScripts* below) → `npm run lint` → `npm run test:unit` |
 | **Docs check** | repository root | Node 24 (the same field) → `node docs/tools/check-docs.mjs` |
 
 Measured on the tree the workflow landed with (2026-09-14, on a laptop — a runner will differ):
@@ -325,6 +329,112 @@ one line. And Dependabot cannot refresh it (`.github/dependabot.yml` says why): 
 raises a floor in `pyproject.toml`, and the lock is recompiled by hand in the same pull request —
 `pip check` fails Backend tests until it is.
 
+### The web app's two TypeScripts
+
+Since 2026-10-09 `frontend/` installs two TypeScript compilers on purpose, in the side-by-side
+arrangement the TypeScript team documents for 7.0 ("Running side-by-side with TypeScript 6.0" in the
+7.0 announcement):
+
+| `frontend/package.json` | What it installs | What it provides | Who uses it |
+|---|---|---|---|
+| `"@typescript/native": "npm:typescript@^7.0.2"` | TypeScript 7, the native compiler | the `tsc` binary | `npx tsc --noEmit` in `checks.yml`, `npm run typecheck` |
+| `"typescript": "npm:@typescript/typescript6@^6.0.2"` | TypeScript 6.0 (6.0.3, through that wrapper's `@typescript/old` dependency) | the `tsc6` binary, and `require("typescript")`: the JavaScript compiler API | `next build`'s type check, which runs `tsc6`; typescript-eslint inside `npm run lint`; the two specs that parse source with the API (`e2e/trace-frame-geometry-unit.spec.ts`, `e2e/trace-frame-panel.spec.ts`) |
+
+**Why not TypeScript 7 alone.** 7.0 ships no JavaScript compiler API: `require("typescript")` on
+7.0.2 returns `{ version, versionMajorMinor }` and nothing else. typescript-eslint 8.71.1, the newest,
+declares `typescript >=4.8.4 <6.1.0`. Measured with a plain `typescript@7.0.2` and
+eslint-config-next 16.4.0: `npm install` succeeds with the peer range reported invalid, and then
+every lint stops with `typescript-eslint does not support TS 7.0`, pointing at this setup and at
+typescript-eslint#10940, which tracks support for 7.1 and later. The two specs call
+`ts.createSourceFile` and `ts.transpileModule`.
+
+**Why `next build` gets 6.** next 16.4 finds its compiler by resolving `typescript/package.json` and
+running that package's `bin.tsc`, or failing that a `tsc<N>` entry; here that is `tsc6`. Recorded
+from a real build on 2026-10-09: it spawned `node_modules/typescript/bin/tsc6 --showConfig …` and then
+`… tsc6 --project tsconfig.json --noEmit …`. So the type check that gates the deploy is TypeScript 6,
+and `checks.yml` runs `npx tsc6 --noEmit` beside the 7 check: a file the two ever disagree about fails
+before the merge, not in the deploy.
+
+**What else to know.** `tsconfig.json` names `"types": ["node"]`: 6.0 and 7.0 stopped loading every
+installed `@types/*` package by default. It is not load-bearing today (`next-env.d.ts` already pulls
+Node's types in through `next`'s own reference, and both compilers passed without the line); it
+states the dependency instead of inheriting it. No option 7.0 removed is in use. The `next` plugin
+listed in `tsconfig.json` runs only in a TypeScript 6 language server, because 7's runs no plugins; an
+editor set to the workspace TypeScript should point at `node_modules/@typescript/old/lib`, since the
+`typescript` wrapper does not carry `tsserver.js`.
+
+**The day it collapses back to one.** When a typescript-eslint release accepts TypeScript 7 (7.1 or
+later), replace both entries with one `"typescript": "^7"`, move the two specs to the 7.x API or to
+another parser, and delete the `tsc6` step from `checks.yml`. `next build` needs nothing: given a 7.x
+`typescript` package, next 16.4 runs its `tsc`.
+
+### ESLint 10 and the three plugins that predate it
+
+The web app lints with ESLint 10 (10.12.0 on 2026-10-09; ESLint 9 reached end of life on 2026-08-06)
+through eslint-config-next 16.4.0 and an unchanged `frontend/eslint.config.mjs`. Three plugins inside
+eslint-config-next, each at its newest release, still declare `eslint` 9 or older as their peer:
+eslint-plugin-react 7.37.5, eslint-plugin-import 2.32.0 and eslint-plugin-jsx-a11y 6.10.2. So
+`npm ci` prints three `ERESOLVE overriding peer dependency` warnings and `npm ls eslint` calls the
+install invalid. Both are true and both are expected; the install succeeds.
+
+**Why the rules still run.** ESLint 10 removed the rule-context methods those plugins call
+(`getFilename()`, `getSourceCode()`, `getCwd()`, `getPhysicalFilename()`, `parserOptions`,
+`parserPath`). eslint-config-next 16.4.0 wraps eslint-plugin-react and eslint-plugin-import in its
+own `fixupPluginRules` (`dist/rule-context.js`), which puts them back. With that shim disabled, every
+lint dies with `Error while loading rule 'react/display-name': contextOrFilename.getFilename is not a
+function`, the crash vercel/next.js#89764 reports against eslint-config-next 16.3 and earlier.
+eslint-plugin-jsx-a11y is not wrapped, and none of the six rules eslint-config-next enables from it
+calls a removed method. One behaviour is lost, quietly: eslint-plugin-react's detection of a
+component declared only in a comment (`@extends React.Component`) calls `SourceCode#getJSDocComment`,
+which ESLint 10 also removed, inside a `try`, so it now answers "not a component"; nothing in this
+codebase is declared that way.
+
+**The proof is a test, not this paragraph.** `frontend/e2e/eslint-rules-run-unit.spec.ts` lints a
+file of deliberate violations through the real config and fails unless all 25 rules it targets fire,
+one or more from every plugin the config loads. ESLint 9.39.5 and 10.12.0 report exactly those 25
+messages, at the same lines. Disabling one rule, or the shim, turns it red.
+
+**The day it goes.** When those three plugins declare ESLint 10, the warnings stop and nothing else
+changes. If eslint-config-next drops its shim first, the spec above fails; the fallback is a flat
+config built by hand from `@next/eslint-plugin-next`, eslint-plugin-react-hooks, typescript-eslint,
+eslint-plugin-import-x and `@eslint-react/eslint-plugin`, with jsx-a11y wrapped by `@eslint/compat`'s
+`fixupPluginRules`, keeping the `react-hooks/set-state-in-effect` override.
+
+### npm 12 and the install-script policy
+
+Since 2026-10-10 the two jobs that install `frontend/` replace setup-node's npm with npm 12 before
+installing anything: `checks.yml`'s web job, and `deploy-frontend.yml`'s deploy job, whose
+`vercel build` runs `frontend/vercel.json`'s `npm ci` with the npm on PATH. The step is
+`npm install --global npm@12`, so every run takes the newest 12.x, the way `check-latest` takes the
+newest 24.x. No Node release bundles npm 12 yet (Node 24 ships npm 11), so the step stays until the
+Node in `engines.node` ships it, and then goes.
+
+**What npm 12 changes here.** It runs a dependency's install script only when the `allowScripts`
+field of `frontend/package.json` approves that package, and skips every other one with a warning that
+names it. This tree has exactly one dependency with an install script, `unrs-resolver` (the resolver
+inside eslint-config-next's TypeScript import resolver), and `allowScripts` approves it at the
+version that was reviewed, `unrs-resolver@1.12.2`. Its script is napi-postinstall, which fetches the
+platform's native binding only when the binding did not already arrive as an optional dependency;
+with this lockfile it always arrives. It is approved rather than denied so that an install behaves
+exactly as it did under npm 11.
+
+**When a dependency bump brings an install script**, or moves `unrs-resolver` past the approved
+version, `npm ci` prints `install scripts blocked` and names the package. Nothing fails; the script
+simply does not run. Read the script, then from `frontend/`, with npm 12, run
+`npm install-scripts approve <pkg>` (or `deny <pkg>`) and commit `package.json`;
+`npm install-scripts ls` lists anything still unreviewed. npm 11, which local machines and
+`frontend/Dockerfile`'s `node:24-alpine` still bundle, ignores the field and runs every install
+script, as it always has.
+
+**The Vercel CLI.** `npm install --global vercel@latest` has no `package.json` whose `allowScripts`
+could approve anything, so under npm 12 none of its dependencies' install scripts run. The CLI has
+one, esbuild's postinstall, which only re-checks a binary that the optional `@esbuild/<platform>`
+package already supplied, so the deploy log lists esbuild as blocked and the CLI works without it.
+
+**Not moved.** `keep-supabase-active.yml` installs the repository root with the npm its setup-node
+brings; it runs against the production database, so it was not exercised here, and it keeps npm 11
+until the Node it uses bundles 12.
+
 ---
 
 ## 2. Required repository secrets
@@ -455,6 +565,7 @@ same value in two places. Change one there and re-run this workflow (or push) to
 | Build the APK now | Actions → *Android build* → **Run workflow**, or open a PR touching `android/**`. |
 | Re-deploy after changing a Vercel env var | Re-run *Deploy frontend to Vercel*. `NEXT_PUBLIC_*` values are baked at build time; changing them in the dashboard does nothing until something rebuilds. |
 | Get the APK | The run's **Artifacts** section → `app-debug-<sha>`. Debug-signed: sideload-only, and Android will refuse to install it over a release-signed build. |
+| Run the APK on an emulator | Actions → *Android emulator smoke* → **Run workflow** (`api-level` 37.0 by default; `target` `google_apis_ps16k` for a 16 KB-page device), or `gh workflow run android-emulator.yml --ref <branch> -f api-level=37.0`. Screenshots, UI dumps and the logcat land in the run's `android-emulator-smoke-*` artifact. Do it before a release and after any pull request that moves the SDK levels, Compose or activity. |
 | Run the checks now | Actions → *Checks* → **Run workflow**. Or just open a pull request: it runs on every one, with no path filter. |
 | Ship a signed build to handsets | Not from this page. Push a `v*` tag — [RELEASING.md](RELEASING.md) §2 is the procedure, and it is the only route to a device. |
 
@@ -472,8 +583,8 @@ AWS_ACCESS_KEY_ID=ci-placeholder AWS_SECRET_ACCESS_KEY=ci-placeholder \
 AWS_S3_BUCKET=ci-placeholder MASTER_ADMIN_EMAIL=ci@example.invalid \
 python -m pytest -rf --durations=15
 
-# Web — from frontend/.
-npx tsc --noEmit && npm run lint && npm run test:unit
+# Web — from frontend/. tsc is TypeScript 7, tsc6 is the TypeScript 6 that next build runs.
+npx tsc --noEmit && npx tsc6 --noEmit && npm run lint && npm run test:unit
 
 # Docs — from the repository root. Add --write to regenerate REPO_FACTS.md.
 node docs/tools/check-docs.mjs
@@ -522,8 +633,10 @@ because a `.env` that is quietly pointed at a real database is a much worse way 
   with nothing to refresh it rots silently, and both landed that day: `.github/dependabot.yml`, and a
   SHA on every `uses:` in `android-build.yml`, `checks.yml`, `deploy-backend.yml`,
   `deploy-frontend.yml`, `keep-supabase-active.yml` and `publish-android.yml`, with its release in a
-  trailing comment (`backup-db.yml` uses no action; `webfactory/ssh-agent` in `deploy-backend.yml` is
-  the one action from outside `actions/`). Five workflows were pinned that morning to the commit their
+  trailing comment (`backup-db.yml` uses no action; `webfactory/ssh-agent` in `deploy-backend.yml` and
+  `reactivecircus/android-emulator-runner` in `android-emulator.yml` are the actions from outside
+  `actions/`). `android-emulator.yml`, added the same day by the Android upgrade, was pinned to the
+  latest releases from its first commit. Five workflows were pinned that morning to the commit their
   old tag resolved to, so nothing that ran changed; `deploy-backend.yml`'s pins waited for a real
   backend change, because any edit to that file redeploys the backend, and went in with the move to
   Python 3.14 the same day. That change also moved every pin to its action's **latest** release —
@@ -542,19 +655,22 @@ because a `.env` that is quietly pointed at a real database is a much worse way 
   because `[tool.ruff]` in `backend/pyproject.toml` selects no rules — a lint gate today would
   enforce a default nobody chose. Choose the rule set first, with a dated per-file baseline for what
   is already there, then add the step to the backend job.
-- **Android Lint is advisory.** `./gradlew :app:lintDebug` on the current tree reports
-  *1 error, 44 warnings* and aborts. The error is pre-existing and unrelated to any code change:
-  `AndroidManifest.xml:6 PermissionImpliesUnsupportedChromeOsHardware` — `CAMERA` is requested with
-  no matching `<uses-feature android:name="android.hardware.camera" android:required="false"/>`.
-  Making lint a hard gate today would fail every run and train everyone to ignore red. The HTML/XML
-  report is uploaded on every run. Fix the manifest (or commit a `lint-baseline.xml`), then delete
-  `continue-on-error` from the lint step and it becomes a real gate.
+- **~~Android Lint is advisory.~~ It is a gate since 2026-10-09.** It was advisory because the
+  tree carried a pre-existing error — `AndroidManifest.xml:6 PermissionImpliesUnsupportedChromeOsHardware`,
+  `CAMERA` with no matching `<uses-feature android:name="android.hardware.camera" android:required="false"/>`
+  — and a hard gate would have failed every run. The AGP 9.4.1 upgrade fixed it together with the
+  four other errors the new lint reported (two `MissingPermission`, and the Compose checks
+  `NonObservableLocale` and `RememberInComposition`), each at its source, with no suppression and no
+  `lint-baseline.xml`, and `continue-on-error` came off the step. Errors fail the build; warnings do
+  not. The HTML/XML report is still uploaded on every run.
 - **~~There are no Android tests.~~ There are now, and `android-build.yml` runs them.**
   `android/app/src/test/` holds eight Kotlin test files; the step's own guard checks for sources at
   runtime and only warns when it finds none, so it started enforcing them the moment they landed —
   but the prose comment beside it still describes the empty tree and is stale. **Instrumented** tests
-  are still absent and still not run: they need an emulator, and that is a separate job with an
-  emulator action, not a line bolted onto this one.
+  are still absent. The emulator job that would run them now exists — `android-emulator.yml`, by hand
+  only, since 2026-10-09 — but it runs a smoke script against the installed APK
+  (`android/scripts/emulator-smoke.py`), not `connectedDebugAndroidTest`, because there is nothing for
+  the latter to run.
 - **Don't chain a fourth stage.** GitHub caps how deep `workflow_run` chains can go (documented at
   three levels); this pipeline already uses two hops. A fourth stage should be a job with `needs:`
   inside an existing workflow, not another `workflow_run` link.
@@ -738,10 +854,15 @@ three assertions in §1 fail the run instead. If it happens anyway, the assertio
 that hole is the bug — do not just fix the variable. Start at
 [DEPLOYMENT_VERCEL.md §2.2](DEPLOYMENT_VERCEL.md).
 
-**Android build fails on the SDK.** The workflow installs `platforms;android-35` and
-`build-tools;35.0.0` explicitly because runner images drift. If `compileSdk` in
-`android/app/build.gradle.kts` moves, update that step and the JDK pin together — the JDK 17 pin
-tracks `sourceCompatibility`/`jvmTarget` in the same file.
+**Android build fails on the SDK.** The workflow installs `platforms;android-37.0` and
+`build-tools;37.0.0` explicitly because runner images drift (API 37's platform packages carry the
+minor level in their name: `android-37.0`, `android-37.1`, `android-37.2`). If `compileSdk` in
+`android/app/build.gradle.kts` moves, update that step in `android-build.yml`, `publish-android.yml`
+(its `BUILD_TOOLS_VERSION` too, which is also where `apksigner` and `aapt2` come from) and
+`android-emulator.yml` together. The JDK pin is a separate question since 2026-10-09: it is the JDK
+that **runs** Gradle (25, the current Temurin LTS), not the bytecode level, which stays Java 17 in
+`compileOptions` — so a JDK bump changes no output, and a bytecode bump needs Android to document a
+higher level first.
 
 **A deploy hangs on the health poll.** Stage 1 polls `http://127.0.0.1:8000/health` 40 times at 2 s
 and dumps `journalctl -u fieldrepo -n 80` on failure. Read that output first; the usual causes are a
@@ -756,12 +877,12 @@ pointed at the `/api` form is measuring a 404, not the service.
 
 ## How this document is kept true
 
-Everything here describes seven YAML files, so almost all of it is mechanically checkable — and the
+Everything here describes eight YAML files, so almost all of it is mechanically checkable — and the
 parts that are not are exactly the parts that were wrong before.
 
 | Claim class | Kept true by |
 |---|---|
-| The seven workflows, their triggers and their step order | `.github/workflows/*.yml`. `grep -n "^name:\|^on:\|    - name:" .github/workflows/deploy-frontend.yml` renders the shape of a workflow in one command. The §1 table is a *list*, not a count, for the same reason the workflow headers are: a new file falsifies a count silently. |
+| The eight workflows, their triggers and their step order | `.github/workflows/*.yml`. `grep -n "^name:\|^on:\|    - name:" .github/workflows/deploy-frontend.yml` renders the shape of a workflow in one command. The §1 table is a *list*, not a count, for the same reason the workflow headers are: a new file falsifies a count silently. |
 | The secrets **table** (names and purposes) | `grep -ho 'secrets\.[A-Z_]*' .github/workflows/*.yml \| sort -u` lists every secret the workflows read. Anything in that output missing from §2 is undocumented. |
 | Which secrets **exist** | **Not checkable from a checkout, and deliberately not stated.** `gh secret list`, or the Actions settings page. A previous version asserted an inventory here and it went stale within days. |
 | The three job names in §1 and §3.5 | `grep -n "    name:" .github/workflows/checks.yml`. These are the strings branch protection matches; if they stop agreeing with this document, the required checks are silently matching nothing. |
@@ -774,6 +895,9 @@ parts that are not are exactly the parts that were wrong before.
 | The production domain serving the new deployment | Asserted after every publish, not measured here: the deploy job reads which deployment `field-repository.vercel.app` resolves to, promotes the upload out of a rollback, and fails if production is still elsewhere (§1, the three assertions). That a rollback turns auto-assignment off is Vercel's documented behaviour, linked there; that `field-repository.vercel.app` is a project domain rather than a hand-set alias was measured on 2026-10-09 (**Project → Settings → Domains**). |
 | The action pins (§5) | `grep -nE "^\s*(- )?uses:" .github/workflows/*.yml` — every hit must read `owner/repo@<40-hex SHA> # vX.Y.Z`. To check one against its comment, or to redo one by hand: `gh api repos/<owner>/<repo>/git/ref/tags/<vX.Y.Z> --jq .object`. A `commit` object's `sha` is the pin; a `tag` object is an annotated tag, so read the commit it points at with `gh api repos/<owner>/<repo>/git/tags/<sha> --jq .object`. Only the SHA runs and only the comment gets read, so a comment that names a different release from its SHA is the bug. |
 | The backend dependency lock (§1) | `backend/requirements.lock` is generated: its header names the Python that compiled it (3.14) and the command. Re-run the command in §1 and diff — an empty diff on the same day means it is current. `grep -n "requirements.lock" .github/workflows/checks.yml .github/workflows/deploy-backend.yml backend/Dockerfile` finds every place that installs it. |
+| The web app's two TypeScripts (§1) | From `frontend/`: `npx tsc --version` must print 7.x, `npx tsc6 --version` 6.x, and `node -p "require('typescript').version"` 6.x. The day typescript-eslint's peer range admits 7 (`npm view typescript-eslint peerDependencies`), the subsection's last paragraph is the removal recipe. |
+| ESLint 10 and its three out-of-range plugins (§1) | `frontend/e2e/eslint-rules-run-unit.spec.ts`, in the Unit specs step, fails if any plugin stops reporting. `npm view eslint-plugin-react peerDependencies` (and the same for eslint-plugin-import and eslint-plugin-jsx-a11y) says when the `ERESOLVE` warnings should stop. |
+| npm 12 and the install-script policy (§1) | The web job's "Install npm 12" step prints `npm --version` (12.x), and its Install step prints no `install scripts blocked` lines. From `frontend/`, with npm 12, `npm install-scripts ls` must print "No packages with unreviewed install scripts". The day the Node in `engines.node` bundles npm 12 (its release notes say so), delete the "Install npm 12" step from `checks.yml` and from `deploy-frontend.yml`. |
 | The runner image | `grep -n "runs-on" .github/workflows/*.yml` — every job names `ubuntu-26.04` (since 2026-10-09), never `ubuntu-latest`, so an image move is a reviewed diff rather than a GitHub announcement. |
 | The interpreter CI tests and the box runs (§1, §3) | `backend/tests/test_interpreter_pin.py`, in the Backend tests job: `python-version` in `checks.yml` must be the CPython version `deploy-backend.yml` and `infra/terraform/user_data.sh` pin, and those two must pin the same python-build-standalone asset and SHA-256, verified before it is unpacked, with its standard library byte-compiled before the build takes its name. Where each pin came from, and how to move it: [backend/DEPLOY_AWS.md](../backend/DEPLOY_AWS.md) §9. |
 | Branch protection: whether the checks are required | **UNVERIFIED from here** — console state, and the single most load-bearing unverifiable claim on this page. Nothing in `.github/` can assert it. **Settings → Branches**, or `gh api repos/:owner/:repo/branches/main/protection`. |

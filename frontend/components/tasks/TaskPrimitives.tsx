@@ -315,8 +315,8 @@ export function overrideConfirmCopy({
     const claim = targetCount ? `${reported} of ${targetCount}` : `${reported}`;
     const found =
       derivedCount === null || derivedCount === undefined
-        ? "The repository count is not available for this row, so this approval rests on their word alone."
-        : `The repository can find ${derivedCount} inside this task's scope against their ${claim}.`;
+        ? "The recorded count is not available for this row, so this approval is based on what they reported."
+        : `${derivedCount} recorded for this task, against their ${claim}.`;
 
     if (next === "DONE") {
       return {
@@ -335,7 +335,7 @@ export function overrideConfirmCopy({
       // THE ONE THING A SENT-BACK TASK CANNOT CARRY. There is no comment column on a task row, so
       // whatever the reason was travels by some other route or not at all — and an admin who
       // assumes the button delivers it would be sending silent rejections.
-      note: `Nothing on the task records why, and ${who} is not told a reason — the row keeps only its status, so say why some other way. Their reported figure is left exactly as it is.`,
+      note: `${who} won't see a reason here, so let them know why. Their reported figure is left exactly as it is.`,
       confirmLabel: reviewActionLabel(next)
     };
   }
@@ -549,7 +549,7 @@ export function ProgressGapMeter({
           {reported}
           {suffix}
         </span>
-        <span className="text-xs text-ink-500">In repository</span>
+        <span className="text-xs text-ink-500">Recorded</span>
         {derived === null || derived === undefined ? (
           <span className="text-xs text-ink-300">not counted for this page</span>
         ) : (
@@ -584,10 +584,10 @@ export function ProgressGapMeter({
  * first — which is the belief the accountability board exists to correct, one screen later.
  */
 export function progressSourceNote(source: TaskProgressSource | null): string {
-  if (source === "derived") return "Counted from the repository — this moves on its own as records are saved.";
+  if (source === "derived") return "Counted automatically as records are saved.";
   if (source === "reported") return "Self-reported — this only moves when the reported figure is changed.";
   if (source === "status") return "Read from the task's status, not counted from records.";
-  return "Nothing on this task is countable and no target was set, so there is no honest bar to draw.";
+  return "No progress to show for this task.";
 }
 
 /**

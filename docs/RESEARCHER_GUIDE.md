@@ -74,7 +74,13 @@ incomplete — see §11.3. Email and password always works regardless.
 Requirements: **Android 8.0 (API 26) or newer**, and an internet connection at some point — not
 necessarily at the moment you are recording (§6).
 
-The web app needs nothing installed. Open the URL, sign in.
+The web app needs nothing installed. Open the URL in a browser that still updates itself, and sign
+in. The floor is **Chrome or Edge 111, Safari 16.4 (iOS and iPadOS 16.4) and Firefox 128**, the
+versions the styling engine (Tailwind CSS 4) is built for; all of them shipped by mid-2024. Next.js
+already asked for the first two, so the step up on 2026-10-09 was Firefox, from 111 to 128. A laptop
+or phone whose browser stopped updating below those versions (an iPhone 7 or older, which cannot
+install iOS 16; an old Firefox ESR) opens the app with parts of its styling missing. The Android
+app has no browser requirement at all.
 
 ---
 
@@ -351,6 +357,7 @@ it, not by running it.
 |---|---|
 | §2 accounts, §4 roles | `DEFAULT_SIGNUP_ROLE` in `backend/app/core/config.py`, and the role table in [PERMISSIONS.md](PERMISSIONS.md) — which *is* mechanically checked (`docs/tools/check-docs.mjs` fails if the backend and web ladders disagree). |
 | §3 install | `minSdk` / `applicationId` in `android/app/build.gradle.kts`; the OTA flow in `backend/app/api/routes/app_release.py`. |
+| §3 browser floor | Tailwind CSS 4's stated floor (tailwindcss.com, "Compatibility") and the default targets of the Next.js major in `frontend/package.json`, which declares no `browserslist` of its own. Re-check both on either major. |
 | §5 workshops | `backend/app/services/workshop_access.py`. |
 | §6 offline | `frontend/lib/offline.ts` and `android/app/src/main/java/com/fieldrepository/app/data/Offline.kt`; the tactic matrix in [MEDIA_PIPELINE.md](MEDIA_PIPELINE.md) §4. |
 | §7 Aadhaar handling | `backend/app/services/artisan_identity.py` and `backend/tests/` — masking is `mask_aadhaar`. |

@@ -1051,8 +1051,7 @@ fun traceChangedBehindDisclosure(before: TraceValues, after: TraceValues): List<
  *
  * A map rather than a list because the reason is the point: somebody will eventually notice a missing
  * slider, and what they need is not the fact that it was left out but why — in one place, next to the
- * table it was left out of. The panel DRAWS this list at the foot of the disclosure, so somebody
- * looking for the thinning control finds the answer where they looked for the control.
+ * table it was left out of. It is documentation only; the panel does not draw it.
  *
  * **`cleanup.thinning` (Zhang–Suen vs Guo–Hall) is the only one, and it is cut on discipline rather
  * than on screen space.** The engine's own documentation says Guo–Hall "keeps diagonals better and

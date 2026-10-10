@@ -778,6 +778,52 @@ jobs:
           echo "CORS origins pinned"
           REMOTE
 
+      # The sender address and SES region are Actions VARIABLES, not lines inside BACKEND_ENV: they
+      # are not secret, and BACKEND_ENV can only be replaced wholesale. Authoritative, like the CORS
+      # pin above: any inherited value is deleted first. An unset variable leaves mail switched off.
+      - name: Pin the mail sender
+        env:
+          MAIL_FROM_ADDRESS: ${{ vars.MAIL_FROM_ADDRESS }}
+          MAIL_SES_REGION: ${{ vars.MAIL_SES_REGION }}
+        run: |
+          ssh ubuntu@${{ secrets.EC2_HOST }} "FROM='$MAIL_FROM_ADDRESS' REGION='$MAIL_SES_REGION' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/app/backend
+          [ -s .env ] && [ -n "$(tail -c1 .env)" ] && printf '\n' >> .env
+          sed -i '/^MAIL_FROM_ADDRESS=/d;/^MAIL_SES_REGION=/d' .env
+          if [ -n "$FROM" ]; then printf 'MAIL_FROM_ADDRESS=%s\n' "$FROM" >> .env; fi
+          if [ -n "$REGION" ]; then printf 'MAIL_SES_REGION=%s\n' "$REGION" >> .env; fi
+          echo "mail sender pinned: ${FROM:-off}"
+          REMOTE
+
+      # Microsoft and Yahoo sign-in. Client ids and the tenant are Actions VARIABLES; the client
+      # secrets are Actions SECRETS. The fragment travels on ssh's STDIN, never in an argument (an
+      # argument is visible in `ps` on the box). Authoritative: every inherited line for these keys
+      # is deleted first; a provider whose id or secret is unset is left out and stays switched off.
+      - name: Pin the Microsoft and Yahoo sign-in settings
+        env:
+          MICROSOFT_CLIENT_ID: ${{ vars.MICROSOFT_CLIENT_ID }}
+          MICROSOFT_TENANT: ${{ vars.MICROSOFT_TENANT }}
+          MICROSOFT_CLIENT_SECRET: ${{ secrets.MICROSOFT_CLIENT_SECRET }}
+          YAHOO_CLIENT_ID: ${{ vars.YAHOO_CLIENT_ID }}
+          YAHOO_CLIENT_SECRET: ${{ secrets.YAHOO_CLIENT_SECRET }}
+        run: |
+          frag=""
+          if [ -n "$MICROSOFT_CLIENT_ID" ] && [ -n "$MICROSOFT_CLIENT_SECRET" ]; then
+            frag+="MICROSOFT_CLIENT_ID=$MICROSOFT_CLIENT_ID"$'\n'"MICROSOFT_CLIENT_SECRET=$MICROSOFT_CLIENT_SECRET"$'\n'"MICROSOFT_TENANT=${MICROSOFT_TENANT:-common}"$'\n'
+          fi
+          if [ -n "$YAHOO_CLIENT_ID" ] && [ -n "$YAHOO_CLIENT_SECRET" ]; then
+            frag+="YAHOO_CLIENT_ID=$YAHOO_CLIENT_ID"$'\n'"YAHOO_CLIENT_SECRET=$YAHOO_CLIENT_SECRET"$'\n'
+          fi
+          printf '%s' "$frag" | ssh ubuntu@${{ secrets.EC2_HOST }} "ENVFILE='/home/ubuntu/app/backend/.env' bash -c '
+            set -euo pipefail
+            frag=\$(cat)
+            [ -s \"\$ENVFILE\" ] && [ -n \"\$(tail -c1 \"\$ENVFILE\")\" ] && printf \"\n\" >> \"\$ENVFILE\"
+            sed -i \"/^MICROSOFT_CLIENT_ID=/d;/^MICROSOFT_CLIENT_SECRET=/d;/^MICROSOFT_TENANT=/d;/^YAHOO_CLIENT_ID=/d;/^YAHOO_CLIENT_SECRET=/d\" \"\$ENVFILE\"
+            [ -n \"\$frag\" ] && printf \"%s\" \"\$frag\" >> \"\$ENVFILE\"
+            echo \"sign-in providers pinned: \$(grep -c -E \"^(MICROSOFT|YAHOO)_CLIENT_ID=\" \"\$ENVFILE\" || true)\"
+          '"
+
       # ─── THE PROJECT, THE PRISMA CLIENT, THE MIGRATION, THE SWITCH ──────────────────────────────
       # Everything up to the switch happens inside the venv the build step chose, while the API is
       # still serving from the old one; the switch happens with both services stopped. The order of

@@ -45,6 +45,7 @@ from app.services.access_roster import (
     status_value,
 )
 from app.services.access_roster import MAX_FULL_NAME_LENGTH, MAX_NOTES_LENGTH
+from app.services.email_outbox import notify_access_granted
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import contains
 
@@ -194,6 +195,9 @@ async def add_to_roster(
             notes=payload.notes,
             decided_by_id=current_user.id,
         )
+        if payload.sendInvite:
+            # Never raises; a no-op when mail is not configured.
+            await notify_access_granted(email, name=payload.fullName)
     else:
         now = datetime.now(UTC)
         row = await db.accessroster.create(
@@ -240,13 +244,14 @@ async def update_roster_entry(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
 
     values = payload.model_dump(exclude_unset=True)
+    # `sendInvite` is an instruction, not a column: only the approval branch below reads it, and the
+    # other branch builds its write from named columns, so it never reaches the table.
     new_status = status_value(values.get("status")).upper() if values.get("status") else None
     if new_status and new_status not in DECIDABLE_STATUSES:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
-                "An access roster entry can be set to ACTIVE, REJECTED or SUSPENDED. "
-                "PENDING is written only by a refused sign-in."
+                "Choose May sign in, Refused or Suspended."
             ),
         )
     if new_status and new_status != ADMITTING_STATUS and is_master_admin_email(row.email):
@@ -265,6 +270,9 @@ async def update_roster_entry(
             decided_by_id=current_user.id,
         )
         await _invalidate_account(row.email)
+        if values.get("sendInvite"):
+            # Never raises; a no-op when mail is not configured.
+            await notify_access_granted(updated.email, name=getattr(updated, "fullName", None))
         return roster_payload(updated)
 
     data: dict[str, Any] = {}

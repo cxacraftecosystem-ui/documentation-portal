@@ -206,6 +206,14 @@ GEMINI_API_KEYS=...,...
 # The web service must NOT drain the media queue (fieldrepo-queue does).
 MEDIA_QUEUE_WORKER_ENABLED=false
 
+# E-mail through Amazon SES (optional). Unset MAIL_FROM_ADDRESS = no e-mail and no e-mail controls.
+# The address must be SES-verified in MAIL_SES_REGION, with SES production access there, and the
+# AWS_ACCESS_KEY_ID user needs ses:SendEmail. docs/ENVIRONMENT.md "E-mail (Amazon SES)".
+# MAIL_FROM_ADDRESS=no-reply@your-domain
+# MAIL_FROM_NAME=Field Repository
+# MAIL_REPLY_TO=support@your-domain
+# MAIL_SES_REGION=ap-south-1
+
 BACKEND_CORS_ORIGINS=https://your-frontend-domain
 ```
 

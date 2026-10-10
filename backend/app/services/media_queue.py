@@ -556,7 +556,7 @@ async def _finalize_unavailable_job(job_id: str, result: dict[str, Any], message
             "lockedBy": None,
             "completedAt": datetime.now(UTC),
             "result": Json(jsonable_encoder(result)),
-            "error": str(message or "Required AI API key is not configured."),
+            "error": str(message or "This feature isn't available right now."),
         },
     )
 

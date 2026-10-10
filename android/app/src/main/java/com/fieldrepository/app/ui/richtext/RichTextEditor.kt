@@ -25,6 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -623,12 +624,23 @@ fun RichTextEditor(
         ) {
             val numbers = orderedNumbers(doc)
             doc.blocks.forEachIndexed { index, block ->
+                /*
+                 * One requester per block position, remembered with the position, and only then
+                 * published to `focusRequesters` for the caret-moving effect above to look up — from
+                 * a SideEffect, once the frame has committed, which is still before that effect's
+                 * coroutine runs. It used to be created inside `getOrPut` while composing: kept alive
+                 * by the remembered map, so it worked, but it was a state write in the middle of
+                 * composition and Compose's lint (RememberInComposition) now refuses a FocusRequester
+                 * made outside `remember`.
+                 */
+                val requester = remember(index) { FocusRequester() }
+                SideEffect { focusRequesters[index] = requester }
                 RichTextBlockRow(
                     block = block,
                     index = index,
                     ordinal = numbers.getOrNull(index),
                     enabled = enabled,
-                    focusRequester = focusRequesters.getOrPut(index) { FocusRequester() },
+                    focusRequester = requester,
                     fieldValues = fieldValues,
                     caret = if (selection.focus.block == index) selection.focus.offset else null,
                     onRemoveImage = { commit(removeImage(doc, index), moveFocus = true) },

@@ -195,7 +195,7 @@ export function AssignmentBuilder({
       <Step
         n={2}
         title="Who does the work"
-        hint="Only people ranked below you can be given a task. Narrow by tier first if the list is long — one task row is created per person."
+        hint="Only people ranked below you can be given a task. Narrow by tier first if the list is long — each person gets their own task."
       >
         <div className="grid gap-3 md:grid-cols-2">
           <FieldBlock label="Filter by tier">
@@ -313,7 +313,7 @@ export function AssignmentBuilder({
             hint={
               <Picked
                 labels={selectedArtisans.map((artisan) => artisan.name)}
-                empty={workshopId ? "Every artisan at this workshop." : "Every artisan in the repository."}
+                empty={workshopId ? "Every artisan at this workshop." : "Every artisan."}
               />
             }
           >
@@ -399,7 +399,7 @@ export function AssignmentBuilder({
             <dd className="text-ink-900">{workshopTitle ?? "Not tied to a workshop"}</dd>
           </div>
           <div>
-            <dt className="text-xs font-medium text-ink-500">Repository counts against</dt>
+            <dt className="text-xs font-medium text-ink-500">Counted against</dt>
             <dd className="text-ink-900">
               {derivedTarget ? `${derivedTarget} item${derivedTarget === 1 ? "" : "s"} per person` : "No fixed denominator"}
             </dd>

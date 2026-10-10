@@ -37,6 +37,7 @@ from app.core.db import db
 from app.core.deps import ROLE_RANK, get_current_user, invalidate_cached_user, role_rank
 from app.core.security import create_access_token, verify_password
 from app.schemas.auth import LoginRequest, TokenResponse
+from app.services import oidc_sign_in
 from app.services.access_roster import (
     ADMITTING_STATUS,
     INVALID_CREDENTIALS_DETAIL,
@@ -145,7 +146,7 @@ def verify_google_token(token: str) -> dict[str, Any]:
     if not settings.google_client_ids:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Google OAuth is not configured on this server",
+            detail="Google sign-in isn't available. Use your email and password.",
         )
     last_error: ValueError | None = None
     for client_id in settings.google_client_ids:
@@ -201,11 +202,80 @@ async def login_with_google(token: str) -> Any:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Google account email is not verified",
         )
+    return await _sign_in_verified_address(
+        email, display_name=id_info.get("name"), avatar_url=id_info.get("picture"), provider="GOOGLE"
+    )
 
+
+def _oidc_refused_detail(label: str) -> str:
+    """What a Microsoft or Yahoo sign-in that did not prove itself is told. One sentence for every
+    failure of the code, the token or its signature: the log line carries the class, and the person
+    has the same useful move whichever it was."""
+    return f"Signing in with {label} did not complete. Try again, or use another way to sign in."
+
+
+def _oidc_unverified_detail(label: str) -> str:
+    return (
+        f"{label} has not confirmed the email address on this account, so it cannot be used to sign "
+        f"in here. Confirm the address with {label}, or use another way to sign in."
+    )
+
+
+async def login_with_oidc(payload: LoginRequest) -> Any:
+    """Microsoft and Yahoo sign-in: redeem the code, prove the ID token, then the Google path's gate.
+
+    THE SAME ORDER AS :func:`login_with_google`, FOR RULE 2 OF THE MODULE DOCSTRING: the identity is
+    proved — the code redeemed with the client secret, the ID token verified against the provider's
+    keys, the nonce matched, the address verified by the provider — before the roster is consulted or
+    anything is written. See ``app/services/oidc_sign_in.py`` for what is checked and why the code is
+    redeemed here rather than on a phone or in a browser.
+    """
+    name = payload.oidcProvider or ""
+    label = oidc_sign_in.label_of(name)
+    if oidc_sign_in.provider(name) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Signing in with {label} is not available here. Use another way to sign in.",
+        )
+    if not oidc_sign_in.acceptable_redirect_uri(payload.oidcRedirectUri or ""):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_oidc_refused_detail(label))
+    try:
+        proved = await oidc_sign_in.prove(
+            name,
+            code=payload.oidcCode or "",
+            code_verifier=payload.oidcCodeVerifier or "",
+            redirect_uri=payload.oidcRedirectUri or "",
+            raw_nonce=payload.oidcNonce or "",
+        )
+    except oidc_sign_in.EmailNotVerified as exc:
+        logger.info("auth: %s sign-in refused (%s)", name, exc.reason)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=_oidc_unverified_detail(label)
+        ) from exc
+    except oidc_sign_in.SignInRefused as exc:
+        # THE REASON TAG, NEVER THE TOKEN OR THE CODE. See oidc_sign_in's module docstring.
+        logger.info("auth: %s sign-in refused (%s)", name, exc.reason)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_oidc_refused_detail(label)) from exc
+    email = normalise_email(proved.email)
+    if not email:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_oidc_unverified_detail(label))
+    return await _sign_in_verified_address(
+        email, display_name=proved.name, avatar_url=None, provider=proved.provider
+    )
+
+
+async def _sign_in_verified_address(
+    email: str, *, display_name: str | None, avatar_url: str | None, provider: str
+) -> Any:
+    """The gate, then the account, for an address a provider has verified.
+
+    Reached from :func:`login_with_google` and :func:`login_with_oidc` only. ``provider`` is
+    ``GOOGLE``, ``MICROSOFT`` or ``YAHOO``: the ``authProvider`` a new account is created with. The
+    account is found at the normalised address and nowhere else, for every provider.
+    """
     settings = get_settings()
     role = role_for_email(email)
-    name = settings.master_admin_name if role == "MASTER_ADMIN" else id_info.get("name") or email.split("@")[0]
-    avatar_url = id_info.get("picture")
+    name = settings.master_admin_name if role == "MASTER_ADMIN" else display_name or email.split("@")[0]
 
     existing = await db.user.find_unique(where={"email": email})
 
@@ -225,7 +295,15 @@ async def login_with_google(token: str) -> Any:
     granted = role_value(getattr(admitted, "grantedRole", None))
 
     if existing:
-        data = {"name": name, "avatarUrl": avatar_url, "authProvider": "GOOGLE"}
+        # Google's sign-in has always refreshed the name, the avatar and the provider. Microsoft and
+        # Yahoo send no picture, so they leave the avatar alone, and they record their provider only
+        # on an account that had none of its own (LOCAL) — a second provider is a second way in, not
+        # a change of what the account is.
+        data: dict[str, Any] = {"name": name}
+        if provider == "GOOGLE":
+            data.update({"avatarUrl": avatar_url, "authProvider": "GOOGLE"})
+        elif str(getattr(existing.authProvider, "value", existing.authProvider) or "").upper() == "LOCAL":
+            data["authProvider"] = provider
         if role == "MASTER_ADMIN":
             data["role"] = "MASTER_ADMIN"
             data["canManageQuestionnaire"] = True
@@ -255,7 +333,7 @@ async def login_with_google(token: str) -> Any:
             "email": email,
             "name": name,
             "avatarUrl": avatar_url,
-            "authProvider": "GOOGLE",
+            "authProvider": provider,
             "role": role,
             "canManageQuestionnaire": role == "MASTER_ADMIN",
         }
@@ -273,6 +351,9 @@ async def login(payload: LoginRequest) -> dict[str, Any]:
     """
     if payload.googleIdToken:
         user = await login_with_google(payload.googleIdToken)
+    elif payload.has_oidc_login:
+        # Microsoft and Yahoo, gated inside the call before any write, for the Google branch's reason.
+        user = await login_with_oidc(payload)
     else:
         email = normalise_email(payload.email)
         user = await db.user.find_unique(where={"email": email}) if email else None

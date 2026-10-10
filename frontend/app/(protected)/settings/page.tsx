@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { adminChromeVisible, useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { AppSettingsPanel } from "@/components/settings/AppSettingsPanel";
+import { EmailNotificationsCard } from "@/components/settings/EmailNotificationsCard";
 import { GetTheAppPanel } from "@/components/settings/GetTheAppPanel";
 import { PublishAppUpdatePanel } from "@/components/settings/PublishAppUpdatePanel";
 import { MyAiKeysPanel } from "@/components/settings/MyAiKeysPanel";
@@ -91,7 +92,7 @@ export default function SettingsPage() {
       title="Settings"
       description={
         admin
-          ? "How this account looks and reads, plus the repository administration you are entitled to."
+          ? "Your display settings, plus the admin tools you can use."
           : "How this account looks and reads, and the workshops you can ask to work in."
       }
       icon={<SettingsIcon className="h-5 w-5" aria-hidden />}
@@ -117,6 +118,9 @@ export default function SettingsPage() {
           <AccessibilityCard />
         </div>
 
+        {/* This account's e-mail opt-out. Draws nothing on a deployment that sends no e-mail. */}
+        <EmailNotificationsCard />
+
         {/* Everyone sees this: the two apps are one product and each is better at half the job. */}
         <GetTheAppPanel />
 
@@ -129,7 +133,7 @@ export default function SettingsPage() {
 
         {links.length ? (
           <section className="panel p-5">
-            <h2 className="font-display font-bold text-ink-900">Repository administration</h2>
+            <h2 className="font-display font-bold text-ink-900">Administration</h2>
             <p className="mt-1 text-sm text-ink-500">Settings that apply to everyone, not just this account.</p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               {links.map((link) => (

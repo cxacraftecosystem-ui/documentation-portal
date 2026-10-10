@@ -186,7 +186,7 @@ const RECORD_CREATOR_GUARD = {
   message:
     "Creating artisans, products, processes and tools needs Researcher access or above. " +
     "Field contributors and crowdsource volunteers answer existing interviews, upload media, and " +
-    "comment on existing records — browse the repository to find an entry to add to."
+    "comment on existing records — browse records to find one to add to."
 } as const;
 
 export const ROUTE_GUARDS: RouteGuard[] = [
@@ -216,7 +216,7 @@ export const ROUTE_GUARDS: RouteGuard[] = [
     gate: "require_admin",
     title: "Admin access required",
     message:
-      "The access roster decides who may sign in to the repository at all, and holds the queue of people waiting for a decision. It is available to admins and the master admin only."
+      "The access roster decides who may sign in, and holds the queue of people waiting for a decision. It is available to admins and the master admin only."
   },
   {
     // THE ONLY GUARD UNDER /questionnaire, AND THE ONLY ONE THERE SHOULD BE. /questionnaire itself
@@ -276,7 +276,7 @@ export const ROUTE_GUARDS: RouteGuard[] = [
     gate: "require_dataset_downloader",
     title: "Dataset access required",
     message:
-      "Browsing and downloading the full dataset is available to professors and above, or to anyone granted dataset-download access. Browse records to search the repository instead."
+      "Browsing and downloading the full dataset is available to professors and above, or to anyone granted dataset-download access. Use Browse records instead."
   },
   { path: "/artisans/new", ...RECORD_CREATOR_GUARD },
   { path: "/products/new", ...RECORD_CREATOR_GUARD },

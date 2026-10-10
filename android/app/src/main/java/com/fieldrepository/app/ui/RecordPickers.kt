@@ -275,7 +275,7 @@ fun listCutNotice(
 ): String? {
     if (total <= loaded) return null
     if (loaded == 0) {
-        return "None of the $total $noun could be listed here — this is not an empty repository."
+        return "None of the $total $noun could be loaded. Try again."
     }
     return when (reach) {
         ListCutReach.PAGER ->

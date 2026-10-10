@@ -644,7 +644,7 @@ export function TraceCompare({
           className={cn(
             "panel relative w-full select-none overflow-hidden rounded-lg",
             framed ? null : "aspect-video",
-            "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2",
+            "focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2",
             solo !== null ? "cursor-default" : isHorizontal ? "cursor-ew-resize" : "cursor-ns-resize",
             magnified && "cursor-grab"
           )}
@@ -734,7 +734,7 @@ export function TraceCompare({
             apart without leaving the frame.
           */}
           {showLabels && solo !== null && solo.label ? (
-            <span className="pointer-events-none absolute left-3 top-3 z-20 rounded-full bg-black/70 px-3 py-1 text-xs font-medium text-white backdrop-blur-sm">
+            <span className="pointer-events-none absolute left-3 top-3 z-20 rounded-full bg-black/70 px-3 py-1 text-xs font-medium text-white backdrop-blur-xs">
               {solo.label}
             </span>
           ) : null}
@@ -750,14 +750,14 @@ export function TraceCompare({
           {showLabels && solo === null ? (
             <>
               <div className="pointer-events-none absolute inset-0 z-20" style={{ clipPath: badgeClip }}>
-                <span className="absolute left-3 top-3 rounded-full bg-black/70 px-3 py-1 text-xs font-medium text-white backdrop-blur-sm">
+                <span className="absolute left-3 top-3 rounded-full bg-black/70 px-3 py-1 text-xs font-medium text-white backdrop-blur-xs">
                   {beforeLabel}
                 </span>
               </div>
               <div className="pointer-events-none absolute inset-0 z-20" style={{ clipPath: afterBadgeClip }}>
                 <span
                   className={cn(
-                    "absolute rounded-full bg-black/70 px-3 py-1 text-xs font-medium text-white backdrop-blur-sm",
+                    "absolute rounded-full bg-black/70 px-3 py-1 text-xs font-medium text-white backdrop-blur-xs",
                     isHorizontal ? "right-3 top-3" : "bottom-3 left-3"
                   )}
                 >

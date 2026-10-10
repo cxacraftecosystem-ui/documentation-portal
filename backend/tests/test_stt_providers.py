@@ -428,15 +428,18 @@ def test_the_admin_ranking_decides_who_is_asked_first(monkeypatch, post) -> None
     assert recorder.calls[0]["url"].startswith("https://api.deepgram.com")
 
 
-def test_a_bad_key_everywhere_names_the_key_rather_than_the_status(monkeypatch, post) -> None:
+def test_a_bad_key_everywhere_names_the_provider_rather_than_the_status(monkeypatch, post) -> None:
     post(_Response(403, text="forbidden"))
 
     result = _transcribe(monkeypatch, ["elevenlabs", "deepgram", "whisper"])
 
     assert result["status"] == "FAILED"
-    assert "ELEVENLABS_API_KEY" in result["message"]
-    assert "DEEPGRAM_API_KEY" in result["message"]
-    assert "OPENAI_API_KEY" in result["message"]
+    assert "ElevenLabs's key isn't working" in result["message"]
+    assert "Deepgram's key isn't working" in result["message"]
+    assert "Whisper (OpenAI)'s key isn't working" in result["message"]
+    assert "Settings" in result["message"]
+    assert "HTTP" not in result["message"]
+    assert "_API_KEY" not in result["message"]
 
 
 def test_throttling_everywhere_defers_instead_of_failing(monkeypatch, post) -> None:
@@ -447,7 +450,7 @@ def test_throttling_everywhere_defers_instead_of_failing(monkeypatch, post) -> N
     # RATE_LIMITED is what media_queue requeues without consuming one of the job's attempts.
     assert result["status"] == "RATE_LIMITED"
     assert result["retryAfter"] == 45.0
-    assert "rate-limited" in result["message"]
+    assert result["message"] == "Transcription is busy; it will retry automatically."
 
 
 def test_an_unavailable_provider_defers_but_a_broken_one_fails(monkeypatch, post) -> None:
@@ -470,4 +473,4 @@ def test_throttling_mixed_with_a_hard_failure_still_terminates(monkeypatch, post
     result = _transcribe(monkeypatch, ["elevenlabs", "deepgram", "whisper"])
 
     assert result["status"] == "FAILED"
-    assert "DEEPGRAM_API_KEY" in result["message"]
+    assert "Deepgram's key isn't working" in result["message"]

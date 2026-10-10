@@ -36,8 +36,7 @@ W3_ID = "qnr_3rd_craft_toolkit_workshop"
 W3_TITLE = "3rd Craft Toolkit Workshop"
 
 _NO_INSTRUMENT = (
-    "No questionnaire instrument exists yet. Run `python scripts/seed_questionnaire.py` (and, for "
-    "the 3rd workshop, `python scripts/seed_questionnaire_w3.py`) from the backend directory."
+    "The interview questionnaire hasn't been set up. Ask an administrator."
 )
 
 

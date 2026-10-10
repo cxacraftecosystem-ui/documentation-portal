@@ -4,13 +4,13 @@ import android.content.Context
 import com.fieldrepository.app.BuildConfig
 import com.fieldrepository.app.data.TokenStore
 import com.fieldrepository.app.data.apiErrorMessage
-import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import retrofit2.HttpException
 import retrofit2.Retrofit
+import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
@@ -240,8 +240,6 @@ data class SttTrouble(
     val headline: String,
     /** What it means and who can fix it. */
     val advice: String,
-    /** The bit an engineer needs, kept out of the sentence above. */
-    val technical: String,
     /** Whether pressing the same button again could plausibly work. */
     val retryable: Boolean
 )
@@ -258,21 +256,12 @@ data class SttTrouble(
 fun describeSttTrouble(error: Throwable, action: String): SttTrouble {
     val status = (error as? HttpException)?.code() ?: 0
     val sentence = error.apiErrorMessage("").takeIf { it.isNotBlank() }
-    val technical = buildString {
-        append("HTTP ")
-        append(if (status == 0) "—" else status.toString())
-        append(" from /settings/transcription-providers")
-        if (sentence != null) append(" — “$sentence”")
-    }
 
     return when {
         status == 404 -> SttTrouble(
-            headline = "This server does not have the provider ranking yet.",
-            advice = "The app is newer than the API it is talking to — the address it asked for simply is not " +
-                "there. Nothing is wrong with your account or your recordings, and no setting has been lost. " +
-                "Whoever deploys the backend needs to release the current version; until they do, the order " +
-                "below is the app's built-in default rather than the live one, and cannot be changed from here.",
-            technical = technical,
+            headline = "The transcription order couldn't be loaded.",
+            advice = "Nothing is wrong with your account or your recordings, and no setting has been lost. " +
+                "Tap Try again in a little while.",
             retryable = true
         )
         status == 403 -> SttTrouble(
@@ -280,37 +269,30 @@ fun describeSttTrouble(error: Throwable, action: String): SttTrouble {
             advice = "Choosing which engine transcribes recordings needs the Admin role or above. Ask a master " +
                 "admin either to raise your role or to make the change for you — this is a permission, not a " +
                 "fault, so retrying will give the same answer.",
-            technical = technical,
             retryable = false
         )
         status == 401 -> SttTrouble(
             headline = "Your session has ended.",
             advice = "Sign in again and come back to this screen; the ranking itself is untouched.",
-            technical = technical,
             retryable = false
         )
         status >= 500 -> SttTrouble(
-            headline = "The server ran into a problem of its own.",
-            advice = "This one is on the API side, not on anything you did, and it is not fixable from this " +
-                "screen. Give it a minute and tap Try again. If it keeps happening, send whoever looks after " +
-                "the backend the line below and roughly what time it was — that is enough to find it in the logs.",
-            technical = technical,
+            headline = "Something went wrong.",
+            advice = "It wasn't anything you did. Give it a minute and tap Try again. If it keeps happening, " +
+                "tell an administrator.",
             retryable = true
         )
         // No HTTP status at all: a socket that never opened, a DNS failure, a timeout. On a phone in
         // the field this is the likeliest of all of them, so it is named as such rather than lumped
         // in with "something went wrong".
         status == 0 -> SttTrouble(
-            headline = "The phone could not reach the server.",
-            advice = "No answer came back, which is usually this handset's connection rather than the " +
-                "repository being down. Check you are online — mobile data or Wi-Fi — and tap Try again.",
-            technical = technical,
+            headline = "Couldn't connect.",
+            advice = "Check you are online — mobile data or Wi-Fi — and tap Try again.",
             retryable = true
         )
         else -> SttTrouble(
-            headline = "The server refused to $action the provider order.",
-            advice = sentence ?: "It gave no reason. Tap Try again, and tell an administrator if it persists.",
-            technical = technical,
+            headline = "Couldn't $action the transcription order.",
+            advice = sentence ?: "Tap Try again, and tell an administrator if it keeps happening.",
             retryable = true
         )
     }

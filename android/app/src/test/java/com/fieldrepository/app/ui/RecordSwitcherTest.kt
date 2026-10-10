@@ -347,7 +347,7 @@ class RecordSwitcherTest {
             " — type to search all ",
             " are not on this list, and typing here searches only the ",
             " — use the pager to reach the rest, which are not searched by the box above.",
-            " could be listed here — this is not an empty repository.",
+            " could be loaded. Try again.",
         )) {
             assertTrue("$WEB_CAPPED_LIST no longer contains: $fragment", web.contains(fragment))
         }

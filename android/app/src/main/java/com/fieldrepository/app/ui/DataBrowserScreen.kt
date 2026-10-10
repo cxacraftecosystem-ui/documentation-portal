@@ -93,7 +93,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 import com.fieldrepository.app.data.DataCrumbDto
 import com.fieldrepository.app.data.DataFolderInfoDto
 import com.fieldrepository.app.data.DataManifestFileDto
@@ -261,7 +261,7 @@ class DataBrowserState(
     val crumbs: List<DataCrumbDto>
         get() {
             val served = tree?.crumbs.orEmpty()
-            return if (served.any { it.path.isEmpty() }) served else listOf(DataCrumbDto("Repository", "")) + served
+            return if (served.any { it.path.isEmpty() }) served else listOf(DataCrumbDto("All records", "")) + served
         }
 
     val info: DataFolderInfoDto? get() = tree?.info
@@ -514,8 +514,8 @@ fun DataBrowserScreen(
                         )
                     }
                     Text(
-                        "Browse the repository as a directory tree, preview media and transcripts, " +
-                            "and download any folder as a zip with content-type filters.",
+                        "Browse every record as folders, preview media and transcripts, " +
+                            "and download any folder as a zip, filtered by file type.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -564,7 +564,7 @@ fun DataBrowserScreen(
                     }
                     if (state.truncated) {
                         NoticeBox(
-                            "This listing was truncated at the server cap — open subfolders to see " +
+                            "Showing the first part of this folder. Open its subfolders to see " +
                                 "everything it holds.",
                             container = MaterialTheme.field.warningContainer,
                             content = MaterialTheme.field.onWarningContainer
@@ -981,7 +981,7 @@ private fun JumpToRecordPanel(
         OutlinedTextField(
             value = filters.query,
             onValueChange = { onFiltersChange(filters.copy(query = it)) },
-            label = { Text("Search the repository") },
+            label = { Text("Search records") },
             singleLine = true,
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
             trailingIcon = {
@@ -1081,7 +1081,7 @@ private fun TaxonomySwitcher(
         }
         // The descriptions are the only place the folder shapes are spelled out.
         Text(
-            active?.description ?: "Pick how the repository should be grouped.",
+            active?.description ?: "Choose how to group the records.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

@@ -58,7 +58,7 @@ export function UploadedMediaChips({ items, showSection = false }: { items: Comp
             className="inline-flex max-w-full items-center gap-2 rounded-md border border-line-200 bg-card px-2.5 py-1.5 text-left text-xs text-ink-700 transition hover:border-purple-300 hover:bg-purple-50"
           >
             <span className="shrink-0 text-purple-700">{iconFor(item.file.mediaType)}</span>
-            <span className="max-w-[14rem] truncate font-medium text-ink-900">{item.file.originalFilename}</span>
+            <span className="max-w-56 truncate font-medium text-ink-900">{item.file.originalFilename}</span>
             {showSection ? <span className="shrink-0 text-ink-500">· {item.sectionLabel}</span> : null}
             <span className="shrink-0 text-ink-500">{bytes(item.file.sizeBytes)}</span>
           </button>

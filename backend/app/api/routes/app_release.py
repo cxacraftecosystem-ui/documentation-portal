@@ -181,7 +181,7 @@ async def download_latest_apk() -> RedirectResponse:
     if not target:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="The published Android build cannot be located in object storage right now.",
+            detail="The app download isn't available right now. Try again later.",
         )
 
     response = RedirectResponse(target, status_code=status.HTTP_307_TEMPORARY_REDIRECT)

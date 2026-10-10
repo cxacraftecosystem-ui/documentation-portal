@@ -129,7 +129,7 @@ private suspend fun runShareBatch(
         runCatching { call(person) }
             .onSuccess { outcomes += ShareOutcome(person.id, person.name, ShareStatus.POSTED) }
             .onFailure { error ->
-                val reason = error.apiErrorMessage("The server did not accept this one.")
+                val reason = error.apiErrorMessage("This one couldn't be shared.")
                 if (error is HttpException) {
                     outcomes += ShareOutcome(person.id, person.name, ShareStatus.REFUSED, reason)
                 } else {
