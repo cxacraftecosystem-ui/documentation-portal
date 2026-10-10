@@ -184,6 +184,15 @@ class Settings(BaseSettings):
 
     google_client_id: str | None = Field(default=None, alias="GOOGLE_CLIENT_ID")
     google_android_client_id: str | None = Field(default=None, alias="GOOGLE_ANDROID_CLIENT_ID")
+    # Microsoft and Yahoo sign-in (app/services/oidc_sign_in.py). Each provider is live only when
+    # BOTH its client ID and its secret are set: the client brings back an authorization code and
+    # this server redeems it, which needs the secret. MICROSOFT_TENANT is common, organizations,
+    # consumers or one tenant's ID, and must match the account types the app registration allows.
+    microsoft_client_id: str | None = Field(default=None, alias="MICROSOFT_CLIENT_ID")
+    microsoft_client_secret: str | None = Field(default=None, alias="MICROSOFT_CLIENT_SECRET")
+    microsoft_tenant: str = Field(default="common", alias="MICROSOFT_TENANT")
+    yahoo_client_id: str | None = Field(default=None, alias="YAHOO_CLIENT_ID")
+    yahoo_client_secret: str | None = Field(default=None, alias="YAHOO_CLIENT_SECRET")
     master_admin_email: str = Field(alias="MASTER_ADMIN_EMAIL")
     master_admin_name: str = Field(default="Ankit Kumar", alias="MASTER_ADMIN_NAME")
     # Role given to brand-new self-registered Google accounts. Defaults to the lowest tier so an

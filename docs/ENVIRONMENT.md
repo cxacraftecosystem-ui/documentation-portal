@@ -134,6 +134,11 @@ Emitted by `app.main.SecurityHeadersMiddleware`. Defaults are correct for local 
 |---|---|---|---|---|
 | `GOOGLE_CLIENT_ID` | No | unset | No | Google **web** OAuth client ID; ID tokens from web and Android are verified against it. Same value as the frontend's `NEXT_PUBLIC_GOOGLE_CLIENT_ID`. Unset ⇒ Google login rejected. |
 | `GOOGLE_ANDROID_CLIENT_ID` | No | unset | No | Extra accepted audience if Android tokens arrive with the Android client ID. |
+| `MICROSOFT_CLIENT_ID` | No | unset | No | Application (client) ID of the Microsoft Entra app registration. With `MICROSOFT_CLIENT_SECRET` it turns Microsoft sign-in on (`app/services/oidc_sign_in.py`): the clients bring back an authorization code and this server redeems it and verifies the ID token against Microsoft's keys. Either one unset ⇒ every Microsoft sign-in is refused with "not available here". Same value as the frontend's `NEXT_PUBLIC_MICROSOFT_CLIENT_ID` and Android's `microsoftClientId`. |
+| `MICROSOFT_CLIENT_SECRET` | With the above | unset | **Yes** | A client secret of that registration (Certificates & secrets). Backend only — never in a client. It expires (24 months at most); a lapsed one turns every Microsoft sign-in into "did not complete" and logs `redemption-refused` with `invalid_client`. |
+| `MICROSOFT_TENANT` | No | `common` | No | `common` (work, school and personal accounts), `organizations` (work and school only), `consumers` (personal only) or one tenant's ID. Must match "Supported account types" on the registration, and `NEXT_PUBLIC_MICROSOFT_TENANT` / Android's `microsoftTenant`. A tenant given by domain name is refused (Microsoft sign-in stays off and an ERROR is logged): tokens name their tenant by ID. |
+| `YAHOO_CLIENT_ID` | No | unset | No | Client ID (Consumer Key) of the Yahoo app. With `YAHOO_CLIENT_SECRET` it turns Yahoo sign-in on. Same value as `NEXT_PUBLIC_YAHOO_CLIENT_ID` and Android's `yahooClientId`. |
+| `YAHOO_CLIENT_SECRET` | With the above | unset | **Yes** | Client Secret (Consumer Secret) of that app. Yahoo's token endpoint accepts nothing but a secret, which is why the code is redeemed here and never on a phone or in a browser. |
 | `MASTER_ADMIN_EMAIL` | **Yes** | — | No | Google account permanently at `MASTER_ADMIN` (rank 60). The app will not start without it. |
 | `MASTER_ADMIN_NAME` | No | `Ankit Kumar` | No | Display name for that account. |
 | `DEFAULT_SIGNUP_ROLE` | No | `CROWDSOURCE_VOLUNTEER` | No | Tier given to brand-new self-registered Google accounts on the six-tier ladder. Set `RESEARCHER` to restore the old open-signup behaviour. |
@@ -218,8 +223,10 @@ The names, so this file remains a complete index of what `config.py` reads:
 
 ## Frontend — Next.js (`frontend/.env.local`, or the Vercel dashboard)
 
-**Three** variables are read by application code, and **all of them are public** (see rule 1 above):
-`NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID` and `NEXT_PUBLIC_MAPTILER_API_KEY`. A fourth,
+**Six** variables are read by application code, and **all of them are public** (see rule 1 above):
+`NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID`, `NEXT_PUBLIC_MAPTILER_API_KEY`, and since
+2026-10-10 `NEXT_PUBLIC_MICROSOFT_CLIENT_ID`, `NEXT_PUBLIC_MICROSOFT_TENANT` and
+`NEXT_PUBLIC_YAHOO_CLIENT_ID` (`lib/oidcSignIn.ts`). A seventh,
 `NEXT_PUBLIC_APP_URL`, is documented here because the **backend** reads it — no frontend code does.
 
 Re-verify the list rather than trusting it, since a new page can add one at any time:
@@ -239,15 +246,22 @@ bundled.
 | `NEXT_PUBLIC_APP_URL` | No (frontend) | n/a — **no frontend code reads it** | `http://localhost:3000` | your Vercel/custom domain | No | Shares its name with the backend variable so one `.env` can feed both; only the backend (`config.py`) actually reads it. Setting it in Vercel changes nothing today — it is there so the value stays in sync with the backend and with `BACKEND_CORS_ORIGINS`. |
 | `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | No | none | blank | Google web client ID | No | Blank hides the Google button and leaves email/password login. Must equal the backend's `GOOGLE_CLIENT_ID`, and the origin must be an "Authorized JavaScript origin" on that client or GSI returns 403. |
 | `NEXT_PUBLIC_MAPTILER_API_KEY` | No | none | blank | MapTiler key | No (restrict by domain) | Blank ⇒ the map coordinate picker degrades to manual latitude/longitude entry. Never blocks data entry. |
+| `NEXT_PUBLIC_MICROSOFT_CLIENT_ID` | No | none | blank | the Entra app's client ID | No | Blank ⇒ **no** "Continue with Microsoft" button at all. Must equal the backend's `MICROSOFT_CLIENT_ID`, and `https://<this domain>/login/callback` must be a **Web** redirect URI on that registration. Set it only once the backend has the client ID and the secret, or the button signs nobody in. |
+| `NEXT_PUBLIC_MICROSOFT_TENANT` | No | `common` | blank | as the backend's `MICROSOFT_TENANT` | No | The tenant segment of the authorize URL. Anything but `common`, `organizations`, `consumers` or a tenant ID hides the Microsoft button. |
+| `NEXT_PUBLIC_YAHOO_CLIENT_ID` | No | none | blank | the Yahoo app's client ID | No | Blank ⇒ **no** "Continue with Yahoo" button. Must equal the backend's `YAHOO_CLIENT_ID`; `https://<this domain>/login/callback` must be the app's redirect URI. |
 
-On Vercel these three exist as **Encrypted** variables on Production, Preview and Development;
+On Vercel the first three exist as **Encrypted** variables (the three sign-in ones belong there too, once
+the owner registers the apps — Production at least, and Preview only if a preview domain is registered
+as a redirect URI), on Production, Preview and Development;
 `NEXT_PUBLIC_APP_URL` is deliberately not set there at all, because nothing in the bundle would use
 it. Never re-create any of them as **Sensitive** — see rule 3 above. That mistake does not surface
 as a failed build or a failed deploy; it surfaces as a live site that cannot authenticate, days
 later, with every error message pointing at Google or the backend instead.
 
-There are no server-side environment variables in the frontend: no route handlers, no server
-actions, nothing reads a non-`NEXT_PUBLIC_` value.
+There are no server-side environment variables in the frontend: no server actions, and nothing reads
+a non-`NEXT_PUBLIC_` value. There is one route handler, `app/login/callback/route.ts`, the Microsoft
+and Yahoo redirect URI: it reads only the request's query and redirects (to `/login` with the answer in
+the fragment, or to the Android app's scheme for a `state` the app minted).
 
 `frontend/scripts/pw-smoke.mjs` (a Playwright smoke script, never bundled into the app) reads
 `PW_BASE` (default `http://localhost:3000`), `PW_EMAIL` (default `admin@example.com`) and
@@ -265,6 +279,19 @@ Gradle properties, not environment variables — one line, gitignored.
 
 The Google web client ID is compiled in from `android/app/build.gradle.kts`
 (`GOOGLE_WEB_CLIENT_ID`), not supplied via a property.
+
+**Microsoft and Yahoo sign-in** (since 2026-10-10, `data/OidcSignIn.kt`). Public values, compiled
+into `BuildConfig`; each provider's button is drawn only when its client ID AND `oidcRedirectUri` are
+set. Read from `local.properties` or, for CI, the environment variable named in brackets —
+`publish-android.yml` passes the repository **variables** (Settings → Secrets and variables → Actions
+→ Variables) of those names.
+
+| Property | Required | Default | Secret | Notes |
+|---|---|---|---|---|
+| `microsoftClientId` (`MICROSOFT_CLIENT_ID`) | No | blank | No | The backend's `MICROSOFT_CLIENT_ID`. |
+| `microsoftTenant` (`MICROSOFT_TENANT`) | No | `common` | No | The backend's `MICROSOFT_TENANT`. |
+| `yahooClientId` (`YAHOO_CLIENT_ID`) | No | blank | No | The backend's `YAHOO_CLIENT_ID`. |
+| `oidcRedirectUri` (`OIDC_REDIRECT_URI`) | With either | blank | No | The web app's callback, e.g. `https://<the web app's domain>/login/callback` — the same URI the providers hold for the web. The browser tab returns there and the route hands the code to the app on `com.fieldrepository.app.signin://oidc/callback` (AppAuth's receiver, `AndroidManifest.xml`). |
 
 ---
 

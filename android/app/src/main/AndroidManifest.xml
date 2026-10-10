@@ -61,5 +61,26 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- MICROSOFT AND YAHOO SIGN-IN: where the browser tab hands the authorization code back.
+             AppAuth declares this receiver itself for `${appAuthRedirectScheme}`; it is declared
+             again here, replacing that, so the scheme this app answers is written in this file and
+             narrowed to the one host and path the web's `/login/callback` route sends
+             (`com.fieldrepository.app.signin://oidc/callback`). The code is useless without the PKCE
+             verifier, which never leaves the AppAuth request that started the flow, and AppAuth
+             refuses any answer whose `state` is not the one it sent. -->
+        <activity
+            android:name="net.openid.appauth.RedirectUriReceiverActivity"
+            android:exported="true"
+            tools:node="replace">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="${appAuthRedirectScheme}"
+                    android:host="oidc"
+                    android:path="/callback" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>

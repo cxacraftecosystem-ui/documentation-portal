@@ -315,6 +315,41 @@ accounts land on `DEFAULT_SIGNUP_ROLE`, which defaults to the **lowest** tier
 (`CROWDSOURCE_VOLUNTEER`) so an unknown Google account cannot read or write as a researcher until an
 admin elevates it.
 
+### 3.3A Microsoft and Yahoo sign-in (2026-10-10)
+
+Both are OpenID Connect, driven as an **authorization code with PKCE (S256) and a nonce** and
+**redeemed by the backend** with the client secret (`backend/app/services/oidc_sign_in.py`). Yahoo's
+token endpoint accepts only a client secret and answers no cross-origin request, so no phone and no
+browser could redeem a Yahoo code without holding a secret it must not hold; Microsoft is driven the
+same way so there is one path. Each provider is live only when its client ID and secret are both set
+(`MICROSOFT_CLIENT_ID`/`_SECRET`, `YAHOO_CLIENT_ID`/`_SECRET`); a client draws a button only when its
+own build carries the client ID — never a disabled one or a "coming soon" badge.
+
+- **One redirect URI**, the web app's `/login/callback` (a route handler). A web `state` goes back to
+  `/login` with the answer in the URL **fragment** — no server log, no `Referer` — and the page takes
+  it off the address bar before using it. A `state` starting `app.` is handed to the Android app on
+  `com.fieldrepository.app.signin://oidc/callback`, where AppAuth refuses any `state` it did not send.
+  A code intercepted on that hop is useless without the PKCE verifier, which never leaves the app or
+  browser tab that started the flow.
+- **The ID token is verified even though it came over the TLS back channel**: signature against the
+  provider's JWKS (RS256 or ES256 only), issuer (Yahoo's fixed one; Microsoft's per-tenant one bound to
+  the token's `tid` and to `MICROSOFT_TENANT`), audience (`azp` when there are several), `exp`/`nbf`/
+  `iat` with a minute of leeway, and the **nonce** — the provider is sent `base64url(sha256(raw))`, the
+  backend the raw value, so a token is accepted only from whoever started the flow that minted it.
+- **The address must be verified by the provider**: Yahoo's `email_verified`; for Microsoft, a
+  personal account (tenant `9188040d-…`), or a work or school account whose token carries the optional
+  claim `xms_edov` true (the owner adds `email` and `xms_edov` to the registration's ID token). This
+  closes the "nOAuth" takeover. An unverified address is a 401 before the roster is consulted, so
+  nothing is written.
+- **The roster gate and the account rules are Google's** (`auth._sign_in_verified_address`, the one
+  function both paths end in): the gate decides before any write, the same three refusals, the same
+  `grantedRole` floor, the same master-admin exemption; the account is found at the normalised address
+  and nowhere else (no spelling is ever folded). A new account is recorded as `MICROSOFT` or `YAHOO`;
+  Microsoft and Yahoo never overwrite an avatar, and record their provider only on an account that had
+  none (`LOCAL`).
+- **Logged**: the provider and a reason tag only — never a code, verifier, nonce, token, secret or
+  response body.
+
 ---
 
 ## 4. Authorisation: the six-tier ladder

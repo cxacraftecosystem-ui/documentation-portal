@@ -11,6 +11,16 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { GLASS_PANEL, GlassSurface } from "@/components/ui/GlassSurface";
 import { useToast } from "@/components/ui/Toast";
 import { accessRefusalCode } from "@/lib/accessRoster";
+import {
+  beginSignIn,
+  callbackErrorMessage,
+  configuredOidcProviders,
+  loginBody,
+  parseCallbackFragment,
+  takePendingSignIn,
+  type OidcProvider,
+  type OidcProviderId
+} from "@/lib/oidcSignIn";
 import { cn } from "@/lib/utils";
 
 declare global {
@@ -72,17 +82,8 @@ function YahooMark({ className }: { className?: string }) {
   );
 }
 
-/**
- * Below ~420px the badge and the full provider name cannot both fit on one 52px row, and
- * something has to give: the badge hides and the tap still raises the "Coming soon" toast,
- * which beats truncating the provider's name to "Continue with Micro…".
- */
-function ComingSoonBadge() {
-  return (
-    <span className="hidden shrink-0 rounded-full bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-700 min-[420px]:inline-block">
-      Coming soon
-    </span>
-  );
+function ProviderMark({ id, className }: { id: OidcProviderId; className?: string }) {
+  return id === "MICROSOFT" ? <MicrosoftMark className={className} /> : <YahooMark className={className} />;
 }
 
 const BRAND_POINTS = [
@@ -101,7 +102,7 @@ export default function LoginPage() {
 
 function LoginView() {
   const router = useRouter();
-  const { login, loginWithGoogle, user } = useAuth();
+  const { login, loginWithGoogle, loginWithOidc, user } = useAuth();
   const { toast } = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -126,6 +127,11 @@ function LoginView() {
   const googleHost = useRef<HTMLDivElement | null>(null);
   const renderedWidth = useRef(0);
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+  /**
+   * Microsoft and Yahoo, each present only when this build carries its client ID — no badge and no
+   * dead button for one that is not configured. Read once: the environment is inlined at build time.
+   */
+  const [oidcProviders] = useState<OidcProvider[]>(() => configuredOidcProviders());
 
   useEffect(() => {
     if (user) router.replace("/dashboard");
@@ -246,15 +252,52 @@ function LoginView() {
     }
   }
 
-  /** Fires the notice and nothing else — these providers have no endpoint behind them yet. */
-  function comingSoon(provider: string) {
-    toast({
-      id: `coming-soon-${provider}`,
-      title: `${provider} sign-in is coming soon`,
-      description: "Use Google, or your email and password, for now.",
-      tone: "info"
-    });
+  /** "Continue with Microsoft / Yahoo": leave for the provider. See `lib/oidcSignIn.ts`. */
+  async function startOidc(provider: OidcProvider) {
+    setError(null);
+    setRefusal(null);
+    setLoading(true);
+    try {
+      window.location.assign(await beginSignIn(provider, window.location.origin, null));
+    } catch {
+      setLoading(false);
+      setError(callbackErrorMessage(provider.id, null));
+    }
   }
+
+  /**
+   * COMPLETING A MICROSOFT OR YAHOO SIGN-IN, when the callback route has sent the browser back here
+   * with the provider's answer in the fragment. The answer is taken off the address bar first — a
+   * code is single use, and the history is no place for it — and a refusal lands in the card's
+   * banner, as the Google path's does, because "awaiting an administrator" must be read, not missed.
+   */
+  useEffect(() => {
+    const callback = parseCallbackFragment(window.location.hash);
+    if (!callback) return;
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    const pending = takePendingSignIn(callback.state);
+    if (!pending) {
+      setError("That sign-in could not be completed in this tab. Start it again from here.");
+      return;
+    }
+    if (callback.error || !callback.code) {
+      setError(callbackErrorMessage(pending.provider, callback.error));
+      return;
+    }
+    const code = callback.code;
+    setLoading(true);
+    void (async () => {
+      try {
+        await loginWithOidc(loginBody(pending, code));
+        router.replace("/dashboard");
+      } catch (err) {
+        setRefusal(accessRefusalCode(err));
+        setError(err instanceof Error ? err.message : callbackErrorMessage(pending.provider, null));
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [loginWithOidc, router]);
 
   return (
     <div className="grid min-h-dvh lg:grid-cols-[43%_57%]">
@@ -443,20 +486,23 @@ function LoginView() {
                 Add NEXT_PUBLIC_GOOGLE_CLIENT_ID and GOOGLE_CLIENT_ID to enable Google sign-in.
               </div>
             )}
-            {/* The badge rides in the flex row rather than floating over it — absolutely
-                positioned it sat on top of the longer label and clipped it. */}
-            {/* `min-w-0` on the grid item is load-bearing: the labels are nowrap, so without it
-                the button refuses to shrink below its content and overflows the card on phones. */}
-            <Button type="button" variant="provider" size="auth" onClick={() => comingSoon("Microsoft")} className="w-full min-w-0">
-              <MicrosoftMark className="h-5 w-5 shrink-0" />
-              <span className="min-w-0 truncate">Continue with Microsoft</span>
-              <ComingSoonBadge />
-            </Button>
-            <Button type="button" variant="provider" size="auth" onClick={() => comingSoon("Yahoo")} className="w-full min-w-0">
-              <YahooMark className="h-5 w-5 shrink-0" />
-              <span className="min-w-0 truncate">Continue with Yahoo</span>
-              <ComingSoonBadge />
-            </Button>
+            {/* Microsoft and Yahoo, ONLY those this build is configured for — see `oidcProviders`.
+                `min-w-0` on the grid item is load-bearing: the labels are nowrap, so without it the
+                button refuses to shrink below its content and overflows the card on phones. */}
+            {oidcProviders.map((provider) => (
+              <Button
+                key={provider.id}
+                type="button"
+                variant="provider"
+                size="auth"
+                disabled={loading}
+                onClick={() => void startOidc(provider)}
+                className="w-full min-w-0"
+              >
+                <ProviderMark id={provider.id} className="h-5 w-5 shrink-0" />
+                <span className="min-w-0 truncate">Continue with {provider.label}</span>
+              </Button>
+            ))}
           </div>
 
           {/* The brand panel carries this on a wide screen, but it is `hidden … lg:flex` — so on a

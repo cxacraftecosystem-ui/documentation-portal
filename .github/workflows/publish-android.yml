@@ -673,6 +673,12 @@ jobs:
           ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
           ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
           ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+          # Microsoft and Yahoo sign-in. Repository VARIABLES, not secrets: a client ID and a redirect
+          # URI are public values compiled into every APK. Unset means the button is not drawn.
+          MICROSOFT_CLIENT_ID: ${{ vars.MICROSOFT_CLIENT_ID }}
+          MICROSOFT_TENANT: ${{ vars.MICROSOFT_TENANT }}
+          YAHOO_CLIENT_ID: ${{ vars.YAHOO_CLIENT_ID }}
+          OIDC_REDIRECT_URI: ${{ vars.OIDC_REDIRECT_URI }}
         run: |
           set -euo pipefail
           ./gradlew :app:assembleRelease --console=plain --stacktrace 2>&1 \
