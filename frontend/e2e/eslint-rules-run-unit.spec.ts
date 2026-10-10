@@ -26,6 +26,9 @@ import { ESLint } from "eslint";
  * IF THIS FAILS after a dependency bump, a rule that used to run no longer does: read which one, and
  * do not "fix" it by deleting the name. If it fails because the config deliberately dropped a rule or
  * a plugin, delete that rule's violation from PROBE and its name from EXPECTED in the same change.
+ *
+ * A rule that fires and is NOT listed does not fail this: a plugin release that adds a rule which the
+ * probe happens to break is not a rule that stopped running. Add it to EXPECTED if it should be kept.
  */
 
 const FRONTEND = join(__dirname, "..");
@@ -113,5 +116,6 @@ test("every plugin the lint config loads reports its probe violation", async () 
 
   expect(result.fatalErrorCount, "the probe must parse; a fatal here means the parser, not a rule").toBe(0);
   const fired = [...new Set(result.messages.map((message) => message.ruleId ?? "(no rule)"))].sort();
-  expect(fired).toEqual(EXPECTED);
+  const silent = EXPECTED.filter((rule) => !fired.includes(rule));
+  expect(silent, `rules that no longer report their probe violation (fired: ${fired.join(", ")})`).toEqual([]);
 });

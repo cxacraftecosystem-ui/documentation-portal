@@ -78,6 +78,15 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # @types/node describes the Node the code runs on, and that is `engines.node` (24.x): CI,
+      # deploy-frontend.yml, Vercel and frontend/Dockerfile all read it. Types for 26 would type-check
+      # APIs production does not have. The major moves by hand in the same change that raises
+      # `engines.node` to 26 (when Vercel offers it; Node 26 is LTS from 2026-10-28), and this entry
+      # goes then. Minor and patch releases of 24.x still arrive in the group above.
+      - dependency-name: "@types/node"
+        update-types:
+          - version-update:semver-major
 
   # ── The root scripts: pg for keep-supabase-active.mjs, libsodium for vercel-ci-setup.mjs ─────────
   - package-ecosystem: npm
