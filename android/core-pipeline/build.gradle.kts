@@ -1,14 +1,17 @@
 /*
- * VENDORED FROM `F:/Offline-Tracer/android/core-pipeline/build.gradle.kts`, WITH TWO DELIBERATE CHANGES.
+ * VENDORED FROM `F:/Offline-Tracer/android/core-pipeline/build.gradle.kts`, WITH THREE DELIBERATE
+ * CHANGES.
  *
  * The source under `src/` is byte-for-byte upstream and must stay that way — `android/UPSTREAM-
  * MANIFEST-KOTLIN.txt` records a SHA-256 for every file and this build script's own digest, both
  * as vendored here and as it stands upstream. THIS FILE IS THE ONLY ONE OF THE FIVE IN THIS MODULE
- * THAT DIFFERS, and it differs in exactly two places, each with its own note below:
+ * THAT DIFFERS, and it differs in exactly three places, each with its own note below:
  *
  *     1. upstream       kotlin { jvmToolchain(17) }
  *        here          kotlin { compilerOptions { jvmTarget = JVM_17 } } + java { ...17 }
  *     2. here only     tasks.withType<KotlinCompile> { incremental = false }
+ *     3. upstream       kotlinx-serialization-json 1.7.3
+ *        here          kotlinx-serialization-json 1.11.0 (since 2026-10-09, with the dependency)
  *
  * The first one, and why:
  *
@@ -23,15 +26,16 @@
  * The two ways out of that are to let Gradle DOWNLOAD a JDK 17 (a toolchain resolver plugin in
  * `settings.gradle.kts`, i.e. a network fetch at configuration time, in the repository whose whole
  * premise is a handset that has been offline for a fortnight), or to compile ON the JDK that is
- * running the build and EMIT 17 bytecode. The second is what `:app` has always done —
- * `kotlinOptions.jvmTarget = "17"` with `compileOptions` at `JavaVersion.VERSION_17` — so this is
- * the module falling in line with the build it now belongs to, not a target change. The class-file
- * version produced is 61 either way; only the compiler that produces it moves, from 17 to 21.
+ * running the build and EMIT 17 bytecode. The second is what `:app` does — `compileOptions` at
+ * `JavaVersion.VERSION_17`, which AGP 9's built-in Kotlin follows (until 2026-10-09 it also spelled
+ * out `kotlinOptions.jvmTarget = "17"`) — so this is the module falling in line with the build it
+ * now belongs to, not a target change. The class-file version produced is 61 either way; only the
+ * compiler that produces it moves: 21 on that machine, 25 on the CI runners since 2026-10-09.
  *
  * THE `java { }` BLOCK IS NOT DECORATION. Without it `targetCompatibility` defaults to the JDK
- * running the build (21) while Kotlin emits 17, and the Kotlin plugin fails the build with
- * "Inconsistent JVM-target compatibility detected". It is here to keep javac and kotlinc agreeing,
- * even though this module contains no `.java` sources at all.
+ * running the build (21 there, 25 in CI) while Kotlin emits 17, and the Kotlin plugin fails the
+ * build with "Inconsistent JVM-target compatibility detected". It is here to keep javac and kotlinc
+ * agreeing, even though this module contains no `.java` sources at all.
  */
 
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -83,6 +87,10 @@ java {
  * would have been one line instead of four, and it would have taken incremental compilation away
  * from `:app` as well — where sources DO change every day and the setting would be paid for on
  * every build.
+ *
+ * NOT RE-MEASURED since the build moved to Gradle 9.8.1 / Kotlin 2.4.21 on 2026-10-09. CI runs on
+ * Linux and cannot answer a Windows question, so taking this out still needs the same evidence that
+ * put it in: four compiles from a deleted `build/` on Windows, all green.
  */
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
     incremental = false
@@ -92,7 +100,14 @@ dependencies {
     api(project(":core-imaging"))
     api(project(":core-vector"))
     api(project(":core-export"))
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    /*
+     * THE THIRD CHANGE. Upstream pinned 1.7.3 when this was vendored; this build moved to 1.11.0 with
+     * the Kotlin 2.4.21 upgrade on 2026-10-09, because :app must declare the SAME version
+     * (settings.gradle.kts says why) and 1.11.0 is the latest stable. Params.kt and Project.kt decode
+     * with it and ParityTest parses the docs/fixtures/ files with it, so `:core-pipeline:test` is the
+     * check that the newer library still reads what the older one did.
+     */
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     testImplementation(kotlin("test"))
 }
 

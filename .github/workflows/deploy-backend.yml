@@ -670,6 +670,24 @@ jobs:
           echo "CORS origins pinned"
           REMOTE
 
+      # The sender address and SES region are Actions VARIABLES, not lines inside BACKEND_ENV: they
+      # are not secret, and BACKEND_ENV can only be replaced wholesale. Authoritative, like the CORS
+      # pin above: any inherited value is deleted first. An unset variable leaves mail switched off.
+      - name: Pin the mail sender
+        env:
+          MAIL_FROM_ADDRESS: ${{ vars.MAIL_FROM_ADDRESS }}
+          MAIL_SES_REGION: ${{ vars.MAIL_SES_REGION }}
+        run: |
+          ssh ubuntu@${{ secrets.EC2_HOST }} "FROM='$MAIL_FROM_ADDRESS' REGION='$MAIL_SES_REGION' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/app/backend
+          [ -s .env ] && [ -n "$(tail -c1 .env)" ] && printf '\n' >> .env
+          sed -i '/^MAIL_FROM_ADDRESS=/d;/^MAIL_SES_REGION=/d' .env
+          if [ -n "$FROM" ]; then printf 'MAIL_FROM_ADDRESS=%s\n' "$FROM" >> .env; fi
+          if [ -n "$REGION" ]; then printf 'MAIL_SES_REGION=%s\n' "$REGION" >> .env; fi
+          echo "mail sender pinned: ${FROM:-off}"
+          REMOTE
+
       # ─── THE PROJECT, THE PRISMA CLIENT, THE MIGRATION, THE SWITCH ──────────────────────────────
       # Everything up to the switch happens inside the venv the build step chose, while the API is
       # still serving from the old one; the switch happens with both services stopped. The order of

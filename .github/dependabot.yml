@@ -45,6 +45,11 @@ version: 2
 # • A FROM line whose tag comes from an `ARG` is invisible to its docker parser. backend/Dockerfile
 #   writes its tags out for that reason; frontend/Dockerfile still uses `node:${NODE_VERSION}-alpine`,
 #   so its entry below finds nothing until that ARG is written out the same way.
+# • In the Android build it reads the build scripts and the wrapper, and nothing the three Android
+#   workflows install: the JDK `setup-java` provides (Temurin 25) and the SDK platform and build-tools
+#   `sdkmanager` fetches (`platforms;android-37.0`, `build-tools;37.0.0`) in android-build.yml,
+#   android-emulator.yml and publish-android.yml. Those move by hand, together, and with compileSdk
+#   and targetSdk in android/app/build.gradle.kts.
 
 updates:
   # ── GitHub Actions ─────────────────────────────────────────────────────────────────────────────
@@ -78,15 +83,6 @@ updates:
         update-types:
           - minor
           - patch
-    ignore:
-      # @types/node describes the Node the code runs on, and that is `engines.node` (24.x): CI,
-      # deploy-frontend.yml, Vercel and frontend/Dockerfile all read it. Types for 26 would type-check
-      # APIs production does not have. The major moves by hand in the same change that raises
-      # `engines.node` to 26 (when Vercel offers it; Node 26 is LTS from 2026-10-28), and this entry
-      # goes then. Minor and patch releases of 24.x still arrive in the group above.
-      - dependency-name: "@types/node"
-        update-types:
-          - version-update:semver-major
 
   # ── The root scripts: pg for keep-supabase-active.mjs, libsodium for vercel-ci-setup.mjs ─────────
   - package-ecosystem: npm
@@ -123,7 +119,29 @@ updates:
       # only ever be noise; the way off it is a data-layer change, not a bump.
       - dependency-name: prisma
 
-  # ── The Android build ──────────────────────────────────────────────────────────────────────────
+  # ── The Android build, so it cannot freeze again ───────────────────────────────────────────────
+  # On 2026-10-09 the handset build was found two years behind on every axis at once — Gradle 8.9,
+  # AGP 8.7.3, Kotlin 2.0.21, compileSdk 35, Compose BOM 2024.10.01 — and moving it took one large
+  # change instead of a stream of small ones, because nothing had ever offered the small ones. This
+  # entry is what offers them. It reads android/build.gradle.kts (AGP and the Kotlin plugins),
+  # android/app/build.gradle.kts and the four core-*/build.gradle.kts (the libraries; Dependabot
+  # parses the build scripts and does not run them), and android/gradle/wrapper/ — for the wrapper it
+  # DOES run Gradle, and regenerates the jar and both scripts with the properties.
+  #
+  # Every such pull request touches android/**, so android-build.yml builds, unit-tests and lints it
+  # on the pull request itself; that run is the review. What no run can say is how a new targetSdk or
+  # a new Compose behaves on a handset — that is .github/workflows/android-emulator.yml, run by hand.
+  #
+  # MONTHLY, like every ecosystem but the actions, for the reason the cadence paragraph above gives:
+  # an AndroidX or Compose bump needs the Android build behind it, and sometimes an emulator run.
+  #
+  # THE KOTLIN GROUP COMES FIRST AND TAKES MAJORS TOO, because those versions must move together and
+  # only there does this file group a major. The three Kotlin plugins are one compiler (the Compose
+  # compiler plugin refuses to run against a different Kotlin), and kotlinx-serialization-json is
+  # declared twice — :app and :core-pipeline must agree, see android/settings.gradle.kts — so one pull
+  # request carries all of them. AGP and the wrapper stay OUT of the routine group: they are the bumps
+  # most likely to need code changes, and a red one should block nothing else. Majors are NOT ignored;
+  # a major is exactly the bump that must not wait two years.
   - package-ecosystem: gradle
     directory: "/android"
     schedule:
@@ -132,10 +150,16 @@ updates:
     commit-message:
       prefix: deps
     groups:
+      kotlin:
+        patterns:
+          - "org.jetbrains.kotlin*"
       minor-and-patch:
         update-types:
           - minor
           - patch
+        exclude-patterns:
+          - "com.android.application"
+          - "gradle-wrapper"
 
   # ── Container images ───────────────────────────────────────────────────────────────────────────
   - package-ecosystem: docker

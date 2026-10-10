@@ -252,9 +252,10 @@ class WorkshopWindowTest {
         // already recorded below.
         //
         // CLDR changed the English abbreviation of September. A JDK 21 toolchain, which is what
-        // Gradle picks up here, renders "Sept"; the JDK 17 that `setup-java` pins on the runner
-        // renders "Sep". Same locale, same pattern, same code — a different month name, decided by
-        // the toolchain the TEST happens to run under.
+        // Gradle picks up here, renders "Sept"; the JDK 17 that `setup-java` pinned on the runner
+        // until 2026-10-09 rendered "Sep" (it pins 25 now, which is one more JDK's CLDR to agree
+        // with). Same locale, same pattern, same code — a different month name, decided by the
+        // toolchain the TEST happens to run under.
         //
         // AND THAT TOOLCHAIN IS NOT WHAT SHIPS. An Android handset formats through its OWN bundled
         // ICU, not through the JDK that compiled the app, so this assertion was never describing

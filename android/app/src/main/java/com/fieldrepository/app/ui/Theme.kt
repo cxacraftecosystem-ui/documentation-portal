@@ -667,9 +667,11 @@ fun FieldRepositoryTheme(
 
     // System bars follow the theme instead of staying cream. res/values(-night)/styles.xml paints
     // them correctly for the very first frame (before Compose runs); this keeps them in step when
-    // the theme flips at runtime. On API 35+ (targetSdk 35) the platform ignores the two colour
-    // setters and enforces edge-to-edge — the icon-contrast flags below are what still matter
-    // there, and the window background from styles.xml shows through.
+    // the theme flips at runtime. The window is edge-to-edge on every API level
+    // (MainActivity.onCreate). On API 35+ the platform ignores the two colour setters: the bars are
+    // transparent over the canvas RepositoryApp paints beneath them, and the icon-contrast flags
+    // below are what still matter. Below 35 the setters paint the bars that same canvas colour, so
+    // both look alike. Called after enableEdgeToEdge(), so these are the values that stick.
     val view = LocalView.current
     if (!view.isInEditMode) {
         val barColor = colorScheme.background.toArgb()

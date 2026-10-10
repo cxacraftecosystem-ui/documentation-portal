@@ -2,7 +2,8 @@ name: Publish Android release
 
 # THE ONE WAY A SIGNED BUILD REACHES A HANDSET. Everything below exists so that "cut a release" is a
 # tag push and not a person on a laptop with a browser open, because a person on a laptop is exactly
-# how the current fielded build came to be signed with the Android debug key.
+# how the fielded build came to be signed with the Android debug key, until v1.2.0 moved the fleet to
+# the release key on 2026-09-14 (docs/RELEASING.md §0 has the reading off the live APK since).
 #
 # ─── WHAT IT REPLACES, WHICH IS NOT NOTHING ───────────────────────────────────────────────────
 # The fleet-update backend already exists and already works: `AppRelease` in
@@ -165,10 +166,11 @@ env:
   # names are pinned so the absence of the second is an assertion and not an assumption.
   APK: app/build/outputs/apk/release/app-release.apk
   UNSIGNED_APK: app/build/outputs/apk/release/app-release-unsigned.apk
-  # Must track android/app/build.gradle.kts (compileSdk/targetSdk 35, AGP 8.7.3) and the value
-  # android-build.yml already installs. This is also where `apksigner` and `aapt2` live on the
-  # runner, which GUARD 2 and the version assertion need.
-  BUILD_TOOLS_VERSION: "35.0.0"
+  # Must track android/app/build.gradle.kts (compileSdk/targetSdk 37, AGP 9.4.1, which needs
+  # build-tools 36.0.0 or later) and the value android-build.yml already installs. This is also
+  # where `apksigner` and `aapt2` live on the runner, which GUARD 2 and the version assertion need;
+  # 37.0.0 ships both, and the install step below asserts they are there rather than assuming it.
+  BUILD_TOOLS_VERSION: "37.0.0"
   # 64 MiB. The presign → single PUT path is only valid below this: frontend/lib/media.ts switches to
   # an S3 multipart upload above `MULTIPART_THRESHOLD = 64 * 1024 * 1024`, and the Android client's
   # own threshold matches. That flow is NOT implemented here (see GUARD 5), so this is a refusal
@@ -525,18 +527,19 @@ jobs:
             exit 1
           fi
 
-      - name: Set up JDK 17
+      - name: Set up JDK 25
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
-          # 17 is not a free choice: android/app/build.gradle.kts pins
-          # sourceCompatibility/targetCompatibility to VERSION_17 and kotlinOptions.jvmTarget to "17".
-          # AGP 8.7.3 rejects a lower JDK, and a higher one changes the default bytecode target, so
-          # this must track that file. Same value as android-build.yml, for the added reason that a
-          # release built on a different JDK from the one the debug pipeline tests is a variable
-          # nobody wants on the publish path.
-          java-version: "17"
-          # Caches ~/.gradle/caches and the wrapper distribution (Gradle 8.9, ~130 MB), keyed on the
-          # gradle files. Without it every run re-downloads the whole AndroidX/Compose graph.
+          # The JDK that RUNS Gradle (Temurin 25, the current LTS), not the bytecode level: every
+          # module still compiles Java 17 bytecode — `compileOptions` in android/app/build.gradle.kts,
+          # which AGP's built-in Kotlin follows — because 17 is the newest level Android documents.
+          # So the APK's classes do not change with this number. android-build.yml says why it is
+          # not 27 yet. Same value as android-build.yml, for the added reason that a release built
+          # on a different JDK from the one the debug pipeline tests is a variable nobody wants on
+          # the publish path.
+          java-version: "25"
+          # Caches ~/.gradle/caches and the wrapper distribution (Gradle 9.8.1, ~145 MB), keyed on
+          # the gradle files. Without it every run re-downloads the whole AndroidX/Compose graph.
           distribution: temurin
           cache: gradle
 
@@ -546,10 +549,11 @@ jobs:
         run: chmod +x gradlew
 
       - name: Ensure the required Android SDK packages are installed
-        # The runner image ships an Android SDK, but which platform/build-tools versions are preinstalled
-        # drifts with the runner image. compileSdk/targetSdk are 35 and AGP 8.7.3 wants build-tools
-        # 35.x, so install them explicitly rather than betting on the image. Both are no-ops when
-        # already present.
+        # The runner image ships an Android SDK, but which platform/build-tools versions are
+        # preinstalled drifts with the image. compileSdk/targetSdk are 37 — the `android-37.0`
+        # platform package — and build-tools is ${BUILD_TOOLS_VERSION}, so install them explicitly
+        # rather than betting on the image. Both are no-ops when already present. Same two packages
+        # as android-build.yml.
         #
         # RELEASE-SPECIFIC REASON THIS STEP MATTERS MORE HERE THAN IN android-build.yml: build-tools
         # is also what puts `apksigner` and `aapt2` on the box, at
@@ -562,7 +566,7 @@ jobs:
           sdk_root="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           sdkmanager="${sdk_root}/cmdline-tools/latest/bin/sdkmanager"
           yes | "$sdkmanager" --licenses > /dev/null 2>&1 || true
-          "$sdkmanager" "platforms;android-35" "build-tools;${BUILD_TOOLS_VERSION}" > /dev/null
+          "$sdkmanager" "platforms;android-37.0" "build-tools;${BUILD_TOOLS_VERSION}" > /dev/null
           tools="${sdk_root}/build-tools/${BUILD_TOOLS_VERSION}"
           for tool in apksigner aapt2; do
             if [ ! -x "${tools}/${tool}" ]; then
@@ -669,6 +673,12 @@ jobs:
           ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
           ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
           ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+          # Microsoft and Yahoo sign-in. Repository VARIABLES, not secrets: a client ID and a redirect
+          # URI are public values compiled into every APK. Unset means the button is not drawn.
+          MICROSOFT_CLIENT_ID: ${{ vars.MICROSOFT_CLIENT_ID }}
+          MICROSOFT_TENANT: ${{ vars.MICROSOFT_TENANT }}
+          YAHOO_CLIENT_ID: ${{ vars.YAHOO_CLIENT_ID }}
+          OIDC_REDIRECT_URI: ${{ vars.OIDC_REDIRECT_URI }}
         run: |
           set -euo pipefail
           ./gradlew :app:assembleRelease --console=plain --stacktrace 2>&1 \
@@ -917,9 +927,9 @@ jobs:
         # THE OBVIOUS CHECK IS WRONG AND WAS MEASURED TO BE WRONG BEFORE THIS SHIPPED. Grepping the
         # artefact for `://localhost` — the sibling repository's needle, chosen there because the bare
         # word `localhost` appears legitimately in
-        # `android/app/src/main/res/xml/network_security_config.xml` (lines 32-34 list `10.0.2.2`,
-        # `127.0.0.1` and `localhost` as cleartext-permitted development domains, and that resource
-        # ships inside the APK) — MATCHES A PERFECTLY CORRECT BUILD OF THIS APP. Run against a real
+        # `android/app/src/main/res/xml/network_security_config.xml` (its development `<domain-config>`
+        # lists `10.0.2.2`, `127.0.0.1` and `localhost` as cleartext-permitted domains, and that
+        # resource ships inside the APK) — MATCHES A PERFECTLY CORRECT BUILD OF THIS APP. Run against a real
         # `:app:assembleRelease` output on 2026-09-14 it hit `classes4.dex`, in OkHttp's own string
         # pool, between `http2HeadersList` and `httpCode`:
         #
@@ -944,6 +954,15 @@ jobs:
         # Measured on the same real release APK: exactly one match,
         # `https://d2b34i3e92al6i.cloudfront.net/api/`, and OkHttp's placeholder matches neither
         # pattern because it has no `/api/`.
+        #
+        # IT READS EVERY BYTE, SO A SENTENCE THAT MENTIONS A DEVELOPMENT BASE FAILS IT TOO. On
+        # 2026-10-09 a debug-only refusal toast in ui/LocalNetworkAccess.kt (src/main, so in the release
+        # dex as well) spelled out `http://127.0.0.1:8000/api/`, and a release built from that tree was
+        # refused here. That is the guard working, and it stays strict; the fix was the sentence.
+        # `android/app/src/test/.../CleartextApiBaseTest.kt` now reads this step's `grep -aoE` pattern
+        # out of this file and holds the app's own classes and resources to it on every pull request,
+        # so the next such string is found long before a tag. Change the pattern here and that test
+        # follows it; change the grep's shape and the test fails until it is pointed at the new one.
         #
         # ─── NO ABI ASSERTION, AND THAT ABSENCE IS DELIBERATE ──────────────────────────────────
         # The sibling repository asserts an exact two-ABI set because it packages tens of megabytes of

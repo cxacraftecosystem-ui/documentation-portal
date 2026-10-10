@@ -134,6 +134,11 @@ Emitted by `app.main.SecurityHeadersMiddleware`. Defaults are correct for local 
 |---|---|---|---|---|
 | `GOOGLE_CLIENT_ID` | No | unset | No | Google **web** OAuth client ID; ID tokens from web and Android are verified against it. Same value as the frontend's `NEXT_PUBLIC_GOOGLE_CLIENT_ID`. Unset ⇒ Google login rejected. |
 | `GOOGLE_ANDROID_CLIENT_ID` | No | unset | No | Extra accepted audience if Android tokens arrive with the Android client ID. |
+| `MICROSOFT_CLIENT_ID` | No | unset | No | Application (client) ID of the Microsoft Entra app registration. With `MICROSOFT_CLIENT_SECRET` it turns Microsoft sign-in on (`app/services/oidc_sign_in.py`): the clients bring back an authorization code and this server redeems it and verifies the ID token against Microsoft's keys. Either one unset ⇒ every Microsoft sign-in is refused with "not available here". Same value as the frontend's `NEXT_PUBLIC_MICROSOFT_CLIENT_ID` and Android's `microsoftClientId`. |
+| `MICROSOFT_CLIENT_SECRET` | With the above | unset | **Yes** | A client secret of that registration (Certificates & secrets). Backend only — never in a client. It expires (24 months at most); a lapsed one turns every Microsoft sign-in into "did not complete" and logs `redemption-refused` with `invalid_client`. |
+| `MICROSOFT_TENANT` | No | `common` | No | `common` (work, school and personal accounts), `organizations` (work and school only), `consumers` (personal only) or one tenant's ID. Must match "Supported account types" on the registration, and `NEXT_PUBLIC_MICROSOFT_TENANT` / Android's `microsoftTenant`. A tenant given by domain name is refused (Microsoft sign-in stays off and an ERROR is logged): tokens name their tenant by ID. |
+| `YAHOO_CLIENT_ID` | No | unset | No | Client ID (Consumer Key) of the Yahoo app. With `YAHOO_CLIENT_SECRET` it turns Yahoo sign-in on. Same value as `NEXT_PUBLIC_YAHOO_CLIENT_ID` and Android's `yahooClientId`. |
+| `YAHOO_CLIENT_SECRET` | With the above | unset | **Yes** | Client Secret (Consumer Secret) of that app. Yahoo's token endpoint accepts nothing but a secret, which is why the code is redeemed here and never on a phone or in a browser. |
 | `MASTER_ADMIN_EMAIL` | **Yes** | — | No | Google account permanently at `MASTER_ADMIN` (rank 60). The app will not start without it. |
 | `MASTER_ADMIN_NAME` | No | `Ankit Kumar` | No | Display name for that account. |
 | `DEFAULT_SIGNUP_ROLE` | No | `CROWDSOURCE_VOLUNTEER` | No | Tier given to brand-new self-registered Google accounts on the six-tier ladder. Set `RESEARCHER` to restore the old open-signup behaviour. |
@@ -181,6 +186,22 @@ with no restart. Full semantics: [ARCHITECTURE.md §6](ARCHITECTURE.md).
 | `MEDIA_QUEUE_BATCH_SIZE` | No | `3` | No | Jobs claimed per sweep. |
 | `MEDIA_QUEUE_JOB_MAX_ATTEMPTS` | No | `3` | No | Retries before a job is marked failed. Provider throttling (HTTP 429/503) requeues **without** burning an attempt. |
 
+### E-mail (Amazon SES)
+
+Mail is **on exactly when `MAIL_FROM_ADDRESS` is set**. Unset, nothing is queued, `GET /api/preferences/notifications` answers `available: false`, and the web hides every e-mail control (the Settings switch, the two "E-mail" choices on the access roster) without a sentence about it. Messages are queued as `EmailMessage` rows and sent by the same `fieldrepo-queue` drain as the media queue (`services/email_outbox.py`, `services/mailer.py`). The SES call uses the `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` above, so that IAM user needs `ses:SendEmail` on the verified identity. What is e-mailed is in [SECURITY.md](SECURITY.md) §4B.
+
+| Variable | Required | Default | Secret | Notes |
+|---|---|---|---|---|
+| `MAIL_FROM_ADDRESS` | No | unset (mail off) | No | The sender. Must be an SES-verified identity (the address or its domain) in `MAIL_SES_REGION`. |
+| `MAIL_FROM_NAME` | No | `Field Repository` | No | Display name in the From header. |
+| `MAIL_REPLY_TO` | No | unset | No | Where replies go. Unset means the From address. |
+| `MAIL_SES_REGION` | No | `ap-south-1` | No | The SES region; identities and production access are per region. |
+| `MAIL_SES_CONFIGURATION_SET` | No | unset | No | An SES configuration set, for bounce and complaint events. |
+| `MAIL_MAX_ATTEMPTS` | No | `5` | No | Sends per message before `FAILED`. A throttle or SES fault is retried after 1, 2, 4, 8 … minutes (capped at an hour); a rejection fails at once. |
+| `MAIL_BATCH_SIZE` | No | `10` | No | Messages sent per queue sweep. |
+
+**The owner's steps to turn it on** (nothing in this repository creates AWS resources): verify the sending domain (DKIM) or address in SES **ap-south-1**; request SES production access there; grant the backend IAM user `ses:SendEmail` on the identity; add `MAIL_FROM_ADDRESS` (and optionally the others) to the `BACKEND_ENV` secret and let the next deploy restart both units.
+
 ### Optional scaling layer — `SCALE_*` and the read replica
 
 **Every one of these is off or unset by default**, and a fresh clone that sets none of them runs
@@ -218,8 +239,10 @@ The names, so this file remains a complete index of what `config.py` reads:
 
 ## Frontend — Next.js (`frontend/.env.local`, or the Vercel dashboard)
 
-**Three** variables are read by application code, and **all of them are public** (see rule 1 above):
-`NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID` and `NEXT_PUBLIC_MAPTILER_API_KEY`. A fourth,
+**Six** variables are read by application code, and **all of them are public** (see rule 1 above):
+`NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID`, `NEXT_PUBLIC_MAPTILER_API_KEY`, and since
+2026-10-10 `NEXT_PUBLIC_MICROSOFT_CLIENT_ID`, `NEXT_PUBLIC_MICROSOFT_TENANT` and
+`NEXT_PUBLIC_YAHOO_CLIENT_ID` (`lib/oidcSignIn.ts`). A seventh,
 `NEXT_PUBLIC_APP_URL`, is documented here because the **backend** reads it — no frontend code does.
 
 Re-verify the list rather than trusting it, since a new page can add one at any time:
@@ -239,15 +262,22 @@ bundled.
 | `NEXT_PUBLIC_APP_URL` | No (frontend) | n/a — **no frontend code reads it** | `http://localhost:3000` | your Vercel/custom domain | No | Shares its name with the backend variable so one `.env` can feed both; only the backend (`config.py`) actually reads it. Setting it in Vercel changes nothing today — it is there so the value stays in sync with the backend and with `BACKEND_CORS_ORIGINS`. |
 | `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | No | none | blank | Google web client ID | No | Blank hides the Google button and leaves email/password login. Must equal the backend's `GOOGLE_CLIENT_ID`, and the origin must be an "Authorized JavaScript origin" on that client or GSI returns 403. |
 | `NEXT_PUBLIC_MAPTILER_API_KEY` | No | none | blank | MapTiler key | No (restrict by domain) | Blank ⇒ the map coordinate picker degrades to manual latitude/longitude entry. Never blocks data entry. |
+| `NEXT_PUBLIC_MICROSOFT_CLIENT_ID` | No | none | blank | the Entra app's client ID | No | Blank ⇒ **no** "Continue with Microsoft" button at all. Must equal the backend's `MICROSOFT_CLIENT_ID`, and `https://<this domain>/login/callback` must be a **Web** redirect URI on that registration. Set it only once the backend has the client ID and the secret, or the button signs nobody in. |
+| `NEXT_PUBLIC_MICROSOFT_TENANT` | No | `common` | blank | as the backend's `MICROSOFT_TENANT` | No | The tenant segment of the authorize URL. Anything but `common`, `organizations`, `consumers` or a tenant ID hides the Microsoft button. |
+| `NEXT_PUBLIC_YAHOO_CLIENT_ID` | No | none | blank | the Yahoo app's client ID | No | Blank ⇒ **no** "Continue with Yahoo" button. Must equal the backend's `YAHOO_CLIENT_ID`; `https://<this domain>/login/callback` must be the app's redirect URI. |
 
-On Vercel these three exist as **Encrypted** variables on Production, Preview and Development;
+On Vercel the first three exist as **Encrypted** variables (the three sign-in ones belong there too, once
+the owner registers the apps — Production at least, and Preview only if a preview domain is registered
+as a redirect URI), on Production, Preview and Development;
 `NEXT_PUBLIC_APP_URL` is deliberately not set there at all, because nothing in the bundle would use
 it. Never re-create any of them as **Sensitive** — see rule 3 above. That mistake does not surface
 as a failed build or a failed deploy; it surfaces as a live site that cannot authenticate, days
 later, with every error message pointing at Google or the backend instead.
 
-There are no server-side environment variables in the frontend: no route handlers, no server
-actions, nothing reads a non-`NEXT_PUBLIC_` value.
+There are no server-side environment variables in the frontend: no server actions, and nothing reads
+a non-`NEXT_PUBLIC_` value. There is one route handler, `app/login/callback/route.ts`, the Microsoft
+and Yahoo redirect URI: it reads only the request's query and redirects (to `/login` with the answer in
+the fragment, or to the Android app's scheme for a `state` the app minted).
 
 `frontend/scripts/pw-smoke.mjs` (a Playwright smoke script, never bundled into the app) reads
 `PW_BASE` (default `http://localhost:3000`), `PW_EMAIL` (default `admin@example.com`) and
@@ -265,6 +295,19 @@ Gradle properties, not environment variables — one line, gitignored.
 
 The Google web client ID is compiled in from `android/app/build.gradle.kts`
 (`GOOGLE_WEB_CLIENT_ID`), not supplied via a property.
+
+**Microsoft and Yahoo sign-in** (since 2026-10-10, `data/OidcSignIn.kt`). Public values, compiled
+into `BuildConfig`; each provider's button is drawn only when its client ID AND `oidcRedirectUri` are
+set. Read from `local.properties` or, for CI, the environment variable named in brackets —
+`publish-android.yml` passes the repository **variables** (Settings → Secrets and variables → Actions
+→ Variables) of those names.
+
+| Property | Required | Default | Secret | Notes |
+|---|---|---|---|---|
+| `microsoftClientId` (`MICROSOFT_CLIENT_ID`) | No | blank | No | The backend's `MICROSOFT_CLIENT_ID`. |
+| `microsoftTenant` (`MICROSOFT_TENANT`) | No | `common` | No | The backend's `MICROSOFT_TENANT`. |
+| `yahooClientId` (`YAHOO_CLIENT_ID`) | No | blank | No | The backend's `YAHOO_CLIENT_ID`. |
+| `oidcRedirectUri` (`OIDC_REDIRECT_URI`) | With either | blank | No | The web app's callback, e.g. `https://<the web app's domain>/login/callback` — the same URI the providers hold for the web. The browser tab returns there and the route hands the code to the app on `com.fieldrepository.app.signin://oidc/callback` (AppAuth's receiver, `AndroidManifest.xml`). |
 
 ---
 

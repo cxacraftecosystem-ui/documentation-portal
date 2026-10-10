@@ -929,8 +929,12 @@ private fun ApiKeyClearPanel(secret: ManagedSecretDto, state: ApiKeysState, busy
 
 @Composable
 private fun ApiKeyFieldLabel(text: String) {
+    // ROOT, as every other uppercased label in the app does (MainActivity's own field labels): the
+    // label is an English word written in this file, so the handset's language has no say in how it
+    // capitalises. It was the handset's default locale, read during composition — which Compose's
+    // lint now refuses (NonObservableLocale), because a language change would not recompose it.
     Text(
-        text.uppercase(Locale.getDefault()),
+        text.uppercase(Locale.ROOT),
         style = MaterialTheme.typography.labelSmall,
         fontWeight = FontWeight.SemiBold,
         color = MaterialTheme.colorScheme.onSurfaceVariant

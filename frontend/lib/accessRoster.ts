@@ -118,6 +118,8 @@ export type AccessRosterCreateBody = {
   grantedRole?: UserRole | null;
   /** Defaults true on the server: "add somebody to the allow list" is what the endpoint is for. */
   isActive?: boolean;
+  /** E-mail the address that it may now sign in. Offered only when e-mail is available. */
+  sendInvite?: boolean;
 };
 
 /**
@@ -140,6 +142,8 @@ export type AccessRosterUpdateBody = {
   grantedRole?: UserRole;
   fullName?: string | null;
   notes?: string | null;
+  /** With `status: "ACTIVE"`: e-mail the address that it may now sign in. Not stored. */
+  sendInvite?: boolean;
 };
 
 /**

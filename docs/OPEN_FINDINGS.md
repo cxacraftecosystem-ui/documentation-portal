@@ -13,19 +13,6 @@ fix is: **S** means days or less, **M** days to weeks, **L** weeks and several s
 
 ## Missing features
 
-### F3. Sign-in with Microsoft or Yahoo — M
-
-**What is missing.** The only ways to sign in are Google and email with a password. Microsoft and
-Yahoo have no OAuth client, no backend route and no allow-list handling.
-
-**What users see.** The sign-in screens on the web (`frontend/app/login/page.tsx`) and on Android
-(`ui/AuthScreen.kt`) used to show "Continue with Microsoft" and "Continue with Yahoo" buttons with a
-"Coming soon" badge, and tapping one gave a coming-soon toast. Those buttons are gone. The screens
-offer what works: Google, and email with a password.
-
-**To close it.** For each provider: an OAuth client, a backend exchange route that checks the same
-access roster as Google sign-in, and the button on both clients.
-
 ### F7. A review queue on Android — M
 
 **What is missing.** The web has a review queue. On Android, the "Review" row opens the record
@@ -55,7 +42,8 @@ task API, and show "marked done by …" on both clients.
 **What is missing.** Sending a submitted task back can't carry a reason. The assignee sees only that
 the task is unfinished again.
 
-**What users see.** The confirmation asks the admin to tell them directly: "Let them know why."
+**What users see.** The assignee is e-mailed that the task came back (when mail is on), with no
+reason. The confirmation asks the admin to tell them directly: "Let them know why."
 (Android) and "{who} won't see a reason here, so let them know why." (web,
 `components/tasks/TaskPrimitives.tsx`).
 

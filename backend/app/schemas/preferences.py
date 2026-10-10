@@ -13,3 +13,11 @@ class PreferencesUpdateRequest(APIModel):
     reducedMotion: bool = False
     largerText: bool = False
     highContrast: bool = False
+
+
+class NotificationPreferencesUpdate(APIModel):
+    """A user's own e-mail opt-outs, apart from the appearance body every client sends whole, so a
+    client that knows nothing about e-mail cannot switch somebody's e-mails back on by saving a
+    theme."""
+
+    emailTaskUpdates: bool

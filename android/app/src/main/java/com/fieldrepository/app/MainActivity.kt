@@ -17,6 +17,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -42,6 +43,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -94,6 +96,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -151,6 +154,12 @@ import com.fieldrepository.app.data.ARTISAN_PAGE_BUDGET
 import com.fieldrepository.app.data.EVERY_WORKSHOP
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.GoogleAuthClient
+import com.fieldrepository.app.data.OidcAuthClient
+import com.fieldrepository.app.data.OidcLoginRequest
+import com.fieldrepository.app.data.OidcProvider
+import com.fieldrepository.app.data.OidcProviderId
+import com.fieldrepository.app.data.oidcCallbackErrorMessage
+import com.fieldrepository.app.ui.OidcProviderMark
 import com.fieldrepository.app.data.LocationRequest
 import com.fieldrepository.app.data.MeasurementMarkers
 import com.fieldrepository.app.data.geometryMarker
@@ -195,6 +204,7 @@ import com.fieldrepository.app.ui.workshopWindowNotice
 import com.fieldrepository.app.ui.workshopWindowState
 import com.fieldrepository.app.ui.ApiKeysScreen
 import com.fieldrepository.app.ui.MyAiKeysScreen
+import com.fieldrepository.app.ui.LocalNetworkAccessForDevelopmentBackend
 import com.fieldrepository.app.ui.AppPreferences
 import com.fieldrepository.app.ui.AppPreferencesStore
 import com.fieldrepository.app.ui.AppNavigationDrawerContent
@@ -258,7 +268,7 @@ import com.fieldrepository.app.ui.resolveDarkTheme
 import com.fieldrepository.app.ui.syncAppPreferences
 import com.fieldrepository.app.ui.SurfaceCard
 import kotlinx.coroutines.launch
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 import retrofit2.HttpException
 import android.app.DatePickerDialog
 import androidx.activity.compose.BackHandler
@@ -375,10 +385,26 @@ import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        /*
+         * EDGE-TO-EDGE ON EVERY API LEVEL, NOT ONLY WHERE ANDROID FORCES IT.
+         *
+         * Android 15 drew any app targeting 35 behind its status and navigation bars, and from
+         * targetSdk 36 there is no opt-out at all. Calling this makes the older handsets in the field
+         * (minSdk 26) lay out the same way, so there is ONE layout to get right and the API 37
+         * emulator run (.github/workflows/android-emulator.yml) speaks for all of them. The other
+         * half is at the root of `RepositoryApp`, which pads the whole app clear of the bars, the
+         * display cutout and the keyboard; the manifest's `adjustResize` is what delivers the
+         * keyboard's insets there. Bar colours and icon contrast are still `FieldRepositoryTheme`'s
+         * (ui/Theme.kt).
+         */
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         val tokenStore = TokenStore(applicationContext)
         val repository = FieldRepository(ApiClient.create(tokenStore), tokenStore)
         val googleAuthClient = GoogleAuthClient(this)
+        // Microsoft and Yahoo. Created with the activity because AppAuth binds the browser's
+        // custom-tab service to it; the client disposes of that binding when the activity goes.
+        val oidcAuthClient = OidcAuthClient(this)
         // Appearance is read SYNCHRONOUSLY, before the first frame is composed. That is the whole
         // point of the device-local copy: the account's row arrives over the network, and deciding
         // the theme from it would flash a light app at somebody who chose Dark. The store outlives
@@ -394,6 +420,7 @@ class MainActivity : ComponentActivity() {
                     RepositoryApp(
                         repository = repository,
                         googleAuthClient = googleAuthClient,
+                        oidcAuthClient = oidcAuthClient,
                         preferences = preferences,
                         onPreferencesChanged = { next ->
                             // Apply first, persist second: the switch must feel instant. The screen
@@ -588,9 +615,14 @@ private fun EntryMode.icon(): ImageVector = when (this) {
 private fun RepositoryApp(
     repository: FieldRepository,
     googleAuthClient: GoogleAuthClient,
+    /** Microsoft and Yahoo sign-in; its `providers` is empty when this build configures neither. */
+    oidcAuthClient: OidcAuthClient,
     preferences: AppPreferences,
     onPreferencesChanged: (AppPreferences) -> Unit
 ) {
+    // Debug builds on Android 17 only, and only when the API base is a local-network address — see
+    // ui/LocalNetworkAccess.kt. Renders nothing; in a release build it is a no-op.
+    LocalNetworkAccessForDevelopmentBackend()
     val scope = rememberCoroutineScope()
     var user by remember { mutableStateOf(repository.cachedUser()) }
     var loading by remember { mutableStateOf(user == null && repository.hasToken()) }
@@ -608,6 +640,54 @@ private fun RepositoryApp(
      * break is the difference itself.
      */
     var refusalCode by remember { mutableStateOf<String?>(null) }
+
+    /*
+     * ── MICROSOFT AND YAHOO: THE ANSWER FROM THE BROWSER TAB ─────────────────────────────────────
+     *
+     * The provider and the RAW nonce of the sign-in in flight, as "PROVIDER|nonce". Saveable, so the
+     * activity being recreated while the tab is open does not lose the half the backend needs;
+     * AppAuth keeps the PKCE verifier on its own request for the same reason.
+     */
+    var pendingOidc by rememberSaveable { mutableStateOf<String?>(null) }
+    val oidcLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val started = pendingOidc?.split('|', limit = 2)
+        pendingOidc = null
+        val provider = started?.getOrNull(0)?.let { name -> OidcProviderId.entries.firstOrNull { it.name == name } }
+        val rawNonce = started?.getOrNull(1)
+        if (provider == null || rawNonce == null) {
+            loading = false
+            return@rememberLauncherForActivityResult
+        }
+        when (val outcome = oidcAuthClient.finish(result.data)) {
+            is OidcAuthClient.Outcome.Failed -> {
+                refusalCode = null
+                error = oidcCallbackErrorMessage(provider, outcome.error)
+                loading = false
+            }
+            is OidcAuthClient.Outcome.Code -> scope.launch {
+                runCatching {
+                    repository.loginWithOidc(
+                        OidcLoginRequest(
+                            oidcProvider = provider.name,
+                            oidcCode = outcome.code,
+                            oidcCodeVerifier = outcome.codeVerifier,
+                            oidcRedirectUri = outcome.redirectUri,
+                            oidcNonce = rawNonce,
+                        )
+                    )
+                }
+                    .onSuccess { user = it }
+                    // The roster's own sentence and code, as on the Google path — a person waiting
+                    // on an administrator must read that, not "sign-in failed".
+                    .onFailure {
+                        val failure = it.apiFailure(oidcCallbackErrorMessage(provider, null))
+                        error = failure.message
+                        refusalCode = failure.code
+                    }
+                loading = false
+            }
+        }
+    }
 
     // Persistent login: start from the cached profile so minimise/resume never logs the user out.
     // Refresh in the background and only clear the session if the token is genuinely rejected (401).
@@ -668,7 +748,14 @@ private fun RepositoryApp(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            // The canvas is painted under the status and navigation bars (the window is edge-to-edge,
+            // see MainActivity.onCreate) and EVERYTHING ELSE is kept out from under them by the next
+            // line: the safe-drawing insets are the system bars, the display cutout and the open
+            // keyboard, consumed once, here, for every screen of the app. So no screen below pads for
+            // them again — Scaffold and TopAppBar see them already consumed and add nothing. Dialogs
+            // and bottom sheets are separate windows and inset themselves.
             .background(Canvas)
+            .safeDrawingPadding()
             .padding(16.dp)
     ) {
         when {
@@ -677,6 +764,21 @@ private fun RepositoryApp(
                 error = error,
                 refusalCode = refusalCode,
                 busy = loading,
+                oidcProviders = oidcAuthClient.providers,
+                onOidcLogin = { provider ->
+                    loading = true
+                    error = null
+                    refusalCode = null
+                    runCatching { oidcAuthClient.start(provider) }
+                        .onSuccess { started ->
+                            pendingOidc = "${provider.id.name}|${started.rawNonce}"
+                            oidcLauncher.launch(started.intent)
+                        }
+                        .onFailure {
+                            loading = false
+                            error = oidcCallbackErrorMessage(provider.id, null)
+                        }
+                },
                 onLogin = { email, password ->
                     scope.launch {
                         loading = true
@@ -781,7 +883,10 @@ private fun LoginScreen(
     refusalCode: String?,
     busy: Boolean,
     onLogin: (String, String) -> Unit,
-    onGoogleLogin: () -> Unit
+    onGoogleLogin: () -> Unit,
+    /** Microsoft and Yahoo, ONLY those this build is configured for — an empty list draws nothing. */
+    oidcProviders: List<OidcProvider> = emptyList(),
+    onOidcLogin: (OidcProvider) -> Unit = {}
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -890,6 +995,20 @@ private fun LoginScreen(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(if (busy) "Please wait..." else "Sign in with Google")
+                    }
+                }
+                // Microsoft and Yahoo, each only when configured.
+                for (provider in oidcProviders) {
+                    OutlinedButton(
+                        enabled = !busy,
+                        onClick = { onOidcLogin(provider) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                            OidcProviderMark(provider.id)
+                            Spacer(Modifier.width(8.dp))
+                            Text(if (busy) "Please wait..." else "Sign in with ${provider.label}")
+                        }
                     }
                 }
                 // Steer researchers to Google sign-in. Many were typing into the email/password fields

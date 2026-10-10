@@ -43,6 +43,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -68,9 +69,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImagePainter
-import coil.compose.rememberAsyncImagePainter
-import coil.request.ImageRequest
+import coil3.compose.AsyncImagePainter
+import coil3.compose.rememberAsyncImagePainter
+import coil3.request.ImageRequest
 import com.fieldrepository.app.data.KnownRectangle
 import com.fieldrepository.app.data.MeasurePoint
 import com.fieldrepository.app.data.MeasureResult
@@ -535,11 +536,12 @@ private const val MAX_ZOOM = 8f
 /**
  * How large a working copy the image loader is asked for, on the long edge.
  *
- * The default would size the decode to the viewport — about 1000 px — and a mark could then never be
- * placed more precisely than one screen pixel however far in the researcher zoomed. Asking for more
- * buys real detail to zoom into; asking for the ORIGINAL would put a 12-megapixel frame (48 MB at four
- * bytes a pixel) in memory on a phone whose other job right now is the camera. 2048 is about 12 MB and
- * is twice the viewport, which is what [MAX_ZOOM] is set against.
+ * Neither loader default is right here. Sized to the viewport — about 1000 px, which is what Coil 2
+ * did — a mark could never be placed more precisely than one screen pixel however far in the
+ * researcher zoomed. The ORIGINAL — which is what Coil 3's `rememberAsyncImagePainter` decodes when
+ * no size is given — would put a 12-megapixel frame (48 MB at four bytes a pixel) in memory on a
+ * phone whose other job right now is the camera. 2048 is about 12 MB and is twice the viewport, which
+ * is what [MAX_ZOOM] is set against.
  */
 private const val WORKING_COPY_MAX_PX = 2048
 
@@ -790,12 +792,13 @@ private fun MeasurePanelOpen(
      * the default is wrong (a decode no bigger than the viewport cannot be zoomed into; the original is
      * 48 MB on a phone that is also running the camera).
      *
-     * ⚠ AND THE EXPLICIT SIZE IS NOT A TUNING KNOB — REMOVING IT HANGS THIS PANEL. Without one, the
-     * loader resolves the request's size FROM THE COMPOSABLE THAT DRAWS THE PAINTER. Nothing here draws
-     * it until the state is `Success`, because the viewport shows a sentence while it is loading and
-     * the mark handles cannot be positioned before the decoded size is known. So the size would wait
-     * on a draw that waits on the size, and the card would sit on "Opening the photograph…" for ever,
-     * on every handset, with no error anywhere.
+     * ⚠ AND THE EXPLICIT SIZE IS NOT A TUNING KNOB. Under Coil 2, removing it HUNG THIS PANEL: the
+     * loader resolved an unset size FROM THE COMPOSABLE THAT DRAWS THE PAINTER, and nothing here draws
+     * it until the state is `Success` — the viewport shows a sentence while it is loading, and the
+     * mark handles cannot be positioned before the decoded size is known — so the card sat on "Opening
+     * the photograph…" for ever, on every handset, with no error anywhere. Coil 3 starts the request
+     * when the painter is remembered and reads an unset size as ORIGINAL, so removing it now fails the
+     * other way: the 48 MB decode. The size stays either way.
      */
     val painter = rememberAsyncImagePainter(
         model = remember(photo) {
@@ -805,7 +808,8 @@ private fun MeasurePanelOpen(
                 .build()
         },
     )
-    val state = painter.state
+    // A StateFlow since Coil 3, collected here so a load finishing recomposes this card.
+    val state by painter.state.collectAsState()
     val intrinsic = painter.intrinsicSize
     val imgW = if (intrinsic.isSpecified) intrinsic.width else 0f
     val imgH = if (intrinsic.isSpecified) intrinsic.height else 0f

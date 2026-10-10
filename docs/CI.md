@@ -13,7 +13,7 @@ in that order, and every secret it needs. Sister documents:
 
 ## 1. The pipeline
 
-**Seven workflow files, in four groups that do not talk to each other.** Only the first group is a
+**Eight workflow files, in five groups that do not talk to each other.** Only the first group is a
 chain; the rest are named here rather than counted, because a count is the one fact a new file
 falsifies silently.
 
@@ -24,6 +24,9 @@ falsifies silently.
    that can reach a handset.
 4. **The crons** — `keep-supabase-active.yml` and `backup-db.yml`. Neither asserts anything about the
    code.
+5. **The emulator smoke** — `android-emulator.yml`, run by hand only (`workflow_dispatch`, since
+   2026-10-09). Boots an emulator and drives the debug APK through what targetSdk 37 changed. Gates
+   nothing.
 
 ```mermaid
 flowchart LR
@@ -56,11 +59,12 @@ under "it runs; it does not gate", for what this still does not cover.
 |---|---|---|---|---|
 | 1 | Deploy backend to EC2 | `.github/workflows/deploy-backend.yml` | `push` to `main` | `wait-for-checks` → python3.14 on the box, and the venv built from `backend/requirements.lock` **beside** the live one (2026-10-09) → rsync → write `.env` → install the project and generate the Prisma client into the new venv → `prisma migrate deploy` → **point `backend/.venv` at the new venv** → restart `fieldrepo` + `fieldrepo-queue` → poll `/health`. [backend/DEPLOY_AWS.md](../backend/DEPLOY_AWS.md) §9 has the layout on the box and the rollback. |
 | 2 | Deploy frontend to Vercel | `.github/workflows/deploy-frontend.yml` | `workflow_run` on **1** completing | gate → `wait-for-checks` (2026-10-09) → `vercel pull` → **refuse any project but `field-repository`** → **assert the pulled env carries what the app needs** (every `NEXT_PUBLIC_*`, `[SENSITIVE]` placeholders included), and *warn* when the project's Node.js Version is not `engines.node` → `vercel build --prod` → print the Node runtime the functions were stamped with → **assert those values actually reached the bundle** → `vercel deploy --prebuilt --prod` → **prove the production domain resolves to the new deployment, and `vercel promote` it when a rollback has turned auto-assignment off** (2026-10-09) → smoke-check the alias → **assert the bundle the CDN serves is the one that was verified**, starting with which deployment it is |
-| 3 | Android build | `.github/workflows/android-build.yml` | `workflow_run` on **2** completing, plus `pull_request` filtered to `android/**` | JDK 17 → `compileDebugKotlin` → `testDebugUnitTest` → `lintDebug` (advisory) → `assembleDebug` → upload APK. **Debug variants only.** Nothing it produces can install over a release build, and nothing it produces reaches a phone. |
+| 3 | Android build | `.github/workflows/android-build.yml` | `workflow_run` on **2** completing, plus `pull_request` filtered to `android/**` | JDK 25 → `compileDebugKotlin` → `testDebugUnitTest` plus the four core modules' `test` (ParityTest among them, since 2026-10-09) → `lintDebug` (a gate since 2026-10-09) → `assembleDebug` → upload APK. **Debug variants only.** Nothing it produces can install over a release build, and nothing it produces reaches a phone. |
 | 4 | Checks | `.github/workflows/checks.yml` | `pull_request`, `push` to `main`, manual | Three independent jobs: the backend suite, the web typecheck/lint/unit specs, the documentation check. **No `paths:` filter.** See **The checks** below.  |
 | 5 | Publish Android release | `.github/workflows/publish-android.yml` | `push` of a `v*` **tag**, plus a manual dry run | Builds and **signs** the release APK on the runner, proves the signer against `ANDROID_RELEASE_CERT_SHA256`, uploads it, and `POST`s `/api/app/release` so the in-app updater offers it. See [RELEASING.md](RELEASING.md). |
 | 6 | Keep Supabase active | `.github/workflows/keep-supabase-active.yml` | nightly cron | Pings Postgres so Supabase does not pause the free-tier project. |
 | 7 | Back up the database | `.github/workflows/backup-db.yml` | scheduled | `pg_dump` to S3. |
+| 8 | Android emulator smoke | `.github/workflows/android-emulator.yml` | manual only (`workflow_dispatch`; inputs `api-level`, default `37.0`, and `target`) | Builds the same debug APK as row 3, and the release variant unsigned to check what its manifest declares (target 37, no local-network permission); boots an emulator and runs `android/scripts/emulator-smoke.py`: launch, edge-to-edge insets in portrait, landscape and at a large-screen size, back and home, and — with a second debug build aimed at a stub on the runner — the Android 17 local-network permission. Screenshots and logcat come back as an artifact. Signs nothing in, publishes nothing. |
 
 **Rows 3 and 5 are the two halves of one rule worth stating plainly: `android-build.yml` builds
 DEBUG and only debug, and `publish-android.yml` is the only workflow that reaches a handset.** A
@@ -561,6 +565,7 @@ same value in two places. Change one there and re-run this workflow (or push) to
 | Build the APK now | Actions → *Android build* → **Run workflow**, or open a PR touching `android/**`. |
 | Re-deploy after changing a Vercel env var | Re-run *Deploy frontend to Vercel*. `NEXT_PUBLIC_*` values are baked at build time; changing them in the dashboard does nothing until something rebuilds. |
 | Get the APK | The run's **Artifacts** section → `app-debug-<sha>`. Debug-signed: sideload-only, and Android will refuse to install it over a release-signed build. |
+| Run the APK on an emulator | Actions → *Android emulator smoke* → **Run workflow** (`api-level` 37.0 by default; `target` `google_apis_ps16k` for a 16 KB-page device), or `gh workflow run android-emulator.yml --ref <branch> -f api-level=37.0`. Screenshots, UI dumps and the logcat land in the run's `android-emulator-smoke-*` artifact. Do it before a release and after any pull request that moves the SDK levels, Compose or activity. |
 | Run the checks now | Actions → *Checks* → **Run workflow**. Or just open a pull request: it runs on every one, with no path filter. |
 | Ship a signed build to handsets | Not from this page. Push a `v*` tag — [RELEASING.md](RELEASING.md) §2 is the procedure, and it is the only route to a device. |
 
@@ -628,8 +633,10 @@ because a `.env` that is quietly pointed at a real database is a much worse way 
   with nothing to refresh it rots silently, and both landed that day: `.github/dependabot.yml`, and a
   SHA on every `uses:` in `android-build.yml`, `checks.yml`, `deploy-backend.yml`,
   `deploy-frontend.yml`, `keep-supabase-active.yml` and `publish-android.yml`, with its release in a
-  trailing comment (`backup-db.yml` uses no action; `webfactory/ssh-agent` in `deploy-backend.yml` is
-  the one action from outside `actions/`). Five workflows were pinned that morning to the commit their
+  trailing comment (`backup-db.yml` uses no action; `webfactory/ssh-agent` in `deploy-backend.yml` and
+  `reactivecircus/android-emulator-runner` in `android-emulator.yml` are the actions from outside
+  `actions/`). `android-emulator.yml`, added the same day by the Android upgrade, was pinned to the
+  latest releases from its first commit. Five workflows were pinned that morning to the commit their
   old tag resolved to, so nothing that ran changed; `deploy-backend.yml`'s pins waited for a real
   backend change, because any edit to that file redeploys the backend, and went in with the move to
   Python 3.14 the same day. That change also moved every pin to its action's **latest** release —
@@ -648,19 +655,22 @@ because a `.env` that is quietly pointed at a real database is a much worse way 
   because `[tool.ruff]` in `backend/pyproject.toml` selects no rules — a lint gate today would
   enforce a default nobody chose. Choose the rule set first, with a dated per-file baseline for what
   is already there, then add the step to the backend job.
-- **Android Lint is advisory.** `./gradlew :app:lintDebug` on the current tree reports
-  *1 error, 44 warnings* and aborts. The error is pre-existing and unrelated to any code change:
-  `AndroidManifest.xml:6 PermissionImpliesUnsupportedChromeOsHardware` — `CAMERA` is requested with
-  no matching `<uses-feature android:name="android.hardware.camera" android:required="false"/>`.
-  Making lint a hard gate today would fail every run and train everyone to ignore red. The HTML/XML
-  report is uploaded on every run. Fix the manifest (or commit a `lint-baseline.xml`), then delete
-  `continue-on-error` from the lint step and it becomes a real gate.
+- **~~Android Lint is advisory.~~ It is a gate since 2026-10-09.** It was advisory because the
+  tree carried a pre-existing error — `AndroidManifest.xml:6 PermissionImpliesUnsupportedChromeOsHardware`,
+  `CAMERA` with no matching `<uses-feature android:name="android.hardware.camera" android:required="false"/>`
+  — and a hard gate would have failed every run. The AGP 9.4.1 upgrade fixed it together with the
+  four other errors the new lint reported (two `MissingPermission`, and the Compose checks
+  `NonObservableLocale` and `RememberInComposition`), each at its source, with no suppression and no
+  `lint-baseline.xml`, and `continue-on-error` came off the step. Errors fail the build; warnings do
+  not. The HTML/XML report is still uploaded on every run.
 - **~~There are no Android tests.~~ There are now, and `android-build.yml` runs them.**
   `android/app/src/test/` holds eight Kotlin test files; the step's own guard checks for sources at
   runtime and only warns when it finds none, so it started enforcing them the moment they landed —
   but the prose comment beside it still describes the empty tree and is stale. **Instrumented** tests
-  are still absent and still not run: they need an emulator, and that is a separate job with an
-  emulator action, not a line bolted onto this one.
+  are still absent. The emulator job that would run them now exists — `android-emulator.yml`, by hand
+  only, since 2026-10-09 — but it runs a smoke script against the installed APK
+  (`android/scripts/emulator-smoke.py`), not `connectedDebugAndroidTest`, because there is nothing for
+  the latter to run.
 - **Don't chain a fourth stage.** GitHub caps how deep `workflow_run` chains can go (documented at
   three levels); this pipeline already uses two hops. A fourth stage should be a job with `needs:`
   inside an existing workflow, not another `workflow_run` link.
@@ -839,10 +849,15 @@ three assertions in §1 fail the run instead. If it happens anyway, the assertio
 that hole is the bug — do not just fix the variable. Start at
 [DEPLOYMENT_VERCEL.md §2.2](DEPLOYMENT_VERCEL.md).
 
-**Android build fails on the SDK.** The workflow installs `platforms;android-35` and
-`build-tools;35.0.0` explicitly because runner images drift. If `compileSdk` in
-`android/app/build.gradle.kts` moves, update that step and the JDK pin together — the JDK 17 pin
-tracks `sourceCompatibility`/`jvmTarget` in the same file.
+**Android build fails on the SDK.** The workflow installs `platforms;android-37.0` and
+`build-tools;37.0.0` explicitly because runner images drift (API 37's platform packages carry the
+minor level in their name: `android-37.0`, `android-37.1`, `android-37.2`). If `compileSdk` in
+`android/app/build.gradle.kts` moves, update that step in `android-build.yml`, `publish-android.yml`
+(its `BUILD_TOOLS_VERSION` too, which is also where `apksigner` and `aapt2` come from) and
+`android-emulator.yml` together. The JDK pin is a separate question since 2026-10-09: it is the JDK
+that **runs** Gradle (25, the current Temurin LTS), not the bytecode level, which stays Java 17 in
+`compileOptions` — so a JDK bump changes no output, and a bytecode bump needs Android to document a
+higher level first.
 
 **A deploy hangs on the health poll.** Stage 1 polls `http://127.0.0.1:8000/health` 40 times at 2 s
 and dumps `journalctl -u fieldrepo -n 80` on failure. Read that output first; the usual causes are a
@@ -857,12 +872,12 @@ pointed at the `/api` form is measuring a 404, not the service.
 
 ## How this document is kept true
 
-Everything here describes seven YAML files, so almost all of it is mechanically checkable — and the
+Everything here describes eight YAML files, so almost all of it is mechanically checkable — and the
 parts that are not are exactly the parts that were wrong before.
 
 | Claim class | Kept true by |
 |---|---|
-| The seven workflows, their triggers and their step order | `.github/workflows/*.yml`. `grep -n "^name:\|^on:\|    - name:" .github/workflows/deploy-frontend.yml` renders the shape of a workflow in one command. The §1 table is a *list*, not a count, for the same reason the workflow headers are: a new file falsifies a count silently. |
+| The eight workflows, their triggers and their step order | `.github/workflows/*.yml`. `grep -n "^name:\|^on:\|    - name:" .github/workflows/deploy-frontend.yml` renders the shape of a workflow in one command. The §1 table is a *list*, not a count, for the same reason the workflow headers are: a new file falsifies a count silently. |
 | The secrets **table** (names and purposes) | `grep -ho 'secrets\.[A-Z_]*' .github/workflows/*.yml \| sort -u` lists every secret the workflows read. Anything in that output missing from §2 is undocumented. |
 | Which secrets **exist** | **Not checkable from a checkout, and deliberately not stated.** `gh secret list`, or the Actions settings page. A previous version asserted an inventory here and it went stale within days. |
 | The three job names in §1 and §3.5 | `grep -n "    name:" .github/workflows/checks.yml`. These are the strings branch protection matches; if they stop agreeing with this document, the required checks are silently matching nothing. |

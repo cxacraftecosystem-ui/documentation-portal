@@ -32,6 +32,7 @@ from contextlib import suppress
 
 from app.core.config import get_settings
 from app.core.db import connect_db, disconnect_db, ensure_db_connected
+from app.services.email_outbox import process_next_email_jobs
 from app.services.media_queue import process_next_media_jobs
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -68,6 +69,12 @@ async def _run() -> None:
                 )
             except Exception:  # noqa: BLE001 - one bad iteration must never kill the worker
                 logger.exception("Media queue iteration failed; backing off")
+            # The e-mail outbox rides the same loop, in its own try so neither can hold the other
+            # back. A no-op when mail is not configured.
+            try:
+                await process_next_email_jobs(worker_id="queue-service", settings=settings)
+            except Exception:  # one bad iteration must never kill the worker
+                logger.exception("E-mail outbox iteration failed; backing off")
             # Sleep for the interval but wake immediately on shutdown.
             with suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(stop.wait(), timeout=interval)

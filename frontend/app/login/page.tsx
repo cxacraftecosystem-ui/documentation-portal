@@ -11,6 +11,16 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { GLASS_PANEL, GlassSurface } from "@/components/ui/GlassSurface";
 import { useToast } from "@/components/ui/Toast";
 import { accessRefusalCode } from "@/lib/accessRoster";
+import {
+  beginSignIn,
+  callbackErrorMessage,
+  configuredOidcProviders,
+  loginBody,
+  parseCallbackFragment,
+  takePendingSignIn,
+  type OidcProvider,
+  type OidcProviderId
+} from "@/lib/oidcSignIn";
 import { cn } from "@/lib/utils";
 
 declare global {
@@ -26,7 +36,7 @@ declare global {
   }
 }
 
-/** Google's official mark (inline SVG — no external requests). */
+/** Official provider marks (inline SVG — no external requests). */
 function GoogleMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 48 48" className={className} aria-hidden>
@@ -50,13 +60,39 @@ function GoogleMark({ className }: { className?: string }) {
   );
 }
 
+function MicrosoftMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 21 21" className={className} aria-hidden>
+      <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+      <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+      <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+      <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+    </svg>
+  );
+}
+
+function YahooMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <path
+        d="M0 6.71h4.62l2.69 6.88 2.72-6.88h4.5L7.76 22.5H3.23l1.86-4.32L0 6.71zm17.62 5.05h-5.03L17.06 1.5h5.02l-4.46 10.26zm-3.03 1.4c1.55 0 2.8 1.26 2.8 2.81a2.8 2.8 0 1 1-5.61 0c0-1.55 1.26-2.8 2.81-2.8z"
+        fill="#5f01d1"
+      />
+    </svg>
+  );
+}
+
+function ProviderMark({ id, className }: { id: OidcProviderId; className?: string }) {
+  return id === "MICROSOFT" ? <MicrosoftMark className={className} /> : <YahooMark className={className} />;
+}
+
 const BRAND_POINTS = [
   "Artisans, crafts, workshops, products, tools and interviews — one connected archive.",
   "Recordings transcribed and translated to English automatically.",
   "Six-tier access control; every edit audited."
 ];
 
-/** Provider-button chrome for the Google sign-in action, one height and one radius with the rest of the card. */
+/** Shared chrome for the sign-in provider buttons, so they are one height and one radius. */
 const PROVIDER_BUTTON = buttonVariants({ variant: "provider", size: "auth" });
 
 export default function LoginPage() {
@@ -66,7 +102,7 @@ export default function LoginPage() {
 
 function LoginView() {
   const router = useRouter();
-  const { login, loginWithGoogle, user } = useAuth();
+  const { login, loginWithGoogle, loginWithOidc, user } = useAuth();
   const { toast } = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -91,6 +127,11 @@ function LoginView() {
   const googleHost = useRef<HTMLDivElement | null>(null);
   const renderedWidth = useRef(0);
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+  /**
+   * Microsoft and Yahoo, each present only when this build carries its client ID — no badge and no
+   * dead button for one that is not configured. Read once: the environment is inlined at build time.
+   */
+  const [oidcProviders] = useState<OidcProvider[]>(() => configuredOidcProviders());
 
   useEffect(() => {
     if (user) router.replace("/dashboard");
@@ -210,6 +251,53 @@ function LoginView() {
       setLoading(false);
     }
   }
+
+  /** "Continue with Microsoft / Yahoo": leave for the provider. See `lib/oidcSignIn.ts`. */
+  async function startOidc(provider: OidcProvider) {
+    setError(null);
+    setRefusal(null);
+    setLoading(true);
+    try {
+      window.location.assign(await beginSignIn(provider, window.location.origin, null));
+    } catch {
+      setLoading(false);
+      setError(callbackErrorMessage(provider.id, null));
+    }
+  }
+
+  /**
+   * COMPLETING A MICROSOFT OR YAHOO SIGN-IN, when the callback route has sent the browser back here
+   * with the provider's answer in the fragment. The answer is taken off the address bar first — a
+   * code is single use, and the history is no place for it — and a refusal lands in the card's
+   * banner, as the Google path's does, because "awaiting an administrator" must be read, not missed.
+   */
+  useEffect(() => {
+    const callback = parseCallbackFragment(window.location.hash);
+    if (!callback) return;
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    const pending = takePendingSignIn(callback.state);
+    if (!pending) {
+      setError("That sign-in could not be completed in this tab. Start it again from here.");
+      return;
+    }
+    if (callback.error || !callback.code) {
+      setError(callbackErrorMessage(pending.provider, callback.error));
+      return;
+    }
+    const code = callback.code;
+    setLoading(true);
+    void (async () => {
+      try {
+        await loginWithOidc(loginBody(pending, code));
+        router.replace("/dashboard");
+      } catch (err) {
+        setRefusal(accessRefusalCode(err));
+        setError(err instanceof Error ? err.message : callbackErrorMessage(pending.provider, null));
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [loginWithOidc, router]);
 
   return (
     <div className="grid min-h-dvh lg:grid-cols-[43%_57%]">
@@ -398,6 +486,23 @@ function LoginView() {
                 Google sign-in isn’t available right now. Use your email and password.
               </div>
             )}
+            {/* Microsoft and Yahoo, ONLY those this build is configured for — see `oidcProviders`.
+                `min-w-0` on the grid item is load-bearing: the labels are nowrap, so without it the
+                button refuses to shrink below its content and overflows the card on phones. */}
+            {oidcProviders.map((provider) => (
+              <Button
+                key={provider.id}
+                type="button"
+                variant="provider"
+                size="auth"
+                disabled={loading}
+                onClick={() => void startOidc(provider)}
+                className="w-full min-w-0"
+              >
+                <ProviderMark id={provider.id} className="h-5 w-5 shrink-0" />
+                <span className="min-w-0 truncate">Continue with {provider.label}</span>
+              </Button>
+            ))}
           </div>
 
           {/* The brand panel carries this on a wide screen, but it is `hidden … lg:flex` — so on a

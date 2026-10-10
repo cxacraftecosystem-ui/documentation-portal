@@ -177,6 +177,20 @@ class Settings(BaseSettings):
     # see app/services/s3.py and docs/SECURITY.md for why bucket default encryption carries those.
     aws_s3_sse_algorithm: str = Field(default="AES256", alias="AWS_S3_SSE_ALGORITHM")
 
+    # --- E-mail (app/services/mailer.py, app/services/email_outbox.py) ----------------------------
+    # Amazon SES (SESv2 through boto3, with the AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY above — that
+    # IAM user needs `ses:SendEmail` on the verified identity). MAIL IS ON EXACTLY WHEN
+    # MAIL_FROM_ADDRESS IS SET; unset means nothing is queued and the web shows no e-mail control.
+    mail_from_address: str | None = Field(default=None, alias="MAIL_FROM_ADDRESS")
+    mail_from_name: str = Field(default="Field Repository", alias="MAIL_FROM_NAME")
+    mail_reply_to: str | None = Field(default=None, alias="MAIL_REPLY_TO")
+    mail_ses_region: str = Field(default="ap-south-1", alias="MAIL_SES_REGION")
+    mail_ses_configuration_set: str | None = Field(
+        default=None, alias="MAIL_SES_CONFIGURATION_SET"
+    )
+    mail_max_attempts: int = Field(default=5, alias="MAIL_MAX_ATTEMPTS")
+    mail_batch_size: int = Field(default=10, alias="MAIL_BATCH_SIZE")
+
     next_public_app_url: AnyHttpUrl | str = Field(
         default="http://localhost:3000", alias="NEXT_PUBLIC_APP_URL"
     )
@@ -184,6 +198,15 @@ class Settings(BaseSettings):
 
     google_client_id: str | None = Field(default=None, alias="GOOGLE_CLIENT_ID")
     google_android_client_id: str | None = Field(default=None, alias="GOOGLE_ANDROID_CLIENT_ID")
+    # Microsoft and Yahoo sign-in (app/services/oidc_sign_in.py). Each provider is live only when
+    # BOTH its client ID and its secret are set: the client brings back an authorization code and
+    # this server redeems it, which needs the secret. MICROSOFT_TENANT is common, organizations,
+    # consumers or one tenant's ID, and must match the account types the app registration allows.
+    microsoft_client_id: str | None = Field(default=None, alias="MICROSOFT_CLIENT_ID")
+    microsoft_client_secret: str | None = Field(default=None, alias="MICROSOFT_CLIENT_SECRET")
+    microsoft_tenant: str = Field(default="common", alias="MICROSOFT_TENANT")
+    yahoo_client_id: str | None = Field(default=None, alias="YAHOO_CLIENT_ID")
+    yahoo_client_secret: str | None = Field(default=None, alias="YAHOO_CLIENT_SECRET")
     master_admin_email: str = Field(alias="MASTER_ADMIN_EMAIL")
     master_admin_name: str = Field(default="Ankit Kumar", alias="MASTER_ADMIN_NAME")
     # Role given to brand-new self-registered Google accounts. Defaults to the lowest tier so an

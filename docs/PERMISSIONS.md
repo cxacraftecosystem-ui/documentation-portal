@@ -98,6 +98,11 @@ on purpose.
 Read across: ✅ allowed, ⬜ refused, and a note where the rule is conditional. This is the whole
 gate list; each row names the function in `deps.py` that decides it.
 
+"Sign in" is reached by four doors — a password, Google, and since 2026-10-10 Microsoft and Yahoo —
+and every one of them passes the access roster before a token exists (`routes/auth.py`); a verified
+address that is not admitted becomes a PENDING request, never an account
+([SECURITY.md](SECURITY.md) §3.3A).
+
 | Capability | Gate | VOL 10 | FIELD 20 | RESEARCH 30 | PROF 40 | ADMIN 50 | MASTER 60 |
 |---|---|:--:|:--:|:--:|:--:|:--:|:--:|
 | Sign in, read lists and search | `get_current_user` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
