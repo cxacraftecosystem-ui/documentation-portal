@@ -28,6 +28,10 @@ class OidcSignInTest {
     fun `no redirect URI means no provider, because the code could never come back`() {
         assertTrue(configuredOidcProviders("ms", "common", "y", "").isEmpty())
         assertTrue(configuredOidcProviders("ms", "common", "y", "http://portal.example.org/cb").isEmpty())
+        // A loopback redirect is a debug convenience: refused unless the build allows it.
+        assertTrue(configuredOidcProviders("ms", "common", "y", "http://localhost:3000/login/callback").isEmpty())
+        assertEquals(2, configuredOidcProviders("ms", "common", "y", "http://localhost:3000/login/callback", allowLoopback = true).size)
+        assertTrue(configuredOidcProviders("ms", "common", "y", "http://portal.example.org/cb", allowLoopback = true).isEmpty())
     }
 
     @Test

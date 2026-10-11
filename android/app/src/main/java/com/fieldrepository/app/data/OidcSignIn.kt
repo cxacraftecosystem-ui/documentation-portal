@@ -54,15 +54,26 @@ fun microsoftTenant(raw: String?): String? {
     return value.takeIf { it in MICROSOFT_TENANT_KEYWORDS || TENANT_ID.matches(it) }
 }
 
+/**
+ * A plain-http redirect to this machine, which only a debug build may use (a web app on a laptop).
+ * Parsed rather than prefix-matched, so no loopback URL literal is compiled into the release APK:
+ * publish-android.yml refuses any APK that contains one.
+ */
+internal fun isLoopbackHttp(uri: String): Boolean {
+    val parsed = runCatching { java.net.URI(uri) }.getOrNull() ?: return false
+    return parsed.scheme == "http" && parsed.host in setOf("localhost", "127.0.0.1")
+}
+
 /** The providers this build can offer, Microsoft first — the web card's order. */
 fun configuredOidcProviders(
     microsoftClientId: String,
     microsoftTenant: String,
     yahooClientId: String,
     redirectUri: String,
+    allowLoopback: Boolean = false,
 ): List<OidcProvider> {
     val redirect = redirectUri.trim()
-    if (!redirect.startsWith("https://") && !redirect.startsWith("http://localhost")) return emptyList()
+    if (!redirect.startsWith("https://") && !(allowLoopback && isLoopbackHttp(redirect))) return emptyList()
     val providers = mutableListOf<OidcProvider>()
     val tenant = microsoftTenant(microsoftTenant)
     if (microsoftClientId.isNotBlank() && tenant != null) {

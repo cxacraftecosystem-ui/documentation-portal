@@ -35,6 +35,7 @@ class OidcAuthClient(activity: ComponentActivity) {
         microsoftTenant = BuildConfig.MICROSOFT_TENANT,
         yahooClientId = BuildConfig.YAHOO_CLIENT_ID,
         redirectUri = BuildConfig.OIDC_REDIRECT_URI,
+        allowLoopback = BuildConfig.DEBUG,
     )
 
     /** A started sign-in: the intent to launch, and the raw nonce this app keeps for the backend. */
