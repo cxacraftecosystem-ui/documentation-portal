@@ -393,6 +393,11 @@ async def login(payload: LoginRequest) -> dict[str, Any]:
     # THE SECOND STEP, after the gate (a refused person learns that before being asked for a code)
     # and before anything that means "got in". No session yet: the client shows the code screen.
     if getattr(user, "twoFactorEnabled", False):
+        # LOCKED (too many wrong codes recently): no challenge is minted, so none can be stockpiled
+        # to spend the moment the lock lapses — and the refusal is the wrong-credentials one, word
+        # for word and status for status, so a lock is not something this endpoint confirms.
+        if two_factor.is_locked(user):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=INVALID_CREDENTIALS_DETAIL)
         return {
             "two_factor_required": True,
             "challenge_token": await two_factor.issue_challenge(user),

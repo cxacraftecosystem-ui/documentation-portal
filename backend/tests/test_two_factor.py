@@ -144,7 +144,9 @@ def test_the_secret_is_encrypted_and_tamper_evident(monkeypatch: pytest.MonkeyPa
     assert RFC_SECRET not in stored and stored.startswith("v1.")
     assert two_factor.decrypt_secret(stored) == RFC_SECRET
     head, iv, tag, body = stored.split(".")
-    flipped = body[:-1] + ("A" if body[-1] != "A" else "B")
+    # The FIRST character: the last one of unpadded base64 carries unused bits, so changing it can
+    # leave the bytes — and the tag check — untouched, which made this test flaky.
+    flipped = ("A" if body[0] != "A" else "B") + body[1:]
     assert two_factor.decrypt_secret(f"{head}.{iv}.{tag}.{flipped}") is None
     monkeypatch.setattr(get_settings(), "jwt_secret", "another-secret-entirely-0123456789abcdef")
     assert two_factor.decrypt_secret(stored) is None
@@ -511,18 +513,20 @@ def test_an_admin_without_it_mints_on_the_password_alone(monkeypatch) -> None:
 # --- The per-account failure budget ---------------------------------------------------------------------
 
 
-def test_the_lockout_backs_off_and_is_capped() -> None:
+def test_the_lockout_backs_off_and_is_capped_at_an_hour() -> None:
     assert two_factor.lockout_duration(0) == timedelta(minutes=15)
     assert two_factor.lockout_duration(1) == timedelta(minutes=30)
-    assert two_factor.lockout_duration(3) == timedelta(hours=2)
-    assert two_factor.lockout_duration(7) == timedelta(hours=24)
-    assert two_factor.lockout_duration(500) == timedelta(hours=24)
+    assert two_factor.lockout_duration(2) == timedelta(hours=1)
+    assert two_factor.lockout_duration(3) == timedelta(hours=1)
+    assert two_factor.lockout_duration(500) == timedelta(hours=1)
 
 
 def test_fresh_challenges_do_not_buy_more_guesses(monkeypatch, clock) -> None:
     email = "admin@example.org"
     fake = install(monkeypatch, FakeDb(users=[_account(email, "ADMIN")], roster=_admitted(email)))
     secret, _ = _enrol(f"id-{email}", clock)
+    # Minted before the lock, to show that a challenge already in hand is no way round it.
+    stockpiled = _password_login(email).json()["challenge_token"]
 
     # Two challenges of five wrong codes each spend the account's budget of ten.
     for _ in range(2):
@@ -533,17 +537,18 @@ def test_fresh_challenges_do_not_buy_more_guesses(monkeypatch, clock) -> None:
     row = fake.user.rows[0]
     assert row.twoFactorLockedUntil is not None and row.twoFactorLockouts == 1
 
-    # Locked: sign-in answers exactly as it always does, and the RIGHT code is refused plainly.
-    first = _password_login(email)
-    assert first.status_code == 200 and set(first.json()) == {"two_factor_required", "challenge_token"}
+    # Locked: the RIGHT code on a challenge already in hand is refused plainly…
     locked = _call(
-        "POST",
-        "/api/auth/two-factor/verify",
-        {"challenge_token": first.json()["challenge_token"], "code": two_factor.current_totp(secret)},
+        "POST", "/api/auth/two-factor/verify", {"challenge_token": stockpiled, "code": two_factor.current_totp(secret)}
     )
     assert locked.status_code == 429 and locked.json()["detail"] == "Too many attempts. Try again later."
-    # The dataset token shares the lock.
+    # …the dataset token shares the lock…
     assert _dataset_token(email, two_factor.current_totp(secret)).status_code == 429
+    # …and sign-in mints no new challenge, answering exactly as a wrong password does.
+    refused = _password_login(email)
+    wrong_password = _call("POST", "/api/auth/login", {"email": email, "password": "not-the-password"})
+    assert refused.status_code == wrong_password.status_code == 401
+    assert refused.json() == wrong_password.json()
 
 
 def test_a_lapsed_lock_lets_the_right_code_in_and_resets_the_budget(monkeypatch, clock) -> None:
@@ -551,25 +556,111 @@ def test_a_lapsed_lock_lets_the_right_code_in_and_resets_the_budget(monkeypatch,
     fake = install(monkeypatch, FakeDb(users=[_account(email)], roster=_admitted(email)))
     secret, _ = _enrol(f"id-{email}", clock)
     row = fake.user.rows[0]
-    row.twoFactorFailedAttempts = 7
-    row.twoFactorFailureWindowStartedAt = datetime.now(UTC)
+    # The state a lock leaves behind: budget spent, window closed, the lock just ended.
+    row.twoFactorFailedAttempts = two_factor.FAILURE_BUDGET
+    row.twoFactorFailureWindowStartedAt = None
     row.twoFactorLockouts = 2
     row.twoFactorLockedUntil = datetime.now(UTC) - timedelta(seconds=1)
     challenge = _password_login(email).json()["challenge_token"]
     ok = _call("POST", "/api/auth/two-factor/verify", {"challenge_token": challenge, "code": two_factor.current_totp(secret)})
     assert ok.status_code == 200
-    assert (row.twoFactorFailedAttempts, row.twoFactorLockedUntil, row.twoFactorLockouts) == (0, None, 0)
+    assert (row.twoFactorFailedAttempts, row.twoFactorLockouts) == (0, 0)
 
 
-def test_a_failure_outside_the_window_starts_a_new_one(monkeypatch, clock) -> None:
+def test_a_claim_outside_the_window_starts_a_new_one(monkeypatch, clock) -> None:
     email = "meera@example.org"
     fake = install(monkeypatch, FakeDb(users=[_account(email)], roster=_admitted(email)))
     _enrol(f"id-{email}", clock)
     row = fake.user.rows[0]
     row.twoFactorFailedAttempts = 9
     row.twoFactorFailureWindowStartedAt = datetime.now(UTC) - timedelta(minutes=16)
-    asyncio.run(two_factor.record_failure(row.id))
-    assert row.twoFactorFailedAttempts == 1 and row.twoFactorLockedUntil is None
+    assert asyncio.run(two_factor.claim_attempt_slot(row.id)) == 1
+    assert row.twoFactorLockedUntil is None
+
+
+def test_a_burst_of_concurrent_wrong_codes_gets_only_the_budget(monkeypatch, clock, caplog) -> None:
+    """Finding A: every request claims a slot atomically BEFORE its code is checked, so thirty
+    simultaneous guesses get ten checks, one lock and one audit line — not thirty of each."""
+    email = "meera@example.org"
+    fake = install(monkeypatch, FakeDb(users=[_account(email)], roster=_admitted(email)))
+    secret, _ = _enrol(f"id-{email}", clock)
+    checked: list[str] = []
+
+    async def counting_consume(user: Any, code: str) -> bool:
+        checked.append(code)
+        await asyncio.sleep(0)  # yield, so the burst genuinely interleaves
+        return False
+
+    monkeypatch.setattr(two_factor, "consume_any_code", counting_consume)
+
+    async def burst() -> list[Any]:
+        user = fake.user.rows[0]
+        return await asyncio.gather(
+            *(two_factor.check_second_factor(user, _wrong(secret)) for _ in range(30)), return_exceptions=True
+        )
+
+    with caplog.at_level("WARNING"):
+        outcomes = asyncio.run(burst())
+    assert len(checked) == two_factor.FAILURE_BUDGET
+    assert sum(isinstance(o, two_factor.SecondFactorLocked) for o in outcomes) == 30 - two_factor.FAILURE_BUDGET
+    row = fake.user.rows[0]
+    assert row.twoFactorLockouts == 1 and two_factor.is_locked(row)
+    assert sum("AUDIT two-factor locked" in r.getMessage() for r in caplog.records) == 1
+
+
+def test_a_success_keeps_wrong_codes_that_raced_it(monkeypatch, clock) -> None:
+    """Finding B: a correct code clears the budget only if nobody claimed a slot after it; otherwise
+    it hands back its own slot and the racing failures stay counted."""
+    email = "meera@example.org"
+    fake = install(monkeypatch, FakeDb(users=[_account(email)], roster=_admitted(email)))
+    _enrol(f"id-{email}", clock)
+    row = fake.user.rows[0]
+    row.twoFactorFailedAttempts = 6
+    row.twoFactorFailureWindowStartedAt = datetime.now(UTC)
+
+    async def race() -> None:
+        mine = await two_factor.claim_attempt_slot(row.id)  # 7
+        await two_factor.claim_attempt_slot(row.id)  # an attacker's wrong code lands: 8
+        await two_factor.claim_attempt_slot(row.id)  # and another: 9
+        await two_factor.settle_success(row.id, mine)
+
+    asyncio.run(race())
+    assert row.twoFactorFailedAttempts == 8  # the two racing failures survive; only my slot went back
+
+
+def test_lockouts_escalate_once_per_lock(monkeypatch, clock) -> None:
+    """Finding B: two locks in a row are lockout 1 (15 min) then lockout 2 (30 min), each written once."""
+    email = "meera@example.org"
+    fake = install(monkeypatch, FakeDb(users=[_account(email)], roster=_admitted(email)))
+    secret, _ = _enrol(f"id-{email}", clock)
+    row = fake.user.rows[0]
+
+    def spend() -> None:
+        for _ in range(two_factor.FAILURE_BUDGET):
+            assert asyncio.run(two_factor.check_second_factor(row, _wrong(secret))) is False
+
+    spend()
+    first = row.twoFactorLockedUntil - datetime.now(UTC)
+    assert row.twoFactorLockouts == 1 and timedelta(minutes=14) < first <= timedelta(minutes=15)
+    row.twoFactorLockedUntil = datetime.now(UTC) - timedelta(seconds=1)  # let it lapse
+    spend()
+    second = row.twoFactorLockedUntil - datetime.now(UTC)
+    assert row.twoFactorLockouts == 2 and timedelta(minutes=29) < second <= timedelta(minutes=30)
+
+
+@pytest.mark.parametrize("ended_hours_ago,expected", [(25, 0), (23, 3)])
+def test_the_lockout_count_decays_a_day_after_the_last_lock(monkeypatch, clock, ended_hours_ago, expected) -> None:
+    """Finding C: a password holder cannot ratchet the owner's lock up for ever."""
+    email = "meera@example.org"
+    fake = install(monkeypatch, FakeDb(users=[_account(email)], roster=_admitted(email)))
+    _enrol(f"id-{email}", clock)
+    row = fake.user.rows[0]
+    row.twoFactorLockouts = 3
+    row.twoFactorLockedUntil = datetime.now(UTC) - timedelta(hours=ended_hours_ago)
+    row.twoFactorFailureWindowStartedAt = None
+    row.twoFactorFailedAttempts = two_factor.FAILURE_BUDGET
+    asyncio.run(two_factor.claim_attempt_slot(row.id))
+    assert row.twoFactorLockouts == expected and row.twoFactorFailedAttempts == 1
 
 
 @pytest.mark.parametrize("path", ["/api/auth/two-factor/disable", "/api/auth/two-factor/recovery-codes"])
