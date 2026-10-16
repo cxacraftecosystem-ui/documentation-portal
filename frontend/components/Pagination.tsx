@@ -1,3 +1,4 @@
+import { ButtonRow } from "@/components/ui/ButtonRow";
 export function Pagination({
   page,
   pages,
@@ -14,14 +15,14 @@ export function Pagination({
       <span>
         Page {pages ? page : 0} of {pages} · {total} records
       </span>
-      <div className="flex gap-2">
+      <ButtonRow>
         <button className="field-button-secondary" disabled={page <= 1} onClick={() => onPage(page - 1)}>
           Previous
         </button>
         <button className="field-button-secondary" disabled={page >= pages} onClick={() => onPage(page + 1)}>
           Next
         </button>
-      </div>
+      </ButtonRow>
     </div>
   );
 }

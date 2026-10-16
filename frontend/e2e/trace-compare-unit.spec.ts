@@ -441,7 +441,7 @@ test.describe("comparisonStatusFor answers all six absences separately", () => {
   test("a failed trace POINTS AT the red message rather than restating it", () => {
     // Two copies of one fault in one card is how a researcher ends up believing there are two.
     const said = comparisonStatusFor({ ...QUIET, traceProblem: "That image could not be traced." });
-    expect(said).toContain("The reason is above");
+    expect(said).toContain("see the reason above");
     expect(said).not.toContain("That image could not be traced.");
   });
 
@@ -470,7 +470,7 @@ test.describe("the difference view's wording, which both clients share", () => {
   });
 
   test("the note explains what dark and bright MEAN, not what the operation is", () => {
-    expect(COMPARISON_DIFFERENCE_NOTE).toContain("black where they agree");
+    expect(COMPARISON_DIFFERENCE_NOTE).toContain("Black where they match");
     expect(COMPARISON_DIFFERENCE_NOTE).toContain("bright where they");
   });
 

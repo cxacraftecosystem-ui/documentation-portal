@@ -827,9 +827,8 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
           Eight record types, linked to each other from the moment they are captured.
         </h2>
         <p className="mt-4 max-w-2xl text-base leading-relaxed text-ink-500">
-          An artisan carries into their products; a product carries into the process that makes it
-          and the tools it takes; every interview, photograph and recording lands attached to the
-          artisan, the craft and the workshop it came from. Nothing arrives as a loose file.
+          Every interview, photo and recording is attached to its artisan, craft and workshop.
+          Nothing arrives as a loose file.
         </p>
         <div className="mt-12 grid grid-cols-2 gap-4 md:grid-cols-4">
           {RECORD_TYPES.map((record) => (

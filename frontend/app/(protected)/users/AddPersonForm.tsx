@@ -123,7 +123,7 @@ export function AddPersonForm({
         <h2 className="font-display text-lg font-bold text-ink-900">Add a person</h2>
       </div>
       <p className="-mt-2 text-sm leading-6 text-ink-500">
-        They are added to the access roster at the role you choose, and can sign in straight away.
+        They can sign in straight away.
       </p>
 
       <div role="alert" aria-live="assertive">

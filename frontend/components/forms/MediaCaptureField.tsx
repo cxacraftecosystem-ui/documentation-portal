@@ -63,7 +63,7 @@ export function MediaCaptureField({
   files,
   onFilesChange,
   title = "Attach media",
-  description = "Photos, video, audio and files link to this record automatically. Audio is queued for transcription after upload.",
+  description = "Photos, video, audio and files. Audio is transcribed.",
   allowDocuments = true,
   allowedTypes
 }: {
@@ -242,8 +242,7 @@ export function MediaCaptureField({
         </div>
         {recording ? <RecordingStrip stream={stream} elapsedMs={elapsedMs} /> : null}
         <p className="text-xs text-ink-500">
-          Drag and drop files here, or use the buttons above. Uploading starts the moment a file is attached — saving
-          then only links it — and captured files go up unchanged, so photo details (date, place, camera) are kept.
+          Or drag files here. Uploads start right away.
         </p>
       </div>
       {previewItems.length ? (
@@ -257,7 +256,7 @@ export function MediaCaptureField({
               {staging.allReady
                 ? "All uploaded ✓ — ready to save"
                 : staging.failed
-                  ? `${staging.failed} upload${staging.failed === 1 ? "" : "s"} failed — retry below, or just save to try again`
+                  ? `${staging.failed} failed — retry below or save`
                   : `Uploading… ${Math.round(staging.fraction * 100)}% (${staging.ready}/${staging.total} files done)`}
             </p>
           </div>

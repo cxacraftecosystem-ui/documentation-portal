@@ -95,7 +95,7 @@ test.describe("Location capture — permission granted", () => {
 
     // Reported back rather than filled in silently: a researcher at a desk has to be able to notice
     // that the form has just answered a question about where they are.
-    await expect(page.getByText(/captured automatically/i)).toBeVisible();
+    await expect(page.getByText(/Device location:/i)).toBeVisible();
 
     // The requirement is satisfied, so the coordinate boxes raise no complaint.
     await expect(page.locator('input[name="latitude"]')).toHaveJSProperty("validity.valid", true);
@@ -131,7 +131,7 @@ test.describe("Location capture — permission denied", () => {
     await page.goto("/workshops");
 
     // 1. The card says what happened and what to do instead, rather than sitting there empty.
-    await expect(page.getByText(/blocking location/i)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/Location is blocked/i)).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/Pick on map/i).first()).toBeVisible();
     await expect(page.locator('input[name="latitude"]')).toHaveValue("");
 

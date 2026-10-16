@@ -142,7 +142,7 @@ export default function QuestionnaireInstrumentPage() {
         <section className="panel p-6 text-sm text-ink-500">Loading…</section>
       ) : !instrument ? null : sections.length === 0 ? (
         <section className="panel p-4">
-          <EmptyState title="No sections yet" body="Upload a workbook to give this questionnaire its sections and questions." />
+          <EmptyState title="No sections yet" body="Upload a workbook to add questions." />
         </section>
       ) : (
         <div className="grid gap-4">
@@ -197,7 +197,7 @@ export default function QuestionnaireInstrumentPage() {
             toast({
               tone: "success",
               title: "The workbook was applied",
-              description: "The report at the top of this page names every row the import had to decide about."
+              description: "See the report above."
             });
           }}
         />

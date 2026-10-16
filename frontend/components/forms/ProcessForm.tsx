@@ -28,6 +28,7 @@ import { saveOrQueue } from "@/lib/offline";
 import { hasRank } from "@/lib/permissions";
 import type { Artisan, ExtraMetadata, MediaFile, ProductDocumentation, RecordStatus, User, Workshop } from "@/lib/types";
 import { useConfirm } from "@/components/dialogs";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 // ---------------------------------------------------------------------------
 // Types for the /processes endpoints (hydrated detail: media on the process =
@@ -124,8 +125,8 @@ function SavedMediaList({
   async function remove(media: MediaFile) {
     const ok = await confirm({
       title: "Remove this file?",
-      body: `"${media.caption || media.originalFilename}" will be removed from this step.`,
-      note: "The file is permanently deleted from storage. This cannot be undone.",
+      body: `Remove "${media.caption || media.originalFilename}"?`,
+      note: "This can’t be undone.",
       confirmLabel: "Remove file",
       tone: "danger"
     });
@@ -490,7 +491,7 @@ export function ProcessForm({
         setArtisanProducts([]);
         setProductsLoading(false);
         setProductLoadError(
-          `Couldn't load this artisan's products: ${err instanceof Error ? err.message : "network error"}. Tap the artisan again to retry.`
+          `Couldn’t load products: ${err instanceof Error ? err.message : "network error"}. Pick the artisan again.`
         );
       });
     return () => {
@@ -780,7 +781,7 @@ export function ProcessForm({
       setUploadNote(null);
       if (failures.length) {
         setError(
-          `The process was saved, but ${failures.length} media file(s) failed to upload: ${failures.join(", ")}. Re-open the process from the list to retry those files.`
+          `Saved, but ${failures.length} file(s) didn’t upload: ${failures.join(", ")}. Reopen to retry.`
         );
         setGuardOpen(false);
         return;
@@ -1170,19 +1171,18 @@ export function ProcessForm({
       )}
 
       <div className="rounded-xl bg-[#2A2520] p-3 text-xs text-[#E0C9B0]">
-        Note: Different users may contribute to processes created by others. Even when documenting the same process, it is recommended
-        that each researcher documents it individually, so that different perspectives on the same process are preserved.
+        Document each process yourself, even if a colleague has — every perspective is kept.
       </div>
 
-      <div className="flex items-center justify-end gap-2">
-        {uploadNote ? <span className="mr-auto text-xs text-ink-500">{uploadNote}</span> : null}
+      {uploadNote ? <p className="text-xs text-ink-500">{uploadNote}</p> : null}
+      <ButtonRow align="end">
         <button type="button" className="field-button-secondary" onClick={requestCancel}>
           Cancel
         </button>
         <button className="field-button" disabled={saving} type="submit">
           {saving ? "Saving..." : isEdit ? "Update process" : "Save process"}
         </button>
-      </div>
+      </ButtonRow>
 
       <UnsavedChangesDialog
         open={guardOpen}

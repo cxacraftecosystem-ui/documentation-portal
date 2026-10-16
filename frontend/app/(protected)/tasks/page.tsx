@@ -105,7 +105,7 @@ export default function TasksPage() {
     <>
       <PageHeader
         title="Tasks"
-        description="The documentation work assigned to you — what it covers, how far along you are, and what has already been recorded for it."
+        description="Your assigned work and progress."
         icon={<ClipboardCheck className="h-5 w-5" aria-hidden />}
         actions={
           assigner ? (
@@ -117,16 +117,6 @@ export default function TasksPage() {
         }
       />
 
-      {assigner ? (
-        <p className="mb-4 rounded-md border border-purple-200 bg-surface-50 px-4 py-3 text-sm leading-6 text-ink-700">
-          Handing work out happens on the{" "}
-          <Link href="/settings/tasks" className="font-semibold text-purple-700 dark:text-purple-300 underline">
-            assignment board
-          </Link>
-          : one scope — record types, an artisan subset, questionnaire sections, a target count — given to several
-          people at once, with the accountability rollup beside it.
-        </p>
-      ) : null}
 
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
 
@@ -169,7 +159,7 @@ export default function TasksPage() {
           body={
             statusFilter
               ? "Nothing in this state right now. Try another filter."
-              : "When an admin assigns you documentation work it appears here with everything it covers — the workshop, the artisans, the questionnaire sections — plus its due date and your progress."
+              : "Assigned work will appear here."
           }
         />
       ) : (

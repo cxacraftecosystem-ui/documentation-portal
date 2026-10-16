@@ -319,8 +319,7 @@ function MediaPageBody() {
       load(page, search);
       if (failed.length) {
         setError(
-          `${failed.length} of ${selectedFiles.length} file(s) failed to upload: ${failed.map((item) => item.name).join(", ")}. ` +
-            "The rest were saved — remove the ones that landed and upload again."
+          `${failed.length} of ${selectedFiles.length} file(s) didn’t upload: ${failed.map((item) => item.name).join(", ")}. The rest were saved.`
         );
         return;
       }
@@ -345,8 +344,8 @@ function MediaPageBody() {
         "Remove this media file?",
         // Android's "Permanently delete recording?" says the same thing: the file leaves storage, so
         // there is nothing left to re-link afterwards.
-        "This permanently deletes the file. It can’t be undone.",
-        "Any transcript generated from it is deleted with it."
+        "Deletes the file and its transcript. This can’t be undone.",
+        undefined
       ),
       confirmLabel: "Remove file"
     });
@@ -369,7 +368,7 @@ function MediaPageBody() {
     <>
       <PageHeader
         title="Miscellaneous Media"
-        description="Upload images, videos, audio and files. Audio is transcribed after upload."
+        description="Photos, video, audio and files. Audio is transcribed."
         icon={<Images className="h-5 w-5" aria-hidden />}
       />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
@@ -379,7 +378,7 @@ function MediaPageBody() {
           files={selectedFiles}
           onFilesChange={setSelectedFiles}
           title="Capture media"
-          description="Upload images, videos, audio and files. Audio is transcribed after upload."
+          description="Photos, video, audio and files. Audio is transcribed."
         />
         {/*
           THE ONE PLACE THIS FORM EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.

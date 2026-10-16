@@ -293,7 +293,7 @@ function LoginView() {
     window.history.replaceState(null, "", window.location.pathname + window.location.search);
     const pending = takePendingSignIn(callback.state);
     if (!pending) {
-      setError("That sign-in could not be completed in this tab. Start it again from here.");
+      setError("Sign-in didn’t complete. Try again.");
       return;
     }
     if (callback.error || !callback.code) {
@@ -515,7 +515,7 @@ function LoginView() {
                 </div>
               ) : (
                 <div className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-500">
-                  Google sign-in isn’t available right now. Use your email and password.
+                  Google sign-in is unavailable. Use email and password.
                 </div>
               )}
               {/* Microsoft and Yahoo, ONLY those this build is configured for — see `oidcProviders`.
@@ -541,8 +541,7 @@ function LoginView() {
                 phone, which is where most first sign-ins happen, the allow-list would be a surprise
                 delivered only by a refusal. */}
             <p className="mt-4 text-center text-xs leading-5 text-ink-500 lg:hidden">
-              Access is by invitation: an administrator adds your address to the roster. Sign in once and your request
-              reaches them.
+              Access is by invitation.
             </p>
             </>
           )}

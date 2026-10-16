@@ -31,6 +31,7 @@ import { apiFetch, buildQuery } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { canUpdateRecord, recordUpdateHref, recordViewHref } from "@/lib/recordView";
 import type { Artisan, MediaFile, ProductDocumentation, ToolDocumentation, Workshop } from "@/lib/types";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 type SearchResult = {
   artisans: Artisan[];
@@ -259,7 +260,7 @@ export default function SearchPage() {
     <>
       <PageHeader
         title="Search"
-        description="Search artisans, workshops, products, tools and media with shared filters."
+        description="Search every record."
         icon={<Search className="h-5 w-5" aria-hidden />}
       />
       <form onSubmit={submit} className="panel mb-5 grid gap-3 p-4 md:grid-cols-[1fr_220px_auto]">
@@ -310,9 +311,9 @@ export default function SearchPage() {
           title={page > 1 ? "No more results" : "No matching records"}
           body={
             scope.workshopIds.length
-              ? "Nothing matches inside the chosen workshops. Widen the workshop scope, or choose All records."
+              ? "Nothing in these workshops."
               : page > 1
-                ? "Every result type has run out on this page. Go back to see the earlier matches."
+                ? "Go back for earlier results."
                 : undefined
           }
         />
@@ -491,14 +492,14 @@ function SearchPager({
       <span>
         Page {page} · {shown} result{shown === 1 ? "" : "s"} on this page · every result type pages together
       </span>
-      <div className="flex gap-2">
+      <ButtonRow>
         <button className="field-button-secondary" disabled={loading || page <= 1} onClick={() => onPage(page - 1)}>
           Previous
         </button>
         <button className="field-button-secondary" disabled={loading || !hasMore} onClick={() => onPage(page + 1)}>
           Next
         </button>
-      </div>
+      </ButtonRow>
     </div>
   );
 }

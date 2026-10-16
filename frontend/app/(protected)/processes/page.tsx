@@ -175,8 +175,8 @@ function ProcessesPageInner() {
     const ok = await confirm(
       deleteConfirm(
         "Delete this process record?",
-        "This permanently deletes the record. This action cannot be undone.",
-        "Every stage, its photos and its videos are deleted along with the process."
+        "Deletes the process with its steps and media. This can’t be undone.",
+        undefined
       )
     );
     if (!ok) return;
@@ -210,7 +210,7 @@ function ProcessesPageInner() {
       <>
         <PageHeader
           title="Document process"
-          description="Step-by-step documentation of how a product is made, with each step in order."
+          description="How a product is made, step by step."
           icon={<GitBranch className="h-5 w-5" aria-hidden />}
         />
         {banners}
@@ -234,7 +234,7 @@ function ProcessesPageInner() {
       <>
         <PageHeader
           title="Update process"
-          description="Update the process record; existing step media is preserved unless you remove it."
+          description="Existing step media is kept."
           icon={<GitBranch className="h-5 w-5" aria-hidden />}
         />
         {banners}
@@ -274,7 +274,7 @@ function ProcessesPageInner() {
     <>
       <PageHeader
         title="Document process"
-        description="Step-by-step documentation of how a product is made, with each step in order."
+        description="How a product is made, step by step."
         icon={<GitBranch className="h-5 w-5" aria-hidden />}
         actions={
           creator ? (
@@ -306,9 +306,9 @@ function ProcessesPageInner() {
         ) : data.items.length === 0 ? (
           <div className="p-4">
             {filtersActive ? (
-              <EmptyState title="No processes match these filters" body="Widen the workshop, craft, or artisan filters above to see more records." />
+              <EmptyState title="No processes match these filters" body="Try widening the filters." />
             ) : (
-              <EmptyState title="No processes documented yet" body="Document how a product is made, step by step, from the New process form." />
+              <EmptyState title="No processes documented yet" body="Add the first process." />
             )}
           </div>
         ) : (

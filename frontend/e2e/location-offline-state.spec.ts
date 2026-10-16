@@ -121,7 +121,7 @@ test.describe("Location: the state list with no connection", () => {
     await expect(district).not.toHaveAttribute("required", /.*/);
     expect(await isValid(district)).toBe(true);
     // An empty dropdown with nothing said about it reads as a broken form.
-    await expect(page.getByText(/district list has not loaded/i)).toBeVisible();
+    await expect(page.getByText(/Districts need a connection/i)).toBeVisible();
   });
 
   test("the bundled list is exactly the list the API serves", async ({ page }) => {

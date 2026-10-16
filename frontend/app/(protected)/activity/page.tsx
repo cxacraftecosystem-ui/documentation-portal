@@ -130,7 +130,7 @@ export default function MyActivityPage() {
       const failures = [artisans, products, tools, workshops, crafts, interviews, media].filter(
         (result) => result.status === "rejected"
       );
-      setError(failures.length ? "Some records could not be loaded — the lists below may be incomplete." : null);
+      setError(failures.length ? "Some records didn’t load." : null);
     }
 
     load();
@@ -218,7 +218,7 @@ export default function MyActivityPage() {
     <>
       <PageHeader
         title="My Activity"
-        description="Everything documented — artisans, products, tools, workshops, crafts, interviews and media. Reviewers can also inspect the activity of contributors they oversee."
+        description="Everything recorded."
         icon={<Activity className="h-5 w-5" aria-hidden />}
       />
       {error ? (
@@ -254,8 +254,8 @@ export default function MyActivityPage() {
           title={viewingSelf ? "Nothing here yet" : `No records from ${selectedName ?? "this user"} yet`}
           body={
             viewingSelf
-              ? "Records you create — artisans, products, tools, interviews and media uploads — will show up here."
-              : "Records this contributor creates — artisans, products, tools, interviews and media uploads — will show up here."
+              ? "Your records will appear here."
+              : "Their records will appear here."
           }
         />
       ) : (

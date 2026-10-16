@@ -1,3 +1,4 @@
+import { ButtonRow } from "@/components/ui/ButtonRow";
 import { BackButton } from "@/components/BackButton";
 
 export function PageHeader({
@@ -34,7 +35,7 @@ export function PageHeader({
           {description ? <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-muted">{description}</p> : null}
         </div>
       </div>
-      {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+      {actions ? <ButtonRow align="end">{actions}</ButtonRow> : null}
     </div>
   );
 }

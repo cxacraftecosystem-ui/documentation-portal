@@ -184,9 +184,7 @@ const RECORD_CREATOR_GUARD = {
   gate: "require_record_creator",
   title: "Researcher access required",
   message:
-    "Creating artisans, products, processes and tools needs Researcher access or above. " +
-    "Field contributors and crowdsource volunteers answer existing interviews, upload media, and " +
-    "comment on existing records — browse records to find one to add to."
+    "Creating records needs Researcher access. You can still answer interviews, upload media and comment."
 } as const;
 
 export const ROUTE_GUARDS: RouteGuard[] = [
@@ -196,14 +194,14 @@ export const ROUTE_GUARDS: RouteGuard[] = [
     gate: "require_professor",
     title: "Professor access required",
     message:
-      "Managing users — roles, capability grants, and account creation — is available to professors, admins and the master admin."
+      "For professors and admins."
   },
   {
     path: "/admin",
     can: isAdmin,
     gate: "require_admin",
     title: "Admin access required",
-    message: "The settings hub is available to admins and the master admin only."
+    message: "Admins only."
   },
   {
     // Nested under /admin, which is already admin-guarded — this row exists for its WORDING, not for
@@ -216,7 +214,7 @@ export const ROUTE_GUARDS: RouteGuard[] = [
     gate: "require_admin",
     title: "Admin access required",
     message:
-      "The access roster decides who may sign in, and holds the queue of people waiting for a decision. It is available to admins and the master admin only."
+      "The access roster is for admins only."
   },
   {
     // THE ONLY GUARD UNDER /questionnaire, AND THE ONLY ONE THERE SHOULD BE. /questionnaire itself
@@ -237,7 +235,7 @@ export const ROUTE_GUARDS: RouteGuard[] = [
     gate: "require_admin",
     title: "Admin access required",
     message:
-      "Uploading a questionnaire workbook re-states the whole instrument in one press, so it is available to admins and the master admin only. Adding or editing individual questions is on the Questionnaire page and is open to professors and questionnaire managers."
+      "Workbook upload is for admins only. Edit single questions on the Questionnaire page."
   },
   {
     // The page now holds two things with two different owners, so the ROUTE is admin and the halves
@@ -250,7 +248,7 @@ export const ROUTE_GUARDS: RouteGuard[] = [
     gate: "require_admin",
     title: "Admin access required",
     message:
-      "Provider keys and the transcription provider order are managed by admins and the master admin. Reading or replacing a key value is the master admin's alone."
+      "Admins only."
   },
   {
     // Batch task assignment (POST /tasks/batch, /tasks/batches, /tasks/progress) is admin-only;
@@ -260,7 +258,7 @@ export const ROUTE_GUARDS: RouteGuard[] = [
     gate: "require_admin",
     title: "Admin access required",
     message:
-      "Assigning documentation tasks and tracking their progress is available to admins and the master admin. Your own assigned tasks are on the Tasks page."
+      "Admins only. Your own tasks are on the Tasks page."
   },
   {
     path: "/review",
@@ -268,7 +266,7 @@ export const ROUTE_GUARDS: RouteGuard[] = [
     gate: "require_reviewer",
     title: "Review access required",
     message:
-      "The review queue opens for Field Contributors and above — everyone with someone ranked below them — plus anyone granted review access."
+      "Needs review access."
   },
   {
     path: "/data",
@@ -276,7 +274,7 @@ export const ROUTE_GUARDS: RouteGuard[] = [
     gate: "require_dataset_downloader",
     title: "Dataset access required",
     message:
-      "Browsing and downloading the full dataset is available to professors and above, or to anyone granted dataset-download access. Use Browse records instead."
+      "Needs dataset access. Use Browse records instead."
   },
   { path: "/artisans/new", ...RECORD_CREATOR_GUARD },
   { path: "/products/new", ...RECORD_CREATOR_GUARD },

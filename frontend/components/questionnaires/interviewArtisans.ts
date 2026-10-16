@@ -449,8 +449,7 @@ export function outOfWorkshopNotice(names: readonly string[]): string {
   const list = shown.join(", ") + (remainder > 0 ? ` and ${remainder} more` : "");
   const subject = clean.length === 1 ? `${list} is` : `${list} are`;
   return (
-    `${subject} not recorded at this workshop yet. They stay ticked — saving this interview here ` +
-    `is what links them to it. Untick anyone who should not be on it.`
+    `${subject} new to this workshop. Saving links them to it.`
   );
 }
 

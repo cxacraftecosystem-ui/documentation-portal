@@ -46,8 +46,8 @@ export function GuideHero({ stepCount, onStart }: { stepCount: number; onStart: 
      * It replaces the review fact rather than joining it: four facts is a list and three is an
      * orientation, and review is taught properly at the step where the reader is doing it.
      */
-    { icon: ShieldCheck, text: "Access is by invitation — an admin admits your address first" },
-    { icon: ListOrdered, text: `${stepCount} steps, in the order you do them in the field` },
+    { icon: ShieldCheck, text: "Access is by invitation" },
+    { icon: ListOrdered, text: `${stepCount} steps, in field order` },
     { icon: Compass, text: "Every record is scoped to a workshop" }
   ];
 
@@ -90,9 +90,8 @@ export function GuideHero({ stepCount, onStart }: { stepCount: number; onStart: 
         Document a craft, end to end.
       </h2>
       <motion.p variants={riseItem(reduce)} className="mt-4 max-w-2xl text-sm leading-relaxed text-purple-100">
-        This is the whole process, in the order you actually perform it: from opening a workshop to
-        exporting the finished dataset. Each step below names the screen it lives on, the fields it
-        asks for, and the mistakes that cost people a second trip to the field.
+        From opening a workshop to exporting the dataset — each step names its screen, its fields and
+        what to watch for.
       </motion.p>
 
       <motion.ul variants={staggerParent(reduce)} className="mt-7 grid gap-2.5 sm:grid-cols-3">

@@ -55,12 +55,10 @@ export function ArtefactNotice({ className }: { className?: string }) {
     <section className={`panel grid gap-4 p-4 ${className ?? ""}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="font-display text-lg font-bold text-ink-900">Two downloads, and they are not the same file</h2>
+          <h2 className="font-display text-lg font-bold text-ink-900">Two downloads</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-ink-muted">
-            <span className="font-medium text-ink-900">This questionnaire (.xlsx)</span> has the Question IDs filled in
-            — edit it and upload it back to change <em>this</em> questionnaire. The{" "}
-            <span className="font-medium text-ink-900">question set</span> has them blank; uploading it makes a{" "}
-            <em>new</em> questionnaire. Neither file contains an answer, a respondent&rsquo;s name or an interview.
+            <span className="font-medium text-ink-900">This questionnaire</span> edits this one.{" "}
+            <span className="font-medium text-ink-900">Question set</span> starts a new one. Neither contains answers.
           </p>
         </div>
         <button
@@ -71,7 +69,7 @@ export function ArtefactNotice({ className }: { className?: string }) {
           onClick={() => setOpen((current) => !current)}
         >
           <ChevronDown className={`h-4 w-4 ${open ? "rotate-180" : ""}`} aria-hidden />
-          {open ? "Hide the detail" : "What is in each file?"}
+          {open ? "Hide details" : "Details"}
         </button>
       </div>
 
@@ -95,13 +93,8 @@ function ArtefactDetail() {
             This questionnaire (.xlsx) — edits the live instrument
           </h3>
           <p className="text-sm leading-6 text-amber-800">
-            The questions with their <span className="font-semibold">Question IDs filled in</span>, including the ones
-            that have been retired. The ids are how the app knows which question each row is, so uploading this file back
-            changes THESE questions — the ones researchers are answering in the field this week.
-          </p>
-          <p className="text-sm leading-6 text-amber-800">
-            Do not retype or delete the Question ID column. Without it a reworded row imports as a brand-new question
-            and the original is retired beside it.
+            Uploading it changes the live questions. Don’t edit or delete the Question ID column, or rows import as
+            new questions.
           </p>
         </article>
 
@@ -111,12 +104,7 @@ function ArtefactDetail() {
             Question set — starts a new questionnaire
           </h3>
           <p className="text-sm leading-6 text-ink-700">
-            The same active questions with the <span className="font-semibold">Question IDs blank</span>, and no retired
-            rows. Uploading it creates a NEW questionnaire rather than editing this one.
-          </p>
-          <p className="text-sm leading-6 text-ink-700">
-            Use it to start next year&rsquo;s instrument from this year&rsquo;s, and keep this year&rsquo;s interviews
-            attached to the questionnaire they were recorded against.
+            Active questions without IDs. Uploading it creates a new questionnaire.
           </p>
         </article>
       </div>
@@ -124,24 +112,14 @@ function ArtefactDetail() {
       <div className="grid gap-2 rounded-md border border-line-200 p-3">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-ink-900">
           <Upload className="h-4 w-4 shrink-0 text-field-600 dark:text-purple-300" aria-hidden />
-          What happens to answers typed into a file you upload
+          Answers in an uploaded file
         </h3>
         <ul className="grid gap-1.5 text-sm leading-6 text-ink-700">
           <li className="flex items-start gap-2">
             <FileSpreadsheet className="mt-1 h-3.5 w-3.5 shrink-0 text-ink-500" aria-hidden />
             <span>
-              <span className="font-medium text-ink-900">They are counted, not saved.</span> Answers typed into the
-              spreadsheet aren’t imported — record answers on the Questionnaire page. The report after the upload says how
-              many it found.
-            </span>
-          </li>
-          <li className="flex items-start gap-2">
-            <FileSpreadsheet className="mt-1 h-3.5 w-3.5 shrink-0 text-ink-500" aria-hidden />
-            <span>
-              <span className="font-medium text-ink-900">Because an answer belongs to an interview.</span> It names the
-              artisan who gave it, where it was recorded and who recorded it. A spreadsheet column cannot say any of
-              that, so importing one would mean inventing an interview and putting the uploader&rsquo;s name on it.
-              Answers are recorded on the Questionnaire page, against an artisan.
+              <span className="font-medium text-ink-900">Counted, not saved.</span> Record answers on the
+              Questionnaire page.
             </span>
           </li>
         </ul>

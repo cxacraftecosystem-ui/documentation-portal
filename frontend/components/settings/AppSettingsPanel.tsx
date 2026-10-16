@@ -22,8 +22,8 @@ type AppSettings = {
 };
 
 const TRANSCRIPTION_MODES: Array<{ value: string; label: string; helper: string }> = [
-  { value: "RAW", label: "Raw transcript only", helper: "Fastest, lowest cost — the plain speech-to-text." },
-  { value: "REFINED", label: "Refined conversation", helper: "Cleaned into a readable interviewer/interviewee dialogue." },
+  { value: "RAW", label: "Raw transcript only", helper: "Fastest and cheapest." },
+  { value: "REFINED", label: "Refined conversation", helper: "A clean, readable dialogue." },
   { value: "REFINED_TRANSLATED", label: "Refined + translated to English", helper: "Refined, then translated to English (default)." }
 ];
 
@@ -97,8 +97,7 @@ export function AppSettingsPanel() {
           <section className="panel p-5">
             <h2 className="font-display font-bold text-ink-900">Transcription mode</h2>
             <p className="mt-1 text-xs leading-5 text-ink-500">
-              How recorded audio is turned into text after upload. Refinement/translation use AI and always await your
-              approval before they become the saved transcript.
+              AI refinement and translation always wait for your approval.
             </p>
             <div className="mt-3 grid gap-2 md:grid-cols-3">
               {TRANSCRIPTION_MODES.map((mode) => {
@@ -133,8 +132,7 @@ export function AppSettingsPanel() {
               <div>
                 <h2 className="font-display font-bold text-ink-900">Process during an off-peak window</h2>
                 <p className="mt-1 text-xs leading-5 text-ink-500">
-                  When on, transcription &amp; refinement run only between the times below, so the heavy work happens when
-                  nobody is uploading. When off, they run immediately.
+                  Run transcription only between these times.
                 </p>
               </div>
               <Toggle

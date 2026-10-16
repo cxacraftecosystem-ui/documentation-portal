@@ -87,7 +87,7 @@ function precisionNote(precision: MapPrecision): string {
 function childSummary(point: MapPoint, childLevel: AdminLevel | null | undefined): string {
   const count = point.children?.length ?? 0;
   if (point.layer === "CAPTURE") {
-    return `${count} separate recording ${count === 1 ? "place" : "places"} inside this pin`;
+    return `${count} recording ${count === 1 ? "place" : "places"} here`;
   }
   const [singular, plural] = CHILD_NOUN[childLevel ?? "DISTRICT"] ?? CHILD_NOUN.DISTRICT;
   return `${count} ${count === 1 ? singular : plural} inside this point`;
@@ -344,9 +344,7 @@ export function MapPlaceList({
           {/* A place quietly missing from a map is indistinguishable from a place with no records,
               so what could not be placed is named here rather than dropped. */}
           <p className="mt-1 text-xs leading-5 text-ink-700">
-            These records carry no state on their location and no place name the atlas can resolve, so
-            there is nothing to place them by. They are counted in the totals but have no pin. Adding a
-            state — and ideally a district — to the record puts it on the map.
+            No state on record. Add a state and district to place them.
           </p>
           <ul className="mt-2 grid gap-1">
             {unplaced.map((entry) => (

@@ -124,8 +124,8 @@ export default function ToolsPage() {
     const ok = await confirm(
       deleteConfirm(
         "Delete this tool record?",
-        "This permanently deletes the record. This action cannot be undone.",
-        "Artisans assigned to this tool keep their own records; only the tool documentation goes."
+        "Deletes the tool. Artisans’ records are kept. This can’t be undone.",
+        undefined
       )
     );
     if (!ok) return;
@@ -141,7 +141,7 @@ export default function ToolsPage() {
     <>
       <PageHeader
         title="Tool Documentation"
-        description="Document tools, dimensions, materials, maker type, tradition type, replacement cost and improvement notes."
+        description="Tools, materials and measurements."
         icon={<Hammer className="h-5 w-5" aria-hidden />}
         actions={
           <>
@@ -176,7 +176,7 @@ export default function ToolsPage() {
           <div className="p-4 text-sm text-ink-700">Loading...</div>
         ) : data.items.length === 0 ? (
           <div className="p-4">
-            <EmptyState title="No tool records found" body="Create a tool record and attach field media from the media page." />
+            <EmptyState title="No tool records found" body="Add the first tool." />
           </div>
         ) : (
           <div className="overflow-x-auto">

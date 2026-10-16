@@ -113,7 +113,7 @@ test.describe("counting grid squares into a reference length", () => {
     expect(negative.ok).toBe(false);
     const reasons = [blank, nonsense, zero, negative].map((entry) => (entry.ok ? "" : entry.reason));
     expect(new Set(reasons).size, "four different failures, three different sentences").toBe(3);
-    expect(reasons[0]).toContain("how many grid squares");
+    expect(reasons[0]).toContain("how many squares");
     expect(reasons[1]).toContain("“six”");
     // Zero and a negative are the same mistake said the same way, and that is the deliberate pairing.
     expect(reasons[2]).toBe(reasons[3]);
@@ -264,7 +264,7 @@ test.describe("getting a measured value into a Decimal(10, 2) box", () => {
     const tiny = proposalFor(0.001, 0.0002, "in", "in");
     expect(tiny.ok).toBe(false);
     if (tiny.ok) return;
-    expect(tiny.reason).toContain("rounds to zero");
+    expect(tiny.reason).toContain("Too small for this field");
   });
 
   test("a unit this cannot convert is a named refusal, not a missing button", () => {
@@ -349,7 +349,7 @@ for (const [name, path, keys] of [
       retry behind it.
     */
     const source = read(path);
-    const wrapper = source.slice(source.indexOf("If you cannot mark it"), source.indexOf("<GridMeasurement"));
+    const wrapper = source.slice(source.indexOf("Estimate with AI"), source.indexOf("<GridMeasurement"));
     expect(wrapper, "the fallback is named as an estimate").toContain("<strong>estimate</strong>");
     expect(wrapper, "and as needing a connection").toContain("Needs a connection");
   });

@@ -201,8 +201,7 @@ export class ImageEditor {
   private crash(): void {
     this.settleAll(
       new Error(
-        "The photograph could not be processed on this device — it ran out of memory partway " +
-          "through. A smaller crop is the way through; the photograph itself is untouched."
+        "Ran out of memory. Try a smaller crop."
       )
     );
     this.worker?.terminate();

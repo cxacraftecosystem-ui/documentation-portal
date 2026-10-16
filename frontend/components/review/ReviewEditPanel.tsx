@@ -11,6 +11,7 @@ import {
 } from "@/components/review/reviewEditFields";
 import { readableError } from "@/components/review/reviewErrors";
 import { RequiredMark } from "@/components/ui/RequiredMark";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 /**
  * Fix a pending record's field values from inside the review queue, instead of bouncing it back to
@@ -110,7 +111,7 @@ export function ReviewEditPanel({
         setValues(fresh);
       }
       setNote("");
-      setSaved(`Saved ${count}. This record is still pending — approve it when you are ready.`);
+      setSaved(`Saved ${count}. Still pending.`);
       onSaved(`Edited ${count} on "${label}".`);
     } catch (err) {
       setError(readableError(err, "Unable to save this edit"));
@@ -183,9 +184,7 @@ export function ReviewEditPanel({
       <p className="text-xs text-ink-500">
         {/* The explicit {" "} is load-bearing: the JSX transform drops the leading space of the text
             node that follows an inline element, so without it this reads "does notapprove it". */}
-        Fix the values here instead of bouncing the record back. Saving does <strong>not</strong>{" "}
-        approve it — the status stays pending and the change is recorded against your name in the edit history. Status,
-        workshop, location and linked records are changed from the record&apos;s own edit screen.
+        Saving does <strong>not</strong> approve it. Edits are logged under your name.
       </p>
       {!baseline ? (
         <>
@@ -205,7 +204,7 @@ export function ReviewEditPanel({
             />
           </label>
           {feedback}
-          <div className="flex flex-wrap items-center gap-2">
+          <ButtonRow size="sm" align="start">
             <button
               type="button"
               className="field-button h-9 min-h-0 pointer-coarse:h-11 px-3 text-xs"
@@ -229,7 +228,7 @@ export function ReviewEditPanel({
             <button type="button" className="field-button-secondary h-9 min-h-0 pointer-coarse:h-11 px-3 text-xs" disabled={busy} onClick={onClose}>
               Cancel
             </button>
-          </div>
+          </ButtonRow>
         </>
       )}
     </div>

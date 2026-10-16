@@ -109,7 +109,7 @@ export default function QuestionnaireWorkbooksPage() {
   const header = (
     <PageHeader
       title="Questionnaire workbooks"
-      description="Download the instrument as a spreadsheet, edit it in Excel, and upload it back. Neither download carries an answer, and no upload stores one."
+      description="Edit the questionnaire in Excel."
       icon={<FileSpreadsheet className="h-5 w-5" aria-hidden />}
       actions={
         permitted ? (
@@ -148,7 +148,7 @@ export default function QuestionnaireWorkbooksPage() {
         {header}
         <RestrictedPanel
           title="Admin access required"
-          body="Uploading a questionnaire workbook re-states the whole instrument in one press, so it is available to admins and the master admin only. Adding or editing individual questions is on the Questionnaire page and is open to professors and questionnaire managers."
+          body="Admins only. Edit single questions on the Questionnaire page."
         />
       </>
     );
@@ -177,7 +177,7 @@ export default function QuestionnaireWorkbooksPage() {
         ) : instruments.length === 0 ? (
           <EmptyState
             title="No questionnaires yet"
-            body="Download the pro-forma, type the instrument into it, and upload it back."
+            body="Fill in the template and upload it."
           />
         ) : (
           <ul className="grid gap-2">
@@ -261,7 +261,7 @@ export default function QuestionnaireWorkbooksPage() {
           toast({
             tone: "success",
             title: "The workbook was applied",
-            description: "The report at the top of this page names every row the import had to decide about."
+            description: "See the report above."
           });
         }}
       />

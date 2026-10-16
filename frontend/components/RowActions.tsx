@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 /**
  * The standard action cluster every list row ends with: separate rounded buttons, one per action,
@@ -39,7 +40,15 @@ export function rowAction(tone: RowActionTone = "neutral", extra?: string): stri
   return `${BASE} ${TONE[tone]}${extra ? ` ${extra}` : ""}`;
 }
 
-/** Right-aligned wrapper for a row's action buttons; wraps rather than overflowing on small screens. */
-export function RowActions({ children }: { children: ReactNode }) {
-  return <div className="flex flex-wrap justify-end gap-2">{children}</div>;
+/**
+ * A row's action buttons, laid out by `ButtonRow`: flush right beside the row on wide screens,
+ * centred (one), paired (two) or stacked (three or more) on a phone. Pass a delete as `destructive`
+ * so it is always last.
+ */
+export function RowActions({ children, destructive }: { children?: ReactNode; destructive?: ReactNode }) {
+  return (
+    <ButtonRow align="end" size="sm" destructive={destructive}>
+      {children}
+    </ButtonRow>
+  );
 }

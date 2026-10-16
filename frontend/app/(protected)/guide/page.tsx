@@ -31,7 +31,7 @@ export default function GuidePage() {
     <>
       <PageHeader
         title="Walkthrough"
-        description="How a craft gets documented, from opening a workshop to exporting the dataset. Ten steps, in the order you do them."
+        description="Documenting a craft, step by step."
         icon={<Compass className="h-5 w-5" aria-hidden />}
       />
 

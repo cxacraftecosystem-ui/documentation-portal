@@ -57,9 +57,9 @@ export const GUIDE_STEPS: GuideStep[] = [
     icon: UsersRound,
     href: "/workshops?new=1",
     summary:
-      "Open the workshop you are documenting under — or create it — before you record anything else.",
+      "Open or create the workshop first.",
     why:
-      "Every record you make is scoped to a workshop. Products, tools and interviews all carry a linked workshop, and the Data Browser opens on \"By workshop\", which files every record under the workshop it was recorded in. On a create form the most recent workshop you have access to is preselected, so getting this right once saves you picking it on every screen afterwards.",
+      "Every record belongs to a workshop, and new forms preselect your latest one.",
     fields: [
       "Workshop title (required)",
       "Place (required)",
@@ -72,8 +72,8 @@ export const GUIDE_STEPS: GuideStep[] = [
       "Location (GPS fix or map pin)"
     ],
     watch: [
-      "Create the workshop before you leave for the field — it is the container everything else drops into.",
-      "Records created outside a workshop's date window are flagged as out-of-window and need a reviewer's approval."
+      "Create it before you leave for the field.",
+      "Records outside its dates need approval."
     ]
   },
   {
@@ -82,13 +82,13 @@ export const GUIDE_STEPS: GuideStep[] = [
     action: "Add craft",
     icon: Brush,
     href: "/crafts?new=1",
-    summary: "Add the craft being documented so artisans, products and tools have something to hang off.",
+    summary: "Add the craft being documented.",
     why:
-      "Craft is the shared vocabulary everyone uses: artisans link to a craft, products and tools inherit the craft name from it, and the Data Browser groups every workshop's contents by craft. Adding it once keeps spellings consistent across everyone's records.",
+      "Artisans, products and tools link to it, keeping spellings consistent.",
     fields: ["Craft name (required)", "Local name", "Category", "Place", "Description", "Craft media"],
     watch: [
-      "Check the list first — if the craft already exists, reuse it instead of creating a near-duplicate spelling.",
-      "The local name matters as much as the English one; record what the community actually calls it."
+      "Reuse an existing craft rather than adding a near-duplicate.",
+      "Record the local name the community uses."
     ]
   },
   {
@@ -97,9 +97,9 @@ export const GUIDE_STEPS: GuideStep[] = [
     action: "Record artisan",
     icon: UserIcon,
     href: "/artisans/new",
-    summary: "Record the person: who they are, where they work, how to reach them, and what they have learnt.",
+    summary: "Who they are, where they work and what they’ve learnt.",
     why:
-      "The artisan is the anchor of the dataset. Products, processes, tools and questionnaire interviews all link back to an artisan record, and the Do's and Don'ts are the artisan's own hard-won craft knowledge — the part of the archive that cannot be reconstructed later.",
+      "Everything links back to the artisan. Their Do’s and Don’ts can’t be recovered later.",
     fields: [
       "Name (required)",
       "Local name",
@@ -118,9 +118,9 @@ export const GUIDE_STEPS: GuideStep[] = [
       "Location (GPS fix or map pin)"
     ],
     watch: [
-      "Do's and Don'ts are required. Press Enter for each new point — one lesson per line.",
-      "You must either select an existing craft or type a new craft name; the form will not save with neither.",
-      "Photo details (date, place, camera) are kept and summarised into the notes automatically — you do not need to transcribe camera details by hand."
+      "Do’s and Don’ts are required — one point per line.",
+      "Choose a craft or type a new one.",
+      "Photo details are added to the notes automatically."
     ]
   },
   {
@@ -129,9 +129,9 @@ export const GUIDE_STEPS: GuideStep[] = [
     action: "Record product",
     icon: Package,
     href: "/products/new",
-    summary: "Record one thing this artisan makes, with its measurements, economics and photographs.",
+    summary: "One thing they make — size, cost and photos.",
     why:
-      "The product record is where the craft becomes measurable: dimensions, cost of making, selling price and market demand are the fields researchers compare across regions. Link it to the artisan and the craft and the whole chain stays navigable.",
+      "Dimensions, cost and price are what researchers compare across regions.",
     fields: [
       "Product name (required)",
       "Local name",
@@ -158,9 +158,9 @@ export const GUIDE_STEPS: GuideStep[] = [
       "Location (GPS fix or map pin)"
     ],
     watch: [
-      "Pick the linked craft first — the artisan dropdown stays disabled until a craft is chosen, then only lists that craft's artisans.",
-      "Use \"Document using grid\" to photograph the piece against the measuring grid: it fills length, breadth and height for you and stores the photo as evidence.",
-      "Choosing a linked artisan fills the artisan name and place; choosing a linked craft fills the craft name."
+      "Pick the craft first; it filters the artisans.",
+      "\"Document using grid\" measures the piece from a photo.",
+      "Linked craft and artisan fill their names for you."
     ]
   },
   {
@@ -169,9 +169,9 @@ export const GUIDE_STEPS: GuideStep[] = [
     action: "Document process",
     icon: GitBranch,
     href: "/processes?new=1",
-    summary: "Walk through how that product is made, one step at a time, filming each step as it happens.",
+    summary: "How the product is made, step by step, on video.",
     why:
-      "The process is the craft itself. A product photograph shows the result; the step-by-step record with per-step media shows the knowledge — the sequence, the hand movements, the judgement calls that a text description always loses.",
+      "The steps on video capture knowledge a photo or description loses.",
     fields: [
       "Name of the process (required)",
       "Artisan (required)",
@@ -181,9 +181,9 @@ export const GUIDE_STEPS: GuideStep[] = [
       "Per step: attached media"
     ],
     watch: [
-      "Add a step with \"Add Another Step\" and pick Sequential for an ordered stage, or Group of activities for things done together.",
-      "Video is the preferred format for steps — capture the action as it happens rather than posing the result.",
-      "Document the process against the product you already recorded, so the two stay linked."
+      "Use Sequential for ordered steps, Group for parallel ones.",
+      "Film the action, not the result.",
+      "Link it to the product you recorded."
     ]
   },
   {
@@ -192,9 +192,9 @@ export const GUIDE_STEPS: GuideStep[] = [
     action: "Record tool",
     icon: Wrench,
     href: "/tools/new",
-    summary: "Record the toolkit the artisan uses: what it is made of, how big it is, who made it, what it costs to replace.",
+    summary: "Material, size, maker and replacement cost.",
     why:
-      "Tools are the most quietly endangered part of a craft — the maker of a tool often disappears before the craft does. Replacement cost, maker and tradition type are the fields that record whether the toolchain behind the craft is still alive.",
+      "Tool makers often vanish before the craft does — record who makes them.",
     fields: [
       "Toolkit name (required)",
       "Local name",
@@ -226,11 +226,11 @@ export const GUIDE_STEPS: GuideStep[] = [
       "Location (GPS fix or map pin)"
     ],
     watch: [
-      "Fill only the dimensions that make sense for the tool — a blade has a length and thickness, a wheel has a radius.",
-      "Height (cm) and Height (inches) are one measurement: fill either and the other fills itself. Width (cm) pairs with Breadth (inches) the same way; Length (inches) has no centimetre box.",
-      "A tool can be linked to several crafts and several artisans at once — tick as many as apply, and the craft name box fills with all of them in the order you picked.",
-      "\"Process stages\" keeps your captures in the order you take them, so shoot them in sequence.",
-      "You can also hand tools to specific artisans later from \"Assign tools to artisans\" — for your own artisans, ones shared with you for editing, or any artisan if you are an admin."
+      "Fill only the dimensions that apply.",
+      "cm and inch boxes fill each other.",
+      "Link several crafts and artisans at once.",
+      "Shoot process stages in order.",
+      "Assign tools to artisans later from \"Assign tools to artisans\"."
     ]
   },
   {
@@ -239,9 +239,9 @@ export const GUIDE_STEPS: GuideStep[] = [
     action: "Take interview",
     icon: ClipboardList,
     href: "/questionnaire?new=1",
-    summary: "Sit down with the artisan and work through the interview sections, recording each answer as audio.",
+    summary: "Work through the sections, recording each answer.",
     why:
-      "The questionnaire is the artisan speaking in their own voice and their own language. Recorded audio is transcribed automatically, so you get both the original recording and searchable text without typing during the interview.",
+      "Audio is transcribed, so you keep their voice and searchable text.",
     // Regenerated against the form on 2026-09-16 and now held to `shared/questionnaire-form-
     // contract.json` by `backend/tests/test_questionnaire_form_contract.py`, together with the
     // Android register and the printed guide. It listed a "Date" the form has not had since the
@@ -261,10 +261,10 @@ export const GUIDE_STEPS: GuideStep[] = [
       "Interview notes"
     ],
     watch: [
-      "There is one interview per exact set of artisans. If an entry already exists for that set, saving adds your answers to it — it never creates a duplicate.",
-      "Answer only the questions actually asked; empty questions stay open for whoever picks the interview up next.",
-      "Questions already answered by someone else can only be changed by that contributor or an admin.",
-      "Use \"Check completion\" at the top of the screen to see the artisans × sections matrix and find the gaps."
+      "One interview per set of artisans; saving adds to an existing one.",
+      "Answer only what was asked.",
+      "Others’ answers can only be changed by them or an admin.",
+      "\"Check completion\" shows the gaps."
     ]
   },
   {
@@ -273,9 +273,9 @@ export const GUIDE_STEPS: GuideStep[] = [
     action: "Upload media",
     icon: Images,
     href: "/media",
-    summary: "Upload the photographs, video, audio and files that do not belong to any single record.",
+    summary: "Files that don’t belong to one record.",
     why:
-      "Field work produces context that no form has a slot for: the road into the village, the market, an unplanned conversation. Miscellaneous Media keeps that material with your records instead of on a phone that gets wiped.",
+      "Keeps field context with your records, not on a phone.",
     fields: [
       "Capture media — images, video, audio and documents",
       "Media title / object name",
@@ -285,9 +285,9 @@ export const GUIDE_STEPS: GuideStep[] = [
       "Location (GPS fix or map pin)"
     ],
     watch: [
-      "Upload stays disabled until you pick a Linked record type. If the file belongs to nothing in particular, pick \"Miscellaneous Media\" and leave the entry blank.",
-      "Audio uploaded here is queued for transcription after upload, exactly like interview audio.",
-      "If the file does turn out to belong to a record, link it — misc media can be attached to a record afterwards."
+      "Pick a record type first, or \"Miscellaneous Media\".",
+      "Audio is transcribed.",
+      "You can link it to a record later."
     ]
   },
   {
@@ -296,9 +296,9 @@ export const GUIDE_STEPS: GuideStep[] = [
     action: "Track your submissions",
     icon: ClipboardCheck,
     href: "/review",
-    summary: "Everything you submit goes into the review queue and comes back Approved, Rejected, or Sent for revision.",
+    summary: "Submissions come back Approved, Rejected or Sent for revision.",
     why:
-      "Review is what turns a pile of field notes into a dataset anyone can cite. It also means you are never the last check on your own work — a reviewer above your tier reads every record before it counts as final.",
+      "A reviewer above you checks every record before it counts.",
     fields: [
       "Pending — submitted, waiting for a reviewer",
       "Approved — final, counted in the dataset",
@@ -306,9 +306,9 @@ export const GUIDE_STEPS: GuideStep[] = [
       "Rejected — not going into the dataset"
     ],
     watch: [
-      "Below Professor the status chip is locked: whatever you create is submitted as Pending. That is normal, not an error.",
-      "\"Send for revision\" always carries mandatory comments — read them, fix the record, and saving resubmits it as Pending.",
-      "Reviewers only see submissions from contributors ranked strictly below them; the master admin sees everyone."
+      "Below Professor, everything is submitted as Pending.",
+      "Fix what the comments say; saving resubmits it.",
+      "Reviewers see work from those below them."
     ]
   },
   {
@@ -317,9 +317,9 @@ export const GUIDE_STEPS: GuideStep[] = [
     action: "Browse records",
     icon: Eye,
     href: "/data",
-    summary: "Browse every record as folders and export a report of any folder.",
+    summary: "Browse records as folders and export any of them.",
     why:
-      "This is where the documentation stops being data entry and starts being research material: the same records, filed three different ways, previewable in place and downloadable as a spreadsheet.",
+      "The same records, filed three ways, ready to preview and download.",
     fields: [
       "By workshop — every record filed under the workshop it was made in (the view it opens on)",
       "By uploader — a workshop's records filed under the researcher who uploaded them",
@@ -328,9 +328,9 @@ export const GUIDE_STEPS: GuideStep[] = [
       "Download any folder as a zip, with content-type filters"
     ],
     watch: [
-      "Pick a folder, then use the breadcrumb to move back up — each folder loads when you open it.",
-      "Transcripts and AI text render as formatted Markdown in the preview pane, not raw text.",
-      "Dataset download is a granted permission. If your role does not have it the browser shows a restricted notice — use Search to find records instead."
+      "Use the breadcrumb to go back up.",
+      "Transcripts preview as formatted text.",
+      "Without dataset access, use Search instead."
     ]
   }
 ];

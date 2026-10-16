@@ -100,10 +100,10 @@ export function WorkshopAccessRequestPanel() {
     const held = (workshops ?? []).filter((workshop) => workshop.accessStatus === "GRANTED").length;
     const open = (workshops ?? []).filter((workshop) => !workshop.restricted && !workshop.accessStatus).length;
     const parts: string[] = [];
-    if (held) parts.push(`You already have access to ${held} of these — they are listed but cannot be selected.`);
+    if (held) parts.push(`You already have ${held}.`);
     if (open) {
       parts.push(
-        `${open} ${open === 1 ? "is" : "are"} open to everyone: you can already add records there, so only ask if you need Edit.`
+        `${open} ${open === 1 ? "is" : "are"} open — ask only if you need Edit.`
       );
     }
     return parts.join(" ");
@@ -128,7 +128,7 @@ export function WorkshopAccessRequestPanel() {
         .join(", ");
       toast({
         title: "Request sent",
-        description: `${summary}. An admin decides — you will see the outcome below.`,
+        description: `${summary}. An admin will decide.`,
         tone: "success"
       });
       setSelected([]);
@@ -152,8 +152,7 @@ export function WorkshopAccessRequestPanel() {
         <h2 className="font-display font-bold text-ink-900">Request workshop access</h2>
       </div>
       <p className="mt-1.5 text-sm leading-6 text-ink-500">
-        Some workshops are restricted to the researchers assigned to them. Pick every workshop you need and ask once — an
-        admin approves or declines, and the outcome appears below.
+        Pick the workshops you need. An admin will decide.
       </p>
 
       {error ? (

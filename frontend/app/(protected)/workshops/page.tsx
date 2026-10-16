@@ -43,6 +43,7 @@ import { saveOrQueue } from "@/lib/offline";
 import { canManageWorkshops, hasRank, isAdmin } from "@/lib/permissions";
 import { UploadsProvider, useUploads } from "@/lib/uploads";
 import type { Artisan, Craft, PageResult, RecordStatus, User, Workshop, WorkshopAssignment } from "@/lib/types";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 // The API includes the workshop's linked crafts (not yet in the Workshop TS type); used to pre-fill
 // the "Crafts covered" selection when editing.
@@ -470,8 +471,7 @@ function WorkshopsPageBody() {
         addCompleted(MEDIA_SECTION, MEDIA_SECTION_LABEL, uploaded);
         if (failed.length) {
           setError(
-            `${failed.length} of ${mediaFiles.length} file(s) failed to upload: ${failed.map((item) => item.name).join(", ")}. ` +
-              "The workshop was saved; re-open it to retry those files."
+            `Saved, but ${failed.length} of ${mediaFiles.length} file(s) didn’t upload: ${failed.map((item) => item.name).join(", ")}. Reopen to retry.`
           );
           setSaving(false);
           return;
@@ -498,8 +498,8 @@ function WorkshopsPageBody() {
     const ok = await confirm(
       deleteConfirm(
         "Delete this workshop?",
-        "This permanently deletes the workshop. This action cannot be undone.",
-        "Researcher assignments to it go too. Records documented during the workshop are kept."
+        "This can’t be undone. Its records are kept.",
+        undefined
       )
     );
     if (!ok) return;
@@ -525,7 +525,7 @@ function WorkshopsPageBody() {
     <>
       <PageHeader
         title="Workshops"
-        description="Create field workshop records, link artisans and store date, place, notes and GPS context."
+        description="Field workshops, their dates, places and artisans."
         icon={<MapPinned className="h-5 w-5" aria-hidden />}
       />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
@@ -695,7 +695,7 @@ function WorkshopsPageBody() {
             setDirty(true);
           }}
           title="Workshop media"
-          description="Attach workshop images, videos, audio notes, attendance references, and documents."
+          description="Photos, video, audio and documents."
         />
         <UploadProgress progress={uploadProgress} sectionId={MEDIA_SECTION} label={MEDIA_SECTION_LABEL} />
         {/* Editing an existing workshop: everything already attached to it, with per-file delete. */}
@@ -710,7 +710,7 @@ function WorkshopsPageBody() {
           initial={editing ? ((editing as Workshop & { location?: LocationInitialValues | null }).location ?? null) : undefined}
           onDirty={() => setDirty(true)}
         />
-        <div className="flex gap-2">
+        <ButtonRow>
           <button className="field-button" disabled={saving}>
             {saving ? "Saving..." : editing ? "Update workshop" : "Create workshop"}
           </button>
@@ -719,11 +719,11 @@ function WorkshopsPageBody() {
               Cancel edit
             </button>
           ) : null}
-        </div>
+        </ButtonRow>
       </form>
       ) : (
         <div className="panel mb-5 p-4 text-sm text-ink-muted">
-          Browse workshops below. Ask the master admin for workshop creation access to add or edit workshops.
+          Ask an admin for access to add workshops.
         </div>
       )}
       {/* Same provenance block the artisan/product/tool edit surfaces carry, for the workshop being
@@ -820,8 +820,7 @@ function WorkshopsPageBody() {
           <div className="panel w-full max-w-lg p-4" onClick={(e) => e.stopPropagation()}>
             <h2 className="font-display font-bold text-lg text-ink">Assign researchers</h2>
             <p className="mt-1 text-sm text-ink-muted">
-              Only assigned researchers can create entries for <span className="font-medium">{assigning.title}</span>. Submissions outside the
-              workshop dates are flagged for admin approval. Leave empty to keep the workshop open to everyone.
+              Only these researchers can add to <span className="font-medium">{assigning.title}</span>. Leave empty for everyone.
             </p>
             <div className="mt-3 grid max-h-72 gap-1 overflow-y-auto rounded-md border border-line-200 bg-field-50 p-2">
               {researchers.length === 0 ? (
@@ -838,14 +837,14 @@ function WorkshopsPageBody() {
                 ))
               )}
             </div>
-            <div className="mt-4 flex justify-end gap-2">
+            <ButtonRow align="end" className="mt-4">
               <button className="field-button-secondary" onClick={() => setAssigning(null)}>
                 Cancel
               </button>
               <button className="field-button" disabled={assignBusy} onClick={saveAssignments}>
                 {assignBusy ? "Saving…" : `Save (${assignIds.size})`}
               </button>
-            </div>
+            </ButtonRow>
           </div>
         </div>
       ) : null}

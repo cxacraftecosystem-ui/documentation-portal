@@ -63,6 +63,7 @@ import { recordUpdateHref, recordViewHref } from "@/lib/recordView";
 import { canManageQuestionnaire, hasRank, isAdmin } from "@/lib/permissions";
 import { UploadsProvider, useEagerStaging, useUploads } from "@/lib/uploads";
 import type { MediaFile, PageResult, Questionnaire, QuestionnaireInterview, QuestionnaireQuestion, QuestionnaireSection } from "@/lib/types";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 /**
  * The API's own ceiling on an interview title — `QuestionnaireInterviewCreate.title` is
@@ -217,10 +218,10 @@ function savedMediaPreview(media: MediaFile): PreviewMedia {
 function sharedEntrySummary(responses: number, recordings: number): string {
   const answers = `${responses} typed answer${responses === 1 ? "" : "s"}`;
   const clips = `${recordings} recording${recordings === 1 ? "" : "s"}`;
-  if (responses && recordings) return `${clips} and ${answers} already recorded in it.`;
-  if (recordings) return `${clips}, no typed answers yet.`;
-  if (responses) return `${answers}, no recordings yet.`;
-  return "Nothing recorded in it yet — you can be the first to fill it in.";
+  if (responses && recordings) return `${clips} and ${answers}.`;
+  if (recordings) return `${clips}, no typed answers.`;
+  if (responses) return `${answers}, no recordings.`;
+  return "Nothing recorded yet.";
 }
 
 /*
@@ -930,7 +931,7 @@ function QuestionnairePageBody() {
     const ready = entries.filter((entry) => entry?.status === "ready").length;
     const failed = entries.filter((entry) => entry?.status === "error").length;
     const clips = `${files.length} clip${files.length === 1 ? "" : "s"}`;
-    if (failed) return `${clips} · ${failed} failed to upload, will retry on save`;
+    if (failed) return `${clips} · ${failed} failed, retries on save`;
     if (ready === files.length) return `${clips} · uploaded`;
     return `${clips} · ${ready} of ${files.length} uploaded`;
   }
@@ -1228,32 +1229,26 @@ function QuestionnairePageBody() {
     setMergeConflicts([]);
     setMergeNotice(null);
     const ok = await confirm({
-      title: `${holderName} already covers this exact set of artisans`,
+      title: `${holderName} already covers these artisans`,
       body: (
         <>
-          There is one questionnaire entry per set of artisans, so this interview cannot be saved with these
-          artisans ticked. Moving it into <span className="font-semibold">{holderName}</span> puts this
-          interview&apos;s saved answers and every recording made against it onto that entry, and then removes
-          this one.
+          Move this interview&apos;s saved answers and recordings into{" "}
+          <span className="font-semibold">{holderName}</span>? This interview is then removed.
         </>
       ),
       note: (
         <>
-          Only what is <span className="font-semibold">already saved</span> on this interview moves. Anything
-          you’ve typed or recorded since opening this form hasn’t been saved and will be lost — cancel, write it
-          down, and put the original artisans back if you need to keep it. If the two interviews answer a question
-          differently, nothing is moved.
+          Only <span className="font-semibold">saved</span> work moves — unsaved changes here will be lost.
+          Nothing moves if the two disagree on an answer.
         </>
       ),
-      confirmLabel: "Move this interview in",
-      cancelLabel: "Leave both interviews alone",
+      confirmLabel: "Move in",
+      cancelLabel: "Cancel",
       tone: "warning"
     });
     if (!ok) {
       setError(
-        `Not saved. ${holderName} already covers this exact set of artisans on this questionnaire, and there is ` +
-          "one entry per set. Put the original artisans back to save this interview as it was, or open that " +
-          "interview and add the answers there."
+        `Not saved — ${holderName} already covers these artisans. Restore the original artisans, or add the answers there.`
       );
       return true;
     }
@@ -1269,8 +1264,7 @@ function QuestionnairePageBody() {
       seedFromInterview(survivor);
       setError(null);
       setMergeNotice(
-        `Moved. The answers and recordings from this interview are now on ${survivor.title || holderName}, which is ` +
-          "open below; the interview they came from has been removed."
+        `Moved into ${survivor.title || holderName}, open below.`
       );
       await loadInterviews();
       return true;
@@ -1532,8 +1526,8 @@ function QuestionnairePageBody() {
     const ok = await confirm(
       deleteConfirm(
         "Delete this interview?",
-        "This permanently deletes the interview and every answer in it. This action cannot be undone.",
-        "The recordings made during the interview, and their transcripts, are deleted with it."
+        "Deletes the interview, its answers, recordings and transcripts. This can’t be undone.",
+        undefined
       )
     );
     if (!ok) return;
@@ -1712,7 +1706,7 @@ function QuestionnairePageBody() {
     <>
       <PageHeader
         title="Questionnaire"
-        description="Interview artisans section by section, answer only the questions asked, and link the interview to one or more artisans."
+        description="Interview artisans section by section."
         icon={<ClipboardList className="h-5 w-5" aria-hidden />}
       />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
@@ -1744,13 +1738,9 @@ function QuestionnairePageBody() {
       {mergeConflicts.length ? (
         <section className="mb-4 rounded-lg border border-amber-500 bg-amber-100 p-4">
           <h2 className="font-display font-bold text-lg text-amber-800">
-            Nothing was moved: {mergeConflicts.length} question{mergeConflicts.length === 1 ? "" : "s"} answered
-            differently in both interviews
+            Not moved: {mergeConflicts.length} conflicting answer{mergeConflicts.length === 1 ? "" : "s"}
           </h2>
-          <p className="mt-1 text-sm text-amber-800">
-            Both interviews answer these questions differently, so nothing was moved and both are unchanged. Decide
-            which wording is right, make the answers match, then try again.
-          </p>
+          <p className="mt-1 text-sm text-amber-800">Make these answers match, then try again.</p>
           <ul className="mt-3 grid gap-2">
             {mergeConflicts.map((row, index) => (
               <li key={row.questionId || index} className="rounded-md border border-amber-500 bg-card/70 p-2 text-xs">
@@ -1806,8 +1796,7 @@ function QuestionnairePageBody() {
                 <span className="block text-xs text-ink-500">On {editing.questionnaire.title}</span>
               ) : null}
               <span className="block text-xs text-ink-500">
-                Saving updates this interview. Recordings already attached are kept; anything added below is
-                uploaded alongside them.
+                Existing recordings are kept.
               </span>
             </div>
             <button type="button" className="field-button-secondary" onClick={resetToCreate} disabled={saving}>
@@ -1926,8 +1915,7 @@ function QuestionnairePageBody() {
             </Select>
             {editing ? (
               <p className="text-xs text-ink-500">
-                An interview stays on the questionnaire it was taken on. Delete it and take a new one to
-                move it.
+                Can’t be changed after the interview is taken.
               </p>
             ) : null}
           </Field>
@@ -1943,7 +1931,7 @@ function QuestionnairePageBody() {
             ) : (
               <span
                 className="inline-flex min-h-10 items-center gap-2 self-start rounded-md border border-line-200 bg-field-100 px-3 py-2 text-sm font-medium text-ink-muted"
-                title="New interviews are submitted for review as Pending."
+                title="Submitted for review."
               >
                 <Lock className="h-4 w-4" aria-hidden />
                 Pending
@@ -2057,9 +2045,7 @@ function QuestionnairePageBody() {
               */}
               {artisanScope.failed ? (
                 <p className="mt-1 text-xs leading-5 text-ink-500">
-                  This workshop&apos;s artisan list could not be loaded, so nobody is being offered above.
-                  Pick the workshop again to ask for it once more. Anyone already ticked is still on this
-                  interview.
+                  Couldn&apos;t load this workshop&apos;s artisans. Pick the workshop again to retry.
                 </p>
               ) : null}
               {/*
@@ -2113,19 +2099,17 @@ function QuestionnairePageBody() {
         */}
         {existingEntry && existingEntry.id !== editing?.id ? (
           <section className="rounded-lg border border-amber-500 bg-amber-100 p-4">
-            <h3 className="font-display font-bold text-lg text-amber-800">A shared entry already exists for this set of artisans</h3>
+            <h3 className="font-display font-bold text-lg text-amber-800">These artisans already have an entry</h3>
             <p className="mt-1 text-sm text-amber-800">
               {editing ? (
                 <>
-                  Another interview — <span className="font-medium">{existingEntry.title}</span> — already covers this
-                  exact set of artisans on this questionnaire. This edit can’t be saved with these artisans ticked.
-                  Put the original artisans back, or cancel and edit that interview instead.
+                  <span className="font-medium">{existingEntry.title}</span> already covers these artisans. Restore
+                  the original artisans, or edit that interview instead.
                 </>
               ) : (
                 <>
-                  There is one questionnaire entry per set of artisans. Saving below adds your answers and media to{" "}
-                  <span className="font-medium">{existingEntry.title}</span> — it will not create a duplicate. Questions
-                  already answered by someone else are shown here and can only be changed by that contributor or an admin.
+                  Saving adds your answers to <span className="font-medium">{existingEntry.title}</span>. Answers by
+                  others can only be changed by them or an admin.
                 </>
               )}
             </p>
@@ -2205,7 +2189,7 @@ function QuestionnairePageBody() {
           files={mediaFiles}
           onFilesChange={setMediaFiles}
           title="Interview audio"
-          description="Record or upload interview audio. It is transcribed automatically when transcription is available, and always saved."
+          description="Record or upload. Transcribed when available."
           allowDocuments={false}
           allowedTypes={["AUDIO"]}
         />
@@ -2254,7 +2238,7 @@ function QuestionnairePageBody() {
                       hint={
                         capture.recordingMode === "SECTION"
                           ? "Record this entire section in one take."
-                          : "A whole-section take from earlier. It still uploads and saves with this interview."
+                          : "Earlier section take — still saved."
                       }
                       showRecordButton={capture.recordingMode === "SECTION"}
                       recording={recordingKey === sectionClipKey(group.section.id)}
@@ -2314,7 +2298,7 @@ function QuestionnairePageBody() {
                         hint={
                           capture.recordingMode === "INDIVIDUAL"
                             ? undefined
-                            : "Recorded against this question earlier. It still uploads and saves with this interview."
+                            : "Earlier take — still saved."
                         }
                         showRecordButton={capture.recordingMode === "INDIVIDUAL"}
                         recording={recordingKey === question.id}
@@ -2375,8 +2359,7 @@ function QuestionnairePageBody() {
                       <>
                         {capture.hideAnswers ? (
                           <p className="text-xs leading-5 text-ink-500">
-                            Shown because this interview already has a written answer here. Your &quot;do not display
-                            answer text boxes&quot; setting has not been changed.
+                            Shown because this question already has an answer.
                           </p>
                         ) : null}
                         <TextArea
@@ -2444,7 +2427,7 @@ function QuestionnairePageBody() {
                     and why nothing in this block feeds the upload tray. */}
                 <SavedMediaPanel
                   title="Saved recordings & media for this section"
-                  description="Already stored against this interview. Shown here so nothing looks lost; they are not uploaded again when you save."
+                  description="Already saved."
                   items={sectionClips}
                   onOpenPreview={setActivePreview}
                 />
@@ -2462,13 +2445,13 @@ function QuestionnairePageBody() {
         */}
         <SavedMediaPanel
           title="Other saved recordings & media"
-          description="On this interview but not filed under any one section — interview-wide audio, attached files, and clips whose section could not be read from their caption."
+          description="Interview-wide audio and files."
           items={savedMedia.other}
           onOpenPreview={setActivePreview}
         />
         {/* `defaultValue` is read once per mount, which is why the form above is keyed on the record. */}
         <MultiNoteField name="notes" label="Interview notes" defaultValue={editing?.notes ?? null} />
-        <div className="flex flex-wrap items-center gap-2">
+        <ButtonRow>
           <button className="field-button" disabled={saving}>
             {editing ? <Save className="h-4 w-4" aria-hidden /> : <Plus className="h-4 w-4" aria-hidden />}
             {/*
@@ -2491,7 +2474,7 @@ function QuestionnairePageBody() {
               Cancel
             </button>
           ) : null}
-        </div>
+        </ButtonRow>
       </form>
 
       <div className="mb-4 grid gap-3">
@@ -2894,9 +2877,7 @@ function CompletionMatrixPanel({
       // about which questionnaire is being reported on.
       subtitle={`${
         matrix?.questionnaireTitle ? `${matrix.questionnaireTitle} — ` : ""
-      }Which questionnaire sections are covered for each artisan, derived from recorded answers and audio.${
-        canOverride ? " Click a cell to cycle an admin override: complete, not complete, clear." : ""
-      }`}
+      }Sections covered per artisan.${canOverride ? " Click a cell to override." : ""}`}
       onOpenChange={handleOpenChange}
     >
       {/* The scope sits ABOVE the matrix, because it changes what every cell means. */}
@@ -2915,10 +2896,9 @@ function CompletionMatrixPanel({
           <span className="font-semibold">
             {matrix.unassignedInterviews} interview{matrix.unassignedInterviews === 1 ? " has" : "s have"} no
             workshop
-          </span>
-          , so {matrix.unassignedInterviews === 1 ? "it counts" : "they count"} towards no workshop scope and
-          nothing {matrix.unassignedInterviews === 1 ? "it holds" : "they hold"} turns a cell green here.
-          Choose <span className="font-semibold">All records</span> above to include{" "}
+          </span>{" "}
+          and {matrix.unassignedInterviews === 1 ? "isn’t" : "aren’t"} counted. Choose{" "}
+          <span className="font-semibold">All records</span> to include{" "}
           {matrix.unassignedInterviews === 1 ? "it" : "them"}
           {canOverride ? (
             <>
@@ -2934,8 +2914,8 @@ function CompletionMatrixPanel({
       {matrix && matrix.artisans.length === 0 && !loading ? (
         <p className="text-sm text-ink-muted">
           {scope.workshopIds.length
-            ? "No artisans in the chosen workshops. Widen the scope, or choose All records."
-            : "No artisans yet — the matrix appears once artisans are recorded."}
+            ? "No artisans in these workshops."
+            : "No artisans yet."}
         </p>
       ) : null}
       {matrix && matrix.artisans.length > 0 ? (
@@ -3012,8 +2992,7 @@ function CompletionMatrixPanel({
               that stays green when the scope moves. */}
           {matrix.overridesAreRepositoryWide ? (
             <p className="mt-2 text-[11px] leading-4 text-ink-500">
-              The workshop scope narrows the green derived from recordings. An admin&rsquo;s mark applies
-              across all workshops, so a marked cell keeps its colour under every scope.
+              Admin overrides apply across all workshops.
             </p>
           ) : null}
         </>
@@ -3209,11 +3188,10 @@ function QuestionnaireAdminEditor({
       title: `Remove section ${section.code}?`,
       body: (
         <>
-          <span className="font-medium text-ink-900">{section.title}</span> and its questions stop appearing in new
-          interviews.
+          <span className="font-medium text-ink-900">{section.title}</span> is hidden from new interviews.
         </>
       ),
-      note: "Questions are deactivated, not erased: answers already recorded against them stay on the interviews that hold them.",
+      note: "Existing answers are kept.",
       tone: "warning",
       confirmLabel: "Remove section"
     });
@@ -3291,7 +3269,7 @@ function QuestionnaireAdminEditor({
           <span className="font-medium text-ink-900">{question.prompt}</span> stops appearing in new interviews.
         </>
       ),
-      note: "Answers already recorded against it stay linked to the interviews that hold them.",
+      note: "Existing answers are kept.",
       tone: "warning",
       confirmLabel: "Remove question"
     });
@@ -3372,7 +3350,7 @@ function QuestionnaireAdminEditor({
   return (
     <Accordion
       title="Questionnaire Builder"
-      subtitle="Master admin controls for sections, ordering, question text, moves and removals."
+      subtitle="Edit sections and questions."
       headerRight={message ? <span className="text-sm text-red-700">{message}</span> : null}
     >
       <div className="grid gap-4">
@@ -3397,17 +3375,16 @@ function QuestionnaireAdminEditor({
             value={newTitle}
             onChange={setNewTitle}
           />
-          <div className="flex items-end">
+          <ButtonRow className="items-end">
             <button className="field-button" disabled={saving}>
               <Plus className="h-4 w-4" aria-hidden />
               Add section
             </button>
-          </div>
+          </ButtonRow>
         </form>
 
         <p className="text-xs text-ink-muted">
-          Drag a question by its grip to reorder it within a section or drop it into another section. Keyboard users can use the
-          up/down buttons on each tile, or the &ldquo;Move to&rdquo; menu to change section.
+          Drag to reorder, or use the arrows and &ldquo;Move to&rdquo;.
         </p>
 
         <div className="grid gap-4">
@@ -3465,15 +3442,20 @@ function QuestionnaireAdminEditor({
                   <input name="isActive" type="checkbox" defaultChecked={section.isActive} />
                   Active
                 </label>
-                <div className="flex flex-wrap items-end gap-2">
+                <ButtonRow
+                  className="items-end"
+                  destructive={
+                    <button type="button" className="field-danger" onClick={() => removeSection(section)}>
+                      <Trash2 className="h-4 w-4" aria-hidden />
+                      Remove
+                    </button>
+                  }
+                >
                   <button className="field-button-secondary" type="submit">
                     <Save className="h-4 w-4" aria-hidden />
                     Save
                   </button>
-                  <button type="button" className="text-sm font-semibold text-red-700" onClick={() => removeSection(section)}>
-                    <Trash2 className="inline h-4 w-4" aria-hidden /> Remove
-                  </button>
-                </div>
+                </ButtonRow>
               </form>
 
               <div
@@ -3567,12 +3549,12 @@ function QuestionnaireAdminEditor({
                     required
                     explainWhenUnavailable={false}
                   />
-                  <div className="flex items-end">
+                  <ButtonRow className="items-end">
                     <button className="field-button-secondary">
                       <Plus className="h-4 w-4" aria-hidden />
                       Add question
                     </button>
-                  </div>
+                  </ButtonRow>
                 </form>
               </div>
             </div>

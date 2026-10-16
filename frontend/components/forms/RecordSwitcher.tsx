@@ -768,7 +768,7 @@ export function RecordSwitcher({
         />
         {noWorkshops ? (
           <p className="text-xs leading-5 text-ink-500">
-            No workshops are recorded yet, so there is nothing to list records from.
+            No workshops yet.
           </p>
         ) : null}
         {canJumpToRecordWorkshop ? (

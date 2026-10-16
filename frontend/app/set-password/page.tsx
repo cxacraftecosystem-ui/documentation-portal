@@ -28,6 +28,7 @@ import {
   setPasswordWithLink,
   takeLinkTokenFromAddress
 } from "@/lib/signIn";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 export default function SetPasswordPage() {
   const router = useRouter();
@@ -109,8 +110,7 @@ export default function SetPasswordPage() {
       <AuthCard title="Password set">
         <div className="grid gap-4">
           <p role="status" className="text-sm leading-6 text-ink-700">
-            Your password is set. Any device that was signed in to this account has been signed out. Sign in with your
-            new password — if two-step verification is on, you will be asked for your code as usual.
+            Password set. Sign in with your new password.
           </p>
           <Button className="w-full font-display font-bold" onClick={() => router.replace("/login")} size="auth">
             Go to sign in
@@ -135,12 +135,14 @@ export default function SetPasswordPage() {
           <div role="alert" className="rounded-md border border-red-200 bg-error-100 px-3 py-3 text-sm leading-6 text-error-600">
             {linkRefusal(linkReason)}
           </div>
-          <Link href="/forgot-password" className="field-button w-full">
-            Email me a new link
-          </Link>
-          <Link href="/login" className="field-button-secondary w-full">
-            Back to sign in
-          </Link>
+          <ButtonRow>
+            <Link href="/forgot-password" className="field-button">
+              Email a new link
+            </Link>
+            <Link href="/login" className="field-button-secondary">
+              Back to sign in
+            </Link>
+          </ButtonRow>
         </div>
       </AuthCard>
     );

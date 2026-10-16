@@ -55,13 +55,13 @@ test.describe("Location on records that predate the rule", () => {
     // browser is in Bagru and the artisan was documented in Kolkata.
     await page.waitForTimeout(6_000);
     await expect(latitude).toHaveValue("");
-    await expect(page.getByText(/captured automatically/i)).toHaveCount(0);
+    await expect(page.getByText(/Device location:/i)).toHaveCount(0);
 
     // The requirement is off for this record, so the form is not held hostage by it...
     await expect(latitude).toHaveJSProperty("validity.valid", true);
     await expect(latitude).not.toHaveAttribute("required", /.*/);
     // ...and the card explains the exception rather than leaving it to be inferred.
-    await expect(page.getByText(/can be saved without coordinates/i)).toBeVisible();
+    await expect(page.getByText(/Coordinates optional/i)).toBeVisible();
 
     // The stated address is off too, for the same reason and on the same record: all fifteen live
     // locations have a NULL state and district, and demanding them here would be demanding a guess.
@@ -93,7 +93,7 @@ test.describe("Location card in the dark theme, at 360px", () => {
     await page.emulateMedia({ colorScheme: "dark" });
     await page.goto("/workshops");
 
-    const notice = page.getByText(/blocking location/i);
+    const notice = page.getByText(/Location is blocked/i);
     await expect(notice).toBeVisible({ timeout: 30_000 });
 
     /*

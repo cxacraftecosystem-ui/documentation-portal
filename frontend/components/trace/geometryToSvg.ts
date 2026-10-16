@@ -295,9 +295,7 @@ export function buildSvg(input: SvgInput, options: SvgOptions = {}): SvgResult {
 export function truncationNoteFor(shapeCount: number, shapesWritten: number): string | null {
   if (shapeCount <= shapesWritten) return null;
   return (
-    `This drawing has ${shapeCount.toLocaleString("en-IN")} separate paths and the file holds the ` +
-    `first ${shapesWritten.toLocaleString("en-IN")}. Raise “Minimum speck” or “Simplify” and trace again ` +
-    "to get a drawing that fits."
+    `Only ${shapesWritten.toLocaleString("en-IN")} of ${shapeCount.toLocaleString("en-IN")} paths saved. Raise “Minimum speck” or “Simplify”.`
   );
 }
 

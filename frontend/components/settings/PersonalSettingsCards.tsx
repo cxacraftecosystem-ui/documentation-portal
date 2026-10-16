@@ -16,9 +16,9 @@ import type { Preferences, ThemeChoice } from "@/lib/preferences";
  */
 
 const THEME_OPTIONS: Array<{ value: ThemeChoice; label: string; helper: string; Icon: typeof Monitor }> = [
-  { value: "system", label: "Match my device", helper: "Follows your system's light/dark setting, and switches with it.", Icon: Monitor },
-  { value: "light", label: "Light", helper: "The default paper-white canvas.", Icon: Sun },
-  { value: "dark", label: "Dark", helper: "Purple-tinted dark surfaces for low light.", Icon: Moon }
+  { value: "system", label: "Match my device", helper: "Follows your system.", Icon: Monitor },
+  { value: "light", label: "Light", helper: "Default.", Icon: Sun },
+  { value: "dark", label: "Dark", helper: "For low light.", Icon: Moon }
 ];
 
 /** The three accessibility switches, keyed by the preference they flip. */
@@ -30,13 +30,13 @@ const ACCESSIBILITY_OPTIONS: Array<{
   {
     key: "reducedMotion",
     label: "Reduce motion",
-    helper: "Stops animations and transitions. Your device's own reduce-motion setting is always honoured too — this only ever adds to it."
+    helper: "Stops animations."
   },
-  { key: "largerText", label: "Larger text", helper: "Scales the whole interface up by about a tenth." },
+  { key: "largerText", label: "Larger text", helper: "About 10% larger." },
   {
     key: "highContrast",
     label: "High contrast",
-    helper: "Stronger borders, darker muted text and a thicker keyboard focus ring."
+    helper: "Stronger borders and text."
   }
 ];
 
@@ -99,7 +99,7 @@ export function AccessibilityCard() {
     <section className="panel flex h-full flex-col p-5">
       <CardHeading icon={<Accessibility className="h-4 w-4" aria-hidden />} title="Accessibility" />
       <p className="mt-1.5 text-xs leading-5 text-ink-500">
-        Reading comfort for this account. Each switch applies the moment it is flipped.
+        Applies immediately.
       </p>
       <div className="mt-3 grid gap-3">
         {ACCESSIBILITY_OPTIONS.map((option) => (

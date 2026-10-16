@@ -74,7 +74,7 @@ function UserView() {
     if (roleRank(role as User["role"]) < roleRank(person.role)) {
       const ok = await confirm({
         title: `Lower ${person.name}'s role to ${roleLabel(role)}?`,
-        body: `They lose everything ${roleLabel(person.role)} could do that ${roleLabel(role)} cannot.`,
+        body: `They lose ${roleLabel(person.role)} permissions.`,
         confirmLabel: "Lower role",
         tone: "warning"
       });

@@ -21,15 +21,15 @@ import { useHeroReducedMotion } from "@/components/hero/useHeroMotion";
 const FAQS = [
   {
     q: "Who can sign in?",
-    a: "Only addresses an administrator has admitted. Signing in — by password or with Google — checks your address against the platform allow-list first; if it is not on the list, no account is created and your request goes to the administrators as a pending approval. Once you are admitted you join the six-tier ladder, and an admin raises you up it (field contributor, researcher, professor, admin) as your role in the project grows."
+    a: "Only addresses an administrator has admitted. If yours isn’t on the list, signing in sends them a request."
   },
   {
     q: "I signed in with Google and was told I need approval. Why?",
-    a: "Because a verified Google address is proof of who you are, not permission to be here. Google sign-in checks the same approved list as passwords; if your address isn't approved, your request goes to an administrator, and you will be able to sign in once they approve it. A refused password and an address awaiting approval are answered differently, so you are never left guessing which of the two you are looking at."
+    a: "Google confirms who you are, not that you’re approved. Your request has gone to an administrator; you can sign in once they approve it."
   },
   {
     q: "What happens to my recordings?",
-    a: "They're transcribed automatically and translated into English. The finished transcript is linked back to the artisan, craft, and workshop it belongs to."
+    a: "They’re transcribed, translated into English and linked to their artisan, craft and workshop."
   },
   {
     // ⚠ THE SECOND HALF IS NEW AND IS NOT A RESTATEMENT OF THE FIRST. Records and assigned TASKS
@@ -41,7 +41,7 @@ const FAQS = [
     // and "Approved" are quoted here because the SERVER owns that vocabulary for all three clients;
     // inventing a synonym on this page would put a fourth wording into circulation.
     q: "How does review work?",
-    a: "Every record enters a peer-review ladder. A reviewer can approve it, reject it, or send it back for revision with mandatory comments — and each tier reviews the work of those ranked below it, with the master admin able to review everyone's. Assigned work is settled the same way: marking a task done hands it in rather than closing it, so it stays on the assignee's own board as “Under review” until whoever assigned it, or an admin, approves it."
+    a: "Each tier reviews the tier below. A reviewer approves, rejects or sends work back with comments. Finished tasks wait for approval too."
   },
   {
     // DICTATION, ADDED 2026-09-14 — the sweep in `4f0ce0d` (web) and `9e989fd` (Android). The set of
@@ -65,15 +65,15 @@ const FAQS = [
     // §1 asserts that absence by reading the source. An artisan who was not asked for a recording
     // must not get one.
     q: "Can a researcher speak instead of type?",
-    a: "Yes. Record forms carry a microphone on their free-text boxes — names, places, addresses, descriptions, remarks — in the browser and on the Android app. Boxes that aren't free text have no microphone: closed dropdowns, calendar dates, every numeric and money box, and the Aadhaar and Pehchan fields, where one mis-heard digit would file an artisan under somebody else's number. Dictation runs on the device's own recogniser — nothing is recorded to a file, nothing is uploaded and nothing is stored. It is the keyboard's microphone, not a second recording of the interview."
+    a: "Yes — free-text boxes have a microphone on web and Android. Number and ID fields don’t. Dictation runs on the device; nothing is recorded or uploaded."
   },
   {
     q: "Who can download the data?",
-    a: "The full dataset opens at Professor and above. Anyone below that needs the dataset-download permission granted explicitly, or a per-record share from the owner. Sharing between researchers is tiered too: download, comment, or edit — requested by one side and granted, changed, or revoked by the other."
+    a: "Professors and above, or anyone granted dataset access. Researchers can also share their own records to download, comment or edit."
   },
   {
     q: "What can a brand-new account actually do?",
-    a: "A newly admitted account starts at the bottom of the ladder — Crowdsource Volunteer unless the administrator who admitted it chose a higher tier — and can take interviews, upload media, and comment on existing records. Creating artisans, products, processes and tools begins at Field Contributor, and an admin raises the tier when the person's role in the project does."
+    a: "Take interviews, upload media and comment. An admin raises your tier as your role grows."
   },
   {
     // ⚠ THIS ANSWER SAID THE BROWSER DOES NOT — AND THE BAND FOUR SECTIONS ABOVE ALREADY SAID IT
@@ -90,7 +90,7 @@ const FAQS = [
     // GPS and the questionnaire recorder, and `components/settings/GetTheAppPanel.tsx` says the same
     // thing in the same order to a signed-in user. Two surfaces, one sentence.
     q: "Does it work offline?",
-    a: "Both the app and the website do. The Android app is offline-first — interviews, media and GPS positions captured with no signal at all, queued until you are back in range — and on the website a save made offline is kept with its attachments and sent when you're back online; if one can't be saved, it waits with the reason shown instead of holding up the rest. The phone is still the one that goes into the workshop, because it has the camera, the GPS and the questionnaire recorder; the portal is where reviewing, browsing and administration happen."
+    a: "Yes. Both the Android app and the website save offline and send when you’re back online."
   },
   {
     // "THE ANDROID APP IS OFFLINE-FIRST" HAS BEEN ON THIS PAGE SINCE IT WAS WRITTEN, AND THE PAGE
@@ -111,11 +111,11 @@ const FAQS = [
     // ⚠ DO NOT NAME A VERSION HERE. The current one is on the card itself, resolved live; a number
     // typed into this page would be wrong by the next release and nothing would report it.
     q: "How do I get the Android app?",
-    a: "Sign in, open Settings, and the “Get the Android app” card downloads whichever build is current at the moment you press it. It's not on the Play Store, so Android will ask you to allow installing from your browser the first time. After that the app takes its own updates: when a new build is published, the phone is prompted to install it. Same account as the website."
+    a: "Sign in and open Settings → Get the Android app. Allow installs from your browser when asked; updates arrive automatically."
   },
   {
     q: "What about privacy?",
-    a: "Access is governed by the six-tier role ladder, cross-researcher sharing is opt-in per grant, and every edit carries an audited revision history. Media lives in private cloud storage that only signed-in, authorized users can reach. National identifiers are masked wherever a record leaves its owner: an artisan's Aadhaar number is used to make sure the same person documented at two workshops becomes one record, not two, but it renders as XXXX XXXX 9012 on every shared and exported surface — the data browser, CSV, and the .xlsx report — and only the researcher who recorded that artisan, or a professor and above, can read it in full."
+    a: "Access follows your role, sharing is opt-in and every edit is audited. Media is private. Aadhaar numbers show as XXXX XXXX 9012 on every shared and exported view; only the recording researcher and professors and above see them in full."
   }
 ];
 

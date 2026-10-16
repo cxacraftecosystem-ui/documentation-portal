@@ -154,7 +154,7 @@ export const ADMIN_CHROME_ROUTES: AdminChromeRoute[] = [
   {
     path: "/admin",
     label: "The settings hub",
-    blurb: "It gathers reviews, recovered recordings, feedback, tool assignment and user management in one place."
+    blurb: "Admin tools."
   },
   {
     // More specific than "/admin" above (longest match wins), because the honest sentence for this
@@ -164,7 +164,7 @@ export const ADMIN_CHROME_ROUTES: AdminChromeRoute[] = [
     path: "/admin/access-roster",
     label: "The access roster",
     blurb:
-      "It decides who may sign in at all, and holds the pending requests from people who were turned away."
+      "Who may sign in."
   },
   {
     // MORE SPECIFIC THAN NOTHING ABOVE IT, deliberately: /questionnaire is open to every signed-in
@@ -174,7 +174,7 @@ export const ADMIN_CHROME_ROUTES: AdminChromeRoute[] = [
     // a 403 or an empty page.
     path: "/questionnaire/workbooks",
     label: "Questionnaire workbooks",
-    blurb: "Downloading the instrument as a spreadsheet, editing it in Excel and uploading it back.",
+    blurb: "Excel editing of the questionnaire.",
     alternative: { href: "/questionnaire", label: "Go to the questionnaire" }
   },
   {
@@ -182,17 +182,17 @@ export const ADMIN_CHROME_ROUTES: AdminChromeRoute[] = [
     // and `adminChromeVisible` returns true for them, which is what keeps them out of this branch.
     path: "/users",
     label: "User management",
-    blurb: "Roles, promotions, capability grants and account administration live there."
+    blurb: "Roles and accounts."
   },
   {
     path: "/settings/api-keys",
     label: "Managed API keys",
-    blurb: "Changing, testing and viewing the service keys."
+    blurb: "Service keys."
   },
   {
     path: "/workshop-access/manage",
     label: "Workshop access administration",
-    blurb: "The cross-workshop request queue, plus each workshop's roster and access levels.",
+    blurb: "Requests and rosters.",
     // /workshop-access itself is NOT chrome: it belongs to every account, and an admin with the
     // toggle off is sent to the request page there exactly as an ordinary user is. Only the console
     // is chrome, so this is the one path listed.
@@ -201,7 +201,7 @@ export const ADMIN_CHROME_ROUTES: AdminChromeRoute[] = [
   {
     path: "/settings/tasks",
     label: "The task assignment board",
-    blurb: "Handing documentation work to the people below you, then holding it to account.",
+    blurb: "Assign and track work.",
     alternative: { href: "/tasks", label: "Go to my tasks" }
   }
 ];

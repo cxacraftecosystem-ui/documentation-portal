@@ -39,6 +39,7 @@ import { saveOrQueue } from "@/lib/offline";
 import { canManageCrafts } from "@/lib/permissions";
 import { UploadsProvider, useUploads } from "@/lib/uploads";
 import type { Craft, PageResult } from "@/lib/types";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 /** Section id the craft media batch publishes under, so the page-level tray can aggregate it. */
 const MEDIA_SECTION = "craft-media";
@@ -337,8 +338,8 @@ function CraftsPageBody() {
     const ok = await confirm(
       deleteConfirm(
         "Delete this craft?",
-        "This permanently deletes the craft. This action cannot be undone.",
-        "Artisans, products and tools that reference it keep their craft name as text — they are not deleted and they are not left blank."
+        "This can’t be undone. Linked records keep the craft name.",
+        undefined
       )
     );
     if (!ok) return;
@@ -355,7 +356,7 @@ function CraftsPageBody() {
 
   return (
     <>
-      <PageHeader title="Crafts" description="Maintain craft vocabulary used to link artisans, products and tools." icon={<Landmark className="h-5 w-5" aria-hidden />} />
+      <PageHeader title="Crafts" description="The list of crafts." icon={<Landmark className="h-5 w-5" aria-hidden />} />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       {deepLinkLoading ? (
         <div className="mb-4 rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-muted">
@@ -492,7 +493,7 @@ function CraftsPageBody() {
               setDirty(true);
             }}
             title="Craft media"
-            description="Attach or capture craft reference images, audio notes, video, and documents."
+            description="Photos, audio, video and documents."
           />
         </div>
         <UploadProgress
@@ -508,7 +509,7 @@ function CraftsPageBody() {
             <ExistingMedia linkedRecordType="craft" linkedRecordId={editing.id} title="Previously uploaded craft media" />
           </div>
         ) : null}
-        <div className="flex gap-2 md:col-span-2 lg:col-span-4">
+        <ButtonRow className="md:col-span-2 lg:col-span-4">
           <button className="field-button" disabled={saving}>
             {saving ? "Saving..." : editing ? "Update craft" : "Create craft"}
           </button>
@@ -517,11 +518,11 @@ function CraftsPageBody() {
               Cancel edit
             </button>
           ) : null}
-        </div>
+        </ButtonRow>
       </form>
       ) : (
         <div className="panel mb-5 p-4 text-sm text-ink-muted">
-          Browse the craft vocabulary below. Ask the master admin for craft creation access to add or edit crafts.
+          Ask an admin for access to add crafts.
         </div>
       )}
       {/* Same provenance block the artisan/product/tool/workshop edit surfaces carry, for the craft

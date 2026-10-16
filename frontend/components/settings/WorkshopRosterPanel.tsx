@@ -25,6 +25,7 @@ import { apiFetch, listResource } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { roleLabel } from "@/lib/permissions";
 import type { User, Workshop } from "@/lib/types";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 /**
  * One workshop's roster: everybody with a row on it, at what level, in what state.
@@ -138,7 +139,7 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
         .map((id) => directory.find((person) => person.id === id))
         .map((person) => (person ? personName(person) : "someone"))
         .join(", ");
-      setError(`Could not grant access to ${names}. Everyone else on the list is in.`);
+      setError(`Couldn’t add ${names}. Everyone else was added.`);
     }
     // Keep only the ones that failed selected, so a retry is one click and nobody is granted twice.
     setGrantUserIds(failed);
@@ -170,7 +171,7 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
       await apiFetch<WorkshopAccessRow>(`/workshops/${workshopId}/assignments/${row.userId}`, { method: "DELETE" });
       toast({
         title: "Access revoked",
-        description: `${personName(row.user)} can no longer work in this workshop. Their access history is kept.`,
+        description: `${personName(row.user)} removed.`,
         tone: "info"
       });
       setConfirmRevoke(null);
@@ -220,8 +221,8 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
   }
 
   function origin(row: WorkshopAccessRow): string {
-    if (row.assignedBy) return `Put on the roster by ${personName(row.assignedBy)}`;
-    if (row.requestedBy) return "Asked for it themselves";
+    if (row.assignedBy) return `Added by ${personName(row.assignedBy)}`;
+    if (row.requestedBy) return "Requested";
     return "Assigned";
   }
 
@@ -233,7 +234,7 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
         </span>
         <div>
           <h2 className="font-display font-bold text-ink-900">Workshop roster</h2>
-          <p className="text-xs leading-5 text-ink-500">Who may work inside one workshop, and at what level.</p>
+          <p className="text-xs leading-5 text-ink-500">Who can work in each workshop.</p>
         </div>
       </div>
 
@@ -261,8 +262,8 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
       {workshopId ? (
         <p className="mt-3 rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-xs leading-5 text-ink-500">
           {curated
-            ? "This workshop is restricted: only the people granted below (and admins) may work in it."
-            : "This workshop is open — anyone may work in it until somebody is put on the roster. Granting the first person restricts it to the roster."}
+            ? "Restricted to the people below and admins."
+            : "Open to everyone until someone is added."}
         </p>
       ) : null}
 
@@ -276,7 +277,7 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
         <p className="mt-4 text-sm text-ink-500">Loading…</p>
       ) : roster.length === 0 ? (
         <div className="mt-4">
-          <EmptyState title="Nobody on this roster" body="No one has been granted access and nobody has asked. Add somebody below." />
+          <EmptyState title="Nobody on this roster" body="Add someone below." />
         </div>
       ) : (
         <div className="mt-4 overflow-x-auto">
@@ -348,9 +349,9 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
                     {confirmRevoke === row.id ? (
                       <div className="mt-2 rounded-md border border-red-200 bg-error-100 p-2 text-left">
                         <p className="text-xs text-ink-700">
-                          Revoke {personName(row.user)}? They lose access to this workshop; their access history is kept.
+                          Remove {personName(row.user)} from this workshop?
                         </p>
-                        <div className="mt-2 flex justify-end gap-2">
+                        <ButtonRow size="sm" align="end" className="mt-2">
                           <button className={rowAction("neutral")} onClick={() => setConfirmRevoke(null)} type="button">
                             Cancel
                           </button>
@@ -362,7 +363,7 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
                           >
                             {busy === row.id ? "Revoking…" : "Revoke"}
                           </button>
-                        </div>
+                        </ButtonRow>
                       </div>
                     ) : null}
                   </td>

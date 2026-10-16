@@ -8,6 +8,7 @@ import { RowActions, rowAction } from "@/components/RowActions";
 import { useToast } from "@/components/ui/Toast";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 /**
  * The managed provider keys (`/api/secrets`, master admin only).
@@ -60,7 +61,7 @@ const SOURCE_META: Record<SecretSource, { label: string; tone: string; help: str
   unset: {
     label: "Not set",
     tone: "border-amber-500/30 bg-amber-100 text-amber-800",
-    help: "No value anywhere — the features that need it are switched off."
+    help: "Not set — dependent features are off."
   }
 };
 
@@ -147,7 +148,7 @@ export function ApiKeysPanel() {
       setCopied(secret.key);
       setTimeout(() => setCopied((current) => (current === secret.key ? null : current)), 2000);
     } catch {
-      toast({ title: "Could not copy", description: "Your browser blocked clipboard access — select the value instead.", tone: "error" });
+      toast({ title: "Could not copy", description: "Clipboard blocked — select the value instead.", tone: "error" });
     }
   }
 
@@ -223,8 +224,7 @@ export function ApiKeysPanel() {
   return (
     <div className="grid gap-4">
       <div className="rounded-md border border-purple-300 bg-purple-50 px-4 py-3 text-sm leading-6 text-purple-800">
-        <span className="font-medium">Saved keys apply to everyone immediately.</span> Values are encrypted, are never
-        written to logs, and revealing one is recorded against your account.
+        <span className="font-medium">Keys apply to everyone immediately.</span> Stored encrypted; reveals are logged.
       </div>
 
       {error ? <div className="rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-red-800">{error}</div> : null}
@@ -233,8 +233,7 @@ export function ApiKeysPanel() {
         <div className="border-b border-line-200 px-4 py-3">
           <h2 className="font-display font-bold text-ink-900">Managed API keys</h2>
           <p className="text-sm text-ink-500">
-            Every service key the app can use. Test one to check it against the provider before a field team depends on
-            it.
+            Test a key before the team relies on it.
           </p>
         </div>
 
@@ -406,7 +405,7 @@ export function ApiKeysPanel() {
                             <p className="mt-2 text-[0.6875rem] leading-4 text-ink-500">
                               Saving changes it for everyone, immediately.
                             </p>
-                            <div className="mt-2 flex justify-end gap-2">
+                            <ButtonRow size="sm" align="end" className="mt-2">
                               <button
                                 className={rowAction("neutral")}
                                 onClick={() => {
@@ -427,7 +426,7 @@ export function ApiKeysPanel() {
                                 <Check className="h-3.5 w-3.5" aria-hidden />
                                 {rowBusy === "save" ? "Saving…" : "Save key"}
                               </button>
-                            </div>
+                            </ButtonRow>
                           </div>
                         ) : null}
 
@@ -435,10 +434,9 @@ export function ApiKeysPanel() {
                           <div className="mt-3 rounded-md border border-red-200 bg-error-100 p-3 text-left">
                             <p className="text-xs font-medium text-error-600">Clear the stored {secret.label} key?</p>
                             <p className="mt-1 text-[0.6875rem] leading-4 text-ink-700">
-                              The saved key is removed and the default is used. If there’s no default, features that need
-                              it stop working.
+                              The default is used instead, if there is one.
                             </p>
-                            <div className="mt-2 flex justify-end gap-2">
+                            <ButtonRow size="sm" align="end" className="mt-2">
                               <button className={rowAction("neutral")} onClick={() => setConfirmingClear(null)} type="button">
                                 Keep it
                               </button>
@@ -451,7 +449,7 @@ export function ApiKeysPanel() {
                                 <Trash2 className="h-3.5 w-3.5" aria-hidden />
                                 {rowBusy === "clear" ? "Clearing…" : "Clear override"}
                               </button>
-                            </div>
+                            </ButtonRow>
                           </div>
                         ) : null}
                       </td>

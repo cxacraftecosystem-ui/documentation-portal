@@ -18,6 +18,7 @@ import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { isAdmin, roleLabel } from "@/lib/permissions";
 import { recordViewHref } from "@/lib/recordView";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 /**
  * One row of the review queue. The backend only returns records whose creator ranks strictly
@@ -204,8 +205,8 @@ export default function ReviewPage() {
   async function approveSelected(rows: PendingItem[]) {
     const ok = await confirm({
       title: `Approve ${rows.length} record${rows.length === 1 ? "" : "s"}?`,
-      body: "Each one is approved exactly as it stands, with no note.",
-      note: "Approving is not reversible from this screen. Anything that needs a change should be sent for revision individually.",
+      body: "Approved as they are, with no note.",
+      note: "Can’t be undone here.",
       confirmLabel: `Approve ${rows.length}`
     });
     if (!ok) return;
@@ -232,8 +233,7 @@ export default function ReviewPage() {
     const approved = rows.length - failed.length;
     if (failed.length) {
       setError(
-        `${approved} approved, ${failed.length} could not be. The ones that failed are still ticked — ` +
-          "they may have been decided by another reviewer already."
+        `${approved} approved, ${failed.length} failed (still ticked).`
       );
     } else {
       setInfo(`${approved} record${approved === 1 ? "" : "s"} approved.`);
@@ -272,7 +272,7 @@ export default function ReviewPage() {
             <span className="font-medium text-ink-900">{item.label}</span> will show as rejected to the contributor.
           </>
         ),
-        note: "If you want them to fix it and resubmit, close this and use Send for revision instead.",
+        note: "To ask for changes, use Send for revision.",
         tone: "danger",
         confirmLabel: "Reject record"
       });
@@ -376,11 +376,10 @@ export default function ReviewPage() {
         />
         {activeAction === "revise" ? (
           <p className="mt-1 text-xs text-ink-500">
-            Comments are required — the record goes back to the contributor as &quot;Needs revision&quot; and
-            returns to Pending once they edit it.
+            Comments required.
           </p>
         ) : null}
-        <div className="mt-2 flex flex-wrap gap-2">
+        <ButtonRow size="sm" className="mt-2">
           <button
             className="field-button h-9 min-h-0 px-3 text-xs pointer-coarse:h-11"
             disabled={submitting || (activeAction === "revise" && !note.trim())}
@@ -398,7 +397,7 @@ export default function ReviewPage() {
           >
             Cancel
           </button>
-        </div>
+        </ButtonRow>
       </>
     );
   }
@@ -429,7 +428,7 @@ export default function ReviewPage() {
         ) : null}
         {editLocked(item) ? (
           <p className="mt-1 max-w-md text-xs text-amber-800 dark:text-amber-200">
-            Submitted outside its workshop&apos;s dates — only an admin or master admin can edit or approve it.
+            Submitted outside workshop dates — admins only.
           </p>
         ) : null}
       </>
@@ -440,7 +439,7 @@ export default function ReviewPage() {
     <>
       <PageHeader
         title="Review"
-        description="Approve, fix in place with Update, send for revision, or reject pending submissions from contributors you may review."
+        description="Pending submissions to review."
         icon={<ClipboardCheck className="h-5 w-5" aria-hidden />}
       />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
@@ -454,7 +453,7 @@ export default function ReviewPage() {
           <div className="p-4">
             <EmptyState
               title="No pending submissions"
-              body="Pending records from contributors below your rank will appear here for review."
+              body="You’re all caught up."
             />
           </div>
         ) : (

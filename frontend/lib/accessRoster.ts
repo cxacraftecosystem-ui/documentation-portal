@@ -230,10 +230,10 @@ export const ACCESS_STATUS_LABELS: Record<AccessStatus, string> = {
  * judgement has to survive colour-blindness, a greyscale print-out and forced-colours mode.
  */
 export const ACCESS_STATUS_BLURBS: Record<AccessStatus, string> = {
-  PENDING: "They tried to sign in and were turned away. Nothing happens until an admin decides.",
-  ACTIVE: "They can sign in. Their account is created on first sign-in if it does not exist yet.",
-  REJECTED: "They are refused, and retrying does not put them back in the queue.",
-  SUSPENDED: "They had access and it was ended. Their sessions stop at the next request."
+  PENDING: "Waiting for a decision.",
+  ACTIVE: "Can sign in.",
+  REJECTED: "Refused.",
+  SUSPENDED: "Access ended."
 };
 
 export function accessStatusLabel(status: AccessStatus | string): string {

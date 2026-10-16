@@ -435,7 +435,7 @@ async function loadSpawn(): Promise<() => TraceWorkerLike> {
     // wrong thing to leave as the only record: the same throw is what a chunk the build never emitted
     // produces, and that one is a deployment bug, not a network one. The cause tells them apart.
     throw new TraceUnavailableError(
-      "The tracing engine could not be loaded. Check your connection and reload the page.",
+      "Tracing engine didn’t load. Reload the page.",
       { cause: err }
     );
   }

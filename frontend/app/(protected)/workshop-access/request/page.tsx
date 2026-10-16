@@ -22,7 +22,7 @@ export default function WorkshopAccessRequestPage() {
     <>
       <PageHeader
         title="Workshop access"
-        description="Ask to work in a workshop, and follow what happened to every request you have made."
+        description="Request access and track your requests."
         icon={<KeyRound className="h-5 w-5" aria-hidden />}
       />
       <WorkshopAccessRequestPanel />

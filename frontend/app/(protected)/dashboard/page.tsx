@@ -264,13 +264,12 @@ function DashboardView() {
           tier comes from, rather than leaving a volunteer to assume the app is broken. */}
       {!creator ? (
         <p className="mt-4 rounded-md border border-line-200 bg-surface-50 px-4 py-3 text-sm leading-6 text-ink-500">
-          You are signed in as <span className="font-medium text-ink-700">{roleLabel(user?.role)}</span>. That covers
-          answering existing interviews, uploading media and commenting — find an entry through{" "}
+          As <span className="font-medium text-ink-700">{roleLabel(user?.role)}</span> you can add to existing records
+          from{" "}
           <Link href="/search" className="font-medium text-purple-700 dark:text-purple-300 underline-offset-2 hover:underline">
             Browse records
-          </Link>{" "}
-          and add to it. Opening a new artisan, product, process or tool needs Researcher access — ask an admin to
-          raise your tier.{" "}
+          </Link>
+          . New records need Researcher access.{" "}
           <Link href="/guide" className="font-medium text-purple-700 dark:text-purple-300 underline-offset-2 hover:underline">
             Open the walkthrough
           </Link>
@@ -362,7 +361,7 @@ function DashboardView() {
           <div className="p-4 text-sm text-ink-500">Loading...</div>
         ) : stats.recentSubmissions.length === 0 ? (
           <div className="p-4">
-            <EmptyState title="No submissions yet" body="New field documentation will appear here after records are created." />
+            <EmptyState title="No submissions yet" body="New records will appear here." />
           </div>
         ) : (
           <div className="overflow-x-auto">

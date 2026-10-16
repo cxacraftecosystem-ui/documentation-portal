@@ -28,7 +28,7 @@ export const metadata: Metadata = {
     template: "%s · Field Repository"
   },
   description:
-    "Field documentation repository for artisans, crafts, workshops, products, tools, processes, questionnaires, media and transcripts."
+    "Field documentation for artisans, crafts and their work."
 };
 
 // Address-bar colour follows the theme. These two are the OS-driven fallback for the pre-JavaScript

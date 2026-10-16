@@ -70,7 +70,7 @@ export default function ConsolidatedIndexPage() {
     <div className="pb-16">
       <PageHeader
         title="Consolidated questionnaire"
-        description="An interview is stored once per exact set of artisans, so most artisans' answers are spread across several entries. Pick an artisan to read everything they contributed as one document, with each answer still naming the interview it came from."
+        description="Every answer from one artisan, in one place."
         icon={<Layers className="h-5 w-5" aria-hidden />}
       />
 
@@ -87,7 +87,7 @@ export default function ConsolidatedIndexPage() {
           title="No artisans match"
           body={
             scope.workshopIds.length
-              ? "No artisan in the chosen workshops matches. Widen the workshop scope, or choose All records."
+              ? "No match in these workshops."
               : "Try a different name, craft or place."
           }
         />

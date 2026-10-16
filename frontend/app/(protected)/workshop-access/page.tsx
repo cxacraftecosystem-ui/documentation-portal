@@ -41,14 +41,14 @@ const CHOICES: Choice[] = [
     href: "/workshop-access/request",
     label: "Request workshop access",
     description:
-      "Ask to work in one or more workshops, at the level you need — and see where every request you have made got to.",
+      "Request access and track your requests.",
     icon: KeyRound
   },
   {
     href: "/workshop-access/manage",
     label: "Manage workshop access",
     description:
-      "The request queue across every workshop, plus each roster and its access levels. Admins and the master admin.",
+      "Requests and rosters.",
     icon: ShieldCheck
   }
 ];
@@ -78,7 +78,7 @@ export default function WorkshopAccessPage() {
     <>
       <PageHeader
         title="Workshop access"
-        description="Your own standing in a workshop, and — because you are an admin — everybody else's."
+        description="Access for you and others."
         icon={<UsersRound className="h-5 w-5" aria-hidden />}
       />
       <div className="grid gap-3 sm:grid-cols-2">

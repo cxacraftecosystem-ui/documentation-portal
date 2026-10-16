@@ -219,7 +219,7 @@ test("b. an answer the record carries is drawn even while the preference hides t
   // see but not fix is a screen that shows them the typo and refuses to let them touch it.
   expect(CODE).toMatch(/<TextArea\s*\n\s*aria-labelledby=\{`question-label-\$\{question\.id\}`\}/);
   // And it says why one box is on screen against the setting — a signal nobody can read is not one.
-  expect(CODE).toMatch(/Shown because this interview already has a written answer here\./);
+  expect(CODE).toMatch(/Shown because this question already has an answer\./);
 });
 
 test("b. the set is frozen at seed time, counts only real words, and is emptied on cancel", () => {
@@ -299,10 +299,10 @@ test("e. the shared-entry banner counts recordings as well as responses", () => 
   expect(summary).toMatch(/function sharedEntrySummary\(responses: number, recordings: number\): string/);
   // All four cases, each saying what it FOUND. The only branch allowed to report nothing is the one
   // where both counts really are zero.
-  expect(summary).toMatch(/if \(responses && recordings\) return `\$\{clips\} and \$\{answers\} already recorded in it\.`;/);
-  expect(summary).toMatch(/if \(recordings\) return `\$\{clips\}, no typed answers yet\.`;/);
-  expect(summary).toMatch(/if \(responses\) return `\$\{answers\}, no recordings yet\.`;/);
-  expect(summary).toMatch(/return "Nothing recorded in it yet — you can be the first to fill it in\.";/);
+  expect(summary).toMatch(/if \(responses && recordings\) return `\$\{clips\} and \$\{answers\}\.`;/);
+  expect(summary).toMatch(/if \(recordings\) return `\$\{clips\}, no typed answers\.`;/);
+  expect(summary).toMatch(/if \(responses\) return `\$\{answers\}, no recordings\.`;/);
+  expect(summary).toMatch(/return "Nothing recorded yet\.";/);
   // Wired to the banner off the same record the lookup already returned — `by-artisans` hydrates
   // `media` with the rest of RELATIONS, so counting it costs no request.
   expect(CODE).toMatch(/const recordings = existingEntry\?\.media \?\? \[\];/);
@@ -349,7 +349,7 @@ test("f. the merge route is called only after the researcher confirms, and only 
   // The repo's own dialog, in its recoverable tone.
   expect(offer).toMatch(/const ok = await confirm\(\{/);
   expect(offer).toMatch(/tone: "warning"/);
-  expect(offer).toMatch(/confirmLabel: "Move this interview in"/);
+  expect(offer).toMatch(/confirmLabel: "Move in"/);
   // The decline arm RETURNS before the POST, so there is no path from a 409 to a write.
   const declined = offer.indexOf("if (!ok) {");
   const posted = offer.indexOf("/merge-into/");
@@ -363,7 +363,7 @@ test("f. the merge route is called only after the researcher confirms, and only 
   expect(CODE).toMatch(/const handled = editing \? await offerMergeOnConflict\(err, editing\.id\) : false;/);
   // The dialog states the one cost that is easy to leave out: the refused PATCH never reached the
   // server, so anything typed since the form opened is not what moves.
-  expect(offer).toMatch(/already saved<\/span> on this interview moves\./);
+  expect(offer).toMatch(/saved<\/span> work moves — unsaved changes here will be lost\./);
 });
 
 test("f. the merge answers with the survivor, and the screen is redrawn from it", () => {
@@ -393,7 +393,7 @@ test("f. the conflicting-questions 409 is listed question by question, never swa
 });
 
 test("f. nothing-was-moved is carried by words as well as by the amber panel", () => {
-  expect(CODE).toMatch(/Nothing was moved: \{mergeConflicts\.length\} question/);
+  expect(CODE).toMatch(/Not moved: \{mergeConflicts\.length\} conflicting answer/);
   // The theme defines exactly three amber tokens; 50/200/300/700 are not classes here and would
   // silently render as nothing.
   const panel = region("{mergeConflicts.length ? (", "<CompletionMatrixPanel");

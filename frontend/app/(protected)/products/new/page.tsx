@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/PageHeader";
 export default function NewProductPage() {
   return (
     <>
-      <PageHeader title="New Product Documentation" description="Record product details, economics, craft context, function, linked records and GPS." />
+      <PageHeader title="New Product Documentation" description="Details, pricing, craft and place." />
       <ProductForm />
     </>
   );

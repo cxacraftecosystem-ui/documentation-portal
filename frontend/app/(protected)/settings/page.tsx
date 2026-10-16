@@ -52,14 +52,14 @@ const ADMIN_LINKS: AdminLink[] = [
     // on /tasks — so an admin told "it is in settings" found no trace of it here. Same title and
     // icon the page itself uses, so the card and its destination read as one thing.
     label: "Task assignment",
-    description: "Hand documentation work to the people below you, then hold it to account.",
+    description: "Assign and track work.",
     href: "/settings/tasks",
     icon: ClipboardCheck,
     visible: isAdmin
   },
   {
     label: "Workshop access",
-    description: "Approve access requests and manage who may work in each workshop, at what level.",
+    description: "Requests and rosters.",
     // Points at the console directly rather than at /settings/workshop-access, which is now only a
     // redirect kept alive for bookmarks. A hub card that bounces through a redirect is a hub card
     // that will one day bounce through a broken one.
@@ -72,7 +72,7 @@ const ADMIN_LINKS: AdminLink[] = [
     // themselves once inside. Hiding the card from admins is what left the ranking unreachable for
     // everyone who asked for it, so the card is admin-visible and its description is role-aware.
     label: "API keys",
-    description: "Rank the transcription providers, and — for the master admin — rotate, test and reveal keys.",
+    description: "Transcription providers and keys.",
     href: "/settings/api-keys",
     icon: KeyRound,
     visible: isAdmin
@@ -94,8 +94,8 @@ export default function SettingsPage() {
       title="Settings"
       description={
         admin
-          ? "Your display settings, plus the admin tools you can use."
-          : "How this account looks and reads, and the workshops you can ask to work in."
+          ? "Display and admin tools."
+          : "Display and workshop access."
       }
       icon={<SettingsIcon className="h-5 w-5" aria-hidden />}
     />

@@ -8,6 +8,7 @@ import { CarryContextBanner, carryScope, useCarryContext, type CarryScopeState }
 import { Dropdown, MultiSelectDropdown } from "@/components/ui/Dropdown";
 import { apiFetch, listResource } from "@/lib/api";
 import type { Artisan, Craft, ToolDocumentation } from "@/lib/types";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 /**
  * "Assign a tool to multiple artisans": the same documented tool can be mapped to several artisans
@@ -134,8 +135,7 @@ export function ToolAssignmentSection() {
         <div>
           <h2 className="font-display font-bold text-xl text-ink">Assign a tool to multiple artisans</h2>
           <p className="text-sm text-ink-muted">
-            Map one documented tool to several artisans — across the same or different crafts — instead of re-entering the
-            same tool for each craft.
+            Link one tool to several artisans.
           </p>
         </div>
       </div>
@@ -218,11 +218,11 @@ export function ToolAssignmentSection() {
         </Field>
       </div>
 
-      <div className="flex items-center gap-3">
+      <ButtonRow>
         <button type="button" className="field-button" onClick={assign} disabled={busy || !toolId || artisanIds.length === 0}>
           {busy ? "Assigning…" : `Assign tool to ${artisanIds.length || ""} artisan${artisanIds.length === 1 ? "" : "s"}`.trim()}
         </button>
-      </div>
+      </ButtonRow>
 
       {toolId ? (
         <div className="grid gap-2">

@@ -174,7 +174,7 @@ export default function TaskAssignmentBoardPage() {
   const header = (
     <PageHeader
       title="Task assignment"
-      description="Hand documentation work to the people below you, compare what they report with the records actually saved, and approve it when they hand it in."
+      description="Assign, track and approve work."
       icon={<ClipboardCheck className="h-5 w-5" aria-hidden />}
       actions={
         <Link href="/tasks" className="field-button-secondary">
@@ -203,8 +203,7 @@ export default function TaskAssignmentBoardPage() {
           </div>
           <h2 className="text-base font-medium text-ink-900">Assigning work is restricted</h2>
           <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-ink-500">
-            Only admins and the master admin can hand out documentation tasks. Your own tasks — and the progress you
-            report on them — are on the Tasks screen.
+            Admins only. Your own tasks are on the Tasks page.
           </p>
           <Link href="/tasks" className="field-button mt-5 inline-flex">
             Go to my tasks
@@ -248,8 +247,8 @@ export default function TaskAssignmentBoardPage() {
         <div className="flex flex-wrap items-center justify-between gap-3 pl-9 md:pl-0">
           <p className="max-w-md text-xs leading-5 text-ink-500">
             {workshopTitle
-              ? `Artisans, the rollup and the assignment list below are all limited to ${workshopTitle}.`
-              : "Nothing is narrowed yet. Pick a workshop to scope the artisan picker, the rollup and the assignment list."}
+              ? `Limited to ${workshopTitle}.`
+              : "Pick a workshop to narrow everything below."}
           </p>
           <button type="button" className="field-button-secondary" onClick={refreshAll} disabled={reportLoading || batchesLoading}>
             <RefreshCw className={cn("h-4 w-4", (reportLoading || batchesLoading) && "animate-spin")} aria-hidden />

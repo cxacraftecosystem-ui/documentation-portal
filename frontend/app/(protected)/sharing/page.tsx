@@ -26,6 +26,7 @@ import type {
   User,
   Workshop
 } from "@/lib/types";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 type OwnRecord = { recordType: string; recordId: string; label: string };
 
@@ -259,20 +260,17 @@ function BatchReport({ ledger, busy, onRetry, onDismiss }: { ledger: Ledger; bus
             </li>
           ))}
         </ul>
-        <div className="mt-3 flex flex-wrap items-center gap-3">
+        <ButtonRow className="mt-3">
           <button className="field-button" disabled={busy} onClick={onRetry}>
             Retry {failed.length === 1 ? "the one that failed" : `the ${failed.length} that failed`}
           </button>
-          {succeeded.length ? (
-            // Said out loud because the reader's actual worry about a Retry button is that it will
-            // do the successful half twice. It cannot: the server keeps one row per person and
-            // rewrites it in place, and this retries only the failures anyway.
-            <p className="min-w-0 flex-1 text-xs text-ink-500">
-              The {succeeded.length} above {succeeded.length === 1 ? "keeps its" : "keep their"} access — retrying
-              re-sends only the {failed.length} that failed, and cannot duplicate anything.
-            </p>
-          ) : null}
-        </div>
+        </ButtonRow>
+        {succeeded.length ? (
+          // Said out loud because the reader's actual worry about a Retry button is that it will
+          // do the successful half twice. It cannot: the server keeps one row per person and
+          // rewrites it in place, and this retries only the failures anyway.
+          <p className="mt-2 text-center text-xs text-ink-500">Only the failed ones are sent again.</p>
+        ) : null}
       </div>
     </div>
   );
@@ -454,7 +452,7 @@ export default function SharingPage() {
    */
   const grantSentence =
     grantGranteeIds.length === 0
-      ? "Choose one or more colleagues, then press Grant."
+      ? "Choose colleagues."
       : `Grant ${grantTier} on ${grantScopePhrase} to ${
           grantGranteeIds.length === 1
             ? plainNameById.get(grantGranteeIds[0]) ?? "1 colleague"
@@ -464,7 +462,7 @@ export default function SharingPage() {
   const requestCount = canPickUsers ? reqOwnerIds.length : reqOwnerText.trim() ? 1 : 0;
   const requestSentence =
     requestCount === 0
-      ? "Choose one or more researchers, then press Request."
+      ? "Choose researchers."
       : `Request ${reqTier} access to all data from ${
           requestCount === 1
             ? (canPickUsers ? plainNameById.get(reqOwnerIds[0]) : null) ?? "1 researcher"
@@ -560,7 +558,7 @@ export default function SharingPage() {
   async function submitRequest() {
     const ids = canPickUsers ? reqOwnerIds : reqOwnerText.trim() ? [reqOwnerText.trim()] : [];
     if (!ids.length) {
-      setError("Choose at least one researcher to request access from.");
+      setError("Choose at least one researcher.");
       return;
     }
     const names = ids.map((id) => plainNameById.get(id) ?? id);
@@ -575,7 +573,7 @@ export default function SharingPage() {
             <span className="font-medium text-ink-900">{reqTier}</span> access to all of their data.
           </>
         ),
-        note: "Nothing is shared until each of them approves, and you can withdraw any request from the list below.",
+        note: "Nothing is shared until they approve.",
         confirmLabel: `Send ${ids.length} requests`
       });
       if (!ok) return;
@@ -595,7 +593,7 @@ export default function SharingPage() {
           return { recordType, recordId };
         });
     if (!grantScopeAll && scopeItems.length === 0) {
-      setError("Pick at least one record to share, or choose All my data.");
+      setError("Pick a record, or choose All my data.");
       return;
     }
     const names = grantGranteeIds.map((id) => plainNameById.get(id) ?? id);
@@ -608,21 +606,17 @@ export default function SharingPage() {
         body: (
           <>
             <span className="font-medium text-ink-900">{nameList(names)}</span> will be able to{" "}
-            {TIER_CONSEQUENCE[grantTier]} <span className="font-medium text-ink-900">{grantScopePhrase}</span> straight
-            away — a direct grant has no approval step.
+            {TIER_CONSEQUENCE[grantTier]} <span className="font-medium text-ink-900">{grantScopePhrase}</span> immediately.
           </>
         ),
         note: (
           <>
             {reductions.length ? (
               <span className="block font-medium text-ink-900">
-                This LOWERS access {reductions.length === 1 ? "someone" : `${reductions.length} of them`} already{" "}
-                {reductions.length === 1 ? "holds" : "hold"}:{" "}
-                {reductions.map((r) => `${r.name} (${r.held})`).join(", ")}. One tier and one scope apply to everyone
-                chosen, so their existing grant is replaced, not kept.
+                Lowers existing access for {reductions.map((r) => `${r.name} (${r.held})`).join(", ")}.
               </span>
             ) : null}
-            <span className="block">You can revoke any of them individually from the list below at any time.</span>
+            <span className="block">You can revoke access any time.</span>
           </>
         ),
         tone: severe ? "danger" : "warning",
@@ -647,11 +641,10 @@ export default function SharingPage() {
         title: "Deny this request?",
         body: (
           <>
-            <span className="font-medium text-ink-900">{who}</span> will not get access to your data, and will see the
-            request as denied.
+            <span className="font-medium text-ink-900">{who}</span> won’t get access.
           </>
         ),
-        note: "They can request access again, and you can grant it at any time.",
+        note: "They can ask again.",
         tone: "warning",
         confirmLabel: "Deny request"
       });
@@ -677,11 +670,10 @@ export default function SharingPage() {
       title: "Revoke this access?",
       body: (
         <>
-          <span className="font-medium text-ink-900">{who}</span> loses access to your data immediately, including
-          anything they were part-way through downloading.
+          <span className="font-medium text-ink-900">{who}</span> loses access immediately.
         </>
       ),
-      note: "Comments and edits they already made are kept.",
+      note: "Their comments and edits are kept.",
       tone: "danger",
       confirmLabel: "Revoke access"
     });
@@ -695,8 +687,8 @@ export default function SharingPage() {
     const ok = await confirm({
       ...deleteConfirm(
         "Remove this sharing entry?",
-        "This permanently deletes the grant record, along with the history of who asked for what and when.",
-        "As the owner this clears a denied or revoked request; as the requester it withdraws the request or drops access you hold."
+        "Deletes this entry and its history.",
+        undefined
       ),
       confirmLabel: "Remove entry"
     });
@@ -742,7 +734,7 @@ export default function SharingPage() {
       if (failed.length) {
         zip.file(
           "_failed-downloads.txt",
-          `These files could not be fetched and are not in the archive:\n\n${failed.join("\n")}`
+          `Not downloaded:\n\n${failed.join("\n")}`
         );
       }
       const blob = await zip.generateAsync({ type: "blob" });
@@ -752,8 +744,7 @@ export default function SharingPage() {
     // itself as complete is worse than a failed one, because nobody goes back for the rest.
     if (capped) {
       setMessage(
-        `Download ready — but it doesn’t include all of ${ownerLabel}’s records. ` +
-          "Ask an admin for the full set."
+`Downloaded — some of ${ownerLabel}’s records aren’t included.`
       );
     }
   }
@@ -767,7 +758,7 @@ export default function SharingPage() {
     <>
       <PageHeader
         title="Sharing"
-        description="Request access to another researcher's data, and manage who can use yours — at three tiers."
+        description="Request access to others’ data and manage who uses yours."
         icon={<Share2 className="h-5 w-5" aria-hidden />}
       />
 
@@ -831,8 +822,7 @@ export default function SharingPage() {
           {progressLine("request") ?? requestSentence}
         </p>
         <p className="mt-2 text-xs text-ink-muted">
-          One tier applies to every researcher chosen. Requests cover all of that researcher&apos;s data — the owner can
-          narrow it to a subset when they approve.
+          Requests cover all their data; they can narrow it when approving.
         </p>
         {ledger?.attempt.kind === "request" ? (
           <BatchReport ledger={ledger} busy={busy} onRetry={retryLedger} onDismiss={() => setLedger(null)} />
@@ -922,8 +912,7 @@ export default function SharingPage() {
           </div>
         ) : null}
         <p className="mt-2 text-xs text-ink-muted">
-          Granted immediately. One tier and one scope apply to every colleague chosen — the recipients can download
-          (and, at higher tiers, comment on or edit) exactly what you share here.
+          Granted immediately.
         </p>
         {ledger?.attempt.kind === "grant" ? (
           <BatchReport ledger={ledger} busy={busy} onRetry={retryLedger} onDismiss={() => setLedger(null)} />
@@ -934,7 +923,7 @@ export default function SharingPage() {
       <section className="panel mb-5 overflow-hidden">
         <div className="border-b border-line-200 p-4">
           <h2 className="font-display font-bold text-lg text-ink">Access to your data</h2>
-          <p className="text-sm text-ink-muted">People who requested or hold access to data you uploaded.</p>
+          <p className="text-sm text-ink-muted">Who has or wants access.</p>
         </div>
         {incoming.length === 0 ? (
           <div className="p-4">

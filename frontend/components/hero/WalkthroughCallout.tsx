@@ -44,9 +44,7 @@ export default function WalkthroughCallout() {
             Never documented a craft before? Start with the walkthrough.
           </h2>
           <p className="mt-3 max-w-2xl text-base leading-relaxed text-ink-500">
-            Every account gets the same guided tour of the documentation process — what each record
-            type is for, what makes a good interview, and how work travels from the field to an
-            approved, exportable dataset.
+            A guided tour from the field to an approved, exportable dataset.
           </p>
           <ul className="mt-6 grid gap-2 sm:grid-cols-2">
             {CHAPTERS.map((chapter) => (

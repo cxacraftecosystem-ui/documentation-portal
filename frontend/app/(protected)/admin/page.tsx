@@ -105,7 +105,7 @@ export default function AdminHubPage() {
   const header = (
     <PageHeader
       title="Settings"
-      description="The admin hub — reviews, recovered recordings, feedback, assignments, and user management in one place."
+      description="Admin tools."
       icon={<SlidersHorizontal className="h-5 w-5" aria-hidden />}
     />
   );
@@ -129,7 +129,7 @@ export default function AdminHubPage() {
           </div>
           <h2 className="font-display text-base font-semibold text-ink-900">Admin access required</h2>
           <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-ink-500">
-            The settings hub is available to admins and the master admin only.
+            Admins only.
           </p>
         </section>
       </>
@@ -139,13 +139,13 @@ export default function AdminHubPage() {
   const tiles: Tile[] = [
     {
       label: "Reviews & approvals",
-      description: "Approve, reject, or send submissions back for revision.",
+      description: "Approve or return submissions.",
       href: "/review",
       icon: ClipboardCheck
     },
     {
       label: "Recovered recordings",
-      description: "Media whose parent record was deleted — relink it below.",
+      description: "Media from deleted records.",
       href: "#recovered-recordings",
       icon: AudioLines
     },
@@ -157,7 +157,7 @@ export default function AdminHubPage() {
     },
     {
       label: "Assign tools to artisans",
-      description: "Link documented tools to the artisans who use them.",
+      description: "Link tools to artisans.",
       href: "/tools?assign=1",
       icon: Wrench
     },
@@ -167,7 +167,7 @@ export default function AdminHubPage() {
       // its access levels — is done properly on /workshop-access/manage, the tile below. Two doors
       // onto one job, one of which was a signpost rather than a page, is worse than one door.
       label: "Task assignment",
-      description: "Hand documentation work to the people below you, then hold it to account.",
+      description: "Assign and track work.",
       href: "/settings/tasks",
       icon: ClipboardList
     },
@@ -181,13 +181,13 @@ export default function AdminHubPage() {
       // switched a section off with an upload is told, in the report, how many assigned tasks still
       // name it, and the next thing they open is the board.
       label: "Questionnaire workbooks",
-      description: "Download the instrument as a spreadsheet, edit it in Excel, upload it back.",
+      description: "Edit the questionnaire in Excel.",
       href: "/questionnaire/workbooks",
       icon: FileSpreadsheet
     },
     {
       label: "Workshop access",
-      description: "The request queue across every workshop, plus each roster and its access levels.",
+      description: "Requests and rosters.",
       // Straight to the console: this hub is admin-only, so the fork at /workshop-access would ask
       // an admin a question it already knows the answer to.
       href: "/workshop-access/manage",
@@ -204,14 +204,14 @@ export default function AdminHubPage() {
       // count on a surface admins already open is how "the admins should be notified to approve or
       // reject the user" is delivered.
       label: "Access roster",
-      description: "Who may sign in at all, plus the queue of people waiting for a decision.",
+      description: "Who may sign in.",
       href: "/admin/access-roster",
       icon: UserCheck,
       badge: pendingAccess
     },
     {
       label: "Manage users",
-      description: "Roles, promotions, capability grants, and account admin.",
+      description: "Roles and accounts.",
       href: "/users",
       icon: UserCog
     },
@@ -219,7 +219,7 @@ export default function AdminHubPage() {
       label: "API keys",
       // Admin-visible because the transcription provider ranking lives behind this tile; the key
       // list itself is still master-admin-only once the page opens.
-      description: "Rank the transcription providers, and rotate or test the keys they run on.",
+      description: "Transcription providers and keys.",
       href: "/settings/api-keys",
       icon: KeyRound,
       visible: isAdmin(user)
@@ -279,8 +279,7 @@ export default function AdminHubPage() {
         <div className="border-b border-line-200 px-4 py-3">
           <h2 className="font-display font-bold text-ink-900">Recovered recordings</h2>
           <p className="text-sm text-ink-500">
-            These files belonged to a deleted record. They’re still saved — link them to another record from the Media
-            page.
+            From deleted records. Relink them from Media.
           </p>
         </div>
         {!orphans ? (

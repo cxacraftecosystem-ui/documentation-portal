@@ -113,7 +113,7 @@ export function QuestionnaireCaptureControls({
         <div className="min-w-0 flex-1">
           <span className="block text-sm text-ink">Show answer text boxes</span>
           <span className="mt-0.5 block text-xs text-ink-muted">
-            Off by default — only the record button shows. Turn on to type written answers.
+            Turn on to type answers.
           </span>
         </div>
         {/* A positive switch (UX audit DC-A25): "Do not display" read as a double negative. The

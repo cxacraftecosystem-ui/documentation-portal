@@ -62,8 +62,7 @@ export function EmailNotificationsCard() {
         <div>
           <span className="block text-sm font-medium text-ink-900">{label}</span>
           <span className="block text-xs leading-5 text-ink-500">
-            An e-mail when a task you gave out is handed in for your approval, and when a task of yours is approved or
-            sent back.
+            When tasks are handed in, approved or sent back.
           </span>
         </div>
         <Toggle checked={state.emailTaskUpdates} label={label} onChange={(next) => void change(next)} />

@@ -148,6 +148,7 @@ import {
   type ImageEditor,
   type SharpenSettings
 } from "./imageEditRuntime";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 /** The longest edge the framing preview is drawn at. Big enough to aim a crop, small enough to be free. */
 const PREVIEW_BOX_PX = 360;
@@ -491,12 +492,10 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
         key === "x" || key === "y"
           ? `${CROP_FIELD_NAME[key]} cannot be ${typed}: the frame is ${
               key === "x" ? `${next.width} wide on a ${pixels.width}px` : `${next.height} tall on a ${pixels.height}px`
-            } photograph, so it would hang off the edge. It was set to ${next[key]}. Reduce ${
-              key === "x" ? "Width" : "Height"
-            } first to move it further ${key === "x" ? "right" : "down"}.`
+            } photo. Set to ${next[key]}; reduce ${key === "x" ? "Width" : "Height"} first.`
           : `${CROP_FIELD_NAME[key]} cannot be ${typed}: the frame is between ${minEdge} and ${
               key === "width" ? pixels.width : pixels.height
-            } pixels. It was set to ${next[key]}.`
+            } px. Set to ${next[key]}.`
       );
     },
     [clamp, crop, pixels.width, pixels.height]
@@ -724,7 +723,7 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
       setProblem(
         runtimeKnown.length > 0
           ? runtimeKnown
-          : "The photograph could not be processed on this device. The photograph itself is untouched."
+          : "Couldn’t process the photo. The original is untouched."
       );
     } finally {
       if (!goneRef.current) setBusy(false);
@@ -780,10 +779,7 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
         <div className="min-w-0">
           <h5 className="text-sm font-semibold text-ink-900">Frame and sharpen the photograph</h5>
           <p className="mt-1 max-w-prose text-xs leading-5 text-ink-500">
-            Both are arithmetic on this device and both change only what is TRACED. The photograph is
-            never altered, never re-encoded and never replaced — it stays exactly as it was taken, with
-            its full resolution and its photo details (date, place, camera), whatever you do here. Reopening this panel after
-            attaching lets you re-frame and trace again.
+            Changes only what is traced. The photo itself is never altered.
           </p>
         </div>
       </div>
@@ -1049,12 +1045,8 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
       <fieldset className="mt-3 rounded-md border border-line-200 bg-surface-50 p-3">
         <legend className="field-label px-1">Sharpen the photograph</legend>
         <p className="max-w-prose text-xs leading-5 text-ink-500">
-          An unsharp mask — the same one the engine uses — over the photograph&apos;s luminance, run
-          here at up to {pixels.width}x{pixels.height} rather than at the smaller size the trace runs
-          at. That is the whole difference between this and the “Sharpen amount” control in the
-          Sharpening group of the trace settings: this one lifts detail BEFORE the engine reduces the
-          image, so faint pencil survives the reduction. Both use the same arithmetic, and using both
-          compounds them.
+          Runs at full size ({pixels.width}x{pixels.height}) so faint pencil survives. Adds to the trace’s own
+          “Sharpen amount”.
         </p>
 
         <div className="mt-3 grid gap-3">
@@ -1137,7 +1129,7 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
         </p>
       ) : null}
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      <ButtonRow align="start" className="mt-3">
         <button
           type="button"
           className="field-button-secondary"
@@ -1164,7 +1156,7 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
             Use the whole photograph
           </button>
         ) : null}
-      </div>
+      </ButtonRow>
 
       {/*
         THE LIVE REGION IS OUTSIDE THE CONDITIONS, ALWAYS RENDERED. A reader announces a live region's
@@ -1192,14 +1184,13 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
           <p className="flex items-start gap-2 text-amber-800 dark:text-amber-200">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
             <span>
-              The frame on screen is not the one being traced. The trace is still using{" "}
-              {applied?.crop.width}x{applied?.crop.height} from the last press — press “Use this frame
-              for the trace” to catch it up.
+              Not applied yet — still tracing {applied?.crop.width}x{applied?.crop.height}. Press “Use this
+              frame for the trace”.
             </span>
           </p>
         ) : null}
         {!busy && applied === null && !nothingToDo ? (
-          <p>Nothing has been applied yet: the trace is still using the whole photograph.</p>
+          <p>Tracing the whole photo.</p>
         ) : null}
       </div>
     </div>

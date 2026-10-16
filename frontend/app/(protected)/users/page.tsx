@@ -31,6 +31,7 @@ import type { PageResult, User } from "@/lib/types";
 import { RequirePasswordChangeDialog, TemporaryPasswordDialog } from "./AccountDialogs";
 import { AddPersonForm } from "./AddPersonForm";
 import { mayUpdateUser, rowOffers, signInSummary } from "./accountAdmin";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 /**
  * A capability as the list reads it. The list only READS a person (owner ruling, 2026-10-16): a click
@@ -139,8 +140,8 @@ export default function UsersPage() {
       title: "Sign them out of every device?",
       body: (
         <>
-          Every session <span className="font-medium text-ink-900">{user.name || user.email}</span> has open, on the
-          web and on the phone, ends now. Their password does not change; they sign in again as usual.
+          <span className="font-medium text-ink-900">{user.name || user.email}</span> is signed out on every device.
+          Their password stays the same.
         </>
       ),
       tone: "danger",
@@ -150,7 +151,7 @@ export default function UsersPage() {
     try {
       await signOutEverywhere(user.id);
       setError(null);
-      setNotice(`${user.name || user.email} is signed out of every device.`);
+      setNotice(`${user.name || user.email} signed out everywhere.`);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to sign them out");
@@ -179,7 +180,7 @@ export default function UsersPage() {
       if (grantQuestionnaire) body.canManageQuestionnaire = true;
       if (grantDataset) body.canDownloadDataset = true;
       if (Object.keys(body).length === 0) {
-        setAdminMessage("Pick at least one of: admin access, questionnaire or dataset download to grant.");
+        setAdminMessage("Pick at least one permission.");
         setApplying(false);
         return;
       }
@@ -273,10 +274,10 @@ export default function UsersPage() {
       deleteConfirm(
         "Delete this account?",
         <>
-          <span className="font-medium text-ink-900">{user.name || user.email}</span> loses access immediately and
-          cannot sign in again. This action cannot be undone.
+          <span className="font-medium text-ink-900">{user.name || user.email}</span> loses access immediately. This
+          can’t be undone.
         </>,
-        "Their records are kept and still credited to them."
+        "Their records are kept."
       )
     );
     if (!ok) return;
@@ -299,8 +300,7 @@ export default function UsersPage() {
       title: "Turn off two-step verification?",
       body: (
         <>
-          <span className="font-medium text-ink-900">{user.name || user.email}</span> will sign in with only their
-          password or Google, Microsoft or Yahoo until they turn it on again. Their recovery codes stop working.
+          <span className="font-medium text-ink-900">{user.name || user.email}</span>&apos;s recovery codes stop working.
         </>
       ),
       tone: "danger",
@@ -320,7 +320,7 @@ export default function UsersPage() {
     <>
       <PageHeader
         title="Users"
-        description="User management for professors and administrators — promotions for professors, full account control for admins."
+        description="Manage accounts and roles."
         icon={<ShieldCheck className="h-5 w-5" aria-hidden />}
       />
       {error ? (
@@ -355,22 +355,7 @@ export default function UsersPage() {
           onOpenExisting={openExisting}
         />
       ) : null}
-      <p className="mb-4 text-xs text-ink-muted">
-        Six tiers: Master Admin → Admin → Professor → Researcher → Field Contributor → Crowdsource
-        Volunteer. You can promote users to your own tier and below, and manage only users beneath
-        your tier. Professors hold promotion rights only: they may change the role of anyone ranked
-        beneath them (up to Professor) but cannot create or delete accounts or grant capabilities —
-        those remain admin actions. Professors and above hold every capability implicitly; for a lower
-        tier, a single capability can be switched on. Open a person to read their account, and press
-        Update to change their role or capabilities.
-      </p>
-      <p className="mb-4 text-xs text-ink-muted">
-        Two things are decided by RANK alone and have no checkbox: adding or editing crafts and
-        workshops (Professor and above; deleting either is admin-only), and creating artisans,
-        products, tools, processes and interviews (Researcher and above). Field contributors and
-        volunteers keep answering existing interviews, uploading media and commenting. To give
-        someone one of these, promote them.
-      </p>
+      <p className="mb-4 text-xs text-ink-muted">You can manage people below your role and promote up to it.</p>
       <div className="mb-4">
         <SearchInput
           value={query}
@@ -475,9 +460,7 @@ export default function UsersPage() {
           setTemporary((state) => ({ ...state, open: false }));
           setError(null);
           setNotice(
-            `${updated.name || updated.email} has a new password and is signed out everywhere.${
-              required ? " They choose their own at their next sign-in." : ""
-            } Send it to them yourself.`
+            `Password set for ${updated.name || updated.email}.${required ? " They’ll choose their own at next sign-in." : ""} Send it to them.`
           );
           load();
         }}
@@ -489,7 +472,7 @@ export default function UsersPage() {
         onSaved={(updated, withLink) => {
           setRequireChange((state) => ({ ...state, open: false }));
           setError(null);
-          setNotice(`${updated.name || updated.email} must choose a new password at their next sign-in.`);
+          setNotice(`${updated.name || updated.email} will choose a new password at next sign-in.`);
           if (withLink) void issueLink(updated, "COPY_LINK");
           load();
         }}
@@ -498,7 +481,7 @@ export default function UsersPage() {
         <section className="panel mt-6 p-4">
           <h2 className="font-display font-bold text-xl text-ink">Admin management</h2>
           <p className="mt-1 text-sm text-ink-muted">
-            Select one or more existing users, then grant them administrator access and decide their individual privileges in one action. Privileges are additive here — revoke individually in the table above.
+            Grant admin access and permissions to selected users.
           </p>
           {adminMessage ? <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{adminMessage}</div> : null}
           <div className="mt-4 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
@@ -656,16 +639,16 @@ function IssuedLinkPanel({
         It works once and expires {expires}.{" "}
         {emailed
           ? "Withdraw it if it went to the wrong address."
-          : "Send it to them yourself — by phone, WhatsApp or in person. It is shown only here, once. Setting a password with it signs them out everywhere; if two-step verification is on, they still need their code to sign in."}
+          : "Send it to them yourself. It’s shown only once."}
       </p>
-      <div className="flex flex-wrap items-center gap-2">
+      <ButtonRow>
         <button type="button" className="field-button-secondary" disabled={busy} onClick={onWithdraw}>
           Withdraw
         </button>
         <button type="button" className="field-button-secondary" onClick={onDone}>
           Done
         </button>
-      </div>
+      </ButtonRow>
     </div>
   );
 }

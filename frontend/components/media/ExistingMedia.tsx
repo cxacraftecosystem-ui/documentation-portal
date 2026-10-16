@@ -42,8 +42,8 @@ export function ExistingMedia({
   async function removeMedia(media: MediaFile) {
     const ok = await confirm({
       title: "Remove this file?",
-      body: `"${media.caption || media.originalFilename}" will be removed from this record.`,
-      note: "The file is permanently deleted from storage. This cannot be undone.",
+      body: `Remove "${media.caption || media.originalFilename}"?`,
+      note: "This can’t be undone.",
       confirmLabel: "Remove file",
       tone: "danger"
     });

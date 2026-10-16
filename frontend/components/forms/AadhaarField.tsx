@@ -64,15 +64,15 @@ export function aadhaarValidationError(value: string | null | undefined): string
   if (!digits) return null;
   // Unreachable from the visible box (it filters as you type), kept so the exported helper is safe
   // for any caller — including a value that arrived from somewhere other than this field.
-  if (!/^\d+$/.test(digits)) return "Aadhaar number must be 12 digits — remove any letters or symbols.";
+  if (!/^\d+$/.test(digits)) return "Aadhaar must be 12 digits.";
   if (digits.length !== AADHAAR_LENGTH) {
-    return `Aadhaar number must be exactly 12 digits (this one has ${digits.length}).`;
+    return `Aadhaar must be 12 digits (has ${digits.length}).`;
   }
   if (digits[0] === "0" || digits[0] === "1") {
-    return "Aadhaar numbers never start with 0 or 1 — please re-check the first digit.";
+    return "Aadhaar doesn’t start with 0 or 1.";
   }
   if (!verhoeffOk(digits)) {
-    return "That Aadhaar number fails its checksum, so at least one digit is wrong. Please re-read the card and enter it again.";
+    return "A digit is wrong — check the card.";
   }
   return null;
 }
@@ -97,7 +97,7 @@ export function isMaskedIdentityNumber(value: string | null | undefined): boolea
  * government ID number.
  */
 const AADHAAR_REQUIRED =
-  "Enter the artisan's 12-digit Aadhaar number — it is what stops the same artisan being recorded twice.";
+  "Enter the 12-digit Aadhaar number.";
 
 /**
  * Long enough that a fast typist finishes the last group before we ask the server, short enough that
@@ -304,8 +304,7 @@ export function AadhaarField({
         </p>
       ) : keptMask ? (
         <p id={hintId} className="text-xs text-ink-muted">
-          On file, but hidden from you: the full number is shown only to the researcher who recorded
-          this artisan and to professors upwards. Saving leaves it exactly as it is.{" "}
+          On file and hidden. Saving keeps it.{" "}
           <button type="button" className="font-semibold text-purple-700 dark:text-purple-300 underline" onClick={replaceStoredNumber}>
             Replace this number
           </button>
@@ -313,8 +312,8 @@ export function AadhaarField({
       ) : (
         <p id={hintId} className="text-xs text-ink-muted">
           {required
-            ? "Required: 12 digits from the artisan's card. It is the only identifier that tells two researchers they have documented the same person, so it is what keeps one artisan from becoming two records — that is the reason to give when you ask for it."
-            : "12 digits from the artisan's card. Used to recognise someone another researcher has already documented."}
+            ? "12 digits from the card. Prevents duplicate records."
+            : "12 digits from the card."}
           {digits.length > 0 && !complete ? ` ${digits.length} of ${AADHAAR_LENGTH} entered.` : ""}
         </p>
       )}
@@ -343,8 +342,7 @@ export function AadhaarField({
             Open that artisan instead
           </Link>
           <p className="mt-1 text-xs">
-            You can still save, but a true duplicate won’t be accepted. Open the existing record if this
-            is the same person.
+            A true duplicate won’t be accepted.
           </p>
         </div>
       ) : null}

@@ -291,7 +291,7 @@ export function SearchFilterBar({
 
       {multiple ? (
         <p className="mt-1.5 text-xs text-ink-500">
-          Searching {value.types.length} record types. A chip narrows to just that one; tick more under Filters.
+          Searching {value.types.length} record types.
         </p>
       ) : null}
 
@@ -353,7 +353,7 @@ export function SearchFilterBar({
           <fieldset className="grid gap-1.5">
             <legend className="field-label">Record types</legend>
             <p className="text-xs text-ink-500">
-              The same setting as the chips above. Tick any number; nothing ticked searches everything.
+              None ticked searches everything.
             </p>
             <div className="flex flex-wrap gap-x-4 gap-y-1.5">
               {RECORD_TYPES.map((type) => (

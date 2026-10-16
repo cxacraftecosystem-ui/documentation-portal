@@ -75,7 +75,7 @@ export function BatchList({
     return (
       <EmptyState
         title="No assignments here yet"
-        body="Everything handed out from the assignment builder shows up here as one manageable unit, with the whole group's progress and a single withdraw action."
+        body="Assignments will appear here."
       />
     );
   }

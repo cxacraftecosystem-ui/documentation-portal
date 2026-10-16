@@ -75,7 +75,7 @@ export function OutboxBanner() {
       id: "outbox-queued",
       tone: "info",
       title: `${added === 1 ? "Entry" : `${added} entries`} saved on this device`,
-      description: "There is no connection, so it is queued below and sends itself when signal returns."
+      description: "It sends when you’re back online."
     });
   }, [entries.length, toast]);
 
@@ -98,7 +98,7 @@ export function OutboxBanner() {
             tone: result.stoppedOffline ? "error" : "info",
             title: result.stoppedOffline ? "Still no connection" : "Nothing to send",
             description: result.stoppedOffline
-              ? "Everything stays queued on this device. Try again once you have signal."
+              ? "Still queued. Try again with signal."
               : undefined
           });
         }
@@ -139,8 +139,8 @@ export function OutboxBanner() {
             </h2>
             <p className="mt-0.5 text-xs text-ink-700">
               {waiting
-                ? "They were made offline and haven’t been uploaded yet. They send themselves when the connection returns — but they live in this browser, so do not clear its data or hand the laptop on until the outbox is empty."
-                : "The entries below couldn’t be saved and need your attention."}
+                ? "They send when you’re back online. Don’t clear this browser’s data until then."
+                : "These couldn’t be saved."}
             </p>
           </div>
         </div>

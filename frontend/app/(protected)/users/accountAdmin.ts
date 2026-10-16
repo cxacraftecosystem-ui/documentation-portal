@@ -144,15 +144,13 @@ export function newAccountBody(form: NewAccountForm, { mailAvailable }: { mailAv
 export function createdSentence(created: CreatedAccount, mode: PasswordMode): string {
   const who = `${created.name || created.email} (${created.email})`;
   if (mode === "GENERATE") {
-    return `${who} is added and can sign in with the temporary password below. They must change it when they first sign in.`;
+    return `${who} added. They’ll change the temporary password below at first sign-in.`;
   }
   if (mode === "NONE") {
-    const base = `${who} is added and can sign in with Google, Microsoft or Yahoo on that address.`;
-    if (created.passwordLink) return `${base} A link to set a password is on its way to their inbox.`;
+    const base = `${who} added.`;
+    if (created.passwordLink) return `${base} Password link sent.`;
     if (created.passwordLinkError) return `${base} ${created.passwordLinkError}`;
     return base;
   }
-  return `${who} is added and can sign in with the password you typed${
-    created.mustChangePassword ? ", and will choose their own at their first sign-in" : ""
-  }. Send it to them yourself — nothing shows it again.`;
+  return `${who} added${created.mustChangePassword ? " — they’ll choose a new password at first sign-in" : ""}. Send them the password.`;
 }
