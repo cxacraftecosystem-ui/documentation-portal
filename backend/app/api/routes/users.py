@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
@@ -19,17 +20,20 @@ from app.core.deps import (
 from app.core.security import hash_password
 from app.schemas.users import UserCreate, UserUpdate
 from app.services.access_roster import ensure_admitted
+from app.services.two_factor import SECRET_USER_FIELDS
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import clean_data, contains
 
 router = APIRouter(prefix="/users", tags=["users"])
+logger = logging.getLogger(__name__)
 
 ALLOWED_ROLES = set(ROLE_RANK)
 
 
 def serialize_user(user: Any) -> dict[str, Any]:
     payload = jsonable_encoder(user)
-    payload.pop("passwordHash", None)
+    for field in SECRET_USER_FIELDS:
+        payload.pop(field, None)
     return payload
 
 
@@ -270,3 +274,50 @@ async def delete_user(user_id: str, current_user: Any = Depends(require_admin)) 
     )
     # A deleted account must stop authenticating immediately, not when a TTL happens to expire.
     invalidate_cached_user(user_id)
+
+
+@router.delete("/{user_id}/two-factor")
+async def reset_two_factor(user_id: str, current_user: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Turn two-step verification off for somebody who has lost the device it was on.
+
+    The same authority as resetting their password or deleting the account: an admin, over a person
+    ranked below them (the master admin over anyone). An administrator may REMOVE a second factor
+    and may never READ one: nothing here returns the secret, and the recovery codes go with it.
+    Refused for your own account, which is turned off from the account screen with a current code.
+    Sessions are left alone; there is no revoke-all in this API. Answers the user row as it now is.
+    """
+    user = await db.user.find_unique(where={"id": user_id})
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if user.id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Turn off your own two-step verification from your account screen.",
+        )
+    assert_can_manage_target(current_user, user)
+    if not user.twoFactorEnabled:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Two-step verification is already off for this person.",
+        )
+    updated = await db.user.update(
+        where={"id": user_id},
+        data={
+            "twoFactorEnabled": False,
+            "twoFactorSecret": None,
+            "twoFactorPendingSecret": None,
+            "twoFactorRecoveryCodes": [],
+            "twoFactorLastStep": None,
+            "twoFactorEnabledAt": None,
+        },
+    )
+    invalidate_cached_user(user_id)
+    logger.warning(
+        "AUDIT two-factor reset by an administrator: user=%s (%s) by=%s (%s)",
+        user.id,
+        user.email,
+        current_user.id,
+        current_user.email,
+    )
+    # The row as the Users screen now shows it, so the badge goes without a reload.
+    return serialize_user(updated)

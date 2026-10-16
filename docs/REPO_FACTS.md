@@ -16,18 +16,18 @@ API lags the tree by however many commits have not been deployed; see
 
 | | Count |
 |---|---|
-| Prisma models | **38** |
+| Prisma models | **39** |
 | Prisma enums | **16** |
-| `@@index` declarations | 95 |
+| `@@index` declarations | 97 |
 | `@@unique` declarations | 14 |
 
-Models: `User`, `AccessRoster`, `AssignedTask`, `Feedback`, `UserPreference`, `AppRelease`, `Craft`, `Location`, `Artisan`, `Workshop`, `WorkshopArtisan`, `WorkshopCraft`, `ProductDocumentation`, `ToolDocumentation`, `ToolArtisan`, `ToolCraft`, `MediaFile`, `MediaProcessingJob`, `Questionnaire`, `QuestionnaireSection`, `QuestionnaireSectionStatus`, `QuestionnaireQuestion`, `QuestionnaireInterview`, `QuestionnaireInterviewArtisan`, `QuestionnaireResponse`, `Process`, `ProcessStep`, `ReviewLog`, `AppSetting`, `WorkshopAssignment`, `ManagedSecret`, `SecretTestResult`, `DataAccessGrant`, `DataAccessScopeItem`, `EntryComment`, `RecordRevision`, `UserAiCredential`, `EmailMessage`.
+Models: `User`, `AccessRoster`, `AssignedTask`, `Feedback`, `UserPreference`, `AppRelease`, `Craft`, `Location`, `Artisan`, `Workshop`, `WorkshopArtisan`, `WorkshopCraft`, `ProductDocumentation`, `ToolDocumentation`, `ToolArtisan`, `ToolCraft`, `MediaFile`, `MediaProcessingJob`, `Questionnaire`, `QuestionnaireSection`, `QuestionnaireSectionStatus`, `QuestionnaireQuestion`, `QuestionnaireInterview`, `QuestionnaireInterviewArtisan`, `QuestionnaireResponse`, `Process`, `ProcessStep`, `ReviewLog`, `AppSetting`, `WorkshopAssignment`, `ManagedSecret`, `SecretTestResult`, `DataAccessGrant`, `DataAccessScopeItem`, `EntryComment`, `RecordRevision`, `UserAiCredential`, `EmailMessage`, `TwoFactorChallenge`.
 
 Enums: `UserRole`, `AuthProvider`, `AccessStatus`, `RecordStatus`, `WorkshopType`, `MediaType`, `ProductType`, `MarketDemand`, `MakerType`, `TraditionType`, `ReviewRecordType`, `MediaProcessingJobType`, `MediaProcessingJobStatus`, `ProcessStepType`, `DataAccessTier`, `DataAccessStatus`.
 
 ## API surface
 
-**159 operations** in the working tree — 75 GET, 46 POST, 18 DELETE,
+**166 operations** in the working tree — 76 GET, 51 POST, 19 DELETE,
 11 PATCH, 9 PUT. 2 of them (`/health`, `/health/ready`) are declared
 on the app rather than on a router; the rest are spread across `backend/app/api/routes/`:
 
@@ -39,6 +39,8 @@ on the app rather than on a router; the rest are spread across `backend/app/api/
 | `tasks.py` | 11 |
 | `tools.py` | 8 |
 | `artisans.py` | 7 |
+| `two_factor.py` | 6 |
+| `users.py` | 6 |
 | `access_roster.py` | 5 |
 | `ai_keys.py` | 5 |
 | `crafts.py` | 5 |
@@ -49,7 +51,6 @@ on the app rather than on a router; the rest are spread across `backend/app/api/
 | `review.py` | 5 |
 | `secrets.py` | 5 |
 | `settings.py` | 5 |
-| `users.py` | 5 |
 | `auth.py` | 4 |
 | `preferences.py` | 4 |
 | `app_release.py` | 3 |
@@ -103,9 +104,9 @@ no key is skipped wherever it sits.
 
 | Surface | Files | Cases | Runner |
 |---|---|---|---|
-| Backend unit (`backend/tests/`) | 69 | 1081 `def test_` | `python -m pytest -q` from `backend/` |
-| Web end-to-end (`frontend/e2e/`) | 45 | 689 `test(` | Playwright, `frontend/playwright.config.ts` |
-| Android unit (`android/app/src/test/`) | 34 | 571 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
+| Backend unit (`backend/tests/`) | 70 | 1106 `def test_` | `python -m pytest -q` from `backend/` |
+| Web end-to-end (`frontend/e2e/`) | 46 | 694 `test(` | Playwright, `frontend/playwright.config.ts` |
+| Android unit (`android/app/src/test/`) | 35 | 578 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
 | Android instrumented | **none** — the `src/androidTest` source set does not exist | — | not run in CI |
 
 The backend case count is `def test_` occurrences; pytest reports a larger number because
@@ -116,11 +117,11 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 
 | Area | Tracked files | Tracked lines | Tree files | Tree lines |
 |---|---|---|---|---|
-| `backend/app` | 121 | 44,684 | 121 | 44,684 |
-| `frontend/app` | 42 | 17,743 | 42 | 17,743 |
-| `frontend/components` | 176 | 52,854 | 176 | 52,854 |
-| `frontend/lib` | 74 | 27,650 | 74 | 27,650 |
-| `android/app/src/main/java` | 85 | 74,586 | 85 | 74,586 |
+| `backend/app` | 123 | 45,442 | 123 | 45,442 |
+| `frontend/app` | 42 | 17,815 | 42 | 17,815 |
+| `frontend/components` | 178 | 53,347 | 178 | 53,347 |
+| `frontend/lib` | 75 | 27,764 | 75 | 27,764 |
+| `android/app/src/main/java` | 87 | 75,239 | 87 | 75,239 |
 
 Two columns because the two numbers get quoted interchangeably and disagree by however much work is
 uncommitted. **Tracked** is `git ls-files`, which is the figure to use in a write-up — it is

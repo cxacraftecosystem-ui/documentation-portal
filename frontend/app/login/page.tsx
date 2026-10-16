@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Clock, Eye, EyeOff, Lock, Mail } from "lucide-react";
 
 import { FieldRepoLogo } from "@/components/FieldRepoLogo";
+import { TwoStepChallengeForm } from "@/components/TwoStepChallengeForm";
 import { useAuth } from "@/components/AuthProvider";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { GLASS_PANEL, GlassSurface } from "@/components/ui/GlassSurface";
@@ -21,6 +22,8 @@ import {
   type OidcProvider,
   type OidcProviderId
 } from "@/lib/oidcSignIn";
+import { isTwoFactorChallenge, type TwoFactorChallenge } from "@/lib/twoFactor";
+import type { User } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 declare global {
@@ -124,6 +127,12 @@ function LoginView() {
    */
   const [refusal, setRefusal] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  /**
+   * The second step, when the account has two-step verification on: every first factor — password,
+   * Google, Microsoft, Yahoo — may answer a challenge instead of a session, and the card then shows
+   * the code form in place of the sign-in controls. Nobody is signed in while this is set.
+   */
+  const [challenge, setChallenge] = useState<string | null>(null);
   const googleHost = useRef<HTMLDivElement | null>(null);
   const renderedWidth = useRef(0);
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
@@ -136,6 +145,15 @@ function LoginView() {
   useEffect(() => {
     if (user) router.replace("/dashboard");
   }, [router, user]);
+
+  /** A first factor's answer: on to the dashboard, or on to the code form. */
+  const proceed = useCallback(
+    (result: User | TwoFactorChallenge) => {
+      if (isTwoFactorChallenge(result)) setChallenge(result.challenge_token);
+      else router.replace("/dashboard");
+    },
+    [router]
+  );
 
   /**
    * Google Identity Services will only render *its* button, at its own size — which is why
@@ -170,8 +188,7 @@ function LoginView() {
           setError(null);
           setRefusal(null);
           try {
-            await loginWithGoogle(response.credential);
-            router.replace("/dashboard");
+            proceed(await loginWithGoogle(response.credential));
           } catch (err) {
             /**
              * GOOGLE FAILURES LAND IN THE CARD'S BANNER, NOT IN A TOAST — and that change is what
@@ -223,7 +240,7 @@ function LoginView() {
         duration: 0
       });
     document.body.appendChild(script);
-  }, [googleClientId, loginWithGoogle, renderGoogleButton, router, toast]);
+  }, [googleClientId, loginWithGoogle, proceed, renderGoogleButton, toast]);
 
   useEffect(() => {
     const host = googleHost.current;
@@ -239,8 +256,7 @@ function LoginView() {
     setError(null);
     setRefusal(null);
     try {
-      await login(email, password);
-      router.replace("/dashboard");
+      proceed(await login(email, password));
     } catch (err) {
       // Two outcomes, told apart on purpose (see the `refusal` state). A wrong password is still a
       // 401 with the same sentence it has always had; a correct credential for an address the
@@ -288,8 +304,7 @@ function LoginView() {
     setLoading(true);
     void (async () => {
       try {
-        await loginWithOidc(loginBody(pending, code));
-        router.replace("/dashboard");
+        proceed(await loginWithOidc(loginBody(pending, code)));
       } catch (err) {
         setRefusal(accessRefusalCode(err));
         setError(err instanceof Error ? err.message : callbackErrorMessage(pending.provider, null));
@@ -297,7 +312,7 @@ function LoginView() {
         setLoading(false);
       }
     })();
-  }, [loginWithOidc, router]);
+  }, [loginWithOidc, proceed]);
 
   return (
     <div className="grid min-h-dvh lg:grid-cols-[43%_57%]">
@@ -363,155 +378,168 @@ function LoginView() {
             <p className="text-sm text-ink-500">Sign in to your account</p>
           </div>
 
-          {/*
-            THE TWO REFUSALS, SIDE BY SIDE IN ONE PLACE.
+          {challenge ? (
+            <TwoStepChallengeForm
+              challengeToken={challenge}
+              onSignedIn={() => router.replace("/dashboard")}
+              onCancel={() => {
+                setChallenge(null);
+                setPassword("");
+              }}
+            />
+          ) : (
+            <>
+            {/*
+              THE TWO REFUSALS, SIDE BY SIDE IN ONE PLACE.
 
-            "Awaiting approval" is drawn as a WAITING state — amber, a clock, a heading that says
-            what is happening — and "invalid email or password" stays the red error it has always
-            been. That difference is not decoration: it is the whole of the ruling. Somebody who has
-            been turned away pending a decision must be able to tell, at a glance and without
-            reading carefully, that they have not got their password wrong.
+              "Awaiting approval" is drawn as a WAITING state — amber, a clock, a heading that says
+              what is happening — and "invalid email or password" stays the red error it has always
+              been. That difference is not decoration: it is the whole of the ruling. Somebody who has
+              been turned away pending a decision must be able to tell, at a glance and without
+              reading carefully, that they have not got their password wrong.
 
-            REJECTED and SUSPENDED take the red treatment, because for the person reading them
-            something IS wrong and the only thing that changes it is talking to a human. They still
-            carry their own distinct sentence from the server; only the styling is shared.
+              REJECTED and SUSPENDED take the red treatment, because for the person reading them
+              something IS wrong and the only thing that changes it is talking to a human. They still
+              carry their own distinct sentence from the server; only the styling is shared.
 
-            `role="status"` on the waiting variant and `role="alert"` on the error one, so a screen
-            reader is told which of the two it is without having to parse the sentence.
-          */}
-          {error && refusal === "ACCESS_PENDING" ? (
-            <div
-              role="status"
-              className="mb-4 flex gap-3 rounded-md border border-amber-500/30 bg-amber-100 px-3 py-3 text-sm text-amber-800"
-            >
-              <Clock className="mt-0.5 h-5 w-5 shrink-0" aria-hidden />
-              <div>
-                <p className="font-semibold">Waiting for an administrator</p>
-                {/* The sentence is the SERVER's, verbatim. It is written once, in
-                    `access_roster.ACCESS_PENDING_DETAIL`, and served to this page, to the Android
-                    app and to the other application, so a person who tries two of them is not told
-                    two different things about one decision. */}
-                <p className="mt-1 leading-6">{error}</p>
-              </div>
-            </div>
-          ) : error ? (
-            <div role="alert" className="mb-4 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-error-600">
-              {error}
-            </div>
-          ) : null}
-
-          <form onSubmit={submit} className="grid gap-3">
-            <div className="grid gap-2">
-              <label htmlFor="email" className="text-sm font-medium text-ink-900">
-                Email address
-              </label>
-              <div className="relative">
-                <Mail aria-hidden className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-ink-500" />
-                <input
-                  id="email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  placeholder="Enter your email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  className="field-input h-[52px] pl-10"
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-2">
-              <label htmlFor="password" className="text-sm font-medium text-ink-900">
-                Password
-              </label>
-              <div className="relative">
-                <Lock aria-hidden className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-ink-500" />
-                <input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete="current-password"
-                  required
-                  minLength={8}
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  className="field-input h-[52px] pl-10 pr-11"
-                />
-                <button
-                  type="button"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                  aria-pressed={showPassword}
-                  onClick={() => setShowPassword((value) => !value)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-ink-300 hover:text-ink-500"
-                >
-                  {showPassword ? <EyeOff size={22} aria-hidden /> : <Eye size={22} aria-hidden />}
-                </button>
-              </div>
-            </div>
-
-            <Button type="submit" size="auth" disabled={loading} className="mt-1 w-full font-display text-base font-bold">
-              {loading ? "Signing in…" : "Sign In"}
-            </Button>
-          </form>
-
-          <div className="my-4 flex items-center gap-3">
-            <span className="h-px flex-1 bg-line-200" />
-            <span className="text-sm text-ink-300">OR</span>
-            <span className="h-px flex-1 bg-line-200" />
-          </div>
-
-          <div className="grid gap-2.5">
-            {googleClientId ? (
+              `role="status"` on the waiting variant and `role="alert"` on the error one, so a screen
+              reader is told which of the two it is without having to parse the sentence.
+            */}
+            {error && refusal === "ACCESS_PENDING" ? (
               <div
-                className={cn(
-                  PROVIDER_BUTTON,
-                  // The GSI button underneath carries the focus, so the ring has to be drawn
-                  // by the wrapper — an outline on a transparent element is invisible.
-                  "relative w-full min-w-0 overflow-hidden focus-within:outline-solid focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-purple-700"
-                )}
+                role="status"
+                className="mb-4 flex gap-3 rounded-md border border-amber-500/30 bg-amber-100 px-3 py-3 text-sm text-amber-800"
               >
-                <span aria-hidden className="pointer-events-none flex min-w-0 items-center gap-2.5">
-                  <GoogleMark className="h-5 w-5 shrink-0" />
-                  <span className="min-w-0 truncate">Continue with Google</span>
-                </span>
-                {/* GSI renders a 40px-tall button; stretching this layer vertically makes the
-                    invisible hit area cover the full 52px of chrome behind it. */}
-                <div
-                  ref={googleHost}
-                  className="absolute inset-0 flex items-center justify-center opacity-0 transform-[scaleY(1.35)]"
-                />
+                <Clock className="mt-0.5 h-5 w-5 shrink-0" aria-hidden />
+                <div>
+                  <p className="font-semibold">Waiting for an administrator</p>
+                  {/* The sentence is the SERVER's, verbatim. It is written once, in
+                      `access_roster.ACCESS_PENDING_DETAIL`, and served to this page, to the Android
+                      app and to the other application, so a person who tries two of them is not told
+                      two different things about one decision. */}
+                  <p className="mt-1 leading-6">{error}</p>
+                </div>
               </div>
-            ) : (
-              <div className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-500">
-                Google sign-in isn’t available right now. Use your email and password.
+            ) : error ? (
+              <div role="alert" className="mb-4 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-error-600">
+                {error}
               </div>
-            )}
-            {/* Microsoft and Yahoo, ONLY those this build is configured for — see `oidcProviders`.
-                `min-w-0` on the grid item is load-bearing: the labels are nowrap, so without it the
-                button refuses to shrink below its content and overflows the card on phones. */}
-            {oidcProviders.map((provider) => (
-              <Button
-                key={provider.id}
-                type="button"
-                variant="provider"
-                size="auth"
-                disabled={loading}
-                onClick={() => void startOidc(provider)}
-                className="w-full min-w-0"
-              >
-                <ProviderMark id={provider.id} className="h-5 w-5 shrink-0" />
-                <span className="min-w-0 truncate">Continue with {provider.label}</span>
-              </Button>
-            ))}
-          </div>
+            ) : null}
 
-          {/* The brand panel carries this on a wide screen, but it is `hidden … lg:flex` — so on a
-              phone, which is where most first sign-ins happen, the allow-list would be a surprise
-              delivered only by a refusal. */}
-          <p className="mt-4 text-center text-xs leading-5 text-ink-500 lg:hidden">
-            Access is by invitation: an administrator adds your address to the roster. Sign in once and your request
-            reaches them.
-          </p>
+            <form onSubmit={submit} className="grid gap-3">
+              <div className="grid gap-2">
+                <label htmlFor="email" className="text-sm font-medium text-ink-900">
+                  Email address
+                </label>
+                <div className="relative">
+                  <Mail aria-hidden className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-ink-500" />
+                  <input
+                    id="email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    placeholder="Enter your email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    className="field-input h-[52px] pl-10"
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-2">
+                <label htmlFor="password" className="text-sm font-medium text-ink-900">
+                  Password
+                </label>
+                <div className="relative">
+                  <Lock aria-hidden className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-ink-500" />
+                  <input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="current-password"
+                    required
+                    minLength={8}
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    className="field-input h-[52px] pl-10 pr-11"
+                  />
+                  <button
+                    type="button"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    aria-pressed={showPassword}
+                    onClick={() => setShowPassword((value) => !value)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-ink-300 hover:text-ink-500"
+                  >
+                    {showPassword ? <EyeOff size={22} aria-hidden /> : <Eye size={22} aria-hidden />}
+                  </button>
+                </div>
+              </div>
+
+              <Button type="submit" size="auth" disabled={loading} className="mt-1 w-full font-display text-base font-bold">
+                {loading ? "Signing in…" : "Sign In"}
+              </Button>
+            </form>
+
+            <div className="my-4 flex items-center gap-3">
+              <span className="h-px flex-1 bg-line-200" />
+              <span className="text-sm text-ink-300">OR</span>
+              <span className="h-px flex-1 bg-line-200" />
+            </div>
+
+            <div className="grid gap-2.5">
+              {googleClientId ? (
+                <div
+                  className={cn(
+                    PROVIDER_BUTTON,
+                    // The GSI button underneath carries the focus, so the ring has to be drawn
+                    // by the wrapper — an outline on a transparent element is invisible.
+                    "relative w-full min-w-0 overflow-hidden focus-within:outline-solid focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-purple-700"
+                  )}
+                >
+                  <span aria-hidden className="pointer-events-none flex min-w-0 items-center gap-2.5">
+                    <GoogleMark className="h-5 w-5 shrink-0" />
+                    <span className="min-w-0 truncate">Continue with Google</span>
+                  </span>
+                  {/* GSI renders a 40px-tall button; stretching this layer vertically makes the
+                      invisible hit area cover the full 52px of chrome behind it. */}
+                  <div
+                    ref={googleHost}
+                    className="absolute inset-0 flex items-center justify-center opacity-0 transform-[scaleY(1.35)]"
+                  />
+                </div>
+              ) : (
+                <div className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-500">
+                  Google sign-in isn’t available right now. Use your email and password.
+                </div>
+              )}
+              {/* Microsoft and Yahoo, ONLY those this build is configured for — see `oidcProviders`.
+                  `min-w-0` on the grid item is load-bearing: the labels are nowrap, so without it the
+                  button refuses to shrink below its content and overflows the card on phones. */}
+              {oidcProviders.map((provider) => (
+                <Button
+                  key={provider.id}
+                  type="button"
+                  variant="provider"
+                  size="auth"
+                  disabled={loading}
+                  onClick={() => void startOidc(provider)}
+                  className="w-full min-w-0"
+                >
+                  <ProviderMark id={provider.id} className="h-5 w-5 shrink-0" />
+                  <span className="min-w-0 truncate">Continue with {provider.label}</span>
+                </Button>
+              ))}
+            </div>
+
+            {/* The brand panel carries this on a wide screen, but it is `hidden … lg:flex` — so on a
+                phone, which is where most first sign-ins happen, the allow-list would be a surprise
+                delivered only by a refusal. */}
+            <p className="mt-4 text-center text-xs leading-5 text-ink-500 lg:hidden">
+              Access is by invitation: an administrator adds your address to the roster. Sign in once and your request
+              reaches them.
+            </p>
+            </>
+          )}
 
           <p className="mt-4 text-center text-sm text-ink-500">
             No account yet?{" "}

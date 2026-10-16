@@ -54,3 +54,20 @@ class TokenResponse(APIModel):
     accessToken: str
     tokenType: str = "bearer"
     user: dict
+
+
+class TwoFactorChallengeResponse(APIModel):
+    """What sign-in answers instead of a session when the account has two-step verification on."""
+
+    two_factor_required: bool = True
+    challenge_token: str
+
+
+class TwoFactorVerifyRequest(APIModel):
+    challenge_token: str = Field(min_length=1, max_length=4096)
+    #: A six-digit code or a recovery code; told apart by shape.
+    code: str = Field(min_length=1, max_length=64)
+
+
+class TwoFactorCodeRequest(APIModel):
+    code: str = Field(min_length=1, max_length=64)

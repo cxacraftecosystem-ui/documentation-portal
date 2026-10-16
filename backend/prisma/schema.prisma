@@ -186,6 +186,18 @@ model User {
   canReview              Boolean @default(false)
   canViewProvenance      Boolean @default(false)
   canDownloadDataset     Boolean @default(false)
+  /// TWO-STEP VERIFICATION (TOTP, RFC 6238). Opt-in from the account screen, for every role.
+  /// Both secrets are AES-256-GCM ciphertext (app/services/two_factor.py), never plaintext, and
+  /// neither leaves the server after enrolment. `twoFactorPendingSecret` is the one being set up and
+  /// not yet confirmed with a code. `twoFactorRecoveryCodes` holds bcrypt hashes of the unused
+  /// recovery codes. `twoFactorLastStep` is the newest TOTP time step this account has accepted: a
+  /// code is refused unless its step is greater, which is what makes each code single-use.
+  twoFactorEnabled       Boolean   @default(false)
+  twoFactorSecret        String?
+  twoFactorPendingSecret String?
+  twoFactorRecoveryCodes String[]  @default([])
+  twoFactorLastStep      Int?
+  twoFactorEnabledAt     DateTime?
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
@@ -222,6 +234,7 @@ model User {
   tasksAssigned   AssignedTask[]   @relation("TaskAssignee")
   tasksCreated    AssignedTask[]   @relation("TaskCreator")
   accessDecisions AccessRoster[]   @relation("AccessRosterDecidedBy")
+  twoFactorChallenges TwoFactorChallenge[] @relation("TwoFactorChallengeUser")
 
   @@index([role])
 }
@@ -1862,4 +1875,22 @@ model EmailMessage {
 
   @@index([status, runAfter, createdAt])
   @@index([recipientId])
+}
+
+/// One sign-in that has passed its first factor and is waiting for the authenticator code.
+///
+/// Keyed by the challenge token's `jti`. The row exists to COUNT: every code submitted against the
+/// challenge claims one attempt with a conditional increment (`attempts < 5`), so the fifth wrong
+/// code kills the challenge even when the submissions race. A correct code deletes the row, which
+/// makes the challenge single-use. Expired rows are swept when new challenges are issued.
+model TwoFactorChallenge {
+  id        String   @id
+  userId    String
+  user      User     @relation("TwoFactorChallengeUser", fields: [userId], references: [id], onDelete: Cascade)
+  attempts  Int      @default(0)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }

@@ -360,6 +360,7 @@ path, so an edit that goes through the normal PATCH is captured; a direct databa
 | `AssignedTask` | one row per assignee | a batch of five researchers is five rows sharing a `batchId` |
 | `Feedback`, `UserPreference` | one row per user each | |
 | `ReviewLog` | one row per review decision | append-only; an edit-then-approve writes two rows |
+| `TwoFactorChallenge` | one row per sign-in waiting for its authenticator code | keyed by the challenge token's `jti`; counts attempts (five, then dead), deleted by a correct code, swept when expired. The account's own two-step columns (`User.twoFactor*`: the encrypted secret and pending secret, hashed recovery codes, the last accepted time step) are in [SECURITY.md §3.3B](SECURITY.md) |
 
 ---
 

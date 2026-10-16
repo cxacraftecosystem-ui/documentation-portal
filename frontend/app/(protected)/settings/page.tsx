@@ -10,6 +10,7 @@ import { AppSettingsPanel } from "@/components/settings/AppSettingsPanel";
 import { EmailNotificationsCard } from "@/components/settings/EmailNotificationsCard";
 import { GetTheAppPanel } from "@/components/settings/GetTheAppPanel";
 import { PublishAppUpdatePanel } from "@/components/settings/PublishAppUpdatePanel";
+import { TwoStepVerificationCard } from "@/components/settings/TwoStepVerificationCard";
 import { MyAiKeysPanel } from "@/components/settings/MyAiKeysPanel";
 import { AccessibilityCard, AppearanceCard } from "@/components/settings/PersonalSettingsCards";
 import { WorkshopAccessRequestPanel } from "@/components/settings/WorkshopAccessRequestPanel";
@@ -117,6 +118,9 @@ export default function SettingsPage() {
           <AppearanceCard />
           <AccessibilityCard />
         </div>
+
+        {/* This account's own lock, open to every role. */}
+        <TwoStepVerificationCard />
 
         {/* This account's e-mail opt-out. Draws nothing on a deployment that sends no e-mail. */}
         <EmailNotificationsCard />

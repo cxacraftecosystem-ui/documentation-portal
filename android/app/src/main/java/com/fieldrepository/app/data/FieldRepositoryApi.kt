@@ -23,15 +23,39 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
 interface FieldRepositoryApi {
+    // Each sign-in answers a session OR a two-step challenge; see `TwoFactor.kt`.
     @POST("auth/login")
-    suspend fun login(@Body body: LoginRequest): TokenResponse
+    suspend fun login(@Body body: LoginRequest): SignInResponse
 
     @POST("auth/login")
-    suspend fun googleLogin(@Body body: GoogleLoginRequest): TokenResponse
+    suspend fun googleLogin(@Body body: GoogleLoginRequest): SignInResponse
 
     /** Microsoft or Yahoo: an authorization code for the backend to redeem. See `OidcSignIn.kt`. */
     @POST("auth/login")
-    suspend fun oidcLogin(@Body body: OidcLoginRequest): TokenResponse
+    suspend fun oidcLogin(@Body body: OidcLoginRequest): SignInResponse
+
+    /** The second step of a sign-in: the challenge token and a 6-digit or recovery code. */
+    @POST("auth/two-factor/verify")
+    suspend fun verifyTwoFactor(@Body body: TwoFactorVerifyRequest): TokenResponse
+
+    @GET("auth/two-factor")
+    suspend fun twoFactorStatus(): TwoFactorStatusDto
+
+    @POST("auth/two-factor/setup")
+    suspend fun beginTwoFactorSetup(): TwoFactorSetupDto
+
+    @POST("auth/two-factor/enable")
+    suspend fun enableTwoFactor(@Body body: TwoFactorCodeRequest): RecoveryCodesDto
+
+    @POST("auth/two-factor/disable")
+    suspend fun disableTwoFactor(@Body body: TwoFactorCodeRequest): Response<Unit>
+
+    @POST("auth/two-factor/recovery-codes")
+    suspend fun makeNewRecoveryCodes(@Body body: TwoFactorCodeRequest): RecoveryCodesDto
+
+    /** An administrator turning somebody else's off — they lost their phone. */
+    @DELETE("users/{id}/two-factor")
+    suspend fun resetTwoFactorForUser(@Path("id") id: String): UserDto
 
     @GET("me")
     suspend fun me(): UserDto

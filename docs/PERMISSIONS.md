@@ -124,6 +124,8 @@ address that is not admitted becomes a PENDING request, never an account
 | **Download the dataset** / Data Browser | `require_dataset_downloader` | grant | grant | grant | ✅ | ✅ | ✅ |
 | View the **user table**, promote / demote | `require_professor` | ⬜ | ⬜ | ⬜ | ✅ | ✅ | ✅ |
 | **Create** or **delete** a user account | `require_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
+| Turn **your own** two-step verification on or off | `get_current_user` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Turn off **somebody else's** two-step verification (below your tier) | `require_admin` + `assert_can_manage_target` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
 | **Delete** any record | `assert_can_delete` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
 | Delete **media you uploaded** | route-local | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Grant / decide **workshop access** | `require_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |

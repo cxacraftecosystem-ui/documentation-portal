@@ -29,6 +29,11 @@ export type User = {
   canReview?: boolean;
   canViewProvenance?: boolean;
   canDownloadDataset?: boolean;
+  /** Two-step verification is on for this account. Drives the "Two-step on" badge on /users; the
+   *  account's own card reads `GET /auth/two-factor` instead. Absent from a server that predates it. */
+  twoFactorEnabled?: boolean;
+  /** ISO-8601, when it was last switched on; null while it is off. */
+  twoFactorEnabledAt?: string | null;
 };
 
 export type FieldProvenanceEntry = { by?: string; byName?: string; at?: string };
