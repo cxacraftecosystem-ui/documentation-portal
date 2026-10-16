@@ -39,6 +39,7 @@ import secrets
 import struct
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Any
@@ -54,6 +55,7 @@ from app.core.db import db
 from app.core.deps import invalidate_cached_user
 from app.core.security import hash_password, verify_password
 from app.core.user_fields import SECRET_USER_FIELDS as _SECRET_USER_FIELDS
+from app.services import email_outbox, mailer
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +92,8 @@ TOO_MANY_ATTEMPTS_DETAIL = "Too many attempts. Try again later."
 #: owner out for a day at a time. The lockout count decays to zero once a day has passed since the
 #: last lock ended. A correct code resets the budget; an administrator's reset clears everything.
 FAILURE_BUDGET = 10
+#: Recovery codes have their OWN budget, smaller, and its lock is independent of the six-digit one.
+RECOVERY_FAILURE_BUDGET = 5
 FAILURE_WINDOW = timedelta(minutes=15)
 FIRST_LOCKOUT = timedelta(minutes=15)
 MAX_LOCKOUT = timedelta(hours=1)
@@ -402,7 +406,12 @@ async def consume_any_code(user: Any, code: str) -> bool:
     return False
 
 
-# ── The per-account failure budget ──────────────────────────────────────────────────────────────
+# ── The per-account failure budgets ─────────────────────────────────────────────────────────────
+#
+# TWO INDEPENDENT BUDGETS, ONE MECHANISM. Six-digit codes spend `CODE_BUDGET` (ten per window);
+# recovery codes spend `RECOVERY_BUDGET` (five per window). A lock on one never blocks the other, so
+# somebody who holds only the password and burns the six-digit budget cannot shut the owner out: the
+# owner's recovery codes still work. Each budget is four columns, named in its `AttemptBudget`.
 #
 # EVERY STEP IS ONE CONDITIONAL WRITE, because every read here is stale by the time it is acted on: a
 # burst of concurrent wrong codes must not each see "not locked" and each get a check. So a code is
@@ -410,14 +419,43 @@ async def consume_any_code(user: Any, code: str) -> bool:
 # by exactly one request (a compare-and-swap on the window it ends); and a success clears the counter
 # only if nobody else has claimed a slot since it read it.
 #
-# THE COLUMNS. `twoFactorFailedAttempts` counts slots claimed in the live window, which started at
-# `twoFactorFailureWindowStartedAt` (None = no live window). `twoFactorLockedUntil` is when the latest
-# lock ends — kept after it lapses, as the record of when it ended, which is what the decay reads.
-# `twoFactorLockouts` is how many locks in a row, which sets the next one's length.
+# THE COLUMNS, per budget. `attempts` counts slots claimed in the live window, which started at
+# `window_started` (None = no live window). `locked_until` is when the latest lock ends — kept after
+# it lapses, as the record of when it ended, which is what the decay reads. `lockouts` is how many
+# locks in a row, which sets the next one's length.
+
+
+@dataclass(frozen=True)
+class AttemptBudget:
+    name: str
+    limit: int
+    attempts: str
+    window_started: str
+    locked_until: str
+    lockouts: str
+
+
+CODE_BUDGET = AttemptBudget(
+    name="code",
+    limit=FAILURE_BUDGET,
+    attempts="twoFactorFailedAttempts",
+    window_started="twoFactorFailureWindowStartedAt",
+    locked_until="twoFactorLockedUntil",
+    lockouts="twoFactorLockouts",
+)
+RECOVERY_BUDGET = AttemptBudget(
+    name="recovery",
+    limit=RECOVERY_FAILURE_BUDGET,
+    attempts="twoFactorRecoveryFailedAttempts",
+    window_started="twoFactorRecoveryWindowStartedAt",
+    locked_until="twoFactorRecoveryLockedUntil",
+    lockouts="twoFactorRecoveryLockouts",
+)
+BUDGETS = (CODE_BUDGET, RECOVERY_BUDGET)
 
 
 class SecondFactorLocked(Exception):
-    """No slot left: the second factor is locked, or the budget is spent and the lock is being set."""
+    """No slot left in this budget: it is locked, or spent and the lock is being set."""
 
 
 def lockout_duration(previous_lockouts: int) -> timedelta:
@@ -431,108 +469,123 @@ def _aware(value: datetime | None) -> datetime | None:
     return value
 
 
-def is_locked(user: Any, now: datetime | None = None) -> bool:
-    until = _aware(_user_field(user, "twoFactorLockedUntil"))
+def is_locked(user: Any, budget: AttemptBudget = CODE_BUDGET, now: datetime | None = None) -> bool:
+    until = _aware(_user_field(user, budget.locked_until))
     return until is not None and until > (now or datetime.now(UTC))
 
 
-#: What a correct code, a switch-off or an administrator's reset puts back.
+def fully_locked(user: Any, now: datetime | None = None) -> bool:
+    """Every way in is locked: no code of any kind would be checked. What sign-in refuses on."""
+    return all(is_locked(user, budget, now) for budget in BUDGETS)
+
+
+#: What a switch-off or an administrator's reset puts back, for both budgets.
 CLEAR_FAILURES: dict[str, Any] = {
-    "twoFactorFailedAttempts": 0,
-    "twoFactorFailureWindowStartedAt": None,
-    "twoFactorLockedUntil": None,
-    "twoFactorLockouts": 0,
+    column: value
+    for budget in BUDGETS
+    for column, value in (
+        (budget.attempts, 0),
+        (budget.window_started, None),
+        (budget.locked_until, None),
+        (budget.lockouts, 0),
+    )
 }
 
 
-async def _start_window_if_lapsed(row: Any, now: datetime) -> None:
+def budget_for(code: str, *, allow_recovery: bool = True) -> AttemptBudget:
+    """Which budget a submitted code spends: a recovery code's own, and everything else (six digits,
+    or something that is neither shape) the six-digit one."""
+    return RECOVERY_BUDGET if allow_recovery and code_kind(code) == "recovery" else CODE_BUDGET
+
+
+async def _start_window_if_lapsed(row: Any, budget: AttemptBudget, now: datetime) -> None:
     """Begin a fresh window when there is none live (never started, older than fifteen minutes, or
     ended by a lock that has since lapsed). Conditional on the window and the lock being what this
     request read, so only one of a burst restarts it. The lockout count DECAYS to zero here when the
     last lock ended more than a day ago: somebody who merely knows the password cannot ratchet the
     owner's lock up for ever."""
-    started = _aware(_user_field(row, "twoFactorFailureWindowStartedAt"))
+    started = _aware(_user_field(row, budget.window_started))
     if started is not None and now - started <= FAILURE_WINDOW:
         return
-    last_lock_end = _aware(_user_field(row, "twoFactorLockedUntil"))
-    data: dict[str, Any] = {"twoFactorFailedAttempts": 0, "twoFactorFailureWindowStartedAt": now}
+    last_lock_end = _aware(_user_field(row, budget.locked_until))
+    data: dict[str, Any] = {budget.attempts: 0, budget.window_started: now}
     if last_lock_end is not None and now - last_lock_end > LOCKOUT_DECAY:
-        data["twoFactorLockouts"] = 0
+        data[budget.lockouts] = 0
     await db.user.update_many(
         where={
             "id": _user_field(row, "id"),
-            "twoFactorFailureWindowStartedAt": _user_field(row, "twoFactorFailureWindowStartedAt"),
-            "twoFactorLockedUntil": _user_field(row, "twoFactorLockedUntil"),
+            budget.window_started: _user_field(row, budget.window_started),
+            budget.locked_until: _user_field(row, budget.locked_until),
         },
         data=data,
     )
 
 
-async def claim_attempt_slot(user_id: str) -> int:
-    """Claim one of the account's slots BEFORE any code is checked; the count after claiming.
+async def claim_attempt_slot(user_id: str, budget: AttemptBudget = CODE_BUDGET) -> int:
+    """Claim one of the budget's slots BEFORE any code is checked; the count after claiming.
 
-    One `update_many` whose condition IS the rule — not locked, and fewer than the budget used — with
+    One `update_many` whose condition IS the rule — not locked, and fewer than the limit used — with
     an atomic increment. Zero rows means there is no slot: SecondFactorLocked.
     """
     now = datetime.now(UTC)
     row = await db.user.find_unique(where={"id": user_id})
-    if row is None or is_locked(row, now):
+    if row is None or is_locked(row, budget, now):
         raise SecondFactorLocked()
-    await _start_window_if_lapsed(row, now)
+    await _start_window_if_lapsed(row, budget, now)
     claimed = await db.user.update_many(
         where={
             "id": user_id,
-            "twoFactorFailedAttempts": {"lt": FAILURE_BUDGET},
-            "OR": [{"twoFactorLockedUntil": None}, {"twoFactorLockedUntil": {"lt": now}}],
+            budget.attempts: {"lt": budget.limit},
+            "OR": [{budget.locked_until: None}, {budget.locked_until: {"lt": now}}],
         },
-        data={"twoFactorFailedAttempts": {"increment": 1}},
+        data={budget.attempts: {"increment": 1}},
     )
     if not claimed:
         raise SecondFactorLocked()
     invalidate_cached_user(user_id)
     after = await db.user.find_unique(where={"id": user_id})
-    return int(_user_field(after, "twoFactorFailedAttempts") or 0)
+    return int(_user_field(after, budget.attempts) or 0)
 
 
-async def settle_success(user_id: str, claimed_count: int) -> None:
-    """A correct code clears the budget — but only if nobody has claimed a slot since this request
+async def settle_success(user_id: str, claimed_count: int, budget: AttemptBudget = CODE_BUDGET) -> None:
+    """A correct code clears its budget — but only if nobody has claimed a slot since this request
     did. If somebody has, only this request's own slot is handed back, so concurrent wrong codes stay
-    counted. A success also ends the lockout run."""
+    counted. A success also ends that budget's lockout run."""
     cleared = await db.user.update_many(
-        where={"id": user_id, "twoFactorFailedAttempts": claimed_count},
-        data={"twoFactorFailedAttempts": 0, "twoFactorFailureWindowStartedAt": None, "twoFactorLockouts": 0},
+        where={"id": user_id, budget.attempts: claimed_count},
+        data={budget.attempts: 0, budget.window_started: None, budget.lockouts: 0},
     )
     if not cleared:
         await db.user.update_many(
-            where={"id": user_id, "twoFactorFailedAttempts": {"gt": 0}},
-            data={"twoFactorFailedAttempts": {"decrement": 1}},
+            where={"id": user_id, budget.attempts: {"gt": 0}},
+            data={budget.attempts: {"decrement": 1}},
         )
     invalidate_cached_user(user_id)
 
 
-async def lock_if_spent(user_id: str) -> bool:
+async def lock_if_spent(user_id: str, budget: AttemptBudget = CODE_BUDGET) -> bool:
     """After a wrong code: when the budget is spent, lock — written by exactly ONE request, by a
     compare-and-swap on the window the lock ends, and the lockout count escalated by an atomic
-    increment. True when this request wrote the lock."""
+    increment. The owner is told by e-mail. True when this request wrote the lock."""
     row = await db.user.find_unique(where={"id": user_id})
-    if row is None or (_user_field(row, "twoFactorFailedAttempts") or 0) < FAILURE_BUDGET:
+    if row is None or (_user_field(row, budget.attempts) or 0) < budget.limit:
         return False
-    window = _user_field(row, "twoFactorFailureWindowStartedAt")
+    window = _user_field(row, budget.window_started)
     if window is None:
         return False  # another request has already written this window's lock
     now = datetime.now(UTC)
-    lockouts = int(_user_field(row, "twoFactorLockouts") or 0)
+    lockouts = int(_user_field(row, budget.lockouts) or 0)
     until = now + lockout_duration(lockouts)
     won = await db.user.update_many(
         where={
             "id": user_id,
-            "twoFactorFailedAttempts": {"gte": FAILURE_BUDGET},
-            "twoFactorFailureWindowStartedAt": window,
+            budget.attempts: {"gte": budget.limit},
+            budget.window_started: window,
         },
         data={
-            "twoFactorLockedUntil": until,
-            "twoFactorFailureWindowStartedAt": None,
-            "twoFactorLockouts": {"increment": 1},
+            budget.locked_until: until,
+            budget.window_started: None,
+            budget.lockouts: {"increment": 1},
         },
     )
     if not won:
@@ -541,14 +594,35 @@ async def lock_if_spent(user_id: str) -> bool:
     # The audit trail every other two-step change writes to (enable, disable, reset): WARNING lines
     # that reach journald on the box, where an administrator looking into a lock-out finds them.
     logger.warning(
-        "AUDIT two-factor locked after %d wrong codes: user=%s (%s) lockout=%d until=%s",
-        FAILURE_BUDGET,
+        "AUDIT two-factor locked after %d wrong %s codes: user=%s (%s) lockout=%d until=%s",
+        budget.limit,
+        budget.name,
         user_id,
         _user_field(row, "email"),
         lockouts + 1,
         until.isoformat(),
     )
+    await notify_second_factor_locked(row, until, budget)
     return True
+
+
+async def notify_second_factor_locked(user: Any, until: datetime, budget: AttemptBudget = CODE_BUDGET) -> None:
+    """Tell the owner. Only somebody holding the password reaches a second-factor lock, so this is the
+    owner's one signal that the password is known. Through the existing outbox (a no-op when mail is
+    off); never raises — the lock is already written and must stand whatever the mail does."""
+    try:
+        await email_outbox.enqueue(
+            mailer.SECOND_FACTOR_LOCKED,
+            to_address=_user_field(user, "email") or "",
+            recipient_id=_user_field(user, "id"),
+            params={
+                "recipientName": _user_field(user, "name"),
+                "lockedUntil": until.isoformat(),
+                "codeKind": budget.name,
+            },
+        )
+    except Exception:  # see the docstring
+        logger.exception("mail: could not queue a second-factor lock notice for %s", _user_field(user, "id"))
 
 
 async def clear_failures(user_id: str) -> None:
@@ -557,18 +631,20 @@ async def clear_failures(user_id: str) -> None:
 
 
 async def check_second_factor(user: Any, code: str, *, allow_recovery: bool = True) -> bool:
-    """THE one way a second-factor code is checked outside enrolment: claim a slot (or
-    SecondFactorLocked, with nothing checked), check the code — spent if right — then settle."""
+    """THE one way a second-factor code is checked outside enrolment: claim a slot in the budget the
+    code's shape belongs to (or SecondFactorLocked, with nothing checked), check the code — spent if
+    right — then settle."""
     user_id = _user_field(user, "id")
-    claimed = await claim_attempt_slot(user_id)
-    if allow_recovery:
-        accepted = await consume_any_code(user, code)
+    budget = budget_for(code, allow_recovery=allow_recovery)
+    claimed = await claim_attempt_slot(user_id, budget)
+    if budget is RECOVERY_BUDGET:
+        accepted = await consume_recovery_code(user, code)
     else:
         accepted = code_kind(code) == "totp" and await consume_totp(user, code)
     if accepted:
-        await settle_success(user_id, claimed)
+        await settle_success(user_id, claimed, budget)
         return True
-    await lock_if_spent(user_id)
+    await lock_if_spent(user_id, budget)
     return False
 
 

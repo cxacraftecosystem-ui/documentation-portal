@@ -54,6 +54,10 @@ USER_DEFAULTS: dict[str, Any] = {
     "twoFactorFailureWindowStartedAt": None,
     "twoFactorLockedUntil": None,
     "twoFactorLockouts": 0,
+    "twoFactorRecoveryFailedAttempts": 0,
+    "twoFactorRecoveryWindowStartedAt": None,
+    "twoFactorRecoveryLockedUntil": None,
+    "twoFactorRecoveryLockouts": 0,
 }
 
 TWO_FACTOR_CHALLENGE_DEFAULTS: dict[str, Any] = {

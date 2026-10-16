@@ -206,6 +206,12 @@ model User {
   twoFactorFailureWindowStartedAt DateTime?
   twoFactorLockedUntil            DateTime?
   twoFactorLockouts               Int       @default(0)
+  /// The same four for RECOVERY codes: their own, smaller budget (five per window) and their own lock,
+  /// independent of the six-digit one so that a lock on six-digit codes never shuts the owner out.
+  twoFactorRecoveryFailedAttempts  Int       @default(0)
+  twoFactorRecoveryWindowStartedAt DateTime?
+  twoFactorRecoveryLockedUntil     DateTime?
+  twoFactorRecoveryLockouts        Int       @default(0)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
