@@ -46,11 +46,18 @@ from app.core.deps import (
     require_admin,
     role_rank,
 )
-from app.core.security import create_access_token, decode_access_token, hash_password, verify_password
+from app.core.security import (
+    create_access_token,
+    decode_access_token,
+    hash_password,
+    verify_password,
+    verify_password_or_decoy,
+)
 from app.core.user_fields import public_user
 from app.scale.rate_limit import (
     account_credential_attempt,
     account_credential_refund,
+    address_credential_attempt,
     client_address,
     forgot_password_attempt,
 )
@@ -396,12 +403,17 @@ async def login(payload: LoginRequest) -> dict[str, Any]:
         user = await db.user.find_unique(where={"email": email}) if email else None
         # THE PER-ACCOUNT GUESSING BUDGET (2026-10-16), shared with the change-password screen's
         # "current password": taken before bcrypt, given back when the password is right. Keyed on
-        # the account, so guesses spread across many networks still meet it.
+        # the account, so guesses spread across many networks still meet it. An address that matches
+        # no account spends an identical bucket keyed on the address as typed (security review N1),
+        # and the decoy bcrypt below costs it the same time: otherwise the eleventh guess answered
+        # 429 for a real address and 401 for an unknown one, which told a script who has an account.
         if user is not None:
             allowed, _retry = account_credential_attempt(user.id)
-            if not allowed:
-                raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=ACCOUNT_THROTTLED_DETAIL)
-        if not user or not verify_password(payload.password or "", user.passwordHash):
+        else:
+            allowed, _retry = address_credential_attempt(email)
+        if not allowed:
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=ACCOUNT_THROTTLED_DETAIL)
+        if not verify_password_or_decoy(payload.password or "", user.passwordHash if user else None) or not user:
             # UNCHANGED, AND DELIBERATELY SO. This is the wrong-credential answer, and it is the one
             # place the gate does NOT speak: an unknown address with a guessed password has proved
             # nothing, so it is told nothing and — crucially — it writes NOTHING to the roster. If

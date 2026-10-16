@@ -122,6 +122,23 @@ def verify_password(password: str, password_hash: str | None) -> bool:
     return bcrypt.checkpw(secret[:BCRYPT_MAX_PASSWORD_BYTES], password_hash.encode("utf-8"))
 
 
+#: A cost-12 bcrypt hash of a random string nobody kept. Checked against when the typed address
+#: matches no account, or an account with no password, so "no such account" spends the same bcrypt
+#: time as "wrong password" (security review N1, 2026-10-16): a sign-in that answered in a
+#: millisecond for an unknown address told a stopwatch which addresses exist. Not a secret.
+_TIMING_DECOY_HASH = "$2b$12$KDeRXn/0PBzAVdesZIsHqeGE0RqAMGDRZzZMn8dRtW6b2lZ6KKkty"
+
+
+def verify_password_or_decoy(password: str, password_hash: str | None) -> bool:
+    """:func:`verify_password`, except that a missing hash still costs one bcrypt check (against
+    :data:`_TIMING_DECOY_HASH`) and then answers False. For the doors that trade a typed address and
+    password for a credential, so the absent account is not the fast one."""
+    if password_hash:
+        return verify_password(password, password_hash)
+    verify_password(password, _TIMING_DECOY_HASH)
+    return False
+
+
 def _jwt_secret_weakness(secret: str) -> str | None:
     """Describe why ``secret`` is unsafe for signing tokens, or None when it is acceptable."""
     candidate = secret.strip()
