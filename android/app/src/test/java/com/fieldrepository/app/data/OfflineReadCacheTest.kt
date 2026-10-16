@@ -1,6 +1,7 @@
 package com.fieldrepository.app.data
 
 import com.sun.net.httpserver.HttpServer
+import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.junit.After
@@ -61,7 +62,7 @@ class OfflineReadCacheTest {
     @After
     fun cleanUp() {
         runCatching { server.stop(0) }
-        OfflineReadCache.clear()
+        runBlocking { OfflineReadCache.clear().join() }
         client.dispatcher.executorService.shutdown()
         client.connectionPool.evictAll()
         dir.deleteRecursively()
@@ -97,10 +98,16 @@ class OfflineReadCacheTest {
     @Test
     fun `signing out forgets every stored answer`() {
         get("crafts")
-        OfflineReadCache.clear()
+        runBlocking { OfflineReadCache.clear().join() }
         server.stop(0)
         client.connectionPool.evictAll()
         assertFailsOffline("crafts")
+    }
+
+    @Test
+    fun `one cache per directory for the whole process`() {
+        val again = OfflineReadCache.install(OkHttpClient.Builder(), dir).build()
+        assertTrue("a second client on the same directory must share the first one's Cache", again.cache === client.cache)
     }
 
     @Test

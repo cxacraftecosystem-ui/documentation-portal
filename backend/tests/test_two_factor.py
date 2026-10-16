@@ -144,7 +144,10 @@ def test_the_secret_is_encrypted_and_tamper_evident(monkeypatch: pytest.MonkeyPa
     assert RFC_SECRET not in stored and stored.startswith("v1.")
     assert two_factor.decrypt_secret(stored) == RFC_SECRET
     head, iv, tag, body = stored.split(".")
-    flipped = body[:-1] + ("A" if body[-1] != "A" else "B")
+    # The FIRST character, not the last: the last character of unpadded base64url carries padding bits
+    # the decoder discards, so flipping it between "A" and "B" (about 1 run in 64) changed nothing and
+    # the decrypt succeeded. The first character is six real bits of ciphertext.
+    flipped = ("A" if body[0] != "A" else "B") + body[1:]
     assert two_factor.decrypt_secret(f"{head}.{iv}.{tag}.{flipped}") is None
     monkeypatch.setattr(get_settings(), "jwt_secret", "another-secret-entirely-0123456789abcdef")
     assert two_factor.decrypt_secret(stored) is None

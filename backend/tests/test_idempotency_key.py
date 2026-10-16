@@ -32,8 +32,12 @@ class MemoryStore:
         self.rows[(user_id, key)] = StoredAnswer(fingerprint, None, None, None, datetime.now(UTC))
         return True
 
-    async def take_over(self, user_id, key, fingerprint):
+    async def take_over(self, user_id, key, fingerprint, seen_created_at):
+        row = self.rows.get((user_id, key))
+        if row is None or row.status_code is not None or row.created_at != seen_created_at:
+            return False
         self.rows[(user_id, key)] = StoredAnswer(fingerprint, None, None, None, datetime.now(UTC))
+        return True
 
     async def complete(self, user_id, key, status_code, body, content_type):
         row = self.rows[(user_id, key)]
@@ -58,6 +62,12 @@ def _app(store: MemoryStore):
 
             raise HTTPException(status_code=409, detail="A craft with this name exists")
         record = {"id": f"craft_{next(ids)}", "name": body["name"]}
+        records.append(record)
+        return record
+
+    @app.post("/api/auth/login")
+    async def login():
+        record = {"token": f"t{next(ids)}"}
         records.append(record)
         return record
 
@@ -143,6 +153,39 @@ def test_a_repeat_while_the_first_is_running_is_told_to_retry():
     assert records == []
 
 
+def test_a_slow_first_request_is_not_overtaken_before_15_minutes():
+    store = MemoryStore()
+    app, records = _app(store)
+    client = TestClient(app)
+    body = b'{"name":"Ajrakh"}'
+    store.rows[("user_1", "slow-key-000001")] = StoredAnswer(
+        idempotency._fingerprint("POST", "/api/crafts", b"", body), None, None, None,
+        datetime.now(UTC) - timedelta(minutes=10),
+    )
+    answer = client.post(
+        "/api/crafts", content=body,
+        headers={**_auth(), "Idempotency-Key": "slow-key-000001", "Content-Type": "application/json"},
+    )
+    assert answer.status_code == 409
+    assert records == []
+
+
+def test_routes_outside_the_create_list_are_never_stored():
+    store = MemoryStore()
+    app, records = _app(store)
+    client = TestClient(app)
+    headers = {**_auth(), "Idempotency-Key": "login-key-000001"}
+    first = client.post("/api/auth/login", headers=headers)
+    second = client.post("/api/auth/login", headers=headers)
+    assert first.json() != second.json()
+    assert "idempotent-replayed" not in second.headers
+    assert store.rows == {}
+    for path in ("/api/auth/login", "/api/datasets/token", "/api/secrets/OPENAI", "/api/me/ai-keys", "/api/two-factor/enable"):
+        assert not idempotency.is_create_route(path)
+    for path in ("/api/crafts", "/api/crafts/", "/api/questionnaire/interviews", "/api/data-access/comments"):
+        assert idempotency.is_create_route(path)
+
+
 def test_a_first_request_killed_mid_way_is_taken_over():
     store = MemoryStore()
     app, records = _app(store)
@@ -150,7 +193,7 @@ def test_a_first_request_killed_mid_way_is_taken_over():
     body = b'{"name":"Ajrakh"}'
     store.rows[("user_1", "stale-key-00001")] = StoredAnswer(
         idempotency._fingerprint("POST", "/api/crafts", b"", body), None, None, None,
-        datetime.now(UTC) - timedelta(minutes=10),
+        datetime.now(UTC) - timedelta(minutes=20),
     )
     answer = client.post(
         "/api/crafts", content=body,
@@ -200,16 +243,28 @@ class _Table:
         for name, value in data.items():
             setattr(row, name, value)
 
+    async def update_many(self, where, data):
+        changed = 0
+        for (user, key), row in self.rows.items():
+            if (user, key) != (where["userId"], where["key"]):
+                continue
+            if row.statusCode != where["statusCode"] or row.createdAt != where["createdAt"]:
+                continue
+            for name, value in data.items():
+                setattr(row, name, value)
+            changed += 1
+        return changed
+
     async def delete_many(self, where):
-        if "expiresAt" in where:
-            cutoff = where["expiresAt"]["lt"]
-            for pair in [p for p, r in self.rows.items() if r.expiresAt < cutoff]:
+        if "createdAt" in where:
+            cutoff = where["createdAt"]["lt"]
+            for pair in [p for p, r in self.rows.items() if r.createdAt < cutoff]:
                 del self.rows[pair]
         else:
             self.rows.pop((where["userId"], where["key"]), None)
 
 
-def test_the_prisma_store_round_trip_and_24_hour_expiry():
+def test_the_prisma_store_round_trip_and_30_day_expiry():
     table = _Table()
     store = PrismaIdempotencyStore(SimpleNamespace(idempotencykey=table))
 
@@ -219,8 +274,29 @@ def test_the_prisma_store_round_trip_and_24_hour_expiry():
         await store.complete("u", "k-000001", 201, b'{"id":"c1"}', "application/json")
         stored = await store.get("u", "k-000001")
         assert stored.status_code == 201 and stored.body == b'{"id":"c1"}'
-        table.rows[("u", "k-000001")].expiresAt = datetime.now(UTC) - timedelta(seconds=1)
+        table.rows[("u", "k-000001")].createdAt = datetime.now(UTC) - timedelta(days=29)
+        assert (await store.get("u", "k-000001")).status_code == 201
+        table.rows[("u", "k-000001")].createdAt = datetime.now(UTC) - timedelta(days=31)
         assert await store.get("u", "k-000001") is None
         assert table.rows == {}
+
+    asyncio.run(scenario())
+
+
+def test_two_repeats_racing_for_one_stale_marker_cannot_both_take_it():
+    table = _Table()
+    store = PrismaIdempotencyStore(SimpleNamespace(idempotencykey=table))
+
+    async def scenario():
+        assert await store.claim("u", "race-key-01", "fp") is True
+        stale = datetime.now(UTC) - timedelta(minutes=20)
+        table.rows[("u", "race-key-01")].createdAt = stale
+        first = await store.take_over("u", "race-key-01", "fp", stale)
+        second = await store.take_over("u", "race-key-01", "fp", stale)
+        assert (first, second) == (True, False)
+        # An answered key is never taken over, however old its marker looks.
+        await store.complete("u", "race-key-01", 201, b"{}", "application/json")
+        answered_at = table.rows[("u", "race-key-01")].createdAt
+        assert await store.take_over("u", "race-key-01", "fp", answered_at) is False
 
     asyncio.run(scenario())

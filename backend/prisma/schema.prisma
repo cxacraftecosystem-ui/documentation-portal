@@ -1903,14 +1903,14 @@ model TwoFactorChallenge {
   @@index([expiresAt])
 }
 
-/// The answer to one create, kept for 24 hours under the `Idempotency-Key` header its client sent.
+/// The answer to one create, kept for 30 days under the `Idempotency-Key` header its client sent.
 ///
 /// A repeat of the same request (same caller, key, method, path and body) is answered from
 /// `responseBody` instead of running the route again, so a create whose answer was lost in transit
 /// and is replayed from an offline queue writes one record, not two. `statusCode` is null while the
 /// first request is still running. Scoped by `userId`, so one account is never answered with
-/// another's response. No foreign key: a key outlives nothing and is swept when it expires. See
-/// app/core/idempotency.py.
+/// another's response. No foreign key: a key outlives nothing and is swept, by one range delete on
+/// the `createdAt` index, once it is older than 30 days. See app/core/idempotency.py.
 model IdempotencyKey {
   id           String   @id @default(cuid())
   userId       String
@@ -1920,8 +1920,7 @@ model IdempotencyKey {
   responseBody String?
   contentType  String?
   createdAt    DateTime @default(now())
-  expiresAt    DateTime
 
   @@unique([userId, key])
-  @@index([expiresAt])
+  @@index([createdAt])
 }

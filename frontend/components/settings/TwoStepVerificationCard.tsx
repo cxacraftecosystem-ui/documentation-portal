@@ -17,6 +17,7 @@ import {
   type TwoFactorStatus
 } from "@/lib/twoFactor";
 import { formatDate } from "@/lib/format";
+import { saveBlobToDevice } from "@/lib/saveToDevice";
 
 /**
  * Two-step verification for THIS account: turn it on, see how many recovery codes are left, make new
@@ -137,12 +138,9 @@ export function TwoStepVerificationCard() {
 
   function download(codes: string[]) {
     const blob = new Blob([recoveryCodesFileText(codes, user?.email ?? "")], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "field-repository-recovery-codes.txt";
-    link.click();
-    URL.revokeObjectURL(url);
+    // Through the shared helper, which revokes the object URL a minute later rather than on the
+    // next line (that race made Safari save nothing, silently). See lib/saveToDevice.ts.
+    saveBlobToDevice(blob, "field-repository-recovery-codes.txt");
     setSaved(true);
   }
 

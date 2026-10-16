@@ -108,7 +108,7 @@ data class PendingEntry(
     /**
      * Sent as the `Idempotency-Key` header on the create (or comment) this entry replays, so a create
      * that reached the server but whose answer was lost is answered from the first record instead of
-     * making a second (backend `app/core/idempotency.py`, 24 hours). Minted when the entry is queued,
+     * making a second (backend `app/core/idempotency.py`, 30 days). Minted when the entry is queued,
      * or before the first send for an entry an older build queued without one.
      */
     val idempotencyKey: String? = null,

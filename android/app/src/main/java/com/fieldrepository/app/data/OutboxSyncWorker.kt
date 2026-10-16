@@ -7,8 +7,10 @@ import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -53,19 +55,33 @@ class OutboxSyncWorker(appContext: Context, params: WorkerParameters) : Coroutin
         private const val UNIQUE_NAME = "outbox-sync"
 
         /**
-         * Ask for a sync pass as soon as there is a network. Idempotent: a pass already waiting is
-         * kept, and a pass already running retries itself while anything is left.
+         * Ask for a sync pass as soon as there is a network.
+         *
+         * A pass that is RUNNING is kept: it retries itself while anything is left, and replacing it
+         * would cancel an upload part-way. Anything else is REPLACED. KEEP there would leave a pass
+         * that is waiting out an exponential backoff (up to five hours after a run of failures) in
+         * charge, so a record saved now, with a good signal, would sit until that backoff ended.
+         * Off the main thread, because reading the current state is a blocking WorkManager query.
          */
         fun schedule(context: Context) {
-            runCatching {
-                val request = OneTimeWorkRequestBuilder<OutboxSyncWorker>()
-                    .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                    .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
-                    .build()
-                WorkManager.getInstance(context.applicationContext)
-                    .enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.KEEP, request)
+            val app = context.applicationContext
+            AppScope.io.launch {
+                runCatching {
+                    val workManager = WorkManager.getInstance(app)
+                    val running = workManager.getWorkInfosForUniqueWork(UNIQUE_NAME).get()
+                        .any { it.state == WorkInfo.State.RUNNING }
+                    val request = OneTimeWorkRequestBuilder<OutboxSyncWorker>()
+                        .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                        .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
+                        .build()
+                    workManager.enqueueUniqueWork(UNIQUE_NAME, policyFor(running), request)
+                }
             }
         }
+
+        /** KEEP a pass that is running; REPLACE one that is only waiting (see [schedule]). */
+        internal fun policyFor(running: Boolean): ExistingWorkPolicy =
+            if (running) ExistingWorkPolicy.KEEP else ExistingWorkPolicy.REPLACE
 
         /** Where [OfflineReadCache] keeps its answers: persistent and excluded from backups. */
         fun readCacheDir(context: Context): File = File(context.noBackupFilesDir, "http-read-cache")

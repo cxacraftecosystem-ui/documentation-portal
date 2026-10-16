@@ -22,10 +22,15 @@
  *
  * ── THE FIX, AND WHY IT IS A TIMEOUT AND NOT A DELETION ───────────────────────────────────────
  *
- * The revoke moves to a later task. A zero delay is enough: it only has to land after the current
- * one, by which point the download has been handed to the browser. Dropping the revoke entirely
- * would also fix the download and would leak the blob — a dataset zip can be hundreds of megabytes —
- * for the life of the document, so the URL is still released, just not while it is being read.
+ * The revoke moves to a later task, {@link OBJECT_URL_LIFETIME_MS} later. It was a zero delay,
+ * which only guarantees the revoke lands after the current task; it does not guarantee the browser
+ * has finished READING the blob. A large file, a slow disk, a Save As dialog or a mobile browser
+ * that hands the download to another process can all still be reading after that, and lose the
+ * race the same silent way. A minute is far longer than any of those and still releases the blob.
+ * Dropping the revoke entirely would also fix the download and would leak the blob — a dataset zip
+ * can be hundreds of megabytes — for the life of the document, so the URL is still released, just
+ * not while it can still be read. `lib/localMediaDownload.ts` saves through this function, so it
+ * has the same timing.
  *
  * ── WHAT THIS IS NOT ──────────────────────────────────────────────────────────────────────────
  *
@@ -34,12 +39,15 @@
  * downloads folder. The tracer's first property — that the only way anything leaves that panel for
  * the product is `onAttach` — depends on that being true of this function.
  */
+/** How long an object URL handed to a download stays alive before it is revoked. */
+export const OBJECT_URL_LIFETIME_MS = 60_000;
+
 export function saveBlobToDevice(blob: Blob, fileName: string): void {
   const url = URL.createObjectURL(blob);
   saveUrlToDevice(url, fileName);
   // ⚠ NOT `URL.revokeObjectURL(url)` ON THIS LINE. See the header: that is the race, and it is the
   // reason this module exists.
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  window.setTimeout(() => URL.revokeObjectURL(url), OBJECT_URL_LIFETIME_MS);
 }
 
 /**
