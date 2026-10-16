@@ -198,6 +198,14 @@ model User {
   twoFactorRecoveryCodes String[]  @default([])
   twoFactorLastStep      Int?
   twoFactorEnabledAt     DateTime?
+  /// THE PER-ACCOUNT FAILURE BUDGET (app/services/two_factor.py). Wrong second-factor codes inside
+  /// the current fifteen-minute window, when that window started, how long the second factor is
+  /// locked for after the budget ran out, and how many lockouts there have been (each doubles the
+  /// next, to 24 hours). A correct code, a switch-off or an administrator's reset clears all four.
+  twoFactorFailedAttempts         Int       @default(0)
+  twoFactorFailureWindowStartedAt DateTime?
+  twoFactorLockedUntil            DateTime?
+  twoFactorLockouts               Int       @default(0)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 

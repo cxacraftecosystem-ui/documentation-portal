@@ -372,6 +372,21 @@ Android. RFC 6238: SHA-1, 6 digits, 30-second steps, ±1 step accepted. Implemen
 - **A code works once.** The accepted time step is written to `User.twoFactorLastStep` with a
   conditional update (`last step < this step`), so a code replayed inside its 90-second window, or two
   submissions racing, are refused. The enrolment code is recorded the same way.
+- **A per-account failure budget**, because the five-code cap is per challenge and signing in again
+  mints a fresh one. Every wrong second-factor code — at `verify`, `disable`, `recovery-codes` and
+  `POST /api/datasets/token` — is counted on the account (`twoFactorFailedAttempts` inside a rolling
+  15-minute window). Ten lock the second factor for 15 minutes, doubling with each lockout
+  (`twoFactorLockouts`) to a 24-hour cap (`twoFactorLockedUntil`). While locked, `/auth/login` answers
+  exactly as it always does (a challenge — the lock is not an oracle), and every code, right or wrong,
+  is refused with `429 "Too many attempts. Try again later."` without being checked. A correct code,
+  turning it off, or an administrator's reset clears the budget and the lock.
+- **The dataset token is a sign-in too.** `POST /api/datasets/token` for an account with two-step
+  verification on requires `code`, checked by the same path (spent once, recovery codes allowed,
+  counted against the budget); missing or wrong is one generic `401`.
+- **No secret column leaves the API.** `app/core/user_fields.py::SECRET_USER_FIELDS` — the password
+  hash, both secrets, the recovery-code hashes, the last step and the four budget columns — is the one
+  list `routes/auth.py`, `routes/users.py` and `services/records.public_encode` strip, the last at any
+  depth of an embedded User (media `uploadedBy`, workshops, tasks, the data browser, the export).
 - **Recovery codes**: ten `xxxx-xxxx` codes from an alphabet without look-alikes, stored as bcrypt
   hashes at the password cost, shown once at enable time and on "Make new recovery codes" (which needs
   a 6-digit code). Each is consumed by a compare-and-swap on the whole list. Turning it off accepts a

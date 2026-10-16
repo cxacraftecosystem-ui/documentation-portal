@@ -465,3 +465,184 @@ def test_the_users_list_shows_the_badge_and_no_secret(monkeypatch, clock) -> Non
     assert row["twoFactorEnabled"] is True
     for field in two_factor.SECRET_USER_FIELDS:
         assert field not in row
+
+
+# --- The dataset token is a sign-in too ------------------------------------------------------------------
+
+
+def _dataset_token(email: str, code: str | None = None) -> httpx.Response:
+    body: dict[str, Any] = {"email": email, "password": PASSWORD}
+    if code is not None:
+        body["code"] = code
+    return _call("POST", "/api/datasets/token", body)
+
+
+def _wrong(secret: str) -> str:
+    return "000000" if two_factor.current_totp(secret) != "000000" else "111111"
+
+
+def test_a_dataset_token_needs_the_second_factor(monkeypatch, clock) -> None:
+    email = "admin@example.org"
+    fake = install(monkeypatch, FakeDb(users=[_account(email, "ADMIN")], roster=_admitted(email)))
+    secret, codes = _enrol(f"id-{email}", clock)
+
+    missing = _dataset_token(email)
+    assert missing.status_code == 401 and "accessToken" not in missing.text
+    wrong = _dataset_token(email, _wrong(secret))
+    assert wrong.status_code == 401 and wrong.json()["detail"] == missing.json()["detail"]
+    assert fake.user.rows[0].twoFactorFailedAttempts == 1
+
+    code = two_factor.current_totp(secret)
+    minted = _dataset_token(email, code)
+    assert minted.status_code == 200 and minted.json()["accessToken"]
+    assert fake.user.rows[0].twoFactorFailedAttempts == 0
+    # Spent: the same code cannot mint a second token, and a recovery code works once.
+    assert _dataset_token(email, code).status_code == 401
+    assert _dataset_token(email, codes[0]).status_code == 200
+    assert _dataset_token(email, codes[0]).status_code == 401
+
+
+def test_an_admin_without_it_mints_on_the_password_alone(monkeypatch) -> None:
+    email = "admin@example.org"
+    install(monkeypatch, FakeDb(users=[_account(email, "ADMIN")], roster=_admitted(email)))
+    assert _dataset_token(email).status_code == 200
+
+
+# --- The per-account failure budget ---------------------------------------------------------------------
+
+
+def test_the_lockout_backs_off_and_is_capped() -> None:
+    assert two_factor.lockout_duration(0) == timedelta(minutes=15)
+    assert two_factor.lockout_duration(1) == timedelta(minutes=30)
+    assert two_factor.lockout_duration(3) == timedelta(hours=2)
+    assert two_factor.lockout_duration(7) == timedelta(hours=24)
+    assert two_factor.lockout_duration(500) == timedelta(hours=24)
+
+
+def test_fresh_challenges_do_not_buy_more_guesses(monkeypatch, clock) -> None:
+    email = "admin@example.org"
+    fake = install(monkeypatch, FakeDb(users=[_account(email, "ADMIN")], roster=_admitted(email)))
+    secret, _ = _enrol(f"id-{email}", clock)
+
+    # Two challenges of five wrong codes each spend the account's budget of ten.
+    for _ in range(2):
+        challenge = _password_login(email).json()["challenge_token"]
+        for _ in range(two_factor.MAX_CHALLENGE_ATTEMPTS):
+            response = _call("POST", "/api/auth/two-factor/verify", {"challenge_token": challenge, "code": _wrong(secret)})
+            assert response.status_code == 400
+    row = fake.user.rows[0]
+    assert row.twoFactorLockedUntil is not None and row.twoFactorLockouts == 1
+
+    # Locked: sign-in answers exactly as it always does, and the RIGHT code is refused plainly.
+    first = _password_login(email)
+    assert first.status_code == 200 and set(first.json()) == {"two_factor_required", "challenge_token"}
+    locked = _call(
+        "POST",
+        "/api/auth/two-factor/verify",
+        {"challenge_token": first.json()["challenge_token"], "code": two_factor.current_totp(secret)},
+    )
+    assert locked.status_code == 429 and locked.json()["detail"] == "Too many attempts. Try again later."
+    # The dataset token shares the lock.
+    assert _dataset_token(email, two_factor.current_totp(secret)).status_code == 429
+
+
+def test_a_lapsed_lock_lets_the_right_code_in_and_resets_the_budget(monkeypatch, clock) -> None:
+    email = "meera@example.org"
+    fake = install(monkeypatch, FakeDb(users=[_account(email)], roster=_admitted(email)))
+    secret, _ = _enrol(f"id-{email}", clock)
+    row = fake.user.rows[0]
+    row.twoFactorFailedAttempts = 7
+    row.twoFactorFailureWindowStartedAt = datetime.now(UTC)
+    row.twoFactorLockouts = 2
+    row.twoFactorLockedUntil = datetime.now(UTC) - timedelta(seconds=1)
+    challenge = _password_login(email).json()["challenge_token"]
+    ok = _call("POST", "/api/auth/two-factor/verify", {"challenge_token": challenge, "code": two_factor.current_totp(secret)})
+    assert ok.status_code == 200
+    assert (row.twoFactorFailedAttempts, row.twoFactorLockedUntil, row.twoFactorLockouts) == (0, None, 0)
+
+
+def test_a_failure_outside_the_window_starts_a_new_one(monkeypatch, clock) -> None:
+    email = "meera@example.org"
+    fake = install(monkeypatch, FakeDb(users=[_account(email)], roster=_admitted(email)))
+    _enrol(f"id-{email}", clock)
+    row = fake.user.rows[0]
+    row.twoFactorFailedAttempts = 9
+    row.twoFactorFailureWindowStartedAt = datetime.now(UTC) - timedelta(minutes=16)
+    asyncio.run(two_factor.record_failure(row.id))
+    assert row.twoFactorFailedAttempts == 1 and row.twoFactorLockedUntil is None
+
+
+@pytest.mark.parametrize("path", ["/api/auth/two-factor/disable", "/api/auth/two-factor/recovery-codes"])
+def test_disable_and_recovery_codes_spend_the_same_budget(monkeypatch, clock, path: str) -> None:
+    email = "meera@example.org"
+    fake = install(monkeypatch, FakeDb(users=[_account(email)], roster=_admitted(email)))
+    secret, _ = _enrol(f"id-{email}", clock)
+    token = _session(f"id-{email}")
+    for _ in range(two_factor.FAILURE_BUDGET):
+        assert _call("POST", path, {"code": _wrong(secret)}, token).status_code == 400
+    refused = _call("POST", path, {"code": two_factor.current_totp(secret)}, token)
+    assert refused.status_code == 429 and refused.json()["detail"] == two_factor.TOO_MANY_ATTEMPTS_DETAIL
+    assert fake.user.rows[0].twoFactorEnabled is True
+
+
+def test_an_administrators_reset_clears_the_lock(monkeypatch, clock) -> None:
+    admin = "admin@example.org"
+    other = "other@example.org"
+    fake = install(
+        monkeypatch, FakeDb(users=[_account(admin, "ADMIN"), _account(other)], roster=_admitted(admin, other))
+    )
+    _enrol(f"id-{other}", clock)
+    row = next(r for r in fake.user.rows if r.email == other)
+    row.twoFactorLockedUntil = datetime.now(UTC) + timedelta(hours=1)
+    row.twoFactorLockouts = 3
+    row.twoFactorFailedAttempts = 4
+    assert _call("DELETE", f"/api/users/id-{other}/two-factor", token=_session(f"id-{admin}")).status_code == 200
+    assert (row.twoFactorLockedUntil, row.twoFactorLockouts, row.twoFactorFailedAttempts) == (None, 0, 0)
+
+
+# --- No embedded User leaks a secret ----------------------------------------------------------------------
+
+
+def test_public_encode_strips_every_secret_user_field_at_any_depth() -> None:
+    from app.core.user_fields import SECRET_USER_FIELDS
+    from app.services.records import public_encode
+
+    populated = {
+        "id": "u1",
+        "email": "meera@example.org",
+        "name": "Meera",
+        "role": "RESEARCHER",
+        "twoFactorEnabled": True,
+        "passwordHash": "$2b$12$hash",
+        "twoFactorSecret": "v1.a.b.c",
+        "twoFactorPendingSecret": "v1.d.e.f",
+        "twoFactorRecoveryCodes": ["$2b$12$code"],
+        "twoFactorLastStep": 59_000_000,
+        "twoFactorFailedAttempts": 3,
+        "twoFactorFailureWindowStartedAt": datetime.now(UTC),
+        "twoFactorLockedUntil": datetime.now(UTC),
+        "twoFactorLockouts": 1,
+    }
+    assert set(SECRET_USER_FIELDS) <= set(populated), "the fixture must populate every secret field"
+    record = {
+        "id": "m1",
+        "uploadedBy": dict(populated),
+        "workshop": {"createdBy": dict(populated), "assignments": [{"user": dict(populated)}]},
+    }
+    encoded = public_encode(record)
+
+    def keys(value: Any) -> set[str]:
+        if isinstance(value, dict):
+            found = set(value)
+            for nested in value.values():
+                found |= keys(nested)
+            return found
+        if isinstance(value, list):
+            found = set()
+            for nested in value:
+                found |= keys(nested)
+            return found
+        return set()
+
+    assert not keys(encoded) & set(SECRET_USER_FIELDS)
+    assert encoded["uploadedBy"]["twoFactorEnabled"] is True and encoded["uploadedBy"]["email"]

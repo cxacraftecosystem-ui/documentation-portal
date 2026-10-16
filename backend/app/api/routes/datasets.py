@@ -70,7 +70,8 @@ from app.core.deps import (
     require_dataset_admin,
 )
 from app.core.security import create_access_token, verify_password
-from app.schemas.auth import LoginRequest
+from app.schemas.auth import DatasetTokenRequest
+from app.services import two_factor
 from app.services.concurrency import gather_reads
 from app.services.csv_export import record_media
 from app.services.pagination import normalize_pagination, page_payload
@@ -469,7 +470,7 @@ def _csv_shape(dataset: Dataset) -> tuple[str, list[str]]:
 
 
 @router.post("/token")
-async def mint_dataset_token(payload: LoginRequest) -> dict[str, Any]:
+async def mint_dataset_token(payload: DatasetTokenRequest) -> dict[str, Any]:
     """Exchange ADMIN credentials for a long-lived, read-only token for this API.
 
     This is how a machine authenticates. It is a separate endpoint from ``POST /api/auth/login``
@@ -502,6 +503,22 @@ async def mint_dataset_token(payload: LoginRequest) -> dict[str, Any]:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password"
         )
+    if getattr(user, "twoFactorEnabled", False):
+        # THE SECOND FACTOR, before anything else is said about the account. The same check as the
+        # sign-in's second step — the code is spent, a recovery code works, a wrong one counts
+        # against the account's budget — and one generic 401 for a missing or wrong code, so this
+        # endpoint is no shortcut round the challenge. A spent budget is the sign-in's own 429.
+        try:
+            accepted = bool(payload.code) and await two_factor.check_second_factor(user, payload.code or "")
+        except two_factor.SecondFactorLocked as exc:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=two_factor.TOO_MANY_ATTEMPTS_DETAIL
+            ) from exc
+        if not accepted:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email, password or two-step verification code",
+            )
     if not is_admin(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
