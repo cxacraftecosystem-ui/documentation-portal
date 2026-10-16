@@ -786,6 +786,8 @@ def test_public_encode_strips_every_secret_user_field_at_any_depth() -> None:
         "twoFactorRecoveryWindowStartedAt": datetime.now(UTC),
         "twoFactorRecoveryLockedUntil": datetime.now(UTC),
         "twoFactorRecoveryLockouts": 1,
+        "firstPasswordCodeAttempts": 2,
+        "firstPasswordCodeWindowStartedAt": datetime.now(UTC),
     }
     assert set(SECRET_USER_FIELDS) <= set(populated), "the fixture must populate every secret field"
     record = {

@@ -361,9 +361,11 @@ fun AccountPasswordCard(repository: FieldRepository, onSignOut: () -> Unit) {
                                     proof = null
                                     askedProvider = failure.provider
                                 } else if (failure is TwoFactorCodeRequired) {
-                                    // The form is kept; only the code is cleared for the next one.
+                                    // The form is kept; only the code is cleared for the next one. A
+                                    // sign-in already accepted comes back as what stands in for it.
                                     error = failure.message
                                     code = ""
+                                    failure.signInProof?.let { token -> proof = sending?.carried(token) ?: proof }
                                 } else {
                                     error = failure.apiErrorMessage(PASSWORD_CHANGE_NOT_SENT)
                                 }

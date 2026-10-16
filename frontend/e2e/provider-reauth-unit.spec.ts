@@ -12,6 +12,7 @@ import { REAUTH_STATE_PREFIX, callbackTarget, type PendingSignIn } from "@/lib/o
 import {
   PROOF_LIFETIME_MS,
   asReauthProvider,
+  carriedProof,
   confirmMissing,
   confirmPrompt,
   googleProof,
@@ -81,4 +82,17 @@ test("the card sends the confirmation with the password and drops it on a refusa
   expect(card).toContain("sending?.fields");
   expect(card).toMatch(/askedFor[\s\S]{0,200}setProof\(null\)/);
   expect(card).toContain("callback.state.startsWith(REAUTH_STATE_PREFIX)");
+});
+
+test("a wrong code keeps the confirmation: what the server handed back replaces the spent answer", () => {
+  const pending = { provider: "MICROSOFT", state: "reauth.x", codeVerifier: "v".repeat(64), nonce: "n".repeat(20), redirectUri: "https://x.test/login/callback" } as unknown as PendingSignIn;
+  const first = oidcProof(pending, "the-code", 1_000);
+  const next = carriedProof(first, "stand-in");
+  expect(next.fields).toEqual({ providerProof: "stand-in" });
+  expect(next.provider).toBe("MICROSOFT");
+  // Its clock is the original sign-in's, so it is never kept past the server's five minutes.
+  expect(next.obtainedAt).toBe(1_000);
+  expect(proofIsFresh(next, 1_000 + PROOF_LIFETIME_MS)).toBe(false);
+  const card = readFileSync(join(root, "components/settings/ChangePasswordCard.tsx"), "utf8");
+  expect(card).toContain("setProof(carriedProof(sending, carried))");
 });

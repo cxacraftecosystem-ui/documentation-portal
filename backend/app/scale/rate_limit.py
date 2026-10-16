@@ -162,10 +162,12 @@ def client_address(scope: Scope) -> str:
     Production is CloudFront -> nginx -> uvicorn, so 2 keys on the viewer address CloudFront appends:
     per person, rather than per CloudFront edge (which 1 would key on, and which every viewer that
     edge serves shares). It is unforgeable ONLY BECAUSE OF THE CLOUDFRONT LOCK: the box's security
-    group admits port 80 from CloudFront's origin-facing prefix list alone, so no request reaches
-    nginx without passing CloudFront, and CloudFront always appends the address it saw. Without that
-    lock a caller could talk to nginx directly and choose the entry 2 reads; set
-    ``TRUSTED_PROXY_HOPS=1`` on any deployment that is not locked (docs/SECURITY.md risk P1).
+    groups admit port 80 from CloudFront's origin-facing prefix list alone and port 443 not at all
+    (checked live on 2026-10-17), so no request reaches nginx without passing CloudFront, and
+    CloudFront always appends the address it saw. Without that lock a caller could talk to nginx
+    directly and choose the entry 2 reads, so the deploy does not assume it: it tries both ports from
+    the runner and pins 2 only when the box does not answer there, 1 otherwise. Any other deployment
+    that is not locked must set ``TRUSTED_PROXY_HOPS=1`` (docs/SECURITY.md risk P1).
     """
     from app.core.config import get_settings
 
@@ -240,37 +242,6 @@ def account_credential_refund(account_id: str) -> None:
 def reset_account_credential_budget() -> None:
     """Forget every account bucket. For the tests, which sign in wrongly more than ten times."""
     _account_buckets._buckets.clear()  # noqa: SLF001 - the module owns this object
-
-
-# ── THE FIRST-PASSWORD CODE CHECK HAS A BUDGET OF ITS OWN ───────────────────────────────────────────
-#
-# Setting a first password on a provider-only account with two-step on asks for an authenticator or
-# recovery code. Those checks spend THIS bucket — five per account per fifteen minutes, charged
-# before the code is checked and given back when it was right — and NOT the sign-in's second-factor
-# budget: somebody holding a stolen session and a provider sign-in must not be able to lock the owner
-# out of signing in by guessing here, and must not get more than five guesses a quarter-hour either.
-FIRST_PASSWORD_CODE_ATTEMPTS = 5
-FIRST_PASSWORD_CODE_WINDOW_SECONDS = 900.0
-
-_first_password_code_buckets = _TokenBuckets(
-    capacity=FIRST_PASSWORD_CODE_ATTEMPTS,
-    refill_per_second=FIRST_PASSWORD_CODE_ATTEMPTS / FIRST_PASSWORD_CODE_WINDOW_SECONDS,
-)
-
-
-def first_password_code_attempt(account_id: str) -> tuple[bool, float]:
-    """Spend one first-password code check for ``account_id``: ``(allowed, retry_after_seconds)``."""
-    return _first_password_code_buckets.take(f"firstpw:{account_id}")
-
-
-def first_password_code_refund(account_id: str) -> None:
-    """Give the check back — called only after the code was right."""
-    _first_password_code_buckets.refund(f"firstpw:{account_id}")
-
-
-def reset_first_password_code_budget() -> None:
-    """Forget every first-password code bucket. For the tests."""
-    _first_password_code_buckets._buckets.clear()  # noqa: SLF001 - the module owns this object
 
 
 class RateLimitMiddleware:

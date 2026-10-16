@@ -24,6 +24,9 @@ SECRET_USER_FIELDS: tuple[str, ...] = (
     "twoFactorRecoveryWindowStartedAt",
     "twoFactorRecoveryLockedUntil",
     "twoFactorRecoveryLockouts",
+    # The first-password code check's own budget (two_factor.claim_first_password_check).
+    "firstPasswordCodeAttempts",
+    "firstPasswordCodeWindowStartedAt",
 )
 
 #: The one fact about ``passwordHash`` a client may know: whether there is one. Added beside the

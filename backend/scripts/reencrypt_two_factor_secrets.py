@@ -13,6 +13,9 @@ one are moved.
     cd backend && python -m scripts.reencrypt_two_factor_secrets --apply   # write
     cd backend && python -m scripts.reencrypt_two_factor_secrets --generate-key   # print a new key
 
+EXIT CODES: 0 every secret is readable; 3 some cannot be opened with any configured key (the deploy
+fails on this: a key was lost on the way to the box); 2 no key is configured; 1 the run itself broke.
+
 Rotation: set the new key, move the old one to ``TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS``, restart,
 run with ``--apply``, and drop the old key once a dry run reports ``would move: 0`` and
 ``unreadable: 0``.
@@ -26,6 +29,8 @@ import sys
 from dataclasses import dataclass, field
 
 COLUMNS = ("twoFactorSecret", "twoFactorPendingSecret")
+#: Distinct from a crash's 1, so the deploy can tell "a key is missing" from "the database was busy".
+UNREADABLE_EXIT = 3
 
 
 @dataclass
@@ -97,7 +102,7 @@ async def _run(apply: bool) -> int:
     print("APPLIED" if apply else "DRY RUN (nothing written; pass --apply to write)")
     for line in report.lines(apply):
         print(line)
-    return 1 if report.unreadable else 0
+    return UNREADABLE_EXIT if report.unreadable else 0
 
 
 def main(argv: list[str] | None = None) -> int:

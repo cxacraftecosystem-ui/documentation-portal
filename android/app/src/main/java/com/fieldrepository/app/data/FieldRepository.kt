@@ -582,7 +582,10 @@ class FieldRepository(
                 throw ConfirmSignInRequired(refused.apiErrorMessage(confirmPrompt(provider)), provider.trim().uppercase())
             }
             if (answer.headers()[TWO_FACTOR_REQUIRED_HEADER] != null) {
-                throw TwoFactorCodeRequired(refused.apiErrorMessage(TWO_FACTOR_CODE_FOR_PASSWORD))
+                throw TwoFactorCodeRequired(
+                    refused.apiErrorMessage(TWO_FACTOR_CODE_FOR_PASSWORD),
+                    answer.headers()[SIGN_IN_PROOF_HEADER]?.trim()?.ifBlank { null },
+                )
             }
             throw refused
         }

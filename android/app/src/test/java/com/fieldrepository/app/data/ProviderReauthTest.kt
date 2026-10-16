@@ -47,6 +47,16 @@ class ProviderReauthTest {
     }
 
     @Test
+    fun `after a wrong code the stand-in replaces the spent provider answer and keeps its clock`() {
+        val first = ProviderProof.oidc(OidcProviderId.YAHOO, "the-code", "v".repeat(64), "https://x.test/login/callback", "raw-nonce-0123456789", 1_000)
+        val next = first.carried("stand-in")
+        assertEquals("""{"newPassword":"longenough1","twoFactorCode":"123456","providerProof":"stand-in"}""", wire.encodeToString(next.request("longenough1", "123456")))
+        assertEquals(1_000L, next.obtainedAtMillis)
+        assertEquals("YAHOO", next.provider)
+        assertEquals("X-Sign-In-Proof", SIGN_IN_PROOF_HEADER)
+    }
+
+    @Test
     fun `the words name the provider and never the mechanism`() {
         for (line in listOf(confirmPrompt("YAHOO"), confirmedLine("GOOGLE"), confirmMissing("MICROSOFT"))) {
             assertFalse(line, Regex("token|header|proof|endpoint", RegexOption.IGNORE_CASE).containsMatchIn(line))

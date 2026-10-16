@@ -123,6 +123,8 @@ data class FirstPasswordRequest(
     val oidcCodeVerifier: String? = null,
     val oidcRedirectUri: String? = null,
     val oidcNonce: String? = null,
+    /** What a wrong-code refusal handed back ([SIGN_IN_PROOF_HEADER]), in place of the fields above. */
+    val providerProof: String? = null,
 )
 
 @Serializable
@@ -154,8 +156,17 @@ const val TWO_FACTOR_REQUIRED_HEADER = "X-Two-Factor-Required"
 /** What the first-password form says when the code is missing — the server's own sentence. */
 const val TWO_FACTOR_CODE_FOR_PASSWORD = "Enter the code from your authenticator app to set a password."
 
-/** Thrown by `FieldRepository.saveOwnPassword` for the [TWO_FACTOR_REQUIRED_HEADER] refusal. */
-class TwoFactorCodeRequired(message: String) : Exception(message)
+/**
+ * On a wrong code AFTER the provider sign-in was accepted, the refusal also carries this: what stands
+ * in for that sign-in on the next try (a Microsoft or Yahoo code works once and is already spent).
+ */
+const val SIGN_IN_PROOF_HEADER = "X-Sign-In-Proof"
+
+/**
+ * Thrown by `FieldRepository.saveOwnPassword` for the [TWO_FACTOR_REQUIRED_HEADER] refusal, with the
+ * [SIGN_IN_PROOF_HEADER] stand-in when the server handed one back.
+ */
+class TwoFactorCodeRequired(message: String, val signInProof: String? = null) : Exception(message)
 
 /**
  * Does this account hold a password of its own?

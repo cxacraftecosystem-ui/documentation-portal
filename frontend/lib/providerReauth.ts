@@ -59,6 +59,14 @@ export function oidcProof(pending: PendingSignIn, code: string, now: number = Da
   return { provider: pending.provider, fields: loginBody(pending, code), obtainedAt: now };
 }
 
+/**
+ * The same confirmation, now carried by what the server handed back after a wrong code: the provider's
+ * own answer has been used, so this replaces it for the next try. Its clock is the original sign-in's.
+ */
+export function carriedProof(proof: ProviderProof, token: string): ProviderProof {
+  return { provider: proof.provider, fields: { providerProof: token }, obtainedAt: proof.obtainedAt };
+}
+
 /** Still young enough to send? */
 export function proofIsFresh(proof: ProviderProof | null, now: number = Date.now()): proof is ProviderProof {
   return proof !== null && now - proof.obtainedAt >= 0 && now - proof.obtainedAt < PROOF_LIFETIME_MS;

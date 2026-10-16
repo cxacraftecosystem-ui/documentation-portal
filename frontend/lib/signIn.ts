@@ -144,6 +144,19 @@ export const CONFIRM_SIGN_IN_HEADER = "x-confirm-sign-in";
  */
 export const TWO_FACTOR_REQUIRED_HEADER = "x-two-factor-required";
 
+/**
+ * On a wrong code AFTER the provider sign-in was accepted, the refusal also carries this: what stands
+ * in for that sign-in on the next try (a Microsoft or Yahoo code works once and is already spent).
+ */
+export const SIGN_IN_PROOF_HEADER = "x-sign-in-proof";
+
+/** The stand-in a two-step refusal handed back, or null. */
+export function signInProofFrom(error: unknown): string | null {
+  if (!(error instanceof ApiError)) return null;
+  const token = error.headers?.get(SIGN_IN_PROOF_HEADER)?.trim();
+  return token ? token : null;
+}
+
 /** Did the server refuse a first password for want of a good two-step code? */
 export function asksForTwoFactorCode(error: unknown): boolean {
   return error instanceof ApiError && error.headers?.get(TWO_FACTOR_REQUIRED_HEADER) === "1";

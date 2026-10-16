@@ -58,6 +58,8 @@ USER_DEFAULTS: dict[str, Any] = {
     "twoFactorRecoveryWindowStartedAt": None,
     "twoFactorRecoveryLockedUntil": None,
     "twoFactorRecoveryLockouts": 0,
+    "firstPasswordCodeAttempts": 0,
+    "firstPasswordCodeWindowStartedAt": None,
     # Passwords and sessions (20261018090000_account_passwords).
     "passwordSetAt": None,
     "mustChangePassword": False,

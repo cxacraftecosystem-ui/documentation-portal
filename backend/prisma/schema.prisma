@@ -212,6 +212,11 @@ model User {
   twoFactorRecoveryWindowStartedAt DateTime?
   twoFactorRecoveryLockedUntil     DateTime?
   twoFactorRecoveryLockouts        Int       @default(0)
+  /// Setting a FIRST password with two-step on asks for a code, on a budget of its own (never the
+  /// sign-in's above): checks used in the current fifteen-minute window and when it started. Five per
+  /// window; a right code gives its check back (app/services/two_factor.claim_first_password_check).
+  firstPasswordCodeAttempts        Int       @default(0)
+  firstPasswordCodeWindowStartedAt DateTime?
   /// PASSWORDS AND SESSIONS (ported from the Design Prototype Workshop, 2026-10-16).
   /// `passwordSetAt`: when the account last got a password of its own — NULL means it has never had
   /// one (or had one before this column existed). `mustChangePassword`: the password it holds was typed

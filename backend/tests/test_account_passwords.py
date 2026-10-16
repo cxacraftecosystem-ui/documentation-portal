@@ -34,7 +34,6 @@ from app.core.security import CREDENTIAL_CLAIM, create_access_token, hash_passwo
 from app.api.routes import auth as auth_routes
 from app.scale.rate_limit import (
     FORGOT_PASSWORD_REQUESTS,
-    reset_first_password_code_budget,
     reset_forgot_password_budget,
 )
 from app.services import credential_links, email_outbox, mailer, password_reset
@@ -59,7 +58,6 @@ def environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(security, "BCRYPT_ROUNDS", 4)
     clear_user_cache()
     reset_forgot_password_budget()
-    reset_first_password_code_budget()
 
 
 def _call(

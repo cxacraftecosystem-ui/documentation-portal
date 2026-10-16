@@ -408,9 +408,17 @@ Android. RFC 6238: SHA-1, 6 digits, 30-second steps, ±1 step accepted. Implemen
   and which names a subject; otherwise `400` with `X-Confirm-Sign-In: <provider>` (never `401`, which
   the clients read as a dead session). The session's age is no longer the proof: a stolen session must
   not be able to add a permanent way in. With two-step on, a code is asked for too, on **its own
-  budget** — five checks per account per 15 minutes (`rate_limit.first_password_code_attempt`, given
-  back when right), not the sign-in's — so guessing there can neither lock the owner out of signing
-  in nor buy more than five tries; a second factor the sign-in has locked stays locked there.
+  budget** — five checks per account per 15 minutes, kept on the account row so a restart hands out
+  none (`two_factor.claim_first_password_check`, given back when right), not the sign-in's — so
+  guessing there can neither lock the owner out of signing in nor buy more than five tries; a second
+  factor the sign-in has locked stays locked there. Everything that check can refuse without reading
+  the code (no code, locked, budget spent) is refused BEFORE a Microsoft/Yahoo code is redeemed, and a
+  wrong code after an accepted sign-in answers `X-Sign-In-Proof`: a token signed with its own key
+  (never a session), bound to the account, single use, and dead when the sign-in it stands for turns
+  five minutes old. The clients send it back as `providerProof`, so a typo costs no trip to the
+  provider. Known limit: the Google ID token carries no nonce, so any token for our audience issued in
+  the last five minutes is accepted, and the provider may finish a "sign in again" from its own
+  session without asking for anything.
 - **The dataset token is a sign-in too.** `POST /api/datasets/token` for an account with two-step
   verification on requires `code`, checked by the same path (spent once, recovery codes allowed,
   counted against the budget); missing or wrong is one generic `401`.
@@ -602,17 +610,23 @@ callers on the media paths and deciding the URL lifetime the clients need, not w
 The viewer's TLS ends at CloudFront; the request then crosses the AWS network to nginx on port 80 in
 the clear, bearer token included.
 
-**Action (CloudFront console → Origins → edit the EC2 origin):** put a certificate on the origin
+**Done (checked live, 2026-10-17):** the box (`i-012eae3e379fbbeac`) answers CloudFront alone. Its
+security groups admit port 80 only from the managed prefix list `pl-9aa247f3`
+(`com.amazonaws.global.cloudfront.origin-facing`, group `cloudfront-origin-only-documentation`) and
+port 443 from nowhere; a direct request to the Elastic IP times out.
+
+**Still to do (CloudFront console → Origins → edit the EC2 origin):** put a certificate on the origin
 (`certbot --nginx -d api.yourdomain.com`, which needs a domain pointed at the Elastic IP) and set
 *Origin protocol policy* to **HTTPS only**. Then set `SECURITY_FORCE_HSTS=false` again, because
 `X-Forwarded-Proto` will finally be truthful. Add a shared-secret header
-(*Origin custom headers* + an nginx check) so the origin cannot be hit directly, and restrict the
-EC2 security group's port 80 to the CloudFront managed prefix list `com.amazonaws.global.cloudfront.origin-facing`.
+(*Origin custom headers* + an nginx check) as a second lock behind the security group.
 
 **`TRUSTED_PROXY_HOPS=2` depends on that lock (2026-10-17).** The per-client limits key on the
 viewer address CloudFront appends (`app/scale/rate_limit.client_address`), the default and what
-`deploy-backend.yml` pins. That entry is trustworthy only while port 80 admits CloudFront alone; on
-any box reachable directly, set `TRUSTED_PROXY_HOPS=1`.
+`deploy-backend.yml` pins. That entry is trustworthy only while ports 80 and 443 admit CloudFront
+alone, so the deploy does not assume it: it tries both ports on the box from the runner, and pins 2
+only when they are refused, time out or are turned away with a 403 by an origin check; anything else
+pins 1 with a warning. On any other box reachable directly, set `TRUSTED_PROXY_HOPS=1`.
 
 ### P2 — Verify CloudFront is not caching authenticated responses
 

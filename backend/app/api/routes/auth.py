@@ -24,10 +24,14 @@ THREE RULES THAT MUST SURVIVE ANY REWRITE OF THIS FILE:
    remedy inside the product.
 """
 
+import hashlib
+import hmac
 import logging
+import secrets
 from datetime import UTC, datetime
 from typing import Any
 
+import jwt
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from fastapi.encoders import jsonable_encoder
 from google.auth.transport import requests as google_requests
@@ -56,8 +60,6 @@ from app.scale.rate_limit import (
     account_credential_refund,
     address_credential_attempt,
     client_address,
-    first_password_code_attempt,
-    first_password_code_refund,
     forgot_password_attempt,
 )
 from app.schemas.auth import (
@@ -807,6 +809,52 @@ CONFIRM_SIGN_IN_HEADER = "X-Confirm-Sign-In"
 #: client can show the code box without matching prose. In ``expose_headers`` in app/main.py.
 TWO_FACTOR_REQUIRED_HEADER = "X-Two-Factor-Required"
 
+#: A wrong two-step code AFTER a provider sign-in was accepted: the 400 carries this, a short-lived
+#: token that stands in for that sign-in on the next try (body field ``providerProof``). A Microsoft or
+#: Yahoo sign-in is a single-use code the server has already redeemed, so without it a mistyped
+#: authenticator code would cost a trip back to the provider. Signed with a key of its own (never a
+#: session), bound to the account, valid only until the sign-in it stands for turns five minutes old,
+#: and single use: every refusal that consumes one hands out the next. In ``expose_headers``.
+SIGN_IN_PROOF_HEADER = "X-Sign-In-Proof"
+_SIGN_IN_PROOF_TYPE = "first-password-proof"
+#: Spent proof ids until they expire. Per process: the API runs one worker (deploy/fieldrepo.service).
+_spent_sign_in_proofs: dict[str, float] = {}
+
+
+def _sign_in_proof_key() -> bytes:
+    return hmac.new(get_settings().jwt_secret.encode("utf-8"), _SIGN_IN_PROOF_TYPE.encode(), hashlib.sha256).digest()
+
+
+def _mint_sign_in_proof(account_id: str, provider: str, expires_at: float) -> str:
+    claims = {
+        "sub": account_id,
+        "typ": _SIGN_IN_PROOF_TYPE,
+        "prv": provider,
+        "jti": secrets.token_urlsafe(16),
+        "exp": int(expires_at),
+    }
+    return jwt.encode(claims, _sign_in_proof_key(), algorithm="HS256")
+
+
+def _redeem_sign_in_proof(token: str, account_id: str) -> tuple[str, float] | None:
+    """``(provider, expires_at)`` for an unspent proof minted for ``account_id``, now spent; else None."""
+    try:
+        claims = jwt.decode(token, _sign_in_proof_key(), algorithms=["HS256"], options={"require": ["exp", "sub", "jti"]})
+    except jwt.PyJWTError:
+        return None
+    if claims.get("typ") != _SIGN_IN_PROOF_TYPE or claims.get("sub") != account_id:
+        return None
+    now = datetime.now(UTC).timestamp()
+    for spent, until in list(_spent_sign_in_proofs.items()):
+        if until < now:
+            _spent_sign_in_proofs.pop(spent, None)
+    jti = str(claims["jti"])
+    if jti in _spent_sign_in_proofs:
+        return None
+    _spent_sign_in_proofs[jti] = float(claims["exp"])
+    provider = claims.get("prv")
+    return (provider if provider in _PROVIDER_LABELS else "GOOGLE"), float(claims["exp"])
+
 TWO_FACTOR_CODE_NEEDED_DETAIL = "Enter the code from your authenticator app to set a password."
 
 _PROVIDER_LABELS = {"GOOGLE": "Google", "MICROSOFT": "Microsoft", "YAHOO": "Yahoo"}
@@ -848,8 +896,9 @@ async def change_password(
     AN ACCOUNT WITH NO PASSWORD (Google, Microsoft or Yahoo only) sets its first one here, without a
     current password, but only with that provider's sign-in RUN AGAIN and sent along — no older than
     :data:`PROVIDER_PROOF_MAX_AGE_SECONDS`, for this account's address — and, when two-step is on, a
-    code (its own budget: ``rate_limit.first_password_code_attempt``). Otherwise a 400 carrying
-    ``X-Confirm-Sign-In`` or ``X-Two-Factor-Required``. Its provider stays: the person can now sign
+    code (its own budget: ``two_factor.claim_first_password_check``). Otherwise a 400 carrying
+    ``X-Confirm-Sign-In`` or ``X-Two-Factor-Required`` (with ``X-Sign-In-Proof`` for the next try
+    when the sign-in was accepted and only the code was wrong). Its provider stays: the person can now sign
     in either way.
     """
     if current_user.passwordHash is None:
@@ -903,9 +952,12 @@ async def _write_own_password(current_user: Any, new_password: str) -> Any:
     return updated
 
 
-async def _provider_proof(payload: ChangePasswordRequest, account: Any) -> None:
+async def _provider_proof(payload: ChangePasswordRequest, account: Any) -> tuple[str, float]:
     """THE PROVIDER SIGN-IN, RUN AGAIN: proved, fresh, and this account's — or a 400 carrying
-    ``X-Confirm-Sign-In``. Never a 401: the clients end the session on one.
+    ``X-Confirm-Sign-In``. Never a 401: the clients end the session on one. Answers the provider
+    and the moment the sign-in stops counting (``iat`` + five minutes). A ``providerProof`` handed
+    out by an earlier refusal (:data:`SIGN_IN_PROOF_HEADER`) stands in for the sign-in it was minted
+    from, until that same moment.
 
     Any of the three providers is accepted when it vouches for this account's address: each of them
     could sign this account in anyway. The account keeps no provider subject, so the match is on the
@@ -925,6 +977,11 @@ async def _provider_proof(payload: ChangePasswordRequest, account: Any) -> None:
     proved_email: str | None = None
     subject: str | None = None
     issued_at: float | None = None
+    if payload.providerProof:
+        carried = _redeem_sign_in_proof(payload.providerProof, getattr(account, "id", ""))
+        if carried is None:
+            raise refuse(wanted)
+        return carried
     if payload.googleIdToken:
         used = "GOOGLE"
         try:
@@ -974,33 +1031,30 @@ async def _provider_proof(payload: ChangePasswordRequest, account: Any) -> None:
             fresh,
         )
         raise refuse(used)
+    return used, (issued_at or 0.0) + PROVIDER_PROOF_MAX_AGE_SECONDS
 
 
-async def _first_password_code(account: Any, code: str) -> None:
-    """The two-step code for a first password, on ITS OWN BUDGET (five a quarter-hour, given back when
-    right: ``rate_limit.first_password_code_attempt``) rather than the sign-in's, so guessing here can
-    neither lock the owner out of signing in nor buy more than five guesses. A second factor the
-    sign-in has LOCKED stays locked here too. An accepted code is still spent (replay-proof)."""
+def _refuse_code(detail: str) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail, headers={TWO_FACTOR_REQUIRED_HEADER: "1"})
 
-    def refuse_code(detail: str) -> HTTPException:
-        return HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=detail, headers={TWO_FACTOR_REQUIRED_HEADER: "1"}
-        )
 
+async def _first_password_code_allowance(account: Any, code: str) -> Any:
+    """BEFORE the provider sign-in is redeemed: the code is there, the second factor is not locked,
+    and this account's own budget (five a quarter-hour: ``two_factor.claim_first_password_check``,
+    never the sign-in's) has a check left — which is taken now and given back by the caller when the
+    sign-in is refused or the code is right. Checked first because a Microsoft or Yahoo sign-in is a
+    single-use code: redeeming it only to refuse for a reason known beforehand would spend it for
+    nothing. Answers the account's row as it is now (the cached identity may be seconds behind a code
+    just used)."""
     if not code:
-        raise refuse_code(TWO_FACTOR_CODE_NEEDED_DETAIL)
-    # The row as it is now: the cached identity may be seconds behind a code just used.
+        raise _refuse_code(TWO_FACTOR_CODE_NEEDED_DETAIL)
     fresh = await db.user.find_unique(where={"id": account.id}) or account
     too_many = HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=two_factor.TOO_MANY_ATTEMPTS_DETAIL)
     if two_factor.is_locked(fresh, two_factor.budget_for(code)):
         raise too_many
-    allowed, _retry = first_password_code_attempt(account.id)
-    if not allowed:
+    if not await two_factor.claim_first_password_check(account.id):
         raise too_many
-    if not await two_factor.consume_any_code(fresh, code):
-        logger.info("auth: first-password two-step code refused for user %s", account.id)
-        raise refuse_code(two_factor.WRONG_CODE_DETAIL)
-    first_password_code_refund(account.id)
+    return fresh
 
 
 async def _set_first_password(
@@ -1011,11 +1065,29 @@ async def _set_first_password(
     """An account with no password choosing its first one. A provider sign-in run again in the last
     five minutes stands in for the current password (:func:`_provider_proof`) and, when two-step is
     on, the second factor is asked for AGAIN (security review B2), on its own budget
-    (:func:`_first_password_code`). Nothing is written on a refusal. Every other session ends
-    (``_write_own_password``) and the owner is told by e-mail."""
-    await _provider_proof(payload, current_user)
-    if getattr(current_user, "twoFactorEnabled", False):
-        await _first_password_code(current_user, (payload.twoFactorCode or "").strip())
+    (:func:`_first_password_code_allowance`). Nothing is written on a refusal. Every other session
+    ends (``_write_own_password``) and the owner is told by e-mail.
+
+    The ORDER keeps a provider sign-in from being spent for nothing: everything the code check can
+    refuse without looking at the code is refused before the sign-in is redeemed, and a wrong code
+    after it answers :data:`SIGN_IN_PROOF_HEADER`, so the next try needs only the right code."""
+    two_step = bool(getattr(current_user, "twoFactorEnabled", False))
+    code = (payload.twoFactorCode or "").strip()
+    fresh = await _first_password_code_allowance(current_user, code) if two_step else current_user
+    try:
+        provider, proof_expires_at = await _provider_proof(payload, current_user)
+    except HTTPException:
+        if two_step:
+            await two_factor.refund_first_password_check(current_user.id)
+        raise
+    if two_step:
+        # An accepted code is still spent (replay-proof); a right one costs no check.
+        if not await two_factor.consume_any_code(fresh, code):
+            logger.info("auth: first-password two-step code refused for user %s", current_user.id)
+            refused = _refuse_code(two_factor.WRONG_CODE_DETAIL)
+            refused.headers[SIGN_IN_PROOF_HEADER] = _mint_sign_in_proof(current_user.id, provider, proof_expires_at)
+            raise refused
+        await two_factor.refund_first_password_check(current_user.id)
     updated = await _write_own_password(current_user, payload.newPassword)
     logger.warning("AUDIT first password set by the account itself: user=%s", current_user.id)
     response.headers[SESSION_TOKEN_HEADER] = _session_token(updated)

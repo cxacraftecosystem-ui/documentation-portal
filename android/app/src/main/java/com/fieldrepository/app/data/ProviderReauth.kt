@@ -28,6 +28,8 @@ data class ProviderProof(
     val oidcCodeVerifier: String? = null,
     val oidcRedirectUri: String? = null,
     val oidcNonce: String? = null,
+    /** What a wrong-code refusal handed back: it replaces the provider's spent answer. */
+    val providerProof: String? = null,
 ) {
     fun isFresh(nowMillis: Long): Boolean {
         val age = nowMillis - obtainedAtMillis
@@ -35,7 +37,13 @@ data class ProviderProof(
     }
 
     /** The first-password body, with this confirmation and (when two-step is on) the code. */
-    fun request(newPassword: String, twoFactorCode: String?): FirstPasswordRequest = FirstPasswordRequest(
+    fun request(newPassword: String, twoFactorCode: String?): FirstPasswordRequest = if (providerProof != null) {
+        FirstPasswordRequest(
+            newPassword = newPassword,
+            twoFactorCode = twoFactorCode?.trim()?.ifBlank { null },
+            providerProof = providerProof,
+        )
+    } else FirstPasswordRequest(
         newPassword = newPassword,
         twoFactorCode = twoFactorCode?.trim()?.ifBlank { null },
         googleIdToken = googleIdToken,
@@ -45,6 +53,13 @@ data class ProviderProof(
         oidcRedirectUri = oidcRedirectUri,
         oidcNonce = oidcNonce,
     )
+
+    /**
+     * The same confirmation, now carried by what the server handed back after a wrong code. Its clock
+     * stays the original sign-in's, so it is never kept past the server's five minutes.
+     */
+    fun carried(token: String): ProviderProof =
+        ProviderProof(provider = provider, obtainedAtMillis = obtainedAtMillis, providerProof = token)
 
     companion object {
         fun google(idToken: String, nowMillis: Long): ProviderProof =

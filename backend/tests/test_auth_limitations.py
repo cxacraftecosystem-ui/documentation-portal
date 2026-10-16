@@ -37,8 +37,9 @@ from app.api.routes import auth as auth_routes
 from app.core.config import Settings, get_settings
 from app.core.deps import clear_user_cache
 from app.core.two_factor_keys import KeyFormatError, generate_key, parse_key, parse_keyring
-from app.scale.rate_limit import FIRST_PASSWORD_CODE_ATTEMPTS, client_address
+from app.scale.rate_limit import client_address
 from app.services import two_factor
+from app.services.two_factor import FIRST_PASSWORD_CODE_ATTEMPTS
 from scripts.reencrypt_two_factor_secrets import main as backfill_main
 from scripts.reencrypt_two_factor_secrets import reencrypt_all
 
@@ -75,7 +76,12 @@ def test_the_api_refuses_to_start_on_a_malformed_key_and_never_prints_it() -> No
     with pytest.raises(ValidationError) as caught:
         Settings(TWO_FACTOR_ENCRYPTION_KEY="kA:not-a-real-key-at-all")
     assert "TWO_FACTOR_ENCRYPTION_KEY" in str(caught.value)
-    assert "not-a-real-key-at-all" not in str(caught.value).split("input_value")[0]
+    assert "not-a-real-key-at-all" not in str(caught.value)
+    assert "input_value" not in str(caught.value)
+    # Nor when ANOTHER setting is the one refused: no error echoes the environment it was read from.
+    with pytest.raises(ValidationError) as other:
+        Settings(TWO_FACTOR_ENCRYPTION_KEY=KEY_A, JWT_ALGORITHM="none")
+    assert KEY_A.split(":", 1)[1] not in str(other.value)
 
 
 def test_with_a_key_secrets_are_sealed_under_its_id(monkeypatch) -> None:
@@ -339,6 +345,107 @@ def test_a_right_code_costs_nothing_and_a_locked_second_factor_stays_locked(monk
     assert _row(fake, "g@example.org").passwordHash is not None
 
 
+def _microsoft_with_two_step(monkeypatch: pytest.MonkeyPatch, email: str = "meera@outlook.com") -> tuple[FakeDb, str, FakeIdP]:
+    monkeypatch.setattr(two_factor, "_clock", lambda: T0)
+    secret = two_factor.generate_totp_secret()
+    fake = _fake(
+        monkeypatch,
+        [
+            _account(
+                email,
+                passwordHash=None,
+                authProvider="MICROSOFT",
+                twoFactorEnabled=True,
+                twoFactorSecret=two_factor.encrypt_secret(secret),
+                twoFactorRecoveryCodes=[],
+            )
+        ],
+        _admitted(email),
+    )
+    idp = FakeIdP().install(monkeypatch)
+    idp.issue(idp.sign(idp.microsoft_claims(email)))
+    return fake, secret, idp
+
+
+def test_a_mistyped_code_never_spends_a_microsoft_sign_in(monkeypatch) -> None:
+    email = "meera@outlook.com"
+    fake, secret, idp = _microsoft_with_two_step(monkeypatch, email)
+    body = {"newPassword": NEW_PASSWORD, **login_body("MICROSOFT")}
+    session = _session(f"id-{email}")
+
+    # No code at all: refused BEFORE the Microsoft code is redeemed, so it is still good.
+    missing = _call("POST", "/api/auth/change-password", body, session)
+    assert missing.status_code == 400 and missing.headers["x-two-factor-required"] == "1"
+    assert idp.redemptions == []
+
+    # A wrong code: redeemed once, and the refusal hands back what stands in for that sign-in.
+    wrong = _call("POST", "/api/auth/change-password", {**body, "twoFactorCode": "000000"}, session)
+    assert wrong.status_code == 400 and wrong.headers["x-two-factor-required"] == "1"
+    carried = wrong.headers["x-sign-in-proof"]
+    assert len(idp.redemptions) == 1
+
+    # Another wrong code with it: refused again, with the next one (each is single use).
+    again = _call(
+        "POST", "/api/auth/change-password", {"newPassword": NEW_PASSWORD, "providerProof": carried, "twoFactorCode": "111111"}, session
+    )
+    assert again.status_code == 400 and again.headers["x-two-factor-required"] == "1"
+    following = again.headers["x-sign-in-proof"]
+    reused = _call(
+        "POST",
+        "/api/auth/change-password",
+        {"newPassword": NEW_PASSWORD, "providerProof": carried, "twoFactorCode": two_factor.current_totp(secret, T0)},
+        session,
+    )
+    assert reused.status_code == 400 and reused.headers["x-confirm-sign-in"] == "MICROSOFT"
+
+    # The right code with the latest one: set, and Microsoft was asked exactly once.
+    right = _call(
+        "POST",
+        "/api/auth/change-password",
+        {"newPassword": NEW_PASSWORD, "providerProof": following, "twoFactorCode": two_factor.current_totp(secret, T0)},
+        session,
+    )
+    assert right.status_code == 200, right.text
+    assert len(idp.redemptions) == 1
+    assert _row(fake, email).passwordHash is not None
+
+
+def test_what_stands_in_for_a_sign_in_is_no_session_and_no_other_account_s(monkeypatch) -> None:
+    import time
+
+    email = "meera@outlook.com"
+    _fake(
+        monkeypatch,
+        [_account(email, passwordHash=None, authProvider="MICROSOFT"), _account("other@example.org", passwordHash=None)],
+        _admitted(email, "other@example.org"),
+    )
+    carried = auth_routes._mint_sign_in_proof(f"id-{email}", "MICROSOFT", time.time() + 120)
+    assert _call("GET", "/api/auth/me", None, carried).status_code == 401
+    other = _call("POST", "/api/auth/change-password", {"newPassword": NEW_PASSWORD, "providerProof": carried}, _session("id-other@example.org"))
+    assert other.status_code == 400 and "x-confirm-sign-in" in other.headers
+    stale = auth_routes._mint_sign_in_proof(f"id-{email}", "MICROSOFT", time.time() - 1)
+    expired = _call("POST", "/api/auth/change-password", {"newPassword": NEW_PASSWORD, "providerProof": stale}, _session(f"id-{email}"))
+    assert expired.status_code == 400 and expired.headers["x-confirm-sign-in"] == "MICROSOFT"
+
+
+def test_the_first_password_code_budget_is_kept_on_the_account(monkeypatch) -> None:
+    fake = _google_only(
+        monkeypatch,
+        twoFactorEnabled=True,
+        twoFactorSecret=two_factor.encrypt_secret(two_factor.generate_totp_secret()),
+        twoFactorRecoveryCodes=[],
+    )
+    proof = _google_proof(monkeypatch, "g@example.org")
+    for _ in range(2):
+        _call("POST", "/api/auth/change-password", {"newPassword": NEW_PASSWORD, **proof, "twoFactorCode": "000000"}, _session("id-g@example.org"))
+    # In the row, not in this process: a restart hands out nothing new.
+    assert _row(fake, "g@example.org").firstPasswordCodeAttempts == 2
+    # A refused sign-in gives its check back: nothing was checked.
+    _google_proof(monkeypatch, "g@example.org", seconds_ago=900)
+    _call("POST", "/api/auth/change-password", {"newPassword": NEW_PASSWORD, **proof, "twoFactorCode": "000000"}, _session("id-g@example.org"))
+    assert _row(fake, "g@example.org").firstPasswordCodeAttempts == 2
+
+
 # ── 4. TRUSTED_PROXY_HOPS ───────────────────────────────────────────────────────────────────────
 
 
@@ -352,7 +459,19 @@ def test_the_default_keys_on_the_viewer_cloudfront_saw(monkeypatch) -> None:
     assert client_address(scope) == "ip:198.51.100.4"
 
 
-def test_the_deploy_pins_two_hops_beside_the_cloudfront_lock() -> None:
+def test_the_deploy_pins_two_hops_only_after_checking_the_cloudfront_lock() -> None:
     workflow = (REPO / ".github/workflows/deploy-backend.yml").read_text(encoding="utf-8")
-    assert "TRUSTED_PROXY_HOPS=%s" in workflow or "TRUSTED_PROXY_HOPS=2" in workflow
-    assert "origin-facing" in workflow
+    pin = workflow.split("- name: Pin the two-step encryption key and the proxy hops", 1)[1].split("- name:", 1)[0]
+    # Two only when the box does not answer the runner directly on either port; one otherwise.
+    assert "hops=1" in pin and 'locked "http://$EC2_HOST/health" && locked "https://$EC2_HOST/health"' in pin
+    assert "printf 'TRUSTED_PROXY_HOPS=%s\\n' \"$HOPS\"" in pin
+
+
+def test_the_deploy_never_loses_a_two_step_key() -> None:
+    workflow = (REPO / ".github/workflows/deploy-backend.yml").read_text(encoding="utf-8")
+    # The box's lines are put aside before BACKEND_ENV replaces the file, and carried forward.
+    assert "two-factor-before" in workflow and "earlier keys carried" in workflow
+    # A malformed secret fails on the runner, before the box is touched.
+    assert workflow.index("- name: Check the two-step encryption key secrets") < workflow.index("- name: Write .env on the server")
+    # And after the restart, a secret no configured key opens fails the deploy.
+    assert '"$py" -m scripts.reencrypt_two_factor_secrets; rc=$?' in workflow and '[ "$rc" = 3 ]' in workflow

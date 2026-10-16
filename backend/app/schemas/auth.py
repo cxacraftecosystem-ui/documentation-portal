@@ -146,6 +146,9 @@ class ChangePasswordRequest(APIModel):
     )
     oidcRedirectUri: str | None = Field(default=None, min_length=1, max_length=2048)
     oidcNonce: str | None = Field(default=None, min_length=16, max_length=256)
+    #: What a refusal for a wrong two-step code handed back in ``X-Sign-In-Proof``: it stands in for
+    #: the provider sign-in that was already accepted, so the next try needs only the right code.
+    providerProof: str | None = Field(default=None, min_length=1, max_length=2048)
 
     @property
     def has_oidc_proof(self) -> bool:

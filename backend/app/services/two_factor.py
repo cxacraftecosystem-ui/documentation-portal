@@ -716,6 +716,46 @@ async def notify_second_factor_locked(user: Any, until: datetime, budget: Attemp
         logger.exception("mail: could not queue a second-factor lock notice for %s", _user_field(user, "id"))
 
 
+#: SETTING A FIRST PASSWORD with two-step on asks for a code, on a budget of its own: five checks
+#: per account per fifteen minutes, claimed before the code is looked at and given back when it was
+#: right. Never the sign-in's budget, so guessing there can neither lock the owner out of signing in
+#: nor buy more than five guesses. In the database, so a restart does not hand out five more.
+FIRST_PASSWORD_CODE_ATTEMPTS = 5
+FIRST_PASSWORD_CODE_WINDOW = timedelta(minutes=15)
+
+
+async def claim_first_password_check(user_id: str) -> bool:
+    """Claim one first-password code check for ``user_id``; False when the window's five are used.
+    A lapsed (or never started) window is restarted first, conditional on the one this request read,
+    so only one of a burst restarts it; the claim itself is one conditional increment."""
+    now = datetime.now(UTC)
+    row = await db.user.find_unique(where={"id": user_id})
+    if row is None:
+        return False
+    read_started = _user_field(row, "firstPasswordCodeWindowStartedAt")
+    started = _aware(read_started)
+    if started is None or now - started > FIRST_PASSWORD_CODE_WINDOW:
+        await db.user.update_many(
+            where={"id": user_id, "firstPasswordCodeWindowStartedAt": read_started},
+            data={"firstPasswordCodeAttempts": 0, "firstPasswordCodeWindowStartedAt": now},
+        )
+    claimed = await db.user.update_many(
+        where={"id": user_id, "firstPasswordCodeAttempts": {"lt": FIRST_PASSWORD_CODE_ATTEMPTS}},
+        data={"firstPasswordCodeAttempts": {"increment": 1}},
+    )
+    invalidate_cached_user(user_id)
+    return bool(claimed)
+
+
+async def refund_first_password_check(user_id: str) -> None:
+    """Give one check back: the code was right, or nothing was checked after all."""
+    await db.user.update_many(
+        where={"id": user_id, "firstPasswordCodeAttempts": {"gt": 0}},
+        data={"firstPasswordCodeAttempts": {"decrement": 1}},
+    )
+    invalidate_cached_user(user_id)
+
+
 async def clear_failures(user_id: str) -> None:
     await db.user.update(where={"id": user_id}, data=dict(CLEAR_FAILURES))
     invalidate_cached_user(user_id)

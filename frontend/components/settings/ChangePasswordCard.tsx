@@ -32,6 +32,7 @@ import {
 } from "@/lib/oidcSignIn";
 import {
   asReauthProvider,
+  carriedProof,
   confirmMissing,
   confirmPrompt,
   confirmedLine,
@@ -57,7 +58,8 @@ import {
   asksForTwoFactorCode,
   asksToConfirmSignIn,
   changeOwnPassword,
-  passwordRuleLine
+  passwordRuleLine,
+  signInProofFrom
 } from "@/lib/signIn";
 
 const CHANGED_HERE_ONLY = "Password changed. You are still signed in here; everywhere else, sign in with the new one.";
@@ -235,8 +237,11 @@ export function ChangePasswordCard() {
         setProof(null);
         setConfirmAsked(asReauthProvider(askedFor));
       } else if (asksForTwoFactorCode(err)) {
-        // The form is kept; only the code is cleared, so the next one can be typed straight in.
+        // The form is kept; only the code is cleared, so the next one can be typed straight in. The
+        // confirmation stays good: a sign-in already accepted comes back as what stands in for it.
         setCode("");
+        const carried = signInProofFrom(err);
+        if (carried && sending) setProof(carriedProof(sending, carried));
       } else if (!setting && currentPasswordRefused(err)) {
         setCurrent("");
         setCurrentRefusals((count) => count + 1);

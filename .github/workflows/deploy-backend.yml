@@ -666,10 +666,37 @@ jobs:
             --exclude '.venv' --exclude '__pycache__' --exclude '*.pyc' \
             ./backend/ ubuntu@${{ secrets.EC2_HOST }}:/home/ubuntu/app/backend/
 
+      # A malformed two-step key would stop the API starting (app/core/config.py refuses it), on a box
+      # that is slow to come back. So the Actions secrets are checked HERE, on the runner, before the
+      # box's .env is touched at all. The values are never printed.
+      - name: Check the two-step encryption key secrets
+        env:
+          TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.TWO_FACTOR_ENCRYPTION_KEY }}
+          TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS: ${{ secrets.TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS }}
+        run: |
+          shape='^[A-Za-z0-9_-]{1,32}:[A-Za-z0-9_-]{43}=?$'
+          if [ -z "$TWO_FACTOR_ENCRYPTION_KEY" ] && [ -n "$TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS" ]; then
+            echo "::error::TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS is set but TWO_FACTOR_ENCRYPTION_KEY is not"; exit 1
+          fi
+          n=0
+          IFS=',' read -r -a entries <<< "$TWO_FACTOR_ENCRYPTION_KEY,$TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS"
+          for entry in "${entries[@]}"; do
+            entry="$(printf '%s' "$entry" | tr -d '[:space:]')"
+            [ -z "$entry" ] && continue
+            n=$((n + 1))
+            if ! [[ "$entry" =~ $shape ]]; then
+              echo "::error::two-step key entry $n is not <key id>:<32 bytes base64url>; mint one with: python -m scripts.reencrypt_two_factor_secrets --generate-key"; exit 1
+            fi
+          done
+          echo "two-step key entries checked: $n"
+
+      # The box's two-step key lines are put aside (mode 600) BEFORE BACKEND_ENV replaces the file, so
+      # the pin step below can carry a key that was set on the box forward instead of losing it. A file
+      # already there is a deploy that stopped before the pin step: it holds the truer lines, and stays.
       - name: Write .env on the server (piped over the SSH tunnel, never on the command line)
         run: |
           printf '%s' "$BACKEND_ENV" | ssh ubuntu@${{ secrets.EC2_HOST }} \
-            'cat > /home/ubuntu/app/backend/.env && chmod 600 /home/ubuntu/app/backend/.env'
+            'f=/home/ubuntu/app/backend/.env; umask 077; [ -e "$f.two-factor-before" ] || { grep -E "^TWO_FACTOR_ENCRYPTION_(KEY|PREVIOUS_KEYS)=" "$f" 2>/dev/null || true; } > "$f.two-factor-before"; cat > "$f" && chmod 600 "$f"'
         env:
           BACKEND_ENV: ${{ secrets.BACKEND_ENV }}
 
@@ -830,38 +857,85 @@ jobs:
       # on ssh's STDIN, never in an argument, like the provider secrets above.
       #
       # TWO_FACTOR_ENCRYPTION_KEY (and _PREVIOUS_KEYS during a rotation) seal every authenticator
-      # secret (app/core/two_factor_keys.py). NOT authoritative when the secret is empty, unlike the
-      # pins above: deleting a key that BACKEND_ENV or an operator put on the box would make every
-      # secret sealed with it unreadable, so an unset Actions secret leaves the box's line alone
-      # (and an absent key keeps the legacy JWT-derived one, with a WARNING in the journal). When the
-      # Actions secret IS set it wins. Rotation: docs/ENVIRONMENT.md.
+      # secret (app/core/two_factor_keys.py), so NO KEY THAT WAS IN USE MAY GO MISSING. The current key
+      # comes from the Actions secret when it is set, else from BACKEND_ENV, else from the box's .env
+      # as it was before this deploy (put aside by the "Write .env" step, so a key set there by hand
+      # survives). Every other key seen in those places is CARRIED into _PREVIOUS_KEYS, so rotating
+      # the Actions secret without also filling the previous-keys secret strands nothing. A key id
+      # that turns up with two different keys fails the deploy here, before anything restarts. With
+      # no key anywhere the legacy JWT-derived one stays in use, with a WARNING in the journal. After
+      # the restart, a dry run of scripts/reencrypt_two_factor_secrets fails the deploy if any secret
+      # cannot be opened. Rotation: docs/ENVIRONMENT.md.
       #
-      # TRUSTED_PROXY_HOPS=2 — CloudFront appends the viewer, nginx appends CloudFront, and the
-      # per-client limits key on the viewer. THIS IS SAFE ONLY BECAUSE OF THE CLOUDFRONT LOCK: the
-      # box's security group admits port 80 from the com.amazonaws.global.cloudfront.origin-facing
-      # prefix list alone, so nobody reaches nginx with an X-Forwarded-For of their own. If that lock
-      # is ever lifted, pin 1 here instead (app/scale/rate_limit.client_address).
+      # TRUSTED_PROXY_HOPS — CloudFront appends the viewer, nginx appends CloudFront, and with 2 the
+      # per-client limits key on the viewer. That is safe ONLY while nobody can reach nginx without
+      # passing CloudFront (docs/SECURITY.md P1): otherwise a caller chooses the entry 2 reads. So the
+      # lock is CHECKED here, not assumed: the runner (never a CloudFront address) tries ports 80 and
+      # 443 on the box directly. Refused, timed out, or turned away with a 403 by the origin check is
+      # locked; anything else (a 200, any other answer) pins 1 and warns.
       - name: Pin the two-step encryption key and the proxy hops
         env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
           TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.TWO_FACTOR_ENCRYPTION_KEY }}
           TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS: ${{ secrets.TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS }}
         run: |
-          frag="TRUSTED_PROXY_HOPS=2"$'\n'
-          drop="/^TRUSTED_PROXY_HOPS=/d"
-          if [ -n "$TWO_FACTOR_ENCRYPTION_KEY" ]; then
-            frag+="TWO_FACTOR_ENCRYPTION_KEY=$TWO_FACTOR_ENCRYPTION_KEY"$'\n'
-            frag+="TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS=$TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS"$'\n'
-            drop+=";/^TWO_FACTOR_ENCRYPTION_KEY=/d;/^TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS=/d"
+          # curl exits 7 when refused and 28 when it times out.
+          locked() {
+            local code rc
+            set +e
+            code="$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 8 -m 12 "$1" 2>/dev/null)"; rc=$?
+            set -e
+            [ "$rc" = 7 ] || [ "$rc" = 28 ] || [ "$code" = 403 ]
+          }
+          hops=1
+          if locked "http://$EC2_HOST/health" && locked "https://$EC2_HOST/health"; then hops=2; fi
+          if [ "$hops" = 1 ]; then
+            echo "::warning::the box answers directly, without CloudFront: TRUSTED_PROXY_HOPS pinned to 1. Put the CloudFront-only security group back (docs/SECURITY.md P1), then deploy again for 2."
           fi
-          printf '%s' "$frag" | ssh ubuntu@${{ secrets.EC2_HOST }} "ENVFILE='/home/ubuntu/app/backend/.env' DROP='$drop' bash -c '
-            set -euo pipefail
-            frag=\$(cat)
-            [ -s \"\$ENVFILE\" ] && [ -n \"\$(tail -c1 \"\$ENVFILE\")\" ] && printf \"\n\" >> \"\$ENVFILE\"
-            sed -i \"\$DROP\" \"\$ENVFILE\"
-            printf \"%s\" \"\$frag\" >> \"\$ENVFILE\"
-            grep -q \"^TRUSTED_PROXY_HOPS=2\$\" \"\$ENVFILE\" || { echo \"TRUSTED_PROXY_HOPS did not land on its own line\"; exit 1; }
-            echo \"proxy hops pinned: 2; two-step key: \$(grep -q \"^TWO_FACTOR_ENCRYPTION_KEY=.\" \"\$ENVFILE\" && echo set || echo legacy)\"
-          '"
+          trim() { printf '%s' "$1" | tr -d '[:space:]'; }
+          {
+            printf 'HOPS=%s\n' "$hops"
+            printf 'AK=%q\n' "$(trim "$TWO_FACTOR_ENCRYPTION_KEY")"
+            printf 'AP=%q\n' "$(trim "$TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS")"
+            cat <<'REMOTE'
+          set -euo pipefail
+          ENVFILE=/home/ubuntu/app/backend/.env
+          BEFORE="$ENVFILE.two-factor-before"
+          shape='^[A-Za-z0-9_-]{1,32}:[A-Za-z0-9_-]{43}=?$'
+          val() { [ -f "$1" ] || return 0; { grep -E "^$2=" "$1" || true; } | tail -n1 | cut -d= -f2- | tr -d "[:space:]\"'"; }
+          BK=$(val "$BEFORE" TWO_FACTOR_ENCRYPTION_KEY); BP=$(val "$BEFORE" TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS)
+          EK=$(val "$ENVFILE" TWO_FACTOR_ENCRYPTION_KEY); EP=$(val "$ENVFILE" TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS)
+          if [ -n "$AK" ]; then key=$AK; prev=$AP; from="the Actions secret"
+          elif [ -n "$EK" ]; then key=$EK; prev=$EP; from="BACKEND_ENV"
+          elif [ -n "$BK" ]; then key=$BK; prev=$BP; from="the box, kept"
+          else key=""; prev=""; from="none, the legacy key"; fi
+          ring=",$key,$prev,"
+          carried=0
+          IFS=',' read -r -a seen <<< "$BK,$BP,$EK,$EP"
+          for entry in "${seen[@]}"; do
+            [ -z "$entry" ] && continue
+            case "$ring" in *",$entry,"*) continue ;; esac
+            id="${entry%%:*}"
+            case "$ring" in *",$id:"*) echo "::error::two-step key id $id is configured twice with different keys; the secrets sealed with one of them would be lost. Fix the Actions secrets and deploy again."; exit 1 ;; esac
+            prev="${prev:+$prev,}$entry"; ring="$ring$entry,"; carried=$((carried + 1))
+          done
+          IFS=',' read -r -a every <<< "$key,$prev"
+          for entry in "${every[@]}"; do
+            [ -z "$entry" ] && continue
+            [[ "$entry" =~ $shape ]] || { echo "::error::a two-step key on the box is not <key id>:<32 bytes base64url>"; exit 1; }
+          done
+          [ -s "$ENVFILE" ] && [ -n "$(tail -c1 "$ENVFILE")" ] && printf '\n' >> "$ENVFILE"
+          sed -i '/^TRUSTED_PROXY_HOPS=/d;/^TWO_FACTOR_ENCRYPTION_KEY=/d;/^TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS=/d' "$ENVFILE"
+          printf 'TRUSTED_PROXY_HOPS=%s\n' "$HOPS" >> "$ENVFILE"
+          if [ -n "$key" ]; then
+            printf 'TWO_FACTOR_ENCRYPTION_KEY=%s\n' "$key" >> "$ENVFILE"
+            if [ -n "$prev" ]; then printf 'TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS=%s\n' "$prev" >> "$ENVFILE"; fi
+          fi
+          rm -f "$BEFORE"
+          grep -q "^TRUSTED_PROXY_HOPS=$HOPS\$" "$ENVFILE" || { echo "TRUSTED_PROXY_HOPS did not land on its own line"; exit 1; }
+          echo "proxy hops pinned: $HOPS; two-step key from: $from; earlier keys carried: $carried"
+          REMOTE
+          } | ssh ubuntu@$EC2_HOST 'bash -s'
 
       # ─── THE PROJECT, THE PRISMA CLIENT, THE MIGRATION, THE SWITCH ──────────────────────────────
       # Everything up to the switch happens inside the venv the build step chose, while the API is
@@ -997,6 +1071,17 @@ jobs:
             sleep 2
           done
           curl -fsS http://127.0.0.1:8000/health
+          # EVERY TWO-STEP SECRET STILL OPENS. A key lost on the way to the box (see the pin step) would
+          # lock those people out with no error anywhere. A dry run writes nothing and names account
+          # ids, never secrets. Exit 3 means some secret opens with no configured key and fails the
+          # deploy; any other failure (a busy pooler) is only a warning, as it says nothing of the keys.
+          if grep -q '^TWO_FACTOR_ENCRYPTION_KEY=.' .env; then
+            set +e
+            "$py" -m scripts.reencrypt_two_factor_secrets; rc=$?
+            set -e
+            if [ "$rc" = 3 ]; then echo "::error::the two-step secrets above open with no configured key: put the missing key in TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS and deploy again"; exit 1; fi
+            if [ "$rc" != 0 ]; then echo "::warning::the two-step key check could not run (exit $rc)"; fi
+          fi
 
           # Healthy, so tidy up: keep the venv now running, the one before it and the 3.12 rollback
           # venv, and only the pinned Node. Nothing is deleted on any path that failed above.

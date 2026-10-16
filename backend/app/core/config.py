@@ -137,9 +137,10 @@ class Settings(BaseSettings):
     # CloudFront + nginx = 2). The "Forgot your password?" per-client limit keys on the entry the
     # outermost of them wrote, never on the client-typed left-most one. 2 is production's shape, and
     # it is safe only because the origin answers CloudFront alone (the CloudFront lock: port 80 on
-    # the box's security group admits only the com.amazonaws.global.cloudfront.origin-facing prefix
-    # list), so nobody can reach nginx with an X-Forwarded-For of their own making. Remove that lock
-    # and this must go back to 1. See app.scale.rate_limit.client_address.
+    # the box's security groups admits only the com.amazonaws.global.cloudfront.origin-facing prefix
+    # list, and 443 nothing), so nobody can reach nginx with an X-Forwarded-For of their own making.
+    # The deploy checks that from outside before it pins 2, and pins 1 when the box answers directly.
+    # See app.scale.rate_limit.client_address.
     trusted_proxy_hops: int = Field(default=2, ge=1, le=5, alias="TRUSTED_PROXY_HOPS")
     # Hard entry ceiling on a 1 GiB box. A cached row is the User model's scalar columns and no
     # relations — order 1 KB — so 512 concurrent identities is well under a megabyte, and the worst
@@ -359,6 +360,9 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         populate_by_name=True,
         extra="ignore",
+        # A start-up error never echoes the environment: pydantic would otherwise print the input it
+        # refused (every setting, secrets included) truncated head and tail.
+        hide_input_in_errors=True,
     )
 
     @field_validator("jwt_algorithm")
