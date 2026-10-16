@@ -1,6 +1,5 @@
 package com.fieldrepository.app.ui
 
-import com.fieldrepository.app.data.userMessage
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -58,6 +57,22 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import java.io.IOException
@@ -67,10 +82,12 @@ import java.io.IOException
  *
  * ── WHAT THE OWNER ASKED FOR (2026-10-16) ───────────────────────────────────────────────────────
  *
- * The top of every main screen carries the app's name and logo again, styled as the island's brand
- * end was before the island moved to the bottom. It is part of the PAGE, not chrome: it scrolls
- * away with the page and comes back at the top, and it never collapses into anything. Tapping it,
- * or the search glyph inside it, turns it into a search field ([AppSearchPanel]), which finds:
+ * The top of every main screen carries the app's logo and name again, centred and large, in the
+ * island's pill. Revised the same day to QUICK RETURN ([QuickReturnHeader]): scrolling down slides
+ * it up out of view, any scroll up brings it back even mid-page, over the top of the content, and at
+ * the very top it sits in place, with the page padded by its measured height so nothing is hidden at
+ * rest. It never collapses into anything. Tapping it, or the search glyph inside it, opens the
+ * search field ([AppSearchPanel]), which finds:
  *
  *  - SCREENS — the destinations this account's menu offers, from the same `visibleNavItems`, so a
  *    search can no more offer a screen the role may not open than the menu can;
@@ -222,47 +239,218 @@ class AppSearchRecentStore(context: Context) {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * The app's name and logo at the top of the page, in the pill the island's brand end used to wear.
+ * The app's logo and name, CENTRED and large, in the pill the island's brand end used to wear, with
+ * the search glyph at the trailing edge.
  *
- * Put it FIRST inside the page's scrolling column — never above the scroller — so it scrolls away
- * with the page and is there again at the top. One tap target, the whole pill: tapping the name or
- * the search glyph both open [AppSearchPanel].
+ * The glyph sits in its own 48dp slot and the lock-up is padded by the same 48dp on BOTH sides, so
+ * the logo and name centre on the pill rather than on the space left beside the glyph. One tap
+ * target, the whole pill: tapping the name or the glyph both open [AppSearchPanel].
+ *
+ * Host it with [QuickReturnHeader], never inside the scroller: it is an overlay that hides on a
+ * downward scroll and comes back on any upward one.
  */
 @Composable
 fun AppSearchHeader(
     appName: String,
     logo: @Composable (Modifier) -> Unit,
     onOpenSearch: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** True while it floats over content mid-page, where a shadow separates it from the page. */
+    elevated: Boolean = false
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(28.dp),
         color = MaterialTheme.colorScheme.surface,
+        shadowElevation = if (elevated) 6.dp else 0.dp,
         border = BorderStroke(1.dp, MaterialTheme.field.hairline)
     ) {
-        Row(
+        Box(
             modifier = Modifier
                 .clickable(onClickLabel = "Search", role = Role.Button, onClick = onOpenSearch)
                 .semantics(mergeDescendants = true) { contentDescription = "$appName. Search" }
-                .heightIn(min = 52.dp)
-                .padding(start = 12.dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .heightIn(min = 60.dp)
+                .padding(horizontal = 4.dp),
+            contentAlignment = Alignment.Center
         ) {
-            logo(Modifier.size(24.dp))
-            Spacer(Modifier.width(7.dp))
-            Text(
-                appName,
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+            Row(
+                modifier = Modifier.padding(horizontal = 48.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                logo(Modifier.size(34.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    appName,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Box(
+                modifier = Modifier.align(Alignment.CenterEnd).size(48.dp),
+                contentAlignment = Alignment.Center
+            ) {
                 Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Quick return — the header hides on the way down and comes back on any move up
+// ---------------------------------------------------------------------------------------------
+
+/** One moment of the quick-return state machine: shown or not, and downward travel since shown. */
+data class QuickReturnStep(val shown: Boolean, val travelPx: Float = 0f)
+
+/** The slide's length. Reduced motion gets zero, which is a snap. */
+const val QUICK_RETURN_SLIDE_MS = 180
+
+fun quickReturnSlideMillis(reducedMotion: Boolean): Int = if (reducedMotion) 0 else QUICK_RETURN_SLIDE_MS
+
+/**
+ * The quick-return rule, pure so it can be tested.
+ *
+ * @param consumedY what the page scroller just consumed, in the nested-scroll sign: NEGATIVE when
+ *   the page moved toward its end (the finger travelled up), POSITIVE when it moved back up.
+ * @param scrollOffsetPx where the page is now, 0 at the top.
+ * @param headerHeightPx the header's measured height. It never hides while the page has moved less
+ *   than that, because there would be nothing underneath it to reveal.
+ * @param hideAfterPx downward travel needed to hide it, so a jittering thumb does not flicker it.
+ * @param pinned true while the search field is open: shown whatever the scroll does.
+ *
+ * Rules: pinned or at the top → shown. ANY upward scroll → shown at once. A downward scroll adds to
+ * the travel and hides it once both the travel and the offset pass their thresholds. No movement
+ * changes nothing.
+ */
+fun quickReturnStep(
+    state: QuickReturnStep,
+    consumedY: Float,
+    scrollOffsetPx: Int,
+    headerHeightPx: Int,
+    hideAfterPx: Float,
+    pinned: Boolean
+): QuickReturnStep = when {
+    pinned || scrollOffsetPx <= 0 -> QuickReturnStep(shown = true)
+    consumedY > 0f -> QuickReturnStep(shown = true)
+    consumedY < 0f -> {
+        val travel = state.travelPx - consumedY
+        val hide = travel >= hideAfterPx && scrollOffsetPx > headerHeightPx
+        QuickReturnStep(shown = state.shown && !hide, travelPx = if (hide) 0f else travel)
+    }
+    else -> state
+}
+
+/** Downward travel before the header hides. */
+private val QUICK_RETURN_HIDE_AFTER = 24.dp
+/** Between the header's bottom edge and the first line of the page at rest. */
+private val QUICK_RETURN_GAP = 8.dp
+
+/**
+ * The live half of [quickReturnStep]: the nested-scroll hook the page's scroller reports to, the
+ * measured header height, and the top padding the page needs so nothing is hidden at rest.
+ */
+@Stable
+class QuickReturnHeaderState internal constructor(
+    private val scrollOffset: () -> Int,
+    private val hideAfterPx: Float,
+    private val gapPx: Int
+) {
+    var step by mutableStateOf(QuickReturnStep(shown = true))
+        private set
+    var heightPx by mutableIntStateOf(0)
+        internal set
+    internal var pinned: Boolean = false
+        set(value) {
+            field = value
+            if (value) step = QuickReturnStep(shown = true)
+        }
+
+    val shown: Boolean get() = step.shown
+
+    /** Top padding for the page's scrolling column: the header's height plus a gap, 0 until measured. */
+    val reservePx: Int get() = if (heightPx > 0) heightPx + gapPx else 0
+
+    internal fun offsetNow(): Int = scrollOffset()
+
+    internal fun report(consumedY: Float) {
+        step = quickReturnStep(step, consumedY, scrollOffset(), heightPx, hideAfterPx, pinned)
+    }
+
+    internal fun atTop() {
+        step = QuickReturnStep(shown = true)
+    }
+
+    /** Put `Modifier.nestedScroll(connection)` on the page's scroller, BEFORE `verticalScroll`. */
+    val connection: NestedScrollConnection = object : NestedScrollConnection {
+        override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+            if (consumed.y != 0f) report(consumed.y)
+            return Offset.Zero
+        }
+    }
+}
+
+/**
+ * Remember the quick-return state for a page scrolled by [scrollState]. [pinned] keeps the header
+ * shown: pass whether the search field is open.
+ */
+@Composable
+fun rememberQuickReturnHeader(scrollState: ScrollState, pinned: Boolean): QuickReturnHeaderState {
+    val density = LocalDensity.current
+    val state = remember(scrollState, density) {
+        QuickReturnHeaderState(
+            scrollOffset = { scrollState.value },
+            hideAfterPx = with(density) { QUICK_RETURN_HIDE_AFTER.toPx() },
+            gapPx = with(density) { QUICK_RETURN_GAP.roundToPx() }
+        )
+    }
+    state.pinned = pinned
+    // Back at the top by any route (a new page, a programmatic scroll) counts as shown, even with
+    // no scroll gesture to report it.
+    val atTop by remember(scrollState) { derivedStateOf { scrollState.value == 0 } }
+    LaunchedEffect(atTop) { if (atTop) state.atTop() }
+    return state
+}
+
+/**
+ * The header as a quick-return overlay at the top of the page. It slides up out of view when
+ * [state] says so and back in on any upward scroll, and snaps instead of sliding when the person has
+ * asked for reduced motion. [hidden] takes it away regardless: pass true while the keyboard is up
+ * for a field on the page.
+ */
+@Composable
+fun QuickReturnHeader(
+    state: QuickReturnHeaderState,
+    modifier: Modifier = Modifier,
+    hidden: Boolean = false,
+    content: @Composable (elevated: Boolean) -> Unit
+) {
+    val reducedMotion = LocalAppPreferences.current.reducedMotion
+    val show = state.shown && !hidden
+    val slide by animateIntAsState(
+        targetValue = if (show) 0 else -(state.heightPx + 1),
+        animationSpec = if (reducedMotion) snap() else tween(quickReturnSlideMillis(reducedMotion)),
+        label = "quickReturnHeader"
+    )
+    // Over content only once the page has moved; at the top it sits flat in place.
+    val overContent by remember(state) { derivedStateOf { state.offsetNow() > 0 } }
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .onSizeChanged { state.heightPx = it.height }
+            .offset { IntOffset(0, slide) }
+            // Faded with the slide. The parent does not clip, so a header slid up by its own height
+            // would otherwise still be drawn over the status bar above the page (seen on the
+            // emulator, 2026-10-16).
+            .graphicsLayer {
+                alpha = if (state.heightPx > 0) (1f + slide.toFloat() / state.heightPx).coerceIn(0f, 1f) else 1f
+            }
+            // Out of the accessibility tree while it is off-screen, so TalkBack never lands on it.
+            .then(if (show) Modifier else Modifier.clearAndSetSemantics { })
+    ) {
+        content(overContent)
     }
 }
 
@@ -290,10 +478,10 @@ fun AppSearchPanel(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
     /**
-     * A server failure that is NOT "no network", in words (`Throwable.userMessage`), for the app's
-     * one message surface (`AppMessageBanner`). It used to be swallowed, so a refused search read
-     * exactly like a search with no matches. "No network" stays the inline note below, because it
-     * explains the list under it rather than reporting a fault.
+     * A server failure that is NOT "no network", in words ([appSearchErrorLine]), for the app's one
+     * message surface. It used to be swallowed, so a refused search read exactly like a search with
+     * no matches. "No network" stays the inline note below, because it explains the list under it
+     * rather than reporting a fault.
      */
     onError: (String) -> Unit = {}
 ) {
@@ -337,7 +525,7 @@ fun AppSearchPanel(
             offline = true
         } catch (e: Exception) {
             remote = emptyList()
-            onError(e.userMessage("Search could not reach the server. Showing what is saved on this phone."))
+            onError(appSearchErrorLine(e))
         } finally {
             loading = false
         }

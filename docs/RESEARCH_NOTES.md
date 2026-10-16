@@ -1155,6 +1155,11 @@ object keys share the single `media/` prefix.
 > (`GET /search` plus the `search` filter of the crafts, processes and interview lists), the role's
 > own menu screens and settings, with recent searches. The drawer's fixes are listed in
 > `ui/AppMenuDrawer.kt`. Android only.
+> Revised the same day to **quick return**. The logo and name are centred and larger. Scrolling
+> down slides the header out of view; any scroll up brings it back over the top of the page, even
+> mid-page. At the very top it sits in place, and the page is padded by its measured height. It
+> snaps instead of sliding under reduced motion, stays visible while the search field is open, and
+> hides while the keyboard is up for a field on the page (`QuickReturnHeader`, `quickReturnStep`).
 
 The Android navigation bar sheds width in five ordered tiers rather than scrolling horizontally. The
 rationale, from `android/.../ui/AppNavigation.kt`, is worth quoting because it is a usability claim

@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import com.fieldrepository.app.data.ArtisanDto
 import com.fieldrepository.app.data.CraftDto
 import com.fieldrepository.app.data.FieldRepository
+import com.fieldrepository.app.data.userMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -166,3 +167,7 @@ suspend fun appSearchRemoteItems(
     }
     items
 }
+
+/** A search failure that is not "no network", in the words this app uses for API errors. */
+fun appSearchErrorLine(error: Throwable): String =
+    error.userMessage("Search could not reach the server. Showing what is saved on this phone.")
