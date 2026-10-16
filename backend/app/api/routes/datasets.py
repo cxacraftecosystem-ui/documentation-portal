@@ -71,6 +71,8 @@ from app.core.deps import (
 )
 from app.core.deps import password_credential
 from app.core.security import create_access_token, verify_password
+from app.api.routes.auth import ACCOUNT_THROTTLED_DETAIL
+from app.scale.rate_limit import account_credential_attempt, account_credential_refund
 from app.schemas.auth import DatasetTokenRequest
 from app.services import two_factor
 from app.services.concurrency import gather_reads
@@ -500,10 +502,17 @@ async def mint_dataset_token(payload: DatasetTokenRequest) -> dict[str, Any]:
     user = await db.user.find_unique(where={"email": (payload.email or "").lower()})
     # One message for "no such account" and "wrong password", the same as POST /auth/login: telling
     # them apart turns this endpoint into an oracle for which admin addresses exist.
+    # The sign-in's per-account guessing budget, the same bucket: this door trades a password for a
+    # thirty-day credential, so it must not be the one door where guessing is free.
+    if user is not None:
+        allowed, _retry = account_credential_attempt(user.id)
+        if not allowed:
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=ACCOUNT_THROTTLED_DETAIL)
     if not user or not verify_password(payload.password or "", user.passwordHash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password"
         )
+    account_credential_refund(user.id)
     if getattr(user, "twoFactorEnabled", False):
         # THE SECOND FACTOR, before anything else is said about the account. The same check as the
         # sign-in's second step — the code is spent, a recovery code works, a wrong one counts

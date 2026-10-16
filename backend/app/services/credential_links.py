@@ -491,9 +491,21 @@ async def issue_link(
             raise DeliveryUnavailable()
     now = datetime.now(UTC)
     since = now - timedelta(hours=ISSUE_WINDOW_HOURS)
-    recent = await db.passwordresettoken.count(
-        where={"userId": user.id, "createdAt": {"gte": since}}
+    # TWO BUDGETS, NEITHER SPENDING THE OTHER (security review, 2026-10-16). Links an administrator
+    # issued count against the administrators' four; links "Forgot your password?" minted (no
+    # issuer) count against their own, with the door's tighter silent cap on top
+    # (``services/password_reset``). Counted together, a stranger typing somebody's address four
+    # times an hour left no administrator able to help them back in.
+    # Administrators' links are every link minus the self-service ones: two counts both using a
+    # filter (equality to NULL) every Prisma client reads the same way.
+    self_service = await db.passwordresettoken.count(
+        where={"userId": user.id, "issuedById": None, "createdAt": {"gte": since}}
     )
+    if issued_by_id is None:
+        recent = self_service
+    else:
+        every = await db.passwordresettoken.count(where={"userId": user.id, "createdAt": {"gte": since}})
+        recent = every - self_service
     if recent >= ISSUE_BUDGET:
         raise IssueThrottled(retry_after_minutes=ISSUE_WINDOW_HOURS * 60)
 
@@ -622,7 +634,8 @@ async def self_service_links_since(user_id: str, since: datetime) -> int:
     The self-service door's own, SILENT, per-address cap (``services/password_reset``) reads this: a
     link nobody issued (``issuedById`` NULL) is a link the account's own address asked for. Links an
     administrator made are not counted, so a flood of strangers' requests can never use up an
-    administrator's ability to help — :data:`ISSUE_BUDGET` still bounds the two together.
+    administrator's ability to help. :data:`ISSUE_BUDGET` applies to each kind separately (see
+    :func:`issue_link`), so neither door's links spend the other's.
     """
     return await db.passwordresettoken.count(
         where={"userId": user_id, "issuedById": None, "createdAt": {"gte": since}}

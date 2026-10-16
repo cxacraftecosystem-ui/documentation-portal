@@ -130,6 +130,10 @@ class ChangePasswordRequest(APIModel):
 
     currentPassword: str = Field(default="", max_length=256)
     newPassword: str = Field(min_length=8, max_length=BCRYPT_MAX_PASSWORD_BYTES)
+    #: A six-digit authenticator code or a recovery code. REQUIRED when an account with two-step on
+    #: sets its FIRST password (security review, 2026-10-16): a recent session alone is not enough to
+    #: add a permanent way in. Ignored when changing an existing password, which asks for that one.
+    twoFactorCode: str | None = Field(default=None, max_length=64)
 
     @field_validator("newPassword")
     @classmethod

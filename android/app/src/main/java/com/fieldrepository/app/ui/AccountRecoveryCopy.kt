@@ -147,3 +147,11 @@ fun accessAddedLine(email: String, method: AccessSignIn): String = when (method)
     AccessSignIn.PROVIDER -> "$email may sign in."
     AccessSignIn.PASSWORD -> "$email may sign in with the password you set."
 }
+
+/** The first-password form's code box, shown when the account has two-step verification on. */
+const val TWO_FACTOR_CODE_LABEL = "Code from your authenticator app"
+const val TWO_FACTOR_CODE_HINT = "Two-step verification is on for your account. A recovery code works too."
+
+/** A first password (no password yet) on an account with two-step on needs a code as well. */
+fun firstPasswordNeedsCode(hasPassword: Boolean, user: UserDto?): Boolean =
+    !hasPassword && user?.twoFactorEnabled == true

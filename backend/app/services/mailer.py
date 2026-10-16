@@ -41,8 +41,23 @@ SECOND_FACTOR_LOCKED = "SECOND_FACTOR_LOCKED"
 #: person themselves ("Forgot your password?"). The link never sits in ``params``: it travels sealed on
 #: the outbox row (``EmailMessage.sealed``) and reaches :func:`render` as ``secret``.
 PASSWORD_LINK = "PASSWORD_LINK"
+#: SECURITY NOTICES (2026-10-16): a password was added to an account that had none, and an account's
+#: password was changed (by its owner, through a link, or by an administrator). Always sent, no
+#: opt-out, to the account's own address; they carry no password and no link, only when it happened
+#: and what to do if it was not them.
+PASSWORD_ADDED = "PASSWORD_ADDED"
+PASSWORD_CHANGED = "PASSWORD_CHANGED"
 KINDS = frozenset(
-    {ACCESS_GRANTED, TASK_SUBMITTED, TASK_SENT_BACK, TASK_APPROVED, SECOND_FACTOR_LOCKED, PASSWORD_LINK}
+    {
+        ACCESS_GRANTED,
+        TASK_SUBMITTED,
+        TASK_SENT_BACK,
+        TASK_APPROVED,
+        SECOND_FACTOR_LOCKED,
+        PASSWORD_LINK,
+        PASSWORD_ADDED,
+        PASSWORD_CHANGED,
+    }
 )
 #: The kinds a person can switch off in Settings (``UserPreference.emailTaskUpdates``).
 TASK_KINDS = frozenset({TASK_SUBMITTED, TASK_SENT_BACK, TASK_APPROVED})
@@ -208,6 +223,10 @@ def subject_for(kind: str, params: dict[str, Any]) -> str:
         return f"“{title}” has been approved"
     if kind == SECOND_FACTOR_LOCKED:
         return f"Someone used your {PRODUCT_NAME} password"
+    if kind == PASSWORD_ADDED:
+        return "A password was added to your account"
+    if kind == PASSWORD_CHANGED:
+        return "Your password was changed"
     raise ValueError(f"Unknown e-mail kind {kind!r}")
 
 
@@ -277,6 +296,22 @@ def render(
             subject,
             text,
             _html([_e(greeting), _e(lead), _e(act), *(_e(line) for line in later)], button=("Open the sign-in page", _e(link))),
+        )
+
+    if kind in (PASSWORD_ADDED, PASSWORD_CHANGED):
+        when = locked_until_words(params.get("changedAt"))
+        if kind == PASSWORD_ADDED:
+            lead = f"A password was added to your {PRODUCT_NAME} account at {when}. You can now sign in with it."
+        else:
+            lead = f"The password of your {PRODUCT_NAME} account was changed at {when}."
+        act = (
+            "If this wasn't you, ask an administrator to sign you out everywhere and reset your "
+            "password."
+        )
+        link = app_url("/login", settings)
+        text = "\n\n".join([greeting, lead, act, sign_off]) + "\n"
+        return Rendered(
+            subject, text, _html([_e(greeting), _e(lead), _e(act)], button=("Open the sign-in page", _e(link)))
         )
 
     if kind in TASK_KINDS:

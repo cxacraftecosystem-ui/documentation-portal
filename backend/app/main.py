@@ -13,7 +13,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.router import api_router
 from app.api.routes.users import EXISTING_ACCOUNT_HEADER
-from app.api.routes.auth import SESSION_TOKEN_HEADER, SIGN_IN_AGAIN_HEADER
+from app.api.routes.auth import SESSION_TOKEN_HEADER, SIGN_IN_AGAIN_HEADER, TWO_FACTOR_REQUIRED_HEADER
 from app.core.config import get_settings
 from app.core.db import connect_db, db, disconnect_db
 from app.core.deps import PASSWORD_CHANGE_REQUIRED_HEADER
@@ -416,6 +416,8 @@ def create_app() -> FastAPI:
             PASSWORD_CHANGE_REQUIRED_HEADER,
             SESSION_TOKEN_HEADER,
             SIGN_IN_AGAIN_HEADER,
+            # A first password on an account with two-step on: the code box.
+            TWO_FACTOR_REQUIRED_HEADER,
             # "Add a person" on an address that already has an account: the screen opens that one.
             EXISTING_ACCOUNT_HEADER,
         ],

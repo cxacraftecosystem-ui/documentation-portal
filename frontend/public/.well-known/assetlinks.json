@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.fieldrepository.app",
+      "sha256_cert_fingerprints": [
+        "9B:D9:5F:76:37:43:DE:00:46:E7:E8:39:74:D3:81:B8:F5:D7:B2:FA:F5:BB:BA:AB:A4:E6:09:B5:CC:48:5F:3E"
+      ]
+    }
+  }
+]

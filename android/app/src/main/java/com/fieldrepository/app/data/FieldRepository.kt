@@ -475,12 +475,14 @@ class FieldRepository(
      * A 400 carrying [SIGN_IN_AGAIN_HEADER] is thrown as [SignInAgainRequired] with the server's
      * sentence, so the screen can offer to sign out rather than print a refusal with no way forward.
      */
-    suspend fun saveOwnPassword(currentPassword: String?, newPassword: String) {
+    suspend fun saveOwnPassword(currentPassword: String?, newPassword: String, twoFactorCode: String? = null) {
         if (currentPassword != null) {
             changeOwnPassword(currentPassword, newPassword)
             return
         }
-        val answer = recoveryApi.setFirstPassword(FirstPasswordRequest(newPassword = newPassword))
+        val answer = recoveryApi.setFirstPassword(
+            FirstPasswordRequest(newPassword = newPassword, twoFactorCode = twoFactorCode?.trim()?.ifBlank { null })
+        )
         if (!answer.isSuccessful) {
             val refused = HttpException(answer)
             if (answer.headers()[SIGN_IN_AGAIN_HEADER] != null) {
@@ -489,6 +491,9 @@ class FieldRepository(
                         "For your security, sign out and sign in again, then set your password within 15 minutes."
                     )
                 )
+            }
+            if (answer.headers()[TWO_FACTOR_REQUIRED_HEADER] != null) {
+                throw TwoFactorCodeRequired(refused.apiErrorMessage(TWO_FACTOR_CODE_FOR_PASSWORD))
             }
             throw refused
         }

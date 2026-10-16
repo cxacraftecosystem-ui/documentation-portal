@@ -117,6 +117,13 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        // The Digital Asset Links file that verifies the Android app's /set-password App Link
+        // (`android:autoVerify` in the manifest). Served from public/ with no redirect; the type is
+        // stated so Android's verifier never has to infer it.
+        source: "/.well-known/assetlinks.json",
+        headers: [{ key: "Content-Type", value: "application/json" }]
+      },
+      {
         source: "/:path*",
         headers: [
           ...securityHeaders,

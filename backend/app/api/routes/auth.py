@@ -48,7 +48,12 @@ from app.core.deps import (
 )
 from app.core.security import create_access_token, decode_access_token, hash_password, verify_password
 from app.core.user_fields import public_user
-from app.scale.rate_limit import client_address, forgot_password_attempt
+from app.scale.rate_limit import (
+    account_credential_attempt,
+    account_credential_refund,
+    client_address,
+    forgot_password_attempt,
+)
 from app.schemas.auth import (
     ChangePasswordRequest,
     ForgotPasswordRequest,
@@ -59,7 +64,7 @@ from app.schemas.auth import (
     TokenResponse,
     TwoFactorChallengeResponse,
 )
-from app.services import credential_links, oidc_sign_in, password_reset, two_factor
+from app.services import credential_links, email_outbox, mailer, oidc_sign_in, password_reset, two_factor
 from app.services.access_roster import (
     ADMITTING_STATUS,
     INVALID_CREDENTIALS_DETAIL,
@@ -76,6 +81,14 @@ from app.services.access_roster import (
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
+
+
+#: The per-account guessing budget is spent (``rate_limit.account_credential_attempt``). Not a 401:
+#: the clients end the session on a 401, and this is about guesses, not about the session.
+ACCOUNT_THROTTLED_DETAIL = (
+    "Too many failed sign-in attempts for this account. Wait a few minutes and try again — "
+    "a sign-in that succeeds does not count against this limit."
+)
 
 
 def serialize_user(user: Any) -> dict[str, Any]:
@@ -381,6 +394,13 @@ async def login(payload: LoginRequest) -> dict[str, Any]:
     else:
         email = normalise_email(payload.email)
         user = await db.user.find_unique(where={"email": email}) if email else None
+        # THE PER-ACCOUNT GUESSING BUDGET (2026-10-16), shared with the change-password screen's
+        # "current password": taken before bcrypt, given back when the password is right. Keyed on
+        # the account, so guesses spread across many networks still meet it.
+        if user is not None:
+            allowed, _retry = account_credential_attempt(user.id)
+            if not allowed:
+                raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=ACCOUNT_THROTTLED_DETAIL)
         if not user or not verify_password(payload.password or "", user.passwordHash):
             # UNCHANGED, AND DELIBERATELY SO. This is the wrong-credential answer, and it is the one
             # place the gate does NOT speak: an unknown address with a guessed password has proved
@@ -393,6 +413,8 @@ async def login(payload: LoginRequest) -> dict[str, Any]:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=INVALID_CREDENTIALS_DETAIL,
             )
+        # The password was right, so nothing was spent.
+        account_credential_refund(user.id)
 
     # THE GATE, ON THE LAST LINE BEFORE THE TOKEN. Both branches reach it and neither can avoid it,
     # which is the property that matters: this is the only place in the application a token is
@@ -515,11 +537,13 @@ def assert_may_reset_credentials(actor: Any, target: Any) -> None:
     """The rule for a password, the password flag, a password link or "Sign out of every device" on
     somebody's account: an administrator (the route's ``require_admin``), never on themselves, and
     only on an account they may manage (``users.assert_can_manage_target``)."""
-    from app.api.routes.users import assert_can_manage_target
+    from app.api.routes.users import assert_can_manage_target, assert_not_another_master
 
     if getattr(target, "id", None) == getattr(actor, "id", None):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=OWN_CREDENTIALS_DETAIL)
     assert_can_manage_target(actor, target)
+    # A master admin over ANOTHER master admin: refused, as the sibling portal does (review B4).
+    assert_not_another_master(actor, target)
 
 
 def issuer_still_manages(issuer: Any, target: Any) -> bool:
@@ -703,6 +727,11 @@ async def set_password(payload: SetPasswordRequest) -> dict[str, bool]:
     invalidate_cached_user(verdict.user_id)
     await credential_links.mark_used(payload.token)
     logger.warning("AUDIT password set through a %s link: user=%s", verdict.purpose, verdict.user_id)
+    if account is not None:
+        # The owner hears of it at their own address, whoever held the link: "added" for an account
+        # that had no password (an invitation), "changed" for one that did.
+        kind = mailer.PASSWORD_ADDED if account.passwordHash is None else mailer.PASSWORD_CHANGED
+        await email_outbox.notify_password_event(account, kind, when=now)
     return {"ok": True}
 
 
@@ -758,6 +787,12 @@ PASSWORD_REAUTH_MINUTES = 15
 #: prose. In ``expose_headers`` in app/main.py.
 SIGN_IN_AGAIN_HEADER = "X-Sign-In-Again"
 
+#: The header on a first-password refusal that wants the two-step code (missing or wrong), so a
+#: client can show the code box without matching prose. In ``expose_headers`` in app/main.py.
+TWO_FACTOR_REQUIRED_HEADER = "X-Two-Factor-Required"
+
+TWO_FACTOR_CODE_NEEDED_DETAIL = "Enter the code from your authenticator app to set a password."
+
 SIGN_IN_AGAIN_DETAIL = (
     f"For your security, sign out and sign in again, then set your password within "
     f"{PASSWORD_REAUTH_MINUTES} minutes."
@@ -790,8 +825,11 @@ async def change_password(
 
     THE CURRENT PASSWORD IS REQUIRED for an account that has one, even when ``mustChangePassword`` is
     set (400 if wrong, never 401: the clients end the session on a 401). A new password equal to the
-    current one is refused. EVERY OTHER SESSION ENDS through the credential fingerprint, and this one
-    continues on a new token in ``X-Session-Token``; the body stays ``{"ok": true}``.
+    current one is refused. Wrong current passwords spend the per-account guessing budget the sign-in
+    spends (429 when it is gone). EVERY OTHER SESSION ENDS — through the credential fingerprint and
+    the ``sessionsValidFrom`` watermark, so a token too old to carry a fingerprint ends too — and this
+    one continues on a new token in ``X-Session-Token``; the body stays ``{"ok": true}``. The owner is
+    sent "Your password was changed" (``mailer.PASSWORD_CHANGED``).
 
     AN ACCOUNT WITH NO PASSWORD (Google, Microsoft or Yahoo only) sets its first one here, without a
     current password, but only on a session opened in the last :data:`PASSWORD_REAUTH_MINUTES`
@@ -800,16 +838,45 @@ async def change_password(
     """
     if current_user.passwordHash is None:
         return await _set_first_password(payload, response, current_user, credentials)
+    # THE PER-ACCOUNT GUESSING BUDGET (security review D1, 2026-10-16). Without it a stolen session
+    # could guess the current password here without limit, and the prize is exactly the permanent
+    # takeover this route exists to prevent. The SAME bucket as the sign-in, keyed on the account:
+    # taken before bcrypt, given back when the password is right.
+    allowed, _retry = account_credential_attempt(current_user.id)
+    if not allowed:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=ACCOUNT_THROTTLED_DETAIL)
     if not verify_password(payload.currentPassword, current_user.passwordHash):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=CURRENT_PASSWORD_WRONG_DETAIL)
+    account_credential_refund(current_user.id)
     if verify_password(payload.newPassword, current_user.passwordHash):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=SAME_PASSWORD_DETAIL)
+    updated = await _write_own_password(current_user, payload.newPassword)
+    logger.warning("AUDIT password changed by the account itself: user=%s", current_user.id)
+    response.headers[SESSION_TOKEN_HEADER] = _session_token(updated)
+    await email_outbox.notify_password_event(updated, mailer.PASSWORD_CHANGED)
+    return {"ok": True}
+
+
+async def _write_own_password(current_user: Any, new_password: str) -> Any:
+    """Write the account's own new password and END EVERY OTHER SESSION (security review D2).
+
+    The ``cred`` fingerprint already retires every token minted with the old password — but a token
+    minted before that claim existed carries none and would survive. So ``sessionsValidFrom`` is
+    stamped too, TRUNCATED TO THE WHOLE SECOND: a token's ``iat`` is whole seconds, the refusal is
+    ``iat < stamp``, and the new session token is minted after this write, so its ``iat`` is never
+    earlier than the stamp and it is the one session that carries on. The cost of the truncation is
+    that a token minted in the same wall second as the change, before it, also survives — it would
+    still carry the old fingerprint and be refused by that check. Stamped after bcrypt.
+    """
+    password_hash = hash_password(new_password)
+    now = datetime.now(UTC).replace(microsecond=0)
     updated = await db.user.update(
         where={"id": current_user.id},
         data={
-            "passwordHash": hash_password(payload.newPassword),
-            "passwordSetAt": datetime.now(UTC),
+            "passwordHash": password_hash,
+            "passwordSetAt": now,
             "mustChangePassword": False,
+            "sessionsValidFrom": now,
         },
     )
     invalidate_cached_user(current_user.id)
@@ -817,9 +884,7 @@ async def change_password(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="This account no longer exists. Sign in again."
         )
-    logger.info("auth: account %s changed its password", current_user.id)
-    response.headers[SESSION_TOKEN_HEADER] = _session_token(updated)
-    return {"ok": True}
+    return updated
 
 
 async def _set_first_password(
@@ -829,26 +894,39 @@ async def _set_first_password(
     credentials: HTTPAuthorizationCredentials | None,
 ) -> dict[str, bool]:
     """An account with no password choosing its first one. Recency stands in for the current
-    password; nothing is written on a refusal."""
+    password and, when two-step is on, the second factor is asked for AGAIN (security review B2):
+    a permanent new way in must not be added on the strength of a session alone. Nothing is written
+    on a refusal. Every other session ends (``_write_own_password``) and the owner is told by e-mail."""
     if not _session_is_recent(credentials):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=SIGN_IN_AGAIN_DETAIL,
             headers={SIGN_IN_AGAIN_HEADER: "1"},
         )
-    updated = await db.user.update(
-        where={"id": current_user.id},
-        data={
-            "passwordHash": hash_password(payload.newPassword),
-            "passwordSetAt": datetime.now(UTC),
-            "mustChangePassword": False,
-        },
-    )
-    invalidate_cached_user(current_user.id)
-    if updated is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="This account no longer exists. Sign in again."
-        )
+    if getattr(current_user, "twoFactorEnabled", False):
+        code = (payload.twoFactorCode or "").strip()
+        if not code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=TWO_FACTOR_CODE_NEEDED_DETAIL,
+                headers={TWO_FACTOR_REQUIRED_HEADER: "1"},
+            )
+        # The row as it is now: the cached identity may be seconds behind a code just used.
+        fresh = await db.user.find_unique(where={"id": current_user.id}) or current_user
+        try:
+            accepted = await two_factor.check_second_factor(fresh, code)
+        except two_factor.SecondFactorLocked as exc:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=two_factor.TOO_MANY_ATTEMPTS_DETAIL
+            ) from exc
+        if not accepted:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=two_factor.WRONG_CODE_DETAIL,
+                headers={TWO_FACTOR_REQUIRED_HEADER: "1"},
+            )
+    updated = await _write_own_password(current_user, payload.newPassword)
     logger.warning("AUDIT first password set by the account itself: user=%s", current_user.id)
     response.headers[SESSION_TOKEN_HEADER] = _session_token(updated)
+    await email_outbox.notify_password_event(updated, mailer.PASSWORD_ADDED)
     return {"ok": True}

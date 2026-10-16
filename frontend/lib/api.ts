@@ -260,9 +260,9 @@ export async function apiFetchWithHeaders<T>(
       // eslint-config-next 16.3) exists to discourage. This module sits outside React, so there is
       // no router to push with, and the session has just ended: a page load is what discards the
       // signed-out session's in-memory state instead of carrying it onto the login screen.
-      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       // Never away from a signed-out page: somebody holding a password link or asking for one must not
       // lose that screen because an old token was still in this browser.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       if (!SIGNED_OUT_PAGES.has(window.location.pathname)) window.location.assign("/login");
     }
     throw error;
