@@ -1,5 +1,8 @@
 package com.fieldrepository.app.data
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import okhttp3.Cache
 import okhttp3.CacheControl
 import okhttp3.Interceptor
@@ -37,8 +40,17 @@ object OfflineReadCache {
     private const val MAX_BYTES = 40L * 1024 * 1024
     private const val HEADER_CACHE_CONTROL = "Cache-Control"
 
-    @Volatile
-    private var cache: Cache? = null
+    /**
+     * ONE `Cache` per directory for the whole process, created on first use. OkHttp's disk cache
+     * owns its journal: two `Cache` objects on one directory (an activity recreated, a second client
+     * built) would each believe they own it and corrupt it. In the app there is only ever the one
+     * directory; tests use one per case.
+     */
+    private val caches = HashMap<String, Cache>()
+
+    @Synchronized
+    private fun cacheFor(directory: File, maxBytes: Long): Cache =
+        caches.getOrPut(directory.absoluteFile.normalize().path) { Cache(directory, maxBytes) }
 
     /** Paths (relative to the API base) whose answers must never be kept on the device. */
     private val NEVER_CACHED = listOf(
@@ -53,17 +65,19 @@ object OfflineReadCache {
 
     /** Attach the cache and both interceptors. Call before any other `addInterceptor`. */
     fun install(builder: OkHttpClient.Builder, directory: File, maxBytes: Long = MAX_BYTES): OkHttpClient.Builder {
-        val created = Cache(directory, maxBytes)
-        cache = created
         return builder
-            .cache(created)
+            .cache(cacheFor(directory, maxBytes))
             .addInterceptor(::fallBackToCache)
             .addNetworkInterceptor(::markCacheability)
     }
 
-    /** Forget every stored answer. Safe to call when nothing was installed. */
-    fun clear() {
-        runCatching { cache?.evictAll() }
+    /**
+     * Forget every stored answer, on the IO dispatcher (it deletes files, and sign-out calls it from
+     * the main thread). Safe to call when nothing was installed. The returned job is for tests.
+     */
+    fun clear(): Job {
+        val all = synchronized(this) { caches.values.toList() }
+        return AppScope.io.launch(Dispatchers.IO) { all.forEach { runCatching { it.evictAll() } } }
     }
 
     private fun fallBackToCache(chain: Interceptor.Chain): Response {

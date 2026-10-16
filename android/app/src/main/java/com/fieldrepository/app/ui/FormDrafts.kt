@@ -32,6 +32,7 @@ import com.fieldrepository.app.data.DraftStore
 import com.fieldrepository.app.data.DraftValues
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.FormDraftFile
+import com.fieldrepository.app.data.newDraftPrefix
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -63,14 +64,19 @@ class FormDraft internal constructor(
     val kind: String,
     /** The record being edited, or null for a new one. */
     val recordId: String?,
-    internal val account: String
+    internal val account: String,
+    /** The prefilled record a new record's form was opened from, part of its key (see [newDraftPrefix]). */
+    val parentId: String? = null,
+    val parentLabel: String? = null
 ) {
     private class Binding(val save: () -> JsonElement?, val restore: (JsonElement) -> Unit)
 
     private val bindings = LinkedHashMap<String, Binding>()
 
     /** `rec-<id>` for an edit, `new-<uuid>` for a new record (replaced by the key of a draft taken up). */
-    internal var recordKey: String = recordId?.let { "rec-$it" } ?: "new-${UUID.randomUUID()}"
+    internal var recordKey: String = recordId?.let { "rec-$it" } ?: newKey()
+
+    internal fun newKey(): String = newDraftPrefix(parentId) + UUID.randomUUID()
 
     /** An earlier draft waiting for "Continue your draft" or "Discard". Autosave waits for the answer. */
     var offer by mutableStateOf<FormDraftFile?>(null)
@@ -158,18 +164,24 @@ private fun draftAccount(repository: FieldRepository): String = repository.cache
  * Looks for an earlier draft once, and offers it through [DraftOfferCard].
  */
 @Composable
-fun rememberFormDraft(repository: FieldRepository, kind: String, recordId: String?): FormDraft {
+fun rememberFormDraft(
+    repository: FieldRepository,
+    kind: String,
+    recordId: String?,
+    parentId: String? = null,
+    parentLabel: String? = null
+): FormDraft {
     val context = LocalContext.current.applicationContext
     val account = remember(repository) { draftAccount(repository) }
     val scope = rememberCoroutineScope()
-    val draft = remember(kind, recordId, account) { FormDraft(kind, recordId, account) }
+    val draft = remember(kind, recordId, account, parentId) { FormDraft(kind, recordId, account, parentId, parentLabel) }
     draft.onClear = {
         val key = draft.recordKey
         draft.generation++
         draft.offer = null
         draft.decided = true
         draft.copies.clear()
-        if (draft.recordId == null) draft.recordKey = "new-${UUID.randomUUID()}"
+        if (draft.recordId == null) draft.recordKey = draft.newKey()
         // The app scope, not the form's: the form usually leaves the screen right after a save.
         com.fieldrepository.app.data.AppScope.io.launch {
             runCatching { DraftStore.delete(context, account, kind, key) }
@@ -178,7 +190,7 @@ fun rememberFormDraft(repository: FieldRepository, kind: String, recordId: Strin
     LaunchedEffect(draft) {
         val earlier = runCatching {
             if (recordId != null) DraftStore.read(context, account, kind, draft.recordKey)
-            else DraftStore.latestNew(context, account, kind)
+            else DraftStore.latestNew(context, account, kind, parentId)
         }.getOrNull()
         draft.offer = earlier
         draft.decided = earlier == null
@@ -210,7 +222,9 @@ fun FormDraftAutosave(draft: FormDraft, dirty: Boolean, label: String, debounceM
                     label = labelNow,
                     savedAt = Instant.now().toString(),
                     fields = fields,
-                    ownedFiles = draft.copies.values.toList()
+                    ownedFiles = draft.copies.values.toList(),
+                    parentId = draft.parentId,
+                    parentLabel = draft.parentLabel
                 )
                 DraftStore.locked {
                     if (draft.generation == generation) {
@@ -281,6 +295,7 @@ fun DraftOfferCard(draft: FormDraft) {
     ) {
         Text(
             "You have an unsaved draft of this form" +
+                (offer.parentLabel?.takeIf { it.isNotBlank() }?.let { " for $it" } ?: "") +
                 (offer.label.takeIf { it.isNotBlank() }?.let { " (“$it”)" } ?: "") +
                 (if (savedAt.isNotBlank()) ", last changed $savedAt." else "."),
             color = MaterialTheme.colorScheme.onSecondaryContainer,

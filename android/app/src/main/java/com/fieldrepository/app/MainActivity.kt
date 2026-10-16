@@ -6104,7 +6104,7 @@ private fun ArtisanForm(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // The unsaved form, kept on disk until it is saved or queued (ui/FormDrafts.kt).
-    val draft = rememberFormDraft(repository, "artisan", editing?.id)
+    val draft = rememberFormDraft(repository, "artisan", editing?.id, prefill.draftParentId(), prefill.draftParentLabel())
     val media = rememberMediaCaptureState()
     val isEdit = editing != null
     var name by remember(editing) { mutableStateOf(editing?.name ?: prefill?.artisanName ?: "") }.drafted(draft, "name")
@@ -6601,7 +6601,7 @@ private fun WorkshopForm(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // The unsaved form, kept on disk until it is saved or queued (ui/FormDrafts.kt).
-    val draft = rememberFormDraft(repository, "workshop", editing?.id)
+    val draft = rememberFormDraft(repository, "workshop", editing?.id, prefill.draftParentId(), prefill.draftParentLabel())
     val media = rememberMediaCaptureState()
     val isEdit = editing != null
     var title by remember(editing) { mutableStateOf(editing?.title ?: "") }.drafted(draft, "title")
@@ -6796,7 +6796,7 @@ private fun ProductForm(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // The unsaved form, kept on disk until it is saved or queued (ui/FormDrafts.kt).
-    val draft = rememberFormDraft(repository, "product", editing?.id)
+    val draft = rememberFormDraft(repository, "product", editing?.id, prefill.draftParentId(), prefill.draftParentLabel())
     val media = rememberMediaCaptureState()
     val isEdit = editing != null
     var productName by remember(editing) { mutableStateOf(editing?.productName ?: "") }.drafted(draft, "productName")
@@ -7229,7 +7229,7 @@ private fun ToolForm(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // The unsaved form, kept on disk until it is saved or queued (ui/FormDrafts.kt).
-    val draft = rememberFormDraft(repository, "tool", editing?.id)
+    val draft = rememberFormDraft(repository, "tool", editing?.id, prefill.draftParentId(), prefill.draftParentLabel())
     val media = rememberMediaCaptureState()
     val stages = rememberMediaCaptureState()
     val isEdit = editing != null
@@ -12830,7 +12830,7 @@ private fun QuestionnaireForm(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // The unsaved form, kept on disk until it is saved or queued (ui/FormDrafts.kt).
-    val draft = rememberFormDraft(repository, "questionnaire", editing?.id)
+    val draft = rememberFormDraft(repository, "questionnaire", editing?.id, prefill.draftParentId(), prefill.draftParentLabel())
     val isEdit = editing != null
     var syncing by remember { mutableStateOf(false) }
     var saveState by remember { mutableStateOf(SaveState.IDLE) }
@@ -16120,6 +16120,18 @@ private fun MediaCaptureState.offlineSpecs(recordName: String?, caption: String?
     uris.mapIndexed { index, uri ->
         OfflineMediaSpec(uri = uri, caption = caption, recordName = recordName, batchIndex = index + 1, location = location)
     }
+
+/**
+ * The record a new form was opened from, for its draft key: the artisan when one was handed over,
+ * else the craft. A product draft started from one artisan is never offered on another's form.
+ */
+private fun Prefill?.draftParentId(): String? = this?.artisanId ?: this?.craftId
+
+private fun Prefill?.draftParentLabel(): String? {
+    val handed = this ?: return null
+    return if (handed.artisanId != null) handed.artisanName?.takeIf { it.isNotBlank() }
+    else handed.craftName?.takeIf { it.isNotBlank() }
+}
 
 /** Keep this state in the form's draft under [key] (ui/FormDrafts.kt). */
 private fun <T> MutableState<T>.drafted(draft: FormDraft, key: String): MutableState<T> = draft.bind(key, this)

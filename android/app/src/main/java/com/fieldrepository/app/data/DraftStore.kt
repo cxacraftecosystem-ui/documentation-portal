@@ -45,8 +45,22 @@ data class FormDraftFile(
     /** One tagged value per bound field (see [DraftValues]). */
     val fields: Map<String, JsonElement> = emptyMap(),
     /** Files this draft copied into app storage, deleted with it. */
-    val ownedFiles: List<String> = emptyList()
+    val ownedFiles: List<String> = emptyList(),
+    /**
+     * The record a NEW record's form was opened from (the artisan a product is being recorded for,
+     * say), part of the draft's key so a draft for one artisan is never offered on another's form,
+     * and named on the offer.
+     */
+    val parentId: String? = null,
+    val parentLabel: String? = null
 )
+
+/**
+ * The key prefix of a NEW record's draft: `new-<parent>-`, where the parent is the prefilled record
+ * the form was opened from, or `none`. A uuid follows it.
+ */
+internal fun newDraftPrefix(parentId: String?): String =
+    "new-" + (parentId?.let { "p_" + it.replace(Regex("[^A-Za-z0-9_-]"), "_") } ?: "none") + "-"
 
 /** The draft files themselves, against a root directory, so a JVM test can drive them. */
 internal object DraftFiles {
@@ -75,9 +89,14 @@ internal object DraftFiles {
     fun read(root: File, account: String, kind: String, recordKey: String): FormDraftFile? =
         read(file(root, account, kind, recordKey))
 
-    /** The most recently saved draft of a NEW record of [kind] for [account], if any. */
-    fun latestNew(root: File, account: String, kind: String): FormDraftFile? =
-        accountDir(root, account).listFiles { f -> f.name.startsWith("${safe(kind)}__new-") && f.name.endsWith(".json") }
+    /**
+     * The most recently saved draft of a NEW record of [kind] for [account], opened from the same
+     * prefilled parent ([parentId], null for none), if any.
+     */
+    fun latestNew(root: File, account: String, kind: String, parentId: String? = null): FormDraftFile? =
+        accountDir(root, account).listFiles { f ->
+            f.name.startsWith("${safe(kind)}__${safe(newDraftPrefix(parentId))}") && f.name.endsWith(".json")
+        }
             ?.mapNotNull { read(it) }
             ?.maxByOrNull { it.savedAt }
 
@@ -202,8 +221,8 @@ object DraftStore {
     suspend fun read(context: Context, account: String, kind: String, recordKey: String): FormDraftFile? =
         locked { DraftFiles.read(root(context), account, kind, recordKey) }
 
-    suspend fun latestNew(context: Context, account: String, kind: String): FormDraftFile? =
-        locked { DraftFiles.latestNew(root(context), account, kind) }
+    suspend fun latestNew(context: Context, account: String, kind: String, parentId: String? = null): FormDraftFile? =
+        locked { DraftFiles.latestNew(root(context), account, kind, parentId) }
 
     suspend fun all(context: Context, account: String): List<FormDraftFile> =
         locked { DraftFiles.all(root(context), account) }

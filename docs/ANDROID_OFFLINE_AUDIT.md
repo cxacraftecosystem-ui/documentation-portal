@@ -63,7 +63,9 @@ owner to sign in again on this device, and the sign-out shows a count of what is
 
 **Sync runs without the app.** `OutboxSyncWorker` (WorkManager, needs a connected network) is
 scheduled whenever an entry is queued (`FieldRepository.kt:2517`) and at every sign-in
-(`MainActivity.kt:766`). WorkManager keeps the request across process death and reboots. The
+(`MainActivity.kt:766`). WorkManager keeps the request across process death and reboots. A pass
+that is waiting (for a network, or out an exponential backoff after failures) is replaced by a fresh
+one each time, so new work never waits for an old backoff; a pass that is running is kept. The
 in-app timer and network callback still run while the app is open. Every pass, in the foreground
 or in the background, takes one process-wide lock (`outboxSyncMutex`, `FieldRepository.kt:336`), so
 two passes never replay the same entry. Replay progress (the created id, each uploaded file) is
@@ -79,17 +81,23 @@ button in the outbox banner (`MediaDownloads.kt`, `OutboxPendingBanner`).
 (`PendingEntry.idempotencyKey`) and sends it as the `Idempotency-Key` header. An online create
 sends one too, and if its answer is lost (no signal part-way, a timeout, a 5xx) the record moves
 into the outbox under the same key (`createOrKeep`). The backend (`backend/app/core/idempotency.py`,
-table `IdempotencyKey`, migration `20261017090000_idempotency_keys`) keeps each key's answer for 24
-hours per account and returns it for a repeat instead of running the create again. A repeat that
-arrives while the first is still running gets `409` with `Idempotency-Status: in-progress`, which
-the handset retries rather than treats as a refusal. Requests without the header behave as before.
+table `IdempotencyKey`, migration `20261017090000_idempotency_keys`) keeps each key's answer for 30
+days per account (a week offline is normal) and returns it for a repeat instead of running the
+create again. Only the create routes are covered, by an allow-list: sign-in, two-step, dataset
+tokens, secrets and AI keys pass straight through and are never stored. A repeat that arrives while
+the first is still running gets `409` with `Idempotency-Status: in-progress`, which the handset
+retries rather than treats as a refusal; a first request still unanswered after 15 minutes is
+treated as dead, and exactly one repeat may take it over. Requests without the header behave as
+before.
 
 **Unsaved forms are drafts on disk.** Every record form (artisan, craft, workshop, product, tool,
 process, questionnaire interview) and the miscellaneous media screen binds its fields to a
 `FormDraft` (`ui/FormDrafts.kt`). While the form has unsaved changes, it autosaves 0.7 seconds after
 the last change to `filesDir/drafts/<account>/<form>__<record>.json` with the same atomic writer as
-the queue (`data/DraftStore.kt`). The key is the record id for an edit and a `new-<uuid>` for a new
-record. Opening the same form again offers "Continue your draft" or "Discard". A successful save,
+the queue (`data/DraftStore.kt`). The key is the record id for an edit and `new-<parent>-<uuid>` for a new
+record, where the parent is the record the form was opened from (the artisan a product or interview
+is being recorded for, else the craft; `none` when nothing was handed over), so a draft started for
+one artisan is never offered on another's form. The offer names that parent. Opening the same form again offers "Continue your draft" or "Discard". A successful save,
 or a queue to the outbox, deletes the draft. Camera captures are written to
 `filesDir/field-captures` (they were in `cacheDir`, which Android may clear), and a file picked from
 another app is copied into `filesDir/drafts-media` the first time a draft saves it, because the
@@ -107,13 +115,13 @@ settings, so a lost or replaced phone keeps unsent work. They exclude the sign-i
 journal and WorkManager's own database. A restored phone therefore signs in again and is asked for
 its two-step code again. Two-step state and secrets are never stored on the device.
 
-**Reads come from a device cache when offline.** `OfflineReadCache` puts an OkHttp disk cache in
-`noBackupFilesDir/http-read-cache` (persistent, not reclaimed as `cacheDir` is, excluded from
+**Reads come from a device cache when offline.** `OfflineReadCache` puts an OkHttp disk cache, one
+per process created on first use, in `noBackupFilesDir/http-read-cache` (persistent, not reclaimed as `cacheDir` is, excluded from
 backups). JSON answers to GET requests are stored with `max-age=0`, so online reads always ask the
 server. When a read fails with no connection, the cached answer is returned instead. A read that
 was never made online still fails, as before. Sign-in state, two-step state, secrets, AI keys,
 Aadhaar lookups, preferences, the update check, downloads, exports and the late-submission check
-are never stored. Sign-out clears the cache (`FieldRepository.kt:399`). A line at the foot of every
+are never stored. Sign-out clears the cache on the IO dispatcher (`FieldRepository.kt:399`). A line at the foot of every
 screen says when the device is offline (`OfflineNotice`, `MainActivity.kt:16064`).
 
 ## The matrix
@@ -140,7 +148,7 @@ it survives process death, reboot, sign-out and update. **Sync**, how and when i
 | Questionnaire interview (`QuestionnaireForm`, `MainActivity.kt:12801`): new | create + files | outbox | yes | outbox | saved on device | **sections were not cached**, so an interview could not be started offline at all | GAP (reads) | **Fixed** (read cache) |
 | Questionnaire interview: edit (`MainActivity.kt:14047`) | update + answers + clips | was: form memory; now: outbox `sequence` (the PATCH as an ordered step, then the clips and attachments) | yes | in order, each step ticked off on disk, stopped at the first refusal (`FieldRepository.kt:2662`) | "Saved on this device…" | cached | GAP | **Fixed** |
 | Any record form **before Save** (all of the above, and miscellaneous media) | every field, captured files, workshop, process steps, interview answers and clips | was: Compose `remember` only; now: `filesDir/drafts/<account>/<form>__<record>.json`, autosaved 0.7 s after a change while the form is dirty (`ui/FormDrafts.kt`, `data/DraftStore.kt`); camera captures now go to `filesDir/field-captures`, and files picked from other apps are copied into `filesDir/drafts-media` | yes: process death, camera, reboot, sign-out (drafts are per account), update | — | the form offers "Continue your draft" or "Discard"; the draft is deleted on save or queue | — | GAP | **Fixed** |
-| A create that fails part-way online (no answer, a timeout or a 5xx after the request left) | — | was: form memory; now: the outbox, under the `Idempotency-Key` the attempt sent (`createOrKeep`, `MainActivity.kt:16096`) | yes | outbox; the server answers a repeat of the key from the first record (`backend/app/core/idempotency.py`, 24 h) | "Saved on this device…" | — | RISK | **Fixed** |
+| A create that fails part-way online (no answer, a timeout or a 5xx after the request left) | — | was: form memory; now: the outbox, under the `Idempotency-Key` the attempt sent (`createOrKeep`, `MainActivity.kt:16096`) | yes | outbox; the server answers a repeat of the key from the first record (`backend/app/core/idempotency.py`, 30 days) | "Saved on this device…" | — | RISK | **Fixed** |
 | Miscellaneous media upload (`AndroidMediaForm`, `MainActivity.kt:11947`) | files to an existing record | was: kept "staged" in form memory | was: no | now: outbox `attach` | was: "All files failed…"; now "kept on this device" | cached | GAP | **Fixed** |
 | Trace panel (`ui/trace/`) | an exported drawing | `filesDir` (`TraceExportFile.kt`), then a form's attachments | yes, until attached | through the form that attaches it | works offline (on-device engine) | — | OK | OK |
 | Location reference list (`LocationFields.kt`) | — | `filesDir` cache file | yes | — | last list shown | own cache | OK | OK |

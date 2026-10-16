@@ -18,6 +18,7 @@ import java.time.LocalDate
  */
 class DraftStoreTest {
     private val root: File = Files.createTempDirectory("drafts-test").toFile()
+    private val NEW = newDraftPrefix(null)
 
     @After
     fun cleanUp() {
@@ -57,9 +58,9 @@ class DraftStoreTest {
 
     @Test
     fun `drafts are per account, per form and per record`() {
-        DraftFiles.write(root, "u1", draft("craft", "new-1", "2026-10-16T09:00:00Z"))
+        DraftFiles.write(root, "u1", draft("craft", NEW + "1", "2026-10-16T09:00:00Z"))
         DraftFiles.write(root, "u1", draft("craft", "rec-abc", "2026-10-16T09:05:00Z", "Edited"))
-        DraftFiles.write(root, "u2", draft("craft", "new-2", "2026-10-16T09:10:00Z", "Theirs"))
+        DraftFiles.write(root, "u2", draft("craft", NEW + "2", "2026-10-16T09:10:00Z", "Theirs"))
 
         assertEquals("Ajrakh", DraftFiles.latestNew(root, "u1", "craft")!!.label)
         assertEquals("Edited", DraftFiles.read(root, "u1", "craft", "rec-abc")!!.label)
@@ -70,23 +71,33 @@ class DraftStoreTest {
 
     @Test
     fun `the newest new-record draft is the one offered`() {
-        DraftFiles.write(root, "u1", draft("tool", "new-old", "2026-10-15T09:00:00Z", "Old"))
-        DraftFiles.write(root, "u1", draft("tool", "new-new", "2026-10-16T09:00:00Z", "New"))
+        DraftFiles.write(root, "u1", draft("tool", NEW + "old", "2026-10-15T09:00:00Z", "Old"))
+        DraftFiles.write(root, "u1", draft("tool", NEW + "new", "2026-10-16T09:00:00Z", "New"))
         assertEquals("New", DraftFiles.latestNew(root, "u1", "tool")!!.label)
     }
 
     @Test
+    fun `a new-record draft belongs to the parent its form was opened from`() {
+        val forRam = draft("product", newDraftPrefix("artisan_ram") + "a", "2026-10-16T09:00:00Z", "Ram's pot")
+            .copy(parentId = "artisan_ram", parentLabel = "Ram Kumar")
+        DraftFiles.write(root, "u1", forRam)
+        assertEquals("Ram Kumar", DraftFiles.latestNew(root, "u1", "product", "artisan_ram")!!.parentLabel)
+        assertNull("never offered on another artisan's product form", DraftFiles.latestNew(root, "u1", "product", "artisan_sita"))
+        assertNull("nor on a product form opened with no artisan", DraftFiles.latestNew(root, "u1", "product"))
+    }
+
+    @Test
     fun `deleting a draft removes only that draft`() {
-        DraftFiles.write(root, "u1", draft("craft", "new-1", "2026-10-16T09:00:00Z"))
-        DraftFiles.write(root, "u1", draft("craft", "new-2", "2026-10-16T09:01:00Z", "Second"))
-        val removed = DraftFiles.delete(root, "u1", "craft", "new-2")
+        DraftFiles.write(root, "u1", draft("craft", NEW + "1", "2026-10-16T09:00:00Z"))
+        DraftFiles.write(root, "u1", draft("craft", NEW + "2", "2026-10-16T09:01:00Z", "Second"))
+        val removed = DraftFiles.delete(root, "u1", "craft", NEW + "2")
         assertEquals("Second", removed!!.label)
         assertEquals(listOf("Ajrakh"), DraftFiles.all(root, "u1").map { it.label })
     }
 
     @Test
     fun `a damaged draft is set aside, not deleted, and reads as absent`() {
-        val file = DraftFiles.file(root, "u1", "craft", "new-1")
+        val file = DraftFiles.file(root, "u1", "craft", NEW + "1")
         file.parentFile!!.mkdirs()
         file.writeText("{\"formKind\":")
         assertNull(DraftFiles.read(file))
@@ -96,7 +107,7 @@ class DraftStoreTest {
 
     @Test
     fun `the sweep knows which capture files a draft still points at`() {
-        val withFiles = draft("craft", "new-1", "2026-10-16T09:00:00Z").copy(
+        val withFiles = draft("craft", NEW + "1", "2026-10-16T09:00:00Z").copy(
             fields = mapOf(
                 "media.uris" to kotlinx.serialization.json.JsonObject(
                     mapOf(

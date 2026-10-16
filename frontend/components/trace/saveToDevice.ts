@@ -15,8 +15,11 @@
  * **The object URL is revoked on the NEXT TASK, not in the same tick as the synthetic click.**
  * `MediaLightbox.saveToDevice` calls `URL.revokeObjectURL(objectUrl)` on the line after
  * `anchor.click()`, which races the browser's own read of that URL — and Safari in particular ends
- * up downloading nothing at all, with no error anywhere on the page or in the console. A
- * `setTimeout(…, 0)` puts the revoke after the browser has taken the bytes.
+ * up downloading nothing at all, with no error anywhere on the page or in the console. The revoke
+ * waits a minute, the same lifetime as `OBJECT_URL_LIFETIME_MS` in `lib/saveToDevice.ts`: a zero
+ * delay only lands after the current task, and a large file or a slow device can still be reading
+ * the blob then. (This copy cannot import that constant: the trace panel's browser harness compiles
+ * this folder on its own, without the `@/` alias.)
  *
  * That is a real defect in an existing file and this port may not edit it, so the fix lives here with
  * the reason attached rather than being discovered again by whoever next writes one of these. If the
@@ -37,5 +40,5 @@ export function saveBlobToDisk(blob: Blob, fileName: string): void {
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
