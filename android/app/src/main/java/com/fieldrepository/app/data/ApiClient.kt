@@ -186,6 +186,8 @@ object ApiClient {
                     attempt++
                     try {
                         val response = chain.proceed(original)
+                        // A cache-only read answered from disk says nothing about the server.
+                        if (!original.cacheControl.onlyIfCached) ServerReachability.recordAnswer()
                         if (retriable && response.code in RETRIABLE_GATEWAY_CODES && attempt < maxAttempts) {
                             response.close()
                             runCatching { Thread.sleep(backoffMillis(attempt)) }
@@ -194,6 +196,7 @@ object ApiClient {
                         return@addInterceptor response
                     } catch (e: IOException) {
                         lastError = e
+                        if (!original.cacheControl.onlyIfCached) ServerReachability.recordFailure(e)
                         if (!retriable || attempt >= maxAttempts) throw e
                         runCatching { Thread.sleep(backoffMillis(attempt)) }
                     }
