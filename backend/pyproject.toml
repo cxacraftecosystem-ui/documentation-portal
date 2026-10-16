@@ -32,6 +32,10 @@ dependencies = [
     # declared nowhere: it only arrived as python-jose's `[cryptography]` extra. Dropping jose without
     # this line would have removed the package that encrypts stored provider keys.
     "cryptography>=50.0.2",
+    # The QR square on the two-step verification setup screen (app/services/two_factor.py). Drawn on
+    # the server so the web app and the Android app both render the same SVG. Pure Python, no
+    # dependencies of its own; the TOTP arithmetic itself is the standard library.
+    "segno>=1.6.6",
     # PINNED EXACTLY, AND THAT IS A BLOCKER RATHER THAN A PREFERENCE. RobertCraigie/prisma-client-py
     # is archived ("no longer being maintained", README); 0.15.0 (2024-08-16) is its final release and
     # it drives the Prisma CLI and engines at 5.17.0, which therefore cannot move either. `==` keeps

@@ -36,8 +36,8 @@ from app.core.config import get_settings
 from app.core.db import db
 from app.core.deps import ROLE_RANK, get_current_user, invalidate_cached_user, role_rank
 from app.core.security import create_access_token, verify_password
-from app.schemas.auth import LoginRequest, TokenResponse
-from app.services import oidc_sign_in
+from app.schemas.auth import LoginRequest, TokenResponse, TwoFactorChallengeResponse
+from app.services import oidc_sign_in, two_factor
 from app.services.access_roster import (
     ADMITTING_STATUS,
     INVALID_CREDENTIALS_DETAIL,
@@ -58,7 +58,8 @@ logger = logging.getLogger(__name__)
 
 def serialize_user(user: Any) -> dict[str, Any]:
     payload = jsonable_encoder(user)
-    payload.pop("passwordHash", None)
+    for field in two_factor.SECRET_USER_FIELDS:
+        payload.pop(field, None)
     return payload
 
 
@@ -342,12 +343,14 @@ async def _sign_in_verified_address(
     return created
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse | TwoFactorChallengeResponse)
 async def login(payload: LoginRequest) -> dict[str, Any]:
     """The one sign-in endpoint. Two branches in, one gate, one token mint.
 
     ``POST /auth/google`` is a two-line wrapper around this, so there is genuinely nowhere else a
-    token is minted in this application. That is why the gate can live here and be complete.
+    token is minted in this application. That is why the gate can live here and be complete — and
+    why the two-step challenge can: an account with it on gets a challenge token here, from every
+    branch, and only ``POST /auth/two-factor/verify`` turns that into a session.
     """
     if payload.googleIdToken:
         user = await login_with_google(payload.googleIdToken)
@@ -386,6 +389,20 @@ async def login(payload: LoginRequest) -> dict[str, Any]:
     # path a person takes once a week.
     await assert_access_admitted(user.email, user)
 
+    # THE SECOND STEP, after the gate (a refused person learns that before being asked for a code)
+    # and before anything that means "got in". No session yet: the client shows the code screen.
+    if getattr(user, "twoFactorEnabled", False):
+        return {
+            "two_factor_required": True,
+            "challenge_token": await two_factor.issue_challenge(user),
+        }
+
+    return await session_response(user)
+
+
+async def session_response(user: Any) -> dict[str, Any]:
+    """The successful sign-in body. Shared by :func:`login` and the two-step verify endpoint, so a
+    session that passed a second factor is byte-for-byte the session one without it gets."""
     # Only after a successful admission: "first seen" means the first time somebody actually got IN,
     # so a suspended person's refused attempt must not consume the stamp an administrator reads as
     # "this approval was taken up".
@@ -398,7 +415,7 @@ async def login(payload: LoginRequest) -> dict[str, Any]:
     return {"accessToken": access_token, "tokenType": "bearer", "user": serialize_user(user)}
 
 
-@router.post("/google", response_model=TokenResponse)
+@router.post("/google", response_model=TokenResponse | TwoFactorChallengeResponse)
 async def google_login(payload: LoginRequest) -> dict[str, Any]:
     if not payload.googleIdToken:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Missing Google ID token")

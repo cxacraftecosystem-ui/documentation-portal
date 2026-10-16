@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
@@ -344,6 +345,7 @@ fun AppearanceScreen(
     onChanged: (AppPreferences) -> Unit,
     onBack: () -> Unit,
     onOpenMyAiKeys: () -> Unit,
+    onOpenTwoStepVerification: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
@@ -477,6 +479,18 @@ fun AppearanceScreen(
                 color = MaterialTheme.field.muted
             )
             OutlinedButton(onClick = onOpenMyAiKeys) { Text("Open my AI keys") }
+        }
+
+        // This account's own lock, beside the account's own keys: personal, open to every role.
+        PreferenceCard {
+            PreferenceCardHeading(Icons.Filled.Lock, "Two-step verification")
+            Text(
+                "After your password or Google, Microsoft or Yahoo sign-in, also ask for a 6-digit " +
+                    "code from an authenticator app on your phone.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.field.muted
+            )
+            OutlinedButton(onClick = onOpenTwoStepVerification) { Text("Open two-step verification") }
         }
     }
 }

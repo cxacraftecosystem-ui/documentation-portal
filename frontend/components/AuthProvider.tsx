@@ -4,15 +4,22 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 
 import { ApiError, apiFetch, setToken } from "@/lib/api";
 import type { loginBody } from "@/lib/oidcSignIn";
+import { isTwoFactorChallenge, type SignInResult, type TwoFactorChallenge } from "@/lib/twoFactor";
 import type { User } from "@/lib/types";
 
 type AuthContextValue = {
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  loginWithGoogle: (googleIdToken: string) => Promise<void>;
+  /**
+   * Each sign-in resolves to the account, or — when it has two-step verification on — to the
+   * challenge the second step needs. Nobody is signed in until `verifyTwoFactor` succeeds.
+   */
+  login: (email: string, password: string) => Promise<User | TwoFactorChallenge>;
+  loginWithGoogle: (googleIdToken: string) => Promise<User | TwoFactorChallenge>;
   /** Microsoft or Yahoo: the code the provider sent back, with this tab's half of the flow. See `lib/oidcSignIn.ts`. */
-  loginWithOidc: (body: ReturnType<typeof loginBody>) => Promise<void>;
+  loginWithOidc: (body: ReturnType<typeof loginBody>) => Promise<User | TwoFactorChallenge>;
+  /** The challenge token and a 6-digit or recovery code; resolves to the account, signed in. */
+  verifyTwoFactor: (challengeToken: string, code: string) => Promise<User>;
   logout: () => Promise<void>;
   refreshMe: () => Promise<void>;
 };
@@ -43,32 +50,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshMe();
   }, [refreshMe]);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const result = await apiFetch<{ accessToken: string; user: User }>("/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ email, password })
-    });
+  /**
+   * A sign-in's answer, taken: a session is adopted and its account returned; a TWO-STEP CHALLENGE is
+   * returned untouched, with no token stored — the caller branches on `isTwoFactorChallenge`.
+   */
+  const open = useCallback((result: SignInResult): User | TwoFactorChallenge => {
+    if (isTwoFactorChallenge(result)) return result;
     setToken(result.accessToken);
     setUser(result.user);
+    return result.user;
   }, []);
 
-  const loginWithGoogle = useCallback(async (googleIdToken: string) => {
-    const result = await apiFetch<{ accessToken: string; user: User }>("/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ googleIdToken })
-    });
-    setToken(result.accessToken);
-    setUser(result.user);
-  }, []);
+  const signIn = useCallback(
+    async (body: unknown) =>
+      open(await apiFetch<SignInResult>("/auth/login", { method: "POST", body: JSON.stringify(body) })),
+    [open]
+  );
 
-  const loginWithOidc = useCallback(async (body: ReturnType<typeof loginBody>) => {
-    const result = await apiFetch<{ accessToken: string; user: User }>("/auth/login", {
-      method: "POST",
-      body: JSON.stringify(body)
-    });
-    setToken(result.accessToken);
-    setUser(result.user);
-  }, []);
+  const login = useCallback((email: string, password: string) => signIn({ email, password }), [signIn]);
+
+  const loginWithGoogle = useCallback((googleIdToken: string) => signIn({ googleIdToken }), [signIn]);
+
+  const loginWithOidc = useCallback((body: ReturnType<typeof loginBody>) => signIn(body), [signIn]);
+
+  const verifyTwoFactor = useCallback(
+    async (challengeToken: string, code: string) => {
+      const account = open(
+        await apiFetch<SignInResult>("/auth/two-factor/verify", {
+          method: "POST",
+          body: JSON.stringify({ challenge_token: challengeToken, code })
+        })
+      );
+      if (isTwoFactorChallenge(account)) throw new Error("Sign in again.");
+      return account;
+    },
+    [open]
+  );
 
   const logout = useCallback(async () => {
     try {
@@ -80,8 +97,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, login, loginWithGoogle, loginWithOidc, logout, refreshMe }),
-    [user, loading, login, loginWithGoogle, loginWithOidc, logout, refreshMe]
+    () => ({ user, loading, login, loginWithGoogle, loginWithOidc, verifyTwoFactor, logout, refreshMe }),
+    [user, loading, login, loginWithGoogle, loginWithOidc, verifyTwoFactor, logout, refreshMe]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

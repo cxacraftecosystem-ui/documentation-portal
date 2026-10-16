@@ -299,7 +299,9 @@ def test_every_module_that_writes_a_user_row_also_invalidates_the_identity_cache
     # visible as a new one arriving without invalidation.
     assert set(writers) == {
         "app/api/routes/auth.py",
+        "app/api/routes/two_factor.py",
         "app/api/routes/users.py",
+        "app/services/two_factor.py",
         "scripts/seed_admin.py",
     }
     assert all(writers.values()), f"user writes with no cache invalidation: {writers}"

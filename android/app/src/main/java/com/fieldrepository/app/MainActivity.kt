@@ -134,6 +134,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.fieldrepository.app.data.ApiClient
+import com.fieldrepository.app.data.SignInOutcome
 import com.fieldrepository.app.data.ArtisanCreateRequest
 import com.fieldrepository.app.data.CarryContext
 import com.fieldrepository.app.data.CarryContextStore
@@ -204,6 +205,8 @@ import com.fieldrepository.app.ui.workshopWindowNotice
 import com.fieldrepository.app.ui.workshopWindowState
 import com.fieldrepository.app.ui.ApiKeysScreen
 import com.fieldrepository.app.ui.MyAiKeysScreen
+import com.fieldrepository.app.ui.TwoStepChallengeForm
+import com.fieldrepository.app.ui.TwoStepVerificationScreen
 import com.fieldrepository.app.ui.LocalNetworkAccessForDevelopmentBackend
 import com.fieldrepository.app.ui.AppPreferences
 import com.fieldrepository.app.ui.AppPreferencesStore
@@ -507,6 +510,9 @@ private sealed interface Screen {
     /** This account's OWN provider keys. Personal, not administrative — the
      *  deployment's keys live behind the admin hub's API keys entry. */
     data object MyAiKeys : Screen
+
+    /** This account's two-step verification. Personal, open to every role; reached from Settings. */
+    data object TwoStepVerification : Screen
     /**
      * The /data directory-tree browser. Its own Screen rather than a Create mode because it owns its
      * whole viewport: it draws its own top bar and lays out with a LazyColumn, which must never be
@@ -640,6 +646,18 @@ private fun RepositoryApp(
      * break is the difference itself.
      */
     var refusalCode by remember { mutableStateOf<String?>(null) }
+    /**
+     * The two-step challenge a first factor answered, when the account has two-step verification on.
+     * Nobody is signed in while this is set; the code form replaces the sign-in card until a code is
+     * accepted or the person goes back. Saveable, so a rotation does not throw the first factor away.
+     */
+    var challenge by rememberSaveable { mutableStateOf<String?>(null) }
+    fun take(outcome: SignInOutcome) {
+        when (outcome) {
+            is SignInOutcome.SignedIn -> user = outcome.user
+            is SignInOutcome.TwoStepRequired -> challenge = outcome.challengeToken
+        }
+    }
 
     /*
      * ── MICROSOFT AND YAHOO: THE ANSWER FROM THE BROWSER TAB ─────────────────────────────────────
@@ -676,7 +694,7 @@ private fun RepositoryApp(
                         )
                     )
                 }
-                    .onSuccess { user = it }
+                    .onSuccess { take(it) }
                     // The roster's own sentence and code, as on the Google path — a person waiting
                     // on an administrator must read that, not "sign-in failed".
                     .onFailure {
@@ -760,6 +778,15 @@ private fun RepositoryApp(
     ) {
         when {
             loading -> Text("Loading…", color = Muted, modifier = Modifier.align(Alignment.Center))
+            user == null && challenge != null -> TwoStepChallengeForm(
+                repository = repository,
+                challengeToken = challenge!!,
+                onSignedIn = {
+                    challenge = null
+                    user = it
+                },
+                onCancel = { challenge = null }
+            )
             user == null -> LoginScreen(
                 error = error,
                 refusalCode = refusalCode,
@@ -785,7 +812,7 @@ private fun RepositoryApp(
                         error = null
                         refusalCode = null
                         runCatching { repository.login(email, password) }
-                            .onSuccess { user = it }
+                            .onSuccess { take(it) }
                             /*
                              * `apiFailure`, NOT `it.message`. THIS LINE IS WHY THE SIGN-IN GATE IS
                              * VISIBLE ON THIS CLIENT AT ALL.
@@ -821,7 +848,7 @@ private fun RepositoryApp(
                             val idToken = googleAuthClient.getIdToken()
                             repository.loginWithGoogle(idToken)
                         }
-                            .onSuccess { user = it }
+                            .onSuccess { take(it) }
                             // Google sign-in is allow-listed too now — a verified Google identity
                             // that is not on the roster gets no account and no token, and reads the
                             // same sentence the password path reads. Same unwrap for the same
@@ -1386,6 +1413,7 @@ private fun HomeScreen(
             is Screen.Settings -> Screen.Dashboard
             is Screen.Appearance -> Screen.Dashboard
             is Screen.MyAiKeys -> Screen.Appearance
+            is Screen.TwoStepVerification -> Screen.Appearance
             is Screen.DataBrowser -> Screen.Dashboard
             // One level at a time: from a tool back to the tool list, and only then out. This is
             // what lets the single header arrow replace the in-page "All admin tools" button — the
@@ -1417,6 +1445,7 @@ private fun HomeScreen(
         is Screen.Settings -> "Settings"
         is Screen.Appearance -> "Appearance & accessibility"
         is Screen.MyAiKeys -> null
+        is Screen.TwoStepVerification -> null
         is Screen.DataBrowser -> "Data Browser"
         // A reviewer who is not an admin lands on the review tool alone (see the AdminHub branch
         // below), so the header must not announce a hub of admin tools they were never given.
@@ -1442,6 +1471,7 @@ private fun HomeScreen(
         is Screen.Feedback -> NavDestination.GIVE_FEEDBACK
         is Screen.Appearance -> NavDestination.SETTINGS
         is Screen.MyAiKeys -> NavDestination.SETTINGS
+        is Screen.TwoStepVerification -> NavDestination.SETTINGS
         is Screen.DataBrowser -> NavDestination.VIEW_DATA
         // The roster is the one hub tool with a menu entry of its own, so it must highlight ITS row
         // rather than the hub's — a menu that says you are on "Settings hub" while the roster is on
@@ -1564,7 +1594,14 @@ private fun HomeScreen(
                         current = preferences,
                         onChanged = onPreferencesChanged,
                         onBack = { attemptExit { goBack() } },
-                        onOpenMyAiKeys = { screen = Screen.MyAiKeys }
+                        onOpenMyAiKeys = { screen = Screen.MyAiKeys },
+                        onOpenTwoStepVerification = { screen = Screen.TwoStepVerification }
+                    )
+
+                    is Screen.TwoStepVerification -> TwoStepVerificationScreen(
+                        repository = repository,
+                        email = user.email,
+                        onBack = { attemptExit { goBack() } }
                     )
 
                     is Screen.MyAiKeys -> MyAiKeysScreen(
@@ -2041,7 +2078,7 @@ private fun HomeScreen(
             }
 
             // Hosted above, outside this scrolling Column, because they own their whole viewport.
-            is Screen.Appearance, is Screen.MyAiKeys, is Screen.DataBrowser -> Unit
+            is Screen.Appearance, is Screen.MyAiKeys, is Screen.TwoStepVerification, is Screen.DataBrowser -> Unit
         }
 
         message?.let {
@@ -14243,6 +14280,8 @@ private fun UserManagementForm(
     // Each user is collapsed by default (an accordion); tapping the header expands it to reveal the
     // grantable privileges, so a long user list stays scannable.
     var expandedUsers by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // The account whose two-step verification an administrator is about to turn off, awaiting confirm.
+    var confirmTwoStepOff by remember { mutableStateOf<UserDto?>(null) }
     // Who is doing the managing. Read from the cached profile rather than threaded in, so the rules
     // below can mirror `assert_role` / `assert_can_manage_target` without changing every call site.
     val actor = remember { repository.cachedUser() }
@@ -14256,6 +14295,30 @@ private fun UserManagementForm(
             .filter { it.value <= actorRank && (it.key != "MASTER_ADMIN" || actorIsMaster) }
             .sortedByDescending { it.value }
             .map { it.key to roleLabel(it.key) }
+    }
+
+    confirmTwoStepOff?.let { target ->
+        AlertDialog(
+            onDismissRequest = { confirmTwoStepOff = null },
+            title = { Text("Turn off two-step verification?") },
+            text = {
+                Text(
+                    "${target.name.ifBlank { target.email }} will sign in with only their password or Google, " +
+                        "Microsoft or Yahoo until they turn it on again. Their recovery codes stop working."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmTwoStepOff = null
+                    scope.launch {
+                        runCatching { repository.resetTwoFactorForUser(target.id); refreshUsers() }
+                            .onFailure { onError(it.apiErrorMessage("Unable to turn off two-step verification")) }
+                    }
+                }) { Text("Turn off", color = MaterialTheme.colorScheme.error) }
+            },
+            // Cancel is the safe answer and sits where a reflex tap lands last.
+            dismissButton = { TextButton(onClick = { confirmTwoStepOff = null }) { Text("Cancel") } }
+        )
     }
 
     RecordCard(title = "Users and access") {
@@ -14306,6 +14369,9 @@ private fun UserManagementForm(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(appUser.name, display = true, fontWeight = FontWeight.SemiBold)
                             Text("${appUser.email} · ${roleLabel(appUser.role)}", color = Muted, fontSize = 12.sp)
+                            if (appUser.twoFactorEnabled) {
+                                Text("Two-step on", color = Body, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            }
                             Text(
                                 if (isMaster) "All privileges (master admin)"
                                 else "$grantedCount of 4 privileges granted",
@@ -14401,6 +14467,15 @@ private fun UserManagementForm(
                                 }
                             }
                         )
+                        // For somebody who has lost the phone their authenticator was on: the same
+                        // authority as deleting the account (an admin, over a person below them), and
+                        // never their own — that is turned off from their own Settings with a code.
+                        if (actorIsAdmin && canManageTarget && appUser.twoFactorEnabled && appUser.id != actor?.id) {
+                            HorizontalDivider()
+                            OutlinedButton(onClick = { confirmTwoStepOff = appUser }) {
+                                Text("Turn off two-step verification", color = MaterialTheme.colorScheme.error)
+                            }
+                        }
                     }
                 }
             }

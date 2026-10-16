@@ -146,6 +146,8 @@ ruff==0.16.10
     # via field-repository-backend (pyproject.toml)
 s3transfer==0.19.2
     # via boto3
+segno==1.6.6
+    # via field-repository-backend (pyproject.toml)
 six==1.17.0
     # via python-dateutil
 sniffio==1.3.1

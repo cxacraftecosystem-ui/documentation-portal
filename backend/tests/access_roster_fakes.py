@@ -44,6 +44,18 @@ USER_DEFAULTS: dict[str, Any] = {
     "canReview": False,
     "canViewProvenance": False,
     "canDownloadDataset": False,
+    "twoFactorEnabled": False,
+    "twoFactorSecret": None,
+    "twoFactorPendingSecret": None,
+    "twoFactorRecoveryCodes": [],
+    "twoFactorLastStep": None,
+    "twoFactorEnabledAt": None,
+}
+
+TWO_FACTOR_CHALLENGE_DEFAULTS: dict[str, Any] = {
+    "userId": None,
+    "attempts": 0,
+    "expiresAt": None,
 }
 
 ROSTER_DEFAULTS: dict[str, Any] = {
@@ -60,8 +72,15 @@ ROSTER_DEFAULTS: dict[str, Any] = {
 
 
 def _matches(row: Any, where: dict[str, Any] | None) -> bool:
-    """Equality matching, plus the two operator shapes the gate's queries use."""
+    """Equality matching, plus the operator shapes the gate's and two-step verification's queries
+    use. ``OR`` and the comparison operators exist for the conditional updates that make a TOTP code
+    and a challenge attempt single-use; they compare exactly as Postgres would (NULL matches no
+    comparison)."""
     for field, expected in (where or {}).items():
+        if field == "OR":
+            if not any(_matches(row, clause) for clause in expected):
+                return False
+            continue
         actual = getattr(row, field, None)
         if isinstance(expected, dict):
             if "in" in expected:
@@ -70,6 +89,15 @@ def _matches(row: Any, where: dict[str, Any] | None) -> bool:
             elif "contains" in expected:
                 needle = str(expected["contains"]).lower()
                 if needle not in str(actual or "").lower():
+                    return False
+            elif "equals" in expected:
+                if actual != expected["equals"]:
+                    return False
+            elif "lt" in expected:
+                if actual is None or not actual < expected["lt"]:
+                    return False
+            elif "gt" in expected:
+                if actual is None or not actual > expected["gt"]:
                     return False
             else:  # pragma: no cover - a query shape the fake has not been taught
                 raise NotImplementedError(f"fake db cannot match {field}={expected!r}")
@@ -201,6 +229,8 @@ class FakeTable:
         touched = [row for row in self.rows if _matches(row, where)]
         for row in touched:
             for field, value in data.items():
+                if isinstance(value, dict) and "increment" in value:
+                    value = (getattr(row, field, 0) or 0) + value["increment"]
                 setattr(row, field, value)
             row.updatedAt = _now()
         self.writes.append(("update_many", dict(data)))
@@ -299,6 +329,7 @@ class FakeDb:
         interviews: list[dict[str, Any]] | None = None,
     ) -> None:
         self.user = FakeTable(USER_DEFAULTS, users)
+        self.twofactorchallenge = FakeTable(TWO_FACTOR_CHALLENGE_DEFAULTS)
         self.accessroster = FakeTable(ROSTER_DEFAULTS, roster)
         self.questionnaire = FakeTable(
             QUESTIONNAIRE_DEFAULTS, questionnaires, unique_keys=(("title",),)

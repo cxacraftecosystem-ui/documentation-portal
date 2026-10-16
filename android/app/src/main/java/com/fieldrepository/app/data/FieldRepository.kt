@@ -338,27 +338,56 @@ class FieldRepository(
     /** Last known signed-in profile, used for instant, persistent login across resumes. */
     fun cachedUser(): UserDto? = tokenStore.getUser()
 
-    suspend fun login(email: String, password: String): UserDto {
-        val response = api.login(LoginRequest(email = email.trim(), password = password))
-        tokenStore.setToken(response.accessToken)
-        tokenStore.setUser(response.user)
-        return response.user
+    /**
+     * A first factor's answer, taken: a session is stored and its account returned; a two-step
+     * challenge is returned with NOTHING stored — nobody is signed in until [verifyTwoFactor].
+     */
+    private fun open(response: SignInResponse): SignInOutcome {
+        val token = response.accessToken
+        val user = response.user
+        if (token != null && user != null) {
+            tokenStore.setToken(token)
+            tokenStore.setUser(user)
+            return SignInOutcome.SignedIn(user)
+        }
+        val challenge = response.challengeToken
+        if (response.twoFactorRequired && !challenge.isNullOrBlank()) return SignInOutcome.TwoStepRequired(challenge)
+        throw IllegalStateException("Sign-in did not complete. Try again.")
     }
 
-    suspend fun loginWithGoogle(idToken: String): UserDto {
-        val response = api.googleLogin(GoogleLoginRequest(googleIdToken = idToken))
-        tokenStore.setToken(response.accessToken)
-        tokenStore.setUser(response.user)
-        return response.user
-    }
+    suspend fun login(email: String, password: String): SignInOutcome =
+        open(api.login(LoginRequest(email = email.trim(), password = password)))
+
+    suspend fun loginWithGoogle(idToken: String): SignInOutcome =
+        open(api.googleLogin(GoogleLoginRequest(googleIdToken = idToken)))
 
     /** Microsoft or Yahoo, once AppAuth has brought the code back. The backend redeems it. */
-    suspend fun loginWithOidc(body: OidcLoginRequest): UserDto {
-        val response = api.oidcLogin(body)
+    suspend fun loginWithOidc(body: OidcLoginRequest): SignInOutcome = open(api.oidcLogin(body))
+
+    /** The second step: the challenge from a first factor and a 6-digit or recovery code. */
+    suspend fun verifyTwoFactor(challengeToken: String, code: String): UserDto {
+        val response = api.verifyTwoFactor(TwoFactorVerifyRequest(challengeToken = challengeToken, code = code.trim()))
         tokenStore.setToken(response.accessToken)
         tokenStore.setUser(response.user)
         return response.user
     }
+
+    suspend fun twoFactorStatus(): TwoFactorStatusDto = api.twoFactorStatus()
+
+    suspend fun beginTwoFactorSetup(): TwoFactorSetupDto = api.beginTwoFactorSetup()
+
+    suspend fun enableTwoFactor(code: String): List<String> =
+        api.enableTwoFactor(TwoFactorCodeRequest(code.trim())).recoveryCodes
+
+    suspend fun disableTwoFactor(code: String) {
+        val response = api.disableTwoFactor(TwoFactorCodeRequest(code.trim()))
+        if (!response.isSuccessful) throw HttpException(response)
+    }
+
+    suspend fun makeNewRecoveryCodes(code: String): List<String> =
+        api.makeNewRecoveryCodes(TwoFactorCodeRequest(code.trim())).recoveryCodes
+
+    suspend fun resetTwoFactorForUser(id: String): UserDto = api.resetTwoFactorForUser(id)
 
     fun logout() {
         tokenStore.clear()

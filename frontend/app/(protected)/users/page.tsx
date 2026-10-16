@@ -14,6 +14,7 @@ import { SearchInput } from "@/components/SearchInput";
 import { adminChromeVisible, useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
+import { resetTwoFactorForUser } from "@/lib/twoFactor";
 import { requiredText } from "@/lib/forms";
 import {
   assignableRoles,
@@ -230,6 +231,33 @@ export default function UsersPage() {
     }
   }
 
+  /**
+   * For somebody who has lost the phone their authenticator was on. The server holds the same rule as
+   * Delete (an admin, over a person ranked below them) and never hands the secret back — only takes
+   * it away, with every recovery code beside it.
+   */
+  async function turnOffTwoStep(user: User) {
+    const ok = await confirm({
+      title: "Turn off two-step verification?",
+      body: (
+        <>
+          <span className="font-medium text-ink-900">{user.name || user.email}</span> will sign in with only their
+          password or Google, Microsoft or Yahoo until they turn it on again. Their recovery codes stop working.
+        </>
+      ),
+      tone: "danger",
+      confirmLabel: "Turn off"
+    });
+    if (!ok) return;
+    try {
+      await resetTwoFactorForUser(user.id);
+      setError(null);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to turn off two-step verification");
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -330,7 +358,14 @@ export default function UsersPage() {
               <tbody className="divide-y divide-line-200">
                 {data.items.map((user) => (
                   <tr key={user.id}>
-                    <td className="px-4 py-3 font-medium text-ink-900">{user.name}</td>
+                    <td className="px-4 py-3 font-medium text-ink-900">
+                      {user.name}
+                      {user.twoFactorEnabled ? (
+                        <span className="ml-2 inline-flex items-center rounded-full border border-line-200 bg-surface-50 px-2 py-0.5 text-[11px] font-semibold text-ink-700">
+                          Two-step on
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="px-4 py-3 text-ink-700">{user.email}</td>
                     <td className="px-4 py-3">
                       {canManageUser(currentUser, user) && user.role !== "MASTER_ADMIN" ? (
@@ -368,6 +403,11 @@ export default function UsersPage() {
                         <span className="text-xs font-semibold text-amber-700">Protected</span>
                       ) : admin && canManageUser(currentUser, user) ? (
                         <RowActions>
+                          {user.twoFactorEnabled && user.id !== currentUser?.id ? (
+                            <button className={rowAction("danger")} onClick={() => turnOffTwoStep(user)}>
+                              Turn off two-step verification
+                            </button>
+                          ) : null}
                           <button className={rowAction("danger")} onClick={() => remove(user)}>
                             Delete
                           </button>

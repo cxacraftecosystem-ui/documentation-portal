@@ -43,7 +43,9 @@ data class UserDto(
     val canReview: Boolean = false,
     val canViewProvenance: Boolean = false,
     val canDownloadDataset: Boolean = false,
-    val authProvider: String? = null
+    val authProvider: String? = null,
+    /** Two-step verification is on for this account: the "Two-step on" badge on the users screen. */
+    val twoFactorEnabled: Boolean = false
 )
 
 /**

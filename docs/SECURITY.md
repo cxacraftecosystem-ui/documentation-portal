@@ -350,6 +350,41 @@ own build carries the client ID — never a disabled one or a "coming soon" badg
 - **Logged**: the provider and a reason tag only — never a code, verifier, nonce, token, secret or
   response body.
 
+### 3.3B Two-step verification (TOTP, 2026-10-16)
+
+Opt-in for **every** account, from Settings on the web and Settings → Two-step verification on
+Android. RFC 6238: SHA-1, 6 digits, 30-second steps, ±1 step accepted. Implemented in
+`backend/app/services/two_factor.py` with the standard library; the routes are
+`backend/app/api/routes/two_factor.py` and `DELETE /api/users/{id}/two-factor`.
+
+- **Every sign-in method is challenged.** `POST /api/auth/login` (password, Google, Microsoft, Yahoo —
+  and `/api/auth/google`, which wraps it) runs the roster gate, then, for an account with two-step
+  verification on, answers `{"two_factor_required": true, "challenge_token": …}` and **no session**.
+  `POST /api/auth/two-factor/verify {challenge_token, code}` returns the ordinary sign-in body. The
+  challenge token is a JWT with `purpose: "2fa"`, a `scope` no route admits (so
+  `deps._user_from_bearer` refuses it as a session with 403), a `jti`, and a 5-minute life. Its
+  `TwoFactorChallenge` row counts attempts with a conditional increment: the fifth code spends the
+  challenge, a correct code deletes it, and the roster gate runs again before the session is minted.
+- **The secret is encrypted at rest** — AES-256-GCM, key `scrypt(JWT_SECRET, "field-repository-totp-v1")`,
+  stored as `v1.<iv>.<tag>.<ciphertext>`. It is returned once, by `/setup`, while still *pending*
+  (`User.twoFactorPendingSecret`), and never again. **Rotating `JWT_SECRET` makes every enrolled secret
+  unreadable**: those people sign in with a recovery code or an administrator turns it off for them.
+- **A code works once.** The accepted time step is written to `User.twoFactorLastStep` with a
+  conditional update (`last step < this step`), so a code replayed inside its 90-second window, or two
+  submissions racing, are refused. The enrolment code is recorded the same way.
+- **Recovery codes**: ten `xxxx-xxxx` codes from an alphabet without look-alikes, stored as bcrypt
+  hashes at the password cost, shown once at enable time and on "Make new recovery codes" (which needs
+  a 6-digit code). Each is consumed by a compare-and-swap on the whole list. Turning it off accepts a
+  6-digit or a recovery code; the codes go with the secret.
+- **Administrator reset**: `DELETE /api/users/{id}/two-factor` — an admin over somebody ranked below
+  them (the master admin over anyone), never their own account; the same rule as deleting the account.
+  It removes the secret and the recovery codes and never reads either. Sessions already issued are not
+  revoked (there is no revoke-all; see §3.2).
+- **Audited** as `AUDIT two-factor …` lines at WARNING (journald on the box): enabled, disabled by its
+  owner, reset by an administrator (with who), recovery code used, recovery codes replaced.
+- **Offline (Android)**: the second step is asked only at an online sign-in; a session already on the
+  phone keeps working offline.
+
 ---
 
 ## 4. Authorisation: the six-tier ladder
