@@ -10,8 +10,12 @@ A transient refusal is retried after 1, 2, 4, 8 … minutes (capped at an hour) 
 is spent; a permanent one fails at once. A worker that died holding a row leaves it SENDING, and
 :func:`recover_stale` hands it back after :data:`STALE_SENDING_AFTER`.
 
-Nothing secret is e-mailed by this product, and no log line carries an address or a body: the row
-id, the kind and the recipient's ACCOUNT id only.
+ONE KIND CARRIES A SECRET: ``PASSWORD_LINK``, a single-use set-password link. It is never in
+``params``; :func:`enqueue` takes it as ``secret`` and stores it Fernet-sealed in ``EmailMessage.sealed``
+(``managed_secrets.encrypt``), :func:`_send_one` opens it only to render, and the seal is cleared the
+moment the row reaches SENT or FAILED. A link whose expiry passed while it waited is failed, not sent.
+No log line carries an address, a body or a link: the row id, the kind and the recipient's ACCOUNT id
+only.
 
 The task notices honour ``UserPreference.emailTaskUpdates`` (opt-out: no row reads as yes). The
 access e-mail is sent only when the administrator who admitted the address asked for it.
@@ -26,7 +30,7 @@ from typing import Any
 
 from app.core.config import Settings, get_settings
 from app.core.db import db
-from app.services import mailer
+from app.services import mailer, managed_secrets
 from prisma import Json
 
 logger = logging.getLogger(__name__)
@@ -65,6 +69,7 @@ async def enqueue(
     to_address: str,
     recipient_id: str | None,
     params: dict[str, Any],
+    secret: str | None = None,
     settings: Settings | None = None,
 ) -> Any | None:
     """Queue one message. Returns the row, or ``None`` when mail is not configured."""
@@ -83,6 +88,7 @@ async def enqueue(
             "recipientId": recipient_id,
             "subject": mailer.subject_for(kind, params),
             "params": Json(params),
+            "sealed": managed_secrets.encrypt(secret) if secret else None,
             "status": QUEUED,
             "maxAttempts": max(int(settings.mail_max_attempts or 1), 1),
         }
@@ -125,6 +131,8 @@ async def _finish(row_id: str, status: str, *, error: str | None = None, message
         "status": status,
         "lockedAt": None,
         "lockedBy": None,
+        # A finished row keeps no secret: SENT or FAILED, the sealed link is gone.
+        "sealed": None,
         "error": (error or None) and error[:MAX_ERROR_LENGTH],
     }
     if status == SENT:
@@ -147,11 +155,33 @@ async def _retry_later(row: Any, attempts: int, error: str) -> None:
     )
 
 
+def _expired(params: dict[str, Any]) -> bool:
+    raw = params.get("expiresAt")
+    if not isinstance(raw, str):
+        return False
+    try:
+        moment = datetime.fromisoformat(raw)
+    except ValueError:
+        return False
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment <= datetime.now(UTC)
+
+
 async def _send_one(row: Any, settings: Settings) -> str:
     attempts = int(row.attempts or 0) + 1
     params = dict(row.params or {}) if isinstance(row.params, dict) else {}
+    secret: str | None = None
+    if getattr(row, "sealed", None):
+        secret = managed_secrets.decrypt(row.sealed)
+        if secret is None:
+            await _finish(row.id, FAILED, error="The sealed link could not be opened (the key changed).")
+            return FAILED
+    if row.kind == mailer.PASSWORD_LINK and _expired(params):
+        await _finish(row.id, FAILED, error="The link expired before it could be sent.")
+        return FAILED
     try:
-        rendered = mailer.render(row.kind, params, settings=settings)
+        rendered = mailer.render(row.kind, params, secret=secret, settings=settings)
     except ValueError as exc:
         await _finish(row.id, FAILED, error=f"Could not be rendered: {exc}")
         return FAILED

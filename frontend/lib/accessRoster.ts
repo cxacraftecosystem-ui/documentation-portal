@@ -69,6 +69,8 @@ export type AccessRosterEntry = {
    */
   accountRole: UserRole | null;
   accountName: string | null;
+  /** Only on the answer to an add WITH a password: the account was created there and then. */
+  accountCreated?: boolean;
 };
 
 export type AccessRosterQuery = {
@@ -120,7 +122,41 @@ export type AccessRosterCreateBody = {
   isActive?: boolean;
   /** E-mail the address that it may now sign in. Offered only when e-mail is available. */
   sendInvite?: boolean;
+  /**
+   * Sign in WITH A PASSWORD: the account is created now, with this password, instead of at the
+   * person's first Google/Microsoft/Yahoo sign-in. Absent means "they sign in with a provider".
+   */
+  password?: string;
+  /** With a password: they must choose their own at their first sign-in. The server defaults true. */
+  mustChangePassword?: boolean;
 };
+
+/** How somebody added to the roster will sign in — the add form's first question. */
+export type RosterSignIn = "PROVIDER" | "PASSWORD";
+
+/**
+ * The body the add form sends, from what it collected. A password is sent ONLY for the password
+ * choice, and exactly as typed — never trimmed.
+ */
+export function rosterCreateBody(fields: {
+  email: string;
+  fullName: string;
+  notes: string;
+  grantedRole: string;
+  sendInvite: boolean;
+  signIn: RosterSignIn;
+  password: string;
+  mustChangePassword: boolean;
+}): AccessRosterCreateBody {
+  return {
+    email: fields.email.trim(),
+    fullName: fields.fullName.trim() || null,
+    notes: fields.notes.trim() || null,
+    grantedRole: (fields.grantedRole.trim() || null) as UserRole | null,
+    ...(fields.sendInvite ? { sendInvite: true } : {}),
+    ...(fields.signIn === "PASSWORD" ? { password: fields.password, mustChangePassword: fields.mustChangePassword } : {})
+  };
+}
 
 /**
  * Put an address on the allow list. No account is required and none is created.

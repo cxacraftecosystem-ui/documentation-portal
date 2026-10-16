@@ -25,20 +25,41 @@ THREE RULES THAT MUST SURVIVE ANY REWRITE OF THIS FILE:
 """
 
 import logging
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from fastapi.encoders import jsonable_encoder
+from fastapi.security import HTTPAuthorizationCredentials
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
 from app.core.config import get_settings
 from app.core.db import db
-from app.core.deps import ROLE_RANK, get_current_user, invalidate_cached_user, role_rank
-from app.core.security import create_access_token, verify_password
-from app.core.user_fields import SECRET_USER_FIELDS
-from app.schemas.auth import LoginRequest, TokenResponse, TwoFactorChallengeResponse
-from app.services import oidc_sign_in, two_factor
+from app.core.deps import (
+    ROLE_RANK,
+    bearer_scheme,
+    get_current_user,
+    invalidate_cached_user,
+    is_master_admin,
+    password_credential,
+    require_admin,
+    role_rank,
+)
+from app.core.security import create_access_token, decode_access_token, hash_password, verify_password
+from app.core.user_fields import public_user
+from app.scale.rate_limit import client_address, forgot_password_attempt
+from app.schemas.auth import (
+    ChangePasswordRequest,
+    ForgotPasswordRequest,
+    IssuePasswordLinkRequest,
+    LoginRequest,
+    PasswordLinkCheckRequest,
+    SetPasswordRequest,
+    TokenResponse,
+    TwoFactorChallengeResponse,
+)
+from app.services import credential_links, oidc_sign_in, password_reset, two_factor
 from app.services.access_roster import (
     ADMITTING_STATUS,
     INVALID_CREDENTIALS_DETAIL,
@@ -58,10 +79,9 @@ logger = logging.getLogger(__name__)
 
 
 def serialize_user(user: Any) -> dict[str, Any]:
-    payload = jsonable_encoder(user)
-    for field in SECRET_USER_FIELDS:
-        payload.pop(field, None)
-    return payload
+    """The account as every client reads it: no hash and no second-factor secret, plus
+    ``hasPassword`` — the one fact about the hash the account screen and the users screen need."""
+    return public_user(jsonable_encoder(user), user)
 
 
 def enum_value(value: Any) -> str:
@@ -417,12 +437,26 @@ async def session_response(user: Any) -> dict[str, Any]:
     # so a suspended person's refused attempt must not consume the stamp an administrator reads as
     # "this approval was taken up".
     await mark_first_seen(user.email)
+    # "The first time this account got in", stamped once and never moved. It is what tells a
+    # password link for an account nobody has used yet (a 72-hour invitation) from one for a live
+    # account (a 2-hour reset) — ``credential_links.purpose_for``.
+    if getattr(user, "firstLoginAt", None) is None:
+        user = await db.user.update(where={"id": user.id}, data={"firstLoginAt": datetime.now(UTC)}) or user
+        invalidate_cached_user(user.id)
+    return {"accessToken": _session_token(user), "tokenType": "bearer", "user": serialize_user(user)}
 
-    access_token = create_access_token(
+
+def _session_token(user: Any) -> str:
+    """The session token both doors hand out — the sign-in, and the change-password answer.
+
+    BOUND TO THE PASSWORD IT WAS OPENED WITH: ``password_credential`` is the fingerprint of the hash
+    on the row in hand, so a later password change, by any door, retires it (``deps._user_from_bearer``).
+    """
+    return create_access_token(
         subject=user.id,
         extra_claims={"email": user.email, "role": enum_value(user.role)},
+        credential=password_credential(user),
     )
-    return {"accessToken": access_token, "tokenType": "bearer", "user": serialize_user(user)}
 
 
 @router.post("/google", response_model=TokenResponse | TwoFactorChallengeResponse)
@@ -440,3 +474,381 @@ async def logout() -> dict[str, bool]:
 @router.get("/me")
 async def me(current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     return serialize_user(current_user)
+
+
+# ==================================================================================================
+# PASSWORDS: links, their redemption, the change, the first password, and "Forgot your password?"
+# ==================================================================================================
+#
+# Ported on 2026-10-16 from the Design Prototype Workshop's routes/auth.py: the same routes, bodies,
+# answers and headers, so the two portals' clients stay copyable. The mechanism is
+# app/services/credential_links.py: a single-use, expiring token bound to the account's password
+# fingerprint, recorded (as a digest) so it can be withdrawn and throttled, and delivered either by
+# the administrator copying it or by e-mail to the account's own address. NOTHING HERE MINTS A
+# SESSION FROM A LINK: a redemption answers {"ok": true} and the person then signs in, meeting the
+# two-step challenge if their account has it on.
+
+
+def _auth_provider(account: Any) -> str:
+    """``LOCAL``, ``GOOGLE``, ``MICROSOFT`` or ``YAHOO``, from a live row or a hand-built one."""
+    provider = getattr(account, "authProvider", None)
+    return str(getattr(provider, "value", provider) or "").upper()
+
+
+def _is_google_only(account: Any) -> bool:
+    """No password, and Google is how it signs in, so a password link has nothing to do."""
+    return getattr(account, "passwordHash", None) is None and _auth_provider(account) == "GOOGLE"
+
+
+GOOGLE_ONLY_LINK_DETAIL = (
+    "This account signs in with Google and has no password, so there is no password link to issue."
+)
+
+#: The refusal for your own account: a link to yourself is a password set without the current one.
+OWN_CREDENTIALS_DETAIL = (
+    "You cannot set or reset your own password here. Change it from your own account (Change "
+    "password), which asks for the password you use now."
+)
+
+
+def assert_may_reset_credentials(actor: Any, target: Any) -> None:
+    """The rule for a password, the password flag, a password link or "Sign out of every device" on
+    somebody's account: an administrator (the route's ``require_admin``), never on themselves, and
+    only on an account they may manage (``users.assert_can_manage_target``)."""
+    from app.api.routes.users import assert_can_manage_target
+
+    if getattr(target, "id", None) == getattr(actor, "id", None):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=OWN_CREDENTIALS_DETAIL)
+    assert_can_manage_target(actor, target)
+
+
+def issuer_still_manages(issuer: Any, target: Any) -> bool:
+    """May the account that ISSUED a password link still manage the account it is for? A link is
+    authorised once, at issue, against tiers that can move before it is used. A master admin always
+    may; a link nobody issued ("Forgot your password?"), or whose issuer was deleted, always may."""
+    if issuer is None or is_master_admin(issuer):
+        return True
+    return role_rank(target) < role_rank(issuer)
+
+
+def _link_payload(issued: credential_links.DeliveredLink) -> dict[str, Any]:
+    """The answer to an issuing request. The token is not a separate field: the link contains it,
+    and a credential appearing twice in one answer is a credential in two places to keep out of logs."""
+    return {
+        "id": issued.id,
+        "link": issued.link,
+        "expiresAt": issued.expiresAt,
+        "purpose": issued.purpose,
+        "deliveredBy": issued.deliveredBy,
+    }
+
+
+@router.post("/password-links", status_code=status.HTTP_201_CREATED)
+async def issue_password_link(
+    payload: IssuePasswordLinkRequest, current_user: Any = Depends(require_admin)
+) -> dict[str, Any]:
+    """Mint a set-password link for another account: an administrator, for an account it may manage,
+    never for itself. ``delivery`` is ``COPY_LINK`` (the administrator copies it and hands it over by
+    phone, WhatsApp, anything) or ``EMAIL`` (queued to the account's own address through SES; the
+    administrator is handed no copy). A Google account with no password is a 422. The PURPOSE is
+    ``credential_links.purpose_for``: INVITE (72 h) for an account nobody has used yet, RESET (2 h)
+    for one somebody has. Throttled per SUBJECT (four an hour)."""
+    target = await db.user.find_unique(where={"id": payload.userId})
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    assert_may_reset_credentials(current_user, target)
+    if _is_google_only(target):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=GOOGLE_ONLY_LINK_DETAIL)
+    try:
+        issued = await credential_links.issue_link(
+            user=target,
+            purpose=credential_links.purpose_for(target),
+            issued_by_id=current_user.id,
+            deliver_by=payload.delivery,
+        )
+    except credential_links.DeliveryUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="This link cannot be sent by e-mail. Copy it instead and pass it on yourself.",
+        ) from exc
+    except credential_links.IssueThrottled as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                "Several password links have already been issued for this account. Wait an hour, "
+                "or ask the person to use one of them."
+            ),
+            headers={"retry-after": str(exc.retry_after_minutes * 60)},
+        ) from exc
+    # Ids, never the link: the link is a credential and the log is not a place for one.
+    logger.warning(
+        "AUDIT password link issued: purpose=%s link=%s user=%s by=%s delivery=%s",
+        issued.purpose,
+        issued.id,
+        target.id,
+        current_user.id,
+        issued.deliveredBy,
+    )
+    return _link_payload(issued)
+
+
+@router.post("/password-links/{link_id}/revoke")
+async def revoke_password_link(link_id: str, current_user: Any = Depends(require_admin)) -> dict[str, bool]:
+    """Withdraw a link that has not been used yet ("I pasted that into the wrong window"). Authorised
+    on the account the link is for, exactly as issuing is."""
+    row = await credential_links.link_row(link_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Link not found")
+    target = await db.user.find_unique(where={"id": row.userId})
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Link not found")
+    assert_may_reset_credentials(current_user, target)
+    if not await credential_links.revoke_link(link_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Link not found")
+    logger.warning("AUDIT password link withdrawn: link=%s user=%s by=%s", link_id, target.id, current_user.id)
+    return {"ok": True}
+
+
+@router.get("/set-password")
+async def check_set_password_token(token: str = "") -> dict[str, Any]:
+    """Is this link still good? Unauthenticated. Answers about the LINK and never about the account
+    (no email, no name). Kept for parity with the sibling portal; both clients here ask
+    :func:`check_set_password_token_in_body`, which keeps the token off the request line."""
+    return await _link_check(token)
+
+
+@router.post("/set-password/check")
+async def check_set_password_token_in_body(payload: PasswordLinkCheckRequest) -> dict[str, Any]:
+    """:func:`check_set_password_token`, with the token in a JSON body: ``{"token": "..."}``."""
+    return await _link_check(payload.token)
+
+
+async def _link_check(raw: str | None) -> dict[str, Any]:
+    verdict = await _link_verdict(raw)
+    return {"valid": verdict.ok, "reason": verdict.reason, "purpose": verdict.purpose}
+
+
+async def _link_verdict(raw: str | None) -> credential_links.TokenVerdict:
+    """``credential_links.describe_token`` plus: may the account that ISSUED this link still manage
+    the account it is for? If not, the link reads as withdrawn."""
+    verdict = await credential_links.describe_token(raw)
+    if not verdict.ok or verdict.issued_by_id is None:
+        return verdict
+    issuer = await db.user.find_unique(where={"id": verdict.issued_by_id})
+    target = await db.user.find_unique(where={"id": verdict.user_id})
+    if target is not None and not issuer_still_manages(issuer, target):
+        logger.info(
+            "auth: refused password link for account %s: its issuer %s can no longer manage it",
+            verdict.user_id,
+            verdict.issued_by_id,
+        )
+        return credential_links.TokenVerdict(False, credential_links.REVOKED)
+    return verdict
+
+
+#: A new password that IS the one the account holds now, refused while the account still carries
+#: ``mustChangePassword``: the forced change exists to retire a password somebody else chose.
+SAME_PASSWORD_DETAIL = (
+    "Choose a password different from the one you have now. A password somebody else gave you has "
+    "to be replaced, not typed again."
+)
+
+#: A current password that does not match. 400, NOT 401: the clients end the session on a 401.
+CURRENT_PASSWORD_WRONG_DETAIL = "Current password is incorrect"
+
+_SET_PASSWORD_REFUSALS = {
+    credential_links.MISSING: "This link is incomplete. Open the whole link you were sent.",
+    credential_links.MALFORMED: "This is not a link this site issued. Ask the administrator for another.",
+    credential_links.EXPIRED: "This link has expired. Ask for a new one.",
+    credential_links.REVOKED: "This link was withdrawn. Ask the administrator for a new one.",
+    credential_links.SPENT: "This link has already been used. Sign in with the password you set.",
+    credential_links.UNKNOWN_ACCOUNT: "This link no longer points at an account.",
+}
+
+
+@router.post("/set-password")
+async def set_password(payload: SetPasswordRequest) -> dict[str, bool]:
+    """Redeem a link. Writes the hash, ``passwordSetAt``, ``mustChangePassword: false`` and
+    ``sessionsValidFrom`` (EVERY SESSION OF THE ACCOUNT ENDS, because the usual reason somebody is
+    resetting is that a session they no longer control is live somewhere), then stamps the row used.
+
+    NO SESSION IS MINTED. The person signs in with the new password afterwards, and an account with
+    two-step verification on is asked for its code there as always: a link (or a mailbox) is never a
+    way past the second factor.
+    """
+    verdict = await _link_verdict(payload.token)
+    if not verdict.ok:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_SET_PASSWORD_REFUSALS.get(verdict.reason or "", "This password link is not valid."),
+        )
+    account = await db.user.find_unique(where={"id": verdict.user_id})
+    if (
+        account is not None
+        and account.mustChangePassword
+        and verify_password(payload.password, account.passwordHash)
+    ):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=SAME_PASSWORD_DETAIL)
+    password_hash = hash_password(payload.password)
+    now = datetime.now(UTC)  # after bcrypt, so a sign-in racing the redemption cannot post-date it
+    await db.user.update(
+        where={"id": verdict.user_id},
+        data={
+            "passwordHash": password_hash,
+            "passwordSetAt": now,
+            "mustChangePassword": False,
+            "sessionsValidFrom": now,
+        },
+    )
+    invalidate_cached_user(verdict.user_id)
+    await credential_links.mark_used(payload.token)
+    logger.warning("AUDIT password set through a %s link: user=%s", verdict.purpose, verdict.user_id)
+    return {"ok": True}
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    payload: ForgotPasswordRequest,
+    request: Request,
+    response: Response,
+    background: BackgroundTasks,
+) -> dict[str, str]:
+    """"Forgot your password?": ask for a single-use set-password link by e-mail.
+
+    Unauthenticated. ONE ANSWER FOR EVERY ADDRESS: a well-formed request always gets
+    ``password_reset.FORGOT_PASSWORD_MESSAGE``, and everything that depends on WHICH address it is
+    (the lookup, the allow-list, the per-address cap, the link, the outbox row, the audit row) runs
+    after the response has gone (FastAPI ``BackgroundTasks``), so a real account does not answer more
+    slowly than a stranger's guess. See ``app/services/password_reset.py`` for the rules and what this
+    deliberately does not do (end sessions, clear throttles, mention two-step).
+
+    The two refusals are about the REQUEST: 422 for a malformed address, and 429 for too many
+    requests from one connection (``rate_limit.forgot_password_attempt``), with ``Retry-After``. The
+    link is built from ``NEXT_PUBLIC_APP_URL`` inside ``credential_links``; nothing from this
+    request's headers reaches it.
+    """
+    allowed, retry_after = forgot_password_attempt(request.scope)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=password_reset.TOO_MANY_REQUESTS_DETAIL,
+            headers={"Retry-After": str(max(1, int(retry_after + 0.999)))},
+        )
+    address = client_address(request.scope)
+    background.add_task(
+        password_reset.request_password_reset,
+        str(payload.email),
+        ip_address=address.removeprefix("ip:"),
+        user_agent=request.headers.get("user-agent"),
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return {"message": password_reset.FORGOT_PASSWORD_MESSAGE}
+
+
+#: The header ``change_password``'s answer carries the caller's NEW session token in. A header and
+#: not a body field, so the body stays ``{"ok": true}`` exactly as the sibling portal's handsets read
+#: it. Must be in ``expose_headers`` in app/main.py, or the browser hides it from JavaScript.
+SESSION_TOKEN_HEADER = "X-Session-Token"
+
+#: An account with no password may SET its first one only on a session opened this recently. A
+#: provider sign-in is the proof the person is at the keyboard now; a week-old token is not.
+PASSWORD_REAUTH_MINUTES = 15
+
+#: The header on that refusal, so a client can offer "Sign out and sign in again" without matching
+#: prose. In ``expose_headers`` in app/main.py.
+SIGN_IN_AGAIN_HEADER = "X-Sign-In-Again"
+
+SIGN_IN_AGAIN_DETAIL = (
+    f"For your security, sign out and sign in again, then set your password within "
+    f"{PASSWORD_REAUTH_MINUTES} minutes."
+)
+
+
+def _session_is_recent(credentials: HTTPAuthorizationCredentials | None) -> bool:
+    """Was the bearer token on this request minted in the last :data:`PASSWORD_REAUTH_MINUTES`?"""
+    if credentials is None:
+        return False
+    try:
+        issued_at = decode_access_token(credentials.credentials).get("iat")
+    except ValueError:
+        return False
+    if not isinstance(issued_at, int | float):
+        return False
+    cutoff = datetime.now(UTC) - timedelta(minutes=PASSWORD_REAUTH_MINUTES)
+    return issued_at >= cutoff.timestamp()
+
+
+@router.post("/change-password")
+async def change_password(
+    payload: ChangePasswordRequest,
+    response: Response,
+    current_user: Any = Depends(get_current_user),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> dict[str, bool]:
+    """The signed-in account replacing its own password (the route ``mustChangePassword`` sends
+    somebody to) or, for an account with none, setting its first one.
+
+    THE CURRENT PASSWORD IS REQUIRED for an account that has one, even when ``mustChangePassword`` is
+    set (400 if wrong, never 401: the clients end the session on a 401). A new password equal to the
+    current one is refused. EVERY OTHER SESSION ENDS through the credential fingerprint, and this one
+    continues on a new token in ``X-Session-Token``; the body stays ``{"ok": true}``.
+
+    AN ACCOUNT WITH NO PASSWORD (Google, Microsoft or Yahoo only) sets its first one here, without a
+    current password, but only on a session opened in the last :data:`PASSWORD_REAUTH_MINUTES`
+    minutes (a sign-in that passed the provider and the second step if it is on); otherwise a 400
+    with ``X-Sign-In-Again``. Its provider stays: the person can now sign in either way.
+    """
+    if current_user.passwordHash is None:
+        return await _set_first_password(payload, response, current_user, credentials)
+    if not verify_password(payload.currentPassword, current_user.passwordHash):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=CURRENT_PASSWORD_WRONG_DETAIL)
+    if verify_password(payload.newPassword, current_user.passwordHash):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=SAME_PASSWORD_DETAIL)
+    updated = await db.user.update(
+        where={"id": current_user.id},
+        data={
+            "passwordHash": hash_password(payload.newPassword),
+            "passwordSetAt": datetime.now(UTC),
+            "mustChangePassword": False,
+        },
+    )
+    invalidate_cached_user(current_user.id)
+    if updated is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="This account no longer exists. Sign in again."
+        )
+    logger.info("auth: account %s changed its password", current_user.id)
+    response.headers[SESSION_TOKEN_HEADER] = _session_token(updated)
+    return {"ok": True}
+
+
+async def _set_first_password(
+    payload: ChangePasswordRequest,
+    response: Response,
+    current_user: Any,
+    credentials: HTTPAuthorizationCredentials | None,
+) -> dict[str, bool]:
+    """An account with no password choosing its first one. Recency stands in for the current
+    password; nothing is written on a refusal."""
+    if not _session_is_recent(credentials):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=SIGN_IN_AGAIN_DETAIL,
+            headers={SIGN_IN_AGAIN_HEADER: "1"},
+        )
+    updated = await db.user.update(
+        where={"id": current_user.id},
+        data={
+            "passwordHash": hash_password(payload.newPassword),
+            "passwordSetAt": datetime.now(UTC),
+            "mustChangePassword": False,
+        },
+    )
+    invalidate_cached_user(current_user.id)
+    if updated is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="This account no longer exists. Sign in again."
+        )
+    logger.warning("AUDIT first password set by the account itself: user=%s", current_user.id)
+    response.headers[SESSION_TOKEN_HEADER] = _session_token(updated)
+    return {"ok": True}

@@ -12,13 +12,16 @@ import {
   useAdminView,
   type AdminChromeRoute
 } from "@/components/AdminViewProvider";
+import { AuthCard } from "@/components/AuthCard";
 import { useAuth } from "@/components/AuthProvider";
 import { DynamicIslandNav } from "@/components/DynamicIslandNav";
+import { FirstPasswordGate } from "@/components/FirstPasswordGate";
 import { PageSelvedge } from "@/components/PageSelvedge";
 import { isAdmin, roleLabel, routeGuardFor } from "@/lib/permissions";
+import { mustChangePassword } from "@/lib/signIn";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, logout, markPasswordChanged, recentPassword } = useAuth();
   const { adminMode, adminViewResolved, setAdminView } = useAdminView();
   const router = useRouter();
   const pathname = usePathname();
@@ -36,6 +39,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) return null;
+
+  /**
+   * THE FORCED PASSWORD CHANGE, ABOVE EVERYTHING ELSE. An account that must choose a new password
+   * gets the form INSTEAD of the navigation and the page — above the route guards and admin view —
+   * because the server refuses every other route until it is done.
+   */
+  if (mustChangePassword(user)) {
+    return (
+      <AuthCard title="Choose a new password" subtitle={user.email}>
+        <FirstPasswordGate
+          currentPassword={recentPassword()}
+          onDone={() => void markPasswordChanged()}
+          onSignOut={() => void logout()}
+        />
+      </AuthCard>
+    );
+  }
 
   /**
    * Page-level enforcement for the whole protected tree. Hiding a nav entry only removes the link —

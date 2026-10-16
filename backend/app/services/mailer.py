@@ -37,7 +37,13 @@ TASK_APPROVED = "TASK_APPROVED"
 #: Somebody got past the password and then entered too many wrong verification codes. A security
 #: notice: always sent (no opt-out), carries no code and no address, only when the pause ends.
 SECOND_FACTOR_LOCKED = "SECOND_FACTOR_LOCKED"
-KINDS = frozenset({ACCESS_GRANTED, TASK_SUBMITTED, TASK_SENT_BACK, TASK_APPROVED, SECOND_FACTOR_LOCKED})
+#: A single-use set-password link, from an administrator ("Email them a password link") or from the
+#: person themselves ("Forgot your password?"). The link never sits in ``params``: it travels sealed on
+#: the outbox row (``EmailMessage.sealed``) and reaches :func:`render` as ``secret``.
+PASSWORD_LINK = "PASSWORD_LINK"
+KINDS = frozenset(
+    {ACCESS_GRANTED, TASK_SUBMITTED, TASK_SENT_BACK, TASK_APPROVED, SECOND_FACTOR_LOCKED, PASSWORD_LINK}
+)
 #: The kinds a person can switch off in Settings (``UserPreference.emailTaskUpdates``).
 TASK_KINDS = frozenset({TASK_SUBMITTED, TASK_SENT_BACK, TASK_APPROVED})
 
@@ -188,6 +194,10 @@ def locked_until_words(value: Any) -> str:
 
 def subject_for(kind: str, params: dict[str, Any]) -> str:
     title = str(params.get("taskTitle") or "a task").strip()
+    if kind == PASSWORD_LINK:
+        if params.get("purpose") == "INVITE":
+            return f"Your {PRODUCT_NAME} account is ready"
+        return f"Set a new password for the {PRODUCT_NAME}"
     if kind == ACCESS_GRANTED:
         return f"You can now sign in to the {PRODUCT_NAME}"
     if kind == TASK_SUBMITTED:
@@ -201,11 +211,42 @@ def subject_for(kind: str, params: dict[str, Any]) -> str:
     raise ValueError(f"Unknown e-mail kind {kind!r}")
 
 
-def render(kind: str, params: dict[str, Any], *, settings: Settings | None = None) -> Rendered:
+def render(
+    kind: str, params: dict[str, Any], *, secret: str | None = None, settings: Settings | None = None
+) -> Rendered:
+    """Subject, plain text and HTML for one message. ``secret`` is the set-password link, if any."""
     settings = settings or get_settings()
     subject = subject_for(kind, params)
     greeting = _greeting(params.get("recipientName"))
     sign_off = f"— {PRODUCT_NAME}"
+
+    if kind == PASSWORD_LINK:
+        if not secret:
+            raise ValueError("A password-link message needs its link")
+        expires = locked_until_words(params.get("expiresAt"))
+        if params.get("purpose") == "INVITE":
+            lead = (
+                f"An administrator has made you an account on the {PRODUCT_NAME}. "
+                "Choose your password with the link below, then sign in with this e-mail address."
+            )
+            label = "Choose your password"
+        elif params.get("requestedBy") == "self":
+            lead = (
+                f"Somebody asked for a link to set a new password for your {PRODUCT_NAME} account. "
+                "Setting it signs you out everywhere you are signed in."
+            )
+            label = "Set a new password"
+        else:
+            lead = (
+                f"An administrator has issued you a link to set a new password for the {PRODUCT_NAME}. "
+                "Setting it signs you out everywhere you are signed in."
+            )
+            label = "Set a new password"
+        rule = f"The link works once and expires at {expires}."
+        unasked = "If you did not ask for this, ignore this message; nothing changes until the link is used."
+        text = "\n\n".join([greeting, lead, secret, rule, unasked, sign_off]) + "\n"
+        body = _html([_e(greeting), _e(lead), _e(rule), _e(unasked)], button=(_e(label), _e(secret)))
+        return Rendered(subject, text, body)
 
     if kind == ACCESS_GRANTED:
         link = app_url("/login", settings)

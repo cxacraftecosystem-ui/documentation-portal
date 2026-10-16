@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { adminChromeVisible, useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { AppSettingsPanel } from "@/components/settings/AppSettingsPanel";
+import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
 import { EmailNotificationsCard } from "@/components/settings/EmailNotificationsCard";
 import { GetTheAppPanel } from "@/components/settings/GetTheAppPanel";
 import { PublishAppUpdatePanel } from "@/components/settings/PublishAppUpdatePanel";
@@ -118,6 +119,9 @@ export default function SettingsPage() {
           <AppearanceCard />
           <AccessibilityCard />
         </div>
+
+        {/* This account's password: change it, or set a first one beside Google/Microsoft/Yahoo. */}
+        <ChangePasswordCard />
 
         {/* This account's own lock, open to every role. */}
         <TwoStepVerificationCard />

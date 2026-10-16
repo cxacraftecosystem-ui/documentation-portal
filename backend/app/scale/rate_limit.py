@@ -76,8 +76,11 @@ class _TokenBuckets:
         return len(self._buckets)
 
 
-def _identity(scope: Scope) -> str:
+def _identity(scope: Scope, *, ignore_bearer: bool = False) -> str:
     """Who to charge this request to: the bearer token's digest, else the client address.
+
+    ``ignore_bearer`` keys on the address alone — for an anonymous door (``forgot_password_attempt``),
+    where a random Authorization header per request would otherwise mint a fresh bucket each time.
 
     The forwarded address is read left-most-first because that is where the original client sits in
     an ``X-Forwarded-For`` chain (browser -> CloudFront -> nginx -> here). It is also the only entry
@@ -86,7 +89,7 @@ def _identity(scope: Scope) -> str:
     """
     forwarded = b""
     for name, value in scope.get("headers", []):
-        if name == b"authorization":
+        if name == b"authorization" and not ignore_bearer:
             token = value.strip()
             if token[:7].lower() == b"bearer " and len(token) > 7:
                 return "t:" + hashlib.sha256(token[7:]).hexdigest()[:16]
@@ -98,6 +101,36 @@ def _identity(scope: Scope) -> str:
             return "ip:" + first.decode("latin-1")
     client = scope.get("client")
     return f"ip:{client[0]}" if client else "ip:unknown"
+
+
+#: "FORGOT YOUR PASSWORD?" PER CLIENT: five requests per fifteen minutes per network address.
+#:
+#: The route is anonymous and every request it accepts can end in an e-mail, so the general allowance
+#: (and only when the scale flag is on) is no limit at all for it. NOT gated on the scale flag: it
+#: guards an inbox, not a small box. The per-ADDRESS limit is a different thing and lives in
+#: ``services/password_reset``, silently. Same names as the Design Prototype Workshop's.
+FORGOT_PASSWORD_REQUESTS = 5
+FORGOT_PASSWORD_WINDOW_SECONDS = 900.0
+
+_forgot_password_buckets = _TokenBuckets(
+    capacity=FORGOT_PASSWORD_REQUESTS,
+    refill_per_second=FORGOT_PASSWORD_REQUESTS / FORGOT_PASSWORD_WINDOW_SECONDS,
+)
+
+
+def client_address(scope: Scope) -> str:
+    """The network address a request came from, as the limiter keys it (never a bearer digest)."""
+    return _identity(scope, ignore_bearer=True)
+
+
+def forgot_password_attempt(scope: Scope) -> tuple[bool, float]:
+    """Spend one "Forgot your password?" request from this client. ``(allowed, retry_after_seconds)``."""
+    return _forgot_password_buckets.take(f"forgot:{client_address(scope)}")
+
+
+def reset_forgot_password_budget() -> None:
+    """Forget every "Forgot your password?" bucket. For the tests."""
+    _forgot_password_buckets._buckets.clear()  # noqa: SLF001 - the module owns this object
 
 
 class RateLimitMiddleware:

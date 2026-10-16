@@ -6,10 +6,12 @@ from typing import Any
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from starlette.requests import HTTPConnection
 
 from app.core.config import get_settings
 from app.core.db import db
-from app.core.security import decode_access_token
+from app.core.security import CREDENTIAL_CLAIM, decode_access_token
+from app.services import credential_links
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -324,6 +326,29 @@ DATASET_READ_SCOPE = "dataset:read"
 TOKEN_SCOPE_CLAIM = "scope"
 
 
+#: What a session refused by the watermark or by the password fingerprint is told. Cause-neutral on
+#: purpose: a reset link, an administrator's "Sign out of every device", a two-step reset and a
+#: password change all land here, and the next sign-in is what can say which.
+SESSION_ENDED_DETAIL = "This session is no longer valid. Sign in again."
+
+
+def password_credential(user: Any) -> str:
+    """What a token minted for *user* carries as ``security.CREDENTIAL_CLAIM``.
+
+    The fingerprint of the account's CURRENT ``passwordHash`` (``credential_links``' own digest, the
+    one a password link is bound by, so "the password changed" has one definition) or of a fixed
+    sentinel for an account with no password. Every door that mints a session passes it
+    (``auth.session_response``, ``auth.change_password``).
+    """
+    return credential_links.credential_fingerprint(get_value(user, "passwordHash"))
+
+
+def token_issued_at(payload: dict[str, Any]) -> float | None:
+    """The ``iat`` of a decoded token, or None when it has none a number can be read from."""
+    issued_at = payload.get("iat")
+    return float(issued_at) if isinstance(issued_at, int | float) else None
+
+
 async def _user_from_bearer(
     credentials: HTTPAuthorizationCredentials | None,
     *,
@@ -360,14 +385,130 @@ async def _user_from_bearer(
     user = await resolve_user(user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User no longer exists")
+
+    # -- SIGN-OUT-EVERYWHERE: THE WATERMARK (ported 2026-10-16) -----------------------------------
+    #
+    # Bearer tokens are stateless JWTs with no row behind them, so "sign every device out" needs one
+    # place to be written: ``User.sessionsValidFrom``. A token minted STRICTLY BEFORE it is refused.
+    # Written by a set-password link redemption, an administrator setting a password, "Sign out of
+    # every device" and a two-step reset. NULL skips the check (every account nothing was ever
+    # revoked for), so the hot path pays one ``is None`` and no query. A token with no readable
+    # ``iat`` cannot be shown to post-date a revocation, so it is refused when one exists.
+    revoked_before = get_value(user, "sessionsValidFrom")
+    if revoked_before is not None:
+        issued_at = token_issued_at(payload)
+        if issued_at is None or issued_at < revoked_before.timestamp():
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=SESSION_ENDED_DETAIL)
+
+    # -- THE PASSWORD A SESSION WAS OPENED WITH ---------------------------------------------------
+    #
+    # Every session minted from 2026-10-16 carries ``security.CREDENTIAL_CLAIM``, the fingerprint of
+    # the hash the account held at the mint. A claim that no longer matches the row is refused, so ANY
+    # password change retires every older session of that account, whichever door wrote it, while
+    # ``POST /auth/change-password`` hands the session that made the change a fresh token
+    # (``X-Session-Token``). A token WITHOUT the claim (every earlier build's) is accepted exactly as
+    # before and expires on its own; a claim that is present but not a string this code could have
+    # written is refused.
+    if CREDENTIAL_CLAIM in payload:
+        presented = payload[CREDENTIAL_CLAIM]
+        if not (
+            isinstance(presented, str)
+            and presented.isascii()
+            and credential_links.fingerprint_matches(get_value(user, "passwordHash"), presented)
+        ):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=SESSION_ENDED_DETAIL)
     return user
 
 
+# =================================================================================================
+# THE FORCED PASSWORD CHANGE, ENFORCED HERE (ported 2026-10-16)
+#
+# ``User.mustChangePassword`` means "the password this account holds was typed by somebody else", an
+# administrator's temporary password. Reporting it on ``/me`` alone would let anybody holding that
+# password use the whole API without ever replacing it, so every authenticated route outside
+# :data:`PASSWORD_CHANGE_ALLOWED_ROUTES` refuses a flagged account.
+#
+# THE SIGN-IN STILL SUCCEEDS: the only route that can change a password needs a bearer token, so
+# refusing the sign-in would leave the account permanently unable to comply.
+#
+# 401 AND NEVER 403, with :data:`PASSWORD_CHANGE_REQUIRED_HEADER` to tell it apart from an ended
+# session: the handset keeps queued offline work on a 401 and treats a 403 as a permanent refusal.
+# The header tells a client to keep the token, re-read ``/me`` and draw the change-password screen.
+# It is in ``expose_headers`` in app/main.py, or a browser could not read it.
+#
+# THE CONFIGURED MASTER ADMIN (``MASTER_ADMIN_EMAIL``) IS EXEMPT: the deployment's recovery path.
+# =================================================================================================
+
+#: The header a pending-password-change refusal carries. Its value is always "1".
+PASSWORD_CHANGE_REQUIRED_HEADER = "X-Password-Change-Required"
+
+#: The sentence that goes with it, the same for every route.
+PASSWORD_CHANGE_REQUIRED_DETAIL = "Choose a new password to continue."
+
+#: ``(METHOD, path)`` a flagged account may still reach: what the change-password screen needs to
+#: draw itself and to finish, and nothing else. Paths as the client sends them, with ``/api``.
+PASSWORD_CHANGE_ALLOWED_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("GET", "/api/auth/me"),
+        ("POST", "/api/auth/change-password"),
+        ("POST", "/api/auth/logout"),
+        ("GET", "/api/app/release/latest"),
+    }
+)
+
+
+def is_configured_master_admin(user: Any) -> bool:
+    """Is this the account at the configured ``MASTER_ADMIN_EMAIL``? Both sides must be non-empty."""
+    address = str(get_value(user, "email") or "").strip().lower()
+    configured = (get_settings().master_admin_email or "").strip().lower()
+    return bool(address) and bool(configured) and address == configured
+
+
+def password_change_pending(user: Any) -> bool:
+    """Is this account held by its ``mustChangePassword`` flag right now?"""
+    if not get_value(user, "mustChangePassword"):
+        return False
+    if not get_value(user, "passwordHash"):
+        return False
+    return not is_configured_master_admin(user)
+
+
+def _route_path(connection: HTTPConnection) -> str:
+    """The request path with any ASGI ``root_path`` taken off, as Starlette's router matches it."""
+    path = str(connection.scope.get("path") or "")
+    root = str(connection.scope.get("root_path") or "")
+    if root and path.startswith(root) and path[len(root) : len(root) + 1] in ("/", ""):
+        return path[len(root) :] or "/"
+    return path
+
+
+def refuse_while_password_change_pending(user: Any, connection: HTTPConnection) -> None:
+    """401 + :data:`PASSWORD_CHANGE_REQUIRED_HEADER` for a flagged account outside the allow-list."""
+    if not password_change_pending(user):
+        return
+    method = str(connection.scope.get("method") or "").upper()
+    if (method, _route_path(connection)) in PASSWORD_CHANGE_ALLOWED_ROUTES:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=PASSWORD_CHANGE_REQUIRED_DETAIL,
+        headers={PASSWORD_CHANGE_REQUIRED_HEADER: "1"},
+    )
+
+
 async def get_current_user(
+    connection: HTTPConnection,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> Any:
-    """The signed-in account. Session tokens only — see the scoped-token banner above."""
-    return await _user_from_bearer(credentials, allowed_scopes=frozenset())
+    """The signed-in account. Session tokens only; see the scoped-token banner above.
+
+    ``HTTPConnection`` rather than ``Request`` so the dependency also resolves on a WebSocket route.
+    A flagged ``mustChangePassword`` account is refused here everywhere but the change-password
+    screen's own routes (see the banner above).
+    """
+    user = await _user_from_bearer(credentials, allowed_scopes=frozenset())
+    refuse_while_password_change_pending(user, connection)
+    return user
 
 
 async def require_dataset_admin(
@@ -384,6 +525,13 @@ async def require_dataset_admin(
     non-interactive caller, so it is admin-only exactly as asked.
     """
     user = await _user_from_bearer(credentials, allowed_scopes=frozenset({DATASET_READ_SCOPE}))
+    if password_change_pending(user):
+        # The bulk API has no screen to send the person to; the sentence and header say what to do.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=PASSWORD_CHANGE_REQUIRED_DETAIL,
+            headers={PASSWORD_CHANGE_REQUIRED_HEADER: "1"},
+        )
     if not is_admin(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
