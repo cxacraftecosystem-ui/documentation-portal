@@ -59,7 +59,11 @@ data class UserDto(
      * signs in only with Google, Microsoft or Yahoo; null from a server older than the field, where
      * [passwordSetAt] is the fallback (see `accountHasPassword`).
      */
-    val hasPassword: Boolean? = null
+    val hasPassword: Boolean? = null,
+    /** The first sign-in that got in; null when the account has never signed in. */
+    val firstLoginAt: String? = null,
+    /** The most recent sign-in; null on a server older than the field, or before the next sign-in. */
+    val lastLoginAt: String? = null
 )
 
 /**

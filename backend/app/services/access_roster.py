@@ -217,14 +217,25 @@ async def mark_first_seen(email: Any) -> None:
     overwriting it. Silent when there is no row (the master admin's exemption means they can sign in
     without one); an ``update_many`` that matches nothing is cheaper than deciding beforehand whether
     to ask, on a path a person takes once a week.
+
+    ALSO STAMPS ``User.lastLoginAt`` on every call — the users screen's "Last signed in". It lives on
+    the account rather than the roster row because the master admin has no row, and it is written here
+    because this is the one call every successful sign-in makes (``auth.session_response``).
     """
     address = normalise_email(email)
     if not address:
         return
+    now = datetime.now(UTC)
     await db.accessroster.update_many(
         where={"email": address, "firstSeenAt": None},
-        data={"firstSeenAt": datetime.now(UTC)},
+        data={"firstSeenAt": now},
     )
+    account = await db.user.find_first(where={"email": address})
+    if account is not None:
+        from app.core.deps import invalidate_cached_user  # deps is above this module
+
+        await db.user.update(where={"id": account.id}, data={"lastLoginAt": now})
+        invalidate_cached_user(account.id)
 
 
 async def record_access_request(email: Any) -> None:

@@ -104,22 +104,6 @@ def ttl_hours(purpose: str) -> int:
     return INVITE_TTL_HOURS if purpose == INVITE else RESET_TTL_HOURS
 
 
-#: When ``User.firstLoginAt`` began to be written here: the migration that added the column
-#: (``20261018090000_account_passwords``) backfilled nothing, and ``auth.session_response`` stamps it
-#: only from that deploy. So a NULL means "never signed in" only for an account created from this
-#: instant on; before it, a NULL is just as likely an account in daily use.
-FIRST_LOGIN_TRACKED_SINCE = datetime(2026, 10, 18, 9, 0, tzinfo=UTC)
-
-
-def _created_since_first_logins_were_tracked(user: Any) -> bool:
-    created = getattr(user, "createdAt", None)
-    if not isinstance(created, datetime):
-        return False
-    if created.tzinfo is None:  # a hand-built row; every stored stamp in this schema is UTC
-        created = created.replace(tzinfo=UTC)
-    return created >= FIRST_LOGIN_TRACKED_SINCE
-
-
 def purpose_for(user: Any) -> str:
     """INVITE for an account nobody has started using; RESET for one somebody has.
 
@@ -127,17 +111,14 @@ def purpose_for(user: Any) -> str:
     the obvious one. The other is an account a provisioner has just created WITH a password: it holds
     a hash, so the old rule ("INVITE while the hash is NULL") handed its holder a two-hour RESET link —
     read on a Monday, dead by lunch. ``firstLoginAt`` is NULL until the first sign-in that actually
-    got in (``auth.login``), so an account carrying a hash and no first login is still an invitation
-    in every sense that matters, and the sanction register already treated its unused accounts so.
+    got in (``auth.session_response``), so an account carrying a hash and no first login is still an
+    invitation in every sense that matters.
 
-    **BUT ONLY FOR AN ACCOUNT CREATED SINCE THE COLUMN WAS WRITTEN** (:data:`FIRST_LOGIN_TRACKED_SINCE`).
-    Every account in use before then carries a NULL it never earned, and reading that as "never
-    signed in" gave exactly the dormant, established accounts that most often need a reset a
-    seventy-two-hour INVITE in place of the two-hour RESET — thirty-six times the window in which a
-    mis-pasted link takes over a live account. No backfill (no migration in this change), so the
-    rule asks for POSITIVE evidence of an unused account: a NULL first login on an account created
-    after the stamp began. Anything else with a password is RESET, as it was before this change; an
-    account with no password is INVITE, as it always was.
+    A NULL IS TRUSTED FOR EVERY ACCOUNT, WHENEVER IT WAS CREATED. The column arrived empty, and for a
+    while the rule trusted a NULL only on accounts created after it did, which gave a never-used
+    account created earlier a two-hour link. ``20261018090100_first_login_backfill`` filled the
+    column for every older account from the sign-in roster's ``firstSeenAt`` (stamped on every
+    sign-in since 2026-08-16), so a NULL now means "never got in" for old and new accounts alike.
 
     THE REASON INVITE IS NOT USED FOR EVERYBODY STILL HOLDS: once somebody has signed in, the account
     is live, and a seventy-two-hour credential that ends their sessions when redeemed is a spare key
@@ -145,7 +126,7 @@ def purpose_for(user: Any) -> str:
     """
     if getattr(user, "passwordHash", None) is None:
         return INVITE
-    if getattr(user, "firstLoginAt", None) is None and _created_since_first_logins_were_tracked(user):
+    if getattr(user, "firstLoginAt", None) is None:
         return INVITE
     return RESET
 

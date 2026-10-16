@@ -275,7 +275,29 @@ def test_a_job_failure_is_redacted_before_it_reaches_the_error_column(monkeypatc
         SimpleNamespace(mediaprocessingjob=SimpleNamespace(find_unique=find_unique, update=update)),
     )
 
-    asyncio.run(media_queue._handle_job_failure("job1", RuntimeError(str(LEAKY_TRANSPORT_ERROR))))
+    asyncio.run(media_queue._handle_job_failure("job1", media_queue.JobFailure(str(LEAKY_TRANSPORT_ERROR))))
 
     assert SECRET not in written["error"]
     assert "REDACTED" in written["error"]
+
+
+def test_an_unanticipated_job_failure_stores_a_plain_sentence_and_logs_the_rest(monkeypatch, caplog) -> None:
+    written: dict[str, object] = {}
+
+    async def find_unique(where: dict, **_: object):
+        return SimpleNamespace(id="job1", attempts=3, maxAttempts=3)
+
+    async def update(where: dict, data: dict):
+        written.update(data)
+
+    monkeypatch.setattr(
+        media_queue,
+        "db",
+        SimpleNamespace(mediaprocessingjob=SimpleNamespace(find_unique=find_unique, update=update)),
+    )
+    with caplog.at_level("ERROR"):
+        asyncio.run(media_queue._handle_job_failure("job1", KeyError(str(LEAKY_TRANSPORT_ERROR))))
+
+    assert written["error"] == media_queue.UNEXPECTED_JOB_FAILURE
+    assert written["status"] == "FAILED"
+    assert "KeyError" in caplog.text and SECRET not in caplog.text

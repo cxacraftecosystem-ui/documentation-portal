@@ -176,6 +176,7 @@ function UserView() {
                 : "Off"}
             </Item>
             <Item label="First signed in">{person.firstLoginAt ? formatDateTime(person.firstLoginAt) : "Not yet"}</Item>
+            {person.lastLoginAt ? <Item label="Last signed in">{formatDateTime(person.lastLoginAt)}</Item> : null}
           </dl>
           {updating && mayUpdate && !mayGrant ? (
             <p className="mt-4 text-xs text-ink-500">

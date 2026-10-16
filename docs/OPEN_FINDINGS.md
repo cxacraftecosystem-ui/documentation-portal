@@ -106,16 +106,6 @@ been removed along with the admission.
 **To close it.** One shared renderer from the stored document to plain text, used by the backend
 exports, the review panel and Android.
 
-### A failed media job can show the raw error — S
-
-**What happens.** When a media job (transcription, refinement, measuring) fails with an exception
-nobody anticipated, `_handle_job_failure` in `backend/app/services/media_queue.py` stores `str(exc)`,
-with secrets redacted, as the job's error. The job panel shows that error. Anticipated failures
-carry plain sentences. An unanticipated one can show developer text.
-
-**To close it.** Store a plain sentence for any exception that isn't already a user-facing one
-("This file couldn't be processed. Try again."), and write the exception to the log.
-
 ### Transcription order on a backend that predates it — S
 
 **What happens.** The transcription-order panel in Settings (web: `ProviderOrderPanel.tsx`; Android:

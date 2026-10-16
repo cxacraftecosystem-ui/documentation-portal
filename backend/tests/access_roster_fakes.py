@@ -62,6 +62,7 @@ USER_DEFAULTS: dict[str, Any] = {
     "passwordSetAt": None,
     "mustChangePassword": False,
     "firstLoginAt": None,
+    "lastLoginAt": None,
     "sessionsValidFrom": None,
 }
 

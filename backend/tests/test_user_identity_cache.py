@@ -301,6 +301,7 @@ def test_every_module_that_writes_a_user_row_also_invalidates_the_identity_cache
         "app/api/routes/auth.py",
         "app/api/routes/two_factor.py",
         "app/api/routes/users.py",
+        "app/services/access_roster.py",
         "app/services/two_factor.py",
         "scripts/seed_admin.py",
     }

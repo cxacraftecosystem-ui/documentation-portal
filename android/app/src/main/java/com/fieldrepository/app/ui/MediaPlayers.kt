@@ -60,7 +60,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
+import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
+import coil3.request.allowHardware
 import coil3.request.crossfade
 import coil3.video.VideoFrameDecoder
 import kotlinx.coroutines.delay
@@ -85,7 +87,14 @@ fun rememberMediaImageLoader(): ImageLoader {
 
 /** Full-screen, type-aware media viewer: image, video (ExoPlayer) or audio (inline transport). */
 @Composable
-fun MediaViewerDialog(uri: Uri, mediaType: String, onSave: (() -> Unit)? = null, onDismiss: () -> Unit) {
+fun MediaViewerDialog(
+    uri: Uri,
+    mediaType: String,
+    onSave: (() -> Unit)? = null,
+    /** A preview kept on the device (`data/PreviewCache`), shown when the full image cannot be fetched. */
+    offlinePreview: Any? = null,
+    onDismiss: () -> Unit
+) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(
             modifier = Modifier
@@ -97,6 +106,7 @@ fun MediaViewerDialog(uri: Uri, mediaType: String, onSave: (() -> Unit)? = null,
                 "IMAGE" -> AsyncImage(
                     model = uri,
                     contentDescription = "Image preview",
+                    error = offlinePreview?.let { rememberAsyncImagePainter(it) },
                     modifier = Modifier.fillMaxSize()
                 )
                 "VIDEO" -> VideoPlayer(uri = uri, modifier = Modifier.align(Alignment.Center).fillMaxWidth())
@@ -357,9 +367,22 @@ fun MediaThumb(
      * top-right corner, and once it became a 48dp target it sat on top of "Open" (smoke test
      * 2026-10-16). In the row, the two never share pixels.
      */
-    trailing: (@Composable () -> Unit)? = null
+    trailing: (@Composable () -> Unit)? = null,
+    /**
+     * A preview kept on the device (`data/PreviewCache`): drawn when [uri] cannot be fetched, which is
+     * what a signed link does once it expires or the phone is offline.
+     */
+    offlinePreview: Any? = null,
+    /** The tile's image as drawn, each time it loads from [uri], so the caller can keep a copy. */
+    onPreviewLoaded: ((coil3.Image) -> Unit)? = null
 ) {
     val loader = rememberMediaImageLoader()
+    val context = LocalContext.current
+    val fallback = offlinePreview?.let { rememberAsyncImagePainter(it) }
+    // Software bitmaps when somebody wants a copy: a hardware bitmap cannot be re-encoded.
+    val request = remember(uri, onPreviewLoaded != null) {
+        ImageRequest.Builder(context).data(uri).apply { if (onPreviewLoaded != null) allowHardware(false) }.build()
+    }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -373,12 +396,20 @@ fun MediaThumb(
             contentAlignment = Alignment.Center
         ) {
             when (mediaType.uppercase()) {
-                "IMAGE" -> AsyncImage(model = uri, contentDescription = title, modifier = Modifier.fillMaxSize())
+                "IMAGE" -> AsyncImage(
+                    model = request,
+                    contentDescription = title,
+                    error = fallback,
+                    onSuccess = { state -> onPreviewLoaded?.invoke(state.result.image) },
+                    modifier = Modifier.fillMaxSize()
+                )
                 "VIDEO" -> {
                     AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current).data(uri).build(),
+                        model = request,
                         imageLoader = loader,
                         contentDescription = title,
+                        error = fallback,
+                        onSuccess = { state -> onPreviewLoaded?.invoke(state.result.image) },
                         modifier = Modifier.fillMaxSize()
                     )
                     Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White)
