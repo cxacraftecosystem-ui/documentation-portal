@@ -626,7 +626,7 @@ export function SearchableSelect({
         data-searchable-select=""
         className={TRIGGER_CLASS}
       >
-        <span className={cn("min-w-0 truncate", !selected && "text-ink-300")} title={selected?.label}>
+        <span className={cn("min-w-0 truncate", !selected && "text-ink-500")} title={selected?.label}>
           {selected ? selected.label : placeholder}
         </span>
         <ChevronDown
@@ -667,7 +667,7 @@ export function SearchableSelect({
             className="min-h-0 max-h-72 shrink overflow-y-auto overscroll-contain py-1"
           >
             {rendered.length === 0 ? (
-              <li className="px-3.5 py-2 text-sm text-ink-300">{query.trim() ? "No matches" : emptyLabel}</li>
+              <li className="px-3.5 py-2 text-sm text-ink-500">{query.trim() ? "No matches" : emptyLabel}</li>
             ) : null}
             {rendered.map((option, index) => {
               const active = option.value === value;
@@ -938,7 +938,7 @@ export function SearchableMultiSelect({
         data-searchable-select=""
         className={TRIGGER_CLASS}
       >
-        <span className={cn("min-w-0 truncate", !values.length && "text-ink-300")}>
+        <span className={cn("min-w-0 truncate", !values.length && "text-ink-500")}>
           {values.length ? `${values.length} selected` : placeholder}
         </span>
         {/* Without an ariaLabel the button's accessible name is its content, so the names go here. */}
@@ -987,7 +987,7 @@ export function SearchableMultiSelect({
             className="min-h-0 max-h-72 shrink overflow-y-auto overscroll-contain py-1"
           >
             {rendered.length === 0 ? (
-              <li className="px-3.5 py-2 text-sm text-ink-300">{query.trim() ? "No matches" : emptyLabel}</li>
+              <li className="px-3.5 py-2 text-sm text-ink-500">{query.trim() ? "No matches" : emptyLabel}</li>
             ) : null}
             {rendered.map((option, index) => {
               const checked = chosen.has(option.value);

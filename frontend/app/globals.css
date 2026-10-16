@@ -369,6 +369,15 @@
 }
 
 @layer components {
+  /*
+   * UX audit 2026-10-16. DC-07: every action recipe is a 44px target on a COARSE pointer (a phone,
+   * a tablet) and keeps its 40px desktop density under a mouse. DC-02: the recipes whose ink or wash
+   * is a literal purple or red carry a `dark:` pair, because those colours never invert and dropped
+   * to 1.7-2.7:1 on a dark card. DC-12: `.field-danger` reads in red-800, not error-600 (3.95:1 on
+   * its own hover wash). Purple link ink is `text-purple-700 dark:text-purple-300` at every
+   * call site wherever it sits on a ground that inverts (bg-card, surface, page).
+   */
+
   .field-input {
     @apply w-full rounded-md border border-line-200 bg-card px-3.5 py-2.5 text-sm text-ink-900 outline-hidden transition placeholder:text-ink-300 focus:border-purple-600 focus:ring-4 focus:ring-purple-600/15;
   }
@@ -378,15 +387,15 @@
   }
 
   .field-button {
-    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-purple-700 px-4 py-2 text-sm font-medium text-white transition hover:bg-purple-800 hover:shadow-cta disabled:cursor-not-allowed disabled:bg-line-200 disabled:text-ink-500 disabled:shadow-none;
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-purple-700 px-4 py-2 text-sm font-medium text-white transition hover:bg-purple-800 hover:shadow-cta disabled:cursor-not-allowed disabled:bg-line-200 disabled:text-ink-500 disabled:shadow-none pointer-coarse:min-h-11;
   }
 
   .field-button-secondary {
-    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-line-200 bg-card px-4 py-2 text-sm font-medium text-ink-900 transition hover:border-purple-300 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-60;
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-line-200 bg-card px-4 py-2 text-sm font-medium text-ink-900 transition hover:border-purple-300 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-60 pointer-coarse:min-h-11 dark:hover:border-purple-400/50 dark:hover:bg-purple-950/40;
   }
 
   .field-danger {
-    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-red-200 bg-card px-3 py-2 text-sm font-medium text-error-600 transition hover:bg-error-100;
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-red-200 bg-card px-3 py-2 text-sm font-medium text-red-800 transition hover:bg-error-100 pointer-coarse:min-h-11 dark:border-red-400/50 dark:text-red-300 dark:hover:bg-red-950/40;
   }
 
   .panel {
@@ -456,7 +465,7 @@
 
   /* Themed file-upload trigger (label/button wrapping a hidden <input type="file">). */
   .file-trigger {
-    @apply inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-purple-300 bg-card px-4 py-2 text-sm font-medium text-purple-700 transition hover:border-purple-400 hover:bg-purple-50;
+    @apply inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-purple-300 bg-card px-4 py-2 text-sm font-medium text-purple-700 transition hover:border-purple-400 hover:bg-purple-50 pointer-coarse:min-h-11 dark:border-purple-400/50 dark:text-purple-300 dark:hover:bg-purple-950/40;
   }
 
   /*

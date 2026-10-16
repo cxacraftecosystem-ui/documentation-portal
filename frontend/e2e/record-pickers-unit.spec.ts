@@ -384,10 +384,10 @@ test.describe("the sentence under a capped list", () => {
     expect(cutOf(10, undefined as unknown as number, "artisans")).toBeNull();
   });
 
-  test("a cut list prints both numbers and admits the search is local", () => {
+  test("a cut list prints both numbers and points at Search", () => {
     const cut = cutOf(100, 749, "artisans") as ListCut;
     expect(cappedListNotice(cut)).toBe(
-      "Showing 100 of 749 artisans — the other 649 are not on this list, and typing here searches only the 100 shown."
+      "Showing 100 of 749 artisans. To find another, use Browse records from the menu."
     );
     expect(cappedListNotice(cut, "pager")).toBe(
       "Showing 100 of 749 artisans — use the pager to reach the rest, which are not searched by the box above."

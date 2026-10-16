@@ -51,7 +51,7 @@ export default function WalkthroughCallout() {
           <ul className="mt-6 grid gap-2 sm:grid-cols-2">
             {CHAPTERS.map((chapter) => (
               <li key={chapter} className="flex items-start gap-2.5 text-sm leading-relaxed text-ink-700">
-                <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-purple-700" aria-hidden />
+                <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-purple-700 dark:text-purple-300" aria-hidden />
                 {chapter}
               </li>
             ))}

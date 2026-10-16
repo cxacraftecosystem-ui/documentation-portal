@@ -756,5 +756,11 @@ val Muted: Color get() = legacyPalette.value.scheme.onSurfaceVariant
 /** Hairline border — line-200. Prefer `MaterialTheme.colorScheme.outline`. */
 val Hairline: Color get() = legacyPalette.value.scheme.outline
 
+/** Success ink — success-600 light / success-400 dark. For plain helpers outside composition. */
+val SuccessInk: Color get() = legacyPalette.value.tokens.success
+
+/** Error ink — error-600 light / error-400 dark. For plain helpers outside composition. */
+val ErrorInk: Color get() = legacyPalette.value.scheme.error
+
 /** Dark brand chip (was near-black; now purple-800/900). Content: [FieldTokens.onBrandTile]. */
 val DarkSurface: Color get() = legacyPalette.value.tokens.brandTile

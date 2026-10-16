@@ -306,7 +306,7 @@ export function AadhaarField({
         <p id={hintId} className="text-xs text-ink-muted">
           On file, but hidden from you: the full number is shown only to the researcher who recorded
           this artisan and to professors upwards. Saving leaves it exactly as it is.{" "}
-          <button type="button" className="font-semibold text-purple-700 underline" onClick={replaceStoredNumber}>
+          <button type="button" className="font-semibold text-purple-700 dark:text-purple-300 underline" onClick={replaceStoredNumber}>
             Replace this number
           </button>
         </p>
@@ -325,7 +325,7 @@ export function AadhaarField({
       {storedMask && replacing ? (
         <p id={replaceId} className="text-xs text-ink-muted">
           All 12 digits replace the number already on file.{" "}
-          <button type="button" className="font-semibold text-purple-700 underline" onClick={keepStoredNumber}>
+          <button type="button" className="font-semibold text-purple-700 dark:text-purple-300 underline" onClick={keepStoredNumber}>
             Keep the stored number
           </button>
         </p>

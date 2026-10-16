@@ -346,7 +346,7 @@ fun ProvenanceSection(meta: JsonObject?, createdByName: String?) {
                         Text(prettyFieldName(row.field), color = Body, fontSize = 12.sp, modifier = Modifier.weight(1f))
                         Column(horizontalAlignment = androidx.compose.ui.Alignment.End) {
                             Text(row.byName ?: "Unknown", color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                            row.at?.take(10)?.let { Text(it, color = Muted, fontSize = 10.sp) }
+                            row.at?.take(10)?.let { Text(it, color = Muted, fontSize = 12.sp) }
                         }
                     }
                 }
@@ -388,7 +388,7 @@ fun ArtisanQuestionnairePanel(answers: List<ArtisanAnswerDto>, loading: Boolean)
                                 answer.prompt?.let { Text(it, color = Body, fontSize = 12.sp, fontWeight = FontWeight.Medium) }
                                 Text(answer.answerText.orEmpty(), color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
                                 val meta = listOfNotNull(answer.interviewTitle, answer.answeredByName?.let { "by $it" }).joinToString(" · ")
-                                if (meta.isNotBlank()) Text(meta, color = Muted, fontSize = 10.sp)
+                                if (meta.isNotBlank()) Text(meta, color = Muted, fontSize = 12.sp)
                             }
                         }
                     }

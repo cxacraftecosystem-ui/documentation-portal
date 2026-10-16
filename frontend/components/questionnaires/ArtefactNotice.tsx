@@ -123,7 +123,7 @@ function ArtefactDetail() {
 
       <div className="grid gap-2 rounded-md border border-line-200 p-3">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-ink-900">
-          <Upload className="h-4 w-4 shrink-0 text-field-600" aria-hidden />
+          <Upload className="h-4 w-4 shrink-0 text-field-600 dark:text-purple-300" aria-hidden />
           What happens to answers typed into a file you upload
         </h3>
         <ul className="grid gap-1.5 text-sm leading-6 text-ink-700">

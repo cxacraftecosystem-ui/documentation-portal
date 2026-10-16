@@ -178,8 +178,6 @@ data class ConsolidatedQuestionnaireDto(
  * Screen
  * ---------------------------------------------------------------------------------------------- */
 
-private val AmberSurface = Color(0x1FCD9200)
-private val AmberInk = Color(0xFF8A5600)
 
 /** dd MMM yyyy from the API's ISO-8601, without pulling in a formatter for four fields. */
 private fun shortDate(value: String?): String {
@@ -278,7 +276,7 @@ private fun ConsolidatedIndex(
         // the one being loaded.
         error = null
         listCut = null
-        runCatching { repository.artisansPage(workshopIds = scope.workshopIds) }
+        runCatching { repository.artisansPage(workshopIds = scope.workshopIds, pageBudget = com.fieldrepository.app.data.LOOKUP_PAGE_BUDGET) }
             .onSuccess { page ->
                 artisans = page.items
                 listCut = listCutNotice(page.items.size, page.total, "artisans")
@@ -345,7 +343,7 @@ private fun ConsolidatedIndex(
             "This list is the artisans in the chosen workshops. Each document opens on every " +
                 "interview that artisan took part in — narrow it there to read one workshop's account.",
             color = MaterialTheme.field.muted,
-            fontSize = 11.sp
+            fontSize = 12.sp
         )
     }
 
@@ -380,7 +378,7 @@ private fun ConsolidatedIndex(
                 ArtisanPickRow(artisan = artisan, onOpen = { onOpen(artisan) })
             }
             listCut?.let {
-                Text(it, color = MaterialTheme.field.muted, fontSize = 11.sp)
+                Text(it, color = MaterialTheme.field.muted, fontSize = 12.sp)
             }
         }
     }
@@ -413,7 +411,7 @@ private fun ArtisanPickRow(artisan: ArtisanDto, onOpen: () -> Unit) {
                     .joinToString(" · ")
                     .ifBlank { "No craft recorded" },
                 color = MaterialTheme.field.muted,
-                fontSize = 11.sp,
+                fontSize = 12.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -586,8 +584,8 @@ private fun ConsolidatedSummaryBlock(data: ConsolidatedQuestionnaireDto) {
             Notice(
                 text = "${summary.groupSittingCount} of these were group sittings. Answers recorded in a group " +
                     "cannot be attributed to one artisan — the record does not store who spoke.",
-                container = AmberSurface,
-                ink = AmberInk
+                container = MaterialTheme.field.warningContainer,
+                ink = MaterialTheme.field.onWarningContainer
             )
         }
         if (summary.conflictCount > 0) {
@@ -653,8 +651,8 @@ private fun SourcesCard(interviews: List<ConsolidatedSourceDto>) {
 @Composable
 private fun AttributionChip(attribution: String, artisanCount: Int) {
     val group = attribution == ATTRIBUTION_GROUP
-    val container = if (group) AmberSurface else MaterialTheme.colorScheme.surfaceVariant
-    val ink = if (group) AmberInk else MaterialTheme.colorScheme.onSurfaceVariant
+    val container = if (group) MaterialTheme.field.warningContainer else MaterialTheme.colorScheme.surfaceVariant
+    val ink = if (group) MaterialTheme.field.onWarningContainer else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         Modifier.clip(RoundedCornerShape(8.dp)).background(container).padding(horizontal = 8.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically

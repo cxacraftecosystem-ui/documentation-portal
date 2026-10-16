@@ -168,7 +168,7 @@ export function UploadReport({ report, className }: { report: QWorkbookReport; c
                 className="rounded-md border border-line-200 bg-surface-50 p-3"
               >
                 <div className="flex items-start gap-2">
-                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-field-600" aria-hidden />
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-field-600 dark:text-purple-300" aria-hidden />
                   <div className="min-w-0">
                     <p className="text-sm text-ink-900">{detail.reason}</p>
                     {detail.before ? (
@@ -223,7 +223,7 @@ function ProblemList({
   // stock Tailwind and do not pair with them (the config deep-merges the two scales).
   const skin =
     tone === "error"
-      ? "border-red-200 bg-error-100 text-error-600"
+      ? "border-red-200 bg-error-100 text-red-800"
       : "border-amber-500/30 bg-amber-100 text-amber-800";
   return (
     <div className="grid gap-2">

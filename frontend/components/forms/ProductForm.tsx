@@ -28,6 +28,7 @@ import { DictationUnavailableNotice } from "@/components/richtext/DictationUnava
 import { RichTextField } from "@/components/richtext/RichTextField";
 import { appendStoredParagraph } from "@/components/richtext/storedRichText";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
+import { statusLabel } from "@/components/StatusBadge";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { apiFetch } from "@/lib/api";
 import { locationFromForm, numericValue, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue, useUnsavedChanges } from "@/lib/forms";
@@ -88,7 +89,7 @@ function StatusField({
       <Field label="Status">
         <Select name="status" defaultValue={initialStatus ?? "APPROVED"} onChange={onDirty}>
           {options.map((status) => (
-            <option key={status}>{status}</option>
+            <option key={status} value={status}>{statusLabel(status)}</option>
           ))}
         </Select>
       </Field>
@@ -1004,7 +1005,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
             markDirty();
           }}
           title="Product media"
-          description="Attach or capture product images, videos, audio notes, and documents. Image EXIF is retained and summarized in remarks."
+          description="Attach or capture product images, videos, audio notes, and documents. Photo details (date, place, camera) are kept and summarised in the remarks."
         />
         <LocationFields initial={initialLocation} onDirty={markDirty} />
         {uploadProgress ? <UploadProgress progress={uploadProgress} /> : null}

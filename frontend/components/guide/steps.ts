@@ -112,15 +112,15 @@ export const GUIDE_STEPS: GuideStep[] = [
       "Email",
       "Address",
       "Notes",
-      "Do's (positive prompt) (required)",
-      "Don'ts (negative prompt) (required)",
+      "Do's (required)",
+      "Don'ts (required)",
       "Artisan media",
       "Location (GPS fix or map pin)"
     ],
     watch: [
       "Do's and Don'ts are required. Press Enter for each new point — one lesson per line.",
       "You must either select an existing craft or type a new craft name; the form will not save with neither.",
-      "Photo EXIF is retained and summarised into the notes automatically — you do not need to transcribe camera details by hand."
+      "Photo details (date, place, camera) are kept and summarised into the notes automatically — you do not need to transcribe camera details by hand."
     ]
   },
   {

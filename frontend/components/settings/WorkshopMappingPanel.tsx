@@ -136,7 +136,7 @@ export function WorkshopMappingPanel() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="flex items-center gap-2 font-display text-sm font-bold text-ink-900">
-            <Link2 className="h-4 w-4 text-purple-700" aria-hidden />
+            <Link2 className="h-4 w-4 text-purple-700 dark:text-purple-300" aria-hidden />
             Records not filed under a workshop
           </h2>
           <p className="mt-1 max-w-2xl text-xs leading-5 text-ink-500">
@@ -159,7 +159,7 @@ export function WorkshopMappingPanel() {
       </div>
 
       {error ? (
-        <p className="mt-3 rounded-md bg-error-100 px-3 py-2 text-xs text-error-600">{error}</p>
+        <p className="mt-3 rounded-md bg-error-100 px-3 py-2 text-xs text-red-800">{error}</p>
       ) : null}
 
       {loading && !plan ? (
@@ -293,7 +293,7 @@ export function WorkshopMappingPanel() {
                web form sends the last millisecond of the day, Android sends midnight — so "recorded
                inside that workshop's dates" is only checkable if the dates the server read are on
                screen. The end shown is the last day the window covers, not the exclusive bound. */
-            <ul className="mt-3 grid gap-0.5 text-[11px] leading-4 text-ink-300">
+            <ul className="mt-3 grid gap-0.5 text-[11px] leading-4 text-ink-500">
               {plan.workshops.map((workshop) => (
                 <li key={workshop.id}>
                   {workshop.title} — read as {formatDay(workshop.start)} to {formatLastDay(workshop.end)}
@@ -326,7 +326,7 @@ function Stat({
       <dt className="text-[11px] font-medium uppercase tracking-wide text-ink-500">{label}</dt>
       <dd
         className={`mt-0.5 font-display text-xl font-bold ${
-          tone === "good" ? "text-success-600" : tone === "warn" ? "text-amber-800" : "text-ink-900"
+          tone === "good" ? "text-success-600" : tone === "warn" ? "text-amber-800 dark:text-amber-200" : "text-ink-900"
         }`}
       >
         {value}

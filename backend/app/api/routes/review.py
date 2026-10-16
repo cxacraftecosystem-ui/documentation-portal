@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
 from prisma import Json
 from pydantic import Field, ValidationError
@@ -125,47 +125,79 @@ def _creator_summary(creator: Any) -> dict[str, Any] | None:
     }
 
 
+# Largest page a caller may ask for. The queue is read by people, twenty rows at a time on the web.
+PENDING_MAX_PAGE_SIZE = 100
+
+
+def _pending_item(record_type: str, row: Any, label_fields: tuple[str, ...]) -> dict[str, Any]:
+    return {
+        "recordType": record_type,
+        "id": get_value(row, "id"),
+        "label": _label_for(row, label_fields),
+        "place": get_value(row, "place"),
+        "createdAt": jsonable_encoder(get_value(row, "createdAt")),
+        "createdBy": _creator_summary(get_value(row, "createdBy")),
+        "needsAdminApproval": record_needs_admin_approval(row),
+    }
+
+
 @router.get("/pending")
-async def list_pending_reviews(reviewer: Any = Depends(require_reviewer)) -> dict[str, Any]:
+async def list_pending_reviews(
+    reviewer: Any = Depends(require_reviewer),
+    page: int | None = Query(default=None, ge=1),
+    page_size: int = Query(default=20, ge=1, le=PENDING_MAX_PAGE_SIZE, alias="pageSize"),
+) -> dict[str, Any]:
     """Records still awaiting review (status == PENDING), newest first, across record types.
 
     Filtered by the peer-review hierarchy IN THE QUERY: only records whose creator ranks strictly
     below the viewer show up (the master admin sees everything), so the per-type cap holds the
     newest rows this reviewer can act on rather than the newest rows overall. Each item carries
     ``needsAdminApproval``: true means it was submitted outside its workshop's dates, so only an
-    admin can approve it."""
+    admin can approve it.
+
+    TWO SHAPES, and the second is additive (UX audit 2026-10-16):
+
+    - **No ``page``** — the original answer, for clients already in the field: up to
+      ``PENDING_TAKE`` rows per record type, merged. ``truncated`` is true when any type hit that
+      take, so a client can say the list is not the whole queue instead of letting it stop quietly.
+    - **``page`` given** — one page of the WHOLE queue, newest first across types. ``total`` is the
+      true count of reviewable pending rows (a ``count`` per type with the same filter), never the
+      length of what was read, and there is no per-type ceiling: page N reads at most
+      ``page * pageSize`` rows from each type, which is exactly enough to know the newest
+      ``page * pageSize`` overall."""
+    paged = page is not None
     roles = _reviewable_creator_roles(reviewer)
     if roles is not None and not roles:
         # Review access with nobody beneath them on the ladder — a granted ``canReview`` on the
         # bottom tier. There is no record they may act on; six queries to prove it are wasted.
-        return {"items": [], "total": 0}
+        if paged:
+            return {"items": [], "total": 0, "page": page, "pageSize": page_size}
+        return {"items": [], "total": 0, "truncated": False}
     where: dict[str, Any] = {"status": "PENDING"}
     if roles is not None:
         where["createdBy"] = {"is": {"role": {"in": roles}}}
 
+    take = page * page_size if paged else PENDING_TAKE
     items: list[dict[str, Any]] = []
+    truncated = False
+    total = 0
     for record_type, delegate, label_fields in _PENDING_SOURCES:
         rows = await delegate.find_many(
             where=where,
             include={"createdBy": True},
             order={"createdAt": "desc"},
-            take=PENDING_TAKE,
+            take=take,
         )
-        for row in rows:
-            creator = get_value(row, "createdBy")
-            items.append(
-                {
-                    "recordType": record_type,
-                    "id": get_value(row, "id"),
-                    "label": _label_for(row, label_fields),
-                    "place": get_value(row, "place"),
-                    "createdAt": jsonable_encoder(get_value(row, "createdAt")),
-                    "createdBy": _creator_summary(creator),
-                    "needsAdminApproval": record_needs_admin_approval(row),
-                }
-            )
+        if paged:
+            total += await delegate.count(where=where)
+        elif len(rows) >= PENDING_TAKE:
+            truncated = True
+        items.extend(_pending_item(record_type, row, label_fields) for row in rows)
     items.sort(key=lambda item: item.get("createdAt") or "", reverse=True)
-    return {"items": items, "total": len(items)}
+    if paged:
+        start = (page - 1) * page_size
+        return {"items": items[start : start + page_size], "total": total, "page": page, "pageSize": page_size}
+    return {"items": items, "total": len(items), "truncated": truncated}
 
 
 async def set_review_status(

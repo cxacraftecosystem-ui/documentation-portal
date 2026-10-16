@@ -105,7 +105,7 @@ const STATUS_TONE: Record<TaskStatus, string> = {
   IN_PROGRESS: "border-amber-500/30 bg-amber-100 text-amber-800",
   SUBMITTED: "border-purple-200 bg-purple-50 text-purple-700",
   DONE: "border-success-600/25 bg-success-100 text-success-600",
-  CANCELLED: "border-error-600/25 bg-error-100 text-error-600"
+  CANCELLED: "border-error-600/25 bg-error-100 text-red-800"
 };
 
 /**
@@ -551,7 +551,7 @@ export function ProgressGapMeter({
         </span>
         <span className="text-xs text-ink-500">Recorded</span>
         {derived === null || derived === undefined ? (
-          <span className="text-xs text-ink-300">not counted for this page</span>
+          <span className="text-xs text-ink-500">not counted for this page</span>
         ) : (
           <Bar value={derived} denominator={denominator} className="bg-ink-500" />
         )}
@@ -562,7 +562,7 @@ export function ProgressGapMeter({
       </div>
       <GapChip reported={reported} derived={derived} />
       {!hasTarget ? (
-        <p className="text-xs text-ink-300">No target count on this task — the bars compare the two figures to each other.</p>
+        <p className="text-xs text-ink-500">No target count on this task — the bars compare the two figures to each other.</p>
       ) : null}
     </div>
   );
@@ -720,7 +720,7 @@ export function StatTile({
     <div className="rounded-md border border-line-200 bg-card px-4 py-3">
       <div className={cn("font-display text-2xl font-bold tabular-nums", valueTone)}>{value}</div>
       <div className="mt-0.5 text-xs font-medium text-ink-500">{label}</div>
-      {hint ? <div className="mt-0.5 text-xs text-ink-300">{hint}</div> : null}
+      {hint ? <div className="mt-0.5 text-xs text-ink-500">{hint}</div> : null}
     </div>
   );
 }

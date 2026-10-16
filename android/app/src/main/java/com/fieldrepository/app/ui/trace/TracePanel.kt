@@ -654,7 +654,7 @@ private fun TracePanelOpen(
             // compiled into this APK and every phone has it, so a failure here is this load and not this
             // device, and those are different sentences with different remedies.
             failure = "The tracing engine did not start on this device. " +
-                (t.message?.takeIf { it.isNotBlank() } ?: "No reason was reported.")
+                "Try again; if it keeps happening, restart the app."
         }
         loading = false
     }
@@ -756,7 +756,7 @@ private fun TracePanelOpen(
                 result = null
                 resultWire = null
                 failure = "The trace could not be completed. " +
-                    (t.message?.takeIf { it.isNotBlank() } ?: "No reason was reported.")
+                    "Try again; if it keeps happening, restart the app."
             } finally {
                 running = null
                 stopping = false
@@ -885,7 +885,7 @@ private fun TracePanelOpen(
                     throw cancelled
                 } catch (t: Throwable) {
                     failure = "That setting could not be applied. " +
-                        (t.message?.takeIf { it.isNotBlank() } ?: "No reason was reported.")
+                        "Try again; if it keeps happening, restart the app."
                     return@withLock
                 }
                 params = next
@@ -907,7 +907,7 @@ private fun TracePanelOpen(
                     throw cancelled
                 } catch (t: Throwable) {
                     failure = "That style could not be applied. " +
-                        (t.message?.takeIf { it.isNotBlank() } ?: "No reason was reported.")
+                        "Try again; if it keeps happening, restart the app."
                     return@withLock
                 }
                 notice = traceOverwriteNotice("The “$name” style", base, next)
@@ -932,7 +932,7 @@ private fun TracePanelOpen(
                     throw cancelled
                 } catch (t: Throwable) {
                     failure = "That adjustment could not be applied. " +
-                        (t.message?.takeIf { it.isNotBlank() } ?: "No reason was reported.")
+                        "Try again; if it keeps happening, restart the app."
                     return@withLock
                 }
                 notice = traceOverwriteNotice("The “$name” adjustment", base, next)

@@ -132,8 +132,15 @@ interface FieldRepositoryApi {
     @DELETE("access-roster/{id}")
     suspend fun suspendAccessRosterEntry(@Path("id") id: String): AccessRosterDto
 
+    /**
+     * The review queue. With [page] the server answers ONE page of the whole queue and a true
+     * `total`; without it, the original capped answer (kept for clients already in the field).
+     */
     @GET("review/pending")
-    suspend fun pendingReviews(): PendingReviewListDto
+    suspend fun pendingReviews(
+        @Query("page") page: Int? = null,
+        @Query("pageSize") pageSize: Int? = null
+    ): PendingReviewListDto
 
     @POST("app/release")
     suspend fun publishAppRelease(@Body body: AppReleasePublishRequest): AppReleaseDto
@@ -246,7 +253,9 @@ interface FieldRepositoryApi {
          * for why an unconditional search-per-keystroke would be strictly worse than the local filter
          * it would replace, and would stop working in exactly the place this product is used.
          */
-        @Query("search") search: String? = null
+        @Query("search") search: String? = null,
+        /** Only rows this account created — My Activity asks the SERVER, so nothing past page one is lost. */
+        @Query("createdBy") createdBy: String? = null
     ): PageResponse<ArtisanDto>
 
     @GET("crafts")
@@ -276,7 +285,9 @@ interface FieldRepositoryApi {
          * for why an unconditional search-per-keystroke would be strictly worse than the local filter
          * it would replace, and would stop working in exactly the place this product is used.
          */
-        @Query("search") search: String? = null
+        @Query("search") search: String? = null,
+        /** Only rows this account created — My Activity asks the SERVER, so nothing past page one is lost. */
+        @Query("createdBy") createdBy: String? = null
     ): PageResponse<CraftDto>
 
     @POST("artisans")
@@ -335,7 +346,9 @@ interface FieldRepositoryApi {
          * for why an unconditional search-per-keystroke would be strictly worse than the local filter
          * it would replace, and would stop working in exactly the place this product is used.
          */
-        @Query("search") search: String? = null
+        @Query("search") search: String? = null,
+        /** Only rows this account created — My Activity asks the SERVER, so nothing past page one is lost. */
+        @Query("createdBy") createdBy: String? = null
     ): PageResponse<ProductDetailDto>
 
     @GET("products/{id}")
@@ -371,7 +384,9 @@ interface FieldRepositoryApi {
          * for why an unconditional search-per-keystroke would be strictly worse than the local filter
          * it would replace, and would stop working in exactly the place this product is used.
          */
-        @Query("search") search: String? = null
+        @Query("search") search: String? = null,
+        /** Only rows this account created — My Activity asks the SERVER, so nothing past page one is lost. */
+        @Query("createdBy") createdBy: String? = null
     ): PageResponse<ToolDetailDto>
 
     @GET("tools/{id}")
@@ -392,7 +407,9 @@ interface FieldRepositoryApi {
     @GET("workshops")
     suspend fun workshops(
         @Query("page") page: Int = 1,
-        @Query("pageSize") pageSize: Int = 100
+        @Query("pageSize") pageSize: Int = 100,
+        /** Only rows this account created — My Activity asks the SERVER, so nothing past page one is lost. */
+        @Query("createdBy") createdBy: String? = null
     ): PageResponse<WorkshopDetailDto>
 
     @GET("workshops/{id}")
@@ -577,7 +594,9 @@ interface FieldRepositoryApi {
          * for why an unconditional search-per-keystroke would be strictly worse than the local filter
          * it would replace, and would stop working in exactly the place this product is used.
          */
-        @Query("search") search: String? = null
+        @Query("search") search: String? = null,
+        /** Only rows this account created — My Activity asks the SERVER, so nothing past page one is lost. */
+        @Query("createdBy") createdBy: String? = null
     ): PageResponse<ProcessDetailDto>
 
     @GET("processes/{id}")
@@ -718,7 +737,9 @@ interface FieldRepositoryApi {
          * and narrowing its own group to the workshop currently on screen would hide the sittings the
          * aggregation exists to gather. See `FieldRepository.interviewsForArtisan`.
          */
-        @Query("artisanId") artisanId: String? = null
+        @Query("artisanId") artisanId: String? = null,
+        /** Only rows this account created — My Activity asks the SERVER, so nothing past page one is lost. */
+        @Query("createdBy") createdBy: String? = null
     ): PageResponse<QuestionnaireInterviewDetailDto>
 
     @GET("questionnaire/interviews/{id}")

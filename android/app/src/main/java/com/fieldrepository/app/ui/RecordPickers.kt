@@ -286,9 +286,10 @@ fun listCutNotice(
         // arithmetic is still worth the line — a reader looking at 100 rows and no sentence cannot
         // tell whether that is the workshop or the ceiling, and the two call for different actions.
         ListCutReach.SEARCH -> "Showing $loaded of $total $noun — type to search all $total."
+        // The picker already holds every row up to LOOKUP_PAGE_BUDGET pages, so this arm is reached
+        // only past it — and it names the place that DOES reach the rest rather than the limit.
         ListCutReach.NONE ->
-            "Showing $loaded of $total $noun — the other ${total - loaded} are not on this list, " +
-                "and typing here searches only the $loaded shown."
+            "Showing $loaded of $total $noun. To find another, use Browse records from the menu."
     }
 }
 

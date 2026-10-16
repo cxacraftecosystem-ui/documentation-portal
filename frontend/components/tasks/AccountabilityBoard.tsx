@@ -243,7 +243,7 @@ function AssigneeRow({
               {row.statusCounts.DONE} approved
             </span>
             {row.overdueCount > 0 ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-error-600/25 bg-error-100 px-2.5 py-1 font-medium text-error-600">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-error-600/25 bg-error-100 px-2.5 py-1 font-medium text-red-800">
                 <TriangleAlert className="h-3.5 w-3.5" aria-hidden />
                 {row.overdueCount} overdue
               </span>

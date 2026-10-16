@@ -212,7 +212,7 @@ export default function MyActivityPage() {
         icon={<Activity className="h-5 w-5" aria-hidden />}
       />
       {error ? (
-        <div className="mb-4 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-error-600">{error}</div>
+        <div className="mb-4 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-red-800">{error}</div>
       ) : null}
       {user && visibleOthers.length > 0 ? (
         <div className="panel mb-4 max-w-md p-4">
@@ -254,7 +254,7 @@ export default function MyActivityPage() {
             <section className="panel overflow-hidden" key={group.title}>
               <div className="flex items-center justify-between border-b border-line-200 px-4 py-3">
                 <h2 className="font-display font-bold text-ink-900">{group.title}</h2>
-                <Link className="inline-flex items-center gap-1 text-sm font-medium text-purple-700 hover:text-purple-800" href={group.href}>
+                <Link className="inline-flex items-center gap-1 text-sm font-medium text-purple-700 dark:text-purple-300 hover:text-purple-800" href={group.href}>
                   Open
                   <ChevronRight className="h-4 w-4" aria-hidden />
                 </Link>

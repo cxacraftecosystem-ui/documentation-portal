@@ -470,7 +470,7 @@ export default function MapPage() {
           level !== "DISTRICT" ? (
             <button
               type="button"
-              className="text-xs font-semibold text-purple-700 hover:underline"
+              className="text-xs font-semibold text-purple-700 dark:text-purple-300 hover:underline"
               onClick={() => {
                 setQ("");
                 setFilters(EMPTY_SEARCH_FILTERS);
@@ -539,6 +539,7 @@ export default function MapPage() {
           <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,23rem)]">
             <section
               aria-label="Map of India showing where the documented records come from"
+              tabIndex={0}
               className="panel min-w-0 overflow-hidden p-3 sm:p-4 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7.5rem)] lg:overflow-y-auto lg:overscroll-contain"
             >
               <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-ink-500">
@@ -572,7 +573,7 @@ export default function MapPage() {
                     District borders
                   </span>
                 ) : null}
-                <span className="ml-auto inline-flex items-center gap-1.5 text-ink-300">
+                <span className="ml-auto inline-flex items-center gap-1.5 text-ink-500">
                   Outline: international border
                 </span>
               </div>
@@ -615,6 +616,9 @@ export default function MapPage() {
                 keeps the themed 10px scrollbar off the cards' right-hand borders. */}
             <div
               ref={cardsRef as React.RefObject<HTMLDivElement>}
+              tabIndex={0}
+              role="region"
+              aria-label="Places and records"
               className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-4 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7.5rem)] lg:overflow-y-auto lg:overscroll-contain lg:pr-1"
             >
               {summary ? (
@@ -697,9 +701,9 @@ export default function MapPage() {
                       ) : null}
                       {typeof summary.anchoredDistricts === "number" ? (
                         <p className="mt-1 text-[11px] leading-4 text-ink-500">
-                          The map knows a position for {summary.anchoredDistricts}{" "}
-                          {summary.anchoredDistricts === 1 ? "district" : "districts"}, learned from{" "}
-                          {summary.anchorPins ?? 0} dropped {(summary.anchorPins ?? 0) === 1 ? "pin" : "pins"}.
+                          The map can place {summary.anchoredDistricts}{" "}
+                          {summary.anchoredDistricts === 1 ? "district" : "districts"} from the{" "}
+                          {summary.anchorPins ?? 0} {(summary.anchorPins ?? 0) === 1 ? "pin" : "pins"} people have dropped.
                         </p>
                       ) : null}
                     </div>

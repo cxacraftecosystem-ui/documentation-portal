@@ -39,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 // The two-typeface `Text`, shadowing androidx.compose.material3.Text — see ui/FieldText.kt.
+import com.fieldrepository.app.data.apiErrorMessage
 import com.fieldrepository.app.ui.Text
 import com.fieldrepository.app.ui.field
 import kotlinx.coroutines.CancellationException
@@ -378,8 +379,7 @@ fun TraceExportCard(
                                     // file is being written.
                                     if (error !is CancellationException) {
                                         onError(
-                                            error.message?.takeIf { it.isNotBlank() }
-                                                ?: "That file could not be saved."
+                                            error.apiErrorMessage("That file could not be saved.")
                                         )
                                     }
                                 }

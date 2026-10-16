@@ -155,7 +155,7 @@ export function GuideStepCard({
               >
                 <motion.div variants={riseItem(reduce, 8)}>
                   <h3 className="flex items-center gap-2 font-display text-sm font-bold text-ink-900">
-                    <Lightbulb className="h-4 w-4 text-purple-700" aria-hidden />
+                    <Lightbulb className="h-4 w-4 text-purple-700 dark:text-purple-300" aria-hidden />
                     Why this step exists
                   </h3>
                   <p className="mt-2 text-sm leading-6 text-ink-700">{step.why}</p>
@@ -163,7 +163,7 @@ export function GuideStepCard({
 
                 <motion.div variants={riseItem(reduce, 8)}>
                   <h3 className="flex items-center gap-2 font-display text-sm font-bold text-ink-900">
-                    <ListChecks className="h-4 w-4 text-purple-700" aria-hidden />
+                    <ListChecks className="h-4 w-4 text-purple-700 dark:text-purple-300" aria-hidden />
                     What the screen asks for
                   </h3>
                   <motion.ul variants={staggerParent(reduce, 0.025)} className="mt-2.5 flex flex-wrap gap-1.5">
@@ -181,7 +181,7 @@ export function GuideStepCard({
 
                 <motion.div variants={riseItem(reduce, 8)}>
                   <h3 className="flex items-center gap-2 font-display text-sm font-bold text-ink-900">
-                    <TriangleAlert className="h-4 w-4 text-purple-700" aria-hidden />
+                    <TriangleAlert className="h-4 w-4 text-purple-700 dark:text-purple-300" aria-hidden />
                     Watch out for
                   </h3>
                   <ul className="mt-2 grid gap-2">
@@ -195,7 +195,7 @@ export function GuideStepCard({
                 </motion.div>
 
                 <motion.div variants={riseItem(reduce, 8)}>
-                  <Link className="field-button h-9 min-h-0 px-3.5 text-xs" href={step.href}>
+                  <Link className="field-button h-9 min-h-0 pointer-coarse:h-11 px-3.5 text-xs" href={step.href}>
                     Open {step.label}
                     <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
                   </Link>

@@ -207,7 +207,7 @@ export type Artisan = {
   pehchanCardAvailable?: boolean;
   /** Only ever set while `pehchanCardAvailable` is true — the API nulls it whenever the answer is No. */
   pehchanCardNumber?: string | null;
-  // Newline-separated, numbered Do's (positive prompt) and Don'ts (negative prompt). Required on new
+  // Newline-separated, numbered Do's and Don'ts. Required on new
   // records; existing rows may be null until backfilled.
   dos?: string | null;
   donts?: string | null;

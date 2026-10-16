@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
@@ -38,9 +39,13 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -496,7 +501,7 @@ internal fun RecordDictationButton(
                 Text(
                     recordDictationLabel(tag),
                     color = MaterialTheme.field.muted,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     maxLines = 1
                 )
             }
@@ -552,7 +557,7 @@ internal fun RecordDictationButton(
                         "The languages a phone can dictate offline depend on the packs installed on " +
                             "it. If one is refused here, another usually works.",
                         color = MaterialTheme.field.muted,
-                        fontSize = 11.sp
+                        fontSize = 12.sp
                     )
                 }
             },
@@ -657,6 +662,11 @@ fun RecordProseField(
      */
     focusRequester: FocusRequester? = null,
     /** Drawn under the box — `TitleCaseHint` and friends, so a caller keeps its existing extras. */
+    /**
+     * How the keyboard capitalises. Null derives it: none for an email, number, phone or address,
+     * sentence case for prose. A name passes [KeyboardCapitalization.Words].
+     */
+    capitalization: KeyboardCapitalization? = null,
     below: @Composable () -> Unit = {},
 ) {
     /**
@@ -669,6 +679,15 @@ fun RecordProseField(
      * text when it arrives.
      */
     var spoken by remember(resetKey) { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
+    // A one-line box is ONE line: Enter moves to the next field instead of putting a newline into a
+    // name, and the keyboard shows Next. A taller box keeps Enter for new paragraphs.
+    val singleLine = !rich && minLines <= 1
+    val caps = capitalization ?: when (keyboardType) {
+        KeyboardType.Email, KeyboardType.Uri, KeyboardType.Password, KeyboardType.NumberPassword,
+        KeyboardType.Number, KeyboardType.Decimal, KeyboardType.Phone -> KeyboardCapitalization.None
+        else -> KeyboardCapitalization.Sentences
+    }
 
     /** The last dictation failure, shown under the box until the next attempt clears it. */
     var dictationError by remember(resetKey) { mutableStateOf<String?>(null) }
@@ -737,7 +756,6 @@ fun RecordProseField(
                 // way whichever kind of box it happened in.
                 onError = { message -> dictationError = message },
             )
-            Text(RECORD_RICH_TEXT_NOTE, color = MaterialTheme.field.muted, fontSize = 11.sp)
         } else {
             OutlinedTextField(
                 // While a partial is streaming the box shows what has been heard SO FAR, appended to
@@ -762,7 +780,13 @@ fun RecordProseField(
                 isError = errorText != null,
                 supportingText = errorText?.let { message -> { Text(message) } },
                 minLines = minLines,
-                keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+                singleLine = singleLine,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = keyboardType,
+                    capitalization = caps,
+                    imeAction = if (singleLine) ImeAction.Next else ImeAction.Default,
+                ),
+                keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
                 trailingIcon = if (!showMic) null else {
                     {
                         RecordDictationButton(
@@ -787,16 +811,16 @@ fun RecordProseField(
                     .fillMaxWidth()
                     .let { base -> focusRequester?.let { base.focusRequester(it) } ?: base }
             )
-            help?.let { Text(it, color = MaterialTheme.field.muted, fontSize = 11.sp) }
+            help?.let { Text(it, color = MaterialTheme.field.muted, fontSize = 12.sp) }
         }
 
         // Three words. The researcher is watching the words appear in the box; anything longer here
         // describes what they can already see.
         if (spoken.isNotBlank()) {
-            Text("Listening — speak now.", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+            Text("Listening — speak now.", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
         }
         dictationError?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+            Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
         }
         /*
          * THE HONEST ABSENCE. A box that was asked for a microphone and has no recogniser to give it
@@ -815,7 +839,7 @@ fun RecordProseField(
          * itself.
          */
         if (dictate && !available) {
-            Text(RECORD_DICTATION_UNAVAILABLE, color = MaterialTheme.field.muted, fontSize = 11.sp)
+            Text(RECORD_DICTATION_UNAVAILABLE, color = MaterialTheme.field.muted, fontSize = 12.sp)
         }
         below()
     }

@@ -113,8 +113,8 @@ Record the person: who they are, where they work, how to reach them, and what th
 
 **What the screen asks for:** Name *(required)*, Local name, Workshop, **Craft** *(required)*, Or new
 craft name, Place *(required)*, **Aadhaar number**, **Artisan Pehchan Card available** and its number,
-Gender, Phone, Email, Address, Notes, **Do's (positive prompt)** *(required)*, **Don'ts (negative
-prompt)** *(required)*, Artisan media, Location (device fix **and** stated address).
+Gender, Phone, Email, Address, Notes, **Do's** *(required)*, **Don'ts**
+*(required)*, Artisan media, Location (device fix **and** stated address).
 
 **Why it exists.** The artisan is the anchor of the dataset — products, processes, tools and
 questionnaire interviews all link back to an artisan record. The Do's and Don'ts are the artisan's
@@ -133,7 +133,7 @@ own hard-won craft knowledge: the part of the archive that cannot be reconstruct
   recognised as "unchanged"; you do not have to retype the number.
 - **Pehchan card**: answer Yes/No first. Answering Yes makes the card number required; answering No
   clears it. It is not possible to store a card number for an artisan who says they hold no card.
-- Photo EXIF is retained and summarised into the notes automatically. Do not transcribe camera
+- Photo details (date, place, camera) are kept and summarised into the notes automatically. Do not transcribe camera
   details by hand.
 - **Location asks two different things** — see the box below.
 

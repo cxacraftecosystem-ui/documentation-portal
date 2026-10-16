@@ -50,7 +50,7 @@ export function ArtisanQuestionnairePanel({ artisanId }: { artisanId: string }) 
   return (
     <section className="panel p-4">
       <div className="mb-2 flex items-center gap-2">
-        <ClipboardList className="h-5 w-5 text-field-700" aria-hidden />
+        <ClipboardList className="h-5 w-5 text-field-700 dark:text-purple-300" aria-hidden />
         <h3 className="font-display font-bold text-lg text-ink">Questionnaire answers ({data.total})</h3>
       </div>
       <p className="mb-3 text-sm text-ink-muted">Only questions this artisan actually answered are shown.</p>
@@ -60,7 +60,7 @@ export function ArtisanQuestionnairePanel({ artisanId }: { artisanId: string }) 
             const [code, title] = key.split("|");
             return (
               <div key={key}>
-                <h4 className="mb-2 text-xs font-semibold uppercase text-ink-soft">
+                <h4 className="mb-2 text-xs font-semibold uppercase text-ink-500">
                   {code}
                   {title ? ` · ${title}` : ""}
                 </h4>
@@ -69,7 +69,7 @@ export function ArtisanQuestionnairePanel({ artisanId }: { artisanId: string }) 
                     <div key={answer.responseId} className="rounded-md bg-field-100 p-3">
                       <div className="text-sm font-medium text-ink">{answer.prompt}</div>
                       <div className="mt-1 whitespace-pre-wrap text-sm text-ink-muted">{answer.answerText}</div>
-                      <div className="mt-2 text-xs text-ink-soft">
+                      <div className="mt-2 text-xs text-ink-500">
                         {[
                           answer.interviewTitle ? `Interview: ${answer.interviewTitle}` : null,
                           answer.answeredByName ? `by ${answer.answeredByName}` : null,
@@ -96,7 +96,7 @@ export function ArtisanQuestionnairePanel({ artisanId }: { artisanId: string }) 
             {recordings.map((interview) => (
               <div key={interview.interviewId} className="rounded-md bg-field-100 p-3">
                 <div className="text-sm font-medium text-ink">{interview.title || "Interview"}</div>
-                <div className="text-xs text-ink-soft">
+                <div className="text-xs text-ink-500">
                   {[
                     interview.interviewDate ? formatDate(interview.interviewDate) : null,
                     interview.coArtisans && interview.coArtisans.length > 0
@@ -122,7 +122,7 @@ export function ArtisanQuestionnairePanel({ artisanId }: { artisanId: string }) 
                               href={media.url ?? "#"}
                               target="_blank"
                               rel="noreferrer"
-                              className="truncate text-xs font-medium text-field-700 hover:underline"
+                              className="truncate text-xs font-medium text-field-700 dark:text-purple-300 hover:underline"
                             >
                               {media.originalFilename}
                             </a>
@@ -130,7 +130,7 @@ export function ArtisanQuestionnairePanel({ artisanId }: { artisanId: string }) 
                           {media.transcriptText?.trim() ? (
                             <button
                               type="button"
-                              className="shrink-0 text-xs text-field-700 hover:underline"
+                              className="shrink-0 text-xs text-field-700 dark:text-purple-300 hover:underline"
                               onClick={() => navigator.clipboard?.writeText(media.transcriptText ?? "")}
                             >
                               Copy transcript

@@ -111,15 +111,17 @@ export function QuestionnaireCaptureControls({
       </Field>
       <div className="flex items-start gap-3 md:pt-6">
         <div className="min-w-0 flex-1">
-          <span className="block text-sm text-ink">Do not display answer text boxes</span>
+          <span className="block text-sm text-ink">Show answer text boxes</span>
           <span className="mt-0.5 block text-xs text-ink-muted">
-            On by default — show only the record button. Toggle off to type written answers.
+            Off by default — only the record button shows. Turn on to type written answers.
           </span>
         </div>
+        {/* A positive switch (UX audit DC-A25): "Do not display" read as a double negative. The
+            stored preference is still `hideAnswers`, so the switch is its inverse. */}
         <Toggle
-          checked={prefs.hideAnswers}
-          label="Do not display answer text boxes"
-          onChange={(next) => onChange({ hideAnswers: next })}
+          checked={!prefs.hideAnswers}
+          label="Show answer text boxes"
+          onChange={(next) => onChange({ hideAnswers: !next })}
         />
       </div>
     </div>

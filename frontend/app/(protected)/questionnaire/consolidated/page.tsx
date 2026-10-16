@@ -108,7 +108,7 @@ export default function ConsolidatedIndexPage() {
                   {[artisan.craft?.name, artisan.place].filter(Boolean).join(" · ") || "No craft recorded"}
                 </span>
               </span>
-              <ChevronRight className="h-5 w-5 shrink-0 text-purple-700" aria-hidden />
+              <ChevronRight className="h-5 w-5 shrink-0 text-purple-700 dark:text-purple-300" aria-hidden />
             </Link>
           </li>
         ))}

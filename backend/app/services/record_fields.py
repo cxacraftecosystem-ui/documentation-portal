@@ -34,6 +34,7 @@ before they ever reach a cell.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from typing import Any, Callable, Iterable
 
 from app.services.artisan_identity import mask_aadhaar
@@ -99,9 +100,75 @@ def human_size(value: Any) -> str:
     return ""  # pragma: no cover - the TB branch always returns
 
 
+def flatten_rich_text(value: str) -> str | None:
+    """A rich-text answer stored as its document JSON -> the plain text a reader typed, else None.
+
+    The record forms on both clients store a formatted answer as ``{"blocks": [...]}`` (see
+    ``android/.../ui/RecordProseText.kt`` ``recordStoredFromDoc`` and the web's rich text field) and
+    plain typing as plain text. Exports used to print the JSON verbatim, so a formatted answer
+    reached a CSV as braces. This is the clients' ``toPlain`` line for line: paragraphs one per line,
+    ``1.`` / ``•`` for list items, a table one line per row with cells joined by `` | ``, and a
+    photograph contributes its caption only.
+
+    Anything that is not exactly that shape returns None and the caller keeps the original text, so
+    an answer that merely starts with a brace is never rewritten.
+    """
+    text = value.strip()
+    if not (text.startswith("{") and '"blocks"' in text):
+        return None
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        return None
+    blocks = doc.get("blocks") if isinstance(doc, dict) else None
+    if not isinstance(blocks, list) or not all(isinstance(b, dict) for b in blocks):
+        return None
+
+    def spans_text(spans: Any) -> str:
+        if not isinstance(spans, list):
+            return ""
+        return "".join(str(s.get("text", "")) for s in spans if isinstance(s, dict))
+
+    lines: list[str] = []
+    ordinal = 0
+    for block in blocks:
+        kind = str(block.get("kind", "PARAGRAPH"))
+        level = block.get("level") if isinstance(block.get("level"), int) else 0
+        if kind == "IMAGE":
+            ordinal = 0
+            caption = spans_text(block.get("spans")).strip()
+            if caption:
+                lines.append(caption)
+            continue
+        if kind == "TABLE":
+            ordinal = 0
+            for row in block.get("rows") or []:
+                if isinstance(row, list):
+                    lines.append(" | ".join(spans_text(c).strip() for c in row))
+            continue
+        body = spans_text(block.get("spans")).strip()
+        if kind == "ORDERED_ITEM":
+            ordinal += 1
+            lines.append("  " * level + f"{ordinal}. " + body)
+            continue
+        ordinal = 0
+        lines.append("  " * level + "• " + body if kind == "BULLET_ITEM" else body)
+    return "\n".join(lines).strip()
+
+
 def cell(value: Any) -> str:
-    """Any value -> a trimmed string safe to drop straight into a table cell."""
-    return "" if value is None else str(value).strip()
+    """Any value -> a trimmed string safe to drop straight into a table cell.
+
+    A rich-text answer is flattened to its words (:func:`flatten_rich_text`) rather than printed as
+    its stored JSON."""
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if isinstance(value, str):
+        flat = flatten_rich_text(text)
+        if flat is not None:
+            return flat
+    return text
 
 
 def _first_answer(*values: Any) -> Any:

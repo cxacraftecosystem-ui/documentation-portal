@@ -189,7 +189,7 @@ export default function QuestionnaireWorkbooksPage() {
                   <p className="text-sm font-semibold text-ink-900">
                     {instrument.title}
                     {instrument.isDefault ? (
-                      <span className="ml-2 rounded bg-field-200 px-1.5 py-0.5 text-[11px] font-medium text-field-600">
+                      <span className="ml-2 rounded bg-field-200 px-1.5 py-0.5 text-[11px] font-medium text-field-600 dark:text-purple-300">
                         default
                       </span>
                     ) : null}

@@ -66,7 +66,7 @@ const SOURCE_META: Record<SecretSource, { label: string; tone: string; help: str
 
 const STATUS_META: Record<SecretStatus, { label: string; tone: string }> = {
   OK: { label: "OK", tone: "border-success-600/25 bg-success-100 text-success-600" },
-  FAILED: { label: "Failed", tone: "border-error-600/25 bg-error-100 text-error-600" },
+  FAILED: { label: "Failed", tone: "border-error-600/25 bg-error-100 text-red-800" },
   UNKNOWN: { label: "Unknown", tone: "border-line-200 bg-surface-50 text-ink-500" }
 };
 
@@ -227,7 +227,7 @@ export function ApiKeysPanel() {
         written to logs, and revealing one is recorded against your account.
       </div>
 
-      {error ? <div className="rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-error-600">{error}</div> : null}
+      {error ? <div className="rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-red-800">{error}</div> : null}
 
       <section className="panel overflow-hidden">
         <div className="border-b border-line-200 px-4 py-3">

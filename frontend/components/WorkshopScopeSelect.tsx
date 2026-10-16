@@ -222,7 +222,7 @@ export function WorkshopScopeSelect({
             <button
               type="button"
               onClick={() => setWorkshopIds([workshops[0].id])}
-              className="text-[11px] font-semibold text-purple-700 hover:underline"
+              className="text-[11px] font-semibold text-purple-700 dark:text-purple-300 hover:underline"
             >
               Most recent only
             </button>

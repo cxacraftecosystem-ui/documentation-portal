@@ -39,7 +39,7 @@ import { QuestionHelpText, RequiredByInstrument } from "@/components/questionnai
 import { RowActions, rowAction } from "@/components/RowActions";
 import { SearchInput } from "@/components/SearchInput";
 import { EMPTY_FUNNEL, FunnelFilters, type FunnelValue } from "@/components/FunnelFilters";
-import { StatusBadge } from "@/components/StatusBadge";
+import { StatusBadge, statusLabel } from "@/components/StatusBadge";
 import { Accordion } from "@/components/ui/Accordion";
 import { MultiSelectDropdown } from "@/components/ui/Dropdown";
 import { useWorkshopScope, WorkshopScopeSelect } from "@/components/WorkshopScopeSelect";
@@ -1700,7 +1700,7 @@ function QuestionnairePageBody() {
       {mergeNotice ? (
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3 rounded-md border border-line-200 bg-field-100 px-3 py-2 text-sm text-ink-700">
           <span className="min-w-0">{mergeNotice}</span>
-          <button type="button" className="text-xs font-semibold text-purple-700" onClick={() => setMergeNotice(null)}>
+          <button type="button" className="text-xs font-semibold text-purple-700 dark:text-purple-300" onClick={() => setMergeNotice(null)}>
             Dismiss
           </button>
         </div>
@@ -1913,7 +1913,7 @@ function QuestionnairePageBody() {
                  re-approving a REJECTED sitting has to be something somebody chose on screen. */
               <Select name="status" defaultValue={editing?.status ?? "APPROVED"}>
                 {["DRAFT", "PENDING", "APPROVED", "REJECTED"].map((status) => (
-                  <option key={status}>{status}</option>
+                  <option key={status} value={status}>{statusLabel(status)}</option>
                 ))}
               </Select>
             ) : (
@@ -2521,7 +2521,7 @@ function QuestionnairePageBody() {
                     </td>
                     <td className="px-4 py-3 text-ink-700">
                       <details>
-                        <summary className="cursor-pointer font-semibold text-field-700">{interview.responses?.length ?? 0} answers</summary>
+                        <summary className="cursor-pointer font-semibold text-field-700 dark:text-purple-300">{interview.responses?.length ?? 0} answers</summary>
                         <div className="mt-2 grid max-w-lg gap-2">
                           {interview.responses?.map((response) => (
                             <div key={response.id} className="rounded-md bg-field-100 p-2 text-xs">
@@ -3353,7 +3353,7 @@ function QuestionnaireAdminEditor({
               workbook matches rows on it — and a recogniser asked for "RESP" hands back "resp",
               "rest" or "R E S P" with equal confidence. A box whose value must be exact is the one
               box dictation must not touch. */}
-          <Field label="Section code">
+          <Field label="Section code" required>
             <TextInput value={newCode} onChange={(event) => setNewCode(event.target.value)} placeholder="A, RESP, FIELD..." required />
           </Field>
           {/* NO `name`, AND THAT IS CORRECT HERE RATHER THAN AN OVERSIGHT: `addSection` builds its
@@ -3428,7 +3428,7 @@ function QuestionnaireAdminEditor({
                   }
                 }}
               >
-                <Field label="Code">
+                <Field label="Code" required>
                   <TextInput name="code" defaultValue={section.code} required />
                 </Field>
                 <SectionTitleField section={section} />
@@ -3493,7 +3493,7 @@ function QuestionnaireAdminEditor({
                 {section.questions.length === 0 ? (
                   <div
                     className={`rounded-md border border-dashed p-3 text-center text-xs font-semibold ${
-                      dragActive ? "border-field-600 bg-field-100 text-field-700" : "border-[#d7c7bc] text-ink-muted"
+                      dragActive ? "border-field-600 bg-field-100 text-field-700 dark:text-purple-300" : "border-[#d7c7bc] text-ink-muted"
                     }`}
                   >
                     {dragActive ? `Drop a question here to move it into ${section.code}` : "No questions yet — add one below."}

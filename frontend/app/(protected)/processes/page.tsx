@@ -164,7 +164,7 @@ function ProcessesPageInner() {
   const banners = (
     <>
       {error ? (
-        <div className="mb-4 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-error-600">{error}</div>
+        <div className="mb-4 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-red-800">{error}</div>
       ) : null}
       {deepLinkLoading ? (
         <div className="mb-4 rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-muted">

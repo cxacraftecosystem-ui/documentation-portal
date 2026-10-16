@@ -351,11 +351,10 @@ class RecordPickersTest {
     }
 
     @Test
-    fun `a cut list prints both numbers and says the search is local`() {
+    fun `a cut list prints both numbers and points at Search instead of admitting a gap`() {
         val notice = listCutNotice(loaded = 100, total = 749, noun = "artisans")
         assertEquals(
-            "Showing 100 of 749 artisans — the other 649 are not on this list, " +
-                "and typing here searches only the 100 shown.",
+            "Showing 100 of 749 artisans. To find another, use Browse records from the menu.",
             notice
         )
     }

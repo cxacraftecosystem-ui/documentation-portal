@@ -85,7 +85,7 @@ export function AppSettingsPanel() {
   return (
     <div className="grid gap-4">
       {error ? (
-        <div className="rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-error-600">{error}</div>
+        <div className="rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-red-800">{error}</div>
       ) : null}
       {success ? (
         <div className="rounded-md border border-emerald-200 bg-success-100 px-3 py-2 text-sm text-success-600">{success}</div>

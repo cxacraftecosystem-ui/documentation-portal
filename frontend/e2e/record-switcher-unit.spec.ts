@@ -295,7 +295,7 @@ test.describe("when a keystroke is allowed to cost a request", () => {
       "Showing 100 of 240 artisans in this workshop — type to search all 240."
     );
     expect(cappedListNotice(cut)).toBe(
-      "Showing 100 of 240 artisans in this workshop — the other 140 are not on this list, and typing here searches only the 100 shown."
+      "Showing 100 of 240 artisans in this workshop. To find another, use Browse records from the menu."
     );
   });
 });
@@ -363,8 +363,7 @@ test.describe("the handset's copy of all of it", () => {
     const source = read(...KOTLIN_PICKERS);
     for (const fragment of [
       " — type to search all ",
-      " are not on this list, ",
-      "typing here searches only the ",
+      ". To find another, use Browse records from the menu.",
       " — use the pager to reach the rest, which are not ",
       "searched by the box above.",
       " could be loaded. Try again."

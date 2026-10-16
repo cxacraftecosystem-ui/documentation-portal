@@ -30,6 +30,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.Alignment
@@ -872,6 +875,13 @@ private fun RichTextBlockRow(
  * only one of the two clients can ever change. The percentage is therefore written out as a number —
  * it is the only feedback this surface can honestly give.
  */
+/**
+ * Turns a photograph's media id into a URL the phone can load, or null when the file is withheld
+ * (the server omits `url` for a reader not entitled to the bytes). Provided once by the app shell
+ * from `FieldRepository.mediaItem`; null here (a preview, a test) draws the caption card alone.
+ */
+val LocalRichMediaUrl = staticCompositionLocalOf<(suspend (String) -> String?)?> { null }
+
 @Composable
 private fun InlinePhotograph(
     block: RichBlock,
@@ -880,11 +890,29 @@ private fun InlinePhotograph(
     onWidthStep: (Float) -> Unit,
 ) {
     val caption = block.text.trim()
+    // The picture itself, loaded from its media URL. It used to be described ("The picture itself
+    // is not shown on the phone") instead of drawn.
+    val resolve = LocalRichMediaUrl.current
+    var imageUrl by remember(block.media) { mutableStateOf<String?>(null) }
+    LaunchedEffect(block.media) {
+        val id = block.media
+        imageUrl = if (resolve != null && !id.isNullOrBlank()) runCatching { resolve(id) }.getOrNull() else null
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
+        imageUrl?.let { url ->
+            AsyncImage(
+                model = url,
+                contentDescription = caption.ifEmpty { "Photograph" },
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxWidth(fraction = (block.widthPct / 100f).coerceIn(0.2f, 1f))
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)),
+            )
+        }
         Row(
             verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -911,12 +939,13 @@ private fun InlinePhotograph(
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
                 )
-                Text(
-                    "Placed in this narrative from the web app. The picture itself is not shown on " +
-                        "the phone; it is kept, and it still appears in the browser.",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (imageUrl == null) {
+                    Text(
+                        "A photograph placed in this narrative. It is kept with the answer.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
 
@@ -931,7 +960,7 @@ private fun InlinePhotograph(
             ) {
                 Text(
                     "${block.widthPct.toInt()}% of the page width",
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.width(4.dp))

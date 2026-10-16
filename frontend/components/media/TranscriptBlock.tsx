@@ -96,7 +96,7 @@ export function TranscriptBlock({ media }: { media: MediaFile }) {
         {player}
         <div className="mt-2 rounded-md border border-line-200 bg-field-50 p-3">
           <div className="mb-1 flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-ink-soft">Transcript</span>
+            <span className="text-xs font-semibold uppercase tracking-wide text-ink-500">Transcript</span>
             {/*
               `transcriptEditedAt ? true : undefined`, NEVER `!!media.transcriptEditedAt`. The two
               are not the same value: `!!` answers `false` for a row that simply cannot say, and

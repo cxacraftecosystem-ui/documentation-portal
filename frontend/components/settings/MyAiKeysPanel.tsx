@@ -124,7 +124,7 @@ function HowToGetAKey({ provider }: { provider: Provider }) {
             href={provider.consoleUrl}
             target="_blank"
             rel="noreferrer noopener"
-            className="inline-flex items-center gap-1 font-medium text-purple-700 hover:underline"
+            className="inline-flex items-center gap-1 font-medium text-purple-700 dark:text-purple-300 hover:underline"
           >
             Open {provider.label} keys page <ExternalLink className="h-3.5 w-3.5" aria-hidden />
           </a>
@@ -132,7 +132,7 @@ function HowToGetAKey({ provider }: { provider: Provider }) {
             href={provider.pricingUrl}
             target="_blank"
             rel="noreferrer noopener"
-            className="inline-flex items-center gap-1 font-medium text-purple-700 hover:underline"
+            className="inline-flex items-center gap-1 font-medium text-purple-700 dark:text-purple-300 hover:underline"
           >
             Current prices <ExternalLink className="h-3.5 w-3.5" aria-hidden />
           </a>

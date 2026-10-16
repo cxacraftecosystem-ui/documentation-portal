@@ -1044,7 +1044,7 @@ export default function HeroLanding({ census }: { census?: CorpusCensus }) {
               href={CENTRE_OF_EXCELLENCE_HREF}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-2 font-medium text-purple-700 underline-offset-2 hover:underline"
+              className="inline-flex items-center gap-2 font-medium text-purple-700 dark:text-purple-300 underline-offset-2 hover:underline"
             >
               {/* `shrink-0` because the name wraps to two or three lines on a phone and a flex item
                   with an intrinsic aspect ratio is otherwise squeezed into an oval. */}

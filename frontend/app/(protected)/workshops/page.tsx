@@ -24,7 +24,7 @@ import { Pagination } from "@/components/Pagination";
 import { ResizableTh } from "@/components/ResizableTh";
 import { RowActions, rowAction } from "@/components/RowActions";
 import { SearchInput } from "@/components/SearchInput";
-import { StatusBadge } from "@/components/StatusBadge";
+import { StatusBadge, statusLabel } from "@/components/StatusBadge";
 import { WorkshopMappingPanel } from "@/components/settings/WorkshopMappingPanel";
 import { MultiSelectDropdown } from "@/components/ui/Dropdown";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
@@ -608,7 +608,7 @@ function WorkshopsPageBody() {
             {canSetStatus ? (
               <Select name="status" defaultValue={editing?.status ?? "APPROVED"} onChange={() => setDirty(true)}>
                 {statusOptions.map((status) => (
-                  <option key={status}>{status}</option>
+                  <option key={status} value={status}>{statusLabel(status)}</option>
                 ))}
               </Select>
             ) : (

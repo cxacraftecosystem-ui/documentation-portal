@@ -124,7 +124,7 @@ function StarRating({
           onClick={() => onChange(value === n ? null : n)}
           type="button"
         >
-          <Star className={`${star} ${value && n <= value ? "fill-purple-700 text-purple-700" : "text-line-200"}`} aria-hidden />
+          <Star className={`${star} ${value && n <= value ? "fill-purple-700 text-purple-700 dark:text-purple-300" : "text-line-200"}`} aria-hidden />
         </button>
       ))}
       <span className="ml-2 text-xs text-ink-500">{value ? `${value}/5` : "Not rated"}</span>
@@ -262,7 +262,7 @@ export default function FeedbackPage() {
         icon={<MessageSquare className="h-5 w-5" aria-hidden />}
       />
       {error ? (
-        <div className="mb-4 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-error-600">{error}</div>
+        <div className="mb-4 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-red-800">{error}</div>
       ) : null}
       {success ? (
         <div className="mb-4 rounded-md border border-emerald-200 bg-success-100 px-3 py-2 text-sm text-success-600">{success}</div>
@@ -340,7 +340,7 @@ export default function FeedbackPage() {
         <section className="mt-8">
           <h2 className="mb-3 font-display text-lg font-bold text-ink-900">All feedback</h2>
           {allError ? (
-            <div className="mb-4 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-error-600">{allError}</div>
+            <div className="mb-4 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-red-800">{allError}</div>
           ) : null}
           {!allFeedback ? (
             <div className="panel p-4 text-sm text-ink-500">Loading...</div>

@@ -93,7 +93,7 @@ export function GuideRail({
                   animate="show"
                   exit="exit"
                 >
-                  <p className="text-xs font-semibold uppercase tracking-wide text-purple-700">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-purple-700 dark:text-purple-300">
                     Step {activeIndex + 1} of {steps.length}
                   </p>
                   <p className="mt-1 font-display text-lg font-bold leading-tight text-ink-900">{active?.label}</p>

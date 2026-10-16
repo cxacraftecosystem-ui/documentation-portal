@@ -136,12 +136,12 @@ export function ReviewEditPanel({
             carries two colours of required mark at once.
 
             IT IS A DIFFERENT RED FROM THE ONE BESIDE IT, AND THAT IS THE POINT. `changed` is
-            `text-purple-700` because it reports a fact about this editing session (you altered this
+            `text-purple-700 dark:text-purple-300` because it reports a fact about this editing session (you altered this
             box) while the asterisk reports a fact about the record (this column cannot be empty).
             Painting them the same colour would merge a transient state into a standing rule.
           */}
           <RequiredMark when={field.required} />
-          {dirty ? <span className="ml-1.5 font-semibold normal-case text-purple-700">changed</span> : null}
+          {dirty ? <span className="ml-1.5 font-semibold normal-case text-purple-700 dark:text-purple-300">changed</span> : null}
         </span>
         {field.multiline ? (
           <textarea
@@ -208,7 +208,7 @@ export function ReviewEditPanel({
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              className="field-button h-9 min-h-0 px-3 text-xs"
+              className="field-button h-9 min-h-0 pointer-coarse:h-11 px-3 text-xs"
               disabled={busy || changedKeys.length === 0 || blanked.length > 0}
               onClick={() => submit(false)}
             >
@@ -220,13 +220,13 @@ export function ReviewEditPanel({
             </button>
             <button
               type="button"
-              className="field-button-secondary h-9 min-h-0 px-3 text-xs"
+              className="field-button-secondary h-9 min-h-0 pointer-coarse:h-11 px-3 text-xs"
               disabled={busy || changedKeys.length === 0 || blanked.length > 0}
               onClick={() => submit(true)}
             >
               Save and approve
             </button>
-            <button type="button" className="field-button-secondary h-9 min-h-0 px-3 text-xs" disabled={busy} onClick={onClose}>
+            <button type="button" className="field-button-secondary h-9 min-h-0 pointer-coarse:h-11 px-3 text-xs" disabled={busy} onClick={onClose}>
               Cancel
             </button>
           </div>
