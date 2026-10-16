@@ -15432,7 +15432,7 @@ private fun UserManagementForm(
                             ) {
                                 Text("Issue a set-password link")
                             }
-                            Text("Shown once. Copy it and send it yourself.", color = Muted, fontSize = 11.sp)
+                            Text("Shown once. Copy it and send it yourself.", color = Muted, fontSize = 12.sp)
                         }
                         if (actorIsAdmin && canManageTarget && appUser.twoFactorEnabled && appUser.id != actor?.id) {
                             HorizontalDivider()

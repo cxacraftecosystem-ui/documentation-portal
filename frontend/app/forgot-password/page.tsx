@@ -122,7 +122,7 @@ export default function ForgotPasswordPage() {
         No email? Ask an administrator — they can make you a link to set a new password.
       </p>
       <p className="mt-4 text-sm">
-        <Link href="/login" className="inline-flex items-center gap-1.5 font-medium text-purple-700 hover:underline">
+        <Link href="/login" className="inline-flex items-center gap-1.5 font-medium text-purple-700 hover:underline dark:text-purple-300">
           <ArrowLeft aria-hidden className="h-4 w-4 shrink-0" />
           Back to sign in
         </Link>

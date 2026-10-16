@@ -128,7 +128,7 @@ export function AddPersonForm({
 
       <div role="alert" aria-live="assertive">
         {error ? (
-          <div className="grid gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <div className="grid gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
             <p>{error}</p>
             {existing ? (
               <div>

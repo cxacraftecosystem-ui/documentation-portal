@@ -176,7 +176,7 @@ export function TemporaryPasswordDialog({
                 aria-label={revealed ? "Hide password" : "Show password"}
                 aria-pressed={revealed}
                 onClick={() => setRevealed((value) => !value)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-ink-300 hover:text-ink-500"
+                className="absolute right-2 top-1/2 -translate-y-1/2 grid place-items-center rounded-md p-1 text-ink-500 hover:text-ink-700 pointer-coarse:right-0 pointer-coarse:h-11 pointer-coarse:w-11"
               >
                 {revealed ? <EyeOff size={18} aria-hidden /> : <Eye size={18} aria-hidden />}
               </button>

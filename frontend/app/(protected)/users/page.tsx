@@ -357,7 +357,7 @@ export default function UsersPage() {
         icon={<ShieldCheck className="h-5 w-5" aria-hidden />}
       />
       {error ? (
-        <div role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {error}
         </div>
       ) : null}
