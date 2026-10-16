@@ -333,8 +333,13 @@ async def ensure_admitted(
     notes: str | None = None,
     decided_by_id: str | None = None,
     joined_at: datetime | None = None,
+    client: Any = None,
 ) -> Any:
     """Put an address on the roster as ACTIVE, creating the row or promoting an existing one.
+
+    ``client`` is the transaction to write through (``db.tx()`` hands back a DIFFERENT client, and a
+    write through the module ``db`` would escape it): ``POST /users`` admits the address in the same
+    transaction that creates the account, so a failure leaves neither. ``None`` means ``db``.
 
     THE ONE PLACE ADMISSION IS WRITTEN, called from the roster routes, from ``POST /users`` and from
     the admin seed script. That matters more than it looks: an administrator who creates an account
@@ -352,7 +357,8 @@ async def ensure_admitted(
 
     now = datetime.now(UTC)
     role = role_value(granted_role) or None
-    existing = await db.accessroster.find_unique(where={"email": address})
+    store = client if client is not None else db
+    existing = await store.accessroster.find_unique(where={"email": address})
     if existing is not None:
         data: dict[str, Any] = {
             "status": ADMITTING_STATUS,
@@ -366,9 +372,9 @@ async def ensure_admitted(
             data["fullName"] = clean_text(full_name, MAX_FULL_NAME_LENGTH)
         if notes is not None:
             data["notes"] = clean_text(notes, MAX_NOTES_LENGTH)
-        return await db.accessroster.update(where={"email": address}, data=data)
+        return await store.accessroster.update(where={"email": address}, data=data)
 
-    return await db.accessroster.create(
+    return await store.accessroster.create(
         data={
             "email": address,
             "status": ADMITTING_STATUS,

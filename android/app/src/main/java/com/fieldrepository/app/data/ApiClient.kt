@@ -2,8 +2,15 @@ package com.fieldrepository.app.data
 
 import com.fieldrepository.app.BuildConfig
 import kotlinx.serialization.json.Json
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Interceptor
+import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody
+import okio.BufferedSink
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
@@ -35,6 +42,79 @@ object ApiClient {
         }
         return false
     }
+
+    /**
+     * The credential writes: a password change, a link redemption, a link minted. Each is sent ONCE —
+     * see [sentOnce] — because the first copy may already have landed (the password changed, every
+     * older session retired, the link spent) and a silent second copy would be refused with words
+     * that contradict what actually happened.
+     */
+    private fun isCredentialWrite(method: String, path: String): Boolean =
+        method.equals("POST", ignoreCase = true) && (
+            path.endsWith("/auth/change-password") ||
+                path.endsWith("/auth/set-password") ||
+                path.endsWith("/auth/password-links")
+            )
+
+    /**
+     * This request with its body marked ONE-SHOT, OkHttp's word for "never transmit this twice".
+     * `retryOnConnectionFailure(true)` would otherwise let OkHttp resend a POST by itself after a
+     * connection failed mid-exchange. Ported from the Design Prototype Workshop's `ApiClient`.
+     */
+    private fun Request.sentOnce(): Request {
+        val original = body ?: return this
+        if (original.isOneShot()) return this
+        return newBuilder().method(method, object : RequestBody() {
+            override fun contentType(): MediaType? = original.contentType()
+            override fun contentLength(): Long = original.contentLength()
+            override fun writeTo(sink: BufferedSink) = original.writeTo(sink)
+            override fun isOneShot(): Boolean = true
+        }).build()
+    }
+
+    /** Is this a request to the API itself: its scheme, host and port, and a path under the base? */
+    private fun HttpUrl.isUnder(base: HttpUrl): Boolean =
+        scheme == base.scheme && host == base.host && port == base.port &&
+            encodedPath.startsWith(base.encodedPath)
+
+    /**
+     * Puts the session on every request, and tells the session root what the answers say about it.
+     *
+     * HEADERS ONLY, BOTH WAYS: the body belongs to the caller, and reading it here would consume it.
+     * Each caller still gets its own 401 and triages it as it always has — the outbox keeps its work
+     * on one — so the two signals change nothing a caller sees. They only make sure the screen learns
+     * what the server has said about the SESSION: that the account owes a new password
+     * ([PasswordChangeSignal]), or that the session has ended because the password was changed or an
+     * administrator signed the account out everywhere ([SessionEndedSignal]).
+     */
+    internal fun sessionInterceptor(tokenStore: TokenStore, apiBase: HttpUrl?): Interceptor =
+        Interceptor { chain ->
+            val token = tokenStore.getToken()
+            val outgoing = chain.request().let {
+                if (isCredentialWrite(it.method, it.url.encodedPath)) it.sentOnce() else it
+            }
+            val request = if (token.isNullOrBlank()) {
+                outgoing
+            } else {
+                outgoing.newBuilder()
+                    .header("Authorization", "Bearer $token")
+                    .build()
+            }
+            val response = chain.proceed(request)
+            val gate = response.header(PASSWORD_CHANGE_REQUIRED_HEADER)
+            if (!token.isNullOrBlank() && isPasswordChangeRequired(response.code, gate)) {
+                PasswordChangeSignal.raise()
+            }
+            // The store is read AGAIN after the answer: a token replaced while this request was in
+            // flight (a password change adopting a fresh one, a sign-out) means the 401 is about a
+            // session this handset has already left. See [isSessionEnded].
+            if (apiBase != null && request.url.isUnder(apiBase) &&
+                isSessionEnded(response.code, gate, token, tokenStore.getToken())
+            ) {
+                SessionEndedSignal.raise()
+            }
+            response
+        }
 
     /** Linear-ish backoff with a hard cap, so a struggling origin gets breathing room without long stalls. */
     private fun backoffMillis(attempt: Int): Long = minOf(4_000L, 600L * attempt)
@@ -120,17 +200,7 @@ object ApiClient {
                 }
                 throw lastError ?: IOException("Request failed after $maxAttempts attempts")
             }
-            .addInterceptor { chain ->
-                val token = tokenStore.getToken()
-                val request = if (token.isNullOrBlank()) {
-                    chain.request()
-                } else {
-                    chain.request().newBuilder()
-                        .header("Authorization", "Bearer $token")
-                        .build()
-                }
-                chain.proceed(request)
-            }
+            .addInterceptor(sessionInterceptor(tokenStore, BuildConfig.DEFAULT_API_BASE_URL.toHttpUrlOrNull()))
             .addInterceptor(logging)
             .build()
 

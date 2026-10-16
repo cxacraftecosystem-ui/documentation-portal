@@ -160,11 +160,20 @@ def verify_jwt_configuration() -> None:
     raise RuntimeError(f"{message} (set ALLOW_WEAK_JWT_SECRET=true to override in development)")
 
 
+#: The claim that binds a bearer token to the password its account held when it was minted: the
+#: ``credential_links.credential_fingerprint`` of that ``passwordHash`` (a fixed sentinel's digest for
+#: an account with none). ``deps._user_from_bearer`` refuses a token whose claim no longer matches
+#: the row, so ANY password change retires every session opened before it. Ported, same name, from
+#: the Design Prototype Workshop (2026-10-16).
+CREDENTIAL_CLAIM = "cred"
+
+
 def create_access_token(
     subject: str,
     extra_claims: dict[str, Any] | None = None,
     *,
     expires_minutes: int | None = None,
+    credential: str | None = None,
 ) -> str:
     """Mint a signed bearer token for *subject*.
 
@@ -172,6 +181,11 @@ def create_access_token(
     cannot lengthen a token's life by accident when it meant to pass claims. The one caller that
     uses it is ``POST /api/datasets/token``, whose credential is deliberately longer-lived than a
     browser session because it is deliberately narrower (see ``deps.DATASET_READ_SCOPE``).
+
+    ``credential`` is the account's password fingerprint, written as :data:`CREDENTIAL_CLAIM`. Every
+    session the sign-in and the change-password answer hand out carries one (2026-10-16). It is
+    optional here only because a token WITHOUT the claim is what every earlier build minted, and those
+    stay valid exactly as they were until they expire.
     """
     settings = get_settings()
     now = datetime.now(UTC)
@@ -193,12 +207,14 @@ def create_access_token(
         #
         # ``scope`` is deliberately NOT reserved — POST /api/datasets/token sets it, and it can only
         # ever NARROW what the token may reach (see deps._user_from_bearer).
-        reserved = {"sub", "iat", "exp"} & extra_claims.keys()
+        reserved = {"sub", "iat", "exp", CREDENTIAL_CLAIM} & extra_claims.keys()
         if reserved:
             raise ValueError(
                 f"extra_claims may not override reserved claims: {', '.join(sorted(reserved))}"
             )
         payload.update(extra_claims)
+    if credential is not None:
+        payload[CREDENTIAL_CLAIM] = credential
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 

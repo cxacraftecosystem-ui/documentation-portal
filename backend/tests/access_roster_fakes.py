@@ -58,6 +58,48 @@ USER_DEFAULTS: dict[str, Any] = {
     "twoFactorRecoveryWindowStartedAt": None,
     "twoFactorRecoveryLockedUntil": None,
     "twoFactorRecoveryLockouts": 0,
+    # Passwords and sessions (20261018090000_account_passwords).
+    "passwordSetAt": None,
+    "mustChangePassword": False,
+    "firstLoginAt": None,
+    "sessionsValidFrom": None,
+}
+
+PASSWORD_RESET_TOKEN_DEFAULTS: dict[str, Any] = {
+    "userId": None,
+    "tokenHash": None,
+    "purpose": "RESET",
+    "expiresAt": None,
+    "usedAt": None,
+    "revokedAt": None,
+    "issuedById": None,
+}
+
+PASSWORD_RESET_REQUEST_DEFAULTS: dict[str, Any] = {
+    "email": None,
+    "accountId": None,
+    "outcome": None,
+    "ipAddress": None,
+    "userAgent": None,
+}
+
+EMAIL_MESSAGE_DEFAULTS: dict[str, Any] = {
+    "kind": None,
+    "toAddress": None,
+    "recipientId": None,
+    "subject": None,
+    "params": None,
+    "sealed": None,
+    "status": "QUEUED",
+    "attempts": 0,
+    "maxAttempts": 5,
+    # The column defaults to now() in Postgres: a fresh row is due at once.
+    "runAfter": datetime(2000, 1, 1, tzinfo=UTC),
+    "lockedAt": None,
+    "lockedBy": None,
+    "sentAt": None,
+    "providerMessageId": None,
+    "error": None,
 }
 
 TWO_FACTOR_CHALLENGE_DEFAULTS: dict[str, Any] = {
@@ -109,6 +151,9 @@ def _matches(row: Any, where: dict[str, Any] | None) -> bool:
                     return False
             elif "gte" in expected:
                 if actual is None or not actual >= expected["gte"]:
+                    return False
+            elif "lte" in expected:
+                if actual is None or not actual <= expected["lte"]:
                     return False
             else:  # pragma: no cover - a query shape the fake has not been taught
                 raise NotImplementedError(f"fake db cannot match {field}={expected!r}")
@@ -343,6 +388,11 @@ class FakeDb:
     ) -> None:
         self.user = FakeTable(USER_DEFAULTS, users)
         self.twofactorchallenge = FakeTable(TWO_FACTOR_CHALLENGE_DEFAULTS)
+        self.passwordresettoken = FakeTable(
+            PASSWORD_RESET_TOKEN_DEFAULTS, unique_keys=(("tokenHash",),)
+        )
+        self.passwordresetrequest = FakeTable(PASSWORD_RESET_REQUEST_DEFAULTS)
+        self.emailmessage = FakeTable(EMAIL_MESSAGE_DEFAULTS)
         self.accessroster = FakeTable(ROSTER_DEFAULTS, roster)
         self.questionnaire = FakeTable(
             QUESTIONNAIRE_DEFAULTS, questionnaires, unique_keys=(("title",),)
@@ -363,11 +413,39 @@ class FakeDb:
             INTERVIEW_DEFAULTS, interviews, unique_keys=(("questionnaireId", "artisanSetKey"),)
         )
 
+    def tx(self) -> "_FakeTransaction":
+        """``db.tx()``: the same tables, rolled back to how they were if the block raises.
+
+        Every row is copied on entry and the copies are put back on an exception, which is what makes
+        "a failure in the second write leaves no first row" an assertable property here, as it is in
+        Postgres. The block writes through the object it is handed, exactly as real code writes
+        through ``tx`` and not through the module ``db``.
+        """
+        return _FakeTransaction(self)
+
     def __getattr__(self, name: str) -> Any:  # pragma: no cover - a guard, not a path
         raise AssertionError(
             f"The sign-in gate touched db.{name}, which this fake does not model. If that is "
             f"deliberate, teach the fake; if it is not, the gate just grew a dependency."
         )
+
+
+class _FakeTransaction:
+    def __init__(self, fake: FakeDb) -> None:
+        self.fake = fake
+        self.snapshot: dict[str, list[SimpleNamespace]] = {}
+
+    async def __aenter__(self) -> FakeDb:
+        for name, table in vars(self.fake).items():
+            if isinstance(table, FakeTable):
+                self.snapshot[name] = [SimpleNamespace(**vars(row)) for row in table.rows]
+        return self.fake
+
+    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+        if exc_type is not None:
+            for name, rows in self.snapshot.items():
+                getattr(self.fake, name).rows = rows
+        return False
 
 
 def install(monkeypatch: pytest.MonkeyPatch, fake: FakeDb) -> FakeDb:

@@ -379,7 +379,9 @@ fun AppearanceScreen(
     onBack: () -> Unit,
     onOpenMyAiKeys: () -> Unit,
     onOpenTwoStepVerification: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Signs this device out — for "Sign out and sign in again" on the password card. */
+    onSignOut: () -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     var saving by remember { mutableStateOf(false) }
@@ -521,6 +523,9 @@ fun AppearanceScreen(
             )
             OutlinedButton(onClick = onOpenMyAiKeys) { Text("Open my AI keys") }
         }
+
+        // The password, beside the two-step lock: change it, or set a first one. See AccountRecovery.kt.
+        AccountPasswordCard(repository = repository, onSignOut = onSignOut)
 
         // This account's own lock, beside the account's own keys: personal, open to every role.
         PreferenceCard {

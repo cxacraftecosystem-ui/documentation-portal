@@ -37,6 +37,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|density|fontScale"
             android:enableOnBackInvokedCallback="true"
             android:windowSoftInputMode="adjustResize"
@@ -61,6 +62,23 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- AN ADMINISTRATOR'S SET-PASSWORD LINK, tapped in a chat app or an e-mail. Offers this
+                 app beside the browser for https://field-repository.vercel.app/set-password, and the
+                 app opens its own redeem screen with the link already in the box. `singleTop` above
+                 is what delivers a second tap to the running app (onNewIntent) instead of stacking a
+                 second copy. A plain filter, not a verified App Link, so the chooser decides; the
+                 paste box on the sign-in card stays the way in for everything else. `path`, not a
+                 prefix: this is one screen. MainActivity re-checks scheme, host and path, because the
+                 activity is exported and a filter never sees an explicit intent. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="field-repository.vercel.app"
+                    android:path="/set-password" />
             </intent-filter>
         </activity>
         <!-- MICROSOFT AND YAHOO SIGN-IN: where the browser tab hands the authorization code back.

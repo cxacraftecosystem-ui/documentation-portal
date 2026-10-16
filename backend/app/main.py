@@ -12,8 +12,11 @@ from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.router import api_router
+from app.api.routes.users import EXISTING_ACCOUNT_HEADER
+from app.api.routes.auth import SESSION_TOKEN_HEADER, SIGN_IN_AGAIN_HEADER
 from app.core.config import get_settings
 from app.core.db import connect_db, db, disconnect_db
+from app.core.deps import PASSWORD_CHANGE_REQUIRED_HEADER
 from app.core.idempotency import IdempotencyMiddleware
 from app.core.security import verify_jwt_configuration
 from app.services.email_outbox import process_next_email_jobs
@@ -406,6 +409,16 @@ def create_app() -> FastAPI:
         allow_credentials=allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
+        # Headers the web client must be able to READ, imported from where they are defined so a
+        # rename cannot leave the browser blind while the handset still sees them: the new session
+        # after a password change, the forced-change refusal, and "sign in again" for a first password.
+        expose_headers=[
+            PASSWORD_CHANGE_REQUIRED_HEADER,
+            SESSION_TOKEN_HEADER,
+            SIGN_IN_AGAIN_HEADER,
+            # "Add a person" on an address that already has an account: the screen opens that one.
+            EXISTING_ACCOUNT_HEADER,
+        ],
     )
     # Added AFTER CORS so it wraps it (Starlette runs the most recently added middleware outermost),
     # which is what puts the security headers on preflight responses too.

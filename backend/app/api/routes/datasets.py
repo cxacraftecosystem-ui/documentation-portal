@@ -69,6 +69,7 @@ from app.core.deps import (
     is_master_admin,
     require_dataset_admin,
 )
+from app.core.deps import password_credential
 from app.core.security import create_access_token, verify_password
 from app.schemas.auth import DatasetTokenRequest
 from app.services import two_factor
@@ -530,6 +531,8 @@ async def mint_dataset_token(payload: DatasetTokenRequest) -> dict[str, Any]:
         subject=user.id,
         extra_claims={"scope": DATASET_READ_SCOPE, "email": user.email},
         expires_minutes=minutes,
+        # Bound to the password it was minted with, like a session: a password change retires it.
+        credential=password_credential(user),
     )
     return {
         "accessToken": token,

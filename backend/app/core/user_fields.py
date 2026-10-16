@@ -25,3 +25,16 @@ SECRET_USER_FIELDS: tuple[str, ...] = (
     "twoFactorRecoveryLockedUntil",
     "twoFactorRecoveryLockouts",
 )
+
+#: The one fact about ``passwordHash`` a client may know: whether there is one. Added beside the
+#: stripped fields by every ``serialize_user`` (``routes/auth``, ``routes/users``), so the account
+#: screen can offer "Set a password" and the users screen a link or a temporary password.
+HAS_PASSWORD_KEY = "hasPassword"
+
+
+def public_user(payload: dict, user: object) -> dict:
+    """``payload`` (an encoded user row) with every secret removed and ``hasPassword`` added."""
+    for field in SECRET_USER_FIELDS:
+        payload.pop(field, None)
+    payload[HAS_PASSWORD_KEY] = bool(getattr(user, "passwordHash", None))
+    return payload

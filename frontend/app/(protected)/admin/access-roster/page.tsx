@@ -59,8 +59,11 @@ import {
   suspendAccessRosterEntry,
   updateAccessRosterEntry,
   type AccessRosterEntry,
-  type AccessStatus
+  type AccessStatus,
+  rosterCreateBody,
+  type RosterSignIn
 } from "@/lib/accessRoster";
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, passwordRuleLine } from "@/lib/signIn";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { fetchNotificationPreferences } from "@/lib/notifications";
 import { assignableRoles, canManageAccessRoster, roleLabel } from "@/lib/permissions";
@@ -109,6 +112,9 @@ export default function AccessRosterPage() {
   // deployment without mail. `inviteOnApprove` is the queue's own switch, on by default.
   const [mailAvailable, setMailAvailable] = useState(false);
   const [inviteOnApprove, setInviteOnApprove] = useState(true);
+  /** The add form's first question: will they sign in with a provider, or with a password set now? */
+  const [signIn, setSignIn] = useState<RosterSignIn>("PROVIDER");
+  const [addRequireChange, setAddRequireChange] = useState(true);
 
   useEffect(() => {
     let live = true;
@@ -212,25 +218,42 @@ export default function AccessRosterPage() {
     const notes = String(form.get("notes") ?? "").trim();
     const grantedRole = String(form.get("grantedRole") ?? "").trim();
     const sendInvite = mailAvailable && form.get("sendInvite") === "on";
+    // Exactly as typed — never trimmed — so the person can type it back.
+    const password = typeof form.get("password") === "string" ? String(form.get("password")) : "";
     if (!email) return;
+    if (signIn === "PASSWORD" && !fullName) {
+      setError("Enter their full name — it becomes the name on the account.");
+      return;
+    }
 
     setSaving(true);
     setError(null);
     setNotice(null);
     try {
-      const created = await addToAccessRoster({
-        email,
-        fullName: fullName || null,
-        notes: notes || null,
-        grantedRole: (grantedRole || null) as UserRole | null,
-        ...(sendInvite ? { sendInvite: true } : {})
-      });
+      const created = await addToAccessRoster(
+        rosterCreateBody({
+          email,
+          fullName,
+          notes,
+          grantedRole,
+          sendInvite,
+          signIn,
+          password,
+          mustChangePassword: addRequireChange
+        })
+      );
       setNotice(
-        `${created.email} is on the access roster as ${roleLabel(created.grantedRole)}. They can sign in with that address — the account is created the first time they do.${
-          sendInvite ? " An e-mail telling them so is on its way." : ""
-        }`
+        signIn === "PASSWORD"
+          ? `${created.email} can sign in now, as ${roleLabel(created.grantedRole)}, with the password you typed${
+              addRequireChange ? " — they choose their own at their first sign-in" : ""
+            }. Send it to them yourself. They can also sign in with Google, Microsoft or Yahoo on the same address.`
+          : `${created.email} is on the access roster as ${roleLabel(created.grantedRole)}. They can sign in with that address — the account is created the first time they do.${
+              sendInvite ? " An e-mail telling them so is on its way." : ""
+            }`
       );
       formElement.reset();
+      setSignIn("PROVIDER");
+      setAddRequireChange(true);
       await reloadEverything();
     } catch (err) {
       // A 409 carries the sentence that matters — it names the existing row, gives its status and
@@ -501,6 +524,57 @@ export default function AccessRosterPage() {
             hint="Everybody joins at the lowest rung unless you promote them here."
           />
         </div>
+        <fieldset className="grid gap-2">
+          <legend className="field-label">How will they sign in?</legend>
+          <label className="flex items-start gap-2 text-sm text-ink-700">
+            <input
+              type="radio"
+              name="signIn"
+              value="PROVIDER"
+              checked={signIn === "PROVIDER"}
+              onChange={() => setSignIn("PROVIDER")}
+              className="mt-1"
+            />
+            <span>With Google, Microsoft or Yahoo — the account is made at their first sign-in</span>
+          </label>
+          <label className="flex items-start gap-2 text-sm text-ink-700">
+            <input
+              type="radio"
+              name="signIn"
+              value="PASSWORD"
+              checked={signIn === "PASSWORD"}
+              onChange={() => setSignIn("PASSWORD")}
+              className="mt-1"
+            />
+            <span>With a password you set now — the account is made straight away</span>
+          </label>
+          {signIn === "PASSWORD" ? (
+            <div className="grid gap-2 rounded-md border border-line-200 bg-surface-50 p-3 md:max-w-md">
+              <Field label="Password" required>
+                <TextInput
+                  name="password"
+                  type="password"
+                  required
+                  minLength={MIN_PASSWORD_LENGTH}
+                  maxLength={MAX_PASSWORD_LENGTH}
+                  autoComplete="new-password"
+                />
+              </Field>
+              <p className="text-xs leading-5 text-ink-500">
+                {passwordRuleLine("Send it to them yourself — nothing shows it again. Full name is needed for the account.")}
+              </p>
+              <label className="flex items-start gap-2 text-sm text-ink-700">
+                <input
+                  type="checkbox"
+                  checked={addRequireChange}
+                  onChange={(event) => setAddRequireChange(event.target.checked)}
+                  className="mt-1"
+                />
+                <span>Ask them to choose a new password at first sign-in</span>
+              </label>
+            </div>
+          ) : null}
+        </fieldset>
         <Field label="Note">
           <TextArea
             name="notes"

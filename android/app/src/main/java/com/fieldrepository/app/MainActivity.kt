@@ -146,6 +146,21 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.fieldrepository.app.data.ApiClient
 import com.fieldrepository.app.data.SignInOutcome
+import com.fieldrepository.app.data.PasswordChangeSignal
+import com.fieldrepository.app.data.SessionEndedSignal
+import com.fieldrepository.app.data.SessionVerdict
+import com.fieldrepository.app.data.sessionVerdict
+import com.fieldrepository.app.ui.ForgotPasswordScreen
+import com.fieldrepository.app.ui.HelpThemBackInActions
+import com.fieldrepository.app.ui.IssuedPasswordLinkPanel
+import com.fieldrepository.app.ui.passwordLinkOffered
+import com.fieldrepository.app.data.IssuedPasswordLinkDto
+import com.fieldrepository.app.ui.AddPersonCard
+import com.fieldrepository.app.ui.PasswordGateScreen
+import com.fieldrepository.app.ui.SESSION_ENDED_SENTENCE
+import com.fieldrepository.app.ui.SetPasswordLinkScreen
+import com.fieldrepository.app.ui.isSetPasswordLinkAddress
+import com.fieldrepository.app.ui.mustChangePasswordBlocks
 import com.fieldrepository.app.data.ArtisanCreateRequest
 import com.fieldrepository.app.data.CarryContext
 import com.fieldrepository.app.data.CarryContextStore
@@ -403,6 +418,33 @@ import java.time.ZoneId
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
+    /**
+     * A set-password link tapped elsewhere (the manifest's `/set-password` filter), waiting for the
+     * sign-in root to open the redeem screen with it. Cleared once taken. See `takePasswordLink`.
+     */
+    private val incomingPasswordLink = mutableStateOf<String?>(null)
+
+    /**
+     * Read the link off a VIEW intent — held to the same https host and path the manifest names,
+     * because the activity is exported and any app can address it explicitly with any data. The
+     * whole URI is kept, fragment included: `passwordLinkToken` reads the token from either place.
+     * Not on a restore, and not from history, so a relaunch never re-opens a link already handled.
+     */
+    private fun takePasswordLink(intent: Intent?, restored: Boolean = false) {
+        if (restored || intent == null) return
+        if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
+        if (intent.action != Intent.ACTION_VIEW) return
+        val uri = intent.data ?: return
+        if (!isSetPasswordLinkAddress(uri.scheme, uri.host, uri.path)) return
+        incomingPasswordLink.value = uri.toString()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        takePasswordLink(intent)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         /*
          * EDGE-TO-EDGE ON EVERY API LEVEL, NOT ONLY WHERE ANDROID FORCES IT.
@@ -418,6 +460,7 @@ class MainActivity : ComponentActivity() {
          */
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        takePasswordLink(intent, restored = savedInstanceState != null)
         val tokenStore = TokenStore(applicationContext)
         val repository = FieldRepository(ApiClient.create(tokenStore, OutboxSyncWorker.readCacheDir(applicationContext)), tokenStore)
         val googleAuthClient = GoogleAuthClient(this)
@@ -446,7 +489,9 @@ class MainActivity : ComponentActivity() {
                             // itself owns the PUT; the device copy is ours.
                             preferences = next
                             preferencesStore.write(next)
-                        }
+                        },
+                        incomingPasswordLink = incomingPasswordLink.value,
+                        onIncomingPasswordLinkConsumed = { incomingPasswordLink.value = null }
                     )
                 }
             }
@@ -640,7 +685,10 @@ private fun RepositoryApp(
     /** Microsoft and Yahoo sign-in; its `providers` is empty when this build configures neither. */
     oidcAuthClient: OidcAuthClient,
     preferences: AppPreferences,
-    onPreferencesChanged: (AppPreferences) -> Unit
+    onPreferencesChanged: (AppPreferences) -> Unit,
+    /** An administrator's set-password link, tapped elsewhere. See `MainActivity.incomingPasswordLink`. */
+    incomingPasswordLink: String? = null,
+    onIncomingPasswordLinkConsumed: () -> Unit = {}
 ) {
     // Debug builds on Android 17 only, and only when the API base is a local-network address — see
     // ui/LocalNetworkAccess.kt. Renders nothing; in a release build it is a no-op.
@@ -668,6 +716,17 @@ private fun RepositoryApp(
      * accepted or the person goes back. Saveable, so a rotation does not throw the first factor away.
      */
     var challenge by rememberSaveable { mutableStateOf<String?>(null) }
+    /**
+     * The password typed at the door this session, held ONLY for the first-password gate so the
+     * person is not asked for it twice, and forgotten the moment the gate is satisfied or anybody
+     * signs out. Never written anywhere. Blank on the Google, Microsoft and Yahoo paths.
+     */
+    var doorPassword by remember { mutableStateOf("") }
+    /** The redeem screen for an administrator's link, drawn in place of the sign-in card. */
+    var redeemingLink by remember { mutableStateOf(false) }
+    var pastedLink by remember { mutableStateOf("") }
+    /** "Forgot your password?", drawn in place of the sign-in card. */
+    var forgotPassword by remember { mutableStateOf(false) }
     fun take(outcome: SignInOutcome) {
         when (outcome) {
             is SignInOutcome.SignedIn -> user = outcome.user
@@ -724,22 +783,83 @@ private fun RepositoryApp(
     }
 
     // Persistent login: start from the cached profile so minimise/resume never logs the user out.
-    // Refresh in the background and only clear the session if the token is genuinely rejected (401).
-    LaunchedEffect(Unit) {
-        if (repository.hasToken()) {
-            runCatching { repository.refreshUser() }
-                .onSuccess { user = it }
-                .onFailure { err ->
-                    if (err is HttpException && err.code() == 401) {
+    // Refresh in the background and only clear the session if the token is genuinely rejected.
+    //
+    // ONE `GET /me` AND WHAT ITS ANSWER MEANS (`sessionVerdict`, pure and pinned by
+    // `PasswordChangeRequiredTest`), at launch and again whenever a request comes back gated or with a
+    // plain 401 to the token still held — a password changed elsewhere, or an administrator's "sign out
+    // of every device", retires this session, and this is how the phone hears of it.
+    suspend fun refreshSession() {
+        runCatching { repository.refreshUser() }
+            .onSuccess { user = it }
+            .onFailure { err ->
+                when (err.sessionVerdict()) {
+                    // A LIVE session that owes a new password: keep it and put the gate up.
+                    SessionVerdict.CHOOSE_NEW_PASSWORD -> {
+                        val held = repository.holdForPasswordChange()
+                        if (held != null) {
+                            user = held
+                        } else {
+                            repository.logout()
+                            user = null
+                            error = err.apiErrorMessage("Sign in again to continue.")
+                        }
+                    }
+                    SessionVerdict.REFUSED -> {
                         repository.logout()
                         user = null
-                        error = "Your session expired. Please sign in again."
-                    } else if (user == null) {
+                        val failure = err.apiFailure("Your access to this application has ended.")
+                        error = failure.message
+                        refusalCode = failure.code
+                    }
+                    SessionVerdict.EXPIRED -> {
+                        repository.logout()
+                        user = null
+                        doorPassword = ""
+                        error = SESSION_ENDED_SENTENCE
+                    }
+                    // The network, never a reason to sign anybody out.
+                    SessionVerdict.KEEP -> if (user == null) {
                         error = err.message ?: "Couldn't connect. Check your connection and try again."
                     }
                 }
-        }
+            }
+    }
+    LaunchedEffect(Unit) {
+        if (repository.hasToken()) refreshSession()
         loading = false
+    }
+    // A request came back gated: re-read the profile so the gate reaches the screen. Not while the
+    // gate is already up — its own requests are the allow-listed ones.
+    LaunchedEffect(Unit) {
+        PasswordChangeSignal.raises.collect { raised ->
+            val current = user
+            if (raised > 0L && current != null && !mustChangePasswordBlocks(current)) refreshSession()
+        }
+    }
+    // A plain 401 to the token still held: ask `GET /me` whether the session has ended, and sign out
+    // with a sentence that says why only if it has. Not while the gate is up: a 401 there is the
+    // gate's to read (`passwordGateAfterFailure`).
+    LaunchedEffect(Unit) {
+        SessionEndedSignal.raises.collect { raised ->
+            val current = user
+            if (raised > 0L && current != null && !mustChangePasswordBlocks(current)) refreshSession()
+        }
+    }
+    // A link tapped in a chat app opens the redeem screen — but only when nobody is signed in:
+    // redeeming signs out every device of that account, this one included, and doing that as a side
+    // effect of a tap mid-session would lose the person their place.
+    val linkContext = LocalContext.current.applicationContext
+    LaunchedEffect(incomingPasswordLink) {
+        val link = incomingPasswordLink ?: return@LaunchedEffect
+        if (user == null) {
+            pastedLink = link
+            forgotPassword = false
+            redeemingLink = true
+        } else {
+            Toast.makeText(linkContext, "Sign out first to use a set-password link.", Toast.LENGTH_LONG).show()
+        }
+        onIncomingPasswordLinkConsumed()
     }
 
     // Appearance follows the ACCOUNT, not the handset: reconcile this device's copy with
@@ -761,7 +881,7 @@ private fun RepositoryApp(
     // Whether the device has validated internet, for the "offline" line at the foot of the screen.
     var online by remember { mutableStateOf(repository.isOnline(appContext)) }
     LaunchedEffect(user) {
-        if (user == null) return@LaunchedEffect
+        if (user == null || mustChangePasswordBlocks(user)) return@LaunchedEffect
         // The background half (data/OutboxSyncWorker.kt): carries on after the app is closed.
         OutboxSyncWorker.schedule(appContext)
         // Capture files no draft refers to any more, from earlier runs. Nothing is open yet.
@@ -822,10 +942,42 @@ private fun RepositoryApp(
                 onSignedIn = {
                     challenge = null
                     user = it
+                    if (!mustChangePasswordBlocks(it)) doorPassword = ""
                 },
-                onCancel = { challenge = null }
+                onCancel = { challenge = null; doorPassword = "" }
+            )
+            // An administrator's link, pasted or tapped. In place of the sign-in card: somebody
+            // holding one cannot sign in. It opens no session — the person signs in afterwards, and
+            // meets their two-step code there if they have one.
+            user == null && redeemingLink -> SetPasswordLinkScreen(
+                repository = repository,
+                initialLink = pastedLink,
+                onDone = {
+                    redeemingLink = false
+                    pastedLink = ""
+                    error = null
+                    refusalCode = null
+                },
+                onCancel = {
+                    redeemingLink = false
+                    pastedLink = ""
+                }
+            )
+            user == null && forgotPassword -> ForgotPasswordScreen(
+                repository = repository,
+                onBack = { forgotPassword = false }
             )
             user == null -> LoginScreen(
+                onForgotPassword = {
+                    error = null
+                    refusalCode = null
+                    forgotPassword = true
+                },
+                onOpenSetPasswordLink = {
+                    error = null
+                    refusalCode = null
+                    redeemingLink = true
+                },
                 error = error,
                 refusalCode = refusalCode,
                 busy = loading,
@@ -850,7 +1002,12 @@ private fun RepositoryApp(
                         error = null
                         refusalCode = null
                         runCatching { repository.login(email, password) }
-                            .onSuccess { take(it) }
+                            .onSuccess {
+                                // Held only for a first-password gate that is about to use it.
+                                doorPassword = password
+                                take(it)
+                                if (it is SignInOutcome.SignedIn && !mustChangePasswordBlocks(it.user)) doorPassword = ""
+                            }
                             /*
                              * `apiFailure`, NOT `it.message`. THIS LINE IS WHY THE SIGN-IN GATE IS
                              * VISIBLE ON THIS CLIENT AT ALL.
@@ -897,6 +1054,35 @@ private fun RepositoryApp(
                                 refusalCode = failure.code
                             }
                         loading = false
+                    }
+                }
+            )
+            // The account owes a new password: between sign-in and the product, with "Sign out
+            // instead" as the only other way off it. See ui/PasswordGate.kt.
+            mustChangePasswordBlocks(user) -> PasswordGateScreen(
+                repository = repository,
+                user = user!!,
+                doorPassword = doorPassword,
+                onSatisfied = {
+                    user = it
+                    doorPassword = ""
+                },
+                onSignOut = {
+                    scope.launch {
+                        runCatching { googleAuthClient.clear() }
+                        repository.logout()
+                        doorPassword = ""
+                        user = null
+                    }
+                },
+                onSessionEnded = { message ->
+                    scope.launch {
+                        runCatching { googleAuthClient.clear() }
+                        repository.logout()
+                        doorPassword = ""
+                        refusalCode = null
+                        error = message
+                        user = null
                     }
                 }
             )
@@ -964,7 +1150,11 @@ private fun LoginScreen(
     onGoogleLogin: () -> Unit,
     /** Microsoft and Yahoo, ONLY those this build is configured for — an empty list draws nothing. */
     oidcProviders: List<OidcProvider> = emptyList(),
-    onOidcLogin: (OidcProvider) -> Unit = {}
+    onOidcLogin: (OidcProvider) -> Unit = {},
+    /** "Forgot your password?" — the e-mailed link. */
+    onForgotPassword: () -> Unit = {},
+    /** "I have a set-password link" — one an administrator made and passed on. */
+    onOpenSetPasswordLink: () -> Unit = {}
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -1058,6 +1248,17 @@ private fun LoginScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(if (busy) "Signing in..." else "Login")
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    TextButton(enabled = !busy, onClick = onForgotPassword) {
+                        Text("Forgot your password?", fontSize = 13.sp)
+                    }
+                    TextButton(enabled = !busy, onClick = onOpenSetPasswordLink) {
+                        Text("I have a set-password link", fontSize = 13.sp)
+                    }
                 }
                 OutlinedButton(
                     enabled = !busy,
@@ -1646,7 +1847,8 @@ private fun HomeScreen(
                         onChanged = onPreferencesChanged,
                         onBack = { attemptExit { goBack() } },
                         onOpenMyAiKeys = { screen = Screen.MyAiKeys },
-                        onOpenTwoStepVerification = { screen = Screen.TwoStepVerification }
+                        onOpenTwoStepVerification = { screen = Screen.TwoStepVerification },
+                        onSignOut = onLogout
                     )
 
                     is Screen.TwoStepVerification -> TwoStepVerificationScreen(
@@ -14603,6 +14805,12 @@ private fun UserManagementForm(
     var expandedUsers by remember { mutableStateOf<Set<String>>(emptySet()) }
     // The account whose two-step verification an administrator is about to turn off, awaiting confirm.
     var confirmTwoStepOff by remember { mutableStateOf<UserDto?>(null) }
+    /**
+     * A password link an administrator has just made, held on screen until they dismiss it, with the
+     * name it is FOR beside it. Composable state and nowhere else: the server returns it once.
+     */
+    var issuedLink by remember { mutableStateOf<Pair<String, IssuedPasswordLinkDto>?>(null) }
+    var linkBusy by remember { mutableStateOf(false) }
     // Who is doing the managing. Read from the cached profile rather than threaded in, so the rules
     // below can mirror `assert_role` / `assert_can_manage_target` without changing every call site.
     val actor = remember { repository.cachedUser() }
@@ -14652,6 +14860,37 @@ private fun UserManagementForm(
             color = Muted,
             fontSize = 12.sp
         )
+        // The issued link, at the top of the card and not inside the row that made it, so it is on
+        // screen however far down that row was. It is the only copy there will be.
+        issuedLink?.let { (subject, link) ->
+            IssuedPasswordLinkPanel(
+                link = link,
+                subject = subject,
+                expires = formatIsoDate(link.expiresAt) ?: link.expiresAt,
+                onWithdraw = {
+                    scope.launch {
+                        runCatching { repository.revokePasswordLink(link.id) }
+                            .onSuccess { issuedLink = null }
+                            .onFailure { onError(it.apiErrorMessage("Unable to withdraw the link")) }
+                    }
+                },
+                onDismiss = { issuedLink = null }
+            )
+        }
+        // "Add a person": the account, its admission and its role's own list in one step —
+        // `ui/AddPerson.kt`. Admins and the master admin; roles strictly below the viewer's own.
+        if (actorIsAdmin) {
+            AddPersonCard(
+                repository = repository,
+                actorRole = actor?.role,
+                actorIsMaster = actorIsMaster,
+                onCreated = { refreshUsers() },
+                onOpenExisting = { id ->
+                    expandedUsers = expandedUsers + id
+                    refreshUsers()
+                }
+            )
+        }
         if (loading) {
             Text("Loading users...", color = Muted)
         }
@@ -14791,11 +15030,42 @@ private fun UserManagementForm(
                         // For somebody who has lost the phone their authenticator was on: the same
                         // authority as deleting the account (an admin, over a person below them), and
                         // never their own — that is turned off from their own Settings with a code.
+                        // A one-time link to copy and pass on by phone or WhatsApp. Offered by "has a
+                        // password" (`passwordLinkOffered`); the server's 429 is shown as it is.
+                        if (actorIsAdmin && canManageTarget && appUser.id != actor?.id && passwordLinkOffered(appUser)) {
+                            HorizontalDivider()
+                            OutlinedButton(
+                                enabled = !linkBusy,
+                                onClick = {
+                                    scope.launch {
+                                        linkBusy = true
+                                        runCatching { repository.issuePasswordLink(appUser.id) }
+                                            .onSuccess { issuedLink = appUser.name to it }
+                                            .onFailure { onError(it.apiErrorMessage("Unable to issue a password link")) }
+                                        linkBusy = false
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Issue a set-password link")
+                            }
+                            Text("Shown once. Copy it and send it yourself.", color = Muted, fontSize = 11.sp)
+                        }
                         if (actorIsAdmin && canManageTarget && appUser.twoFactorEnabled && appUser.id != actor?.id) {
                             HorizontalDivider()
                             OutlinedButton(onClick = { confirmTwoStepOff = appUser }) {
                                 Text("Turn off two-step verification", color = MaterialTheme.colorScheme.error)
                             }
+                        }
+                        // E-mail them a link, a temporary password, sign them out of every device —
+                        // `ui/AccountRecovery.kt`. The same gate as the two buttons above.
+                        if (actorIsAdmin && canManageTarget && appUser.id != actor?.id) {
+                            HelpThemBackInActions(
+                                repository = repository,
+                                target = appUser,
+                                onChanged = { refreshUsers() },
+                                onError = onError
+                            )
                         }
                     }
                 }

@@ -8,9 +8,11 @@ would be silently dropped by ``normalise_email`` on the way to the gate, so acce
 create exactly the invisible-mismatch row this paragraph is about.
 """
 
-from pydantic import EmailStr, Field
+from pydantic import EmailStr, Field, field_validator
 
+from app.core.security import BCRYPT_MAX_PASSWORD_BYTES
 from app.schemas.common import APIModel
+from app.schemas.users import _storable_password
 from app.services.access_roster import MAX_FULL_NAME_LENGTH, MAX_NOTES_LENGTH
 
 
@@ -33,6 +35,17 @@ class AccessRosterCreate(APIModel):
     # E-mail the address that it may now sign in. Honoured only when the row is admitted (ACTIVE)
     # and mail is configured; the web offers the choice only then.
     sendInvite: bool = False
+    # WITH A PASSWORD (2026-10-16): when set, the account is created now with this password (the
+    # same path as ``POST /users``, which also admits the address) instead of waiting for a first
+    # Google, Microsoft or Yahoo sign-in. The person may still use either. ``mustChangePassword``
+    # (default true) sends them to choose their own at the first sign-in.
+    password: str | None = Field(default=None, min_length=8, max_length=BCRYPT_MAX_PASSWORD_BYTES)
+    mustChangePassword: bool = True
+
+    @field_validator("password")
+    @classmethod
+    def password_fits_bcrypt(cls, value: str | None) -> str | None:
+        return _storable_password(value)
 
 
 class AccessRosterUpdate(APIModel):
