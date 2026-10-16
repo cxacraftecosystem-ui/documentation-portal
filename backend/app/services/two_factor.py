@@ -3,12 +3,15 @@
 Ported from cxa-cms (``lib/auth/totp.ts``, ``lib/auth/totp-qr.ts``) and shared, name for name, with
 the designer portal. The arithmetic is the standard library; the security is in HOW it is used:
 
-* **The shared secret is encrypted at rest** (AES-256-GCM, key derived from ``JWT_SECRET`` with
-  scrypt and a fixed label, as cxa-cms derives it). A plaintext TOTP secret in the database means
+* **The shared secret is encrypted at rest** (AES-256-GCM) with ``TWO_FACTOR_ENCRYPTION_KEY``, a
+  key of its own with a key id written into every ciphertext (``v2.<key id>....``) and previous keys
+  still accepted (``app/core/two_factor_keys.py``). A plaintext TOTP secret in the database means
   one database read is a complete account takeover, the one thing a second factor exists to stop.
-  Rotating ``JWT_SECRET`` therefore turns every enrolled secret into ciphertext nobody can open;
-  :func:`decrypt_secret` answers None and the person signs in with a recovery code or asks an
-  administrator to turn it off.
+  Unset, the legacy key derived from ``JWT_SECRET`` (scrypt and a fixed label, as cxa-cms derives
+  it) is used with a WARNING: rotating ``JWT_SECRET`` would then turn every enrolled secret into
+  ciphertext nobody can open. Legacy ``v1`` secrets are always still read, and a secret on any key
+  but the current one is re-encrypted the first time it is used (:func:`reencrypt_if_stale`) or by
+  ``scripts/reencrypt_two_factor_secrets.py``.
 * **A code is spent when it is accepted** (RFC 6238 §5.2), which is where this improves on cxa-cms.
   :func:`match_totp_step` returns the time step that matched, and :func:`consume_totp` records it on
   the account with a CONDITIONAL update: a step at or below ``twoFactorLastStep`` is refused, and two
@@ -54,6 +57,7 @@ from app.core.config import get_settings
 from app.core.db import db
 from app.core.deps import invalidate_cached_user
 from app.core.security import hash_password, verify_password
+from app.core.two_factor_keys import parse_keyring
 from app.core.user_fields import SECRET_USER_FIELDS as _SECRET_USER_FIELDS
 from app.services import email_outbox, mailer
 
@@ -255,28 +259,111 @@ def _unb64(data: str) -> bytes:
     return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
 
 
+@lru_cache(maxsize=8)
+def _keyring(current: str | None, previous: str | None) -> tuple[tuple[str, bytes] | None, dict[str, bytes]]:
+    return parse_keyring(current, previous)
+
+
+def _configured_keys() -> tuple[tuple[str, bytes] | None, dict[str, bytes]]:
+    """``(current (key id, key) or None, every configured key by id)`` — ``TWO_FACTOR_ENCRYPTION_KEY``
+    and ``TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS``. See ``app/core/two_factor_keys.py``."""
+    settings = get_settings()
+    return _keyring(
+        getattr(settings, "two_factor_encryption_key", None),
+        getattr(settings, "two_factor_encryption_previous_keys", None),
+    )
+
+
+@lru_cache(maxsize=1)
+def warn_legacy_key() -> None:
+    """Said once per process: the legacy key is in use, and what that costs."""
+    logger.warning(
+        "TWO_FACTOR_ENCRYPTION_KEY is not set: two-step secrets are encrypted with a key derived from "
+        "JWT_SECRET, so rotating JWT_SECRET would lock every enrolled person out of their "
+        "authenticator. Set TWO_FACTOR_ENCRYPTION_KEY (docs/ENVIRONMENT.md)."
+    )
+
+
+def _aad(key_id: str) -> bytes:
+    # The key id is authenticated with the ciphertext, so relabelling a secret to another key fails.
+    return b"field-repository-totp-v2:" + key_id.encode("ascii")
+
+
 def encrypt_secret(plain: str) -> str:
-    """``v1.<iv>.<tag>.<ciphertext>``, base64url — cxa-cms's format, versioned for rotation."""
+    """``v2.<key id>.<iv>.<tag>.<ciphertext>`` with the current ``TWO_FACTOR_ENCRYPTION_KEY``; without
+    one, the legacy ``v1.<iv>.<tag>.<ciphertext>`` (cxa-cms's format) with the JWT-derived key."""
     iv = secrets.token_bytes(12)
-    sealed = AESGCM(_encryption_key(get_settings().jwt_secret)).encrypt(iv, plain.encode("utf-8"), None)
+    current, _ring = _configured_keys()
+    if current is None:
+        warn_legacy_key()
+        sealed = AESGCM(_encryption_key(get_settings().jwt_secret)).encrypt(iv, plain.encode("utf-8"), None)
+        ciphertext, tag = sealed[:-16], sealed[-16:]
+        return ".".join(["v1", _b64(iv), _b64(tag), _b64(ciphertext)])
+    key_id, key = current
+    sealed = AESGCM(key).encrypt(iv, plain.encode("utf-8"), _aad(key_id))
     ciphertext, tag = sealed[:-16], sealed[-16:]
-    return ".".join(["v1", _b64(iv), _b64(tag), _b64(ciphertext)])
+    return ".".join(["v2", key_id, _b64(iv), _b64(tag), _b64(ciphertext)])
 
 
 def decrypt_secret(stored: str | None) -> str | None:
     """None rather than an exception: an unreadable secret means this person cannot use their
-    authenticator, and the way out is a recovery code or an administrator, not a 500."""
+    authenticator, and the way out is a recovery code or an administrator, not a 500.
+
+    ``v2`` opens with the key its id names (current or previous); ``v1`` with the legacy key derived
+    from ``JWT_SECRET``, which is always tried, so setting a key never strands an older secret."""
     if not stored:
         return None
     parts = stored.split(".")
-    if len(parts) != 4 or parts[0] != "v1":
-        return None
     try:
-        iv, tag, ciphertext = (_unb64(part) for part in parts[1:])
-        plain = AESGCM(_encryption_key(get_settings().jwt_secret)).decrypt(iv, ciphertext + tag, None)
-        return plain.decode("utf-8")
+        if len(parts) == 4 and parts[0] == "v1":
+            iv, tag, ciphertext = (_unb64(part) for part in parts[1:])
+            plain = AESGCM(_encryption_key(get_settings().jwt_secret)).decrypt(iv, ciphertext + tag, None)
+            return plain.decode("utf-8")
+        if len(parts) == 5 and parts[0] == "v2":
+            key = _configured_keys()[1].get(parts[1])
+            if key is None:
+                logger.warning("two-factor: a secret names key id %r, which is not configured", parts[1])
+                return None
+            iv, tag, ciphertext = (_unb64(part) for part in parts[2:])
+            return AESGCM(key).decrypt(iv, ciphertext + tag, _aad(parts[1])).decode("utf-8")
     except (InvalidTag, ValueError):
         return None
+    return None
+
+
+def needs_reencryption(stored: str | None) -> bool:
+    """Is this ciphertext sealed with anything but the current key? False when no key is set (there
+    is nothing better to move it to) and for an empty column."""
+    if not stored:
+        return False
+    current, _ring = _configured_keys()
+    if current is None:
+        return False
+    parts = stored.split(".")
+    return not (len(parts) == 5 and parts[0] == "v2" and parts[1] == current[0])
+
+
+async def reencrypt_if_stale(user_id: str, column: str, stored: str | None, plain: str | None = None) -> bool:
+    """Move one secret to the current key, IF it is still the ciphertext this request read: one
+    conditional write, so a concurrent switch-off or re-enrolment is never overwritten. True when
+    this call wrote. Never raises — re-encryption is housekeeping, and the code was already right."""
+    if not needs_reencryption(stored):
+        return False
+    secret = plain if plain is not None else decrypt_secret(stored)
+    if not secret:
+        return False
+    try:
+        moved = await db.user.update_many(
+            where={"id": user_id, column: stored},
+            data={column: encrypt_secret(secret)},
+        )
+    except Exception:  # see the docstring
+        logger.exception("two-factor: could not re-encrypt %s for user %s", column, user_id)
+        return False
+    if moved:
+        invalidate_cached_user(user_id)
+        logger.info("two-factor: %s re-encrypted with the current key for user %s", column, user_id)
+    return bool(moved)
 
 
 # ── Recovery codes ──────────────────────────────────────────────────────────────────────────────
@@ -362,6 +449,10 @@ async def consume_totp(user: Any, code: str, at: float | None = None) -> bool:
         logger.info("two-factor: replayed code refused for user %s", _user_field(user, "id"))
     # Every write to a User row drops the cached identity (deps.py's contract), this one included.
     invalidate_cached_user(_user_field(user, "id"))
+    if won:
+        # RE-ENCRYPT ON USE: a secret still under the legacy or a previous key moves to the current
+        # one the first time it proves itself, so a key rotation finishes on its own as people sign in.
+        await reencrypt_if_stale(_user_field(user, "id"), "twoFactorSecret", _user_field(user, "twoFactorSecret"), secret)
     return bool(won)
 
 

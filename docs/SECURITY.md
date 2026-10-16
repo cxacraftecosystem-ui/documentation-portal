@@ -365,10 +365,17 @@ Android. RFC 6238: SHA-1, 6 digits, 30-second steps, ±1 step accepted. Implemen
   `deps._user_from_bearer` refuses it as a session with 403), a `jti`, and a 5-minute life. Its
   `TwoFactorChallenge` row counts attempts with a conditional increment: the fifth code spends the
   challenge, a correct code deletes it, and the roster gate runs again before the session is minted.
-- **The secret is encrypted at rest** — AES-256-GCM, key `scrypt(JWT_SECRET, "field-repository-totp-v1")`,
-  stored as `v1.<iv>.<tag>.<ciphertext>`. It is returned once, by `/setup`, while still *pending*
-  (`User.twoFactorPendingSecret`), and never again. **Rotating `JWT_SECRET` makes every enrolled secret
-  unreadable**: those people sign in with a recovery code or an administrator turns it off for them.
+- **The secret is encrypted at rest** — AES-256-GCM with `TWO_FACTOR_ENCRYPTION_KEY` (2026-10-17), a
+  key of its own, stored as `v2.<key id>.<iv>.<tag>.<ciphertext>` with the key id authenticated
+  alongside (`app/core/two_factor_keys.py`). `TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS` still open secrets
+  sealed with older keys; a secret on any key but the current one is re-encrypted the first time its
+  code is accepted, or all at once by `scripts/reencrypt_two_factor_secrets.py` (dry run unless
+  `--apply`, idempotent, conditional on the ciphertext it read). Unset, the legacy key
+  `scrypt(JWT_SECRET, "field-repository-totp-v1")` and its `v1.<iv>.<tag>.<ciphertext>` format are used
+  and a WARNING is logged at start-up; `v1` secrets are always still read. The secret is returned
+  once, by `/setup`, while still *pending* (`User.twoFactorPendingSecret`), and never again. **Until
+  the key is set, rotating `JWT_SECRET` makes every enrolled secret unreadable**: those people sign in
+  with a recovery code or an administrator turns it off for them.
 - **A code works once.** The accepted time step is written to `User.twoFactorLastStep` with a
   conditional update (`last step < this step`), so a code replayed inside its 90-second window, or two
   submissions racing, are refused. The enrolment code is recorded the same way.
@@ -394,6 +401,16 @@ Android. RFC 6238: SHA-1, 6 digits, 30-second steps, ±1 step accepted. Implemen
   correct code clears its own budget only if nobody claimed a slot after it (otherwise it hands back
   its own slot, so racing failures stay counted); turning it off or an administrator's reset clears
   both.
+- **A first password needs the provider again (2026-10-17).** An account with no password (Google,
+  Microsoft or Yahoo only) sets one with `POST /api/auth/change-password` only when the request carries
+  that provider's sign-in RUN AGAIN — a Google ID token, or a Microsoft/Yahoo code with its PKCE
+  verifier and nonce — whose `iat` is under five minutes old, whose verified address is the account's
+  and which names a subject; otherwise `400` with `X-Confirm-Sign-In: <provider>` (never `401`, which
+  the clients read as a dead session). The session's age is no longer the proof: a stolen session must
+  not be able to add a permanent way in. With two-step on, a code is asked for too, on **its own
+  budget** — five checks per account per 15 minutes (`rate_limit.first_password_code_attempt`, given
+  back when right), not the sign-in's — so guessing there can neither lock the owner out of signing
+  in nor buy more than five tries; a second factor the sign-in has locked stays locked there.
 - **The dataset token is a sign-in too.** `POST /api/datasets/token` for an account with two-step
   verification on requires `code`, checked by the same path (spent once, recovery codes allowed,
   counted against the budget); missing or wrong is one generic `401`.
@@ -591,6 +608,11 @@ the clear, bearer token included.
 `X-Forwarded-Proto` will finally be truthful. Add a shared-secret header
 (*Origin custom headers* + an nginx check) so the origin cannot be hit directly, and restrict the
 EC2 security group's port 80 to the CloudFront managed prefix list `com.amazonaws.global.cloudfront.origin-facing`.
+
+**`TRUSTED_PROXY_HOPS=2` depends on that lock (2026-10-17).** The per-client limits key on the
+viewer address CloudFront appends (`app/scale/rate_limit.client_address`), the default and what
+`deploy-backend.yml` pins. That entry is trustworthy only while port 80 admits CloudFront alone; on
+any box reachable directly, set `TRUSTED_PROXY_HOPS=1`.
 
 ### P2 — Verify CloudFront is not caching authenticated responses
 

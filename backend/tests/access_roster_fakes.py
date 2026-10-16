@@ -140,6 +140,9 @@ def _matches(row: Any, where: dict[str, Any] | None) -> bool:
                 needle = str(expected["contains"]).lower()
                 if needle not in str(actual or "").lower():
                     return False
+            elif "not" in expected:
+                if actual == expected["not"]:
+                    return False
             elif "equals" in expected:
                 if actual != expected["equals"]:
                     return False

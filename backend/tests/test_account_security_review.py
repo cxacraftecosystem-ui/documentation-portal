@@ -28,6 +28,7 @@ from test_account_passwords import (  # noqa: F401 - ``environment`` is an autou
     _admitted,
     _call,
     _fake,
+    _google_proof,
     _params,
     _row,
     _session,
@@ -108,7 +109,8 @@ def test_a_password_change_ends_a_token_too_old_to_carry_a_fingerprint(monkeypat
 def test_a_first_password_ends_every_older_session_too(monkeypatch) -> None:
     fake = _fake(monkeypatch, [_account("g@example.org", passwordHash=None, authProvider="GOOGLE")], _admitted("g@example.org"))
     older = _session("id-g@example.org", minutes_ago=2)
-    set_first = _call("POST", "/api/auth/change-password", {"newPassword": NEW_PASSWORD}, _session("id-g@example.org"))
+    proof = _google_proof(monkeypatch, "g@example.org")
+    set_first = _call("POST", "/api/auth/change-password", {"newPassword": NEW_PASSWORD, **proof}, _session("id-g@example.org"))
     assert set_first.status_code == 200, set_first.text
     assert _row(fake, "g@example.org").sessionsValidFrom is not None
     clear_user_cache()
@@ -125,6 +127,7 @@ def _scope(forwarded: str | None, peer: str = "10.0.0.9") -> dict[str, Any]:
 
 
 def test_the_client_key_is_never_the_entry_a_client_types(monkeypatch) -> None:
+    monkeypatch.setattr(get_settings(), "trusted_proxy_hops", 1)
     assert client_address(_scope(None)) == "ip:10.0.0.9"
     assert client_address(_scope("6.6.6.6, 203.0.113.7")) == "ip:203.0.113.7"
     assert client_address(_scope("203.0.113.7")) == "ip:203.0.113.7"
@@ -136,10 +139,12 @@ def test_the_client_key_is_never_the_entry_a_client_types(monkeypatch) -> None:
 
 def test_a_typed_forwarded_address_does_not_buy_a_fresh_allowance(monkeypatch) -> None:
     _fake(monkeypatch, [], [])
+    # Production's shape (TRUSTED_PROXY_HOPS=2): the typed entry, then the viewer CloudFront saw, then
+    # the CloudFront edge nginx saw.
     for n in range(FORGOT_PASSWORD_REQUESTS):
-        headers = {"X-Forwarded-For": f"10.1.1.{n}, 203.0.113.7"}
+        headers = {"X-Forwarded-For": f"10.1.1.{n}, 203.0.113.7, 130.176.1.1"}
         assert _call("POST", "/api/auth/forgot-password", {"email": "x@example.org"}, headers=headers).status_code == 200
-    refused = _call("POST", "/api/auth/forgot-password", {"email": "x@example.org"}, headers={"X-Forwarded-For": "10.1.1.99, 203.0.113.7"})
+    refused = _call("POST", "/api/auth/forgot-password", {"email": "x@example.org"}, headers={"X-Forwarded-For": "10.1.1.99, 203.0.113.7, 130.176.1.1"})
     assert refused.status_code == 429
 
 
@@ -192,7 +197,8 @@ def test_every_password_write_tells_the_owner_and_carries_no_secret(monkeypatch)
     )
     r = _row(fake, "r@example.org")
     assert _call("POST", "/api/auth/change-password", {"currentPassword": PASSWORD, "newPassword": NEW_PASSWORD}, _session(r.id, user=r)).status_code == 200
-    assert _call("POST", "/api/auth/change-password", {"newPassword": NEW_PASSWORD}, _session("id-g@example.org")).status_code == 200
+    proof = _google_proof(monkeypatch, "g@example.org")
+    assert _call("POST", "/api/auth/change-password", {"newPassword": NEW_PASSWORD, **proof}, _session("id-g@example.org")).status_code == 200
     assert _call("PATCH", "/api/users/id-t@example.org", {"password": "temporary-pass-1"}, _session("id-admin@example.org")).status_code == 200
 
     sent = {(row.toAddress, row.kind) for row in fake.emailmessage.rows}
@@ -233,10 +239,11 @@ def test_a_first_password_asks_for_the_second_factor_when_it_is_on(monkeypatch) 
     assert _call("POST", "/api/auth/two-factor/enable", {"code": two_factor.current_totp(secret)}, token).status_code == 200
     clock["now"] += two_factor.PERIOD_SECONDS
     clear_user_cache()
+    proof = _google_proof(monkeypatch, "g@example.org")
 
-    missing = _call("POST", "/api/auth/change-password", {"newPassword": NEW_PASSWORD}, _session("id-g@example.org"))
+    missing = _call("POST", "/api/auth/change-password", {"newPassword": NEW_PASSWORD, **proof}, _session("id-g@example.org"))
     assert missing.status_code == 400 and missing.headers["x-two-factor-required"] == "1"
-    wrong = _call("POST", "/api/auth/change-password", {"newPassword": NEW_PASSWORD, "twoFactorCode": "000000"}, _session("id-g@example.org"))
+    wrong = _call("POST", "/api/auth/change-password", {"newPassword": NEW_PASSWORD, "twoFactorCode": "000000", **proof}, _session("id-g@example.org"))
     assert wrong.status_code == 400 and wrong.headers["x-two-factor-required"] == "1"
     assert wrong.json()["detail"] == two_factor.WRONG_CODE_DETAIL
     assert _row(fake, "g@example.org").passwordHash is None
@@ -244,7 +251,7 @@ def test_a_first_password_asks_for_the_second_factor_when_it_is_on(monkeypatch) 
     right = _call(
         "POST",
         "/api/auth/change-password",
-        {"newPassword": NEW_PASSWORD, "twoFactorCode": two_factor.current_totp(secret)},
+        {"newPassword": NEW_PASSWORD, "twoFactorCode": two_factor.current_totp(secret), **proof},
         _session("id-g@example.org"),
     )
     assert right.status_code == 200, right.text

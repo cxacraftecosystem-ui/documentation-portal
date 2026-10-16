@@ -484,6 +484,10 @@ class ProvedIdentity:
     provider: str
     email: str
     name: str | None
+    #: The ID token's ``sub`` and ``iat``. Sign-in ignores them; setting a first password reads them
+    #: (a provider sign-in younger than five minutes, naming somebody — ``auth._provider_proof``).
+    subject: str | None = None
+    issued_at: float | None = None
 
 
 async def prove(
@@ -495,4 +499,11 @@ async def prove(
         raise SignInRefused("not-configured")
     token = await redeem_code(p, code=code, code_verifier=code_verifier, redirect_uri=redirect_uri)
     claims = await verify_id_token(p, token, raw_nonce=raw_nonce)
-    return ProvedIdentity(provider=p.name, email=verified_email(p, claims), name=display_name(claims))
+    subject = claims.get("sub")
+    return ProvedIdentity(
+        provider=p.name,
+        email=verified_email(p, claims),
+        name=display_name(claims),
+        subject=subject if isinstance(subject, str) and subject else None,
+        issued_at=_number(claims.get("iat")),
+    )

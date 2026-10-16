@@ -6,6 +6,8 @@ name: Deploy backend to EC2
 #   EC2_SSH_KEY           contents of the .pem private key for the EC2 key pair
 #   BACKEND_ENV           the full backend/.env file contents (DATABASE_URL, JWT_SECRET,
 #                         AWS_* keys, OPENAI_API_KEY, GEMINI_API_KEYS, BACKEND_CORS_ORIGINS …)
+#   TWO_FACTOR_ENCRYPTION_KEY            (optional) "<key id>:<key>" sealing two-step secrets;
+#   TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS  (optional) the keys it replaced, during a rotation
 #
 # Nothing secret is stored in this file — values come from the secrets above.
 #
@@ -822,6 +824,43 @@ jobs:
             sed -i \"/^MICROSOFT_CLIENT_ID=/d;/^MICROSOFT_CLIENT_SECRET=/d;/^MICROSOFT_TENANT=/d;/^YAHOO_CLIENT_ID=/d;/^YAHOO_CLIENT_SECRET=/d\" \"\$ENVFILE\"
             [ -n \"\$frag\" ] && printf \"%s\" \"\$frag\" >> \"\$ENVFILE\"
             echo \"sign-in providers pinned: \$(grep -c -E \"^(MICROSOFT|YAHOO)_CLIENT_ID=\" \"\$ENVFILE\" || true)\"
+          '"
+
+      # The two-step encryption key and the proxy-hop count. The keys are Actions SECRETS and travel
+      # on ssh's STDIN, never in an argument, like the provider secrets above.
+      #
+      # TWO_FACTOR_ENCRYPTION_KEY (and _PREVIOUS_KEYS during a rotation) seal every authenticator
+      # secret (app/core/two_factor_keys.py). NOT authoritative when the secret is empty, unlike the
+      # pins above: deleting a key that BACKEND_ENV or an operator put on the box would make every
+      # secret sealed with it unreadable, so an unset Actions secret leaves the box's line alone
+      # (and an absent key keeps the legacy JWT-derived one, with a WARNING in the journal). When the
+      # Actions secret IS set it wins. Rotation: docs/ENVIRONMENT.md.
+      #
+      # TRUSTED_PROXY_HOPS=2 — CloudFront appends the viewer, nginx appends CloudFront, and the
+      # per-client limits key on the viewer. THIS IS SAFE ONLY BECAUSE OF THE CLOUDFRONT LOCK: the
+      # box's security group admits port 80 from the com.amazonaws.global.cloudfront.origin-facing
+      # prefix list alone, so nobody reaches nginx with an X-Forwarded-For of their own. If that lock
+      # is ever lifted, pin 1 here instead (app/scale/rate_limit.client_address).
+      - name: Pin the two-step encryption key and the proxy hops
+        env:
+          TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.TWO_FACTOR_ENCRYPTION_KEY }}
+          TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS: ${{ secrets.TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS }}
+        run: |
+          frag="TRUSTED_PROXY_HOPS=2"$'\n'
+          drop="/^TRUSTED_PROXY_HOPS=/d"
+          if [ -n "$TWO_FACTOR_ENCRYPTION_KEY" ]; then
+            frag+="TWO_FACTOR_ENCRYPTION_KEY=$TWO_FACTOR_ENCRYPTION_KEY"$'\n'
+            frag+="TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS=$TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS"$'\n'
+            drop+=";/^TWO_FACTOR_ENCRYPTION_KEY=/d;/^TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS=/d"
+          fi
+          printf '%s' "$frag" | ssh ubuntu@${{ secrets.EC2_HOST }} "ENVFILE='/home/ubuntu/app/backend/.env' DROP='$drop' bash -c '
+            set -euo pipefail
+            frag=\$(cat)
+            [ -s \"\$ENVFILE\" ] && [ -n \"\$(tail -c1 \"\$ENVFILE\")\" ] && printf \"\n\" >> \"\$ENVFILE\"
+            sed -i \"\$DROP\" \"\$ENVFILE\"
+            printf \"%s\" \"\$frag\" >> \"\$ENVFILE\"
+            grep -q \"^TRUSTED_PROXY_HOPS=2\$\" \"\$ENVFILE\" || { echo \"TRUSTED_PROXY_HOPS did not land on its own line\"; exit 1; }
+            echo \"proxy hops pinned: 2; two-step key: \$(grep -q \"^TWO_FACTOR_ENCRYPTION_KEY=.\" \"\$ENVFILE\" && echo set || echo legacy)\"
           '"
 
       # ─── THE PROJECT, THE PRISMA CLIENT, THE MIGRATION, THE SWITCH ──────────────────────────────

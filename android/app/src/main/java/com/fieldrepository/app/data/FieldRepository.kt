@@ -558,25 +558,28 @@ class FieldRepository(
      * same answer: the fresh session token from [SESSION_TOKEN_HEADER] is adopted before the profile
      * is re-read, because the write retires the token this call was made with.
      *
-     * A 400 carrying [SIGN_IN_AGAIN_HEADER] is thrown as [SignInAgainRequired] with the server's
-     * sentence, so the screen can offer to sign out rather than print a refusal with no way forward.
+     * A first password is sent with [proof], the provider sign-in run again (ProviderReauth.kt). A 400
+     * carrying [CONFIRM_SIGN_IN_HEADER] is thrown as [ConfirmSignInRequired] naming the provider, so
+     * the screen can drop the confirmation and offer that provider's button again.
      */
-    suspend fun saveOwnPassword(currentPassword: String?, newPassword: String, twoFactorCode: String? = null) {
+    suspend fun saveOwnPassword(
+        currentPassword: String?,
+        newPassword: String,
+        twoFactorCode: String? = null,
+        proof: ProviderProof? = null,
+    ) {
         if (currentPassword != null) {
             changeOwnPassword(currentPassword, newPassword)
             return
         }
         val answer = recoveryApi.setFirstPassword(
-            FirstPasswordRequest(newPassword = newPassword, twoFactorCode = twoFactorCode?.trim()?.ifBlank { null })
+            proof?.request(newPassword, twoFactorCode)
+                ?: FirstPasswordRequest(newPassword = newPassword, twoFactorCode = twoFactorCode?.trim()?.ifBlank { null })
         )
         if (!answer.isSuccessful) {
             val refused = HttpException(answer)
-            if (answer.headers()[SIGN_IN_AGAIN_HEADER] != null) {
-                throw SignInAgainRequired(
-                    refused.apiErrorMessage(
-                        "For your security, sign out and sign in again, then set your password within 15 minutes."
-                    )
-                )
+            answer.headers()[CONFIRM_SIGN_IN_HEADER]?.takeIf { it.isNotBlank() }?.let { provider ->
+                throw ConfirmSignInRequired(refused.apiErrorMessage(confirmPrompt(provider)), provider.trim().uppercase())
             }
             if (answer.headers()[TWO_FACTOR_REQUIRED_HEADER] != null) {
                 throw TwoFactorCodeRequired(refused.apiErrorMessage(TWO_FACTOR_CODE_FOR_PASSWORD))

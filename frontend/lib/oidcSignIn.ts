@@ -50,6 +50,15 @@ export const OIDC_CALLBACK_PATH = "/login/callback";
 export const WEB_STATE_PREFIX = "web.";
 /** A `state` the Android app minted: the callback route hands the code to the app. */
 export const APP_STATE_PREFIX = "app.";
+/**
+ * A `state` the Settings password card minted: the sign-in is being RUN AGAIN to set a first password
+ * (`lib/providerReauth.ts`), so the answer goes back to `/settings`, not to `/login`, and nothing signs
+ * anybody in with it.
+ */
+export const REAUTH_STATE_PREFIX = "reauth.";
+
+/** Where a re-run sign-in comes back to. */
+export const REAUTH_RETURN_PATH = "/settings";
 
 /** The Android app's own scheme for the handover, as `android/app/build.gradle.kts` registers it. */
 export const ANDROID_SIGN_IN_SCHEME = "com.fieldrepository.app.signin";
@@ -173,11 +182,12 @@ export async function beginSignIn(
   provider: OidcProvider,
   origin: string,
   agreedAt: string | null,
-  storage: Pick<Storage, "setItem"> = window.sessionStorage
+  storage: Pick<Storage, "setItem"> = window.sessionStorage,
+  statePrefix: string = WEB_STATE_PREFIX
 ): Promise<string> {
   const pending: PendingSignIn = {
     provider: provider.id,
-    state: `${WEB_STATE_PREFIX}${randomToken()}`,
+    state: `${statePrefix}${randomToken()}`,
     codeVerifier: randomToken(48),
     rawNonce: randomToken(),
     redirectUri: `${origin}${OIDC_CALLBACK_PATH}`,
@@ -250,6 +260,7 @@ export function callbackTarget(query: URLSearchParams, appScheme: string = ANDRO
   }
   const state = kept.get("state") ?? "";
   if (state.startsWith(APP_STATE_PREFIX)) return `${appScheme}://oidc/callback?${kept.toString()}`;
+  if (state.startsWith(REAUTH_STATE_PREFIX)) return `${REAUTH_RETURN_PATH}#oidc=${encodeURIComponent(kept.toString())}`;
   return `/login#oidc=${encodeURIComponent(kept.toString())}`;
 }
 

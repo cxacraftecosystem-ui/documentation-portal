@@ -76,8 +76,6 @@ fun providerLabel(authProvider: String?): String = when (authProvider?.trim()?.u
     else -> "another sign-in"
 }
 
-const val SIGN_IN_AGAIN_ACTION = "Sign out and sign in again"
-
 // ── Users → Help them back in ───────────────────────────────────────────────────────────────────
 
 const val HELP_THEM_BACK_IN_HEADING = "Help them back in"

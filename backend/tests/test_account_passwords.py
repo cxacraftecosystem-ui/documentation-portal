@@ -31,7 +31,12 @@ from app.core.deps import (
     password_credential,
 )
 from app.core.security import CREDENTIAL_CLAIM, create_access_token, hash_password, verify_password
-from app.scale.rate_limit import FORGOT_PASSWORD_REQUESTS, reset_forgot_password_budget
+from app.api.routes import auth as auth_routes
+from app.scale.rate_limit import (
+    FORGOT_PASSWORD_REQUESTS,
+    reset_first_password_code_budget,
+    reset_forgot_password_budget,
+)
 from app.services import credential_links, email_outbox, mailer, password_reset
 
 PASSWORD = "correct-horse-battery"
@@ -54,6 +59,7 @@ def environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(security, "BCRYPT_ROUNDS", 4)
     clear_user_cache()
     reset_forgot_password_budget()
+    reset_first_password_code_budget()
 
 
 def _call(
@@ -114,6 +120,24 @@ def _params(message: Any) -> dict[str, Any]:
 
 def _token_of(link: str) -> str:
     return parse_qs(urlparse(link).query)["token"][0]
+
+
+def _google_proof(
+    monkeypatch: pytest.MonkeyPatch,
+    email: str,
+    *,
+    seconds_ago: float = 0,
+    sub: str | None = "google-subject-1",
+    verified: bool = True,
+) -> dict[str, Any]:
+    """A Google sign-in run again ``seconds_ago``: what ``verify_google_token`` answers for it, and
+    the body fields a client sends with the first password."""
+    issued = int(datetime.now(UTC).timestamp() - seconds_ago)
+    claims: dict[str, Any] = {"email": email, "email_verified": verified, "iat": issued, "exp": issued + 3600}
+    if sub is not None:
+        claims["sub"] = sub
+    monkeypatch.setattr(auth_routes, "verify_google_token", lambda token: dict(claims))
+    return {"googleIdToken": "a-google-id-token"}
 
 
 # --- the user payload -------------------------------------------------------------------------------
@@ -407,13 +431,18 @@ def test_changing_a_password_keeps_this_session_and_ends_the_others(monkeypatch)
     assert _call("GET", "/api/auth/me", token=other).status_code == 401
 
 
-def test_a_provider_only_account_sets_a_first_password_on_a_fresh_session(monkeypatch) -> None:
+def test_a_provider_only_account_sets_a_first_password_with_its_provider_sign_in_run_again(monkeypatch) -> None:
     fake = _fake(monkeypatch, [_account("g@example.org", passwordHash=None, authProvider="GOOGLE")], _admitted("g@example.org"))
-    stale = _call("POST", "/api/auth/change-password", {"newPassword": NEW_PASSWORD}, _session("id-g@example.org", minutes_ago=20))
-    assert stale.status_code == 400 and stale.headers["x-sign-in-again"] == "1"
+    # A brand-new session is not enough on its own any more: the provider is asked again.
+    bare = _call("POST", "/api/auth/change-password", {"newPassword": NEW_PASSWORD}, _session("id-g@example.org"))
+    assert bare.status_code == 400 and bare.headers["x-confirm-sign-in"] == "GOOGLE"
+    assert "sign in with Google again" in bare.json()["detail"]
     assert _row(fake, "g@example.org").passwordHash is None
 
-    fresh = _call("POST", "/api/auth/change-password", {"newPassword": NEW_PASSWORD}, _session("id-g@example.org"))
+    proof = _google_proof(monkeypatch, "g@example.org")
+    fresh = _call(
+        "POST", "/api/auth/change-password", {"newPassword": NEW_PASSWORD, **proof}, _session("id-g@example.org", minutes_ago=600)
+    )
     assert fresh.status_code == 200 and fresh.headers["x-session-token"]
     account = _row(fake, "g@example.org")
     assert verify_password(NEW_PASSWORD, account.passwordHash)

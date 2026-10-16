@@ -15,8 +15,8 @@ import retrofit2.http.Path
  *     answer for a well-formed address, known or not; only a malformed address (422) or too many
  *     requests from this connection (429) answers differently, and both carry the server's sentence.
  *   * `POST /auth/change-password` with no current password — a Google, Microsoft or Yahoo account
- *     adding its first password. Allowed only on a fresh sign-in; otherwise a 400 carrying
- *     [SIGN_IN_AGAIN_HEADER].
+ *     adding its first password. Allowed only with that provider's sign-in run again (ProviderReauth.kt);
+ *     otherwise a 400 carrying [CONFIRM_SIGN_IN_HEADER].
  *   * `POST /auth/password-links` with `delivery: "EMAIL"` — an administrator e-mailing the person a
  *     link instead of copying one. The answer carries no link.
  *   * `PATCH /users/{id}` with a password — a temporary password, changed at the next sign-in.
@@ -113,7 +113,17 @@ data class ForgotPasswordAnswer(val message: String = "")
  * recovery code; the server refuses without it ([TWO_FACTOR_REQUIRED_HEADER]).
  */
 @Serializable
-data class FirstPasswordRequest(val newPassword: String, val twoFactorCode: String? = null)
+data class FirstPasswordRequest(
+    val newPassword: String,
+    val twoFactorCode: String? = null,
+    /** The provider sign-in run again ([ProviderProof]): a Google ID token, or the five OIDC fields. */
+    val googleIdToken: String? = null,
+    val oidcProvider: String? = null,
+    val oidcCode: String? = null,
+    val oidcCodeVerifier: String? = null,
+    val oidcRedirectUri: String? = null,
+    val oidcNonce: String? = null,
+)
 
 @Serializable
 data class PasswordLinkDeliveryRequest(
@@ -134,15 +144,6 @@ data class MailStatusDto(val available: Boolean = false)
 
 /** The `delivery` value that e-mails the link to the account's own address. */
 const val PASSWORD_LINK_BY_EMAIL = "EMAIL"
-
-/**
- * The header a refused first-password answer carries when the sign-in it was sent from is too old.
- * The person signs out and in again, then sets the password straight away.
- */
-const val SIGN_IN_AGAIN_HEADER = "X-Sign-In-Again"
-
-/** Thrown by `FieldRepository.saveOwnPassword` for the [SIGN_IN_AGAIN_HEADER] refusal. */
-class SignInAgainRequired(message: String) : Exception(message)
 
 /**
  * The header a refused first-password answer carries when the account has two-step verification on

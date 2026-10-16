@@ -153,20 +153,23 @@ def client_address(scope: Scope) -> str:
     whatever the client typed: ``X-Forwarded-For: 1.2.3.4`` sent by a script arrives here as
     ``1.2.3.4, <real address>``, so keying on it gave every request a fresh bucket. Each proxy we run
     APPENDS the address that connected to it, so the trustworthy entries are the right-most ones.
-    ``TRUSTED_PROXY_HOPS`` (default 1: the box's nginx) says how many proxies of ours append in front
-    of the API, and the client is the entry the outermost of them wrote, ``entries[-hops]``. With
-    fewer entries than that, the left-most was still written by a proxy of ours (nothing in front of
-    it added one), so it is used. No header at all is a direct connection: the socket peer.
+    ``TRUSTED_PROXY_HOPS`` (default 2: CloudFront, then the box's nginx) says how many proxies of ours
+    append in front of the API, and the client is the entry the outermost of them wrote,
+    ``entries[-hops]``. With fewer entries than that, the left-most was still written by a proxy of
+    ours (nothing in front of it added one), so it is used. No header at all is a direct connection:
+    the socket peer.
 
-    Production today is CloudFront -> nginx -> uvicorn, so the default keys on the address nginx
-    appends, the CloudFront edge that forwarded the request: unforgeable, but shared by the viewers
-    that edge serves. ``TRUSTED_PROXY_HOPS=2`` keys on the viewer address CloudFront appends instead —
-    per person, and forgeable only by somebody who reaches the origin directly past CloudFront
-    (docs/SECURITY.md risk P1). The default is the unforgeable one.
+    Production is CloudFront -> nginx -> uvicorn, so 2 keys on the viewer address CloudFront appends:
+    per person, rather than per CloudFront edge (which 1 would key on, and which every viewer that
+    edge serves shares). It is unforgeable ONLY BECAUSE OF THE CLOUDFRONT LOCK: the box's security
+    group admits port 80 from CloudFront's origin-facing prefix list alone, so no request reaches
+    nginx without passing CloudFront, and CloudFront always appends the address it saw. Without that
+    lock a caller could talk to nginx directly and choose the entry 2 reads; set
+    ``TRUSTED_PROXY_HOPS=1`` on any deployment that is not locked (docs/SECURITY.md risk P1).
     """
     from app.core.config import get_settings
 
-    hops = max(1, int(getattr(get_settings(), "trusted_proxy_hops", 1) or 1))
+    hops = max(1, int(getattr(get_settings(), "trusted_proxy_hops", 2) or 2))
     forwarded = b""
     for name, value in scope.get("headers", []):
         if name == b"x-forwarded-for":
@@ -237,6 +240,37 @@ def account_credential_refund(account_id: str) -> None:
 def reset_account_credential_budget() -> None:
     """Forget every account bucket. For the tests, which sign in wrongly more than ten times."""
     _account_buckets._buckets.clear()  # noqa: SLF001 - the module owns this object
+
+
+# ── THE FIRST-PASSWORD CODE CHECK HAS A BUDGET OF ITS OWN ───────────────────────────────────────────
+#
+# Setting a first password on a provider-only account with two-step on asks for an authenticator or
+# recovery code. Those checks spend THIS bucket — five per account per fifteen minutes, charged
+# before the code is checked and given back when it was right — and NOT the sign-in's second-factor
+# budget: somebody holding a stolen session and a provider sign-in must not be able to lock the owner
+# out of signing in by guessing here, and must not get more than five guesses a quarter-hour either.
+FIRST_PASSWORD_CODE_ATTEMPTS = 5
+FIRST_PASSWORD_CODE_WINDOW_SECONDS = 900.0
+
+_first_password_code_buckets = _TokenBuckets(
+    capacity=FIRST_PASSWORD_CODE_ATTEMPTS,
+    refill_per_second=FIRST_PASSWORD_CODE_ATTEMPTS / FIRST_PASSWORD_CODE_WINDOW_SECONDS,
+)
+
+
+def first_password_code_attempt(account_id: str) -> tuple[bool, float]:
+    """Spend one first-password code check for ``account_id``: ``(allowed, retry_after_seconds)``."""
+    return _first_password_code_buckets.take(f"firstpw:{account_id}")
+
+
+def first_password_code_refund(account_id: str) -> None:
+    """Give the check back — called only after the code was right."""
+    _first_password_code_buckets.refund(f"firstpw:{account_id}")
+
+
+def reset_first_password_code_budget() -> None:
+    """Forget every first-password code bucket. For the tests."""
+    _first_password_code_buckets._buckets.clear()  # noqa: SLF001 - the module owns this object
 
 
 class RateLimitMiddleware:

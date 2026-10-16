@@ -13,7 +13,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.router import api_router
 from app.api.routes.users import EXISTING_ACCOUNT_HEADER
-from app.api.routes.auth import SESSION_TOKEN_HEADER, SIGN_IN_AGAIN_HEADER, TWO_FACTOR_REQUIRED_HEADER
+from app.api.routes.auth import CONFIRM_SIGN_IN_HEADER, SESSION_TOKEN_HEADER, TWO_FACTOR_REQUIRED_HEADER
 from app.core.config import get_settings
 from app.core.db import connect_db, db, disconnect_db
 from app.core.deps import PASSWORD_CHANGE_REQUIRED_HEADER
@@ -372,6 +372,11 @@ def create_app() -> FastAPI:
     # Refuse to serve with a guessable token-signing secret. Done before anything else so the
     # failure is the first thing in the log rather than a subtle weakness nobody notices.
     verify_jwt_configuration()
+    # Say at boot, not at the first enrolment, that two-step secrets still ride on JWT_SECRET.
+    if not (settings.two_factor_encryption_key or "").strip():
+        from app.services.two_factor import warn_legacy_key
+
+        warn_legacy_key()
     # Passing None for the three doc URLs is what actually unregisters the routes; leaving them at
     # their defaults and trying to block the paths in nginx would only move the problem, because the
     # origin is reachable directly as well as through CloudFront.
@@ -415,7 +420,7 @@ def create_app() -> FastAPI:
         expose_headers=[
             PASSWORD_CHANGE_REQUIRED_HEADER,
             SESSION_TOKEN_HEADER,
-            SIGN_IN_AGAIN_HEADER,
+            CONFIRM_SIGN_IN_HEADER,
             # A first password on an account with two-step on: the code box.
             TWO_FACTOR_REQUIRED_HEADER,
             # "Add a person" on an address that already has an account: the screen opens that one.

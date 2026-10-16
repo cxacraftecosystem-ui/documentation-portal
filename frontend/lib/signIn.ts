@@ -132,10 +132,11 @@ export function describeRetryAfter(header: string | null | undefined): string | 
 export const SESSION_TOKEN_HEADER = "x-session-token";
 
 /**
- * The header a set-first-password refusal carries when the session is too old to set one without
- * signing in again (`PASSWORD_REAUTH_MINUTES` on the server).
+ * The header a set-first-password refusal carries when the request lacked a provider sign-in RUN
+ * AGAIN in the last five minutes for this account (missing, stale or another address). Its value
+ * names the provider to run: `GOOGLE`, `MICROSOFT` or `YAHOO`. See `lib/providerReauth.ts`.
  */
-export const SIGN_IN_AGAIN_HEADER = "x-sign-in-again";
+export const CONFIRM_SIGN_IN_HEADER = "x-confirm-sign-in";
 
 /**
  * The header a set-first-password refusal carries when the account has two-step verification on and
@@ -148,9 +149,11 @@ export function asksForTwoFactorCode(error: unknown): boolean {
   return error instanceof ApiError && error.headers?.get(TWO_FACTOR_REQUIRED_HEADER) === "1";
 }
 
-/** Did the server ask for a fresh sign-in before a first password may be set? */
-export function asksToSignInAgain(error: unknown): boolean {
-  return error instanceof ApiError && error.headers?.get(SIGN_IN_AGAIN_HEADER) === "1";
+/** Which provider the server wants signed in with again before a first password, or null. */
+export function asksToConfirmSignIn(error: unknown): string | null {
+  if (!(error instanceof ApiError)) return null;
+  const provider = error.headers?.get(CONFIRM_SIGN_IN_HEADER)?.trim().toUpperCase();
+  return provider ? provider : null;
 }
 
 /**
@@ -162,14 +165,14 @@ export function asksToSignInAgain(error: unknown): boolean {
 export async function changeOwnPassword(
   currentPassword: string,
   newPassword: string,
-  twoFactorCode?: string
+  twoFactorCode?: string,
+  /** A FIRST password only: the provider sign-in run again (`ProviderProof.fields`). */
+  providerProof?: Record<string, string>
 ): Promise<string | null> {
   const code = twoFactorCode?.trim();
   const body = currentPassword
     ? { currentPassword, newPassword }
-    : code
-      ? { newPassword, twoFactorCode: code }
-      : { newPassword };
+    : { newPassword, ...(code ? { twoFactorCode: code } : {}), ...(providerProof ?? {}) };
   const { headers } = await apiFetchWithHeaders<unknown>("/auth/change-password", {
     method: "POST",
     body: JSON.stringify(body)

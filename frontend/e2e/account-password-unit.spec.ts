@@ -35,7 +35,7 @@ import { hasOwnPassword, newPasswordProblem, passwordFailureSentence } from "@/l
 import {
   MAX_PASSWORD_LENGTH,
   asksForTwoFactorCode,
-  asksToSignInAgain,
+  asksToConfirmSignIn,
   describeRetryAfter,
   existingAccountId,
   linkRefusal,
@@ -99,9 +99,9 @@ test("a 401 with X-Password-Change-Required keeps the session", () => {
   expect(gated.passwordChangeRequired).toBe(true);
   const ended = new ApiError(401, "Sign in again.", null, new Headers());
   expect(ended.passwordChangeRequired).toBe(false);
-  const again = new ApiError(400, "sign in again", null, new Headers({ "X-Sign-In-Again": "1" }));
-  expect(asksToSignInAgain(again)).toBe(true);
-  expect(asksToSignInAgain(ended)).toBe(false);
+  const again = new ApiError(400, "sign in with Google again", null, new Headers({ "X-Confirm-Sign-In": "GOOGLE" }));
+  expect(asksToConfirmSignIn(again)).toBe("GOOGLE");
+  expect(asksToConfirmSignIn(ended)).toBeNull();
 });
 
 test("the forced change is drawn above the whole protected tree", () => {
@@ -130,8 +130,11 @@ test("the change-password rules", () => {
 test("Settings offers set-a-password to an account without one", () => {
   const card = read("components", "settings", "ChangePasswordCard.tsx");
   expect(card).toContain("Set a password");
-  expect(card).toContain("asksToSignInAgain");
-  expect(card).toContain("Sign out and sign in again");
+  expect(card).toContain("asksToConfirmSignIn");
+  // The provider sign-in is run again on the card itself; nobody is sent to sign out.
+  expect(card).toContain("GoogleConfirmButton");
+  expect(card).toContain("REAUTH_STATE_PREFIX");
+  expect(card).not.toContain("Sign out and sign in again");
   expect(read("app", "(protected)", "settings", "page.tsx")).toContain("<ChangePasswordCard />");
 });
 
