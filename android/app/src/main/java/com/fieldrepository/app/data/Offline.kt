@@ -115,7 +115,14 @@ data class PendingEntry(
     /** A [OutboxKind.SEQUENCE] entry's requests, replayed in order. */
     val steps: List<OutboxStep> = emptyList(),
     /** How many of [steps] the server has accepted; the replay resumes at the next one. */
-    val completedSteps: Int = 0
+    val completedSteps: Int = 0,
+    /**
+     * The server answered this entry's create with "this Idempotency-Key was already used for a
+     * different request": a record may already be on the server under it. Not a refusal of the
+     * record. The entry, its body and its files are kept and shown for review, and "Send again"
+     * resends the SAME body under a NEW key ([OfflineOutbox.clearFailure]).
+     */
+    val needsReview: Boolean = false
 )
 
 /**
@@ -266,7 +273,29 @@ object OfflineOutbox {
         mutex.withLock {
             val current = read(context)
             if (current.any { it.id == entryId && it.failure != null }) {
-                write(context, current.map { if (it.id == entryId) it.copy(failure = null, failedAt = null) else it })
+                write(context, current.map { entry ->
+                    if (entry.id != entryId) entry
+                    else entry.copy(
+                        failure = null,
+                        failedAt = null,
+                        needsReview = false,
+                        // A key the server says belongs to a different request can never succeed
+                        // again; the researcher reviewed it and chose to send, so it gets a new one.
+                        idempotencyKey = if (entry.needsReview) java.util.UUID.randomUUID().toString() else entry.idempotencyKey
+                    )
+                })
+            }
+        }
+    }
+
+    /** Park an entry for review (see [PendingEntry.needsReview]). Kept, with its files. */
+    suspend fun markReview(context: Context, entryId: String, reason: String) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val current = read(context)
+            if (current.any { it.id == entryId }) {
+                write(context, current.map {
+                    if (it.id == entryId) it.copy(failure = reason, failedAt = Instant.now().toString(), needsReview = true) else it
+                })
             }
         }
     }

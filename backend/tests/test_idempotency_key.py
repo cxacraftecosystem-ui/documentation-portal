@@ -300,3 +300,63 @@ def test_two_repeats_racing_for_one_stale_marker_cannot_both_take_it():
         assert await store.take_over("u", "race-key-01", "fp", answered_at) is False
 
     asyncio.run(scenario())
+
+
+def test_end_to_end_a_lost_answer_replayed_from_the_outbox_files_one_record_with_its_media():
+    """The outbox path end to end: the online create lands but its answer is lost, the handset
+    replays the SAME bytes under the SAME key, gets the first record back, and attaches its photos
+    to it. One record, with its media, and no duplicate."""
+    store = MemoryStore()
+    records: dict[str, dict] = {}
+    media: list[dict] = []
+    ids = itertools.count(1)
+    app = FastAPI()
+
+    @app.post("/api/crafts", status_code=201)
+    async def create_craft(request: Request):
+        body = await request.json()
+        record = {"id": f"craft_{next(ids)}", "name": body["name"], "recordedAt": body["recordedAt"]}
+        records[record["id"]] = record
+        return record
+
+    @app.post("/api/media/complete", status_code=201)
+    async def complete_media(request: Request):
+        body = await request.json()
+        assert body["linkedRecordId"] in records, "media must attach to a record that exists"
+        media.append(body)
+        return {"id": f"media_{len(media)}"}
+
+    app.add_middleware(IdempotencyMiddleware, store=store)
+    client = TestClient(app)
+    headers = {**_auth(), "Idempotency-Key": "outbox-key-000001", "Content-Type": "application/json"}
+    wire = b'{"name":"Ajrakh","recordedAt":"2026-10-17T08:59:12.345Z"}'
+
+    client.post("/api/crafts", content=wire, headers=headers)  # lands; the answer never reaches the phone
+    replay = client.post("/api/crafts", content=wire, headers=headers)
+    assert replay.status_code == 201
+    assert replay.headers.get("idempotent-replayed") == "true"
+    record_id = replay.json()["id"]
+    attached = client.post(
+        "/api/media/complete",
+        json={"linkedRecordType": "craft", "linkedRecordId": record_id, "objectKey": "media/u/a.jpg"},
+        headers=_auth(),
+    )
+    assert attached.status_code == 201
+    assert list(records) == [record_id]
+    assert [m["linkedRecordId"] for m in media] == [record_id]
+
+
+def test_a_replay_whose_bytes_drifted_is_flagged_as_a_key_reuse_and_writes_nothing():
+    """What the handset must never do (a fresh recordedAt on the replay), and the signal it gets if it
+    does: a 422 the outbox can tell apart from a refusal of the record, so it parks the entry for
+    review instead of dropping its photos."""
+    store = MemoryStore()
+    app, records = _app(store)
+    client = TestClient(app)
+    headers = {**_auth(), "Idempotency-Key": "drifted-key-0001", "Content-Type": "application/json"}
+    client.post("/api/crafts", content=b'{"name":"Ajrakh","at":"09:00:00"}', headers=headers)
+    drifted = client.post("/api/crafts", content=b'{"name":"Ajrakh","at":"09:00:07"}', headers=headers)
+    assert drifted.status_code == 422
+    assert drifted.headers.get("idempotency-status") == "key-reused"
+    assert drifted.json()["code"] == "IDEMPOTENCY_KEY_REUSED"
+    assert len(records) == 1

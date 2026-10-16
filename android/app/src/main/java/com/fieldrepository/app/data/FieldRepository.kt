@@ -2937,6 +2937,10 @@ class FieldRepository(
                         OfflineOutbox.markFailure(context, queued.id, outcome.reason)
                         notifyUser(context, "\"${queued.label}\" could not be uploaded. ${outcome.reason}")
                     }
+                    is ReplayOutcome.Review -> {
+                        OfflineOutbox.markReview(context, queued.id, outcome.reason)
+                        notifyUser(context, "\"${queued.label}\" needs a look before it is sent. ${outcome.reason}")
+                    }
                     // Transient: stop here so the queue keeps its order and nothing is marked failed
                     // for a reason that is really "the signal went away again".
                     ReplayOutcome.Retry -> return@withLock synced
@@ -2956,6 +2960,12 @@ class FieldRepository(
 
         /** The server's final answer. Keep the entry AND its files; tell the researcher. */
         data class Rejected(val reason: String) : ReplayOutcome
+
+        /**
+         * The server says this entry's Idempotency-Key was used for a different request. The record
+         * may already be there. Keep everything and ask the researcher; never a silent refusal.
+         */
+        data class Review(val reason: String) : ReplayOutcome
     }
 
     /**
@@ -3006,8 +3016,15 @@ class FieldRepository(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                return if (isTransient(e)) ReplayOutcome.Retry
-                else ReplayOutcome.Rejected(e.apiErrorMessage("This record couldn't be saved."))
+                return when {
+                    isTransient(e) -> ReplayOutcome.Retry
+                    isKeyReused(e) -> ReplayOutcome.Review(
+                        "The server already has a request under this entry's key with different " +
+                            "contents, so this record may already be saved. Check the record list; if it " +
+                            "is not there, tap Send again (its photos are kept on this device either way)."
+                    )
+                    else -> ReplayOutcome.Rejected(e.apiErrorMessage("This record couldn't be saved."))
+                }
             }
             entry = entry.copy(createdId = created.id, createdStepIds = created.stepIds)
             OfflineOutbox.update(context, entry)
@@ -3154,6 +3171,11 @@ class FieldRepository(
      * permanent failure transient and one bad record blocks the queue for ever; call a transient one
      * permanent and a day's work is parked for a human because a tunnel took the signal away.
      */
+    /** A 422 about the Idempotency-Key itself (backend `app/core/idempotency.py`), not the record. */
+    private fun isKeyReused(error: Throwable): Boolean =
+        error is HttpException && error.code() == 422 &&
+            error.response()?.headers()?.get("Idempotency-Status") == "key-reused"
+
     /** [isTransient], for a form deciding whether a failed online create may go to the outbox. */
     fun isTransientFailure(error: Throwable): Boolean = isTransient(error)
 
@@ -3208,9 +3230,14 @@ class FieldRepository(
         else body.copy(pehchanCardAvailable = body.pehchanCardNumber != null)
 
     /** What a replayed create produced: the record's server id, plus a process's step ids in order. */
-    private data class CreatedRecord(val id: String, val stepIds: List<String> = emptyList())
+    internal data class CreatedRecord(val id: String, val stepIds: List<String> = emptyList())
 
-    private suspend fun createFromEntry(entry: PendingEntry): CreatedRecord = when (entry.type) {
+    /**
+     * Send a queued create. Internal so `OutboxReplayBytesTest` can prove a replay puts the SAME
+     * bytes and the SAME key on the wire as the online attempt it stands in for: the server
+     * fingerprints the body, and a replay that differs by a byte is a 422 instead of the record.
+     */
+    internal suspend fun createFromEntry(entry: PendingEntry): CreatedRecord = when (entry.type) {
         "artisan" -> CreatedRecord(
             api.createArtisan(
                 entry.idempotencyKey,
