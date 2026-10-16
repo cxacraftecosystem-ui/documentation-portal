@@ -375,13 +375,14 @@ fun OutboxPendingBanner(
             refused.forEach { entry ->
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "“${entry.label}” couldn't upload: ${entry.failure}",
+                        if (entry.needsReview) "Review “${entry.label}”: ${entry.failure}"
+                        else "“${entry.label}” couldn't upload: ${entry.failure}",
                         color = ink,
                         fontSize = 12.sp,
                         modifier = Modifier.weight(1f)
                     )
                     TextButton(onClick = { scope.launch { onRetry(entry.id); reload++ } }) {
-                        Text("Try again", color = ink, fontSize = 12.sp)
+                        Text(if (entry.needsReview) "Send again" else "Try again", color = ink, fontSize = 12.sp)
                     }
                 }
             }

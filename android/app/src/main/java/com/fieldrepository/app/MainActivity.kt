@@ -17078,6 +17078,13 @@ private class KeptOnDevice : Exception("Saved on this device. It'll upload autom
  * The key is what makes this safe. The server may already have written the record; the replay
  * carries the key, and the server answers it from the first record instead of writing a second
  * (backend `app/core/idempotency.py`). A refusal (4xx) is not a lost answer and is thrown as it was.
+ *
+ * THE QUEUED BODY IS THE SENT BODY. [payloadJson] must be the serialisation of the very object
+ * [create] sent, built once by the caller: no fresh `recordedAt`, no new client key, nothing
+ * recomputed. The server fingerprints the bytes, and a replay that differs from the first attempt
+ * by one timestamp is a 422 "different request" instead of the record (`OutboxReplayBytesTest`
+ * holds this for every record type). A NEW key is minted on every call, so a form changed and saved
+ * again after a refusal never reuses the key of the earlier, different body.
  */
 private suspend fun <T> createOrKeep(
     repository: FieldRepository,

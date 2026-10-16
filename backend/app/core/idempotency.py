@@ -19,7 +19,10 @@ THE CONTRACT. A POST to one of the CREATE routes in ``CREATE_ROUTES`` carrying
   timeout and CloudFront's origin timeout on the slow box) died with its process, and exactly ONE
   repeat may take its place: the takeover is a conditional update on the marker it read, so two
   repeats racing for it cannot both run the route.
-* again with a different method, path or body: ``422``. One key names one request.
+* again with a different method, path or body: ``422`` with ``Idempotency-Status: key-reused`` and
+  ``code: IDEMPOTENCY_KEY_REUSED``. One key names one request. The header is how a client tells this
+  422 (a record may already exist under that key) from a 422 about the record itself, and the
+  Android outbox parks such an entry for the researcher to review rather than refusing it.
 * a non-2xx answer or an exception is not stored, so a failed create can be retried.
 
 It is ADDITIVE AND NARROW. A request without the header, a request that is not a POST, a request to
@@ -261,7 +264,13 @@ class IdempotencyMiddleware:
                     return
             elif existing.fingerprint != fingerprint:
                 await _send_json(
-                    send, 422, {"detail": "This Idempotency-Key was already used for a different request."}, []
+                    send,
+                    422,
+                    {
+                        "detail": "This Idempotency-Key was already used for a different request.",
+                        "code": "IDEMPOTENCY_KEY_REUSED",
+                    },
+                    [(b"idempotency-status", b"key-reused")],
                 )
                 return
             elif existing.status_code is not None:

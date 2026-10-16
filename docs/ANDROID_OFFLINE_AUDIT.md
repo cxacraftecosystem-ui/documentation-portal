@@ -90,6 +90,17 @@ retries rather than treats as a refusal; a first request still unanswered after 
 treated as dead, and exactly one repeat may take it over. Requests without the header behave as
 before.
 
+The queued body is the sent body: `createOrKeep` serialises the very object the online attempt sent,
+built once (no fresh `recordedAt`, no new client key), and a new key is minted for every attempt, so
+a form changed and saved again never reuses an older body's key. `OutboxReplayBytesTest` checks,
+for every record type, that the replay puts the online attempt's exact bytes and key on the wire,
+because the server fingerprints them. If a replay is ever answered `422` with
+`Idempotency-Status: key-reused` (the key belongs to a different request), the entry is not refused:
+it is parked for review with its body and photos, listed in the banner as "Review", and "Send again"
+resends it under a new key. Offline corrections send no `expectedUpdatedAt` precondition (no
+Android request model declares one), so the server's read-then-check of that field is not on their
+path.
+
 **Unsaved forms are drafts on disk.** Every record form (artisan, craft, workshop, product, tool,
 process, questionnaire interview) and the miscellaneous media screen binds its fields to a
 `FormDraft` (`ui/FormDrafts.kt`). While the form has unsaved changes, it autosaves 0.7 seconds after
