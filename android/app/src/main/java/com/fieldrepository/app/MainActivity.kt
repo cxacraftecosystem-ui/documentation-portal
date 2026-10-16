@@ -88,6 +88,22 @@ import com.fieldrepository.app.ui.visibleNavItems
 import com.fieldrepository.app.ui.IslandEntry
 import com.fieldrepository.app.ui.IslandGroup
 import com.fieldrepository.app.ui.IslandScaffold
+import com.fieldrepository.app.ui.APP_SEARCH_NAME
+import com.fieldrepository.app.ui.AppMenuFocusEffect
+import com.fieldrepository.app.ui.AppSearchHeader
+import com.fieldrepository.app.ui.AppSearchItem
+import com.fieldrepository.app.ui.AppSearchPanel
+import com.fieldrepository.app.ui.AppSearchSettingTarget
+import com.fieldrepository.app.ui.FieldRepoLogo
+import com.fieldrepository.app.ui.appMenuBleed
+import com.fieldrepository.app.ui.appMenuHidesPage
+import com.fieldrepository.app.ui.appMenuShowing
+import com.fieldrepository.app.ui.appSearchCachedItems
+import com.fieldrepository.app.ui.appSearchRemoteItems
+import com.fieldrepository.app.ui.appSearchScreenItems
+import com.fieldrepository.app.ui.appSearchSettingItems
+import com.fieldrepository.app.ui.closeAppMenu
+import com.fieldrepository.app.ui.openAppMenu
 import com.fieldrepository.app.ui.Text
 import com.fieldrepository.app.ui.AppMessageBanner
 import com.fieldrepository.app.ui.AppMessageState
@@ -1165,6 +1181,10 @@ private fun HomeScreen(
     var craftListCut by remember { mutableStateOf<String?>(null) }
     var artisanListCut by remember { mutableStateOf<String?>(null) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
+    // The reduced-motion switch, which the menu now honours when it opens and closes.
+    val reducedMotion = preferences.reducedMotion
+    // The search panel the page header opens. See AppSearch.kt.
+    var searchOpen by remember { mutableStateOf(false) }
     // The designer portal's AppMessageState: `message = "…"` is a success, showMessage an error.
     val appMessage = remember { AppMessageState() }
     var message by appMessage
@@ -1300,6 +1320,18 @@ private fun HomeScreen(
         val lower = text.lowercase()
         if ("left the composition" in lower || "was cancelled" in lower || "job was cancelled" in lower) return
         appMessage.show(text, tone, onRetry)
+    }
+
+    // Where a search hit, a map pin and an app-search result go: one arm, so the three cannot drift.
+    // A type this app has no form for gets a sentence instead of the wrong editor.
+    fun openSearchRecord(recordType: String, recordId: String) {
+        val mode = searchRecordEntryMode(recordType)
+        if (mode == null) {
+            showMessage(unroutableRecordLine(recordType))
+        } else {
+            message = null
+            screen = Screen.Edit(mode, recordId)
+        }
     }
 
     // Who may START a new entry of each kind, mirroring the backend dependency on the POST route.
@@ -1473,7 +1505,7 @@ private fun HomeScreen(
         // Closing the sheet is not the navigation and must not wait on the answer: a drawer left open
         // behind the dialog is still open after "Keep editing", covering the form the user chose to
         // stay on.
-        scope.launch { drawerState.close() }
+        scope.launch { drawerState.closeAppMenu(reducedMotion) }
         if (destination == NavDestination.WALKTHROUGH) {
             // The one destination that is not a departure — it draws OVER the page you are already on
             // (see the branch above), so there is nothing to save or discard, and prompting would
@@ -1592,18 +1624,50 @@ private fun HomeScreen(
         }
     }
 
-    BackHandler(enabled = drawerState.isOpen) {
-        scope.launch { drawerState.close() }
+    // The search panel's sources (ui/AppSearchSources.kt). Screens are this account's own menu,
+    // so a search offers nothing the menu would not; every opener goes through the same router,
+    // and the same unsaved-changes guard, as a menu tap.
+    fun searchLocalItems(): List<AppSearchItem> =
+        appSearchScreenItems(visibleNavItems(user, adminView), ::navigate) +
+            appSearchSettingItems { target ->
+                attemptExit {
+                    message = null
+                    screen = when (target) {
+                        AppSearchSettingTarget.APPEARANCE -> Screen.Appearance
+                        AppSearchSettingTarget.AI_KEYS -> Screen.MyAiKeys
+                        AppSearchSettingTarget.TWO_STEP -> Screen.TwoStepVerification
+                    }
+                }
+            } +
+            appSearchCachedItems(artisans, crafts) { type, id -> attemptExit { openSearchRecord(type, id) } }
+
+    suspend fun searchRemote(query: String): List<AppSearchItem> =
+        appSearchRemoteItems(
+            repository = repository,
+            query = query,
+            openRecord = { type, id -> attemptExit { openSearchRecord(type, id) } }
+        )
+
+    // `appMenuShowing` and not `isOpen`, which stays false for the whole opening slide: Back pressed
+    // while the menu is still arriving closes it instead of navigating the page underneath.
+    BackHandler(enabled = drawerState.appMenuShowing) {
+        scope.launch { drawerState.closeAppMenu(reducedMotion) }
     }
-    BackHandler(enabled = drawerState.isClosed && screen !is Screen.Dashboard) {
+    BackHandler(enabled = !drawerState.appMenuShowing && screen !is Screen.Dashboard) {
         attemptExit { goBack() }
     }
+    AppMenuFocusEffect(drawerState)
 
     // Right-anchored drawer: wrap in RTL so the sheet slides in from the right (web parity),
     // then flip drawer + page content back to LTR so their own layout reads normally.
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         ModalNavigationDrawer(
             drawerState = drawerState,
+            // Through the root's 16dp padding, so the scrim and the sheet reach the screen edges.
+            modifier = Modifier.appMenuBleed(16.dp),
+            // Swipe to CLOSE only. Swipe-to-open listened to the whole page and pulled the menu
+            // across canvases and sliders; the hamburger is the way in.
+            gesturesEnabled = drawerState.appMenuShowing,
             drawerContent = {
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                     /*
@@ -1627,7 +1691,7 @@ private fun HomeScreen(
                         pushingUpdate = pushingUpdate,
                         onToggleAdminView = { adminViewRequested = !adminView },
                         onPushUpdate = {
-                            scope.launch { drawerState.close() }
+                            scope.launch { drawerState.closeAppMenu(reducedMotion) }
                             if (!pushingUpdate) {
                                 pushingUpdate = true
                                 Toast.makeText(context, "Publishing this version as the update for everyone…", Toast.LENGTH_SHORT).show()
@@ -1649,7 +1713,7 @@ private fun HomeScreen(
                                 }
                             }
                         },
-                        onLogout = { scope.launch { drawerState.close() }; onLogout() }
+                        onLogout = { scope.launch { drawerState.closeAppMenu(reducedMotion) }; onLogout() }
                     )
                 }
             }
@@ -1660,6 +1724,9 @@ private fun HomeScreen(
                 LocalUnsavedGuard provides unsavedGuard,
                 com.fieldrepository.app.ui.richtext.LocalRichMediaUrl provides richMediaUrl
             ) {
+            // The page gets back the 16dp the drawer bleeds through, and leaves the accessibility
+            // tree while the menu is over it. See AppMenuDrawer.kt.
+            Box(modifier = Modifier.padding(16.dp).appMenuHidesPage(drawerState.appMenuShowing)) {
                 /*
                  * Two hosting shapes. Almost everything renders into the scrolling Column below,
                  * under the app's own header. The two screens branched off here own
@@ -1730,7 +1797,9 @@ private fun HomeScreen(
             modifier = islandModifier,
             // The drawer: the full menu, the admin-view switch (which left the bar when it moved to
             // the bottom) and Logout.
-            onOpenDrawer = { scope.launch { drawerState.open() } },
+            onOpenDrawer = { scope.launch { drawerState.openAppMenu(reducedMotion) } },
+            // Out of the way while the search panel is over the page.
+            visible = !searchOpen,
             // The bar highlights by label, so the label has to be looked up from the DESTINATION the
             // user is on. This used to pass `headerTitle` — a page title, matched against nav labels
             // that are written for a menu — so the Dashboard ("Field Repository" against "Dashboard")
@@ -1766,6 +1835,14 @@ private fun HomeScreen(
                 .padding(bottom = islandReserve),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+
+        // The app's name and logo, FIRST INSIDE THE SCROLLER so it scrolls away with the page and is
+        // back at the top; tapping it opens the search panel drawn over the page below. AppSearch.kt.
+        AppSearchHeader(
+            appName = APP_SEARCH_NAME,
+            logo = { m -> FieldRepoLogo(modifier = m, cornerRadius = 7.dp) },
+            onOpenSearch = { searchOpen = true }
+        )
 
         // The dashboard is the root of every path, so only the screens below it get a back arrow —
         // and it is also the only screen with no title of its own, so on the dashboard this whole
@@ -1929,7 +2006,7 @@ private fun HomeScreen(
                         repository = repository,
                         onOpenRecord = { recordType, recordId ->
                             message = null
-                            screen = Screen.Edit(searchRecordEntryMode(recordType), recordId)
+                            openSearchRecord(recordType, recordId)
                         },
                         onBack = { attemptExit { goBack() } },
                         initialRecordType = s.searchFocus
@@ -1951,7 +2028,7 @@ private fun HomeScreen(
                     // mapper is reused rather than a second one written beside it that could drift.
                     onOpenRecord = { recordType, recordId ->
                         message = null
-                        screen = Screen.Edit(searchRecordEntryMode(recordType), recordId)
+                        openSearchRecord(recordType, recordId)
                     }
                 )
                 // /questionnaire/consolidated on the web: the artisan picker, and the document behind
@@ -2161,9 +2238,20 @@ private fun HomeScreen(
         }
 
                 }
+                // Over the page, under nothing: the page keeps its scroll and any half-filled form.
+                if (searchOpen) {
+                    AppSearchPanel(
+                        appName = APP_SEARCH_NAME,
+                        logo = { m -> FieldRepoLogo(modifier = m, cornerRadius = 7.dp) },
+                        localItems = searchLocalItems(),
+                        remoteSearch = { q -> searchRemote(q) },
+                        onClose = { searchOpen = false },
+                        onError = { showMessage(it) }
+                    )
+                }
         // The shared message surface floats over the bottom of the viewport, just above the island,
         // so a save confirmation or a failure is on screen wherever the reader has scrolled to —
-        // it used to be a plain line at the very foot of the page, below a long form's fold.
+        // and over the search panel too, so a failure raised from it is seen.
         AppMessageBanner(
             state = appMessage,
             modifier = Modifier
@@ -2264,6 +2352,7 @@ private fun HomeScreen(
                     )
                 }
             }
+            }
         }
     }
 }
@@ -2319,21 +2408,29 @@ private fun searchFocusLabel(recordType: String): String = when (recordType) {
 }
 
 /**
- * The record type a search hit belongs to, as the app's own [EntryMode].
+ * Which form a search hit, a map pin or an app-search result opens — or null when this app has none.
  *
- * [SearchRecordTypes] is the contract the search screen reports against; anything unrecognised falls
- * back to ARTISAN rather than throwing, because a new bucket appearing server-side must not crash a
- * tap. MEDIA is included: it has no edit form (the web opens the object itself), and [EditScreen]
- * shows the file with its transcript instead.
+ * Ported from the designer portal on 2026-10-16. It used to end `else -> EntryMode.ARTISAN`, so a
+ * record type it did not know opened the ARTISAN editor on that record's id — a form whose Save
+ * writes an artisan. Crafts, processes and interviews now have their own arms (the app-wide search
+ * panel finds all three), and anything else is null, which the caller turns into a sentence rather
+ * than a wrong screen. `SearchRecordRoutingTest` holds both halves.
  */
-private fun searchRecordEntryMode(recordType: String): EntryMode = when (recordType) {
+private fun searchRecordEntryMode(recordType: String): EntryMode? = when (recordType) {
     SearchRecordTypes.ARTISAN -> EntryMode.ARTISAN
     SearchRecordTypes.WORKSHOP -> EntryMode.WORKSHOP
     SearchRecordTypes.PRODUCT -> EntryMode.PRODUCT
     SearchRecordTypes.TOOL -> EntryMode.TOOL
     SearchRecordTypes.MEDIA -> EntryMode.MEDIA
-    else -> EntryMode.ARTISAN
+    SearchRecordTypes.CRAFT -> EntryMode.CRAFT
+    SearchRecordTypes.PROCESS -> EntryMode.PROCESS
+    SearchRecordTypes.QUESTIONNAIRE -> EntryMode.QUESTIONNAIRE
+    else -> null
 }
+
+/** What a person is told when a tapped result has nowhere to go on this handset. */
+internal fun unroutableRecordLine(recordType: String): String =
+    "Update the app to open this record, or open it in the web portal."
 
 /**
  * What an admin sees in place of admin chrome they switched off themselves.

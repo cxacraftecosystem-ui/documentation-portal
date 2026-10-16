@@ -739,7 +739,9 @@ interface FieldRepositoryApi {
          */
         @Query("artisanId") artisanId: String? = null,
         /** Only rows this account created — My Activity asks the SERVER, so nothing past page one is lost. */
-        @Query("createdBy") createdBy: String? = null
+        @Query("createdBy") createdBy: String? = null,
+        // The route's own text filter (`questionnaire.py`'s `search`), used by the app-wide search.
+        @Query("search") search: String? = null
     ): PageResponse<QuestionnaireInterviewDetailDto>
 
     @GET("questionnaire/interviews/{id}")

@@ -99,6 +99,13 @@ object SearchRecordTypes {
     const val TOOL = "tool"
     const val MEDIA = "media"
 
+    // Record types with no bucket on this screen that a result can still OPEN: the crafts,
+    // processes and interviews the app-wide search panel finds through their own list routes.
+    // Not in [ALL]. The same strings as the designer portal's `DwWorkshopRecordType` wires.
+    const val CRAFT = "craft"
+    const val PROCESS = "process"
+    const val QUESTIONNAIRE = "questionnaire"
+
     /**
      * Every bucket, in the order `GET /search` counts, reads and returns them.
      *
