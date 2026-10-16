@@ -171,9 +171,11 @@ fix, real uploads or the installed fleet.
 So before tagging, put the dry-run build on handsets — at least one on Android 15 or later, ideally
 one on Android 16 or 17 and one tablet or foldable — and, signed in:
 
-1. **Edge to edge.** On every screen the island bar clears the status bar and the last field or
-   button clears the navigation bar; typing into a record form or into search keeps the field above
-   the keyboard. Open the drawer, a multi-select picker (a bottom sheet), the date picker and the
+1. **Edge to edge.** On every screen the header clears the status bar, the island bar (now at the
+   bottom) sits above the navigation bar, and the last field or button scrolls clear of the island;
+   typing into a record form or into search hides the island and keeps the field above the
+   keyboard. As an admin with admin view on, the fifth slot reads "More" and its sheet lists Admin
+   and Account. Open the drawer, a multi-select picker (a bottom sheet), the date picker and the
    media viewer too.
 2. **Back.** From a half-filled form the back gesture asks Save / Discard; inside the admin hub it
    goes one tool up; with the drawer open it closes the drawer; on the dashboard it leaves the app.
