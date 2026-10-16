@@ -5,6 +5,7 @@ import androidx.compose.material.icons.filled.Star
 import com.fieldrepository.app.data.UserDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -173,5 +174,51 @@ class IslandBottomNavTest {
                 assertTrue("$role/$adminMode", visibleLabels.containsAll(behindMore))
             }
         }
+    }
+
+    // ── The bar's words (2026-10-17) ───────────────────────────────────────────────────────────
+
+    @Test
+    fun `the long names print short and every other label prints as it is`() {
+        assertEquals("Home", islandShortLabel("Dashboard"))
+        assertEquals("Tour", islandShortLabel("Walkthrough"))
+        assertEquals("Record", islandShortLabel("Record"))
+        assertEquals("Browse", islandShortLabel("Browse"))
+        assertEquals("Admin", islandShortLabel("Admin"))
+        assertEquals("Account", islandShortLabel("Account"))
+        assertEquals("More", islandShortLabel(ISLAND_MORE_LABEL))
+        assertEquals("Something new", islandShortLabel("Something new"))
+    }
+
+    @Test
+    fun `every short word is no longer than the longest group name`() {
+        val longest = NavGroup.entries.maxOf { it.label.length }
+        ISLAND_SHORT_LABELS.values.forEach { assertTrue(it, it.length <= longest) }
+    }
+
+    /** A measurer whose widest label is [perSp] dp for every sp of text size. */
+    private fun widest(perSp: Float): (Float) -> Float = { sp -> sp * perSp }
+
+    @Test
+    fun `labels stay at full size where they fit`() {
+        assertEquals(ISLAND_LABEL_MAX_SP, islandLabelSize(available = 60f, widestAt = widest(4f)))
+    }
+
+    @Test
+    fun `labels shrink in half points before they are given up`() {
+        // 12sp needs 48dp, 11.5sp needs 46dp: 47dp of room takes 11.5sp.
+        assertEquals(11.5f, islandLabelSize(available = 47f, widestAt = widest(4f)))
+        assertEquals(ISLAND_LABEL_MIN_SP, islandLabelSize(available = 44f, widestAt = widest(4f)))
+    }
+
+    @Test
+    fun `below the smallest size the bar draws glyphs only`() {
+        assertNull(islandLabelSize(available = 43.9f, widestAt = widest(4f)))
+    }
+
+    @Test
+    fun `the floor is eleven points`() {
+        assertEquals(11f, ISLAND_LABEL_MIN_SP)
+        assertTrue(ISLAND_LABEL_MAX_SP >= ISLAND_LABEL_MIN_SP)
     }
 }
