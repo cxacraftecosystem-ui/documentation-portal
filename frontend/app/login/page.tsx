@@ -452,7 +452,7 @@ function LoginView() {
                     Password
                   </label>
                   {/* Self-service: emails a one-time set-password link. Same answer for every address. */}
-                  <Link href="/forgot-password" className="text-sm font-medium text-purple-700 hover:underline">
+                  <Link href="/forgot-password" className="text-sm font-medium text-purple-700 hover:underline dark:text-purple-300">
                     Forgot your password?
                   </Link>
                 </div>
@@ -474,7 +474,7 @@ function LoginView() {
                     aria-label={showPassword ? "Hide password" : "Show password"}
                     aria-pressed={showPassword}
                     onClick={() => setShowPassword((value) => !value)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-ink-300 hover:text-ink-500"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 grid place-items-center rounded-md p-1 text-ink-500 hover:text-ink-700 pointer-coarse:right-0 pointer-coarse:h-11 pointer-coarse:w-11"
                   >
                     {showPassword ? <EyeOff size={22} aria-hidden /> : <Eye size={22} aria-hidden />}
                   </button>
@@ -482,13 +482,13 @@ function LoginView() {
               </div>
 
               <Button type="submit" size="auth" disabled={loading} className="mt-1 w-full font-display text-base font-bold">
-                {loading ? "Signing in…" : "Sign In"}
+                {loading ? "Signing in…" : "Sign in"}
               </Button>
             </form>
 
             <div className="my-4 flex items-center gap-3">
               <span className="h-px flex-1 bg-line-200" />
-              <span className="text-sm text-ink-300">OR</span>
+              <span className="text-sm text-ink-500">OR</span>
               <span className="h-px flex-1 bg-line-200" />
             </div>
 
@@ -549,7 +549,7 @@ function LoginView() {
 
           <p className="mt-4 text-center text-sm text-ink-500">
             No account yet?{" "}
-            <Link href="/" className="font-medium text-purple-700 hover:underline">
+            <Link href="/" className="font-medium text-purple-700 dark:text-purple-300 hover:underline">
               See what Field Repository does
             </Link>
           </p>

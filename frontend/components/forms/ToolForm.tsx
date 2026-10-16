@@ -37,6 +37,7 @@ import { RichTextField } from "@/components/richtext/RichTextField";
 import { appendStoredParagraph } from "@/components/richtext/storedRichText";
 import { MultiSelectDropdown } from "@/components/ui/Dropdown";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
+import { statusLabel } from "@/components/StatusBadge";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { apiFetch } from "@/lib/api";
 import { locationFromForm, numericValue, recordedAtFromForm, recordedTimezoneFromForm, requiredText, sameIdSet, textValue, useUnsavedChanges } from "@/lib/forms";
@@ -208,7 +209,7 @@ function StatusField({
       <Field label="Status">
         <Select name="status" defaultValue={initialStatus ?? "APPROVED"} onChange={onDirty}>
           {options.map((status) => (
-            <option key={status}>{status}</option>
+            <option key={status} value={status}>{statusLabel(status)}</option>
           ))}
         </Select>
       </Field>
@@ -1750,7 +1751,7 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
             markDirty();
           }}
           title="Tool media"
-          description="Attach or capture tool images, videos, audio notes, and documents. Image EXIF is retained and summarized in remarks."
+          description="Attach or capture tool images, videos, audio notes, and documents. Photo details (date, place, camera) are kept and summarised in the remarks."
         />
         <LocationFields initial={initialLocation} onDirty={markDirty} />
         {uploadProgress ? <UploadProgress progress={uploadProgress} /> : null}

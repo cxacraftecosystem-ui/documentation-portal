@@ -255,7 +255,7 @@ export function WorkshopRosterPanel({ refreshToken, onChanged }: { refreshToken:
       </div>
 
       {error ? (
-        <div className="mt-3 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-error-600">{error}</div>
+        <div className="mt-3 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-red-800">{error}</div>
       ) : null}
 
       {workshopId ? (

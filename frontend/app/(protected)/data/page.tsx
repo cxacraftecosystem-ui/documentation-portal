@@ -189,7 +189,12 @@ function stem(name: string) {
 
 function TranscriptMarkdown({ children }: { children: string }) {
   return (
-    <div className="max-h-80 overflow-y-auto rounded-md border border-line-200 bg-surface-50 p-4 text-sm leading-6 text-ink-700">
+    <div
+      className="max-h-80 overflow-y-auto rounded-md border border-line-200 bg-surface-50 p-4 text-sm leading-6 text-ink-700"
+      tabIndex={0}
+      role="region"
+      aria-label="Transcript"
+    >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -203,7 +208,7 @@ function TranscriptMarkdown({ children }: { children: string }) {
           ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5">{children}</ul>,
           ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-5">{children}</ol>,
           a: ({ href, children }) => (
-            <a href={href} target="_blank" rel="noreferrer" className="font-medium text-purple-700 underline underline-offset-2">
+            <a href={href} target="_blank" rel="noreferrer" className="font-medium text-purple-700 dark:text-purple-300 underline underline-offset-2">
               {children}
             </a>
           ),
@@ -365,7 +370,7 @@ function DataTablesPanel({
           <motion.span animate={{ rotate: open ? 90 : 0 }} transition={{ duration: 0.15 }} className="grid place-items-center">
             <ChevronRight className="h-4 w-4 text-ink-500" aria-hidden />
           </motion.span>
-          <Table2 className="h-4 w-4 shrink-0 text-purple-700" aria-hidden />
+          <Table2 className="h-4 w-4 shrink-0 text-purple-700 dark:text-purple-300" aria-hidden />
           <span className="font-display font-bold text-ink-900">Data tables</span>
           <span className="truncate text-xs text-ink-500">Spreadsheet view of everything under {folderName}</span>
         </button>
@@ -414,7 +419,7 @@ function DataTablesPanel({
                             setActiveSheet(index);
                             setFilter("");
                           }}
-                          className={`inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                          className={`inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-1.5 text-xs font-semibold transition pointer-coarse:min-h-11 ${
                             active
                               ? "bg-card text-ink-900 shadow-sm"
                               : "text-ink-500 hover:bg-card/60 hover:text-ink-900"
@@ -426,7 +431,7 @@ function DataTablesPanel({
                             aria-hidden
                           />
                           {entry.name}
-                          <span className="text-ink-300">{entry.rows.length}</span>
+                          <span className="text-ink-500">{entry.rows.length}</span>
                         </button>
                       );
                     })}
@@ -467,11 +472,16 @@ function DataTablesPanel({
 
                       {/* The grid scrolls horizontally inside its own box so a 27-column
                           tool sheet never makes the page itself scroll sideways. */}
-                      <div className="max-h-128 overflow-auto border-t border-line-200">
+                      <div
+                        className="max-h-128 overflow-auto border-t border-line-200"
+                        tabIndex={0}
+                        role="region"
+                        aria-label={`${sheet.name} records`}
+                      >
                         <table className="w-full text-left text-sm">
                           <thead className="sticky top-0 z-10 bg-surface-50 text-xs uppercase text-ink-500 shadow-sm">
                             <tr>
-                              <th className="w-12 px-3 py-2 text-right font-bold text-ink-300">#</th>
+                              <th className="w-12 px-3 py-2 text-right font-bold text-ink-500">#</th>
                               {sheet.columns.map((column, index) => (
                                 <th
                                   key={`${column}-${index}`}
@@ -497,7 +507,7 @@ function DataTablesPanel({
                             ) : (
                               rows.map((row, rowIndex) => (
                                 <tr key={rowIndex} className="align-top hover:bg-purple-50/40">
-                                  <td className="px-3 py-2 text-right text-xs text-ink-300">
+                                  <td className="px-3 py-2 text-right text-xs text-ink-500">
                                     {rowIndex + 1}
                                   </td>
                                   {sheet.columns.map((_column, cellIndex) => {
@@ -987,7 +997,12 @@ function BrowseByTypePanel() {
             <EmptyState title={`No ${def?.label.toLowerCase()} yet`} />
           </div>
         ) : (
-          <div className="mt-4 max-h-96 overflow-auto rounded-md border border-line-200">
+          <div
+            className="mt-4 max-h-96 overflow-auto rounded-md border border-line-200"
+            tabIndex={0}
+            role="region"
+            aria-label={`${def?.label ?? "Records"} list`}
+          >
             <table className="w-full min-w-[560px] text-left text-sm">
               <thead className="sticky top-0 bg-surface-50 text-xs uppercase text-ink-500">
                 <tr>
@@ -1006,7 +1021,7 @@ function BrowseByTypePanel() {
                     <td className="px-4 py-2.5 text-right">
                       <Link
                         href={def?.editHref(row.id) ?? "#"}
-                        className="inline-flex items-center gap-1 text-sm font-semibold text-purple-700 hover:underline"
+                        className="inline-flex items-center gap-1 text-sm font-semibold text-purple-700 dark:text-purple-300 hover:underline"
                       >
                         <Pencil className="h-3.5 w-3.5" aria-hidden />
                         Edit
@@ -1032,7 +1047,7 @@ function BrowseByTypePanel() {
             </div>
             <Link
               href={def?.editHref(recordId) ?? "#"}
-              className="inline-flex items-center gap-1 text-sm font-semibold text-purple-700 hover:underline"
+              className="inline-flex items-center gap-1 text-sm font-semibold text-purple-700 dark:text-purple-300 hover:underline"
             >
               <Pencil className="h-3.5 w-3.5" aria-hidden />
               Edit record
@@ -1110,7 +1125,7 @@ function TaxonomySwitcher({
   return (
     <section className="panel p-4">
       <div className="flex items-center gap-2">
-        <Layers className="h-4 w-4 text-purple-700" aria-hidden />
+        <Layers className="h-4 w-4 text-purple-700 dark:text-purple-300" aria-hidden />
         <h2 className="font-display text-sm font-bold text-ink-900">Organise by</h2>
       </div>
       <div className="mt-3 flex flex-wrap gap-2" role="tablist" aria-label="Data organisation">
@@ -1258,7 +1273,7 @@ function TreeBranch({ parentPath, depth, state }: { parentPath: string; depth: n
                   <ChevronRight className="h-3.5 w-3.5" aria-hidden />
                 </motion.span>
               </button>
-              <button type="button" className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left" onClick={() => state.onSelect(folder.path)}>
+              <button type="button" className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left pointer-coarse:min-h-11" onClick={() => state.onSelect(folder.path)}>
                 <Icon className="h-4 w-4 shrink-0 text-purple-700" aria-hidden />
                 <span className="truncate">{folder.name}</span>
               </button>
@@ -1604,7 +1619,7 @@ export default function DataBrowserPage() {
   return (
     <>
       {header}
-      {error ? <div className="mb-4 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-error-600">{error}</div> : null}
+      {error ? <div className="mb-4 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-red-800">{error}</div> : null}
 
       {/* Search first, then the taxonomy chooser, then the browser — the order the Android data
           screen uses, and the order a researcher works in: they usually know the NAME. */}
@@ -1632,7 +1647,7 @@ export default function DataBrowserPage() {
           </div>
           <button
             type="button"
-            className={`mb-1 flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-sm transition-colors ${
+            className={`mb-1 flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-sm transition-colors pointer-coarse:min-h-11 ${
               selectedPath === "" ? "bg-purple-100 font-semibold text-purple-800" : "text-ink-700 hover:bg-purple-50"
             }`}
             onClick={() => selectFolder("")}
@@ -1721,7 +1736,7 @@ export default function DataBrowserPage() {
                   {index === crumbs.length - 1 ? (
                     <span className="font-display font-semibold text-ink-900">{crumb.name}</span>
                   ) : (
-                    <button type="button" className="font-medium text-purple-700 hover:underline" onClick={() => selectFolder(crumb.path)}>
+                    <button type="button" className="font-medium text-purple-700 dark:text-purple-300 hover:underline" onClick={() => selectFolder(crumb.path)}>
                       {crumb.name}
                     </button>
                   )}
@@ -1828,7 +1843,7 @@ export default function DataBrowserPage() {
                             <audio controls preload="none" src={file.url} className="mt-2 h-9 w-full max-w-md" />
                           ) : null}
                           {inlineOpen && file.content != null ? (
-                            <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded-md border border-line-200 bg-surface-50 p-4 font-sans text-sm leading-6 text-ink-700">
+                            <pre tabIndex={0} className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded-md border border-line-200 bg-surface-50 p-4 font-sans text-sm leading-6 text-ink-700">
                               {file.content}
                             </pre>
                           ) : null}

@@ -87,9 +87,17 @@ fun WorkshopDetailDto.occurrenceDate(): String = startDate ?: date ?: createdAt 
 private val errorBodyJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
 /**
- * The message the API meant the user to read; failing that, the exception's own text, and only then
- * [fallback]. Never swallows a gateway/transport failure ("HTTP 504 Gateway Time-out", "Unable to
- * resolve host") behind a generic sentence — that text is the one clue that the save never landed.
+ * THE ONE ERROR-MESSAGE MAPPER. Every screen turns a failure into words through this (or
+ * [apiFailure] when it also needs the code), and it never hands a person platform text: no
+ * "HTTP 403 Forbidden", no "Unable to resolve host api.example.org". What it does hand them:
+ *
+ * - the sentence the API meant a person to read, when the server sent one;
+ * - [CONNECTION_FAILED_SENTENCE] when the request never got an answer (no signal, DNS, a dropped
+ *   socket, a timeout) — still the clue that the save never landed, in words a researcher can act on;
+ * - a plain sentence per status for a body-less 401/403/404, and the caller's [fallback] for anything
+ *   else, never Retrofit's status line. The screen pairs it with a Try again where retrying helps.
+ *
+ * The designer portal carries the same mapper under the same name; keep the two copyable.
  *
  * Retrofit collapses every non-2xx response into an `HttpException` whose `message` is just
  * "HTTP 409 Conflict" — nothing a researcher can act on when what they need to know is WHICH artisan
@@ -106,7 +114,7 @@ private val errorBodyJson = Json { ignoreUnknownKeys = true; isLenient = true }
  *
  * Retrofit buffers the error body, but reading it CONSUMES the buffer — call this once per failure.
  */
-fun Throwable.apiErrorMessage(fallback: String): String = apiFailure(fallback).message
+fun Throwable.apiErrorMessage(fallback: String): String = userMessage(fallback)
 
 /**
  * A failed request, read ONCE: the sentence for the person, plus the stable code when the server
@@ -213,11 +221,52 @@ fun ApiFailure.mergeAnswerConflicts(): List<MergeAnswerConflict> {
     }
 }
 
+/**
+ * What a reader is told when a request never got an answer: no signal, DNS, a dropped socket, a
+ * timeout. The platform's own text for these names hosts and sockets and tells the reader nothing
+ * they can act on. Same constant, same words, as the designer portal's.
+ */
+const val CONNECTION_FAILED_SENTENCE = "Could not connect. Check your connection and try again."
+
+/**
+ * Did this request fail on the way, with nobody answering it? The platform's own network exception
+ * types, plus OkHttp's plain `IOException` that wraps a stream cut off mid-answer — and, for an
+ * exception re-thrown as a plain one, the platform's own wording.
+ */
+internal fun Throwable.isTransportFailure(): Boolean =
+    this is java.net.UnknownHostException ||
+        this is java.net.SocketException ||
+        this is java.net.UnknownServiceException ||
+        this is java.io.InterruptedIOException ||
+        this is javax.net.ssl.SSLException ||
+        (this is IOException && (cause is java.io.EOFException || cause is java.net.SocketException)) ||
+        looksLikePlatformTransportText(message)
+
+private val TRANSPORT_TEXT = listOf(
+    "unable to resolve host", "failed to connect", "connection refused", "connection reset",
+    "timeout", "timed out", "no address associated", "network is unreachable", "software caused connection abort"
+)
+
+private fun looksLikePlatformTransportText(text: String?): Boolean {
+    val lower = text?.lowercase() ?: return false
+    return TRANSPORT_TEXT.any { it in lower }
+}
+
+/** "HTTP 403 Forbidden", "Not Found", a stack-trace class name — text that is not for a person. */
+internal fun looksLikeProtocolText(text: String): Boolean {
+    val t = text.trim()
+    if (t.isBareReasonPhrase()) return true
+    return Regex("""^(java|javax|kotlin|kotlinx|okhttp3|retrofit2|android)\.[\w.$]+""").containsMatchIn(t)
+}
+
 fun Throwable.apiFailure(fallback: String): ApiFailure {
-    val plain = message?.takeIf { it.isNotBlank() } ?: fallback
-    // Not an HTTP failure at all (no connection, timeout, serialization): the platform message is all
-    // there is, and it is more informative than anything this function could invent.
-    val http = this as? HttpException ?: return ApiFailure(null, plain)
+    if (isTransportFailure()) return ApiFailure(null, CONNECTION_FAILED_SENTENCE)
+    // A payload that would not parse: the parser's message quotes the payload.
+    if (this is SerializationException) return ApiFailure(null, fallback)
+    val own = message?.trim()?.takeIf { it.isNotEmpty() && !looksLikeProtocolText(it) }
+    // Not an HTTP failure at all: the app's own exceptions carry a sentence written for the reader.
+    val http = this as? HttpException ?: return ApiFailure(null, own ?: fallback)
+    val plain = statusSentence(http.code()) ?: fallback
     val raw = runCatching { http.response()?.errorBody()?.string() }.getOrNull()
     if (raw.isNullOrBlank()) return ApiFailure(null, plain)
     val detail = (runCatching { errorBodyJson.parseToJsonElement(raw) }.getOrNull() as? JsonObject)
@@ -226,7 +275,9 @@ fun Throwable.apiFailure(fallback: String): ApiFailure {
     val code = ((detail as? JsonObject)?.get("code") as? JsonPrimitive)?.contentOrNull
         ?.trim()
         ?.takeIf { it.isNotEmpty() }
-    return ApiFailure(code, detailMessage(detail) ?: plain, detail as? JsonObject)
+    // FastAPI's own 404/405 body is the literal reason phrase; that is protocol, not a sentence.
+    val said = detailMessage(detail)?.takeUnless { looksLikeProtocolText(it) }
+    return ApiFailure(code, said ?: plain, detail as? JsonObject)
 }
 
 /** Pull the human-readable text out of whichever `detail` shape FastAPI returned. */
@@ -243,6 +294,15 @@ private fun detailMessage(detail: JsonElement): String? = when (detail) {
         .takeIf { it.isNotEmpty() }
     else -> null
 }
+
+/** Rows per page of the review queue — the web's page size. */
+const val REVIEW_PAGE_SIZE = 20
+
+/** Pages of 100 My Activity walks per record type before it says the list was cut. */
+const val MY_RECORDS_PAGE_BUDGET = 20
+
+/** One record type's rows for My Activity, and whether the page budget cut it short. */
+data class MyRecordsPage<T>(val items: List<T>, val truncated: Boolean)
 
 /** Files in flight at once. Matches the web's UPLOAD_CONCURRENCY; see docs/MEDIA_PIPELINE.md. */
 private const val UPLOAD_CONCURRENCY = 3
@@ -310,6 +370,32 @@ internal const val LIST_PAGE_CEILING = 100
  * the reason the notice ships beside it: moving a cut is not telling anybody where the cut is.
  */
 internal const val ARTISAN_PAGE_BUDGET = 5
+
+/**
+ * PAGES A RECORD PICKER WALKS BEFORE IT STOPS — 20 pages of 100.
+ *
+ * The app-wide craft, artisan and interview pickers used to hold page one of their table and then
+ * print "the other N are not on this list, and typing here searches only the 100 shown" — an
+ * admission that a record existed and could not be picked. They now hold the whole table up to this
+ * budget, so typing in the picker searches every row a deployment of this size has. Past it (2,000
+ * rows of one type) the picker says how many it shows and points at Search, which asks the server.
+ * Pages are fetched one after another, not all at once, so a large table never bursts the API.
+ */
+internal const val LOOKUP_PAGE_BUDGET = 20
+
+/** Walk [budget] pages of a list, sequentially, into one envelope whose `total` is the server's. */
+internal suspend fun <T> walkPages(budget: Int, fetch: suspend (page: Int) -> PageResponse<T>): PageResponse<T> {
+    val first = fetch(1)
+    val last = minOf(first.pages, budget)
+    if (last <= 1) return first
+    val rows = first.items.toMutableList()
+    for (page in 2..last) {
+        val next = fetch(page)
+        rows += next.items
+        if (next.items.isEmpty()) break
+    }
+    return first.copy(items = rows, page = 1, pageSize = rows.size)
+}
 
 class FieldRepository(
     private val api: FieldRepositoryApi,
@@ -1158,6 +1244,10 @@ class FieldRepository(
     /** Records awaiting review (status PENDING), newest first, across record types. */
     suspend fun pendingReviews(): List<PendingReviewDto> = api.pendingReviews().items
 
+    /** One page of the review queue, newest first, with the server's true count of the whole queue. */
+    suspend fun pendingReviewsPage(page: Int, pageSize: Int = REVIEW_PAGE_SIZE): PendingReviewListDto =
+        api.pendingReviews(page = page, pageSize = pageSize)
+
     /** Approve a pending record (admins, or users granted the review permission). */
     suspend fun approveRecord(recordType: String, recordId: String) {
         api.approveRecord(recordType, recordId, ReviewActionRequest())
@@ -1433,6 +1523,37 @@ class FieldRepository(
 
     suspend fun crafts(): List<CraftDto> = api.crafts(pageSize = 100).items
 
+    /**
+     * EVERY ROW ONE ACCOUNT CREATED, for My Activity — filtered by the SERVER (`createdBy` on every
+     * list route) and walked page by page.
+     *
+     * It used to read page one (100 rows) of each WHOLE list and filter it here, so once the
+     * repository passed a hundred of a type a researcher's older records silently fell off the end
+     * and read as "I never recorded that". [MY_RECORDS_PAGE_BUDGET] pages of 100 per type is far
+     * past one person's output; [MyRecordsPage.truncated] says so if it is ever reached.
+     */
+    suspend fun <T> myRecordsOf(fetch: suspend (page: Int) -> PageResponse<T>): MyRecordsPage<T> {
+        val rows = mutableListOf<T>()
+        var page = 1
+        var total = 0
+        while (page <= MY_RECORDS_PAGE_BUDGET) {
+            val answer = fetch(page)
+            total = answer.total
+            rows += answer.items
+            if (answer.items.isEmpty() || rows.size >= answer.total) break
+            page += 1
+        }
+        return MyRecordsPage(rows, truncated = rows.size < total)
+    }
+
+    suspend fun myArtisans(userId: String) = myRecordsOf { api.artisans(page = it, pageSize = 100, createdBy = userId) }
+    suspend fun myProducts(userId: String) = myRecordsOf { api.products(page = it, pageSize = 100, createdBy = userId) }
+    suspend fun myTools(userId: String) = myRecordsOf { api.tools(page = it, pageSize = 100, createdBy = userId) }
+    suspend fun myProcesses(userId: String) = myRecordsOf { api.processes(page = it, pageSize = 100, createdBy = userId) }
+    suspend fun myCrafts(userId: String) = myRecordsOf { api.crafts(page = it, pageSize = 100, createdBy = userId) }
+    suspend fun myWorkshops(userId: String) = myRecordsOf { api.workshops(page = it, pageSize = 100, createdBy = userId) }
+    suspend fun myInterviews(userId: String) = myRecordsOf { api.interviews(page = it, pageSize = 100, createdBy = userId) }
+
     // The app-wide search panel's three list sources (`ui/AppSearchSources.kt`). Each is the list
     // route's own `search` filter, so a match means what it means on that list's screen.
     suspend fun searchCrafts(query: String, pageSize: Int = 10): List<CraftDto> =
@@ -1445,7 +1566,8 @@ class FieldRepository(
         api.interviews(pageSize = pageSize, search = query.trim()).items
 
     /** [crafts] with the envelope kept, for the same reason as [artisansPage]. */
-    suspend fun craftsPage(): PageResponse<CraftDto> = api.crafts(pageSize = 100)
+    suspend fun craftsPage(): PageResponse<CraftDto> =
+        walkPages(LOOKUP_PAGE_BUDGET) { api.crafts(page = it, pageSize = 100) }
 
     suspend fun products(): List<ProductDetailDto> = api.products(pageSize = 100).items
 
@@ -1535,6 +1657,18 @@ class FieldRepository(
     suspend fun artisanQuestionnaire(id: String): ArtisanQuestionnaireDto = api.artisanQuestionnaire(id)
 
     suspend fun media(): List<MediaFileDto> = api.media(pageSize = 20).items
+
+    /*
+     * THE "UPDATE EXISTING" LISTS, WHOLE. The dashboard's Update picker used to hold page one of
+     * each table (100 rows; media 20) and say nothing about the rest, so an older record could not be
+     * opened from it at all. These walk [LOOKUP_PAGE_BUDGET] pages and keep `total`, so the screen
+     * can say so in the one case a table outgrows even that.
+     */
+    suspend fun productsAll(): PageResponse<ProductDetailDto> = walkPages(LOOKUP_PAGE_BUDGET) { api.products(page = it, pageSize = 100) }
+    suspend fun toolsAll(): PageResponse<ToolDetailDto> = walkPages(LOOKUP_PAGE_BUDGET) { api.tools(page = it, pageSize = 100) }
+    suspend fun processesAll(): PageResponse<ProcessDetailDto> = walkPages(LOOKUP_PAGE_BUDGET) { api.processes(page = it, pageSize = 100) }
+    suspend fun workshopsAll(): PageResponse<WorkshopDetailDto> = walkPages(LOOKUP_PAGE_BUDGET) { api.workshops(page = it, pageSize = 100) }
+    suspend fun mediaAll(): PageResponse<MediaFileDto> = walkPages(LOOKUP_PAGE_BUDGET) { api.media(page = it, pageSize = 100) }
 
     /** A broader media list for the View Data "Miscellaneous Media" browser (most recent first). */
     suspend fun mediaList(): List<MediaFileDto> = api.media(pageSize = 100).items
@@ -2029,12 +2163,19 @@ class FieldRepository(
      * what makes the cap stop mattering — and the notice is what keeps "in practice" from being load-
      * bearing.
      */
-    suspend fun interviewsPage(workshopIds: List<String>?): PageResponse<QuestionnaireInterviewDetailDto> =
-        api.interviews(
-            pageSize = 100,
-            workshopIds = workshopIds.toQueryCsv(),
-            workshopId = workshopIds.singleWorkshopIdOrNull()
-        )
+    suspend fun interviewsPage(
+        workshopIds: List<String>?,
+        /** Pages to walk. One is a single request; the record pickers pass [LOOKUP_PAGE_BUDGET]. */
+        pageBudget: Int = 1
+    ): PageResponse<QuestionnaireInterviewDetailDto> =
+        walkPages(pageBudget) { page ->
+            api.interviews(
+                page = page,
+                pageSize = 100,
+                workshopIds = workshopIds.toQueryCsv(),
+                workshopId = workshopIds.singleWorkshopIdOrNull()
+            )
+        }
 
     /**
      * EVERY INTERVIEW ONE ARTISAN SAT IN, filtered by the server — the sibling-save lookup, and

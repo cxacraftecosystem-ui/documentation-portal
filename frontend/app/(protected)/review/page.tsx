@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Check, ClipboardCheck } from "lucide-react";
 
 import { useAuth } from "@/components/AuthProvider";
@@ -42,7 +42,12 @@ function rowKey(item: PendingItem) {
   return `${item.recordType}-${item.id}`;
 }
 
-/** The queue arrives whole (no server paging), so the table pages client-side like every other list. */
+/**
+ * One page of the queue, read from the SERVER (`GET /review/pending?page=&pageSize=`). Until the
+ * 2026-10-16 UX audit the queue arrived whole and paged here — "whole" meaning at most 200 rows per
+ * record type, with nothing on screen to say a busy queue had stopped. The paged answer carries the
+ * true `total` and has no per-type ceiling.
+ */
 const PAGE_SIZE = 20;
 
 type DecisionAction = "approve" | "revise" | "reject";
@@ -59,8 +64,11 @@ export default function ReviewPage() {
   const confirm = useConfirm();
   const { user } = useAuth();
   const [items, setItems] = useState<PendingItem[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
+  /** Generation counter: a late answer for a page the reviewer already left is ignored. */
+  const currentLoad = useRef(0);
   const [error, setError] = useState<string | null>(null);
   // The inline panel currently open: which row, and which of the four actions.
   const [active, setActive] = useState<{ key: string; action: PanelAction } | null>(null);
@@ -83,28 +91,34 @@ export default function ReviewPage() {
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
   const viewerIsAdmin = isAdmin(user);
 
-  async function load() {
+  async function load(onPage: number) {
+    const generation = ++currentLoad.current;
     try {
-      const result = await apiFetch<{ items: PendingItem[]; total: number }>("/review/pending");
+      const result = await apiFetch<{ items: PendingItem[]; total: number }>(
+        `/review/pending?page=${onPage}&pageSize=${PAGE_SIZE}`
+      );
+      if (generation !== currentLoad.current) return;
       setItems(result.items);
+      setTotal(result.total);
       setError(null);
     } catch (err) {
+      if (generation !== currentLoad.current) return;
       setError(err instanceof Error ? err.message : "Unable to load review queue");
     } finally {
-      setLoading(false);
+      if (generation === currentLoad.current) setLoading(false);
     }
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    load(page);
+  }, [page]);
 
   // Approving the last row of the final page must not strand the viewer on an empty page.
-  const pages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   useEffect(() => {
-    if (page > pages) setPage(pages);
-  }, [page, pages]);
-  const visible = items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+    if (!loading && page > pages) setPage(pages);
+  }, [loading, page, pages]);
+  const visible = items;
   const eligible = visible.filter(bulkEligible);
   const chosen = items.filter((item) => selected.has(rowKey(item)));
   const allEligibleTicked = eligible.length > 0 && eligible.every((item) => selected.has(rowKey(item)));
@@ -123,6 +137,15 @@ export default function ReviewPage() {
   /** A row this viewer may approve — the out-of-window ones are admin-only, same rule as Edit. */
   function bulkEligible(item: PendingItem) {
     return !editLocked(item);
+  }
+
+  /** Tick or untick every eligible row on this page — the header box and the phone's equivalent. */
+  function tickPage(on: boolean) {
+    setSelected((current) => {
+      const next = new Set(current);
+      eligible.forEach((item) => (on ? next.add(rowKey(item)) : next.delete(rowKey(item))));
+      return next;
+    });
   }
 
   function toggleSelected(item: PendingItem) {
@@ -181,7 +204,7 @@ export default function ReviewPage() {
     } else {
       setInfo(`${approved} record${approved === 1 ? "" : "s"} approved.`);
     }
-    await load();
+    await load(page);
   }
 
   function toggleAction(item: PendingItem, action: PanelAction) {
@@ -231,13 +254,152 @@ export default function ReviewPage() {
       setNote("");
       setError(null);
       setInfo(null);
-      await load();
+      await load(page);
     } catch (err) {
       const verb = action === "revise" ? "send this record for revision" : `${action} this record`;
       setError(err instanceof Error ? err.message : `Unable to ${verb}`);
     } finally {
       setSubmitting(false);
     }
+  }
+
+  /** Approve / Edit / Send for revision / Reject — one cluster, drawn in the table row and on the phone card. */
+  function decisionButtons(item: PendingItem, activeAction: PanelAction | null) {
+    return (
+      <RowActions>
+        <button
+          className={rowAction("positive", activeAction === "approve" ? "bg-success-100" : undefined)}
+          onClick={() => toggleAction(item, "approve")}
+          disabled={submitting}
+        >
+          Approve
+        </button>
+        {/* Fix a small mistake in place rather than costing a round trip through
+            the contributor — the same fourth action the Android review card has. */}
+        {editLocked(item) || reviewEditableFields(item.recordType).length === 0 ? null : (
+          <button
+            className={rowAction("edit", activeAction === "edit" ? "bg-field-100" : undefined)}
+            onClick={() => toggleAction(item, "edit")}
+            disabled={submitting}
+          >
+            {activeAction === "edit" ? "Close editor" : "Edit"}
+          </button>
+        )}
+        <button
+          className={rowAction("neutral", activeAction === "revise" ? "bg-surface-50" : undefined)}
+          onClick={() => toggleAction(item, "revise")}
+          disabled={submitting}
+        >
+          Send for revision
+        </button>
+        <button
+          className={rowAction("danger", activeAction === "reject" ? "bg-red-50 dark:bg-red-950/40" : undefined)}
+          onClick={() => toggleAction(item, "reject")}
+          disabled={submitting}
+        >
+          Reject
+        </button>
+      </RowActions>
+    );
+  }
+
+  /** The open panel under a row: the field editor, or the note box for a decision. */
+  function actionPanel(item: PendingItem, activeAction: PanelAction) {
+    if (activeAction === "edit") {
+      return (
+        <ReviewEditPanel
+          recordType={item.recordType}
+          recordId={item.id}
+          label={item.label}
+          onSaved={(message) => {
+            // The status did not move, so the row stays put; only the receipt changes.
+            setInfo(message);
+            setError(null);
+          }}
+          onApproved={async (message) => {
+            setActive(null);
+            setInfo(message);
+            setError(null);
+            await load(page);
+          }}
+          onClose={() => setActive(null)}
+        />
+      );
+    }
+    const noteId = `review-note-${rowKey(item)}`;
+    return (
+      <>
+        <label htmlFor={noteId} className="block text-xs font-semibold uppercase tracking-wide text-ink-500">
+          {ACTION_COPY[activeAction].noteLabel}
+        </label>
+        <textarea
+          id={noteId}
+          className="mt-1.5 w-full rounded-md border border-line-200 bg-card p-2 text-sm text-ink-900"
+          rows={3}
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          autoFocus
+        />
+        {activeAction === "revise" ? (
+          <p className="mt-1 text-xs text-ink-500">
+            Comments are required — the record goes back to the contributor as &quot;Needs revision&quot; and
+            returns to Pending once they edit it.
+          </p>
+        ) : null}
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button
+            className="field-button h-9 min-h-0 px-3 text-xs pointer-coarse:h-11"
+            disabled={submitting || (activeAction === "revise" && !note.trim())}
+            onClick={() => submitDecision(item, activeAction)}
+          >
+            {submitting ? "Saving..." : ACTION_COPY[activeAction].confirmLabel}
+          </button>
+          <button
+            className="field-button-secondary h-9 min-h-0 px-3 text-xs pointer-coarse:h-11"
+            disabled={submitting}
+            onClick={() => {
+              setActive(null);
+              setNote("");
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      </>
+    );
+  }
+
+  /** The tick box for one row, inside a cell that is a 44px target on a touch screen (DC-06). */
+  function rowCheckbox(item: PendingItem) {
+    if (!bulkEligible(item)) return null;
+    return (
+      <label className="-m-2 inline-grid cursor-pointer place-items-center p-2 pointer-coarse:min-h-11 pointer-coarse:min-w-11">
+        <input
+          type="checkbox"
+          className="h-4 w-4 accent-purple-700 pointer-coarse:h-5 pointer-coarse:w-5"
+          aria-label={`Select ${item.label}`}
+          checked={selected.has(rowKey(item))}
+          onChange={() => toggleSelected(item)}
+        />
+      </label>
+    );
+  }
+
+  function outOfWindowNotes(item: PendingItem) {
+    return (
+      <>
+        {item.needsAdminApproval || item.outOfWindow ? (
+          <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+            Out of workshop window — needs approval
+          </span>
+        ) : null}
+        {editLocked(item) ? (
+          <p className="mt-1 max-w-md text-xs text-amber-800 dark:text-amber-200">
+            Submitted outside its workshop&apos;s dates — only an admin or master admin can edit or approve it.
+          </p>
+        ) : null}
+      </>
+    );
   }
 
   return (
@@ -270,12 +432,16 @@ export default function ReviewPage() {
                 {bulkProgress ? ` · approving ${bulkProgress.done + 1} of ${bulkProgress.total}…` : ""}
               </span>
               <div className="flex items-center gap-3">
-                <button type="button" className="text-xs font-semibold text-ink-500" onClick={() => setSelected(new Set())}>
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-ink-500 pointer-coarse:min-h-11"
+                  onClick={() => setSelected(new Set())}
+                >
                   Clear
                 </button>
                 <button
                   type="button"
-                  className="field-button h-9 min-h-0 px-3 text-xs"
+                  className="field-button h-9 min-h-0 px-3 text-xs pointer-coarse:h-11"
                   disabled={submitting}
                   onClick={() => approveSelected(chosen)}
                 >
@@ -285,7 +451,61 @@ export default function ReviewPage() {
               </div>
             </div>
           ) : null}
-          <div className="overflow-x-auto">
+          {/*
+            PHONE: ONE CARD PER RECORD (UX audit DC-06). At 390px the 920px table showed Record and
+            Type and hid every decision button in a sideways scroller with no cue. Below `md` each
+            pending record is a card with its decisions as a wrapping row; the table is unchanged
+            from `md` up. Both read the same page of rows and the same handlers.
+          */}
+          <div className="md:hidden">
+            {eligible.length ? (
+              <label className="flex cursor-pointer items-center gap-3 border-b border-line-200 bg-surface-50 px-4 py-2 text-sm text-ink-700 pointer-coarse:min-h-11">
+                <input
+                  type="checkbox"
+                  className="h-5 w-5 accent-purple-700"
+                  checked={allEligibleTicked}
+                  onChange={(event) => tickPage(event.target.checked)}
+                />
+                Select every record on this page
+              </label>
+            ) : null}
+            <ul className="divide-y divide-line-200">
+              {visible.map((item) => {
+                const key = rowKey(item);
+                const activeAction = active?.key === key ? active.action : null;
+                return (
+                  <li key={key} className={selected.has(key) ? "bg-purple-50/60 p-4 dark:bg-purple-950/30" : "p-4"}>
+                    <div className="flex items-start gap-2">
+                      {rowCheckbox(item)}
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-ink-900">
+                          {item.label}
+                          {outOfWindowNotes(item)}
+                        </div>
+                        <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs text-ink-700">
+                          <dt className="text-ink-500">Type</dt>
+                          <dd className="capitalize">{item.recordType}</dd>
+                          <dt className="text-ink-500">Creator</dt>
+                          <dd>
+                            {item.createdBy?.name ?? "Unknown"}
+                            {item.createdBy?.role ? ` · ${roleLabel(item.createdBy.role)}` : ""}
+                          </dd>
+                          <dt className="text-ink-500">Place</dt>
+                          <dd>{item.place ?? "-"}</dd>
+                          <dt className="text-ink-500">Submitted</dt>
+                          <dd>{formatDateTime(item.createdAt)}</dd>
+                        </dl>
+                      </div>
+                      <StatusBadge status={item.status ?? "PENDING"} />
+                    </div>
+                    <div className="mt-3 [&>div]:justify-start">{decisionButtons(item, activeAction)}</div>
+                    {activeAction ? <div className="mt-3 rounded-md bg-surface-50 p-3">{actionPanel(item, activeAction)}</div> : null}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[920px] text-left text-sm">
               <thead className="bg-surface-50 text-xs uppercase text-ink-500">
                 <tr>
@@ -296,14 +516,7 @@ export default function ReviewPage() {
                       aria-label="Select every record on this page"
                       checked={allEligibleTicked}
                       disabled={eligible.length === 0}
-                      onChange={(event) => {
-                        const on = event.target.checked;
-                        setSelected((current) => {
-                          const next = new Set(current);
-                          eligible.forEach((item) => (on ? next.add(rowKey(item)) : next.delete(rowKey(item))));
-                          return next;
-                        });
-                      }}
+                      onChange={(event) => tickPage(event.target.checked)}
                     />
                   </th>
                   <ResizableTh>Record</ResizableTh>
@@ -321,33 +534,13 @@ export default function ReviewPage() {
                   const activeAction = active?.key === key ? active.action : null;
                   return (
                     <Fragment key={key}>
-                      <tr className={selected.has(key) ? "bg-purple-50/60" : undefined}>
-                        <td className="px-4 py-3 align-top">
-                          {bulkEligible(item) ? (
-                            <input
-                              type="checkbox"
-                              className="mt-0.5 h-4 w-4 accent-purple-700"
-                              aria-label={`Select ${item.label}`}
-                              checked={selected.has(key)}
-                              onChange={() => toggleSelected(item)}
-                            />
-                          ) : null}
-                        </td>
+                      <tr className={selected.has(key) ? "bg-purple-50/60 dark:bg-purple-950/30" : undefined}>
+                        <td className="px-4 py-3 align-top">{rowCheckbox(item)}</td>
                         <td className="px-4 py-3">
                           <div className="font-medium text-ink-900">
                             {item.label}
-                            {item.needsAdminApproval || item.outOfWindow ? (
-                              <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
-                                Out of workshop window — needs approval
-                              </span>
-                            ) : null}
+                            {outOfWindowNotes(item)}
                           </div>
-                          {editLocked(item) ? (
-                            <p className="mt-1 max-w-md text-xs text-amber-800">
-                              Submitted outside its workshop&apos;s dates — only an admin or master admin can edit or
-                              approve it.
-                            </p>
-                          ) : null}
                         </td>
                         <td className="px-4 py-3 capitalize text-ink-700">{item.recordType}</td>
                         <td className="px-4 py-3">
@@ -365,105 +558,14 @@ export default function ReviewPage() {
                           <StatusBadge status={item.status ?? "PENDING"} />
                         </td>
                         <td className="px-4 py-3 text-ink-700">{formatDateTime(item.createdAt)}</td>
-                        <td className="px-4 py-3 text-right">
-                          <RowActions>
-                            <button
-                              className={rowAction("positive", activeAction === "approve" ? "bg-success-100" : undefined)}
-                              onClick={() => toggleAction(item, "approve")}
-                              disabled={submitting}
-                            >
-                              Approve
-                            </button>
-                            {/* Fix a small mistake in place rather than costing a round trip through
-                                the contributor — the same fourth action the Android review card has. */}
-                            {editLocked(item) || reviewEditableFields(item.recordType).length === 0 ? null : (
-                              <button
-                                className={rowAction("edit", activeAction === "edit" ? "bg-field-100" : undefined)}
-                                onClick={() => toggleAction(item, "edit")}
-                                disabled={submitting}
-                              >
-                                {activeAction === "edit" ? "Close editor" : "Edit"}
-                              </button>
-                            )}
-                            <button
-                              className={rowAction("neutral", activeAction === "revise" ? "bg-surface-50" : undefined)}
-                              onClick={() => toggleAction(item, "revise")}
-                              disabled={submitting}
-                            >
-                              Send for revision
-                            </button>
-                            <button
-                              className={rowAction("danger", activeAction === "reject" ? "bg-red-50" : undefined)}
-                              onClick={() => toggleAction(item, "reject")}
-                              disabled={submitting}
-                            >
-                              Reject
-                            </button>
-                          </RowActions>
-                        </td>
+                        <td className="px-4 py-3 text-right">{decisionButtons(item, activeAction)}</td>
                       </tr>
-                      {activeAction === "edit" ? (
+                      {activeAction ? (
                         <tr className="bg-surface-50">
                           {/* Eight, not seven: the bulk-select checkbox added a column ahead of
                               Record, and the expanded row stopped reaching the end of the table. */}
                           <td className="px-4 py-3" colSpan={8}>
-                            <ReviewEditPanel
-                              recordType={item.recordType}
-                              recordId={item.id}
-                              label={item.label}
-                              onSaved={(message) => {
-                                // The status did not move, so the row stays put; only the receipt changes.
-                                setInfo(message);
-                                setError(null);
-                              }}
-                              onApproved={async (message) => {
-                                setActive(null);
-                                setInfo(message);
-                                setError(null);
-                                await load();
-                              }}
-                              onClose={() => setActive(null)}
-                            />
-                          </td>
-                        </tr>
-                      ) : activeAction ? (
-                        <tr className="bg-surface-50">
-                          <td className="px-4 py-3" colSpan={8}>
-                            <label className="block text-xs font-semibold uppercase tracking-wide text-ink-500">
-                              {ACTION_COPY[activeAction].noteLabel}
-                            </label>
-                            <textarea
-                              className="mt-1.5 w-full rounded-md border border-line-200 bg-card p-2 text-sm text-ink-900"
-                              rows={3}
-                              value={note}
-                              onChange={(event) => setNote(event.target.value)}
-                              autoFocus
-                            />
-                            {activeAction === "revise" ? (
-                              <p className="mt-1 text-xs text-ink-500">
-                                Comments are required — the record goes back to the contributor as &quot;Needs revision&quot; and
-                                returns to Pending once they edit it.
-                              </p>
-                            ) : null}
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              <button
-                                className="field-button h-9 min-h-0 px-3 text-xs"
-                                disabled={submitting || (activeAction === "revise" && !note.trim())}
-                                onClick={() => submitDecision(item, activeAction)}
-                              >
-                                {submitting ? "Saving..." : ACTION_COPY[activeAction].confirmLabel}
-                              </button>
-                              <button
-                                className="field-button-secondary h-9 min-h-0 px-3 text-xs"
-                                disabled={submitting}
-                                onClick={() => {
-                                  setActive(null);
-                                  setNote("");
-                                }}
-                              >
-                                Cancel
-                              </button>
-                            </div>
+                            {actionPanel(item, activeAction)}
                           </td>
                         </tr>
                       ) : null}
@@ -475,7 +577,7 @@ export default function ReviewPage() {
           </div>
           </>
         )}
-        {!loading && items.length > 0 ? <Pagination page={page} pages={pages} total={items.length} onPage={setPage} /> : null}
+        {!loading && total > 0 ? <Pagination page={page} pages={pages} total={total} onPage={setPage} /> : null}
       </section>
     </>
   );

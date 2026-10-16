@@ -132,7 +132,7 @@ const LEVEL_TONE: Record<WorkshopAccessLevel, string> = {
 const STATUS_TONE: Record<WorkshopAccessStatus, string> = {
   PENDING: "border-amber-500/30 bg-amber-100 text-amber-800",
   GRANTED: "border-success-600/25 bg-success-100 text-success-600",
-  DENIED: "border-error-600/25 bg-error-100 text-error-600",
+  DENIED: "border-error-600/25 bg-error-100 text-red-800",
   REVOKED: "border-line-200 bg-surface-50 text-ink-500"
 };
 
@@ -167,7 +167,7 @@ export function AccessLevelLegend({ levels }: { levels: WorkshopAccessLevelInfo[
     <dl className="grid gap-2 rounded-md border border-line-200 bg-surface-50 p-3 sm:grid-cols-3">
       {levels.map((entry) => (
         <div key={entry.level}>
-          <dt className="text-xs font-semibold uppercase tracking-wide text-purple-700">
+          <dt className="text-xs font-semibold uppercase tracking-wide text-purple-700 dark:text-purple-300">
             {LEVEL_LABELS[entry.level] ?? entry.level}
           </dt>
           <dd className="mt-1 text-xs leading-5 text-ink-500">{entry.description}</dd>

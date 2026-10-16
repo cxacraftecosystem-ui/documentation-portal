@@ -161,7 +161,7 @@ export function MyTaskCard({
           // they are on an interview with no artisan attached, so they cannot raise a per-artisan
           // count. Without this line the bar is stuck at 0% for a reason nothing on screen explains,
           // and the researcher's only conclusion is that the app is not seeing their work.
-          <p className="mt-2 text-xs leading-5 text-amber-800">
+          <p className="mt-2 text-xs leading-5 text-amber-800 dark:text-amber-200">
             {task.derivedBreakdown.unlinkedSections} section
             {task.derivedBreakdown.unlinkedSections === 1 ? " has" : "s have"} answers on an interview with no artisan
             attached, so they are not counted here. Link the interview to an artisan and they will be.

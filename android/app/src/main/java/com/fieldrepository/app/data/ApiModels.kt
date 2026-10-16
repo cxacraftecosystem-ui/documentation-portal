@@ -492,7 +492,10 @@ data class PendingReviewDto(
 @Serializable
 data class PendingReviewListDto(
     val items: List<PendingReviewDto> = emptyList(),
-    val total: Int = 0
+    /** Paged answer: every reviewable pending record. Unpaged: the length of [items]. */
+    val total: Int = 0,
+    val page: Int? = null,
+    val pageSize: Int? = null
 )
 
 /** Optional reviewer notes sent with approve/reject; MANDATORY on "send for revision" (422 without). */
@@ -665,7 +668,7 @@ data class ArtisanCreateRequest(
     val experienceMonths: Int? = null,
     val pehchanCardAvailable: Boolean? = null,
     val pehchanCardNumber: String? = null,
-    // Newline-separated, numbered Do's (positive prompt) and Don'ts (negative prompt). Required on the
+    // Newline-separated, numbered Do's and Don'ts. Required on the
     // form; the backend requires them on create (nullable here so an update PATCH stays flexible).
     val dos: String? = null,
     val donts: String? = null,

@@ -292,14 +292,14 @@ function Provenance({ row }: { row: ConsolidatedAnswer }) {
         <span aria-hidden>·</span>
         <Link
           href={`/questionnaire?interviewId=${row.interviewId}`}
-          className="font-medium text-purple-700 underline decoration-purple-300 underline-offset-2 hover:text-purple-800"
+          className="font-medium text-purple-700 dark:text-purple-300 underline decoration-purple-300 underline-offset-2 hover:text-purple-800"
         >
           {row.interviewTitle}
         </Link>
         <span aria-hidden>·</span>
         <time dateTime={row.interviewDate ?? undefined} title={DATE_BASIS_NOTE[row.dateBasis]}>
           {formatDate(row.interviewDate)}
-          {row.dateBasis !== "interviewDate" ? <span className="text-ink-300"> (recorded)</span> : null}
+          {row.dateBasis !== "interviewDate" ? <span className="text-ink-500"> (recorded)</span> : null}
         </time>
         {row.recordedByName ? (
           <>
@@ -326,7 +326,7 @@ function AnswerCard({ row, ordinal }: { row: ConsolidatedAnswer; ordinal?: numbe
       className={`rounded-md border-l-2 bg-card py-3 pl-4 pr-3 ${isGroup ? "border-l-amber-500/50 dark:border-l-amber-500/40" : "border-l-purple-300"}`}
     >
       {ordinal ? (
-        <div className="mb-1.5 text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-ink-300">
+        <div className="mb-1.5 text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-ink-500">
           Account {ordinal}
         </div>
       ) : null}
@@ -370,7 +370,7 @@ function RecordingBody({ row }: { row: ConsolidatedAnswer }) {
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2 text-xs text-ink-500">
-        <FileAudio className="h-4 w-4 shrink-0 text-purple-700" aria-hidden />
+        <FileAudio className="h-4 w-4 shrink-0 text-purple-700 dark:text-purple-300" aria-hidden />
         <span className="break-all font-medium text-ink-700">{row.filename ?? "Recording"}</span>
       </div>
       {row.url ? <AudioPlayer src={row.url} /> : null}
@@ -497,7 +497,7 @@ function SourcesPanel({ interviews }: { interviews: InterviewSource[] }) {
           <li key={interview.id} className="border-l-2 border-line-200 pl-3">
             <Link
               href={`/questionnaire?interviewId=${interview.id}`}
-              className="block text-sm font-medium leading-5 text-purple-700 underline decoration-purple-300 underline-offset-2 hover:text-purple-800"
+              className="block text-sm font-medium leading-5 text-purple-700 dark:text-purple-300 underline decoration-purple-300 underline-offset-2 hover:text-purple-800"
             >
               {interview.title}
             </Link>

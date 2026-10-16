@@ -68,7 +68,7 @@ export function GuideOutro() {
           {GUIDE_STEPS.map((step, index) => (
             <motion.li key={step.id} variants={slideItem(reduce, 10)} className="flex items-center gap-1.5">
               <span className="inline-flex items-center gap-1.5 rounded-full border border-line-200 bg-card px-3 py-1 text-xs font-medium text-ink-900">
-                <span aria-hidden className="font-display text-purple-700">
+                <span aria-hidden className="font-display text-purple-700 dark:text-purple-300">
                   {index + 1}
                 </span>
                 {step.label}
@@ -104,7 +104,7 @@ export function GuideOutro() {
               variants={riseItem(reduce, 10)}
               className="flex items-start gap-2.5 rounded-md border border-line-200 bg-surface-50 px-3 py-2.5 text-sm leading-6 text-ink-700"
             >
-              <CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-purple-700" aria-hidden />
+              <CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-purple-700 dark:text-purple-300" aria-hidden />
               <span>{item}</span>
             </motion.li>
           ))}

@@ -47,7 +47,7 @@ function Step({ n, title, hint, children }: { n: number; title: string; hint?: s
 
 /** What a multi-select has actually got in it — the trigger only ever says "N selected". */
 function Picked({ labels, empty }: { labels: string[]; empty: string }) {
-  if (!labels.length) return <p className="text-xs text-ink-300">{empty}</p>;
+  if (!labels.length) return <p className="text-xs text-ink-500">{empty}</p>;
   const shown = labels.slice(0, 6);
   const rest = labels.length - shown.length;
   return (
@@ -248,11 +248,11 @@ export function AssignmentBuilder({
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-3">
-            <p className="text-xs text-ink-300">Nobody selected yet.</p>
+            <p className="text-xs text-ink-500">Nobody selected yet.</p>
             {visibleAssignees.length ? (
               <button
                 type="button"
-                className="text-xs font-medium text-purple-700 underline"
+                className="text-xs font-medium text-purple-700 dark:text-purple-300 underline"
                 onClick={() => setAssigneeIds(visibleAssignees.map((user) => user.id))}
               >
                 Select all {visibleAssignees.length} shown
@@ -410,9 +410,9 @@ export function AssignmentBuilder({
           </div>
         </dl>
         {!hasWork && assigneeIds.length ? (
-          <p className="mt-3 text-sm text-amber-800">Pick at least one record type or questionnaire section — a task with no work in it is rejected.</p>
+          <p className="mt-3 text-sm text-amber-800 dark:text-amber-200">Pick at least one record type or questionnaire section — a task with no work in it is rejected.</p>
         ) : null}
-        {hasWork && !assigneeIds.length ? <p className="mt-3 text-sm text-amber-800">Pick at least one person to assign this to.</p> : null}
+        {hasWork && !assigneeIds.length ? <p className="mt-3 text-sm text-amber-800 dark:text-amber-200">Pick at least one person to assign this to.</p> : null}
       </section>
 
       {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}

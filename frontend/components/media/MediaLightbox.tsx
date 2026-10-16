@@ -50,7 +50,7 @@ function LightboxTranscript({ item }: { item: PreviewMedia }) {
   if (text) {
     return (
       <div className="rounded-md border border-line-200 bg-field-50 p-3">
-        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-soft">Transcript</div>
+        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">Transcript</div>
         <Markdown text={text} />
       </div>
     );
@@ -157,12 +157,12 @@ export function MediaPreviewTile({
           <video src={item.url} className="h-full w-full object-cover" muted playsInline />
         ) : kind === "AUDIO" ? (
           <div className="grid gap-2 text-center">
-            <div className="mx-auto rounded-full bg-card p-3 text-field-700 shadow-sm">{iconForType(kind)}</div>
+            <div className="mx-auto rounded-full bg-card p-3 text-field-700 dark:text-purple-300 shadow-sm">{iconForType(kind)}</div>
             <span className="text-xs font-semibold">Audio clip</span>
           </div>
         ) : (
           <div className="grid gap-2 text-center">
-            <div className="mx-auto rounded-full bg-card p-3 text-field-700 shadow-sm">{iconForType(kind)}</div>
+            <div className="mx-auto rounded-full bg-card p-3 text-field-700 dark:text-purple-300 shadow-sm">{iconForType(kind)}</div>
             <span className="text-xs font-semibold">{kind === "PDF" ? "PDF document" : "Document"}</span>
           </div>
         )}
@@ -185,7 +185,7 @@ export function MediaPreviewTile({
           {failed && onRetry ? (
             <button
               type="button"
-              className="shrink-0 rounded-sm border border-line-200 bg-card px-2 py-0.5 text-xs font-semibold text-field-600 transition hover:bg-field-50"
+              className="shrink-0 rounded-sm border border-line-200 bg-card px-2 py-0.5 text-xs font-semibold text-field-600 dark:text-purple-300 transition hover:bg-field-50"
               onClick={(event) => {
                 event.stopPropagation();
                 onRetry();
@@ -272,7 +272,7 @@ export function MediaLightbox({ item, onClose }: { item: PreviewMedia; onClose: 
             <iframe src={item.url} title={item.name} className="h-[70vh] w-full rounded-md border border-line-200" />
           ) : item.url ? (
             <div className="grid w-full max-w-md justify-items-center gap-3 rounded-md border border-line-200 bg-field-50 p-6 text-center">
-              <div className="rounded-full bg-card p-3 text-field-700 shadow-sm">{iconForType(kind)}</div>
+              <div className="rounded-full bg-card p-3 text-field-700 dark:text-purple-300 shadow-sm">{iconForType(kind)}</div>
               <div className="min-w-0 w-full">
                 <div className="truncate text-sm font-medium text-ink" title={item.name}>{item.name}</div>
                 <div className="text-xs text-ink-muted">{mediaLabel(item)}</div>

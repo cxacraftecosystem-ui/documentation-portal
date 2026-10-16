@@ -374,7 +374,7 @@ export function SearchFilterBar({
             <div>
               <button
                 type="button"
-                className="text-xs font-semibold text-purple-700 hover:underline"
+                className="text-xs font-semibold text-purple-700 dark:text-purple-300 hover:underline"
                 onClick={() => onChange(EMPTY_SEARCH_FILTERS)}
               >
                 Clear all filters

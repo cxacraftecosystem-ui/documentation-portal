@@ -60,7 +60,7 @@ const MAX_VISIBLE = 3;
 const TONES: Record<ToastTone, { icon: LucideIcon; chip: string }> = {
   info: { icon: Info, chip: "bg-purple-50 text-purple-700" },
   success: { icon: CheckCircle2, chip: "bg-success-100 text-success-600" },
-  error: { icon: TriangleAlert, chip: "bg-error-100 text-error-600" }
+  error: { icon: TriangleAlert, chip: "bg-error-100 text-red-800" }
 };
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
@@ -174,7 +174,7 @@ function ToastCard({
         type="button"
         onClick={dismiss}
         aria-label={`Dismiss: ${toast.title}`}
-        className="-m-1 shrink-0 rounded-md p-1 text-ink-300 transition hover:text-ink-700"
+        className="-m-1 shrink-0 rounded-md p-1 text-ink-500 transition hover:text-ink-700"
       >
         <X className="h-4 w-4" aria-hidden />
       </button>

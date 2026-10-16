@@ -244,12 +244,12 @@ export function AssigneeProgressCard({
         <div className="grid gap-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 id="assignee-progress-heading" className="font-display text-base font-bold text-ink-900">
-              <ClipboardList className="mr-2 inline h-4 w-4 text-purple-700" aria-hidden />
+              <ClipboardList className="mr-2 inline h-4 w-4 text-purple-700 dark:text-purple-300" aria-hidden />
               Where you stand
             </h2>
             <button
               type="button"
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-700"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-700 dark:text-purple-300"
               onClick={load}
               disabled={loading}
             >

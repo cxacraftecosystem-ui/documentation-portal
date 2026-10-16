@@ -263,7 +263,7 @@ class QuestionnaireArtisanOfferTest {
                 offeredIds = offered,
                 loadedForWorkshop = "w-2",
                 workshopId = "w-2",
-                cut = "Showing 500 of 640 artisans at this workshop — the other 140 are not on this list."
+                cut = "Showing 500 of 640 artisans at this workshop. To find another, use Browse records from the menu."
             )
         )
     }

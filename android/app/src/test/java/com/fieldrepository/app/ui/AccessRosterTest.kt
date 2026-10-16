@@ -1,9 +1,12 @@
 package com.fieldrepository.app.ui
 
+import com.fieldrepository.app.data.CONNECTION_FAILED_SENTENCE
 import com.fieldrepository.app.data.apiFailure
+import com.fieldrepository.app.data.statusSentence
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -205,21 +208,31 @@ class AccessRosterTest {
     }
 
     @Test
-    fun `a transport failure is never swallowed behind a generic sentence`() {
-        // "Unable to resolve host" is the one clue that the request never left the handset. A
-        // fallback that replaced it would turn a network problem into a mystery.
-        val failure = RuntimeException("Unable to resolve host").apiFailure("Login failed")
+    fun `a transport failure says the request never got there, in words and never a host name`() {
+        // The platform's "Unable to resolve host api.example.org" was the one clue that the request
+        // never left the handset, but it names a host and a resolver. The clue survives as a
+        // sentence a researcher can act on.
+        val failure = RuntimeException("Unable to resolve host \"api.example.org\"").apiFailure("Login failed")
 
         assertNull(failure.code)
-        assertEquals("Unable to resolve host", failure.message)
+        assertEquals(CONNECTION_FAILED_SENTENCE, failure.message)
+        assertEquals(CONNECTION_FAILED_SENTENCE, java.net.UnknownHostException("api.example.org").apiFailure("x").message)
     }
 
     @Test
-    fun `a body-less refusal falls back rather than rendering nothing`() {
+    fun `a body-less refusal is a plain sentence, never the status line`() {
         val failure = httpFailure(500, "").apiFailure("Login failed")
 
         assertNull(failure.code)
-        // HttpException's own text — still more informative than anything this layer could invent.
-        assertTrue(failure.message.isNotBlank())
+        assertEquals(statusSentence(500), failure.message)
+        assertFalse(failure.message.contains("HTTP"))
+        assertEquals("Login failed", httpFailure(418, "").apiFailure("Login failed").message)
+    }
+
+    @Test
+    fun `a bare reason phrase from FastAPI is worded per status`() {
+        assertEquals(statusSentence(404), httpFailure(404, """{"detail":"Not Found"}""").apiFailure("x").message)
+        assertEquals(statusSentence(403), httpFailure(403, "").apiFailure("x").message)
+        assertEquals("Unable to load", RuntimeException("HTTP 403 Forbidden").apiFailure("Unable to load").message)
     }
 }

@@ -124,7 +124,7 @@ fun CarryContextBanner(
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Text(label.uppercase(), fontSize = 9.sp, color = MaterialTheme.colorScheme.primary)
-                                    Text(value, fontSize = 11.sp, color = Body)
+                                    Text(value, fontSize = 12.sp, color = Body)
                                 }
                             }
                         }

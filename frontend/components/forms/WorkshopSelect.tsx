@@ -177,6 +177,16 @@ export function workshopWindowState(
 }
 
 /**
+ * Whether the workshop is running today by its own dates — the same whole-IST-day reading
+ * `workshopWindowState` makes. Used only when the server's pre-flight could not be asked. A
+ * workshop with no dates is not "running": preselecting it would be a guess.
+ */
+export function workshopRunsToday(workshop: Workshop, now: number = Date.now()): boolean {
+  if (!workshopDayKey(workshop.startDate ?? workshop.date)) return false;
+  return workshopWindowState(null, workshop, now) === "IN_WINDOW";
+}
+
+/**
  * The inline sentence for a pick that is outside its window, or null when it is inside one.
  *
  * Each state gets copy that is TRUE of it. The date half degrades to a dateless form when the day
@@ -305,8 +315,14 @@ export function useWorkshopSelection({
     }
   }, []);
 
-  // Create only: preselect the most recent workshop the user may actually submit to, walking down
-  // the occurrence order past workshops they are not assigned to.
+  // Create only: preselect the most recent workshop that is RUNNING TODAY and that the user may
+  // submit to, walking down the occurrence order.
+  //
+  // UX audit DC-11 (2026-10-16): this used to take the most recent workshop the user could submit
+  // to even when it had ended, so a blank form greeted the researcher with a late-submission
+  // warning they had done nothing to cause. A workshop that has ended (or not begun) is never
+  // preselected now; when none is running the box stays empty and asks to be chosen. With no
+  // pre-flight answer (offline, or an older server) the workshop's own dates decide.
   useEffect(() => {
     if (isEdit || touchedRef.current || !workshops.length) return;
     let cancelled = false;
@@ -314,14 +330,14 @@ export function useWorkshopSelection({
       for (const workshop of workshops.slice(0, DEFAULT_PROBE_LIMIT)) {
         const result = await fetchCheck(workshop.id);
         if (cancelled || touchedRef.current) return;
-        if (!result || result.canSubmit) {
+        const running = result
+          ? result.canSubmit && !result.isOver && !result.outOfWindow
+          : workshopRunsToday(workshop);
+        if (running) {
           setWorkshopIdState(workshop.id);
           return;
         }
       }
-      // Every recent workshop belongs to somebody else: land on the most recent anyway so the
-      // inline warning can explain why, instead of silently offering nothing.
-      if (!cancelled && !touchedRef.current) setWorkshopIdState(workshops[0].id);
     })();
     return () => {
       cancelled = true;
@@ -449,7 +465,7 @@ export function WorkshopSelect({
             setWorkshopId(next);
             onDirty?.();
           }}
-          placeholder={loading ? "Loading workshops…" : "Select or type to search"}
+          placeholder={loading ? "Loading workshops…" : "Choose the workshop this record belongs to"}
         />
       </Field>
       {blocked ? (
@@ -458,7 +474,7 @@ export function WorkshopSelect({
           another workshop.
         </p>
       ) : null}
-      {notice && !blocked ? <p className="text-xs font-medium text-amber-800">{notice}</p> : null}
+      {notice && !blocked ? <p className="text-xs font-medium text-amber-800 dark:text-amber-200">{notice}</p> : null}
       <LateSubmissionDialog
         open={dialog.open}
         workshopTitle={dialog.check?.title ?? selected?.title}

@@ -1164,7 +1164,7 @@ fun LocationFieldsSection(
             ) {
                 Text(
                     source + fieldNames(written.fields) + ". Check it, and change anything that is " +
-                        "wrong — you know this place and the geocoder does not.",
+                        "wrong — you know this place and the address lookup does not.",
                     color = MaterialTheme.field.body,
                     fontSize = 12.sp
                 )
@@ -1350,7 +1350,7 @@ fun LocationFieldsSection(
                     val shown = pincodeProblem?.takeIf { showPincodeProblem }
                     Text(
                         shown ?: "Six digits, if you know it. Most rural points have no postcode " +
-                            "the geocoder can find, which is why the district above is the one " +
+                            "the address lookup can find, which is why the district above is the one " +
                             "that is required.",
                         color = if (shown != null) MaterialTheme.colorScheme.error else MaterialTheme.field.muted,
                         fontSize = 12.sp

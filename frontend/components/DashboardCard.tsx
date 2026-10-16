@@ -45,7 +45,7 @@ export function DashboardCard({
       </div>
       <div className="font-display text-base font-bold leading-snug text-ink-900">{label}</div>
       <div className="mt-auto flex flex-col gap-1.5 pt-1">
-        <Link className="field-button h-9 min-h-0 px-3 text-xs" href={newHref}>
+        <Link className="field-button h-9 min-h-0 pointer-coarse:h-11 px-3 text-xs" href={newHref}>
           {/* "Open"/"Manage" are not creations, so they do not get the plus. Android draws the same
               distinction (`primaryIcon`), and a plus on a button that only navigates is a lie. */}
           {newLabel === "Open" || newLabel === "Manage" ? (
@@ -56,7 +56,7 @@ export function DashboardCard({
           {newLabel}
         </Link>
         {updateHref ? (
-          <Link className="field-button-secondary h-9 min-h-0 px-3 text-xs" href={updateHref}>
+          <Link className="field-button-secondary h-9 min-h-0 pointer-coarse:h-11 px-3 text-xs" href={updateHref}>
             <Pencil className="h-3.5 w-3.5" aria-hidden />
             Update
           </Link>

@@ -385,7 +385,7 @@ export function FieldDialog({
                   onClick={onClose}
                   disabled={busy}
                   aria-label="Close dialog"
-                  className="-m-1 shrink-0 rounded-md p-1 text-ink-300 transition hover:text-ink-700 disabled:opacity-40"
+                  className="-m-1 shrink-0 rounded-md p-1 text-ink-500 transition hover:text-ink-700 disabled:opacity-40"
                 >
                   <X className="h-4 w-4" aria-hidden />
                 </button>

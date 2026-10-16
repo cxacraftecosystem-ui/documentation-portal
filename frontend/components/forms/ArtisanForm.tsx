@@ -27,6 +27,7 @@ import { RichTextField } from "@/components/richtext/RichTextField";
 import { appendStoredParagraph } from "@/components/richtext/storedRichText";
 import { RequiredMark } from "@/components/ui/RequiredMark";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
+import { statusLabel } from "@/components/StatusBadge";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { ApiError, apiFetch, buildQuery, listResource } from "@/lib/api";
 import { locationFromForm, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue, useUnsavedChanges } from "@/lib/forms";
@@ -245,7 +246,7 @@ function PehchanFields({
               {" "}
               <button
                 type="button"
-                className="font-semibold text-purple-700 underline"
+                className="font-semibold text-purple-700 dark:text-purple-300 underline"
                 onClick={() => setReplacing(true)}
               >
                 Replace this number
@@ -257,7 +258,7 @@ function PehchanFields({
               {" "}
               <button
                 type="button"
-                className="font-semibold text-purple-700 underline"
+                className="font-semibold text-purple-700 dark:text-purple-300 underline"
                 onClick={() => {
                   setReplacing(false);
                   setNumber("");
@@ -294,7 +295,7 @@ function StatusField({
       <Field label="Status">
         <Select name="status" defaultValue={initialStatus ?? "APPROVED"} onChange={onDirty}>
           {options.map((status) => (
-            <option key={status}>{status}</option>
+            <option key={status} value={status}>{statusLabel(status)}</option>
           ))}
         </Select>
       </Field>
@@ -918,8 +919,11 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
               markDirty();
             }}
           />
+          {/* UX audit DC-08: this box opened on "Male", so a form nobody touched saved a claim about a
+              person and skewed the dataset. It opens empty now and saves nothing until answered. */}
           <Field label="Gender">
-            <Select name="gender" defaultValue={initial?.gender?.trim() ? initial.gender : "Male"} onChange={markDirty}>
+            <Select name="gender" defaultValue={initial?.gender?.trim() ?? ""} onChange={markDirty}>
+              <option value="">Select gender</option>
               {genderOptions.map((option) => (
                 <option key={option}>{option}</option>
               ))}
@@ -1102,13 +1106,13 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           </div>
           <DosDontsField
             name="dos"
-            label="Do's (positive prompt)"
+            label="Do's"
             helper="Lessons from years at the craft — the things the artisan has learnt to do. Press Enter for each new point."
             defaultValue={initial?.dos}
           />
           <DosDontsField
             name="donts"
-            label="Don'ts (negative prompt)"
+            label="Don'ts"
             helper="Lessons from years at the craft — the things the artisan has learnt not to do / to avoid. Press Enter for each new point."
             defaultValue={initial?.donts}
           />
@@ -1122,7 +1126,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
             markDirty();
           }}
           title="Artisan media"
-          description="Attach or capture artisan images, audio introductions, videos, and documents. Image EXIF is retained and summarized in notes."
+          description="Attach or capture artisan images, audio introductions, videos, and documents. Photo details (date, place, camera) are kept and summarised in the notes."
         />
         {/*
           `statedPlace` is the free-text box the researchers used while there was no district column

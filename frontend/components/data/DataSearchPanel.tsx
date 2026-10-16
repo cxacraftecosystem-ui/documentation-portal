@@ -283,7 +283,7 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
                 <div className="flex shrink-0 items-center gap-3">
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-purple-700 disabled:opacity-50"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-purple-700 dark:text-purple-300 disabled:opacity-50"
                     disabled={revealing === row.key}
                     onClick={() => reveal(row)}
                   >
@@ -296,13 +296,13 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
                         href={row.href}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-xs font-semibold text-purple-700"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-purple-700 dark:text-purple-300"
                       >
                         <ExternalLink className="h-3.5 w-3.5" aria-hidden />
                         Open
                       </a>
                     ) : (
-                      <Link href={row.href} className="text-xs font-semibold text-purple-700">
+                      <Link href={row.href} className="text-xs font-semibold text-purple-700 dark:text-purple-300">
                         Open
                       </Link>
                     )
@@ -318,7 +318,7 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
                   than a wider one the researcher then has to narrow all over again. */}
               <Link
                 href={`/search${buildQuery({ q: query.trim() || undefined, ...filtersToLinkParams(filters) })}`}
-                className="font-semibold text-purple-700"
+                className="font-semibold text-purple-700 dark:text-purple-300"
               >
                 See all results
               </Link>

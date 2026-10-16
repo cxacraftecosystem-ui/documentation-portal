@@ -743,7 +743,7 @@ export function RecordSwitcher({
       aria-label={`Open a different ${singular} for editing`}
     >
       <div className="flex items-center gap-2 text-sm font-medium text-ink-900 md:col-span-2">
-        <PencilLine className="h-4 w-4 text-purple-700" aria-hidden />
+        <PencilLine className="h-4 w-4 text-purple-700 dark:text-purple-300" aria-hidden />
         <span>{recordSwitcherTitle(kind)}</span>
       </div>
 
@@ -775,7 +775,7 @@ export function RecordSwitcher({
           <button
             type="button"
             onClick={() => workshop.setWorkshopId(currentWorkshopId as string)}
-            className="justify-self-start text-[11px] font-semibold text-purple-700 hover:underline"
+            className="justify-self-start text-[11px] font-semibold text-purple-700 dark:text-purple-300 hover:underline"
           >
             Show this {singular}&apos;s own workshop
           </button>

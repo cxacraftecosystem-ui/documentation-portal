@@ -42,6 +42,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -104,6 +105,17 @@ import com.fieldrepository.app.ui.appSearchSettingItems
 import com.fieldrepository.app.ui.closeAppMenu
 import com.fieldrepository.app.ui.openAppMenu
 import com.fieldrepository.app.ui.Text
+import com.fieldrepository.app.ui.AppMessageBanner
+import com.fieldrepository.app.ui.AppMessageState
+import com.fieldrepository.app.ui.AppMessageTone
+import com.fieldrepository.app.ui.CAMERA_PERMISSION
+import com.fieldrepository.app.ui.CAMERA_REFUSED_SENTENCE
+import com.fieldrepository.app.ui.LOCATION_PERMISSIONS
+import com.fieldrepository.app.ui.LoadFailedCard
+import com.fieldrepository.app.ui.MICROPHONE_PERMISSION
+import com.fieldrepository.app.ui.MICROPHONE_REFUSED_SENTENCE
+import com.fieldrepository.app.ui.holdsLocation
+import com.fieldrepository.app.ui.rememberPermissionGate
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material3.Surface
@@ -120,6 +132,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -144,11 +157,17 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -199,7 +218,11 @@ import com.fieldrepository.app.data.DashboardRecentSubmissionDto
 import com.fieldrepository.app.data.DashboardStats
 import com.fieldrepository.app.data.DashboardStatsMine
 import com.fieldrepository.app.data.ARTISAN_PAGE_BUDGET
+import com.fieldrepository.app.data.LOOKUP_PAGE_BUDGET
 import com.fieldrepository.app.data.EVERY_WORKSHOP
+import com.fieldrepository.app.data.MY_RECORDS_PAGE_BUDGET
+import com.fieldrepository.app.data.REVIEW_PAGE_SIZE
+import com.fieldrepository.app.data.MyRecordsPage
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.GoogleAuthClient
 import com.fieldrepository.app.data.OidcAuthClient
@@ -378,6 +401,7 @@ import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.FocusRequester
@@ -1338,6 +1362,8 @@ private fun HomeScreen(
 ) {
     val scope = rememberCoroutineScope()
     var stats by remember { mutableStateOf<DashboardStats?>(null) }
+    // A failed totals load is a FAILURE with a retry, never "Loading..." left up for ever.
+    var statsError by remember { mutableStateOf<String?>(null) }
     var sections by remember { mutableStateOf<List<QuestionnaireSectionDto>>(emptyList()) }
     var crafts by remember { mutableStateOf<List<CraftDto>>(emptyList()) }
     var artisans by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
@@ -1360,7 +1386,9 @@ private fun HomeScreen(
     val reducedMotion = preferences.reducedMotion
     // The search panel the page header opens. See AppSearch.kt.
     var searchOpen by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf<String?>(null) }
+    // The designer portal's AppMessageState: `message = "…"` is a success, showMessage an error.
+    val appMessage = remember { AppMessageState() }
+    var message by appMessage
     // Every gate below mirrors one backend dependency (see the capability block near ROLE_RANK).
     // Do not re-derive a rule inline here: this screen used to hard-code admin-only variants of half
     // of them, which locked professors out of screens the API would happily have served.
@@ -1486,11 +1514,13 @@ private fun HomeScreen(
     // Surface a message, but swallow the noise from a coroutine being cancelled when a screen is
     // left during navigation (e.g. "The coroutine scope left the composition") — that is expected,
     // not a real error, and must not get stuck on screen.
-    fun showMessage(text: String?) {
+    // Every message goes through the shared surface (ui/StatusMessage.kt): ERROR by default because
+    // that is what most callers report, SUCCESS for a finished save, INFO for a progress note.
+    fun showMessage(text: String?, tone: AppMessageTone = AppMessageTone.ERROR, onRetry: (() -> Unit)? = null) {
         if (text.isNullOrBlank()) return
         val lower = text.lowercase()
         if ("left the composition" in lower || "was cancelled" in lower || "job was cancelled" in lower) return
-        message = text
+        appMessage.show(text, tone, onRetry)
     }
 
     // Where a search hit, a map pin and an app-search result go: one arm, so the three cannot drift.
@@ -1556,8 +1586,11 @@ private fun HomeScreen(
     fun refresh() {
         scope.launch {
             runCatching { repository.stats() }
-                .onSuccess { stats = it }
-                .onFailure { showMessage(it.message) }
+                .onSuccess { stats = it; statsError = null }
+                .onFailure {
+                    if (it is kotlinx.coroutines.CancellationException) throw it
+                    statsError = it.apiErrorMessage("Couldn't load the totals.")
+                }
         }
     }
 
@@ -1570,7 +1603,7 @@ private fun HomeScreen(
                 craftListCut = listCutNotice(it.items.size, it.total, "crafts")
             }
             .isSuccess
-        val gotArtisans = runCatching { repository.artisansPage() }
+        val gotArtisans = runCatching { repository.artisansPage(pageBudget = LOOKUP_PAGE_BUDGET) }
             .onSuccess {
                 artisans = it.items
                 artisanListCut = listCutNotice(it.items.size, it.total, "artisans")
@@ -1588,7 +1621,7 @@ private fun HomeScreen(
         loadLookups()
         runCatching { repository.questionnaireSections() }
             .onSuccess { sections = it }
-            .onFailure { showMessage(it.message) }
+            .onFailure { showMessage(it.apiErrorMessage("Couldn't load the questionnaire sections.")) }
     }
 
     // Leave the current screen, but if a form has unsaved work, route through the Save/Discard prompt
@@ -1875,7 +1908,7 @@ private fun HomeScreen(
                                             ).show()
                                         }
                                         .onFailure {
-                                            Toast.makeText(context, it.message ?: "Unable to publish the update", Toast.LENGTH_LONG).show()
+                                            Toast.makeText(context, it.apiErrorMessage("Unable to publish the update"), Toast.LENGTH_LONG).show()
                                         }
                                     pushingUpdate = false
                                 }
@@ -1886,9 +1919,11 @@ private fun HomeScreen(
                 }
             }
         ) {
+            val richMediaUrl = remember(repository) { richMediaUrlResolver(repository) }
             CompositionLocalProvider(
                 LocalLayoutDirection provides LayoutDirection.Ltr,
-                LocalUnsavedGuard provides unsavedGuard
+                LocalUnsavedGuard provides unsavedGuard,
+                com.fieldrepository.app.ui.richtext.LocalRichMediaUrl provides richMediaUrl
             ) {
             // The page gets back the 16dp the drawer bleeds through, and leaves the accessibility
             // tree while the menu is over it. See AppMenuDrawer.kt.
@@ -1905,7 +1940,7 @@ private fun HomeScreen(
                         repository = repository,
                         // Back walks one folder up first; this fires only at the top of the tree.
                         onBack = { attemptExit { goBack() } },
-                        onMessage = { showMessage(it) }
+                        onMessage = { showMessage(it, AppMessageTone.SUCCESS) }
                     )
 
                     is Screen.Appearance -> AppearanceScreen(
@@ -1993,7 +2028,7 @@ private fun HomeScreen(
             }
         )
                 }) { islandReserve ->
-
+        Box(Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -2052,6 +2087,8 @@ private fun HomeScreen(
                 }
                 DashboardScreen(
                     stats = stats,
+                    statsError = statsError,
+                    onRetryStats = { refresh() },
                     recentArtisans = artisans,
                     // Only the cards this user may actually START, exactly as the web dashboard
                     // filters its tiles (`visible`) and as the drawer above already filters its
@@ -2239,12 +2276,12 @@ private fun HomeScreen(
                     onRefreshSections = { instrumentId ->
                         runCatching { repository.questionnaireSections(instrumentId) }
                             .onSuccess { sections = it }
-                            .onFailure { showMessage(it.message) }
+                            .onFailure { showMessage(it.apiErrorMessage("Couldn't load the questionnaire sections.")) }
                     },
                     onSync = { instrumentId ->
                         runCatching { repository.questionnaireSections(instrumentId) }
                             .onSuccess { sections = it }
-                            .onFailure { showMessage(it.message) }
+                            .onFailure { showMessage(it.apiErrorMessage("Couldn't load the questionnaire sections.")) }
                         loadLookups()
                     },
                     onSubmit = { body, idempotencyKey ->
@@ -2262,17 +2299,18 @@ private fun HomeScreen(
                     // link to the board follow the toggle while the rest of the screen does not.
                     canAssign = isAdmin && adminChrome,
                     onOpenAssignmentBoard = { message = null; screen = Screen.AdminHub(AdminHubEntry.TASKS) },
-                    onMessage = { showMessage(it) },
+                    onMessage = { showMessage(it, AppMessageTone.SUCCESS) },
                     onError = { showMessage(it) }
                 )
                 EntryMode.SHARING -> SharingForm(
                     repository = repository,
                     isAdmin = isAdmin,
+                    onMessage = { showMessage(it, AppMessageTone.SUCCESS) },
                     onError = { showMessage(it) }
                 )
                 EntryMode.WORKSHOP_ACCESS -> WorkshopAccessScreen(
                     repository = repository,
-                    onMessage = { showMessage(it) },
+                    onMessage = { showMessage(it, AppMessageTone.SUCCESS) },
                     onError = { showMessage(it) }
                 )
                 // The card and the menu entry both disappear when admin view is off, but an admin who
@@ -2308,7 +2346,7 @@ private fun HomeScreen(
                     onRefreshSections = { instrumentId ->
                         runCatching { repository.questionnaireSections(instrumentId) }
                             .onSuccess { sections = it }
-                            .onFailure { showMessage(it.message) }
+                            .onFailure { showMessage(it.apiErrorMessage("Couldn't load the questionnaire sections.")) }
                     },
                     onError = { showMessage(it) },
                     onDone = { message = "Interview updated"; refresh(); goDashboard() }
@@ -2352,7 +2390,7 @@ private fun HomeScreen(
 
             is Screen.Settings -> SettingsScreen(
                 repository = repository,
-                onMessage = { showMessage(it) },
+                onMessage = { showMessage(it, AppMessageTone.SUCCESS) },
                 onError = { showMessage(it) }
             )
 
@@ -2366,7 +2404,7 @@ private fun HomeScreen(
                     canReview = canReview,
                     section = s.section,
                     onSectionChange = { next -> screen = Screen.AdminHub(next) },
-                    onMessage = { showMessage(it) },
+                    onMessage = { showMessage(it, AppMessageTone.SUCCESS) },
                     onError = { showMessage(it) },
                     pendingAccessRequests = pendingAccessRequests,
                     onPendingCountChanged = { pendingAccessRequests = it }
@@ -2401,10 +2439,6 @@ private fun HomeScreen(
             is Screen.Appearance, is Screen.MyAiKeys, is Screen.TwoStepVerification, is Screen.DataBrowser -> Unit
         }
 
-        message?.let {
-            Text(it, color = Body, modifier = Modifier.padding(bottom = 24.dp))
-        }
-
                 }
                 // Over the page, under nothing: the page keeps its scroll and any half-filled form.
                 if (searchOpen) {
@@ -2413,9 +2447,20 @@ private fun HomeScreen(
                         logo = { m -> FieldRepoLogo(modifier = m, cornerRadius = 7.dp) },
                         localItems = searchLocalItems(),
                         remoteSearch = { q -> searchRemote(q) },
-                        onClose = { searchOpen = false }
+                        onClose = { searchOpen = false },
+                        onError = { showMessage(it) }
                     )
                 }
+        // The shared message surface floats over the bottom of the viewport, just above the island,
+        // so a save confirmation or a failure is on screen wherever the reader has scrolled to —
+        // and over the search panel too, so a failure raised from it is seen.
+        AppMessageBanner(
+            state = appMessage,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = islandReserve)
+        )
+        }
                 }
                 }
                 }
@@ -2464,7 +2509,7 @@ private fun HomeScreen(
                                             }
                                             val apk = repository.downloadApk(context, release.url!!, release.versionCode)
                                             launchApkInstaller(context, apk)
-                                        }.onFailure { updateError = it.message ?: "Unable to download the update — check your connection and try again." }
+                                        }.onFailure { updateError = it.apiErrorMessage("Unable to download the update — check your connection and try again.") }
                                         // Keep `pendingUpdate` set: if the user backs out of the installer the
                                         // dialog must stay until the new version is actually installed.
                                         updateBusy = false
@@ -2672,16 +2717,30 @@ private fun SettingsScreen(
     var windowEnabled by remember { mutableStateOf(false) }
     var startTime by remember { mutableStateOf("02:00") }
     var endTime by remember { mutableStateOf("05:00") }
+    /*
+     * THE SERVER'S SETTINGS, OR NOTHING. The four values above are placeholders until a load
+     * succeeds; after a failed load they used to be drawn as if real, with Save live, so one tap
+     * wrote the defaults over whatever the server actually held. Save now stays off until [loaded].
+     */
+    var loaded by remember { mutableStateOf(false) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+    var attempt by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(attempt) {
+        loading = true
         runCatching { repository.appSettings() }
             .onSuccess { s ->
                 mode = s.transcriptionMode
                 windowEnabled = s.batchWindowEnabled
                 startTime = s.batchWindowStart
                 endTime = s.batchWindowEnd
+                loaded = true
+                loadError = null
             }
-            .onFailure { onError(it.message ?: "Couldn't load settings") }
+            .onFailure {
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                loadError = it.apiErrorMessage("Couldn't load the settings.")
+            }
         loading = false
     }
 
@@ -2691,6 +2750,12 @@ private fun SettingsScreen(
                 androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                 Text("Loading settings…", color = Muted, fontSize = 13.sp)
             }
+            return@RecordCard
+        }
+        val failure = loadError
+        if (!loaded && failure != null) {
+            // No form at all: a form of defaults would read as the server's settings.
+            LoadFailedCard(message = failure, onRetry = { attempt += 1 })
             return@RecordCard
         }
         Text("Transcription output", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
@@ -2722,7 +2787,7 @@ private fun SettingsScreen(
                 Box(modifier = Modifier.weight(1f)) { TimePickerField("Start", startTime) { startTime = it } }
                 Box(modifier = Modifier.weight(1f)) { TimePickerField("End", endTime) { endTime = it } }
             }
-            Text("Window is in India Standard Time (Asia/Kolkata).", color = Muted, fontSize = 11.sp)
+            Text("Window is in India Standard Time (Asia/Kolkata).", color = Muted, fontSize = 12.sp)
         }
 
         Button(
@@ -2744,11 +2809,11 @@ private fun SettingsScreen(
                         startTime = it.batchWindowStart
                         endTime = it.batchWindowEnd
                         onMessage("Settings saved")
-                    }.onFailure { onError(it.message ?: "Couldn't save settings") }
+                    }.onFailure { onError(it.apiErrorMessage("Couldn't save settings")) }
                     saving = false
                 }
             },
-            enabled = !saving,
+            enabled = !saving && loaded,
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(if (saving) "Saving…" else "Save settings")
@@ -2767,7 +2832,7 @@ private fun SettingsRadioRow(title: String, subtitle: String, selected: Boolean,
         RadioButton(selected = selected, onClick = onSelect)
         Column(modifier = Modifier.weight(1f)) {
             Text(title, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
-            Text(subtitle, color = Muted, fontSize = 11.sp)
+            Text(subtitle, color = Muted, fontSize = 12.sp)
         }
     }
 }
@@ -2841,6 +2906,9 @@ private fun CarryForwardPanel(
 @Composable
 private fun DashboardScreen(
     stats: DashboardStats?,
+    /** Set when the totals failed to load; the cards then say so and offer Try again. */
+    statsError: String?,
+    onRetryStats: () -> Unit,
     recentArtisans: List<ArtisanDto>,
     /** Already filtered to what this user may start — every card here leads with its "New …". */
     actions: List<EntryMode>,
@@ -2950,11 +3018,17 @@ private fun DashboardScreen(
                 }
             }
         }
-        StatsCard(stats = stats, onOpenSearchFor = onOpenSearchFor, onOpenReviews = onOpenReviews)
+        StatsCard(
+            stats = stats,
+            statsError = statsError,
+            onRetry = onRetryStats,
+            onOpenSearchFor = onOpenSearchFor,
+            onOpenReviews = onOpenReviews
+        )
         // The caller's own contribution, in the SAME six counters and the same order, so the two blocks
         // read as one comparison rather than as two unrelated grids. Drawn only when the API sent it.
         MyContributionCard(mine = stats?.mine, onOpenMyActivity = onOpenMyActivity)
-        RecentSubmissionsCard(stats = stats, onOpenRecord = onOpenRecord)
+        RecentSubmissionsCard(stats = stats, statsError = statsError, onOpenRecord = onOpenRecord)
         if (recentArtisans.isNotEmpty()) {
             Text("Recent artisans", display = true, fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
             recentArtisans.take(6).forEach { artisan ->
@@ -3091,14 +3165,15 @@ private fun DashboardActionCard(tile: DashboardTile, modifier: Modifier = Modifi
     }
 }
 
-/** Icon + single-line label, sized to never wrap inside the narrow dashboard cards. */
+/** Icon + label for the narrow dashboard cards. */
 @Composable
 private fun CardButtonLabel(icon: ImageVector, text: String) {
     Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
     Spacer(Modifier.width(6.dp))
-    // Ellipsis, not a silent clip: the cards are two-to-a-row on a phone and "New interview" is wider
-    // than the button at that width.
-    Text(text, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, fontSize = 13.sp)
+    // TWO LINES, never an ellipsis: the cards are two-to-a-row on a phone, "New interview" is wider
+    // than the button at 360dp, and "New intervi…" was what a researcher read. The row's
+    // IntrinsicSize.Min keeps the neighbouring card's buttons level with a wrapped one.
+    Text(text, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 13.sp, textAlign = TextAlign.Center)
 }
 
 /**
@@ -3116,6 +3191,8 @@ private fun CardButtonLabel(icon: ImageVector, text: String) {
 @Composable
 private fun StatsCard(
     stats: DashboardStats?,
+    statsError: String?,
+    onRetry: () -> Unit,
     /** Every figure but Pending review counts a search bucket, so every one of those opens one. */
     onOpenSearchFor: (String) -> Unit,
     /** null = this user cannot review; Pending review is then a figure, not a door. */
@@ -3134,8 +3211,13 @@ private fun StatsCard(
                 fontSize = 12.sp
             )
             Spacer(Modifier.height(12.dp))
-            if (stats == null) {
-                Text("Loading...", color = MaterialTheme.field.onBrandTileMuted)
+            if (stats == null && statsError != null) {
+                Text(statsError, color = MaterialTheme.field.onBrandTile, fontSize = 14.sp)
+                TextButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("Try again", color = MaterialTheme.field.accentOnBrandTile, fontWeight = FontWeight.SemiBold)
+                }
+            } else if (stats == null) {
+                Text("Loading…", color = MaterialTheme.field.onBrandTileMuted)
             } else {
                 // Same height equalisation as the action grid: a stat whose label wraps must not make
                 // its tile taller than the two beside it.
@@ -3301,7 +3383,7 @@ private fun MineStat(
             Text(
                 label,
                 color = Muted,
-                fontSize = 11.sp,
+                fontSize = 12.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
@@ -3326,7 +3408,7 @@ private fun MineStat(
  * nobody's name against it is a record nobody can follow up on.
  */
 @Composable
-private fun RecentSubmissionsCard(stats: DashboardStats?, onOpenRecord: (EntryMode, String) -> Unit) {
+private fun RecentSubmissionsCard(stats: DashboardStats?, statsError: String?, onOpenRecord: (EntryMode, String) -> Unit) {
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
         shape = RoundedCornerShape(12.dp),
@@ -3343,10 +3425,15 @@ private fun RecentSubmissionsCard(stats: DashboardStats?, onOpenRecord: (EntryMo
             Text(
                 "The newest records, whoever added them.",
                 color = Muted,
-                fontSize = 11.sp
+                fontSize = 12.sp
             )
             when {
-                stats == null -> Text("Loading...", color = Muted, fontSize = 12.sp)
+                stats == null && statsError != null -> Text(
+                    "Couldn't load the newest records. Try again from the totals above.",
+                    color = Muted,
+                    fontSize = 13.sp
+                )
+                stats == null -> Text("Loading…", color = Muted, fontSize = 13.sp)
                 stats.recentSubmissions.isEmpty() -> {
                     Text(
                         "No submissions yet",
@@ -3406,14 +3493,14 @@ private fun RecentSubmissionRow(
         Text(
             listOfNotNull(typeLabel.takeIf { it.isNotBlank() }, place).joinToString(" · ").ifBlank { "Record" },
             color = Muted,
-            fontSize = 11.sp
+            fontSize = 12.sp
         )
         Text(
             "Recorded by ${item.createdByName?.takeIf { it.isNotBlank() } ?: "-"}" +
                 " · ${item.status.ifBlank { "-" }}" +
                 " · ${formatIsoDate(item.createdAt) ?: "-"}",
             color = Muted,
-            fontSize = 11.sp
+            fontSize = 12.sp
         )
     }
 }
@@ -3486,6 +3573,12 @@ private val marketDemandOptions = listOf("LOW", "MEDIUM", "HIGH", "SEASONAL", "U
 private val makerOptions = listOf("ARTISAN", "LOCAL_BLACKSMITH", "CARPENTER", "WORKSHOP", "FACTORY", "UNKNOWN", "OTHER")
 private val traditionOptions = listOf("TRADITIONAL", "MODERN", "HYBRID", "UNKNOWN")
 private val statusOptions = listOf("DRAFT", "PENDING", "APPROVED", "REJECTED")
+
+/** The word a person reads for a record status: the badges say "Approved", so the picker does too. */
+private fun recordStatusWord(status: String): String = when (status) {
+    "NEEDS_REVISION" -> "Needs revision"
+    else -> status.lowercase().replaceFirstChar { it.uppercase() }
+}
 
 // Role hierarchy, mirroring the backend ROLE_RANK ladder. The record-status control is gated at
 // PROFESSOR+ (rank >= 40): they pick any status and default to APPROVED on create; everyone below sees
@@ -4163,6 +4256,11 @@ private fun GridMeasurementSection(
         if (uri != null && g != null) analyze(g, uri)
         pendingGroup = null
     }
+    // No onError here: a refusal is written against the group the camera was asked for.
+    val permissionGate = rememberPermissionGate(onRefused = { refusal ->
+        pendingGroup?.let { g -> status = status + (g to refusal) }
+        pendingGroup = null
+    })
     val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         val uri = pendingCaptureUri
         val g = pendingGroup
@@ -4181,14 +4279,17 @@ private fun GridMeasurementSection(
             Text(label, color = Body, fontSize = 14.sp)
         }
         if (enabled.contains(key)) {
-            Text(hint, color = Muted, fontSize = 11.sp, modifier = Modifier.padding(start = 8.dp))
+            Text(hint, color = Muted, fontSize = 12.sp, modifier = Modifier.padding(start = 8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 OutlinedButton(
                     onClick = {
-                        val uri = createAppFileUri(context, "grid-$key-", ".jpg")
                         pendingGroup = key
-                        pendingCaptureUri = uri
-                        takePhoto.launch(uri)
+                        permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) {
+                            val uri = createAppFileUri(context, "grid-$key-", ".jpg")
+                            pendingGroup = key
+                            pendingCaptureUri = uri
+                            takePhoto.launch(uri)
+                        }
                     },
                     modifier = Modifier.weight(1f),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
@@ -4199,7 +4300,7 @@ private fun GridMeasurementSection(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                 ) { Text("Pick photo", maxLines = 1, softWrap = false, fontSize = 12.sp) }
             }
-            status[key]?.let { Text(it, color = Muted, fontSize = 11.sp) }
+            status[key]?.let { Text(it, color = Muted, fontSize = 12.sp) }
             capturedUris[key]?.let { uri ->
                 AndroidUriPreview(context = context, uri = uri, onRemove = { discardGroup(key) }, downloadable = true)
             }
@@ -4253,7 +4354,7 @@ private fun DropdownField(
 private fun StatusDropdown(value: String, onSelect: (String) -> Unit) {
     DropdownField(
         label = "Status",
-        options = statusOptions.map { it to it },
+        options = statusOptions.map { it to recordStatusWord(it) },
         selectedValue = value,
         includeNone = false,
         onSelect = onSelect
@@ -4279,10 +4380,10 @@ private fun StatusControl(canSetStatus: Boolean, value: String, onSelect: (Strin
                     .background(SurfaceCard, RoundedCornerShape(999.dp))
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
-                Box(modifier = Modifier.size(8.dp).background(Color(0xFFE2A400), CircleShape))
+                Box(modifier = Modifier.size(8.dp).background(MaterialTheme.field.warning, CircleShape))
                 Text("Pending", color = Body, fontSize = 13.sp, fontWeight = FontWeight.Medium)
             }
-            Text("New records are reviewed before they're published.", color = Muted, fontSize = 11.sp)
+            Text("New records are reviewed before they're published.", color = Muted, fontSize = 12.sp)
         }
     }
 }
@@ -5092,8 +5193,8 @@ private enum class RecPhase { IDLE, RECORDING, PAUSED, RECORDED }
 /** Transient outcome of an action button: drives a 5-second green/red flash. */
 private enum class ActionStatus { IDLE, SUCCESS, ERROR }
 
-private val SuccessGreen = Color(0xFF2E7D32)
-private val FailureRed = Color(0xFFD13438)
+private val SuccessGreen: Color get() = com.fieldrepository.app.ui.SuccessInk
+private val FailureRed: Color get() = com.fieldrepository.app.ui.ErrorInk
 
 /** Auto-reset a SUCCESS/ERROR status back to IDLE after 5 seconds. */
 @Composable
@@ -5138,7 +5239,7 @@ private fun AudioClipRecorder(
             recorder = createAudioRecorder(context, file).also { it.start() }
             recordingFile = file
             phase = RecPhase.RECORDING
-        }.onFailure { onError(it.message ?: "Unable to start recording"); phase = RecPhase.IDLE }
+        }.onFailure { onError(it.apiErrorMessage("Unable to start recording")); phase = RecPhase.IDLE }
     }
 
     fun stopAndSave() {
@@ -5146,7 +5247,7 @@ private fun AudioClipRecorder(
             recorder?.stop()
             recorder?.release()
             recordingFile?.let { onAddClip(uriForFile(context, it)) }
-        }.onFailure { onError(it.message ?: "Unable to stop recording") }
+        }.onFailure { onError(it.apiErrorMessage("Unable to stop recording")) }
         recorder = null
         recordingFile = null
         phase = RecPhase.RECORDED
@@ -5167,7 +5268,7 @@ private fun AudioClipRecorder(
             RecPhase.RECORDING -> {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     OutlinedButton(
-                        onClick = { runCatching { recorder?.pause(); phase = RecPhase.PAUSED }.onFailure { onError(it.message ?: "Unable to pause") } },
+                        onClick = { runCatching { recorder?.pause(); phase = RecPhase.PAUSED }.onFailure { onError(it.apiErrorMessage("Unable to pause")) } },
                         modifier = Modifier.weight(1f),
                         contentPadding = pad
                     ) {
@@ -5184,7 +5285,7 @@ private fun AudioClipRecorder(
             RecPhase.PAUSED -> {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     OutlinedButton(
-                        onClick = { runCatching { recorder?.resume(); phase = RecPhase.RECORDING }.onFailure { onError(it.message ?: "Unable to resume") } },
+                        onClick = { runCatching { recorder?.resume(); phase = RecPhase.RECORDING }.onFailure { onError(it.apiErrorMessage("Unable to resume")) } },
                         modifier = Modifier.weight(1f),
                         contentPadding = pad
                     ) { Text("Resume ●", maxLines = 1, softWrap = false, fontSize = 13.sp) }
@@ -5247,7 +5348,7 @@ private fun AudioClipRecorder(
                 paused = phase == RecPhase.PAUSED
             )
         }
-        Text("${clips.size} clip(s)", color = Muted, fontSize = 11.sp)
+        Text("${clips.size} clip(s)", color = Muted, fontSize = 12.sp)
     }
 }
 
@@ -5261,7 +5362,7 @@ private fun StopSquareLabel(text: String = "Stop") {
     Box(
         modifier = Modifier
             .size(13.dp)
-            .background(Color(0xFFD13438), RoundedCornerShape(3.dp))
+            .background(FailureRed, RoundedCornerShape(3.dp))
     )
     Spacer(Modifier.width(6.dp))
     Text(text, maxLines = 1, softWrap = false, fontSize = 13.sp)
@@ -5310,7 +5411,10 @@ private fun MediaCaptureSection(
         }
     }
 
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
+    // Each capture asks for its own permission when pressed and waits for the answer (ui/PermissionGate.kt).
+    val permissionGate = rememberPermissionGate(onRefused = onError)
+    // Location is asked as the pair, when "Use GPS" is pressed and only if neither is held.
+    val locationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         if (uris.isNotEmpty()) media.uris = media.uris + uris
     }
@@ -5331,8 +5435,6 @@ private fun MediaCaptureSection(
         if (uri != null) media.measurementUri = uri
     }
 
-    LaunchedEffect(Unit) { permissionLauncher.launch(requiredAndroidPermissions()) }
-
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         HorizontalDivider()
         Text("Attach media", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
@@ -5345,27 +5447,32 @@ private fun MediaCaptureSection(
             OutlinedButton(onClick = { pickMedia.launch("*/*") }, modifier = Modifier.weight(1f)) { Text("Pick files") }
             OutlinedButton(
                 onClick = {
-                    permissionLauncher.launch(requiredAndroidPermissions())
-                    val uri = createAppFileUri(context, "field-photo-", ".jpg")
-                    pendingMeasurement = false
-                    pendingCaptureUri = uri
-                    takePhoto.launch(uri)
+                    permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) {
+                        val uri = createAppFileUri(context, "field-photo-", ".jpg")
+                        pendingMeasurement = false
+                        pendingCaptureUri = uri
+                        takePhoto.launch(uri)
+                    }
                 },
                 modifier = Modifier.weight(1f)
             ) { Text("Take photo") }
         }
         if (emphasizeVideo) {
-            Text("🎥 Video is the preferred format here — capture the action as it happens.", color = Color(0xFFE0C9B0), fontSize = 12.sp)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(Icons.Filled.Videocam, contentDescription = null, tint = MaterialTheme.field.muted, modifier = Modifier.size(16.dp))
+                Text("Video is the preferred format here — capture the action as it happens.", color = MaterialTheme.field.muted, fontSize = 13.sp)
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             if (emphasizeVideo) {
                 Button(
                     onClick = {
-                        permissionLauncher.launch(requiredAndroidPermissions())
-                        val uri = createAppFileUri(context, "field-video-", ".mp4")
-                        pendingMeasurement = false
-                        pendingCaptureUri = uri
-                        takeVideo.launch(uri)
+                        permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) {
+                            val uri = createAppFileUri(context, "field-video-", ".mp4")
+                            pendingMeasurement = false
+                            pendingCaptureUri = uri
+                            takeVideo.launch(uri)
+                        }
                     },
                     modifier = Modifier.weight(1f),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
@@ -5373,11 +5480,12 @@ private fun MediaCaptureSection(
             } else {
                 OutlinedButton(
                     onClick = {
-                        permissionLauncher.launch(requiredAndroidPermissions())
-                        val uri = createAppFileUri(context, "field-video-", ".mp4")
-                        pendingMeasurement = false
-                        pendingCaptureUri = uri
-                        takeVideo.launch(uri)
+                        permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) {
+                            val uri = createAppFileUri(context, "field-video-", ".mp4")
+                            pendingMeasurement = false
+                            pendingCaptureUri = uri
+                            takeVideo.launch(uri)
+                        }
                     },
                     modifier = Modifier.weight(1f),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
@@ -5385,21 +5493,23 @@ private fun MediaCaptureSection(
             }
             OutlinedButton(
                 onClick = {
-                    permissionLauncher.launch(requiredAndroidPermissions())
-                    if (!recording) {
+                    if (!recording && !permissionGate.holds(MICROPHONE_PERMISSION)) {
+                        // Ask first and record nothing yet: the press that grants it is not a press to record.
+                        permissionGate.ask(MICROPHONE_PERMISSION, MICROPHONE_REFUSED_SENTENCE)
+                    } else if (!recording) {
                         runCatching {
                             val file = createAppFile(context, "field-audio-", ".m4a")
                             recorder = createAudioRecorder(context, file).also { it.start() }
                             recordingFile = file
                             recording = true
                             onMessage("Recording audio...")
-                        }.onFailure { onError(it.message ?: "Unable to start audio recording") }
+                        }.onFailure { onError(it.apiErrorMessage("Unable to start audio recording")) }
                     } else {
                         runCatching {
                             recorder?.stop()
                             recorder?.release()
                             recordingFile?.let { file -> media.uris = media.uris + uriForFile(context, file) }
-                        }.onFailure { onError(it.message ?: "Unable to stop audio recording") }
+                        }.onFailure { onError(it.apiErrorMessage("Unable to stop audio recording")) }
                         recorder = null
                         recordingFile = null
                         recording = false
@@ -5456,7 +5566,7 @@ private fun MediaCaptureSection(
             repository = repository,
             value = media.location,
             onUseGps = {
-                permissionLauncher.launch(requiredAndroidPermissions())
+                if (!holdsLocation(context)) locationLauncher.launch(LOCATION_PERMISSIONS)
                 readLastKnownLocation(context)
             },
             onChange = { media.location = it },
@@ -5468,16 +5578,17 @@ private fun MediaCaptureSection(
             Text(
                 "Length and breadth are estimated from the grid where possible and fill any empty boxes. You can always enter them yourself.",
                 color = Muted,
-                fontSize = 11.sp
+                fontSize = 12.sp
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 OutlinedButton(
                     onClick = {
-                        permissionLauncher.launch(requiredAndroidPermissions())
-                        val uri = createAppFileUri(context, "measure-grid-", ".jpg")
-                        pendingMeasurement = true
-                        pendingCaptureUri = uri
-                        takePhoto.launch(uri)
+                        permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) {
+                            val uri = createAppFileUri(context, "measure-grid-", ".jpg")
+                            pendingMeasurement = true
+                            pendingCaptureUri = uri
+                            takePhoto.launch(uri)
+                        }
                     },
                     modifier = Modifier.weight(1f)
                 ) { Text("Capture grid") }
@@ -5504,7 +5615,7 @@ private fun MediaCaptureSection(
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text("${media.uris.size} file(s) attached", color = Canvas, fontWeight = FontWeight.SemiBold)
+                Text("${media.uris.size} file(s) attached", color = MaterialTheme.field.onBrandTile, fontWeight = FontWeight.SemiBold)
                 // Overall upload progress across the whole batch (staged files count as 100%).
                 val overall = media.uris.map { (media.stagedProgress[it] ?: 0f).coerceIn(0f, 1f) }.average().toFloat()
                 val allDone = media.staged.size >= media.uris.size
@@ -5518,8 +5629,8 @@ private fun MediaCaptureSection(
                 Text(
                     if (allDone) "All uploaded ✓ — ready to save"
                     else "Uploading… ${(overall * 100).toInt()}% (${media.staged.size}/${media.uris.size} files done)",
-                    color = SurfaceCard,
-                    fontSize = 11.sp
+                    color = MaterialTheme.field.onBrandTileMuted,
+                    fontSize = 12.sp
                 )
                 var attachmentsExpanded by remember { mutableStateOf(false) }
                 val attachmentsCap = 6
@@ -5622,7 +5733,7 @@ private fun AttachedUploadsCard(
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Text("${uris.size} $label(s) attached", color = Canvas, fontWeight = FontWeight.SemiBold)
+        Text("${uris.size} $label(s) attached", color = MaterialTheme.field.onBrandTile, fontWeight = FontWeight.SemiBold)
         val overall = uris.map { (media.stagedProgress[it] ?: 0f).coerceIn(0f, 1f) }.average().toFloat()
         if (!allDone) {
             LinearProgressIndicator(
@@ -5634,8 +5745,8 @@ private fun AttachedUploadsCard(
         Text(
             if (allDone) "All uploaded ✓ — ready to save"
             else "Uploading… ${(overall * 100).toInt()}% ($doneCount/${uris.size} files done)",
-            color = SurfaceCard,
-            fontSize = 11.sp
+            color = MaterialTheme.field.onBrandTileMuted,
+            fontSize = 12.sp
         )
         var expanded by remember { mutableStateOf(false) }
         val cap = 8
@@ -5659,9 +5770,17 @@ private fun AttachedUploadsCard(
     }
 }
 
-/** Lightweight loading placeholder shown while a record's detail is being fetched for editing. */
+/**
+ * Placeholder while a record's detail is being fetched — or, when [error] is set, the failure with
+ * Try again. A failed load used to leave "Fetching the latest
+ * saved values…" on screen for ever.
+ */
 @Composable
-private fun LoadingCard(mode: EntryMode) {
+private fun LoadingCard(mode: EntryMode, error: String? = null, onRetry: () -> Unit = {}) {
+    if (error != null) {
+        LoadFailedCard(message = error, onRetry = onRetry)
+        return
+    }
     RecordCard(title = "Loading ${mode.label.lowercase()}") {
         Text("Fetching the latest saved values…", color = Muted, fontSize = 13.sp)
     }
@@ -5685,6 +5804,9 @@ private fun RecordPickerScreen(
      * nothing it could honestly say.
      */
     var listCut by remember(mode) { mutableStateOf<String?>(null) }
+    /** A failed load, drawn as a failure with Try again — never as "No records found yet". */
+    var loadError by remember(mode) { mutableStateOf<String?>(null) }
+    var loadAttempt by remember(mode) { mutableIntStateOf(0) }
 
     /*
      * WHICH WORKSHOP'S INTERVIEWS THIS PICKER OFFERS — defect (2), on the screen the owner was
@@ -5719,7 +5841,7 @@ private fun RecordPickerScreen(
     val scopeSettled = mode != EntryMode.QUESTIONNAIRE || workshopScope.settled
     val scopeKey = if (mode == EntryMode.QUESTIONNAIRE) workshopScope.requestKey else ""
 
-    LaunchedEffect(mode, scopeSettled, scopeKey) {
+    LaunchedEffect(mode, scopeSettled, scopeKey, loadAttempt) {
         // Held until the picker has settled, or the first request goes out unscoped and is replaced a
         // moment later — two requests, and a visible flash of the previous workshop's interviews,
         // which is the exact symptom being fixed.
@@ -5736,14 +5858,35 @@ private fun RecordPickerScreen(
                 // called", and the web a third. `recordOptionLabel` is the one copy; it also stopped
                 // the two hand-written middle dots that used to print with nothing after them when a
                 // craft had no place or a process no parent product.
-                EntryMode.ARTISAN -> repository.artisans().map { it.id to recordOptionLabel(it) }
-                EntryMode.CRAFT -> repository.crafts().map { it.id to recordOptionLabel(it) }
-                EntryMode.PRODUCT -> repository.products().map { it.id to recordOptionLabel(it) }
-                EntryMode.PROCESS -> repository.processes().map { it.id to recordOptionLabel(it) }
-                EntryMode.TOOL -> repository.tools().map { it.id to recordOptionLabel(it) }
-                EntryMode.WORKSHOP -> repository.workshops().map { it.id to it.title.ifBlank { "Untitled workshop" } }
-                EntryMode.MEDIA -> repository.media().map { m ->
-                    m.id to (m.caption?.takeIf { it.isNotBlank() } ?: m.originalFilename)
+                // Every page up to LOOKUP_PAGE_BUDGET, with the cut said out loud past it — this list
+                // used to stop at page one (media at twenty) and say nothing.
+                EntryMode.ARTISAN -> repository.artisansPage(pageBudget = LOOKUP_PAGE_BUDGET).let { page ->
+                    listCut = listCutNotice(page.items.size, page.total, "artisans")
+                    page.items.map { it.id to recordOptionLabel(it) }
+                }
+                EntryMode.CRAFT -> repository.craftsPage().let { page ->
+                    listCut = listCutNotice(page.items.size, page.total, "crafts")
+                    page.items.map { it.id to recordOptionLabel(it) }
+                }
+                EntryMode.PRODUCT -> repository.productsAll().let { page ->
+                    listCut = listCutNotice(page.items.size, page.total, "products")
+                    page.items.map { it.id to recordOptionLabel(it) }
+                }
+                EntryMode.PROCESS -> repository.processesAll().let { page ->
+                    listCut = listCutNotice(page.items.size, page.total, "processes")
+                    page.items.map { it.id to recordOptionLabel(it) }
+                }
+                EntryMode.TOOL -> repository.toolsAll().let { page ->
+                    listCut = listCutNotice(page.items.size, page.total, "tools")
+                    page.items.map { it.id to recordOptionLabel(it) }
+                }
+                EntryMode.WORKSHOP -> repository.workshopsAll().let { page ->
+                    listCut = listCutNotice(page.items.size, page.total, "workshops")
+                    page.items.map { it.id to it.title.ifBlank { "Untitled workshop" } }
+                }
+                EntryMode.MEDIA -> repository.mediaAll().let { page ->
+                    listCut = listCutNotice(page.items.size, page.total, "media files")
+                    page.items.map { m -> m.id to (m.caption?.takeIf { it.isNotBlank() } ?: m.originalFilename) }
                 }
                 EntryMode.QUESTIONNAIRE -> {
                     // Idempotent: all saved interview records for the same set of artisan(s) collapse
@@ -5753,7 +5896,7 @@ private fun RecordPickerScreen(
                     // because the grouping above destroys the count — twelve sittings for one artisan
                     // set collapse to one row — so `total` has to be read before the fold or there is
                     // no honest number left to print. See `listCut` below.
-                    val page = repository.interviewsPage(workshopScope.workshopIds)
+                    val page = repository.interviewsPage(workshopScope.workshopIds, pageBudget = LOOKUP_PAGE_BUDGET)
                     listCut = listCutNotice(page.items.size, page.total, "interviews")
                     page.items.groupBy { interviewGroupKey(it) }.values.map { group ->
                         val rep = representativeInterview(group)
@@ -5768,7 +5911,10 @@ private fun RecordPickerScreen(
                 }
                 else -> emptyList()
             }
-        }.onSuccess { options = it }.onFailure { onError(it.message ?: "Unable to load records") }
+        }.onSuccess { options = it; loadError = null }.onFailure {
+            if (it is kotlinx.coroutines.CancellationException) throw it
+            loadError = it.apiErrorMessage("Couldn't load the ${mode.label.lowercase()} records.")
+        }
         loading = false
     }
 
@@ -5828,6 +5974,7 @@ private fun RecordPickerScreen(
         }
         when {
             loading -> Text("Loading ${mode.label.lowercase()} records…", color = Muted)
+            loadError != null -> LoadFailedCard(message = loadError.orEmpty(), onRetry = { loadAttempt += 1 })
             // AN EMPTY SCOPED LIST IS NOT AN EMPTY REPOSITORY, and saying only the second sends a
             // researcher looking for a record that is sitting one tap away under "All records". The
             // wording is `ConsolidatedIndex`'s, which faced the identical choice one screen over.
@@ -5928,7 +6075,7 @@ private fun DeleteRecordSection(
                             deleting = true
                             runCatching { deleteByMode(repository, mode, recordId) }
                                 .onSuccess { confirm = false; deleting = false; onDeleted() }
-                                .onFailure { deleting = false; onError(it.message ?: "Unable to delete (admin only)") }
+                                .onFailure { deleting = false; onError(it.apiErrorMessage("Unable to delete (admin only)")) }
                         }
                     }
                 ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
@@ -5995,6 +6142,10 @@ private fun EditScreen(
      * first one's workshop behind, which would offer a shortcut to somewhere the record is not.
      */
     var currentWorkshopId by remember(recordId) { mutableStateOf<String?>(null) }
+    /** The record's load failed: drawn as a failure with Try again, which bumps [loadAttempt]. */
+    var loadError by remember(recordId) { mutableStateOf<String?>(null) }
+    var loadAttempt by remember(recordId) { mutableIntStateOf(0) }
+    val retryLoad = { loadError = null; loadAttempt += 1 }
 
     /*
      * THE PICKER, ABOVE THE FORM AND ONLY FOR THE KINDS THAT HAVE ONE.
@@ -6031,17 +6182,17 @@ private fun EditScreen(
             var detail by remember(recordId) { mutableStateOf<ArtisanDetailDto?>(null) }
             var answers by remember(recordId) { mutableStateOf<List<ArtisanAnswerDto>>(emptyList()) }
             var answersLoading by remember(recordId) { mutableStateOf(true) }
-            LaunchedEffect(recordId) {
+            LaunchedEffect(recordId, loadAttempt) {
                 runCatching { repository.artisan(recordId) }
                     .onSuccess { detail = it; currentWorkshopId = it.workshopId }
-                    .onFailure { onError(it.message ?: "Unable to load artisan") }
+                    .onFailure { loadError = it.apiErrorMessage("Couldn\'t load this artisan.") }
                 runCatching { repository.artisanQuestionnaire(recordId) }
                     .onSuccess { answers = it.answered }
                 answersLoading = false
             }
             val d = detail
             if (d == null) {
-                LoadingCard(mode)
+                LoadingCard(mode, loadError, retryLoad)
             } else {
                 ArtisanForm(
                     repository = repository,
@@ -6057,13 +6208,13 @@ private fun EditScreen(
         }
         EntryMode.PRODUCT -> {
             var detail by remember(recordId) { mutableStateOf<ProductDetailDto?>(null) }
-            LaunchedEffect(recordId) {
+            LaunchedEffect(recordId, loadAttempt) {
                 runCatching { repository.product(recordId) }
                     .onSuccess { detail = it; currentWorkshopId = it.workshopId }
-                    .onFailure { onError(it.message ?: "Unable to load product") }
+                    .onFailure { loadError = it.apiErrorMessage("Couldn\'t load this product.") }
             }
             val d = detail
-            if (d == null) LoadingCard(mode) else ProductForm(
+            if (d == null) LoadingCard(mode, loadError, retryLoad) else ProductForm(
                 repository = repository,
                 crafts = crafts,
                 artisans = artisans,
@@ -6077,13 +6228,13 @@ private fun EditScreen(
         }
         EntryMode.PROCESS -> {
             var detail by remember(recordId) { mutableStateOf<ProcessDetailDto?>(null) }
-            LaunchedEffect(recordId) {
+            LaunchedEffect(recordId, loadAttempt) {
                 runCatching { repository.process(recordId) }
                     .onSuccess { detail = it; currentWorkshopId = it.workshopId }
-                    .onFailure { onError(it.message ?: "Unable to load process") }
+                    .onFailure { loadError = it.apiErrorMessage("Couldn\'t load this process.") }
             }
             val d = detail
-            if (d == null) LoadingCard(mode) else ProcessForm(
+            if (d == null) LoadingCard(mode, loadError, retryLoad) else ProcessForm(
                 repository = repository,
                 editing = d,
                 adminView = adminView,
@@ -6093,13 +6244,13 @@ private fun EditScreen(
         }
         EntryMode.TOOL -> {
             var detail by remember(recordId) { mutableStateOf<ToolDetailDto?>(null) }
-            LaunchedEffect(recordId) {
+            LaunchedEffect(recordId, loadAttempt) {
                 runCatching { repository.tool(recordId) }
                     .onSuccess { detail = it; currentWorkshopId = it.workshopId }
-                    .onFailure { onError(it.message ?: "Unable to load tool") }
+                    .onFailure { loadError = it.apiErrorMessage("Couldn\'t load this tool.") }
             }
             val d = detail
-            if (d == null) LoadingCard(mode) else ToolForm(
+            if (d == null) LoadingCard(mode, loadError, retryLoad) else ToolForm(
                 repository = repository,
                 crafts = crafts,
                 artisans = artisans,
@@ -6113,13 +6264,13 @@ private fun EditScreen(
         }
         EntryMode.WORKSHOP -> {
             var detail by remember(recordId) { mutableStateOf<WorkshopDetailDto?>(null) }
-            LaunchedEffect(recordId) {
+            LaunchedEffect(recordId, loadAttempt) {
                 runCatching { repository.workshop(recordId) }
                     .onSuccess { detail = it }
-                    .onFailure { onError(it.message ?: "Unable to load workshop") }
+                    .onFailure { loadError = it.apiErrorMessage("Couldn\'t load this workshop.") }
             }
             val d = detail
-            if (d == null) LoadingCard(mode) else WorkshopForm(
+            if (d == null) LoadingCard(mode, loadError, retryLoad) else WorkshopForm(
                 repository = repository,
                 artisans = artisans,
                 editing = d,
@@ -6130,13 +6281,13 @@ private fun EditScreen(
         }
         EntryMode.CRAFT -> {
             var detail by remember(recordId) { mutableStateOf<CraftDto?>(null) }
-            LaunchedEffect(recordId) {
+            LaunchedEffect(recordId, loadAttempt) {
                 runCatching { repository.craft(recordId) }
                     .onSuccess { detail = it; currentWorkshopId = it.workshopId }
-                    .onFailure { onError(it.message ?: "Unable to load craft") }
+                    .onFailure { loadError = it.apiErrorMessage("Couldn\'t load this craft.") }
             }
             val d = detail
-            if (d == null) LoadingCard(mode) else CraftForm(
+            if (d == null) LoadingCard(mode, loadError, retryLoad) else CraftForm(
                 repository = repository,
                 editing = d,
                 adminView = adminView,
@@ -6211,7 +6362,9 @@ private fun InterviewEditLoader(
     var sectionsReady by remember(recordId) { mutableStateOf(false) }
     /** Set when the instrument's sections could not be fetched, so the wait can end in a sentence. */
     var sectionsError by remember(recordId) { mutableStateOf<String?>(null) }
-    LaunchedEffect(recordId) {
+    var loadError by remember(recordId) { mutableStateOf<String?>(null) }
+    var loadAttempt by remember(recordId) { mutableIntStateOf(0) }
+    LaunchedEffect(recordId, loadAttempt) {
         runCatching { repository.interview(recordId) }
             .onSuccess { loaded ->
                 detail = loaded
@@ -6227,23 +6380,20 @@ private fun InterviewEditLoader(
                     .onFailure {
                         // SAID OUT LOUD AND NOT SWALLOWED. The alternative to a sentence here is a
                         // form drawing another instrument's questions, which is the defect itself.
-                        sectionsError = it.message ?: "Couldn't load this interview's questionnaire."
+                        sectionsError = it.apiErrorMessage("Couldn't load this interview's questionnaire.")
                     }
             }
-            .onFailure { onError(it.message ?: "Unable to load interview") }
+            .onFailure { loadError = it.apiErrorMessage("Couldn't load this interview.") }
     }
     val d = detail
     val failure = sectionsError
     if (failure != null) {
-        RecordCard(title = "Edit interview") {
-            Text(
-                "This interview's questionnaire could not be loaded, so its questions cannot be shown. " +
-                    "Check your connection and open it again. ($failure)",
-                color = Muted
-            )
-        }
+        LoadFailedCard(
+            message = "This interview's questions could not be loaded. $failure",
+            onRetry = { sectionsError = null; sectionsReady = false; detail = null; loadAttempt += 1 }
+        )
     } else if (d == null || !sectionsReady) {
-        LoadingCard(EntryMode.QUESTIONNAIRE)
+        LoadingCard(EntryMode.QUESTIONNAIRE, loadError, { loadError = null; loadAttempt += 1 })
     } else {
         QuestionnaireForm(
             repository = repository,
@@ -6339,7 +6489,7 @@ private fun CraftForm(
             }.onSuccess {
                 media.reset()
                 draft.clear(); onDone()
-            }.onFailure { if (it is KeptOnDevice) { media.reset(); draft.clear(); onError(it.message!!); onDone() } else onError(it.message ?: "Unable to save craft") }
+            }.onFailure { if (it is KeptOnDevice) { media.reset(); draft.clear(); onError(it.message!!); onDone() } else onError(it.apiErrorMessage("Unable to save craft")) }
             saving = false
         }
     }
@@ -6407,7 +6557,8 @@ private fun ArtisanForm(
     val isEdit = editing != null
     var name by remember(editing) { mutableStateOf(editing?.name ?: prefill?.artisanName ?: "") }.drafted(draft, "name")
     var localName by remember(editing) { mutableStateOf(editing?.localName ?: "") }.drafted(draft, "localName")
-    var gender by remember(editing) { mutableStateOf(editing?.gender?.takeIf { it.isNotBlank() } ?: "Male") }.drafted(draft, "gender")
+    // Unset until somebody answers: a box nobody touched must not save a claim about a person.
+    var gender by remember(editing) { mutableStateOf(editing?.gender?.takeIf { it.isNotBlank() } ?: "") }.drafted(draft, "gender")
     var phone by remember(editing) { mutableStateOf(editing?.phone ?: "") }.drafted(draft, "phone")
     var email by remember(editing) { mutableStateOf(editing?.email ?: "") }.drafted(draft, "email")
     var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }.drafted(draft, "place")
@@ -6763,7 +6914,8 @@ private fun ArtisanForm(
             label = "Gender",
             options = genderOptions.map { it to it },
             selectedValue = gender,
-            includeNone = false
+            placeholder = "Select…",
+            includeNone = true
         ) { gender = it }
         FieldDateField(
             label = "Date of birth",
@@ -6861,14 +7013,14 @@ private fun ArtisanForm(
                 .focusRequester(pehchanFocus)
         )
         NumberedListInput(
-            label = "Do's (positive prompt)",
+            label = "Do's",
             items = dosItems,
             error = dosError,
             focusRequester = dosFocus,
             helper = "Lessons from years at the craft — the things the artisan has learnt to do. Press Enter for each new point."
         ) { dosItems = it; dosError = null }
         NumberedListInput(
-            label = "Don'ts (negative prompt)",
+            label = "Don'ts",
             items = dontsItems,
             error = dontsError,
             focusRequester = dontsFocus,
@@ -6986,7 +7138,7 @@ private fun WorkshopForm(
             }.onSuccess {
                 media.reset()
                 draft.clear(); onDone()
-            }.onFailure { if (it is KeptOnDevice) { media.reset(); draft.clear(); onError(it.message!!); onDone() } else onError(it.message ?: "Unable to save workshop") }
+            }.onFailure { if (it is KeptOnDevice) { media.reset(); draft.clear(); onError(it.message!!); onDone() } else onError(it.apiErrorMessage("Unable to save workshop")) }
             saving = false
         }
     }
@@ -7299,7 +7451,7 @@ private fun ProductForm(
                 carry.remember(sitting.copy(productId = productId, productName = productName.trim()))
                 media.reset()
                 draft.clear(); onDone()
-            }.onFailure { if (it is KeptOnDevice) { carry.prune(CarryNode.PRODUCT); carry.remember(sitting); media.reset(); draft.clear(); onError(it.message!!); onDone() } else onError(it.message ?: "Unable to save product") }
+            }.onFailure { if (it is KeptOnDevice) { carry.prune(CarryNode.PRODUCT); carry.remember(sitting); media.reset(); draft.clear(); onError(it.message!!); onDone() } else onError(it.apiErrorMessage("Unable to save product")) }
             saving = false
         }
     }
@@ -8213,7 +8365,7 @@ private fun ToolForm(
                 media.reset()
                 stages.reset()
                 draft.clear(); onDone()
-            }.onFailure { if (it is KeptOnDevice) { carry.prune(CarryNode.TOOL); carry.remember(sitting); media.reset(); stages.reset(); draft.clear(); onError(it.message!!); onDone() } else onError(it.message ?: "Unable to save tool") }
+            }.onFailure { if (it is KeptOnDevice) { carry.prune(CarryNode.TOOL); carry.remember(sitting); media.reset(); stages.reset(); draft.clear(); onError(it.message!!); onDone() } else onError(it.apiErrorMessage("Unable to save tool")) }
             saving = false
         }
     }
@@ -8534,7 +8686,10 @@ private fun ToolStagesSection(
     var recordingFile by remember { mutableStateOf<File?>(null) }
     var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
 
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
+    // Each capture asks for its own permission when pressed and waits for the answer (ui/PermissionGate.kt).
+    val permissionGate = rememberPermissionGate(onRefused = onError)
+    // Location is asked as the pair, when "Use GPS" is pressed and only if neither is held.
+    val locationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         if (uris.isNotEmpty()) stages.uris = stages.uris + uris
     }
@@ -8561,10 +8716,11 @@ private fun ToolStagesSection(
             OutlinedButton(onClick = { pickMedia.launch("*/*") }, modifier = Modifier.weight(1f)) { Text("Add files") }
             OutlinedButton(
                 onClick = {
-                    permissionLauncher.launch(requiredAndroidPermissions())
-                    val uri = createAppFileUri(context, "stage-photo-", ".jpg")
-                    pendingCaptureUri = uri
-                    takePhoto.launch(uri)
+                    permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) {
+                        val uri = createAppFileUri(context, "stage-photo-", ".jpg")
+                        pendingCaptureUri = uri
+                        takePhoto.launch(uri)
+                    }
                 },
                 modifier = Modifier.weight(1f)
             ) { Text("Photo step") }
@@ -8572,29 +8728,32 @@ private fun ToolStagesSection(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             OutlinedButton(
                 onClick = {
-                    permissionLauncher.launch(requiredAndroidPermissions())
-                    val uri = createAppFileUri(context, "stage-video-", ".mp4")
-                    pendingCaptureUri = uri
-                    takeVideo.launch(uri)
+                    permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) {
+                        val uri = createAppFileUri(context, "stage-video-", ".mp4")
+                        pendingCaptureUri = uri
+                        takeVideo.launch(uri)
+                    }
                 },
                 modifier = Modifier.weight(1f)
             ) { Text("Video step") }
             OutlinedButton(
                 onClick = {
-                    permissionLauncher.launch(requiredAndroidPermissions())
-                    if (!recording) {
+                    if (!recording && !permissionGate.holds(MICROPHONE_PERMISSION)) {
+                        // Ask first and record nothing yet: the press that grants it is not a press to record.
+                        permissionGate.ask(MICROPHONE_PERMISSION, MICROPHONE_REFUSED_SENTENCE)
+                    } else if (!recording) {
                         runCatching {
                             val file = createAppFile(context, "stage-audio-", ".m4a")
                             recorder = createAudioRecorder(context, file).also { it.start() }
                             recordingFile = file
                             recording = true
                             onMessage("Recording stage audio…")
-                        }.onFailure { onError(it.message ?: "Unable to start stage audio") }
+                        }.onFailure { onError(it.apiErrorMessage("Unable to start stage audio")) }
                     } else {
                         runCatching {
                             recorder?.stop(); recorder?.release()
                             recordingFile?.let { file -> stages.uris = stages.uris + uriForFile(context, file) }
-                        }.onFailure { onError(it.message ?: "Unable to stop stage audio") }
+                        }.onFailure { onError(it.apiErrorMessage("Unable to stop stage audio")) }
                         recorder = null; recordingFile = null; recording = false
                         onMessage("Stage audio step added")
                     }
@@ -8707,7 +8866,7 @@ private fun ProcessForm(
     var artisanListCut by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         runCatching { repository.products() }.onSuccess { products = it }
-        val gotArtisans = runCatching { repository.artisansPage() }
+        val gotArtisans = runCatching { repository.artisansPage(pageBudget = LOOKUP_PAGE_BUDGET) }
             .onSuccess {
                 artisans = it.items
                 artisanListCut = listCutNotice(it.items.size, it.total, "artisans")
@@ -8810,14 +8969,14 @@ private fun ProcessForm(
         }.onFailure {
             if (it is kotlinx.coroutines.CancellationException) throw it
             artisanProducts = emptyList()
-            productLoadError = "Couldn't load this artisan's products: ${it.message ?: "network error"}. Tap the artisan again to retry."
+            productLoadError = "${it.apiErrorMessage("Couldn't load this artisan's products.")} Tap the artisan again to retry."
         }
     }
 
     fun submit() {
         nameError = null; productError = null; stepsError = null; preMediaError = null; artisanError = null
         var firstInvalid = false
-        if (name.isBlank()) { nameError = "This field cannot be empty"; if (!firstInvalid) { firstInvalid = true; runCatching { nameFocus.requestFocus() } } }
+        if (name.isBlank()) { nameError = REQUIRED_FIELD_SENTENCE; if (!firstInvalid) { firstInvalid = true; runCatching { nameFocus.requestFocus() } } }
         if (artisanId.isBlank()) artisanError = "Please select an artisan"
         if (productId.isBlank()) productError = "Please select a product"
         if (preProcessAvailable && preMedia.uris.isEmpty() && (editing?.media?.isEmpty() != false)) {
@@ -8827,7 +8986,7 @@ private fun ProcessForm(
         steps.forEach { step ->
             step.nameError = null
             if (step.name.isBlank()) {
-                step.nameError = "This field cannot be empty"
+                step.nameError = REQUIRED_FIELD_SENTENCE
                 if (!firstInvalid) { firstInvalid = true; runCatching { step.nameFocus.requestFocus() } }
             }
         }
@@ -8972,7 +9131,7 @@ private fun ProcessForm(
                 preMedia.reset()
                 steps.forEach { it.media.reset() }
                 draft.clear(); onDone()
-            }.onFailure { if (it is KeptOnDevice) { carry.remember(sitting); preMedia.reset(); steps.forEach { s -> s.media.reset() }; draft.clear(); onError(it.message!!); onDone() } else onError(it.message ?: "Unable to save process") }
+            }.onFailure { if (it is KeptOnDevice) { carry.remember(sitting); preMedia.reset(); steps.forEach { s -> s.media.reset() }; draft.clear(); onError(it.message!!); onDone() } else onError(it.apiErrorMessage("Unable to save process")) }
             saving = false
         }
     }
@@ -9076,13 +9235,13 @@ private fun ProcessForm(
         when {
             productsLoading -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                Text("Loading this artisan's products…", color = Muted, fontSize = 11.sp)
+                Text("Loading this artisan's products…", color = Muted, fontSize = 12.sp)
             }
-            productLoadError != null -> Text(productLoadError!!, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+            productLoadError != null -> Text(productLoadError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
             artisanId.isNotBlank() && artisanProducts.isEmpty() ->
-                Text("No products found for this artisan yet. Create a product for them first, then return here.", color = Muted, fontSize = 11.sp)
+                Text("No products found for this artisan yet. Create a product for them first, then return here.", color = Muted, fontSize = 12.sp)
             artisanId.isNotBlank() && artisanProducts.isNotEmpty() ->
-                Text("${artisanProducts.size} product(s) available for this artisan.", color = Muted, fontSize = 11.sp)
+                Text("${artisanProducts.size} product(s) available for this artisan.", color = Muted, fontSize = 12.sp)
         }
         if (productError != null) Text(productError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
 
@@ -9093,7 +9252,7 @@ private fun ProcessForm(
         if (preProcessAvailable) {
             Text("Attach the pre-process media (required).", color = Muted, fontSize = 12.sp)
             if (existingPreMedia.isNotEmpty()) {
-                Text("Already attached:", color = Muted, fontSize = 11.sp)
+                Text("Already attached:", color = Muted, fontSize = 12.sp)
                 existingPreMedia.forEach { saved ->
                     AndroidSavedMediaPreview(
                         context = context,
@@ -9102,7 +9261,7 @@ private fun ProcessForm(
                             scope.launch {
                                 runCatching { repository.deleteMedia(saved.id) }
                                     .onSuccess { existingPreMedia = existingPreMedia.filterNot { it.id == saved.id } }
-                                    .onFailure { error -> onError(error.message ?: "Unable to remove media") }
+                                    .onFailure { error -> onError(error.apiErrorMessage("Unable to remove media")) }
                             }
                         }
                     )
@@ -9129,7 +9288,7 @@ private fun ProcessForm(
                     }
                     RequiredInput("Name of the step", step.name, step.nameError, step.nameFocus, dictate = dictates("stepName")) { step.name = it }
                     if (step.existingMedia.isNotEmpty()) {
-                        Text("Already attached:", color = Muted, fontSize = 11.sp)
+                        Text("Already attached:", color = Muted, fontSize = 12.sp)
                         step.existingMedia.forEach { saved ->
                             AndroidSavedMediaPreview(
                                 context = context,
@@ -9138,7 +9297,7 @@ private fun ProcessForm(
                                     scope.launch {
                                         runCatching { repository.deleteMedia(saved.id) }
                                             .onSuccess { step.existingMedia = step.existingMedia.filterNot { it.id == saved.id } }
-                                            .onFailure { error -> onError(error.message ?: "Unable to remove media") }
+                                            .onFailure { error -> onError(error.apiErrorMessage("Unable to remove media")) }
                                     }
                                 }
                             )
@@ -9188,16 +9347,20 @@ private fun ProcessForm(
         StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
 
         // Statutory warning per the documentation guidelines.
-        Box(
+        // A themed info note, one short line: it was a brown box in cream 12sp that did not invert.
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF2A2520), RoundedCornerShape(12.dp))
-                .padding(12.dp)
+                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
+                .padding(12.dp),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            Icon(Icons.Filled.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
             Text(
-                "Note: Different users may contribute to processes created by others. Even when documenting the same process, it is recommended that each researcher documents it individually, so that different perspectives on the same process are preserved.",
-                color = Color(0xFFE0C9B0),
-                fontSize = 12.sp
+                "Document the process yourself even if a colleague already has — each researcher's account is kept.",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 13.sp
             )
         }
 
@@ -9347,32 +9510,51 @@ private data class ActivityItem(
     val createdAt: String?
 )
 
-/** Gather the current user's own records across every type, newest first (ISO timestamps sort lexically). */
-private suspend fun loadMyActivity(repository: FieldRepository, userId: String): List<ActivityItem> {
+/** The current user's own records across every type, newest first, plus what could not be read. */
+private data class MyActivityResult(val items: List<ActivityItem>, val failedTypes: List<String>, val truncated: Boolean)
+
+/**
+ * Gather the current user's own records across every type, newest first (ISO timestamps sort
+ * lexically). Asked of the SERVER with `createdBy` and paged — see [FieldRepository.myRecordsOf] —
+ * and UNSCOPED BY WORKSHOP: the question is "everything YOU have recorded", and there is no workshop
+ * control on this screen. A type that fails to load is NAMED, never folded into an empty list; when
+ * every type fails the whole load throws, so the screen draws a failure rather than "You haven't
+ * recorded anything yet".
+ */
+private suspend fun loadMyActivity(repository: FieldRepository, userId: String): MyActivityResult {
     val items = mutableListOf<ActivityItem>()
-    fun mine(createdById: String?) = createdById != null && createdById == userId
-    runCatching { repository.artisans() }.getOrDefault(emptyList()).filter { mine(it.createdById) }
-        .forEach { items.add(ActivityItem(EntryMode.ARTISAN, it.id, it.name, "Artisan · ${it.place}", it.createdAt)) }
-    runCatching { repository.products() }.getOrDefault(emptyList()).filter { mine(it.createdById) }
-        .forEach { items.add(ActivityItem(EntryMode.PRODUCT, it.id, it.productName, "Product · ${it.craftName}", it.createdAt)) }
-    runCatching { repository.tools() }.getOrDefault(emptyList()).filter { mine(it.createdById) }
-        .forEach { items.add(ActivityItem(EntryMode.TOOL, it.id, it.toolkitName, "Tool · ${it.craftName}", it.createdAt)) }
-    runCatching { repository.processes() }.getOrDefault(emptyList()).filter { mine(it.createdById) }
-        .forEach { items.add(ActivityItem(EntryMode.PROCESS, it.id, it.name, "Process" + (it.product?.productName?.let { p -> " · $p" } ?: ""), it.createdAt)) }
-    runCatching { repository.crafts() }.getOrDefault(emptyList()).filter { mine(it.createdById) }
-        .forEach { items.add(ActivityItem(EntryMode.CRAFT, it.id, it.name, "Craft", it.createdAt)) }
-    runCatching { repository.workshops() }.getOrDefault(emptyList()).filter { mine(it.createdById) }
-        .forEach { items.add(ActivityItem(EntryMode.WORKSHOP, it.id, it.title.ifBlank { "Untitled workshop" }, "Workshop", it.createdAt)) }
-    // UNSCOPED BY WORKSHOP, like the six lists above it and for the same reason: the question this
-    // screen asks is "everything YOU have recorded", not "what came out of one workshop". There is no
-    // workshop control on this screen to pass, and inventing one here would answer a question nobody
-    // asked while hiding a researcher's own earlier fieldwork from them. Re-checked on 2026-09-16
-    // against the screen, and it still holds. What changed is only that the line now SAYS it:
-    // [EVERY_WORKSHOP] is the same `null` the parameter's default used to supply, written where the
-    // decision is taken instead of where the function is declared.
-    runCatching { repository.interviews(EVERY_WORKSHOP) }.getOrDefault(emptyList()).filter { mine(it.createdById) }
-        .forEach { items.add(ActivityItem(EntryMode.QUESTIONNAIRE, it.id, it.title.ifBlank { "Untitled interview" }, "Interview", it.createdAt)) }
-    return items.sortedByDescending { it.createdAt ?: "" }
+    val failed = mutableListOf<String>()
+    var truncated = false
+    var firstFailure: Throwable? = null
+    // The seven types load side by side: one after another, a dead connection cost seven timeouts.
+    fun <T> kotlinx.coroutines.CoroutineScope.collect(label: String, load: suspend () -> MyRecordsPage<T>, row: (T) -> ActivityItem) = launch {
+        runCatching { load() }
+            .onSuccess { page -> truncated = truncated || page.truncated; page.items.forEach { items.add(row(it)) } }
+            .onFailure {
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                failed += label
+                if (firstFailure == null) firstFailure = it
+            }
+    }
+    kotlinx.coroutines.coroutineScope {
+    collect("artisans", { repository.myArtisans(userId) }) { ActivityItem(EntryMode.ARTISAN, it.id, it.name, "Artisan · ${it.place}", it.createdAt) }
+    collect("products", { repository.myProducts(userId) }) { ActivityItem(EntryMode.PRODUCT, it.id, it.productName, "Product · ${it.craftName}", it.createdAt) }
+    collect("tools", { repository.myTools(userId) }) { ActivityItem(EntryMode.TOOL, it.id, it.toolkitName, "Tool · ${it.craftName}", it.createdAt) }
+    collect("processes", { repository.myProcesses(userId) }) {
+        ActivityItem(EntryMode.PROCESS, it.id, it.name, "Process" + (it.product?.productName?.let { p -> " · $p" } ?: ""), it.createdAt)
+    }
+    collect("crafts", { repository.myCrafts(userId) }) { ActivityItem(EntryMode.CRAFT, it.id, it.name, "Craft", it.createdAt) }
+    collect("workshops", { repository.myWorkshops(userId) }) {
+        ActivityItem(EntryMode.WORKSHOP, it.id, it.title.ifBlank { "Untitled workshop" }, "Workshop", it.createdAt)
+    }
+    collect("interviews", { repository.myInterviews(userId) }) {
+        ActivityItem(EntryMode.QUESTIONNAIRE, it.id, it.title.ifBlank { "Untitled interview" }, "Interview", it.createdAt)
+    }
+    }
+    if (failed.size == 7) throw firstFailure ?: IllegalStateException("Couldn't load your activity.")
+    // The server already filters; the createdBy check is not repeated because the DTOs a list
+    // returns are exactly the rows asked for.
+    return MyActivityResult(items.sortedByDescending { it.createdAt ?: "" }, failed, truncated)
 }
 
 @Composable
@@ -9382,26 +9564,49 @@ private fun MyActivityScreen(
     onOpen: (EntryMode, String) -> Unit,
     onError: (String) -> Unit
 ) {
-    var items by remember { mutableStateOf<List<ActivityItem>?>(null) }
-    LaunchedEffect(Unit) {
+    var activity by remember { mutableStateOf<MyActivityResult?>(null) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+    var attempt by remember { mutableIntStateOf(0) }
+    LaunchedEffect(attempt) {
         runCatching { loadMyActivity(repository, userId) }
-            .onSuccess { items = it }
-            .onFailure { onError(it.message ?: "Couldn't load your activity"); items = emptyList() }
+            .onSuccess { activity = it; loadError = null }
+            .onFailure {
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                loadError = it.apiErrorMessage("Couldn't load your activity.")
+            }
     }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
         Text("Everything you've recorded, most recent first. Tap an entry to open it.", color = Muted, fontSize = 13.sp)
-        val current = items
+        val current = activity
+        val failure = loadError
+        if (current != null && current.failedTypes.isNotEmpty()) {
+            LoadFailedCard(
+                message = "Couldn't load your ${current.failedTypes.joinToString(", ")}. Everything else is below.",
+                onRetry = { attempt += 1 }
+            )
+        }
+        if (current != null && current.truncated) {
+            Text(
+                "Showing the newest ${MY_RECORDS_PAGE_BUDGET * 100} of a type; open View Data for the rest.",
+                color = Muted,
+                fontSize = 13.sp
+            )
+        }
         when {
+            current == null && failure != null -> LoadFailedCard(
+                message = failure,
+                onRetry = { loadError = null; attempt += 1 }
+            )
             current == null -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                 Text("Loading your activity…", color = Muted, fontSize = 13.sp)
             }
-            current.isEmpty() -> Text(
+            current.items.isEmpty() && current.failedTypes.isEmpty() -> Text(
                 "You haven't recorded anything yet. Create a record from the menu and it will appear here.",
                 color = Muted,
                 fontSize = 13.sp
             )
-            else -> current.forEach { item ->
+            else -> current.items.forEach { item ->
                 ElevatedCard(
                     colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
                     shape = RoundedCornerShape(14.dp),
@@ -9444,7 +9649,7 @@ private fun ToolAssignScreen(
     var info by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
-        runCatching { repository.tools() }.onSuccess { tools = it }.onFailure { onError(it.message ?: "Failed to load tools") }
+        runCatching { repository.tools() }.onSuccess { tools = it }.onFailure { onError(it.apiErrorMessage("Failed to load tools")) }
         runCatching { repository.crafts() }.onSuccess { crafts = it }
         runCatching { repository.artisans() }.onSuccess { artisans = it }
     }
@@ -9497,7 +9702,7 @@ private fun ToolAssignScreen(
                     saving = true
                     runCatching { repository.assignToolArtisans(toolId, artisanIds.toList()) }
                         .onSuccess { result -> assigned = result; artisanIds = emptySet(); info = "Done. This tool now maps to ${result.size} artisan(s)." }
-                        .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; onError(it.message ?: "Assignment failed") }
+                        .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; onError(it.apiErrorMessage("Assignment failed")) }
                     saving = false
                 }
             },
@@ -9523,7 +9728,7 @@ private fun ToolAssignScreen(
                             scope.launch {
                                 runCatching { repository.unassignToolArtisan(toolId, artisan.id) }
                                     .onSuccess { assigned = assigned.filter { it.id != artisan.id } }
-                                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; onError(it.message ?: "Could not remove") }
+                                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; onError(it.apiErrorMessage("Could not remove")) }
                             }
                         }) { Text("Remove") }
                     }
@@ -9554,7 +9759,7 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
         Text(
             "Uploaded by ${uploader ?: "Unknown"}" + (uploadedWhen?.let { " · $it" } ?: ""),
             color = Muted,
-            fontSize = 11.sp
+            fontSize = 12.sp
         )
     }
     val scope = rememberCoroutineScope()
@@ -9596,7 +9801,7 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Transcript", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text("Transcript", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                     // Copy the transcript to the clipboard — available to everyone.
                     TextButton(onClick = { clipboard.setText(AnnotatedString(transcriptText!!)) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
                         Icon(Icons.Filled.ContentCopy, contentDescription = "Copy transcript", modifier = Modifier.size(14.dp))
@@ -9628,11 +9833,11 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
             // Still processing — show a buffer icon; the transcript appears here once it's ready.
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                Text(if (transcribing) "Transcribing now…" else "Transcribing audio…", color = Muted, fontSize = 11.sp)
+                Text(if (transcribing) "Transcribing now…" else "Transcribing audio…", color = Muted, fontSize = 12.sp)
             }
         }
         isAudio && status in done -> {
-            Text("Transcript complete — no speech detected.", color = Muted, fontSize = 11.sp)
+            Text("Transcript complete — no speech detected.", color = Muted, fontSize = 12.sp)
             if (isAdmin && repository != null) {
                 TranscribeNowButton(transcribing = transcribing, hasExisting = false) { transcribeNow() }
             }
@@ -9641,7 +9846,7 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
             Text(
                 "Transcript: ${liveStatus ?: "—"}" + (media.transcriptError?.let { " — $it" } ?: ""),
                 color = Muted,
-                fontSize = 11.sp
+                fontSize = 12.sp
             )
             if (isAdmin && repository != null) {
                 TranscribeNowButton(transcribing = transcribing, hasExisting = false) { transcribeNow() }
@@ -9691,7 +9896,7 @@ private fun ArtisanQuestionnaireData(repository: FieldRepository, artisanId: Str
                     formatIsoDate(interview.interviewDate),
                     if (interview.coArtisans.isNotEmpty()) "with ${interview.coArtisans.joinToString(", ")}" else null
                 ).joinToString(" · ")
-                if (meta.isNotBlank()) Text(meta, color = Muted, fontSize = 11.sp)
+                if (meta.isNotBlank()) Text(meta, color = Muted, fontSize = 12.sp)
                 interview.notes?.takeIf { it.isNotBlank() }?.let { Text(it, color = Body, fontSize = 12.sp) }
                 if (interview.media.isEmpty()) Text("No recordings.", color = Muted, fontSize = 12.sp)
                 interview.media.forEach { MediaWithTranscript(context, it, repository) }
@@ -9858,7 +10063,7 @@ private fun WalkthroughDialog(onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = {
             Column {
-                Text("Walkthrough · ${step + 1}/${steps.size}", color = Muted, fontSize = 11.sp)
+                Text("Walkthrough · ${step + 1}/${steps.size}", color = Muted, fontSize = 12.sp)
                 Text(current.title, display = true, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
             }
         },
@@ -9916,7 +10121,7 @@ private fun TranscriptRefineControls(
                     }
                 }
                 .onFailure {
-                    if (it !is kotlinx.coroutines.CancellationException) refineError = it.message ?: "Couldn't refine the transcript."
+                    if (it !is kotlinx.coroutines.CancellationException) refineError = it.apiErrorMessage("Couldn't refine the transcript.")
                 }
             refining = false
         }
@@ -9937,29 +10142,29 @@ private fun TranscriptRefineControls(
     if (refining) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-            Text("Refining with AI…", color = Muted, fontSize = 11.sp)
+            Text("Refining with AI…", color = Muted, fontSize = 12.sp)
         }
     }
-    refineError?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
+    refineError?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
     refined?.let { md ->
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(ColorCompat.darkElevated, RoundedCornerShape(8.dp))
+                .background(MaterialTheme.field.brandTile, RoundedCornerShape(8.dp))
                 .padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
                 if (refinedTranslated) "Refined conversation (English)" else "Refined conversation",
-                color = Coral,
-                fontSize = 11.sp,
+                color = MaterialTheme.field.accentOnBrandTile,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold
             )
-            MarkdownText(markdown = md, color = Canvas)
+            MarkdownText(markdown = md, color = MaterialTheme.field.onBrandTile)
             Text(
                 "Save this refined version in place of the current transcript?",
-                color = SurfaceCard,
-                fontSize = 11.sp
+                color = MaterialTheme.field.onBrandTileMuted,
+                fontSize = 12.sp
             )
             // Approve = persist the refined text as the transcript (uploader/admin only on the server);
             // Reject = just discard this preview, leaving the stored transcript untouched.
@@ -9977,7 +10182,7 @@ private fun TranscriptRefineControls(
                                 }
                                 .onFailure {
                                     if (it !is kotlinx.coroutines.CancellationException)
-                                        refineError = it.message ?: "Couldn't save the refined transcript."
+                                        refineError = it.apiErrorMessage("Couldn't save the refined transcript.")
                                 }
                             applying = false
                         }
@@ -9995,7 +10200,7 @@ private fun TranscriptRefineControls(
             }
         }
     }
-    appliedNote?.let { Text(it, color = SuccessGreen, fontSize = 11.sp) }
+    appliedNote?.let { Text(it, color = SuccessGreen, fontSize = 12.sp) }
 
     val mode = pendingTranslate
     if (mode != null) {
@@ -10093,7 +10298,7 @@ private fun RecordMediaSection(
         loading = true
         runCatching { repository.mediaForRecord(linkedType, recordId) }
             .onSuccess { media = it }
-            .onFailure { onError(it.message ?: "Unable to load media") }
+            .onFailure { onError(it.apiErrorMessage("Unable to load media")) }
         loading = false
     }
     HorizontalDivider()
@@ -10109,13 +10314,21 @@ private val StarGold = Color(0xFFF5B301)
 
 /** Tappable 1–5 star input for a quantitative rating (0 = not yet rated). */
 @Composable
-private fun StarRatingInput(rating: Int, max: Int = 5, onChange: (Int) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+private fun StarRatingInput(rating: Int, max: Int = 5, label: String = "Rating", onChange: (Int) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.selectableGroup()) {
         (1..max).forEach { i ->
-            IconButton(onClick = { onChange(if (rating == i) 0 else i) }, modifier = Modifier.size(40.dp)) {
+            IconButton(
+                onClick = { onChange(if (rating == i) 0 else i) },
+                modifier = Modifier
+                    .size(48.dp)
+                    .semantics {
+                        selected = rating == i
+                        stateDescription = if (rating == i) "Selected" else "Not selected"
+                    }
+            ) {
                 Icon(
                     imageVector = if (i <= rating) Icons.Filled.Star else Icons.Filled.StarBorder,
-                    contentDescription = "$i star${if (i == 1) "" else "s"}",
+                    contentDescription = "$label: $i of $max",
                     tint = if (i <= rating) StarGold else Muted,
                     modifier = Modifier.size(32.dp)
                 )
@@ -10146,7 +10359,7 @@ private fun StarRatingDisplay(rating: Int, max: Int = 5) {
 private fun LabeledStarRating(label: String, rating: Int, onChange: (Int) -> Unit) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(label, color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
-        StarRatingInput(rating = rating, onChange = onChange)
+        StarRatingInput(rating = rating, label = label, onChange = onChange)
     }
 }
 
@@ -10165,7 +10378,7 @@ private fun LabeledRatingDisplay(label: String, rating: Int?) {
 private fun QualitativeRow(label: String, value: String?) {
     if (value.isNullOrBlank()) return
     Column(modifier = Modifier.fillMaxWidth()) {
-        Text(label, color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Text(label, color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         Text(value, color = Body, fontSize = 13.sp)
     }
 }
@@ -10223,7 +10436,7 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
                     featureRequests = fb.featureRequests.orEmpty()
                 }
             }
-            .onFailure { onError(it.message ?: "Unable to load your feedback") }
+            .onFailure { onError(it.apiErrorMessage("Unable to load your feedback")) }
         loading = false
     }
 
@@ -10328,7 +10541,7 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
                                         onError("Saved on this device. It'll send automatically when you're back online.")
                                     } else {
                                         status = ActionStatus.ERROR
-                                        onError(it.message ?: "Unable to save your feedback")
+                                        onError(it.apiErrorMessage("Unable to save your feedback"))
                                     }
                                 }
                             }
@@ -10354,7 +10567,7 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
                     }
                 )
             }
-            existing?.updatedAt?.let { formatIsoDate(it)?.let { d -> Text("Last updated $d", color = Muted, fontSize = 11.sp) } }
+            existing?.updatedAt?.let { formatIsoDate(it)?.let { d -> Text("Last updated $d", color = Muted, fontSize = 12.sp) } }
         }
     }
 }
@@ -10373,7 +10586,7 @@ private fun MasterFeedbackCard(repository: FieldRepository, onError: (String) ->
         loading = true
         runCatching { repository.allFeedback() }
             .onSuccess { feedback = it }
-            .onFailure { onError(it.message ?: "Unable to load feedback") }
+            .onFailure { onError(it.apiErrorMessage("Unable to load feedback")) }
         loading = false
     }
 
@@ -10412,8 +10625,8 @@ private fun MasterFeedbackCard(repository: FieldRepository, onError: (String) ->
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(fb.user?.name ?: "Unknown user", display = true, color = Body, fontWeight = FontWeight.SemiBold)
-                        fb.user?.email?.let { Text(it, color = Muted, fontSize = 11.sp) }
-                        if (!fb.role.isNullOrBlank()) Text("Role: ${fb.role}", color = Muted, fontSize = 11.sp)
+                        fb.user?.email?.let { Text(it, color = Muted, fontSize = 12.sp) }
+                        if (!fb.role.isNullOrBlank()) Text("Role: ${fb.role}", color = Muted, fontSize = 12.sp)
 
                         // Quantitative: overall + each aspect that was rated.
                         if (fb.rating != null) {
@@ -10440,7 +10653,7 @@ private fun MasterFeedbackCard(repository: FieldRepository, onError: (String) ->
                             fb.performance == null && fb.design == null && fb.features == null &&
                             fb.recommend == null && !hasText
                         if (nothing) Text("No details provided.", color = Muted, fontSize = 12.sp)
-                        formatIsoDate(fb.updatedAt)?.let { Text("Updated $it", color = Muted, fontSize = 11.sp) }
+                        formatIsoDate(fb.updatedAt)?.let { Text("Updated $it", color = Muted, fontSize = 12.sp) }
                     }
                 }
             }
@@ -10497,7 +10710,7 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
                 orphans = it
                 loadOptionsFor(it.mapNotNull { m -> m.linkedRecordType }.toSet())
             }
-            .onFailure { onError(it.message ?: "Unable to load recovered recordings") }
+            .onFailure { onError(it.apiErrorMessage("Unable to load recovered recordings")) }
         loading = false
     }
 
@@ -10523,12 +10736,12 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         val typeLabel = m.linkedRecordType?.replaceFirstChar { it.uppercase() } ?: "Record"
-                        Text("Originally a $typeLabel attachment (that record was deleted)", color = Muted, fontSize = 11.sp)
-                        m.uploadedBy?.name?.let { Text("Recorded by $it", color = Muted, fontSize = 11.sp) }
+                        Text("Originally a $typeLabel attachment (that record was deleted)", color = Muted, fontSize = 12.sp)
+                        m.uploadedBy?.name?.let { Text("Recorded by $it", color = Muted, fontSize = 12.sp) }
                         MediaWithTranscript(context, m, repository)
                         val opts = targetOptions[m.linkedRecordType].orEmpty()
                         if (opts.isEmpty()) {
-                            Text("No existing ${typeLabel.lowercase()} to re-link to.", color = Muted, fontSize = 11.sp)
+                            Text("No existing ${typeLabel.lowercase()} to re-link to.", color = Muted, fontSize = 12.sp)
                         } else {
                             DropdownField(
                                 label = "Re-link to a ${typeLabel.lowercase()}",
@@ -10545,7 +10758,7 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
                                         busy = busy + m.id
                                         runCatching { repository.relinkMedia(m.id, m.linkedRecordType ?: "", target) }
                                             .onSuccess { orphans = orphans.filterNot { it.id == m.id }; selections.remove(m.id) }
-                                            .onFailure { onError(it.message ?: "Unable to re-link this recording") }
+                                            .onFailure { onError(it.apiErrorMessage("Unable to re-link this recording")) }
                                         busy = busy - m.id
                                     }
                                 },
@@ -10588,7 +10801,7 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
                             busy = busy + toDelete.id
                             runCatching { repository.deleteMedia(toDelete.id) }
                                 .onSuccess { orphans = orphans.filterNot { it.id == toDelete.id }; selections.remove(toDelete.id) }
-                                .onFailure { onError(it.message ?: "Unable to delete this recording") }
+                                .onFailure { onError(it.apiErrorMessage("Unable to delete this recording")) }
                             busy = busy - toDelete.id
                         }
                     }
@@ -10709,7 +10922,7 @@ private fun AdminHubScreen(
                             .background(color = MaterialTheme.field.brandTile, shape = RoundedCornerShape(10.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(entry.icon, contentDescription = null, tint = Canvas, modifier = Modifier.size(20.dp))
+                        Icon(entry.icon, contentDescription = null, tint = MaterialTheme.field.onBrandTile, modifier = Modifier.size(20.dp))
                     }
                     Column(modifier = Modifier.weight(1f)) {
                         Text(entry.label, display = true, color = Body, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
@@ -10908,7 +11121,7 @@ private fun ViewDataScreen(
                 // grouping below folds sittings together and destroys the count; `artisans` needs no
                 // envelope here because `artisanFilterList` is rebuilt from the interview links
                 // rather than from this page, so a cut artisan page cannot shorten the filter.
-                val page = repository.interviewsPage(workshopScope.workshopIds)
+                val page = repository.interviewsPage(workshopScope.workshopIds, pageBudget = LOOKUP_PAGE_BUDGET)
                 interviewListCut = listCutNotice(page.items.size, page.total, "interviews")
                 val interviews = page.items
                 val arts = repository.artisans(workshopIds = workshopScope.workshopIds)
@@ -10934,12 +11147,12 @@ private fun ViewDataScreen(
                 // the next. It also skips `loadingList = false`, and must: the pass that replaced
                 // this one owns that flag.
                 if (it is kotlinx.coroutines.CancellationException) throw it
-                onError(it.message ?: "Unable to load questionnaires")
+                onError(it.apiErrorMessage("Unable to load questionnaires"))
             }
         } else {
             runCatching { loadViewEntries(repository, mode) }
                 .onSuccess { options = it }
-                .onFailure { onError(it.message ?: "Unable to load list") }
+                .onFailure { onError(it.apiErrorMessage("Unable to load list")) }
         }
         loadingList = false
     }
@@ -11213,17 +11426,40 @@ private fun ReviewApprovalCard(repository: FieldRepository, onError: (String) ->
     var pending by remember { mutableStateOf<List<PendingReviewDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var info by remember { mutableStateOf<String?>(null) }
+    /*
+     * PAGED BY THE SERVER. The queue used to be one capped read (200 rows per record type, silently)
+     * held whole on the phone; it is now one page of twenty at a time with the server's true count
+     * of the whole queue, so nothing past a cap is ever hidden and nothing needs saying about one.
+     */
+    var page by remember { mutableIntStateOf(1) }
+    var total by remember { mutableIntStateOf(0) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+    val pages = maxOf(1, (total + REVIEW_PAGE_SIZE - 1) / REVIEW_PAGE_SIZE)
 
     fun refresh() {
         scope.launch {
             loading = true
-            runCatching { repository.pendingReviews() }
-                .onSuccess { pending = it }
-                .onFailure { onError(it.apiErrorMessage("Unable to load the review queue")) }
+            runCatching { repository.pendingReviewsPage(page) }
+                .onSuccess { answer ->
+                    pending = answer.items
+                    total = answer.total
+                    loadError = null
+                    // Deciding the last rows of the final page must not strand the reviewer on an
+                    // empty page.
+                    val last = maxOf(1, (answer.total + REVIEW_PAGE_SIZE - 1) / REVIEW_PAGE_SIZE)
+                    if (answer.items.isEmpty() && page > last) {
+                        page = last
+                        refresh()
+                    }
+                }
+                .onFailure {
+                    if (it is kotlinx.coroutines.CancellationException) throw it
+                    loadError = it.apiErrorMessage("Couldn't load the review queue.")
+                }
             loading = false
         }
     }
-    LaunchedEffect(Unit) { refresh() }
+    LaunchedEffect(page) { refresh() }
 
     RecordCard(title = "Reviews & approvals") {
         Text(
@@ -11237,10 +11473,21 @@ private fun ReviewApprovalCard(repository: FieldRepository, onError: (String) ->
                 androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                 Text("Loading pending records…", color = Muted, fontSize = 12.sp)
             }
-            pending.isEmpty() -> Text("Nothing pending — everything has been reviewed. 🎉", color = Muted, fontSize = 12.sp)
+            loadError != null -> LoadFailedCard(message = loadError.orEmpty(), onRetry = { refresh() })
+            pending.isEmpty() && total == 0 -> Text("Nothing pending — everything has been reviewed.", color = Muted, fontSize = 13.sp)
             else -> {
-                Text("${pending.size} record(s) awaiting review", color = Body, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                info?.let { Text(it, color = SuccessGreen, fontSize = 11.sp) }
+                Text(
+                    "$total record${if (total == 1) "" else "s"} awaiting review" +
+                        if (pages > 1) " · page $page of $pages" else "",
+                    color = Body,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                info?.let { Text(it, color = MaterialTheme.field.success, fontSize = 13.sp) }
+                if (pending.isEmpty()) {
+                    // Every row on this page was decided: fetch the next rows into it.
+                    LaunchedEffect(Unit) { refresh() }
+                }
                 pending.forEach { item ->
                     // Keyed by the record, not by position in the list. Every row here remembers state
                     // of its own — which panel is open, the half-typed rejection comment, the edit
@@ -11259,11 +11506,23 @@ private fun ReviewApprovalCard(repository: FieldRepository, onError: (String) ->
                                 // row here: the queue is several tables concatenated, so dropping by id
                                 // could take an unreviewed record of another type off the screen with it.
                                 pending = pending.filterNot { it.recordType == item.recordType && it.id == item.id }
+                                total = (total - 1).coerceAtLeast(0)
                                 info = message
                             },
                             onInfo = { info = it },
                             onError = onError
                         )
+                    }
+                }
+                if (pages > 1) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedButton(onClick = { page -= 1 }, enabled = page > 1 && !loading, modifier = Modifier.heightIn(min = 48.dp)) {
+                            Text("Previous")
+                        }
+                        Text("Page $page of $pages", color = Muted, fontSize = 13.sp)
+                        OutlinedButton(onClick = { page += 1 }, enabled = page < pages && !loading, modifier = Modifier.heightIn(min = 48.dp)) {
+                            Text("Next")
+                        }
                     }
                 }
             }
@@ -11333,13 +11592,13 @@ private fun PendingReviewRow(
                     formatIsoDate(item.createdAt)
                 ).joinToString(" · "),
                 color = Muted,
-                fontSize = 11.sp
+                fontSize = 12.sp
             )
             if (item.needsAdminApproval) {
                 Text(
                     "Submitted outside its workshop's dates — only an admin can edit or approve it.",
                     color = Coral,
-                    fontSize = 11.sp
+                    fontSize = 12.sp
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -11386,7 +11645,7 @@ private fun PendingReviewRow(
                         "Comments are required — they are what the creator sees and fixes. The record goes " +
                             "back to them and returns for review once they edit it.",
                         color = Muted,
-                        fontSize = 11.sp
+                        fontSize = 12.sp
                     )
                     // The reviewer's note back to the field. Dictation only: it is read once, as a
                     // message, and never rendered as a document — and the reviewer is usually
@@ -11411,7 +11670,7 @@ private fun PendingReviewRow(
                             "Fix the values here instead of bouncing the record back. This does NOT approve " +
                                 "it — the status stays pending, and the change is recorded against your name.",
                             color = Muted,
-                            fontSize = 11.sp
+                            fontSize = 12.sp
                         )
                         fields.forEach { field ->
                             val value = edited[field.key].orEmpty()
@@ -11453,7 +11712,7 @@ private fun PendingReviewRow(
                             // Name-like columns are title-cased server-side, so show what will land.
                             if (field.key in com.fieldrepository.app.data.TITLE_CASE_FIELDS) {
                                 titleCasePreview(value)?.let { normalised ->
-                                    Text("Will be saved as “$normalised”", color = Muted, fontSize = 11.sp)
+                                    Text("Will be saved as “$normalised”", color = Muted, fontSize = 12.sp)
                                 }
                             }
                         }
@@ -11564,7 +11823,7 @@ private fun DatasetDownloadCard(repository: FieldRepository, onError: (String) -
                         resultMessage = "Saved to ${res.displayLocation} — ${res.saved}/${res.total} files" +
                             (if (res.failed > 0) " (${res.failed} could not be fetched)" else "") +
                             (if (res.truncated) " — this download doesn't include every record" else "")
-                    }.onFailure { onError(it.message ?: "Unable to download the dataset") }
+                    }.onFailure { onError(it.apiErrorMessage("Unable to download the dataset")) }
                     downloading = false
                 }
             },
@@ -11591,7 +11850,7 @@ private fun DatasetDownloadCard(repository: FieldRepository, onError: (String) -
                 scope.launch {
                     runCatching { repository.downloadReport(context) }
                         .onSuccess { location -> reportMessage = "Report saved to $location" }
-                        .onFailure { onError(it.message ?: "Unable to download the report") }
+                        .onFailure { onError(it.apiErrorMessage("Unable to download the report")) }
                     reportBusy = false
                 }
             },
@@ -11611,7 +11870,8 @@ private fun DatasetDownloadCard(repository: FieldRepository, onError: (String) -
 private val CompletionGreen = Color(0xFF2E9E5B)
 private val CompletionAmber = Color(0xFFE2A400)
 private val CompletionRed = Color(0xFFD25141)
-private val CompletionEmpty = Color(0xFFE7E0D6)
+// Themed: the light-beige literal glowed as a bright tile on the dark canvas.
+private val CompletionEmpty: Color get() = com.fieldrepository.app.ui.Hairline
 
 private fun completionColor(status: String?, derived: Boolean): Color = when (status) {
     "COMPLETED" -> CompletionGreen
@@ -11679,7 +11939,7 @@ private fun CompletionMatrixCard(
                 // Rethrown rather than reported: a superseded request is not a failed one, and
                 // rethrowing also leaves `loading` to the pass that replaced this one.
                 if (it is kotlinx.coroutines.CancellationException) throw it
-                onError(it.message ?: "Unable to load completion")
+                onError(it.apiErrorMessage("Unable to load completion"))
                 loading = false
             }
     }
@@ -11729,7 +11989,7 @@ private fun CompletionMatrixCard(
                                 "Workshop screen."
                         } else ".",
                     color = MaterialTheme.field.onWarningContainer,
-                    fontSize = 11.sp
+                    fontSize = 12.sp
                 )
             }
         }
@@ -11757,7 +12017,7 @@ private fun CompletionMatrixCard(
                     "judgement about that artisan's section across every workshop, so a marked cell " +
                     "keeps its colour under every scope.",
                 color = MaterialTheme.field.muted,
-                fontSize = 11.sp
+                fontSize = 12.sp
             )
         }
 
@@ -11825,13 +12085,21 @@ private fun CompletionMatrixCard(
                                             .padding(horizontal = 6.dp),
                                         contentAlignment = Alignment.CenterStart
                                     ) {
-                                        Text(artisan.name, color = Body, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        Text(artisan.name, color = Body, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                     }
                                     data.sections.forEach { section ->
                                         val key = artisan.id to section.id
                                         val cell = cellByKey[key]
                                         val status = if (cellOverrides.containsKey(key)) cellOverrides[key] else cell?.status
                                         val derived = cell?.derived == true
+                                        // Each cell says what it is to TalkBack — artisan, section and
+                                        // state — and is a button where it can be edited.
+                                        val cellWords = "${artisan.name}, ${section.code}: " + when {
+                                            status == "COMPLETED" || (status == null && derived) -> "complete"
+                                            status == "NEEDS_REVIEW" -> "needs review"
+                                            status == "NEEDS_REDO" -> "needs redo"
+                                            else -> "not started"
+                                        }
                                         Box(
                                             modifier = Modifier
                                                 .width(colWidth)
@@ -11839,14 +12107,20 @@ private fun CompletionMatrixCard(
                                                 .padding(1.dp)
                                                 .background(completionColor(status, derived), RoundedCornerShape(3.dp))
                                                 .then(
-                                                    if (canEdit) Modifier.clickable { editing = key } else Modifier
-                                                ),
+                                                    if (canEdit) {
+                                                        Modifier.clickable(onClickLabel = "Change status", role = Role.Button) { editing = key }
+                                                    } else {
+                                                        Modifier
+                                                    }
+                                                )
+                                                .semantics(mergeDescendants = true) { contentDescription = cellWords },
                                             contentAlignment = Alignment.Center
                                         ) {
                                             if (status == "COMPLETED" || (status == null && derived)) {
                                                 Text("✓", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                             } else if (status == "NEEDS_REVIEW") {
-                                                Text("!", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                                // Dark ink on amber: white was about 1.9:1.
+                                                Text("!", color = Color(0xFF3B2300), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                             } else if (status == "NEEDS_REDO") {
                                                 Text("✗", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                             }
@@ -11874,7 +12148,7 @@ private fun CompletionMatrixCard(
             scope.launch {
                 runCatching { repository.setCompletionCell(cellToEdit.first, cellToEdit.second, status) }
                     .onFailure {
-                        onError(it.message ?: "Unable to update status")
+                        onError(it.apiErrorMessage("Unable to update status"))
                         // Roll back the optimistic change on failure.
                         cellOverrides = cellOverrides - cellToEdit
                     }
@@ -11902,7 +12176,7 @@ private fun CompletionMatrixCard(
 private fun CompletionLegendChip(color: Color, label: String) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Box(modifier = Modifier.size(12.dp).background(color, RoundedCornerShape(3.dp)))
-        Text(label, color = Muted, fontSize = 10.sp)
+        Text(label, color = Muted, fontSize = 12.sp)
     }
 }
 
@@ -11916,7 +12190,7 @@ private fun CompletionHeaderCell(text: String, width: androidx.compose.ui.unit.D
             .padding(horizontal = 4.dp),
         contentAlignment = if (alignStart) Alignment.CenterStart else Alignment.Center
     ) {
-        Text(text, color = Body, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(text, color = Body, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -11946,13 +12220,17 @@ private fun ViewDataDetail(
     onError: (String) -> Unit
 ) {
     val context = LocalContext.current
+    /** The record's load failed: drawn as a failure with Try again, which bumps [loadAttempt]. */
+    var loadError by remember(recordId) { mutableStateOf<String?>(null) }
+    var loadAttempt by remember(recordId) { mutableIntStateOf(0) }
+    val retryLoad = { loadError = null; loadAttempt += 1 }
     when (mode) {
         EntryMode.PROCESS -> {
             var detail by remember(recordId) { mutableStateOf<ProcessDetailDto?>(null) }
-            LaunchedEffect(recordId) {
-                runCatching { repository.process(recordId) }.onSuccess { detail = it }.onFailure { onError(it.message ?: "Unable to load process") }
+            LaunchedEffect(recordId, loadAttempt) {
+                runCatching { repository.process(recordId) }.onSuccess { detail = it }.onFailure { loadError = it.apiErrorMessage("Couldn't load this process.") }
             }
-            val d = detail ?: return run { LoadingCard(mode) }
+            val d = detail ?: return run { LoadingCard(mode, loadError, retryLoad) }
             RecordCard(title = d.name.ifBlank { "Process" }) {
                 if (showProvenance) ProvenanceSection(meta = d.extraMetadata, createdByName = d.createdBy?.name)
                 DetailRow("Product", d.product?.productName)
@@ -11975,8 +12253,8 @@ private fun ViewDataDetail(
         }
         EntryMode.ARTISAN -> {
             var d by remember(recordId) { mutableStateOf<ArtisanDetailDto?>(null) }
-            LaunchedEffect(recordId) { runCatching { repository.artisan(recordId) }.onSuccess { d = it }.onFailure { onError(it.message ?: "Unable to load artisan") } }
-            val v = d ?: return run { LoadingCard(mode) }
+            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.artisan(recordId) }.onSuccess { d = it }.onFailure { loadError = it.apiErrorMessage("Couldn't load this artisan.") } }
+            val v = d ?: return run { LoadingCard(mode, loadError, retryLoad) }
             RecordCard(title = v.name.ifBlank { "Artisan" }) {
                 if (showProvenance) ProvenanceSection(meta = v.extraMetadata, createdByName = v.createdBy?.name)
                 DetailRow("Craft", v.craft?.name)
@@ -11991,8 +12269,8 @@ private fun ViewDataDetail(
                 DetailRow("Aadhaar number", maskAadhaar(v.aadhaarNumber))
                 DetailRow("Pehchan card", if (v.pehchanCardAvailable) "Yes" else "No")
                 DetailRow("Pehchan card number", v.pehchanCardNumber)
-                NumberedListDisplay("Do's (positive prompt)", v.dos)
-                NumberedListDisplay("Don'ts (negative prompt)", v.donts)
+                NumberedListDisplay("Do's", v.dos)
+                NumberedListDisplay("Don'ts", v.donts)
                 DetailRow("Status", v.status)
                 RecordMediaSection(repository, context, mode.linkedRecordType(), recordId, onError)
             }
@@ -12005,8 +12283,8 @@ private fun ViewDataDetail(
         }
         EntryMode.PRODUCT -> {
             var d by remember(recordId) { mutableStateOf<ProductDetailDto?>(null) }
-            LaunchedEffect(recordId) { runCatching { repository.product(recordId) }.onSuccess { d = it }.onFailure { onError(it.message ?: "Unable to load product") } }
-            val v = d ?: return run { LoadingCard(mode) }
+            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.product(recordId) }.onSuccess { d = it }.onFailure { loadError = it.apiErrorMessage("Couldn't load this product.") } }
+            val v = d ?: return run { LoadingCard(mode, loadError, retryLoad) }
             RecordCard(title = v.productName.ifBlank { "Product" }) {
                 if (showProvenance) ProvenanceSection(meta = v.extraMetadata, createdByName = v.createdBy?.name)
                 DetailRow("Craft", v.craftName)
@@ -12024,8 +12302,8 @@ private fun ViewDataDetail(
         }
         EntryMode.TOOL -> {
             var d by remember(recordId) { mutableStateOf<ToolDetailDto?>(null) }
-            LaunchedEffect(recordId) { runCatching { repository.tool(recordId) }.onSuccess { d = it }.onFailure { onError(it.message ?: "Unable to load tool") } }
-            val v = d ?: return run { LoadingCard(mode) }
+            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.tool(recordId) }.onSuccess { d = it }.onFailure { loadError = it.apiErrorMessage("Couldn't load this tool.") } }
+            val v = d ?: return run { LoadingCard(mode, loadError, retryLoad) }
             RecordCard(title = v.toolkitName.ifBlank { "Tool" }) {
                 if (showProvenance) ProvenanceSection(meta = v.extraMetadata, createdByName = v.createdBy?.name)
                 DetailRow("Craft", v.craftName)
@@ -12042,8 +12320,8 @@ private fun ViewDataDetail(
         }
         EntryMode.WORKSHOP -> {
             var d by remember(recordId) { mutableStateOf<WorkshopDetailDto?>(null) }
-            LaunchedEffect(recordId) { runCatching { repository.workshop(recordId) }.onSuccess { d = it }.onFailure { onError(it.message ?: "Unable to load workshop") } }
-            val v = d ?: return run { LoadingCard(mode) }
+            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.workshop(recordId) }.onSuccess { d = it }.onFailure { loadError = it.apiErrorMessage("Couldn't load this workshop.") } }
+            val v = d ?: return run { LoadingCard(mode, loadError, retryLoad) }
             RecordCard(title = v.title.ifBlank { "Workshop" }) {
                 if (showProvenance) ProvenanceSection(meta = v.extraMetadata, createdByName = v.createdBy?.name)
                 DetailRow("Place", v.place)
@@ -12056,8 +12334,8 @@ private fun ViewDataDetail(
         }
         EntryMode.CRAFT -> {
             var d by remember(recordId) { mutableStateOf<CraftDto?>(null) }
-            LaunchedEffect(recordId) { runCatching { repository.craft(recordId) }.onSuccess { d = it }.onFailure { onError(it.message ?: "Unable to load craft") } }
-            val v = d ?: return run { LoadingCard(mode) }
+            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.craft(recordId) }.onSuccess { d = it }.onFailure { loadError = it.apiErrorMessage("Couldn't load this craft.") } }
+            val v = d ?: return run { LoadingCard(mode, loadError, retryLoad) }
             RecordCard(title = v.name.ifBlank { "Craft" }) {
                 if (showProvenance) ProvenanceSection(meta = v.extraMetadata, createdByName = v.createdBy?.name)
                 DetailRow("Local name", v.localName)
@@ -12074,7 +12352,7 @@ private fun ViewDataDetail(
             // core fix for "not all features of the record(s) are visible".
             var members by remember(recordId) { mutableStateOf<List<QuestionnaireInterviewDetailDto>?>(null) }
             var groupMedia by remember(recordId) { mutableStateOf<List<MediaFileDto>>(emptyList()) }
-            LaunchedEffect(recordId) {
+            LaunchedEffect(recordId, loadAttempt) {
                 runCatching {
                     // The record BY ID, then its group — see [interviewGroup]. This used to scan the
                     // newest hundred interviews in the repository twice over: once to find the record
@@ -12093,9 +12371,9 @@ private fun ViewDataDetail(
                     }
                     group to mediaById.values.toList()
                 }.onSuccess { (g, media) -> members = g; groupMedia = media }
-                    .onFailure { onError(it.message ?: "Unable to load interview") }
+                    .onFailure { loadError = it.apiErrorMessage("Couldn't load this interview.") }
             }
-            val g = members ?: return run { LoadingCard(mode) }
+            val g = members ?: return run { LoadingCard(mode, loadError, retryLoad) }
             val rep = representativeInterview(g)
             RecordCard(title = rep.title.ifBlank { "Interview" }) {
                 if (showProvenance) ProvenanceSection(meta = rep.extraMetadata, createdByName = rep.createdBy?.name)
@@ -12124,8 +12402,8 @@ private fun ViewDataDetail(
         }
         EntryMode.MEDIA -> {
             var d by remember(recordId) { mutableStateOf<MediaFileDto?>(null) }
-            LaunchedEffect(recordId) { runCatching { repository.mediaItem(recordId) }.onSuccess { d = it }.onFailure { onError(it.message ?: "Unable to load media") } }
-            val v = d ?: return run { LoadingCard(mode) }
+            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.mediaItem(recordId) }.onSuccess { d = it }.onFailure { loadError = it.apiErrorMessage("Couldn't load this file.") } }
+            val v = d ?: return run { LoadingCard(mode, loadError, retryLoad) }
             RecordCard(title = v.originalFilename.ifBlank { "Media" }) {
                 DetailRow("Type", v.mediaType)
                 DetailRow("Caption", v.caption)
@@ -12167,7 +12445,7 @@ private fun RecordCollabSection(
     fun reload() {
         scope.launch {
             runCatching { comments = repository.entryComments(recordType, recordId) }
-                .onFailure { onError(it.message ?: "Unable to load comments") }
+                .onFailure { onError(it.apiErrorMessage("Unable to load comments")) }
             // Edit history is owner/admin only; silently hide if not permitted.
             revisions = runCatching { repository.recordRevisions(recordType, recordId) }.getOrNull()
         }
@@ -12181,7 +12459,7 @@ private fun RecordCollabSection(
         comments.forEach { c ->
             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text(c.body, color = Body, fontSize = 13.sp)
-                Text("${c.author?.name ?: "Someone"} · ${c.createdAt.take(10)}", color = Muted, fontSize = 11.sp)
+                Text("${c.author?.name ?: "Someone"} · ${c.createdAt.take(10)}", color = Muted, fontSize = 12.sp)
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -12203,7 +12481,7 @@ private fun RecordCollabSection(
                         }
                         runCatching { repository.addEntryComment(recordType, recordId, draft.trim()); draft = "" }
                             .onSuccess { reload() }
-                            .onFailure { onError(it.message ?: "Unable to post comment") }
+                            .onFailure { onError(it.apiErrorMessage("Unable to post comment")) }
                         busy = false
                     }
                 }
@@ -12215,7 +12493,7 @@ private fun RecordCollabSection(
             if (revs.isEmpty()) Text("No edits recorded.", color = Muted, fontSize = 12.sp)
             revs.forEach { r ->
                 Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Text("${r.editedBy?.name ?: "Unknown"} · ${r.createdAt.take(10)}", color = Muted, fontSize = 11.sp)
+                    Text("${r.editedBy?.name ?: "Unknown"} · ${r.createdAt.take(10)}", color = Muted, fontSize = 12.sp)
                     r.changes.forEach { (field, change) ->
                         Text(
                             "$field: ${jsonText(change.old)} → ${jsonText(change.new)}",
@@ -12278,11 +12556,14 @@ private fun AndroidMediaForm(
         scope.launch {
             runCatching { repository.media() }
                 .onSuccess { savedMedia = it }
-                .onFailure { error -> onError(error.message ?: "Unable to load saved media") }
+                .onFailure { error -> onError(error.apiErrorMessage("Unable to load saved media")) }
         }
     }
 
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
+    // Each capture asks for its own permission when pressed and waits for the answer (ui/PermissionGate.kt).
+    val permissionGate = rememberPermissionGate(onRefused = onError)
+    // Location is asked as the pair, when "Use GPS" is pressed and only if neither is held.
+    val locationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         if (uris.isNotEmpty()) selectedUris = selectedUris + uris
     }
@@ -12298,7 +12579,6 @@ private fun AndroidMediaForm(
     }
 
     LaunchedEffect(Unit) {
-        permissionLauncher.launch(requiredAndroidPermissions())
         refreshMedia()
     }
     // When the linked record type changes, load that type's entries for the second dropdown.
@@ -12310,7 +12590,7 @@ private fun AndroidMediaForm(
         loadingEntries = true
         runCatching { loadViewEntries(repository, mode) }
             .onSuccess { entryOptions = it }
-            .onFailure { error -> onError(error.message ?: "Unable to load ${mode.label} entries") }
+            .onFailure { error -> onError(error.apiErrorMessage("Unable to load ${mode.label} entries")) }
         loadingEntries = false
     }
 
@@ -12356,10 +12636,11 @@ private fun AndroidMediaForm(
         }
         OutlinedButton(
             onClick = {
-                permissionLauncher.launch(requiredAndroidPermissions())
-                val uri = createAppFileUri(context, "field-photo-", ".jpg")
-                pendingCaptureUri = uri
-                takePhoto.launch(uri)
+                permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) {
+                    val uri = createAppFileUri(context, "field-photo-", ".jpg")
+                    pendingCaptureUri = uri
+                    takePhoto.launch(uri)
+                }
             },
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -12367,10 +12648,11 @@ private fun AndroidMediaForm(
         }
         OutlinedButton(
             onClick = {
-                permissionLauncher.launch(requiredAndroidPermissions())
-                val uri = createAppFileUri(context, "field-video-", ".mp4")
-                pendingCaptureUri = uri
-                takeVideo.launch(uri)
+                permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) {
+                    val uri = createAppFileUri(context, "field-video-", ".mp4")
+                    pendingCaptureUri = uri
+                    takeVideo.launch(uri)
+                }
             },
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -12378,8 +12660,10 @@ private fun AndroidMediaForm(
         }
         OutlinedButton(
             onClick = {
-                permissionLauncher.launch(requiredAndroidPermissions())
-                if (!recording) {
+                if (!recording && !permissionGate.holds(MICROPHONE_PERMISSION)) {
+                    // Ask first and record nothing yet: the press that grants it is not a press to record.
+                    permissionGate.ask(MICROPHONE_PERMISSION, MICROPHONE_REFUSED_SENTENCE)
+                } else if (!recording) {
                     runCatching {
                         val file = createAppFile(context, "field-audio-", ".m4a")
                         recorder = createAudioRecorder(context, file).also { it.start() }
@@ -12387,7 +12671,7 @@ private fun AndroidMediaForm(
                         recording = true
                         localMessage = "Recording audio..."
                     }.onFailure { error ->
-                        onError(error.message ?: "Unable to start audio recording")
+                        onError(error.apiErrorMessage("Unable to start audio recording"))
                     }
                 } else {
                     runCatching {
@@ -12395,7 +12679,7 @@ private fun AndroidMediaForm(
                         recorder?.release()
                         recordingFile?.let { file -> selectedUris = selectedUris + uriForFile(context, file) }
                     }.onFailure { error ->
-                        onError(error.message ?: "Unable to stop audio recording")
+                        onError(error.apiErrorMessage("Unable to stop audio recording"))
                     }
                     recorder = null
                     recordingFile = null
@@ -12441,7 +12725,7 @@ private fun AndroidMediaForm(
             repository = repository,
             value = location,
             onUseGps = {
-                permissionLauncher.launch(requiredAndroidPermissions())
+                if (!holdsLocation(context)) locationLauncher.launch(LOCATION_PERMISSIONS)
                 readLastKnownLocation(context)
             },
             onChange = { location = it },
@@ -12455,7 +12739,7 @@ private fun AndroidMediaForm(
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text("${selectedUris.size} file(s) ready", color = Canvas, fontWeight = FontWeight.SemiBold)
+                Text("${selectedUris.size} file(s) ready", color = MaterialTheme.field.onBrandTile, fontWeight = FontWeight.SemiBold)
                 var batchExpanded by remember { mutableStateOf(false) }
                 val batchCap = 8
                 val shownBatch = if (batchExpanded) selectedUris else selectedUris.take(batchCap)
@@ -12617,7 +12901,7 @@ private fun AndroidMediaForm(
                                     savedMedia = savedMedia.filterNot { it.id == item.id }
                                     localMessage = "Media removed"
                                 }
-                                .onFailure { error -> onError(error.message ?: "Unable to remove media") }
+                                .onFailure { error -> onError(error.apiErrorMessage("Unable to remove media")) }
                         }
                     }
                 )
@@ -12691,7 +12975,7 @@ private fun AndroidUriPreview(
         failed -> Text(
             "Upload failed — tap Retry, or Download to keep a copy on this device.",
             color = MaterialTheme.colorScheme.error,
-            fontSize = 11.sp
+            fontSize = 12.sp
         )
         progress != null && progress < 1f -> {
             LinearProgressIndicator(
@@ -12699,9 +12983,9 @@ private fun AndroidUriPreview(
                 modifier = Modifier.fillMaxWidth().height(4.dp),
                 color = Coral
             )
-            Text("Uploading ${(progress * 100).toInt()}%", color = SurfaceCard, fontSize = 10.sp)
+            Text("Uploading ${(progress * 100).toInt()}%", color = MaterialTheme.field.onBrandTileMuted, fontSize = 12.sp)
         }
-        progress != null && progress >= 1f -> Text("Uploaded ✓", color = SuccessGreen, fontSize = 10.sp)
+        progress != null && progress >= 1f -> Text("Uploaded ✓", color = SuccessGreen, fontSize = 12.sp)
     }
     if ((failed && onRetry != null) || downloadable) {
         Row(
@@ -12731,14 +13015,17 @@ private fun AndroidUriPreview(
 /** A small circular "✕" badge pinned to a media tile's top-right corner to discard/remove that file. */
 @Composable
 private fun DiscardBadge(contentDescription: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    // A 48dp target around the same 28dp disc: the disc was the whole target, too small to aim at.
     IconButton(
         onClick = onClick,
-        modifier = modifier
-            .padding(2.dp)
-            .size(28.dp)
-            .background(Color(0xCC1A1A1A), CircleShape)
+        modifier = modifier.size(48.dp)
     ) {
-        Icon(Icons.Filled.Close, contentDescription = contentDescription, tint = Color.White, modifier = Modifier.size(16.dp))
+        Box(
+            modifier = Modifier.size(28.dp).background(Color(0xCC1A1A1A), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Filled.Close, contentDescription = contentDescription, tint = Color.White, modifier = Modifier.size(16.dp))
+        }
     }
 }
 
@@ -13246,7 +13533,7 @@ private fun QuestionnaireForm(
         // narrower offer — which is the line the artisan roster's own quiet notice sits on the other
         // side of. The browser sets its page error from the same failure (`loadMeta`'s catch).
         runCatching { onRefreshSections(bound) }
-            .onFailure { onError(it.message ?: "Couldn't load this workshop's questionnaire") }
+            .onFailure { onError(it.apiErrorMessage("Couldn't load this workshop's questionnaire")) }
     }
     /*
       THE ROWS THE PICKER OFFERS, AND THE ONE IT MUST NEVER LOSE.
@@ -13553,7 +13840,7 @@ private fun QuestionnaireForm(
                     .onFailure {
                         if (it !is kotlinx.coroutines.CancellationException) {
                             syncStatus = ActionStatus.ERROR
-                            onError(it.message ?: "Unable to synchronize")
+                            onError(it.apiErrorMessage("Unable to synchronize"))
                         }
                     }
                 syncing = false
@@ -13705,7 +13992,7 @@ private fun QuestionnaireForm(
             questionnaireId = picked
             scope.launch {
                 runCatching { onRefreshSections(picked) }
-                    .onFailure { onError(it.message ?: "Couldn't load that questionnaire's sections") }
+                    .onFailure { onError(it.apiErrorMessage("Couldn't load that questionnaire's sections")) }
             }
         }
         if (isEdit) {
@@ -13872,10 +14159,10 @@ private fun QuestionnaireForm(
         var hideAnswers by remember { mutableStateOf(true) }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Do not display answer text boxes", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
-                Text("On by default — show only the record button. Toggle off to type written answers.", color = Muted, fontSize = 11.sp)
+                Text("Show answer text boxes", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+                Text("Off by default — only the record button shows. Turn on to type written answers.", color = Muted, fontSize = 12.sp)
             }
-            Switch(checked = hideAnswers, onCheckedChange = { hideAnswers = it })
+            Switch(checked = !hideAnswers, onCheckedChange = { hideAnswers = !it })
         }
         LocationAddressEditor(
             repository = repository,
@@ -13928,7 +14215,7 @@ private fun QuestionnaireForm(
                                     "${activeQuestions.size} questions · $answeredCount answered" +
                                         (if (sectionSavedMedia.isNotEmpty()) " · ${sectionSavedMedia.size} saved recording(s)" else ""),
                                     color = Muted,
-                                    fontSize = 11.sp
+                                    fontSize = 12.sp
                                 )
                             }
                             Text(if (expanded) "Hide ▲" else "Open ▼", color = Body, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -14685,7 +14972,7 @@ private fun QuestionnaireBuilder(
                         newCode = ""
                         newTitle = ""
                         onRefresh()
-                    }.onFailure { onError(it.message ?: "Unable to add section") }
+                    }.onFailure { onError(it.apiErrorMessage("Unable to add section")) }
                 }
             },
             enabled = newCode.isNotBlank() && newTitle.isNotBlank(),
@@ -14706,7 +14993,7 @@ private fun QuestionnaireBuilder(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("${section.sortOrder}. ${section.code} - ${section.title}", display = true, fontWeight = FontWeight.SemiBold)
-                            Text("${section.questions.size} question(s)", color = Muted, fontSize = 11.sp)
+                            Text("${section.questions.size} question(s)", color = Muted, fontSize = 12.sp)
                         }
                         Text(if (expanded) "Hide ▲" else "Edit ▼", color = Body, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
@@ -14726,7 +15013,7 @@ private fun QuestionnaireBuilder(
                                         runCatching {
                                             repository.updateQuestionnaireSection(section.id, QuestionnaireSectionUpdateRequest(code = code.trim(), title = sectionTitle.trim(), isActive = true))
                                             onRefresh()
-                                        }.onFailure { onError(it.message ?: "Unable to update section") }
+                                        }.onFailure { onError(it.apiErrorMessage("Unable to update section")) }
                                     }
                                 },
                                 modifier = Modifier.weight(1f)
@@ -14738,7 +15025,7 @@ private fun QuestionnaireBuilder(
                                         runCatching {
                                             repository.reorderQuestionnaireSections(moveIds(sections.map { it.id }, sectionIndex, -1))
                                             onRefresh()
-                                        }.onFailure { onError(it.message ?: "Unable to move section") }
+                                        }.onFailure { onError(it.apiErrorMessage("Unable to move section")) }
                                     }
                                 }
                             ) { Text("Up") }
@@ -14749,7 +15036,7 @@ private fun QuestionnaireBuilder(
                                         runCatching {
                                             repository.reorderQuestionnaireSections(moveIds(sections.map { it.id }, sectionIndex, 1))
                                             onRefresh()
-                                        }.onFailure { onError(it.message ?: "Unable to move section") }
+                                        }.onFailure { onError(it.apiErrorMessage("Unable to move section")) }
                                     }
                                 }
                             ) { Text("Down") }
@@ -14760,7 +15047,7 @@ private fun QuestionnaireBuilder(
                                     runCatching {
                                         repository.deleteQuestionnaireSection(section.id)
                                         onRefresh()
-                                    }.onFailure { onError(it.message ?: "Unable to remove section") }
+                                    }.onFailure { onError(it.apiErrorMessage("Unable to remove section")) }
                                 }
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -14784,7 +15071,7 @@ private fun QuestionnaireBuilder(
                                                 runCatching {
                                                     repository.updateQuestionnaireQuestion(question.id, QuestionnaireQuestionUpdateRequest(prompt = prompt.trim(), isActive = true))
                                                     onRefresh()
-                                                }.onFailure { onError(it.message ?: "Unable to update question") }
+                                                }.onFailure { onError(it.apiErrorMessage("Unable to update question")) }
                                             }
                                         },
                                         modifier = Modifier.weight(1f)
@@ -14796,7 +15083,7 @@ private fun QuestionnaireBuilder(
                                                 runCatching {
                                                     repository.reorderQuestionnaireQuestions(section.id, moveIds(section.questions.map { it.id }, questionIndex, -1))
                                                     onRefresh()
-                                                }.onFailure { onError(it.message ?: "Unable to move question") }
+                                                }.onFailure { onError(it.apiErrorMessage("Unable to move question")) }
                                             }
                                         }
                                     ) { Text("Up") }
@@ -14807,7 +15094,7 @@ private fun QuestionnaireBuilder(
                                                 runCatching {
                                                     repository.reorderQuestionnaireQuestions(section.id, moveIds(section.questions.map { it.id }, questionIndex, 1))
                                                     onRefresh()
-                                                }.onFailure { onError(it.message ?: "Unable to move question") }
+                                                }.onFailure { onError(it.apiErrorMessage("Unable to move question")) }
                                             }
                                         }
                                     ) { Text("Down") }
@@ -14820,7 +15107,7 @@ private fun QuestionnaireBuilder(
                                                 runCatching {
                                                     repository.updateQuestionnaireQuestion(question.id, QuestionnaireQuestionUpdateRequest(sectionId = sections[sectionIndex - 1].id))
                                                     onRefresh()
-                                                }.onFailure { onError(it.message ?: "Unable to move question") }
+                                                }.onFailure { onError(it.apiErrorMessage("Unable to move question")) }
                                             }
                                         },
                                         modifier = Modifier.weight(1f)
@@ -14832,7 +15119,7 @@ private fun QuestionnaireBuilder(
                                                 runCatching {
                                                     repository.updateQuestionnaireQuestion(question.id, QuestionnaireQuestionUpdateRequest(sectionId = sections[sectionIndex + 1].id))
                                                     onRefresh()
-                                                }.onFailure { onError(it.message ?: "Unable to move question") }
+                                                }.onFailure { onError(it.apiErrorMessage("Unable to move question")) }
                                             }
                                         },
                                         modifier = Modifier.weight(1f)
@@ -14844,7 +15131,7 @@ private fun QuestionnaireBuilder(
                                             runCatching {
                                                 repository.deleteQuestionnaireQuestion(question.id)
                                                 onRefresh()
-                                            }.onFailure { onError(it.message ?: "Unable to remove question") }
+                                            }.onFailure { onError(it.apiErrorMessage("Unable to remove question")) }
                                         }
                                     },
                                     modifier = Modifier.fillMaxWidth()
@@ -14860,7 +15147,7 @@ private fun QuestionnaireBuilder(
                                         repository.createQuestionnaireQuestion(QuestionnaireQuestionCreateRequest(sectionId = section.id, prompt = newPrompt.trim()))
                                         newPrompt = ""
                                         onRefresh()
-                                    }.onFailure { onError(it.message ?: "Unable to add question") }
+                                    }.onFailure { onError(it.apiErrorMessage("Unable to add question")) }
                                 }
                             },
                             enabled = newPrompt.isNotBlank(),
@@ -14888,7 +15175,7 @@ private fun UserManagementForm(
             loading = true
             runCatching { repository.users() }
                 .onSuccess { users = it }
-                .onFailure { onError(it.message ?: "Unable to load users") }
+                .onFailure { onError(it.apiErrorMessage("Unable to load users")) }
             loading = false
         }
     }
@@ -15026,13 +15313,13 @@ private fun UserManagementForm(
                             Text(appUser.name, display = true, fontWeight = FontWeight.SemiBold)
                             Text("${appUser.email} · ${roleLabel(appUser.role)}", color = Muted, fontSize = 12.sp)
                             if (appUser.twoFactorEnabled) {
-                                Text("Two-step on", color = Body, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                Text("Two-step on", color = Body, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             }
                             Text(
                                 if (isMaster) "All privileges (master admin)"
                                 else "$grantedCount of 4 privileges granted",
                                 color = Muted,
-                                fontSize = 11.sp
+                                fontSize = 12.sp
                             )
                         }
                         Text(if (expanded) "Hide ▲" else "Manage ▼", color = Body, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -15061,7 +15348,7 @@ private fun UserManagementForm(
                                 "Professor and above already hold every privilege below; the toggles are " +
                                     "for lifting a single power for someone lower on the ladder.",
                                 color = Muted,
-                                fontSize = 11.sp
+                                fontSize = 12.sp
                             )
                             HorizontalDivider()
                         }
@@ -15072,7 +15359,7 @@ private fun UserManagementForm(
                             onToggle = { grant ->
                                 scope.launch {
                                     runCatching { repository.updateUserQuestionnaireAccess(appUser.id, grant); refreshUsers() }
-                                        .onFailure { onError(it.message ?: "Unable to update questionnaire access") }
+                                        .onFailure { onError(it.apiErrorMessage("Unable to update questionnaire access")) }
                                 }
                             }
                         )
@@ -15096,7 +15383,7 @@ private fun UserManagementForm(
                             onToggle = { grant ->
                                 scope.launch {
                                     runCatching { repository.updateUserReviewAccess(appUser.id, grant); refreshUsers() }
-                                        .onFailure { onError(it.message ?: "Unable to update review access") }
+                                        .onFailure { onError(it.apiErrorMessage("Unable to update review access")) }
                                 }
                             }
                         )
@@ -15108,7 +15395,7 @@ private fun UserManagementForm(
                             onToggle = { grant ->
                                 scope.launch {
                                     runCatching { repository.updateUserProvenanceAccess(appUser.id, grant); refreshUsers() }
-                                        .onFailure { onError(it.message ?: "Unable to update provenance access") }
+                                        .onFailure { onError(it.apiErrorMessage("Unable to update provenance access")) }
                                 }
                             }
                         )
@@ -15119,7 +15406,7 @@ private fun UserManagementForm(
                             onToggle = { grant ->
                                 scope.launch {
                                     runCatching { repository.updateUserDatasetAccess(appUser.id, grant); refreshUsers() }
-                                        .onFailure { onError(it.message ?: "Unable to update dataset access") }
+                                        .onFailure { onError(it.apiErrorMessage("Unable to update dataset access")) }
                                 }
                             }
                         )
@@ -15145,7 +15432,7 @@ private fun UserManagementForm(
                             ) {
                                 Text("Issue a set-password link")
                             }
-                            Text("Shown once. Copy it and send it yourself.", color = Muted, fontSize = 11.sp)
+                            Text("Shown once. Copy it and send it yourself.", color = Muted, fontSize = 12.sp)
                         }
                         if (actorIsAdmin && canManageTarget && appUser.twoFactorEnabled && appUser.id != actor?.id) {
                             HorizontalDivider()
@@ -15179,6 +15466,8 @@ private fun UserManagementForm(
 private fun SharingForm(
     repository: FieldRepository,
     isAdmin: Boolean,
+    /** The confirmation for an approve, deny, tier change or revoke — each used to say nothing. */
+    onMessage: (String) -> Unit,
     onError: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -15188,6 +15477,8 @@ private fun SharingForm(
     var directory by remember { mutableStateOf<List<UserDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
+    /** A failed load is drawn as a failure with Try again, never as "Loading…" left up for ever. */
+    var loadError by remember { mutableStateOf<String?>(null) }
 
     fun reload() {
         scope.launch {
@@ -15196,7 +15487,11 @@ private fun SharingForm(
                 tiers = repository.dataAccessTiers()
                 grants = repository.dataAccessGrants()
                 directory = repository.userDirectory().filter { it.id != myId }
-            }.onFailure { onError(it.message ?: "Unable to load sharing data") }
+            }.onSuccess { loadError = null }
+                .onFailure {
+                    if (it is kotlinx.coroutines.CancellationException) throw it
+                    loadError = it.apiErrorMessage("Couldn't load sharing.")
+                }
             loading = false
         }
     }
@@ -15207,14 +15502,18 @@ private fun SharingForm(
         scope.launch {
             busy = true
             runCatching { block() }
-                .onSuccess { reload() }
-                .onFailure { onError(it.message ?: "Action failed") }
+                .onSuccess { onMessage(ok); reload() }
+                .onFailure { onError(it.apiErrorMessage("That didn't go through. Try again.")) }
             busy = false
         }
     }
 
+    loadError?.let { failure ->
+        LoadFailedCard(message = failure, onRetry = { reload() })
+    }
     RecordCard(title = "Access tiers", icon = Icons.Filled.Share) {
-        if (tiers.isEmpty()) Text("Loading…", color = Muted)
+        if (tiers.isEmpty() && loadError == null) Text("Loading…", color = Muted)
+        if (tiers.isEmpty() && loadError != null) Text("Not loaded.", color = Muted)
         tiers.forEach { t ->
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
@@ -15267,11 +15566,11 @@ private fun SharingForm(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         when (g.status) {
                             "PENDING" -> {
-                                Button(enabled = !busy, onClick = { run({ repository.decideDataAccess(g.id, "GRANTED", g.tier) }, "Granted") }) { Text("Approve") }
-                                OutlinedButton(enabled = !busy, onClick = { run({ repository.decideDataAccess(g.id, "DENIED", null) }, "Denied") }) { Text("Deny") }
+                                Button(enabled = !busy, onClick = { run({ repository.decideDataAccess(g.id, "GRANTED", g.tier) }, "Access granted.") }) { Text("Approve") }
+                                OutlinedButton(enabled = !busy, onClick = { run({ repository.decideDataAccess(g.id, "DENIED", null) }, "Request denied.") }) { Text("Deny") }
                             }
-                            "GRANTED" -> OutlinedButton(enabled = !busy, onClick = { run({ repository.revokeDataAccess(g.id) }, "Revoked") }) { Text("Revoke") }
-                            else -> OutlinedButton(enabled = !busy, onClick = { run({ repository.deleteDataAccess(g.id) }, "Removed") }) { Text("Remove") }
+                            "GRANTED" -> OutlinedButton(enabled = !busy, onClick = { run({ repository.revokeDataAccess(g.id) }, "Access revoked.") }) { Text("Revoke") }
+                            else -> OutlinedButton(enabled = !busy, onClick = { run({ repository.deleteDataAccess(g.id) }, "Request removed.") }) { Text("Remove") }
                         }
                     }
                 }
@@ -15290,7 +15589,7 @@ private fun SharingForm(
                         "${g.owner?.email ?: ""} · ${tierLabel(g.tier)} · ${g.status}",
                         color = Muted, fontSize = 12.sp
                     )
-                    OutlinedButton(enabled = !busy, onClick = { run({ repository.deleteDataAccess(g.id) }, "Removed") }) {
+                    OutlinedButton(enabled = !busy, onClick = { run({ repository.deleteDataAccess(g.id) }, "Request removed.") }) {
                         Text(if (g.status == "PENDING") "Withdraw" else "Remove")
                     }
                 }
@@ -15345,7 +15644,7 @@ private fun workshopLevelOptions(levels: List<WorkshopAccessLevelDto>): List<Pai
 
 /** "Kutch weaving · 2026-07-12", falling back to the id-only title when the row carries no workshop. */
 private fun assignmentWorkshopLabel(row: WorkshopAssignmentDto): String =
-    row.workshop?.let { workshopOptionLabel(it) } ?: "Workshop ${row.workshopId}"
+    row.workshop?.let { workshopOptionLabel(it) } ?: "Unnamed workshop"
 
 /**
  * Admin-only: the roster for ONE workshop, at levels. Only GRANTED researchers may submit entries for
@@ -15441,11 +15740,11 @@ private fun WorkshopAssignmentCard(
                             workshopLevelLabel(row.accessLevel)
                         ).joinToString(" · "),
                         color = Muted,
-                        fontSize = 11.sp
+                        fontSize = 12.sp
                     )
-                    Text(workshopAccessStatusLabel(row.status), color = workshopAccessStatusColor(row.status), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                    row.requestNote?.takeIf { it.isNotBlank() }?.let { Text("Asked: “$it”", color = Muted, fontSize = 11.sp) }
-                    row.decisionNote?.takeIf { it.isNotBlank() }?.let { Text("Decision: “$it”", color = Muted, fontSize = 11.sp) }
+                    Text(workshopAccessStatusLabel(row.status), color = workshopAccessStatusColor(row.status), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    row.requestNote?.takeIf { it.isNotBlank() }?.let { Text("Asked: “$it”", color = Muted, fontSize = 12.sp) }
+                    row.decisionNote?.takeIf { it.isNotBlank() }?.let { Text("Decision: “$it”", color = Muted, fontSize = 12.sp) }
                     DropdownField(
                         label = "Access level",
                         options = workshopLevelOptions(levels),
@@ -15522,7 +15821,7 @@ private fun WorkshopAssignmentCard(
                 onSelect = { addLevel = it }
             )
             levels.firstOrNull { it.level == addLevel }?.description?.takeIf { it.isNotBlank() }
-                ?.let { Text(it, color = Muted, fontSize = 11.sp) }
+                ?.let { Text(it, color = Muted, fontSize = 12.sp) }
             Button(
                 enabled = busyUserId == null && addUserId.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
@@ -15601,7 +15900,7 @@ private fun WorkshopAccessScreen(
                 onSelect = { level = it }
             )
             levels.firstOrNull { it.level == level }?.description?.takeIf { it.isNotBlank() }
-                ?.let { Text(it, color = Muted, fontSize = 11.sp) }
+                ?.let { Text(it, color = Muted, fontSize = 12.sp) }
             // A note to whoever grants the access. Dictation only: it is read once, by a person, in
             // a request list — there is nothing here for formatting to survive into.
             TextInput("Why do you need access? (optional)", note, minLines = 2) { note = it }
@@ -15661,10 +15960,10 @@ private fun WorkshopAccessScreen(
                         )
                         Text("· ${workshopLevelLabel(row.accessLevel)}", color = Muted, fontSize = 12.sp)
                     }
-                    row.decisionNote?.takeIf { it.isNotBlank() }?.let { Text("“$it”", color = Muted, fontSize = 11.sp) }
-                    row.decidedBy?.name?.let { Text("Decided by $it${formatIsoDate(row.decidedAt)?.let { d -> " · $d" } ?: ""}", color = Muted, fontSize = 11.sp) }
+                    row.decisionNote?.takeIf { it.isNotBlank() }?.let { Text("“$it”", color = Muted, fontSize = 12.sp) }
+                    row.decidedBy?.name?.let { Text("Decided by $it${formatIsoDate(row.decidedAt)?.let { d -> " · $d" } ?: ""}", color = Muted, fontSize = 12.sp) }
                     if (row.status == "DENIED" || row.status == "REVOKED") {
-                        Text("You can ask again above — that starts a fresh request.", color = Muted, fontSize = 11.sp)
+                        Text("You can ask again above — that starts a fresh request.", color = Muted, fontSize = 12.sp)
                     }
                 }
             }
@@ -15753,15 +16052,15 @@ private fun WorkshopAccessQueueCard(
                                 formatIsoDate(row.createdAt)
                             ).joinToString(" · "),
                             color = Muted,
-                            fontSize = 11.sp
+                            fontSize = 12.sp
                         )
                         Text(
                             "${workshopAccessStatusLabel(row.status)} · asked for ${workshopLevelLabel(row.accessLevel)}",
                             color = workshopAccessStatusColor(row.status),
-                            fontSize = 11.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold
                         )
-                        row.requestNote?.takeIf { it.isNotBlank() }?.let { Text("“$it”", color = Muted, fontSize = 11.sp) }
+                        row.requestNote?.takeIf { it.isNotBlank() }?.let { Text("“$it”", color = Muted, fontSize = 12.sp) }
                         if (pending) {
                             DropdownField(
                                 label = "Grant at level",
@@ -15784,11 +16083,11 @@ private fun WorkshopAccessQueueCard(
                                 ) { Text("Deny", maxLines = 1, fontSize = 13.sp) }
                             }
                         } else {
-                            row.decisionNote?.takeIf { it.isNotBlank() }?.let { Text("Decision: “$it”", color = Muted, fontSize = 11.sp) }
+                            row.decisionNote?.takeIf { it.isNotBlank() }?.let { Text("Decision: “$it”", color = Muted, fontSize = 12.sp) }
                             Text(
                                 "Already decided — change it from Workshop assignments.",
                                 color = Muted,
-                                fontSize = 11.sp
+                                fontSize = 12.sp
                             )
                         }
                     }
@@ -16019,7 +16318,7 @@ private fun TaskCard(
                     if (!editable) task.assignee?.name?.takeIf { it.isNotBlank() }?.let { "for $it" } else null
                 ).joinToString(" · ").ifBlank { "No workshop or due date" },
                 color = Muted,
-                fontSize = 11.sp
+                fontSize = 12.sp
             )
             if (scopeLine.isNotBlank()) Text(scopeLine, color = Body, fontSize = 12.sp)
             task.description?.takeIf { it.isNotBlank() }?.let { Text(it, color = Muted, fontSize = 12.sp) }
@@ -16037,7 +16336,7 @@ private fun TaskCard(
                     }
                 },
                 color = Muted,
-                fontSize = 11.sp
+                fontSize = 12.sp
             )
             task.percentComplete?.let { percent ->
                 LinearProgressIndicator(progress = { percent / 100f }, modifier = Modifier.fillMaxWidth())
@@ -16047,12 +16346,27 @@ private fun TaskCard(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 assigneeTaskStatuses.forEach { value ->
                     val current = task.status == value
-                    OutlinedButton(
-                        enabled = !busy && !current,
-                        onClick = { onStatus(value) },
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp)
-                    ) { Text(if (current) "✓ ${taskStatusLabel(value)}" else taskStatusLabel(value), maxLines = 1, fontSize = 12.sp) }
+                    // The current status is a FILLED segment and announced as selected; the others are
+                    // outlined. A tick prefix used to carry that, and clipped "In progress" at 360dp.
+                    val segment = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .semantics { selected = current }
+                    if (current) {
+                        Button(
+                            onClick = {},
+                            enabled = !busy,
+                            modifier = segment,
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
+                        ) { Text(taskStatusLabel(value), maxLines = 2, fontSize = 13.sp, textAlign = TextAlign.Center) }
+                    } else {
+                        OutlinedButton(
+                            enabled = !busy,
+                            onClick = { onStatus(value) },
+                            modifier = segment,
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
+                        ) { Text(taskStatusLabel(value), maxLines = 2, fontSize = 13.sp, textAlign = TextAlign.Center) }
+                    }
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -16085,7 +16399,7 @@ private fun GrantToggleRow(label: String, granted: Boolean, enabled: Boolean, on
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.weight(1f)) {
             Text(label, color = Body, fontSize = 13.sp)
-            Text(if (granted) "Granted" else "Not granted", color = Muted, fontSize = 11.sp)
+            Text(if (granted) "Granted" else "Not granted", color = Muted, fontSize = 12.sp)
         }
         OutlinedButton(enabled = enabled, onClick = { onToggle(!granted) }) {
             Text(if (granted) "Revoke" else "Grant")
@@ -16224,7 +16538,7 @@ private fun WorkshopMappingCard(
                             Text(
                                 "Filed under " + bucket.byWorkshop.joinToString(", ") { "${it.title} (${it.count})" } + ".",
                                 color = MaterialTheme.field.muted,
-                                fontSize = 11.sp
+                                fontSize = 12.sp
                             )
                         }
                         // WHICH RULE DECIDED, aggregated. An admin approving a bulk write needs to know
@@ -16235,7 +16549,7 @@ private fun WorkshopMappingCard(
                             Text(
                                 "${entry.count} because ${entry.copy}.",
                                 color = MaterialTheme.field.body,
-                                fontSize = 11.sp
+                                fontSize = 12.sp
                             )
                         }
                         val stuck = bucket.rows.filter { it.workshopId == null }
@@ -16250,7 +16564,7 @@ private fun WorkshopMappingCard(
                                 Text(
                                     "Left alone — open the record and choose its workshop by hand",
                                     color = MaterialTheme.field.onWarningContainer,
-                                    fontSize = 11.sp,
+                                    fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 stuck.forEach { row ->
@@ -16261,7 +16575,7 @@ private fun WorkshopMappingCard(
                                                 " (" + row.candidateTitles.joinToString(" or ") + ")"
                                             } else ""),
                                         color = MaterialTheme.field.onWarningContainer,
-                                        fontSize = 11.sp
+                                        fontSize = 12.sp
                                     )
                                 }
                                 // Compared against THIS list's own length, not `rowsTruncated`. That flag
@@ -16274,7 +16588,7 @@ private fun WorkshopMappingCard(
                                         "${bucket.unresolved - stuck.size} more are not listed. Re-check " +
                                             "after filing these to see the rest.",
                                         color = MaterialTheme.field.onWarningContainer,
-                                        fontSize = 11.sp
+                                        fontSize = 12.sp
                                     )
                                 }
                             }
@@ -16320,7 +16634,7 @@ private fun WorkshopMappingCard(
                         "Only ever fills an empty workshop — nothing already filed is moved or cleared, and " +
                             "pressing it twice changes nothing.",
                         color = MaterialTheme.field.muted,
-                        fontSize = 11.sp
+                        fontSize = 12.sp
                     )
                 }
             }
@@ -16345,7 +16659,7 @@ private fun WorkshopMappingCard(
                     "No workshop has a date, so nothing can be filed by when it was " +
                         "recorded. Adding a start and end date to a workshop makes that evidence available.",
                     color = MaterialTheme.field.muted,
-                    fontSize = 11.sp
+                    fontSize = 12.sp
                 )
             } else {
                 // The WINDOWS, not just the titles. An end date is stored differently by each client — the
@@ -16357,7 +16671,7 @@ private fun WorkshopMappingCard(
                         "${window.title} — read as ${formatIsoDay(window.start)} to " +
                             formatIsoDay(window.end, daysBefore = 1),
                         color = MaterialTheme.field.placeholder,
-                        fontSize = 11.sp
+                        fontSize = 12.sp
                     )
                 }
             }
@@ -16385,7 +16699,7 @@ private fun MappingStatTile(label: String, value: Int, modifier: Modifier = Modi
             .border(1.dp, MaterialTheme.field.hairline, MaterialTheme.shapes.small)
             .padding(horizontal = 10.dp, vertical = 8.dp)
     ) {
-        Text(label.uppercase(Locale.ROOT), color = MaterialTheme.field.muted, fontSize = 10.sp)
+        Text(label.uppercase(Locale.ROOT), color = MaterialTheme.field.muted, fontSize = 12.sp)
         Text(
             value.toString(),
             display = true,
@@ -16428,10 +16742,10 @@ private suspend fun trySaveOffline(
  */
 @Composable
 private fun OfflineNotice(modifier: Modifier = Modifier) {
-    val ink = Color(0xFFE0C9B0)
+    val ink = MaterialTheme.field.onBrandTile
     Row(
         modifier = modifier
-            .background(Color(0xFF2A2520), RoundedCornerShape(10.dp))
+            .background(MaterialTheme.field.brandTile, RoundedCornerShape(10.dp))
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -16623,7 +16937,7 @@ private const val SAVED_CONFIRM_MS = 750L
 @Composable
 private fun TitleCaseHint(value: String) {
     val normalised = titleCasePreview(value) ?: return
-    Text("Will be saved as “$normalised”", color = Muted, fontSize = 11.sp)
+    Text("Will be saved as “$normalised”", color = Muted, fontSize = 12.sp)
 }
 
 /**
@@ -16701,6 +17015,7 @@ private fun TextInput(
         dictate = dictate,
         rich = rich,
         resetKey = resetKey,
+        capitalization = if (titleCased) KeyboardCapitalization.Words else null,
         below = { if (titleCased) TitleCaseHint(value) },
     )
 }
@@ -16717,7 +17032,7 @@ private fun joinNumbered(items: List<String>): String =
  * A required, numbered multi-point input. Each row is one numbered bullet; pressing Enter inside a row
  * splits it into a new bullet (so the user just types a point and hits Enter for the next). Rows can be
  * removed individually, and "+ Add point" appends an empty one. Backed by a List<String>; persist with
- * [joinNumbered]. Used for an artisan's Do's (positive prompt) and Don'ts (negative prompt).
+ * [joinNumbered]. Used for an artisan's Do's and Don'ts.
  *
  * ── DELIBERATELY LEFT WITHOUT EITHER CONTROL, AND THIS IS THE RECORD OF WHY ───────────────────
  *
@@ -16903,7 +17218,7 @@ private fun NumberedListDisplay(label: String, value: String?) {
     val items = value?.split("\n")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
     if (items.isEmpty()) return
     Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.fillMaxWidth()) {
-        Text(label, color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Text(label, color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         items.forEachIndexed { index, item ->
             Text("${index + 1}. $item", color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
         }
@@ -16962,6 +17277,7 @@ private fun RequiredInput(
         dictate = dictate,
         errorText = error,
         focusRequester = focusRequester,
+        capitalization = if (titleCased) KeyboardCapitalization.Words else null,
         below = { if (titleCased) TitleCaseHint(value) },
     )
 }
@@ -16974,31 +17290,21 @@ private class RequiredCheck(
 )
 
 /**
- * Clears prior errors, then on the first blank required field flags it, scrolls/focuses it into
- * view, and returns false. Returns true when every required field is filled.
+ * Clears prior errors, then flags EVERY blank required field (not only the first, which made a form
+ * with three gaps take three failed saves to discover), focuses the first, and returns false.
+ * Returns true when every required field is filled.
  */
 private fun validateRequired(checks: List<RequiredCheck>): Boolean {
     checks.forEach { it.setError(null) }
-    val firstMissing = checks.firstOrNull { it.isBlank } ?: return true
-    firstMissing.setError("This field cannot be empty")
-    runCatching { firstMissing.focus.requestFocus() }
+    val missing = checks.filter { it.isBlank }
+    if (missing.isEmpty()) return true
+    missing.forEach { it.setError(REQUIRED_FIELD_SENTENCE) }
+    runCatching { missing.first().focus.requestFocus() }
     return false
 }
 
-private fun requiredAndroidPermissions(): Array<String> {
-    val permissions = mutableListOf(
-        Manifest.permission.ACCESS_FINE_LOCATION,
-        Manifest.permission.ACCESS_COARSE_LOCATION,
-        Manifest.permission.CAMERA,
-        Manifest.permission.RECORD_AUDIO
-    )
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        permissions += Manifest.permission.READ_MEDIA_IMAGES
-        permissions += Manifest.permission.READ_MEDIA_VIDEO
-        permissions += Manifest.permission.READ_MEDIA_AUDIO
-    }
-    return permissions.toTypedArray()
-}
+/** Under each blank required box. The box's own label (ending in "*") names the field. */
+private const val REQUIRED_FIELD_SENTENCE = "Required — fill this in to save."
 
 private fun createAppFile(context: Context, prefix: String, suffix: String): File {
     // App storage, not cacheDir: an unsaved form's draft points at these files, and they must still be
@@ -17041,7 +17347,7 @@ private fun saveMediaToDevice(context: Context, url: String?, filename: String, 
         manager.enqueue(request)
         Toast.makeText(context, "Saving \"$safeName\" to Downloads…", Toast.LENGTH_SHORT).show()
     }.onFailure {
-        Toast.makeText(context, "Couldn't save: ${it.message ?: "download failed"}", Toast.LENGTH_LONG).show()
+        Toast.makeText(context, "Couldn't save: ${it.apiErrorMessage("download failed")}", Toast.LENGTH_LONG).show()
     }
 }
 
@@ -17176,6 +17482,7 @@ private fun moveIds(ids: List<String>, index: Int, direction: Int): List<String>
 
 private fun String.blankToNull(): String? = trim().takeIf { it.isNotEmpty() }
 
-private object ColorCompat {
-    val darkElevated = androidx.compose.ui.graphics.Color(0xFF252320)
-}
+
+/** A rich-text photograph's media id -> its URL, for [com.fieldrepository.app.ui.richtext.LocalRichMediaUrl]. */
+private fun richMediaUrlResolver(repository: FieldRepository): suspend (String) -> String? =
+    { id -> repository.mediaItem(id).url }

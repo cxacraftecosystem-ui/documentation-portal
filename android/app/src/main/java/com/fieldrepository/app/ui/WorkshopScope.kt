@@ -278,7 +278,7 @@ fun WorkshopScopeSelect(
                 Text(
                     scope.summary,
                     color = MaterialTheme.field.muted,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     modifier = Modifier.weight(1f)
                 )
             }

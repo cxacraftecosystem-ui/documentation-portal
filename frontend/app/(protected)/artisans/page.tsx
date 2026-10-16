@@ -191,13 +191,13 @@ export default function ArtisansPage() {
             { href: artisanEntryHref("/questionnaire", selectedArtisan), title: "Start questionnaire", body: "Open the interview with RESP prefilled.", icon: ClipboardList }
           ].map((item) => (
             <Link key={item.href} href={item.href} className="panel group flex min-h-32 items-start gap-3 p-4 transition hover:-translate-y-0.5 hover:shadow-panel">
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-field-200 text-field-700">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-field-200 text-field-700 dark:text-purple-300">
                 <item.icon className="h-5 w-5" aria-hidden />
               </span>
               <span>
                 <span className="block font-display font-bold text-xl text-ink">{item.title}</span>
                 <span className="mt-1 block text-sm leading-6 text-ink-muted">{item.body}</span>
-                <span className="mt-3 block text-xs font-semibold uppercase text-field-700">{selectedArtisan.name}</span>
+                <span className="mt-3 block text-xs font-semibold uppercase text-field-700 dark:text-purple-300">{selectedArtisan.name}</span>
               </span>
             </Link>
           ))}
@@ -235,7 +235,7 @@ export default function ArtisansPage() {
                             researcher scanning for gaps actually needs to know. */}
                         {artisan.pehchanCardNumber ? (
                           <span
-                            className="rounded-full bg-field-200 px-2 py-0.5 text-xs font-semibold text-field-700"
+                            className="rounded-full bg-field-200 px-2 py-0.5 text-xs font-semibold text-field-700 dark:text-purple-300"
                             title="Artisan Pehchan Card number on file"
                           >
                             Pehchan

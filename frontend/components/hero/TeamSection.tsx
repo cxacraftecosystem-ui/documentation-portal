@@ -115,7 +115,7 @@ export default function TeamSection() {
               <ul className="mt-5 space-y-2.5 border-t border-line-200 pt-5">
                 {audience.points.map((point) => (
                   <li key={point} className="flex items-start gap-2.5 text-sm leading-relaxed text-ink-700">
-                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-purple-700" aria-hidden />
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-purple-700 dark:text-purple-300" aria-hidden />
                     {point}
                   </li>
                 ))}

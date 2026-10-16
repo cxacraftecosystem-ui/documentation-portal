@@ -414,7 +414,7 @@ export default function AccessRosterPage() {
       {header}
 
       {error ? (
-        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
+        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</div>
       ) : null}
       {notice ? (
         <div className="mb-4 rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-700">{notice}</div>
@@ -425,7 +425,7 @@ export default function AccessRosterPage() {
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line-200 px-4 py-3">
           <div>
             <h2 className="flex items-center gap-2 font-display font-bold text-ink-900">
-              <Clock className="h-4 w-4 text-amber-800" aria-hidden />
+              <Clock className="h-4 w-4 text-amber-800 dark:text-amber-200" aria-hidden />
               Waiting for a decision
               {/* The count comes from the queue's own `total`, not from the badge hook: this heading
                   must agree with the rows underneath it, and the badge is on a one-minute poll. */}

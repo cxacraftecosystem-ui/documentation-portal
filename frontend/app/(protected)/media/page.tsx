@@ -527,7 +527,7 @@ function MediaPageBody() {
                     <td className="px-4 py-3 text-ink-700">
                       {item.transcriptText ? (
                         <details>
-                          <summary className="cursor-pointer font-semibold text-field-700">View transcript</summary>
+                          <summary className="cursor-pointer font-semibold text-field-700 dark:text-purple-300">View transcript</summary>
                           <div className="mt-2 max-h-64 min-w-64 overflow-auto rounded-md bg-field-100 p-3">
                             <Markdown text={item.transcriptText} />
                           </div>

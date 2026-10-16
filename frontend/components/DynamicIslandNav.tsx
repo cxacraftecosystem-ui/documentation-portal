@@ -431,7 +431,7 @@ export function DynamicIslandNav() {
                     aria-current={isActivePath(item.href) ? "page" : undefined}
                     className={cn(
                       "text-sm font-medium transition",
-                      isActivePath(item.href) ? "text-purple-700" : "text-ink-700 hover:text-ink-900"
+                      isActivePath(item.href) ? "text-purple-700 dark:text-purple-300" : "text-ink-700 hover:text-ink-900"
                     )}
                   >
                     {item.label}
@@ -481,7 +481,7 @@ export function DynamicIslandNav() {
               onClick={() => setSheetOpen((value) => !value)}
               aria-label="Toggle navigation menu"
               aria-expanded={sheetOpen}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-line-200 bg-card text-ink-900 transition hover:bg-surface-50"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-line-200 bg-card text-ink-900 transition hover:bg-surface-50 pointer-coarse:h-11 pointer-coarse:w-11"
             >
               {sheetOpen ? <X className="h-4 w-4" aria-hidden /> : <MenuIcon className="h-4 w-4" aria-hidden />}
             </button>

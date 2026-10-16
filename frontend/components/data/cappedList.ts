@@ -139,9 +139,9 @@ export type CutReach = "none" | "pager" | "search";
  * 3. **Cut, with a box that searches the SERVER.** Say the arithmetic and say that typing reaches
  *    all of them — the only arm where the reader is not being warned about a limit, because the
  *    control genuinely has not got one.
- * 4. **Cut, with no way past it from here.** Say the arithmetic and say plainly that typing in this
- *    box searches only what is shown — otherwise the empty result of that typing reads as a fact
- *    about the repository, which is the entire defect.
+ * 4. **Cut, with no way past it from here.** Say the arithmetic and name the way past it (Search
+ *    from the menu) — otherwise the empty result of typing in this box reads as a fact about the
+ *    repository, which is the entire defect.
  * 5. **Not cut.** Silence.
  *
  * The numbers are always both printed. "Showing the first 100" alone still leaves the reader
@@ -164,7 +164,10 @@ export function cappedListNotice(cut: ListCut | null, reach: CutReach = "none"):
     // actions.
     return `Showing ${cut.loaded} of ${cut.total} ${cut.noun} — type to search all ${cut.total}.`;
   }
-  return `Showing ${cut.loaded} of ${cut.total} ${cut.noun} — the other ${cut.total - cut.loaded} are not on this list, and typing here searches only the ${cut.loaded} shown.`;
+  // UX audit 2026-10-16 (DC-A09): this arm used to end by admitting the gap ("the other N are not
+  // on this list, and typing here searches only the N shown"). It now points at the way past the
+  // cut instead. Android prints the identical sentence; its test reads this line.
+  return `Showing ${cut.loaded} of ${cut.total} ${cut.noun}. To find another, use Browse records from the menu.`;
 }
 
 /**

@@ -407,22 +407,13 @@ fun recordStoredFromDoc(doc: RichDoc): String? = when {
     else -> toPlain(doc).takeIf { it.isNotBlank() }
 }
 
-/**
- * The one line printed under a rich box, so nobody discovers the trade-off by losing work — or by
- * finding braces in a spreadsheet a month later.
- *
- * SHORT ON PURPOSE. A thirty-five-word lecture under a control is a lecture nobody reads twice, and
- * the second time it appears they stop reading the sentences that matter. This says what is kept,
- * says what it costs, and stops.
- *
- * IT WILL NEED DELETING, and that is the point of saying it here: the moment `cell()` in
- * `record_fields.py` and the two review renderers flatten a document, the second sentence stops
- * being true and must go. A note that outlives its defect is how a screen ends up lying quietly.
+/*
+ * THE NOTE THAT USED TO SIT UNDER A RICH BOX IS GONE, as its own comment said it would be. It read
+ * "Until the exports are taught to read it, an answer you format here shows as its raw stored text
+ * in CSV downloads" — an admission of a gap. `cell()` in `backend/app/services/record_fields.py`
+ * now flattens a stored document to its words (`flatten_rich_text`, this file's `toPlain` line for
+ * line), so the exports read it and there is nothing left to warn about.
  */
-const val RECORD_RICH_TEXT_NOTE: String =
-    "Formatting is saved with the answer. Until the exports are taught to read it, an answer you " +
-        "format here shows as its raw stored text in CSV downloads; plain typing and dictation are " +
-        "unchanged."
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 //  3. THE LANGUAGES

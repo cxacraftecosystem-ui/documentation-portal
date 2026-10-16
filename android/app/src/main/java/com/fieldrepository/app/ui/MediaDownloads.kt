@@ -1,5 +1,6 @@
 package com.fieldrepository.app.ui
 
+import com.fieldrepository.app.data.apiErrorMessage
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -26,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.TextButton
@@ -245,7 +247,7 @@ fun MediaDownloadButton(
     var pending by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     fun failed(error: Throwable) {
-        Toast.makeText(context, "Couldn't save: ${error.message ?: "the copy failed"}", Toast.LENGTH_LONG).show()
+        Toast.makeText(context, "Couldn't save: ${error.apiErrorMessage("the copy failed")}", Toast.LENGTH_LONG).show()
     }
 
     // Below API 29: the system "save as" picker. It answers with a document Uri, or null if dismissed.
@@ -335,7 +337,7 @@ fun OutboxPendingBanner(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val ink = Color(0xFFE0C9B0)
+    val ink = MaterialTheme.field.onBrandTile
     var expanded by remember { mutableStateOf(false) }
     var files by remember { mutableStateOf<List<PendingMedia>>(emptyList()) }
     var refused by remember { mutableStateOf<List<PendingEntry>>(emptyList()) }
@@ -351,7 +353,7 @@ fun OutboxPendingBanner(
     }
     Column(
         modifier = modifier
-            .background(Color(0xFF2A2520), RoundedCornerShape(10.dp))
+            .background(MaterialTheme.field.brandTile, RoundedCornerShape(10.dp))
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
@@ -375,16 +377,16 @@ fun OutboxPendingBanner(
                     Text(
                         "“${entry.label}” couldn't upload: ${entry.failure}",
                         color = ink,
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
                         modifier = Modifier.weight(1f)
                     )
                     TextButton(onClick = { scope.launch { onRetry(entry.id); reload++ } }) {
-                        Text("Try again", color = ink, fontSize = 11.sp)
+                        Text("Try again", color = ink, fontSize = 12.sp)
                     }
                 }
             }
             if (files.isEmpty()) {
-                Text("No files are queued with these entries.", color = ink, fontSize = 11.sp)
+                Text("No files are queued with these entries.", color = ink, fontSize = 12.sp)
             }
             files.forEach { media ->
                 val file = File(media.localPath)
@@ -393,7 +395,7 @@ fun OutboxPendingBanner(
                     Text(
                         label,
                         color = ink,
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)

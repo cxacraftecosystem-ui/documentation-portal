@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * The questionnaire's two capture controls — "Recording mode" and "Do not display answer text
+ * The questionnaire's two capture controls — "Recording mode" and "Show answer text
  * boxes" — and the defaults they must open on.
  *
  * The defaults are the whole point of the feature: a researcher sitting with an artisan should see
@@ -49,7 +49,7 @@ async function openFreshQuestionnaire(page: Page) {
 }
 
 const modeTrigger = (page: Page) => page.getByRole("button", { name: "Recording mode", exact: true });
-const answersToggle = (page: Page) => page.getByRole("button", { name: "Do not display answer text boxes" });
+const answersToggle = (page: Page) => page.getByRole("button", { name: "Show answer text boxes" });
 /**
  * The questionnaire's own collapsible sections.
  *
@@ -72,7 +72,7 @@ test("opens on whole-section recording with the answer boxes hidden", async ({ p
   await openFreshQuestionnaire(page);
 
   await expect(modeTrigger(page)).toContainText("Record the entire section at once");
-  await expect(answersToggle(page)).toHaveAttribute("aria-pressed", "true");
+  await expect(answersToggle(page)).toHaveAttribute("aria-pressed", "false");
 
   const section = firstSection(page);
   await expect(section.getByRole("button", { name: "Record section" })).toBeVisible();
@@ -89,7 +89,7 @@ test("both controls flip, and the choice survives a reload", async ({ page }) =>
   await openFreshQuestionnaire(page);
 
   await answersToggle(page).click();
-  await expect(answersToggle(page)).toHaveAttribute("aria-pressed", "false");
+  await expect(answersToggle(page)).toHaveAttribute("aria-pressed", "true");
   await expect(firstSection(page).locator("textarea").first()).toBeVisible();
 
   await chooseMode(page, "Record individual questions");
@@ -105,7 +105,7 @@ test("both controls flip, and the choice survives a reload", async ({ page }) =>
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(firstSection(page)).toBeVisible({ timeout: 60_000 });
   await expect(modeTrigger(page)).toContainText("Record individual questions");
-  await expect(answersToggle(page)).toHaveAttribute("aria-pressed", "false");
+  await expect(answersToggle(page)).toHaveAttribute("aria-pressed", "true");
 });
 
 test.describe("a recording is never lost to a mode switch", () => {
@@ -150,7 +150,7 @@ test("dark mode renders both states", async ({ page }) => {
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 
   await expect(modeTrigger(page)).toContainText("Record the entire section at once");
-  await expect(answersToggle(page)).toHaveAttribute("aria-pressed", "true");
+  await expect(answersToggle(page)).toHaveAttribute("aria-pressed", "false");
   await page.screenshot({ path: `${SHOT_DIR}/dark-default-controls.png`, fullPage: false });
   await firstSection(page).scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${SHOT_DIR}/dark-default-section-hidden.png`, fullPage: false });

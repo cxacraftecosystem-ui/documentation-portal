@@ -165,7 +165,7 @@ export default function HeroFAQ() {
 
         <motion.p variants={item} className="mt-6 text-center text-sm text-ink-500">
           Still unsure where to start?{" "}
-          <Link href="/guide" className="font-medium text-purple-700 underline-offset-2 hover:underline">
+          <Link href="/guide" className="font-medium text-purple-700 dark:text-purple-300 underline-offset-2 hover:underline">
             The walkthrough
           </Link>{" "}
           covers every screen in the order you will meet them.

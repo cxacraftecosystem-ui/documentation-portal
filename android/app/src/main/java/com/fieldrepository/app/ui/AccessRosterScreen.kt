@@ -324,7 +324,7 @@ fun AccessRosterScreen(
 
                 // Truncation is stated, never silent — and the sentence says how to reach the rest.
                 accessQueueNotice(shown = pending?.size ?: 0, total = queueTotal)?.let {
-                    Text(it, color = MaterialTheme.field.warning, fontSize = 11.sp)
+                    Text(it, color = MaterialTheme.field.warning, fontSize = 12.sp)
                 }
             }
         }
@@ -373,7 +373,7 @@ fun AccessRosterScreen(
                     // admin's own tier so it can never hand out more than the admin holds.
                     "Everybody joins at the lowest rung unless you promote them here.",
                     color = Muted,
-                    fontSize = 11.sp
+                    fontSize = 12.sp
                 )
                 OutlinedTextField(
                     value = newNote,
@@ -543,7 +543,7 @@ fun AccessRosterScreen(
         }
 
         if (list != null) {
-            Text(accessRosterPageNotice(rosterPage, rosterPages, rosterTotal), color = Muted, fontSize = 11.sp)
+            Text(accessRosterPageNotice(rosterPage, rosterPages, rosterTotal), color = Muted, fontSize = 12.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(enabled = rosterPage > 1, onClick = { rosterPage -= 1 }) { Text("Previous") }
                 OutlinedButton(enabled = rosterPage < rosterPages, onClick = { rosterPage += 1 }) { Text("Next") }
@@ -556,7 +556,7 @@ fun AccessRosterScreen(
                 "be an outage with no remedy inside the app — that one exemption is what makes the rest " +
                 "of this screen safe to use.",
             color = Muted,
-            fontSize = 11.sp
+            fontSize = 12.sp
         )
     }
 
@@ -606,7 +606,7 @@ private fun PendingRequestRow(
         // in this product where a stranger can cause content to appear, and nothing they control is
         // rendered here beyond the address they proved they own.
         Text(entry.email, color = Body, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Text(accessRequestLabel(entry.requestCount), color = Muted, fontSize = 11.sp)
+        Text(accessRequestLabel(entry.requestCount), color = Muted, fontSize = 12.sp)
         SearchableSelectField(
             label = "Joins as",
             options = roleOptions,
@@ -655,22 +655,22 @@ private fun RosterRow(
             Text(entry.email, color = Muted, fontSize = 12.sp)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatusPill(entry.status)
-                Text(accessInvitationLabel(entry.status, entry.firstSeenAt), color = Muted, fontSize = 11.sp)
+                Text(accessInvitationLabel(entry.status, entry.firstSeenAt), color = Muted, fontSize = 12.sp)
             }
             Text(
                 accessJoinedLabel(entry.joinedAt) + " · " + roleLabelFor(entry.grantedRole),
                 color = Muted,
-                fontSize = 11.sp
+                fontSize = 12.sp
             )
             // The two disagree the moment somebody is promoted through the users screen, and an
             // admin reading only the roster would be looking at a stale tier and believing it
             // current. So the live one is printed whenever it differs.
             entry.accountRole?.takeIf { it != entry.grantedRole }?.let {
-                Text("Account is now ${roleLabelFor(it)}", color = Muted, fontSize = 11.sp)
+                Text("Account is now ${roleLabelFor(it)}", color = Muted, fontSize = 12.sp)
             }
-            Text(accessRequestLabel(entry.requestCount), color = Muted, fontSize = 11.sp)
+            Text(accessRequestLabel(entry.requestCount), color = Muted, fontSize = 12.sp)
             entry.notes?.takeIf { it.isNotBlank() }?.let {
-                Text(it, color = Muted, fontSize = 11.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Text(it, color = Muted, fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
             }
             if (entry.status == "ACTIVE") {
                 // Never labelled "Delete". The verb has to say what happens, and what happens is
@@ -734,7 +734,7 @@ private fun StatusPill(status: String) {
                 Icon(Icons.Filled.VerifiedUser, contentDescription = null, tint = content, modifier = Modifier.size(12.dp))
                 Spacer(Modifier.width(4.dp))
             }
-            Text(accessStatusLabel(status), color = content, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+            Text(accessStatusLabel(status), color = content, fontSize = 12.sp, fontWeight = FontWeight.Medium)
         }
     }
 }

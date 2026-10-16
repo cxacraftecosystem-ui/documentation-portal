@@ -47,6 +47,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -218,7 +219,7 @@ private fun precisionNote(precision: String): String = when (precision) {
     "SUBJECT_PIN" -> "pin dropped on the subject's own place"
     "MEASURED" -> "GPS fix taken while recording"
     "TOWN" -> "town located from the typed place name"
-    "DISTRICT" -> "district position learned from pins inside it"
+    "DISTRICT" -> "district position worked out from pins inside it"
     "STATE" -> "state only — drawn at the state's seat"
     "NATION" -> "every placed record, folded into one point"
     else -> "position of unstated precision"
@@ -405,6 +406,8 @@ fun MapScreen(
     var data by remember { mutableStateOf<MapPointsDto?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    /** Bumped by Try again on the error card; a key of the load effect, so it re-runs. */
+    var loadAttempt by remember { mutableIntStateOf(0) }
     var selectedKey by remember { mutableStateOf<String?>(null) }
 
     /**
@@ -482,7 +485,7 @@ fun MapScreen(
         flashKey = null
     }
 
-    LaunchedEffect(level, workshopScope.requestKey, workshopScope.settled, activeFocusType, activeFocusId) {
+    LaunchedEffect(level, workshopScope.requestKey, workshopScope.settled, activeFocusType, activeFocusId, loadAttempt) {
         if (!workshopScope.settled) return@LaunchedEffect
         loading = true
         // Cleared BEFORE the request, not after it: a failed load followed by a level change would
@@ -529,8 +532,9 @@ fun MapScreen(
                 // must: the pass that replaced this one already owns the flag.
                 if (failure is CancellationException) throw failure
                 val message = failure.apiErrorMessage("The map could not be loaded.")
+                // Said once, on the card that also offers Try again — not a second time in the
+                // app-wide message bar on top of it.
                 error = message
-                onError(message)
                 loading = false
                 // A drill-down whose request failed can never be satisfied, and an intent left standing
                 // would fire against the next response that happened to be at its level — selecting and
@@ -594,9 +598,10 @@ fun MapScreen(
         }
 
         when {
-            error != null -> MapCard(title = "The map could not be loaded") {
-                Text(error.orEmpty(), color = MaterialTheme.field.body, fontSize = 13.sp)
-            }
+            error != null -> LoadFailedCard(
+                message = error.orEmpty(),
+                onRetry = { loadAttempt += 1 }
+            )
 
             current == null -> MapCard(title = "Placing the records…") {
                 Text(
@@ -1620,10 +1625,10 @@ private fun MapSummaryCard(
                     )
                 }
                 Text(
-                    "The map knows a position for ${summary.anchoredDistricts} " +
+                    "The map can place ${summary.anchoredDistricts} " +
                         (if (summary.anchoredDistricts == 1) "district" else "districts") +
-                        ", learned from ${summary.anchorPins} dropped " +
-                        (if (summary.anchorPins == 1) "pin" else "pins") + ".",
+                        " from the ${summary.anchorPins} " +
+                        (if (summary.anchorPins == 1) "pin" else "pins") + " people have dropped.",
                     color = MaterialTheme.field.muted,
                     fontSize = 11.sp
                 )

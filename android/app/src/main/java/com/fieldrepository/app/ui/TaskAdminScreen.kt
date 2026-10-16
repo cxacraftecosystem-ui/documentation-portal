@@ -2358,7 +2358,8 @@ private fun PersonChip(user: TaskUserDto, onRemove: () -> Unit) {
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onPrimaryContainer
         )
-        IconButton(onClick = onRemove, modifier = Modifier.size(20.dp)) {
+        // 48dp: the remove target was 20dp, a quarter of what a thumb can aim at.
+        IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
             Icon(
                 Icons.Filled.Close,
                 contentDescription = "Remove ${user.name}",

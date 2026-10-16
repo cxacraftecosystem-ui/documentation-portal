@@ -1,5 +1,6 @@
 package com.fieldrepository.app.ui
 
+import com.fieldrepository.app.data.apiErrorMessage
 import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -417,7 +418,7 @@ fun AppearanceScreen(
                     if (it !is kotlinx.coroutines.CancellationException && !repository.isOnline(appContext)) {
                         error = "Saved on this device. It will sync to your account when you're back online."
                     } else if (it !is kotlinx.coroutines.CancellationException) {
-                        error = it.message ?: "Unable to save preferences"
+                        error = it.apiErrorMessage("Unable to save preferences")
                     }
                 }
             saving = false

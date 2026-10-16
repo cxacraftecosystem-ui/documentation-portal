@@ -221,7 +221,7 @@ function MultiNoteInput({ label, value, onChange }: { label: string; value: stri
               <button
                 type="button"
                 aria-label="Remove note"
-                className="field-button-secondary h-9 min-h-0 shrink-0 px-2.5"
+                className="field-button-secondary h-9 min-h-0 pointer-coarse:h-11 shrink-0 px-2.5"
                 onClick={() => emit(rows.filter((_, i) => i !== index))}
               >
                 ✕
@@ -266,7 +266,7 @@ function MultiNoteInput({ label, value, onChange }: { label: string; value: stri
           />
         </div>
       ))}
-      <button type="button" className="field-button-secondary h-9 min-h-0 justify-self-start px-3 text-xs" onClick={() => emit([...rows, ""])}>
+      <button type="button" className="field-button-secondary h-9 min-h-0 pointer-coarse:h-11 justify-self-start px-3 text-xs" onClick={() => emit([...rows, ""])}>
         <Plus className="h-3.5 w-3.5" aria-hidden />
         Add note
       </button>
@@ -842,7 +842,7 @@ export function ProcessForm({
         </p>
       </div>
       {initial ? <FieldProvenance extraMetadata={initial.extraMetadata} /> : null}
-      {error ? <div className="rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-error-600">{error}</div> : null}
+      {error ? <div className="rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-red-800">{error}</div> : null}
       <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
 
       {/*
@@ -1035,7 +1035,7 @@ export function ProcessForm({
             onRemoved={(id) => setExistingPreMedia((current) => current.filter((media) => media.id !== id))}
             onError={setError}
           />
-          <p className="text-xs font-medium text-amber-800">🎥 Video is the preferred format here — capture the action as it happens.</p>
+          <p className="text-xs font-medium text-amber-800 dark:text-amber-200">🎥 Video is the preferred format here — capture the action as it happens.</p>
           <MediaCaptureField
             files={preFiles}
             onFilesChange={setPreFiles}
@@ -1111,7 +1111,7 @@ export function ProcessForm({
                   onChange={(value) => updateStep(step.key, { notes: value })}
                 />
               ) : null}
-              <p className="text-xs font-medium text-amber-800">🎥 Video is the preferred format here — capture the action as it happens.</p>
+              <p className="text-xs font-medium text-amber-800 dark:text-amber-200">🎥 Video is the preferred format here — capture the action as it happens.</p>
               <MediaCaptureField
                 files={step.files}
                 onFilesChange={(files) => updateStep(step.key, { files })}

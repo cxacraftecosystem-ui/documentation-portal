@@ -65,8 +65,14 @@
  * text node that follows an element. So the space lives INSIDE this span rather than being left to
  * the caller to remember, and `Label *` cannot become `Label*` by somebody tidying a template
  * literal.
+ *
+ * ── ONLY AN EXPLICIT `true` DRAWS IT (UX audit DC-01, 2026-10-16) ───────────────────────────────
+ *
+ * This read `{ when = true }` until then. Every caller forwards an optional prop (`when={required}`),
+ * and a default PARAMETER turns the `undefined` of a field that never set `required` into `true`,
+ * so all 81 optional `Field`s drew the asterisk — "Note (optional) *". Absence now means optional.
  */
-export function RequiredMark({ when = true }: { when?: boolean }) {
-  if (!when) return null;
+export function RequiredMark({ when }: { when?: boolean }) {
+  if (when !== true) return null;
   return <span className="text-error-600 dark:text-red-400"> *</span>;
 }

@@ -1697,7 +1697,7 @@ export function LocationFields({
                   ? "Filled in from the place you pointed at:"
                   : "Filled in from this device's location (only the boxes that were empty):"}{" "}
                 <strong className="font-semibold">{FIELD_NAMES(autofill.applied)}</strong>. Check it, and
-                change anything that is wrong — you know this place and the geocoder does not.
+                change anything that is wrong — you know this place and the address lookup does not.
               </span>
             </p>
             <div>
@@ -1972,7 +1972,7 @@ export function LocationFields({
                 </span>
                 <button
                   type="button"
-                  className="text-sm font-medium text-purple-700 underline underline-offset-2"
+                  className="text-sm font-medium text-purple-700 dark:text-purple-300 underline underline-offset-2"
                   onClick={() => {
                     setSubjectLatitude("");
                     setSubjectLongitude("");

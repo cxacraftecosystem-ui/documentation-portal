@@ -290,8 +290,8 @@ const QUOTE_CLASS = "border-l-2 border-purple-300 pl-3 text-sm italic leading-6 
  * as a section break rather than as a large sentence.
  */
 const HEADING_CLASS: Record<number, string> = {
-  1: "font-display text-3xl font-bold leading-9 text-purple-800 border-b border-line-300 pb-1 mt-4",
-  2: "font-display text-xl font-bold leading-7 text-purple-800 mt-3",
+  1: "font-display text-3xl font-bold leading-9 text-purple-800 dark:text-purple-300 border-b border-line-300 pb-1 mt-4",
+  2: "font-display text-xl font-bold leading-7 text-purple-800 dark:text-purple-300 mt-3",
   3: "font-display text-base font-bold leading-6 text-purple-600 mt-2",
   4: "font-display text-sm font-bold uppercase tracking-wide leading-6 text-ink-500 mt-2"
 };
@@ -2958,7 +2958,7 @@ export function RichTextEditor({
         {!disabled ? <OnDeviceDictationButton fieldLabel={ariaLabel ?? "this field"} explainWhenUnavailable={explainWhenUnavailable} onCommit={commitDictated} /> : null}
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-purple-700 transition hover:text-purple-800"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-purple-700 dark:text-purple-300 transition hover:text-purple-800"
           aria-expanded={savedPanelOpen}
           aria-controls={savedPanelOpen ? `${editorId}-saved` : undefined}
           onClick={() => setSavedPanelOpen((current) => !current)}

@@ -64,7 +64,7 @@ export function RequiredByInstrument({
 }) {
   if (!question.isRequired) return null;
   return (
-    <span className="ml-1 align-middle text-[11px] font-medium uppercase tracking-wide text-amber-800">
+    <span className="ml-1 align-middle text-[11px] font-medium uppercase tracking-wide text-amber-800 dark:text-amber-200">
       required
     </span>
   );

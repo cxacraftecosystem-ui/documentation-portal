@@ -130,7 +130,7 @@ export function ToolAssignmentSection() {
   return (
     <section className="panel mt-6 grid gap-4 p-4">
       <div className="flex items-center gap-2">
-        <Link2 className="h-5 w-5 text-field-700" aria-hidden />
+        <Link2 className="h-5 w-5 text-field-700 dark:text-purple-300" aria-hidden />
         <div>
           <h2 className="font-display font-bold text-xl text-ink">Assign a tool to multiple artisans</h2>
           <p className="text-sm text-ink-muted">

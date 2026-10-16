@@ -28,7 +28,8 @@ import {
   hasRank,
   isAdmin,
   isMasterAdmin,
-  roleLabel
+  roleLabel,
+  roleRank
 } from "@/lib/permissions";
 import type { PageResult, User } from "@/lib/types";
 
@@ -267,6 +268,17 @@ export default function UsersPage() {
   }
 
   async function updateRole(user: User, role: string) {
+    // UX audit DC-05: the role picker writes the moment it changes, so a DEMOTION asks first — a
+    // slip of the arrow key must not take somebody's access away. A promotion still writes at once.
+    if (roleRank(role as User["role"]) < roleRank(user.role)) {
+      const ok = await confirm({
+        title: `Lower ${user.name}'s role to ${roleLabel(role)}?`,
+        body: `They lose everything ${roleLabel(user.role)} could do that ${roleLabel(role)} cannot.`,
+        confirmLabel: "Lower role",
+        tone: "warning"
+      });
+      if (!ok) return;
+    }
     try {
       await apiFetch(`/users/${user.id}`, { method: "PATCH", body: JSON.stringify({ role }) });
       setError(null);
@@ -345,7 +357,7 @@ export default function UsersPage() {
         icon={<ShieldCheck className="h-5 w-5" aria-hidden />}
       />
       {error ? (
-        <div role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {error}
         </div>
       ) : null}
@@ -437,7 +449,11 @@ export default function UsersPage() {
                     <td className="px-4 py-3 text-ink-700">{user.email}</td>
                     <td className="px-4 py-3">
                       {canManageUser(currentUser, user) && user.role !== "MASTER_ADMIN" ? (
-                        <select className="field-input max-w-44" value={user.role} onChange={(event) => updateRole(user, event.target.value)}>
+                        <select
+                          className="field-input max-w-44"
+                          aria-label={`Role for ${user.name}`}
+                          value={user.role}
+                          onChange={(event) => updateRole(user, event.target.value)}>
                           {assignableRoles(currentUser)
                             .filter((role) => role !== "MASTER_ADMIN" || isMasterAdmin(currentUser))
                             .map((role) => (
@@ -486,9 +502,9 @@ export default function UsersPage() {
                           </button>
                         </RowActions>
                       ) : canManageUser(currentUser, user) ? (
-                        <span className="text-xs text-ink-300">Role only</span>
+                        <span className="text-xs text-ink-500">Role only</span>
                       ) : (
-                        <span className="text-xs text-ink-300">Peer tier</span>
+                        <span className="text-xs text-ink-500">Peer tier</span>
                       )}
                     </td>
                   </tr>
@@ -535,7 +551,7 @@ export default function UsersPage() {
           {adminMessage ? <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{adminMessage}</div> : null}
           <div className="mt-4 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
             <div className="rounded-md border border-line-200 bg-field-50 p-3">
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-soft">Select users ({adminSelection.size} selected)</div>
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">Select users ({adminSelection.size} selected)</div>
               <div className="grid max-h-72 gap-1 overflow-y-auto">
                 {allUsers
                   .filter((user) => user.role !== "MASTER_ADMIN")
@@ -554,7 +570,7 @@ export default function UsersPage() {
               </div>
             </div>
             <div className="grid content-start gap-2 rounded-md border border-line-200 bg-field-50 p-3">
-              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-soft">Grant</div>
+              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">Grant</div>
               <label className="flex items-center gap-2 text-sm text-ink">
                 <input type="checkbox" checked={grantAdmin} onChange={(event) => setGrantAdmin(event.target.checked)} />
                 Administrator access (role = ADMIN)

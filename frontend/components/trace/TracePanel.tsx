@@ -1849,7 +1849,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
         frame is recorded nowhere and would be told nothing about it.
       */}
       {edited !== null ? (
-        <p className="mt-2 max-w-prose text-xs leading-5 text-amber-800">
+        <p className="mt-2 max-w-prose text-xs leading-5 text-amber-800 dark:text-amber-200">
           The frame you chose is written into the SVG&apos;s provenance note, the PDF&apos;s title and
           the EPS&apos;s header, so those three say how they were made. The PNG and the DXF have
           nowhere to carry it: saved on their own, neither records that the drawing was cropped or
@@ -1975,7 +1975,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
             */}
             {pixels ? (
               <div className="mb-3 flex flex-wrap items-start gap-3 rounded-md border border-line-200 bg-card p-3">
-                <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-field-200 text-field-600">
+                <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-field-200 text-field-600 dark:text-purple-300">
                   <Crop className="h-4 w-4" aria-hidden />
                 </span>
                 <div className="min-w-0 flex-1">
@@ -2443,7 +2443,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
                 <button
                   type="button"
                   id={advancedToggleId}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-purple-700 transition hover:text-purple-800"
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-purple-700 dark:text-purple-300 transition hover:text-purple-800"
                   onClick={toggleAdvanced}
                   aria-expanded={advancedOpen}
                   /* ONLY WHILE THE PANEL IS MOUNTED. Before the first press the id names nothing, and
@@ -2480,7 +2480,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
                     because a researcher who has learned to skip a paragraph still reads the button they
                     are about to press. */}
                 {!advancedOpen && hiddenModified.length > 0 ? (
-                  <p className="mt-2 text-xs leading-5 text-amber-800">
+                  <p className="mt-2 text-xs leading-5 text-amber-800 dark:text-amber-200">
                     {hiddenModified.length === 1
                       ? `One setting that is not on screen has moved: ${hiddenModified[0]}.`
                       : `${hiddenModified.length} settings that are not on screen have moved: ${hiddenModified.join(", ")}.`}
@@ -2589,7 +2589,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
             {problem ? (
               <p
                 role="alert"
-                className="mt-3 flex items-start gap-2 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-xs text-error-600"
+                className="mt-3 flex items-start gap-2 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-xs text-red-800"
               >
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
                 <span>{problem}</span>
@@ -2801,7 +2801,7 @@ function SliderRow({
       <div className="flex items-baseline justify-between gap-2">
         <label className="text-xs font-medium text-ink-900" htmlFor={id}>
           {spec.label}
-          {modified ? <span className="ml-1 text-purple-700">·</span> : null}
+          {modified ? <span className="ml-1 text-purple-700 dark:text-purple-300">·</span> : null}
         </label>
         <output className="text-xs tabular-nums text-ink-500" htmlFor={id}>
           {formatValue(value, spec.step)}
@@ -2859,7 +2859,7 @@ function ToggleRow({
         <div className="min-w-0">
           <label className="text-xs font-medium text-ink-900" htmlFor={id}>
             {spec.label}
-            {modified ? <span className="ml-1 text-purple-700">·</span> : null}
+            {modified ? <span className="ml-1 text-purple-700 dark:text-purple-300">·</span> : null}
           </label>
           <p id={`${id}-hint`} className="text-xs leading-4 text-ink-500">
             {spec.hint}
@@ -2906,7 +2906,7 @@ function ChoiceRow({
       */}
       <label className="text-xs font-medium text-ink-900" htmlFor={id}>
         {spec.label}
-        {modified ? <span className="ml-1 text-purple-700">·</span> : null}
+        {modified ? <span className="ml-1 text-purple-700 dark:text-purple-300">·</span> : null}
       </label>
       <select
         id={id}
@@ -2950,7 +2950,7 @@ function ChoiceRow({
  */
 function InertNote({ reason }: { reason: string | null }) {
   if (reason === null) return null;
-  return <p className="mt-0.5 text-xs leading-4 text-amber-800">{reason}</p>;
+  return <p className="mt-0.5 text-xs leading-4 text-amber-800 dark:text-amber-200">{reason}</p>;
 }
 
 /** Re-exported so a host can name the essentials without importing the table. */

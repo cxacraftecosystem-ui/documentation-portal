@@ -46,7 +46,7 @@ const PRECISION_NOTE: Record<MapPrecision, string> = {
   SUBJECT_PIN: "pin dropped on the subject's own place",
   MEASURED: "GPS fix taken while recording",
   TOWN: "town located from the typed place name",
-  DISTRICT: "district position learned from pins inside it",
+  DISTRICT: "district position worked out from pins inside it",
   STATE: "state only — drawn at the state's seat",
   NATION: "every placed record, folded into one point"
 };
@@ -277,7 +277,7 @@ export function MapPlaceList({
                       // screen reader there is somewhere to go and then loses it.
                       aria-controls={isExpanded ? panelId : undefined}
                       onClick={() => onToggleExpanded(point.key)}
-                      className="flex w-full items-center gap-1.5 rounded text-left text-[11px] font-semibold text-purple-700 hover:underline focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
+                      className="flex w-full items-center gap-1.5 rounded text-left text-[11px] font-semibold text-purple-700 dark:text-purple-300 hover:underline focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
                     >
                       <ChevronDown
                         className={`h-3.5 w-3.5 shrink-0 transition-transform ${isExpanded ? "rotate-180" : ""}`}
@@ -295,7 +295,7 @@ export function MapPlaceList({
                               onClick={() => onDrillDown(child)}
                               className="flex w-full items-baseline gap-2 rounded border border-line-200 bg-surface-50 px-2 py-1.5 text-left transition-colors hover:border-purple-300 hover:bg-purple-50 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
                             >
-                              <span className="w-5 shrink-0 text-right font-display text-[10px] font-bold text-ink-300">
+                              <span className="w-5 shrink-0 text-right font-display text-[10px] font-bold text-ink-500">
                                 {ordinal}.{childIndex + 1}
                               </span>
                               <span className="min-w-0 flex-1">
@@ -323,7 +323,7 @@ export function MapPlaceList({
                             navigation as moving the Detail control and then clicking that pin — so the
                             reader ends up somewhere they could have reached by hand, with the pin, the
                             borders and the record panel all agreeing. */}
-                        <li className="px-2 pt-0.5 text-[11px] leading-4 text-ink-300">
+                        <li className="px-2 pt-0.5 text-[11px] leading-4 text-ink-500">
                           Choosing one moves the map to {(childLevel ?? "district").toLowerCase()} detail.
                         </li>
                       </ul>

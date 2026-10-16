@@ -490,7 +490,7 @@ export function RecordPhotoMeasure({
           "pointer-events-auto absolute grid h-8 w-8 -translate-x-1/2 -translate-y-1/2 place-items-center",
           "rounded-full text-[0.625rem] font-bold leading-none shadow-md transition-shadow",
           isTarget
-            ? "border-2 border-purple-700 bg-card text-purple-800"
+            ? "border-2 border-purple-700 bg-card text-purple-800 dark:text-purple-300"
             : "border-2 border-card bg-purple-700 text-white",
           isActive ? "ring-4 ring-purple-600/30" : "",
           mark.placed ? "" : "opacity-70"
@@ -1271,7 +1271,7 @@ function MeasurementReadout({
                 ) : null}
                 {column.note ? <span className="text-xs leading-5 text-ink-500">{column.note}</span> : null}
                 {current ? (
-                  <span className="text-xs leading-5 text-amber-800">Currently “{current}”. This replaces it.</span>
+                  <span className="text-xs leading-5 text-amber-800 dark:text-amber-200">Currently “{current}”. This replaces it.</span>
                 ) : null}
               </div>
             );

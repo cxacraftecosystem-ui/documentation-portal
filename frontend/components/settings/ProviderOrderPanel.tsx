@@ -248,7 +248,7 @@ function testedAgo(iso: string | null): string {
 const KEY_STATE_BADGE: Record<KeyState, { label: string; className: string; Icon: typeof CheckCircle2 }> = {
   PASSING: { label: "Tested and working", className: "text-success-600", Icon: CheckCircle2 },
   FAILING: { label: "Test failed", className: "text-error-600", Icon: XCircle },
-  UNTESTED: { label: "Key present, never tested", className: "text-amber-800", Icon: ShieldQuestion },
+  UNTESTED: { label: "Key present, never tested", className: "text-amber-800 dark:text-amber-200", Icon: ShieldQuestion },
   NO_KEY: { label: "No API key", className: "text-ink-500", Icon: CircleDashed }
 };
 
@@ -709,7 +709,7 @@ export function ProviderOrderPanel() {
 
       {actionTrouble ? (
         <div
-          className="grid gap-1.5 rounded-md border border-error-100 bg-error-100/50 px-3 py-2.5 text-sm text-error-600"
+          className="grid gap-1.5 rounded-md border border-error-100 bg-error-100/50 px-3 py-2.5 text-sm text-red-800"
           data-testid="provider-order-action-trouble"
           role="alert"
         >

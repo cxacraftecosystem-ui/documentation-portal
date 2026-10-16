@@ -1,5 +1,6 @@
 package com.fieldrepository.app.ui
 
+import com.fieldrepository.app.data.apiErrorMessage
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -94,7 +95,7 @@ fun MyAiKeysScreen(
         runCatching {
             catalogue = repository.aiProviders()
             keys = repository.myAiKeys()
-        }.onFailure { loadError = it.message ?: "Could not load your AI keys." }
+        }.onFailure { loadError = it.apiErrorMessage("Could not load your AI keys.") }
         loading = false
     }
 

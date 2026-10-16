@@ -120,7 +120,7 @@ export default function TasksPage() {
       {assigner ? (
         <p className="mb-4 rounded-md border border-purple-200 bg-surface-50 px-4 py-3 text-sm leading-6 text-ink-700">
           Handing work out happens on the{" "}
-          <Link href="/settings/tasks" className="font-semibold text-purple-700 underline">
+          <Link href="/settings/tasks" className="font-semibold text-purple-700 dark:text-purple-300 underline">
             assignment board
           </Link>
           : one scope — record types, an artisan subset, questionnaire sections, a target count — given to several

@@ -94,7 +94,7 @@ export function FieldProvenance({
         <div className="mt-3 grid gap-1.5 rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm">
           {recordLocation ? (
             <div className="flex items-start gap-2 text-ink-700">
-              <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-purple-700" aria-hidden />
+              <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-purple-700 dark:text-purple-300" aria-hidden />
               <span className="min-w-0">
                 <span className="font-medium text-ink-900">Record location:</span> {recordLocation}
               </span>
@@ -102,7 +102,7 @@ export function FieldProvenance({
           ) : null}
           {hasReview ? (
             <div className="flex flex-wrap items-center gap-2 text-ink-700">
-              <BadgeCheck className="h-4 w-4 shrink-0 text-purple-700" aria-hidden />
+              <BadgeCheck className="h-4 w-4 shrink-0 text-purple-700 dark:text-purple-300" aria-hidden />
               <span>
                 <span className="font-medium text-ink-900">Reviewed by</span> {reviewedBy?.name ?? "Unknown"}
               </span>

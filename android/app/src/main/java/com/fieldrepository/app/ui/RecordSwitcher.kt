@@ -573,10 +573,10 @@ internal fun RecordSwitcher(
         )
 
         switcher.message?.let {
-            Text(it, color = MaterialTheme.field.muted, fontSize = 11.sp)
+            Text(it, color = MaterialTheme.field.muted, fontSize = 12.sp)
         }
         switcher.cutNotice?.let {
-            Text(it, color = MaterialTheme.field.muted, fontSize = 11.sp)
+            Text(it, color = MaterialTheme.field.muted, fontSize = 12.sp)
         }
     }
 }

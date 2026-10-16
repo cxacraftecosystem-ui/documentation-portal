@@ -1,5 +1,6 @@
 package com.fieldrepository.app.ui
 
+import com.fieldrepository.app.data.userMessage
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -287,7 +288,14 @@ fun AppSearchPanel(
     localItems: List<AppSearchItem>,
     remoteSearch: suspend (String) -> List<AppSearchItem>,
     onClose: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /**
+     * A server failure that is NOT "no network", in words (`Throwable.userMessage`), for the app's
+     * one message surface (`AppMessageBanner`). It used to be swallowed, so a refused search read
+     * exactly like a search with no matches. "No network" stays the inline note below, because it
+     * explains the list under it rather than reporting a fault.
+     */
+    onError: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val store = remember(context) { AppSearchRecentStore(context) }
@@ -329,6 +337,7 @@ fun AppSearchPanel(
             offline = true
         } catch (e: Exception) {
             remote = emptyList()
+            onError(e.userMessage("Search could not reach the server. Showing what is saved on this phone."))
         } finally {
             loading = false
         }

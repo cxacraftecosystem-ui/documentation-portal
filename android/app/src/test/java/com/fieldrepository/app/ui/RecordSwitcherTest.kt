@@ -267,8 +267,7 @@ class RecordSwitcherTest {
     @Test
     fun `the other two reaches keep the wording they had`() {
         assertEquals(
-            "Showing 100 of 749 artisans — the other 649 are not on this list, and typing here " +
-                "searches only the 100 shown.",
+            "Showing 100 of 749 artisans. To find another, use Browse records from the menu.",
             listCutNotice(100, 749, "artisans")
         )
         assertEquals(
@@ -345,7 +344,7 @@ class RecordSwitcherTest {
         val web = repoSource(WEB_CAPPED_LIST, "../$WEB_CAPPED_LIST")
         for (fragment in listOf(
             " — type to search all ",
-            " are not on this list, and typing here searches only the ",
+            ". To find another, use Browse records from the menu.",
             " — use the pager to reach the rest, which are not searched by the box above.",
             " could be loaded. Try again.",
         )) {
