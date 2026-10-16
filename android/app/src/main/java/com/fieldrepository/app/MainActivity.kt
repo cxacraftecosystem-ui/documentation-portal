@@ -149,6 +149,11 @@ import com.fieldrepository.app.data.DataAccessGrantDto
 import com.fieldrepository.app.data.DataAccessScopeItemDto
 import com.fieldrepository.app.data.DataAccessTierInfo
 import com.fieldrepository.app.data.EntryCommentDto
+import com.fieldrepository.app.data.EntryCommentBody
+import com.fieldrepository.app.data.OfflineMediaSpec
+import com.fieldrepository.app.data.OutboxKind
+import com.fieldrepository.app.data.OutboxSyncWorker
+import com.fieldrepository.app.data.TaskUpdateBody
 import com.fieldrepository.app.data.MyGrantsDto
 import com.fieldrepository.app.data.RecordRevisionDto
 import com.fieldrepository.app.data.DashboardRecentSubmissionDto
@@ -406,7 +411,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         val tokenStore = TokenStore(applicationContext)
-        val repository = FieldRepository(ApiClient.create(tokenStore), tokenStore)
+        val repository = FieldRepository(ApiClient.create(tokenStore, OutboxSyncWorker.readCacheDir(applicationContext)), tokenStore)
         val googleAuthClient = GoogleAuthClient(this)
         // Microsoft and Yahoo. Created with the activity because AppAuth binds the browser's
         // custom-tab service to it; the client disposes of that binding when the activity goes.
@@ -743,8 +748,12 @@ private fun RepositoryApp(
     // on a periodic fallback. `pendingUploads` powers the "saved offline — uploading" banner.
     val appContext = LocalContext.current.applicationContext
     var pendingUploads by remember { mutableStateOf(0) }
+    // Whether the device has validated internet, for the "offline" line at the foot of the screen.
+    var online by remember { mutableStateOf(repository.isOnline(appContext)) }
     LaunchedEffect(user) {
         if (user == null) return@LaunchedEffect
+        // The background half (data/OutboxSyncWorker.kt): carries on after the app is closed.
+        OutboxSyncWorker.schedule(appContext)
         while (true) {
             runCatching { repository.syncOutbox(appContext) }
             pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
@@ -757,9 +766,18 @@ private fun RepositoryApp(
         val callback = object : android.net.ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: android.net.Network) {
                 scope.launch {
+                    online = repository.isOnline(appContext)
                     runCatching { repository.syncOutbox(appContext) }
                     pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
                 }
+            }
+
+            override fun onCapabilitiesChanged(network: android.net.Network, caps: android.net.NetworkCapabilities) {
+                scope.launch { online = repository.isOnline(appContext) }
+            }
+
+            override fun onLost(network: android.net.Network) {
+                scope.launch { online = repository.isOnline(appContext) }
             }
         }
         runCatching { cm?.registerDefaultNetworkCallback(callback) }
@@ -872,21 +890,45 @@ private fun RepositoryApp(
                 onPreferencesChanged = onPreferencesChanged,
                 onLogout = {
                     scope.launch {
+                        // Counted BEFORE the session goes: the count is this account's entries.
+                        val waiting = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
                         runCatching { googleAuthClient.clear() }
                         repository.logout()
                         user = null
+                        if (waiting > 0) {
+                            Toast.makeText(
+                                appContext,
+                                "$waiting entr${if (waiting == 1) "y is" else "ies are"} still saved on this device. " +
+                                    "They will upload the next time you sign in.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
                     }
                 }
             )
         }
-        if (user != null && pendingUploads > 0) {
-            OutboxPendingBanner(
-                pendingUploads = pendingUploads,
+        if (user != null && (pendingUploads > 0 || !online)) {
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(bottom = 8.dp)
-            )
+                    .padding(bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                if (!online) OfflineNotice(modifier = Modifier.fillMaxWidth())
+                if (pendingUploads > 0) {
+                    OutboxPendingBanner(
+                        pendingUploads = pendingUploads,
+                        modifier = Modifier.fillMaxWidth(),
+                        entries = { repository.pendingEntries(appContext) },
+                        onRetry = { entryId ->
+                            repository.retryRefused(appContext, entryId)
+                            runCatching { repository.syncOutbox(appContext) }
+                            pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
+                        }
+                    )
+                }
+            }
         }
     }
 }
@@ -3575,6 +3617,7 @@ private suspend fun uploadAttachments(
     // Resilient: attempt every attachment so one bad file never blocks the rest; the saved record
     // already persisted before this runs, so partial uploads are kept and only the failures surface.
     val failures = mutableListOf<String>()
+    val failedUris = mutableListOf<Pair<Int, Uri>>()
     media.uris.forEachIndexed { index, uri ->
         // Prefer the eagerly pre-uploaded object (awaiting any still-in-flight transfer); only fall
         // back to a fresh upload if pre-upload never started or failed.
@@ -3609,8 +3652,22 @@ private suspend fun uploadAttachments(
             val error = result.exceptionOrNull()
             if (error is kotlinx.coroutines.CancellationException) throw error
             failures.add(uri.lastPathSegment ?: "file ${index + 1}")
+            failedUris.add(index to uri)
         }
     }
+    // The record IS saved. Files that did not make it (the connection dropped part-way, usually) are
+    // copied into the outbox and attached to it when the connection returns, instead of being held
+    // only by a form the researcher is about to leave.
+    if (failedUris.isNotEmpty() && queueFailedAttachments(
+            repository, context, recordType, recordId, titleHint,
+            failedUris.map { (index, uri) ->
+                OfflineMediaSpec(
+                    uri = uri, caption = caption, recordName = titleHint, customSegment = customSegment,
+                    batchIndex = index + 1, location = media.location
+                )
+            }
+        )
+    ) return
     if (failures.isNotEmpty()) {
         val allFailed = failures.size == media.uris.size
         val prefix = if (allFailed) "All ${failures.size} media file(s) failed to upload" else "${failures.size} media file(s) failed to upload"
@@ -3619,6 +3676,55 @@ private suspend fun uploadAttachments(
                 "and re-open it from \"Update existing\" to re-attach the media."
         )
     }
+}
+
+/**
+ * Copy files that could not reach the saved record [recordId] into the outbox, to attach when the
+ * connection returns, and say so. False when even that failed; the caller then reports the failure.
+ */
+private suspend fun queueFailedAttachments(
+    repository: FieldRepository,
+    context: Context,
+    recordType: String,
+    recordId: String,
+    label: String?,
+    items: List<OfflineMediaSpec>
+): Boolean {
+    if (items.isEmpty()) return true
+    val queued = runCatching {
+        repository.queueAttachments(context, recordType, recordId, label?.trim().orEmpty().ifBlank { "Attachments" }, items)
+    }.isSuccess
+    if (queued) {
+        Toast.makeText(
+            context.applicationContext,
+            "The record was saved. ${items.size} file(s) are kept on this device and will attach automatically when you're back online.",
+            Toast.LENGTH_LONG
+        ).show()
+    }
+    return queued
+}
+
+/**
+ * Keep a small write (a comment, feedback, a task's progress) on the device when it cannot be sent,
+ * and send it from the outbox when the connection returns. True when it was queued.
+ *
+ * [failure] null means "check before trying": queue only when there is no connection. Otherwise it is
+ * the error the online attempt threw, and a transport failure queues only when [idempotent]: a POST
+ * whose answer was lost may already have landed, and replaying it would post it twice.
+ */
+private suspend fun queueSmallWrite(
+    repository: FieldRepository,
+    context: Context,
+    failure: Throwable?,
+    idempotent: Boolean,
+    type: String,
+    payloadJson: String,
+    label: String,
+    targetId: String? = null
+): Boolean {
+    val queue = if (failure == null) !repository.isOnline(context) else idempotent && failure is java.io.IOException
+    if (!queue) return false
+    return runCatching { repository.queueAction(context, type, payloadJson, label, targetId) }.isSuccess
 }
 
 private suspend fun uploadMeasurement(
@@ -5895,7 +6001,7 @@ private fun CraftForm(
                 recordedAt = if (isEdit) null else Instant.now().toString()
             )
             val queuedOffline = runCatching {
-                trySaveOffline(repository, context, isEdit, "craft", offlineFormJson.encodeToString(body),
+                trySaveOffline(repository, context, editing?.id, "craft", offlineFormJson.encodeToString(body),
                     name.trim(), media, name.trim(), "Field media for ${name.trim()}")
             }.getOrElse { false }
             if (queuedOffline) {
@@ -6202,7 +6308,7 @@ private fun ArtisanForm(
             )
             // No connection: save to the device and sync on reconnect, instead of failing the upload.
             val queuedOffline = runCatching {
-                trySaveOffline(repository, context, isEdit, "artisan", offlineFormJson.encodeToString(body),
+                trySaveOffline(repository, context, editing?.id, "artisan", offlineFormJson.encodeToString(body),
                     name.trim(), media, name.trim(), "Field media for ${name.trim()}")
             }.getOrElse { false }
             if (queuedOffline) {
@@ -6528,7 +6634,7 @@ private fun WorkshopForm(
                 location = locationForBody(isEdit, media.location, editing?.location)
             )
             val queuedOffline = runCatching {
-                trySaveOffline(repository, context, isEdit, "workshop", offlineFormJson.encodeToString(body),
+                trySaveOffline(repository, context, editing?.id, "workshop", offlineFormJson.encodeToString(body),
                     title.trim(), media, title.trim(), "Field media for ${title.trim()}")
             }.getOrElse { false }
             if (queuedOffline) {
@@ -6825,7 +6931,7 @@ private fun ProductForm(
                 workshopName = workshop.workshops.firstOrNull { it.id == workshop.value() }?.title
             )
             val queuedOffline = runCatching {
-                trySaveOffline(repository, context, isEdit, "product", offlineFormJson.encodeToString(body),
+                trySaveOffline(repository, context, editing?.id, "product", offlineFormJson.encodeToString(body),
                     productName.trim(), media, productName.trim(), "Field media for ${productName.trim()}")
             }.getOrElse { false }
             if (queuedOffline) {
@@ -7681,22 +7787,31 @@ private fun ToolForm(
                 workshopId = workshop.value(),
                 workshopName = workshop.workshops.firstOrNull { it.id == workshop.value() }?.title
             )
-            if (!isEdit && !repository.isOnline(context)) {
+            if (!repository.isOnline(context)) {
                 val ok = runCatching {
                     val items = media.uris.mapIndexed { i, uri ->
-                        com.fieldrepository.app.data.OfflineMediaSpec(uri = uri, caption = "Field media for ${toolkitName.trim()}", recordName = toolkitName.trim(), batchIndex = i + 1)
+                        com.fieldrepository.app.data.OfflineMediaSpec(uri = uri, caption = "Field media for ${toolkitName.trim()}", recordName = toolkitName.trim(), batchIndex = i + 1, location = media.location)
                     } + stages.uris.mapIndexed { i, uri ->
-                        com.fieldrepository.app.data.OfflineMediaSpec(uri = uri, caption = "Process stage step ${i + 1} for ${toolkitName.trim()}", recordName = toolkitName.trim(), stageStep = i + 1)
+                        com.fieldrepository.app.data.OfflineMediaSpec(uri = uri, caption = "Process stage step ${i + 1} for ${toolkitName.trim()}", recordName = toolkitName.trim(), stageStep = i + 1, location = stages.location)
                     }
-                    repository.queueOfflineEntry(context, "tool", offlineFormJson.encodeToString(body), toolkitName.trim(), items)
+                    repository.queueOfflineEntry(
+                        context, "tool", offlineFormJson.encodeToString(body), toolkitName.trim(), items,
+                        kind = if (isEdit) OutboxKind.UPDATE else OutboxKind.CREATE,
+                        targetId = editing?.id
+                    )
                 }.isSuccess
                 if (ok) {
-                    // Offline is the normal case, but a queued tool has no id yet, so nothing can be
-                    // assigned to it. Whatever tool was in the bag is dropped rather than left to
-                    // stand in for the one just recorded — an old tool offered under a new one's
-                    // name is a wrong link.
-                    carry.prune(CarryNode.TOOL)
-                    carry.remember(sitting)
+                    if (isEdit) {
+                        // An edited tool already has its id, so it can stay in the bag as itself.
+                        carry.remember(sitting.copy(toolId = editing!!.id, toolName = toolkitName.trim()))
+                    } else {
+                        // Offline is the normal case, but a queued tool has no id yet, so nothing can be
+                        // assigned to it. Whatever tool was in the bag is dropped rather than left to
+                        // stand in for the one just recorded — an old tool offered under a new one's
+                        // name is a wrong link.
+                        carry.prune(CarryNode.TOOL)
+                        carry.remember(sitting)
+                    }
                     media.reset(); stages.reset()
                     onError("Saved on this device. It'll upload automatically when you're back online.")
                     onDone(); saving = false; return@launch
@@ -7710,18 +7825,37 @@ private fun ToolForm(
                     repository.createTool(body).id
                 }
                 uploadAttachments(repository, context, media, "tool", toolId, toolkitName, "Field media for ${toolkitName.trim()}")
-                // Each stage capture is uploaded as a numbered process step (STAGE_STEP_n).
+                // Each stage capture is uploaded as a numbered process step (STAGE_STEP_n). The tool is
+                // saved by now, so a capture that fails goes to the outbox rather than failing the
+                // save (which invited a second tap and a second tool).
+                val stagesLeft = mutableListOf<OfflineMediaSpec>()
                 stages.uris.forEachIndexed { index, uri ->
-                    repository.uploadMedia(
-                        context = context,
-                        uri = uri,
-                        linkedRecordType = "tool",
-                        linkedRecordId = toolId,
-                        caption = "Process stage step ${index + 1} for ${toolkitName.trim()}",
-                        location = stages.location,
-                        titleHint = toolkitName,
-                        batchIndex = 1,
-                        stageStep = index + 1
+                    runCatching {
+                        repository.uploadMedia(
+                            context = context,
+                            uri = uri,
+                            linkedRecordType = "tool",
+                            linkedRecordId = toolId,
+                            caption = "Process stage step ${index + 1} for ${toolkitName.trim()}",
+                            location = stages.location,
+                            titleHint = toolkitName,
+                            batchIndex = 1,
+                            stageStep = index + 1
+                        )
+                    }.onFailure { error ->
+                        if (error is kotlinx.coroutines.CancellationException) throw error
+                        stagesLeft.add(
+                            OfflineMediaSpec(
+                                uri = uri, caption = "Process stage step ${index + 1} for ${toolkitName.trim()}",
+                                recordName = toolkitName.trim(), stageStep = index + 1, location = stages.location
+                            )
+                        )
+                    }
+                }
+                if (!queueFailedAttachments(repository, context, "tool", toolId, toolkitName, stagesLeft)) {
+                    throw IllegalStateException(
+                        "The tool was saved, but ${stagesLeft.size} stage capture(s) couldn't be uploaded. " +
+                            "Re-open it from \"Update existing\" to attach them again."
                     )
                 }
                 toolId
@@ -8387,14 +8521,14 @@ private fun ProcessForm(
             )
             // Offline: queue the process with its pre-process media (linked to the process) and each
             // step's media (linked to that step on sync, by index), preserving the step nomenclature.
-            if (!isEdit && !repository.isOnline(context)) {
+            if (!repository.isOnline(context)) {
                 val ok = runCatching {
                     val items = mutableListOf<com.fieldrepository.app.data.OfflineMediaSpec>()
                     if (preProcessAvailable) {
                         preMedia.uris.forEachIndexed { i, uri ->
                             items.add(com.fieldrepository.app.data.OfflineMediaSpec(
                                 uri = uri, caption = "Pre-process media for ${name.trim()}", recordName = name.trim(),
-                                customSegment = "PRE", batchIndex = i + 1, linkedType = "process"))
+                                customSegment = "PRE", batchIndex = i + 1, linkedType = "process", location = preMedia.location))
                         }
                     }
                     steps.forEachIndexed { index, local ->
@@ -8402,10 +8536,15 @@ private fun ProcessForm(
                             items.add(com.fieldrepository.app.data.OfflineMediaSpec(
                                 uri = uri, caption = "Process step ${local.name.trim()}", recordName = name.trim(),
                                 customSegment = processStepSegment(index + 1, local.stepType, fileIndex),
-                                batchIndex = fileIndex + 1, linkedType = "processstep", stepIndex = index))
+                                batchIndex = fileIndex + 1, linkedType = "processstep", stepIndex = index,
+                                location = local.media.location))
                         }
                     }
-                    repository.queueOfflineEntry(context, "process", offlineFormJson.encodeToString(body), name.trim(), items)
+                    repository.queueOfflineEntry(
+                        context, "process", offlineFormJson.encodeToString(body), name.trim(), items,
+                        kind = if (isEdit) OutboxKind.UPDATE else OutboxKind.CREATE,
+                        targetId = editing?.id
+                    )
                 }.isSuccess
                 if (ok) {
                     carry.remember(sitting)
@@ -8423,10 +8562,13 @@ private fun ProcessForm(
                 }
                 detail.steps.forEachIndexed { index, serverStep ->
                     val local = steps.getOrNull(index) ?: return@forEachIndexed
+                    // The process is saved by now: a step file that fails goes to the outbox, attached
+                    // to its step, instead of failing the save and inviting a second process.
+                    val stepLeft = mutableListOf<OfflineMediaSpec>()
                     local.media.uris.forEachIndexed { fileIndex, uri ->
                         val segment = processStepSegment(index + 1, serverStep.stepType, fileIndex)
                         val staged = local.media.stagedDeferred[uri]?.let { runCatching { it.await() }.getOrNull() } ?: local.media.staged[uri]
-                        if (staged != null) {
+                        runCatching { if (staged != null) {
                             repository.completeStaged(
                                 staged = staged,
                                 linkedRecordType = "processstep",
@@ -8449,7 +8591,21 @@ private fun ProcessForm(
                                 batchIndex = fileIndex + 1,
                                 customSegment = segment
                             )
+                        } }.onFailure { error ->
+                            if (error is kotlinx.coroutines.CancellationException) throw error
+                            stepLeft.add(
+                                OfflineMediaSpec(
+                                    uri = uri, caption = "Process step ${serverStep.name}", recordName = name.trim(),
+                                    customSegment = segment, batchIndex = fileIndex + 1, location = local.media.location
+                                )
+                            )
                         }
+                    }
+                    if (!queueFailedAttachments(repository, context, "processstep", serverStep.id, name, stepLeft)) {
+                        throw IllegalStateException(
+                            "The process was saved, but ${stepLeft.size} step file(s) couldn't be uploaded. " +
+                                "Re-open it from \"Update existing\" to attach them again."
+                        )
                     }
                 }
             }.onSuccess {
@@ -9659,6 +9815,7 @@ private fun QualitativeRow(label: String, value: String?) {
 @Composable
 private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Unit) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     // Quantitative (0 = not yet rated).
     var rating by remember { mutableStateOf(0) }
     var easeOfUse by remember { mutableStateOf(0) }
@@ -9774,9 +9931,7 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
                     }
                     scope.launch {
                         saving = true
-                        runCatching {
-                            repository.upsertMyFeedback(
-                                FeedbackUpsertRequest(
+                        val request = FeedbackUpsertRequest(
                                     rating = rating.takeIf { it > 0 },
                                     easeOfUse = easeOfUse.takeIf { it > 0 },
                                     reliability = reliability.takeIf { it > 0 },
@@ -9791,13 +9946,26 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
                                     bugs = bugs.blankToNull(),
                                     featureRequests = featureRequests.blankToNull()
                                 )
-                            )
+                        // Feedback is an upsert, so replaying it later is safe whatever happened to
+                        // this attempt.
+                        val payload = offlineFormJson.encodeToString(request)
+                        if (queueSmallWrite(repository, context, null, idempotent = true, type = "feedback", payloadJson = payload, label = "App feedback")) {
+                            status = ActionStatus.SUCCESS
+                            onError("Saved on this device. It'll send automatically when you're back online.")
+                            saving = false
+                            return@launch
                         }
+                        runCatching { repository.upsertMyFeedback(request) }
                             .onSuccess { existing = it; status = ActionStatus.SUCCESS }
                             .onFailure {
                                 if (it !is kotlinx.coroutines.CancellationException) {
-                                    status = ActionStatus.ERROR
-                                    onError(it.message ?: "Unable to save your feedback")
+                                    if (queueSmallWrite(repository, context, it, idempotent = true, type = "feedback", payloadJson = payload, label = "App feedback")) {
+                                        status = ActionStatus.SUCCESS
+                                        onError("Saved on this device. It'll send automatically when you're back online.")
+                                    } else {
+                                        status = ActionStatus.ERROR
+                                        onError(it.message ?: "Unable to save your feedback")
+                                    }
                                 }
                             }
                         saving = false
@@ -11626,6 +11794,7 @@ private fun RecordCollabSection(
     onError: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var comments by remember(recordId) { mutableStateOf<List<EntryCommentDto>>(emptyList()) }
     var revisions by remember(recordId) { mutableStateOf<List<RecordRevisionDto>?>(null) }
     var draft by remember(recordId) { mutableStateOf("") }
@@ -11658,6 +11827,16 @@ private fun RecordCollabSection(
                 onClick = {
                     scope.launch {
                         busy = true
+                        // No signal: the comment waits in the outbox rather than in a box the
+                        // researcher is about to navigate away from.
+                        val body = EntryCommentBody(recordType = recordType, recordId = recordId, body = draft.trim())
+                        if (queueSmallWrite(repository, context, null, idempotent = false, type = "comment",
+                                payloadJson = offlineFormJson.encodeToString(body), label = "Comment")) {
+                            draft = ""
+                            onError("Saved on this device. It'll post automatically when you're back online.")
+                            busy = false
+                            return@launch
+                        }
                         runCatching { repository.addEntryComment(recordType, recordId, draft.trim()); draft = "" }
                             .onSuccess { reload() }
                             .onFailure { onError(it.message ?: "Unable to post comment") }
@@ -11973,6 +12152,25 @@ private fun AndroidMediaForm(
                             uploadStatus = ActionStatus.SUCCESS
                             refreshMedia()
                             onUploaded(success)
+                        }
+                        linkedEntryId.isNotBlank() && linkedMode != null && queueFailedAttachments(
+                            repository, context, linkedMode!!.linkedRecordType(), linkedEntryId,
+                            mediaTitle.ifBlank { caption },
+                            failedUris.map { uri ->
+                                OfflineMediaSpec(
+                                    uri = uri, caption = caption.ifBlank { null }, recordName = mediaTitle.ifBlank { caption },
+                                    batchIndex = uris.indexOf(uri) + 1, location = location
+                                )
+                            }
+                        ) -> {
+                            // No signal, or it dropped part-way: the files that did not make it are
+                            // copied into the outbox and attach to the record when it returns.
+                            selectedUris = emptyList()
+                            mediaTitle = ""
+                            caption = ""
+                            localMessage = null
+                            uploadStatus = ActionStatus.SUCCESS
+                            if (success > 0) refreshMedia()
                         }
                         else -> {
                             // Keep only the failed files staged so the user can retry just those.
@@ -15156,6 +15354,7 @@ private fun MyTasksScreen(
     onError: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val myId = remember { repository.cachedUser()?.id }
     var view by remember { mutableStateOf("assigned") }
     // Flipping admin view off while "Assigned by me" is showing must not strand the user on a view
@@ -15181,12 +15380,28 @@ private fun MyTasksScreen(
     fun update(task: TaskDto, status: String? = null, progressCount: Int? = null, ok: String) {
         scope.launch {
             busyId = task.id
+            // Offline, or the connection dropped: the change waits in the outbox (it is a plain
+            // update, so sending it later is safe) and the list shows it straight away.
+            val payload = offlineFormJson.encodeToString(TaskUpdateBody(status = status, progressCount = progressCount))
+            suspend fun keepOnDevice(failure: Throwable?): Boolean {
+                if (!queueSmallWrite(repository, context, failure, idempotent = true, type = "task-progress",
+                        payloadJson = payload, label = task.title.ifBlank { "Task" }, targetId = task.id)) return false
+                tasks = tasks.map {
+                    if (it.id == task.id) it.copy(status = status ?: it.status, progressCount = progressCount ?: it.progressCount) else it
+                }
+                onMessage("Saved on this device. It'll update automatically when you're back online.")
+                return true
+            }
+            if (keepOnDevice(null)) { busyId = null; return@launch }
             runCatching { repository.updateTaskProgress(task.id, status = status, progressCount = progressCount) }
                 .onSuccess { updated ->
                     tasks = tasks.map { if (it.id == updated.id) updated else it }
                     onMessage(ok)
                 }
-                .onFailure { onError(it.apiErrorMessage("Unable to update the task")) }
+                .onFailure {
+                    if (it is kotlinx.coroutines.CancellationException) throw it
+                    if (!keepOnDevice(it)) onError(it.apiErrorMessage("Unable to update the task"))
+                }
             busyId = null
         }
     }
@@ -15672,15 +15887,16 @@ private fun MappingStatTile(label: String, value: Int, modifier: Modifier = Modi
 private val offlineFormJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
 /**
- * Offline save: when there's no connection, persist this new record (and copies of its captured media)
+ * Offline save: when there's no connection, persist this record (and copies of its captured media)
  * to the local outbox and return true so the form can confirm "saved on device" and navigate. Returns
- * false when online (the form should take its normal upload path). Only for NEW records — edits need
- * the existing server record. The outbox auto-syncs on reconnect.
+ * false when online (the form should take its normal upload path). [editId] is the record being
+ * edited, or null for a new one: an edit is replayed onto that record (last write wins, as online).
+ * The outbox syncs on reconnect, in the background if the app has been closed.
  */
 private suspend fun trySaveOffline(
     repository: FieldRepository,
     context: Context,
-    isEdit: Boolean,
+    editId: String?,
     type: String,
     payloadJson: String,
     label: String,
@@ -15688,9 +15904,32 @@ private suspend fun trySaveOffline(
     recordName: String?,
     caption: String?
 ): Boolean {
-    if (isEdit || repository.isOnline(context)) return false
-    repository.queueOffline(context, type, payloadJson, label, media.uris, recordName, caption)
+    if (repository.isOnline(context)) return false
+    repository.queueOffline(context, type, payloadJson, label, media.uris, recordName, caption, media.location, editOf = editId)
     return true
+}
+
+/**
+ * The one line that says the app is working from the device: screens show what they last loaded,
+ * and anything saved now waits on the device. Shown at the foot of every screen while offline.
+ */
+@Composable
+private fun OfflineNotice(modifier: Modifier = Modifier) {
+    val ink = Color(0xFFE0C9B0)
+    Row(
+        modifier = modifier
+            .background(Color(0xFF2A2520), RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(Icons.Filled.CloudOff, contentDescription = null, tint = ink, modifier = Modifier.size(16.dp))
+        Text(
+            "You're offline. Showing what was last loaded; anything you save stays on this device until you're back online.",
+            color = ink,
+            fontSize = 12.sp
+        )
+    }
 }
 
 /** Save-button lifecycle: idle, in-flight (spinner + "Saving…"), then a brief "Saved ✓" confirmation. */

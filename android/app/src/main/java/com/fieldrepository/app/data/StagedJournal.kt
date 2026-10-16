@@ -67,8 +67,11 @@ object StagedJournal {
         return runCatching { json.decodeFromString<List<StagedObject>>(file.readText()) }.getOrDefault(emptyList())
     }
 
+    // Atomic, like the outbox: a kill mid-`writeText` truncated the journal, the read below turned
+    // that into an empty list, and every multipart uploadId in it was gone for good.
     private fun write(context: Context, entries: List<StagedObject>) {
-        if (entries.isEmpty()) file(context).delete() else file(context).writeText(json.encodeToString(entries))
+        if (entries.isEmpty()) file(context).delete()
+        else writeFileAtomically(file(context), json.encodeToString(entries).toByteArray())
     }
 
     /**

@@ -89,6 +89,76 @@ available on this phone… The trace still works." and hides those settings.
 
 **To close it.** Re-vendor the two engines from the same upstream release.
 
+### F28. An unsaved Android form does not survive the app being killed — L
+
+**What is missing.** Every record form on Android (artisan, craft, workshop, product, tool, process,
+questionnaire interview, miscellaneous media) holds what has been typed and captured in Compose
+`remember` state only, for example `CraftForm` and `MediaCaptureState` in
+`android/app/src/main/java/com/fieldrepository/app/MainActivity.kt`. Once **Save** is tapped the
+record is safe: it goes to the server or to the offline outbox and survives kills, reboots, sign-out
+and updates (see `docs/ANDROID_OFFLINE_AUDIT.md`). **Before** Save, nothing is on disk. A low-memory
+kill while the camera app is in front, a flat battery or the app being swiped away loses the form.
+The photos already taken stay as orphan files in the app's cache `field-captures/` folder, which
+nothing links back to the form.
+
+**What users see.** The form opens empty again. The back-navigation guard (`RegisterUnsavedGuard`)
+only covers leaving the screen inside the app.
+
+**To close it.** Add a per-form draft store under `filesDir/drafts/`, keyed by account, form kind
+and record id (or "new"). Write it atomically (`writeFileAtomically` in
+`android/app/src/main/java/com/fieldrepository/app/data/AtomicFiles.kt`) on a short debounce. Each
+form already builds one serialisable request object (`CraftCreateRequest` and so on), so save that,
+plus copies of the captured files moved out of `cacheDir` into the draft folder. On open, offer
+"Restore the unsaved draft from <time>?". Delete the draft on a successful save or queue. Each form
+also needs a request-to-state mapping, which is the bulk of the work. The questionnaire is the
+largest form and the most valuable one to start with. Also make `pendingCaptureUri` in
+`MediaCaptureSection` `rememberSaveable`, so a photo taken while the activity was recreated is not
+dropped.
+
+### F29. Editing a questionnaire interview needs a connection on Android — M
+
+**What is missing.** New interviews queue offline. An **edit** of a saved interview does not: the
+save path calls `repository.updateQuestionnaireInterview` directly and runs more than one request
+(the interview, then its answers and media). The outbox's UPDATE replay
+(`FieldRepository.updateFromEntry`) covers artisan, craft, workshop, product, tool and process, but
+not interviews.
+
+**What users see.** With no signal, saving an edited interview shows the request error. The edit
+stays in the form until the researcher leaves it.
+
+**To close it.** Add a `"questionnaire"` branch to `updateFromEntry` that replays the same
+sequence the online edit runs, using `QuestionnaireInterviewUpdateRequest`. Then let the
+questionnaire form's offline check (`if (!isEdit && !repository.isOnline(context))`) queue edits
+with `kind = OutboxKind.UPDATE`, the way the tool and process forms now do.
+
+### F30. A create whose answer was lost is not queued — M (needs a server change)
+
+**What is missing.** A record form checks for a connection before saving. If the phone has signal
+then, but the create request fails part-way (`IOException`), the form shows the error and keeps
+the record in memory. It does not move the record to the outbox, because the server may already
+have created it, and replaying it would create a second one. The same is true of comments.
+
+**What users see.** "Unable to save …". Tapping **Save** again works once the signal is back, but
+can make a duplicate in exactly the case above.
+
+**To close it.** Have the server accept a client-generated idempotency key on every create (a
+`clientId` column with a unique index, or an `Idempotency-Key` header with a short-lived table) and
+return the existing record on a repeat. With that in place, the outbox can take any failed create:
+generate the key when the form opens, send it online, and replay it offline. This changes the
+server contract, which was out of scope for the offline review.
+
+### F31. An appearance change made offline is undone at the next sign-in — S
+
+**What is missing.** Toggling theme, larger text or contrast offline is applied and saved on the
+device, but the `PUT /preferences/me` fails. At the next sign-in, `syncAppPreferences`
+(`android/app/src/main/java/com/fieldrepository/app/ui/AppearanceScreen.kt`) treats the server's
+row as the winner and restores the old look.
+
+**What users see.** Their offline change reverts after signing in again.
+
+**To close it.** Keep a "changed on this device, not yet saved" flag next to the stored preferences.
+When it is set, `syncAppPreferences` PUTs the device copy instead of adopting the server's row.
+
 ## Known defects
 
 ### Rich-text formatting is lost in exports — M

@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.fieldrepository.app.data.OfflineOutbox
+import com.fieldrepository.app.data.PendingEntry
 import com.fieldrepository.app.data.PendingMedia
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -317,17 +318,34 @@ fun MediaDownloadButton(
 /**
  * The "saved on this device — uploading when you're online" banner, with the queued files listed
  * under it on request so each can be saved out of the outbox before it drains.
+ *
+ * Expanded, it also lists every entry the server REFUSED, with the server's reason and a "Try
+ * again" ([onRetry]). Those entries never drain on their own, and before this list the only trace
+ * of a refusal was a toast at the moment it happened.
+ *
+ * [entries] is the signed-in account's queue; another account's entries on a shared handset are
+ * not shown here.
  */
 @Composable
-fun OutboxPendingBanner(pendingUploads: Int, modifier: Modifier = Modifier) {
+fun OutboxPendingBanner(
+    pendingUploads: Int,
+    modifier: Modifier = Modifier,
+    entries: suspend () -> List<PendingEntry>,
+    onRetry: suspend (entryId: String) -> Unit
+) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val ink = Color(0xFFE0C9B0)
     var expanded by remember { mutableStateOf(false) }
     var files by remember { mutableStateOf<List<PendingMedia>>(emptyList()) }
-    LaunchedEffect(expanded, pendingUploads) {
+    var refused by remember { mutableStateOf<List<PendingEntry>>(emptyList()) }
+    var reload by remember { mutableStateOf(0) }
+    LaunchedEffect(expanded, pendingUploads, reload) {
         if (!expanded) return@LaunchedEffect
+        val queue = runCatching { entries() }.getOrDefault(emptyList())
+        refused = queue.filter { it.failure != null }
         files = runCatching {
-            val queued = OfflineOutbox.all(context).flatMap { it.media }
+            val queued = queue.flatMap { it.media }
             withContext(Dispatchers.IO) { queued.filter { File(it.localPath).exists() } }
         }.getOrDefault(emptyList())
     }
@@ -352,6 +370,19 @@ fun OutboxPendingBanner(pendingUploads: Int, modifier: Modifier = Modifier) {
             Text(if (expanded) "Hide files ▲" else "Files ▼", color = ink, fontSize = 12.sp)
         }
         if (expanded) {
+            refused.forEach { entry ->
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "“${entry.label}” couldn't upload: ${entry.failure}",
+                        color = ink,
+                        fontSize = 11.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = { scope.launch { onRetry(entry.id); reload++ } }) {
+                        Text("Try again", color = ink, fontSize = 11.sp)
+                    }
+                }
+            }
             if (files.isEmpty()) {
                 Text("No files are queued with these entries.", color = ink, fontSize = 11.sp)
             }

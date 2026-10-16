@@ -330,7 +330,10 @@ class FieldRepository(
     // omitted defaults. A `processingRequests: []` that should have been absent changes what the
     // server does with the file.
     private val completeJson = Json { ignoreUnknownKeys = true; explicitNulls = false }
-    private val syncMutex = Mutex()
+    // The sync lock is process-wide, not per instance: the background worker (data/OutboxSyncWorker.kt)
+    // builds its own repository, and two passes replaying the same snapshot would create every
+    // queued record twice.
+    private val syncMutex: Mutex get() = outboxSyncMutex
     private val sweptStagedObjects = java.util.concurrent.atomic.AtomicBoolean(false)
 
     fun hasToken(): Boolean = !tokenStore.getToken().isNullOrBlank()
@@ -391,7 +394,13 @@ class FieldRepository(
 
     fun logout() {
         tokenStore.clear()
+        // The read cache holds this account's records; the next person to sign in must not be shown
+        // them offline. The outbox is NOT cleared: its entries carry their owner and wait for them.
+        OfflineReadCache.clear()
     }
+
+    /** The signed-in account's id, from the cached profile (works offline). */
+    private fun currentUserId(): String? = tokenStore.getUser()?.id
 
     suspend fun currentUser(): UserDto = api.me()
 
@@ -2425,8 +2434,19 @@ class FieldRepository(
     /** True when the device currently has validated internet. */
     fun isOnline(context: Context): Boolean = ConnectivityObserver.isOnline(context)
 
-    /** How many records are waiting in the local outbox to be uploaded. */
-    suspend fun pendingUploads(context: Context): Int = OfflineOutbox.count(context)
+    /** How many of the signed-in account's entries are waiting in the local outbox. */
+    suspend fun pendingUploads(context: Context): Int =
+        OfflineOutbox.all(context).replayableBy(currentUserId()).size
+
+    /** The signed-in account's queued entries, for the banner that lists them. */
+    suspend fun pendingEntries(context: Context): List<PendingEntry> =
+        OfflineOutbox.all(context).replayableBy(currentUserId())
+
+    /** Let the sync pass try a refused entry again. */
+    suspend fun retryRefused(context: Context, entryId: String) {
+        OfflineOutbox.clearFailure(context, entryId)
+        OutboxSyncWorker.schedule(context)
+    }
 
     /**
      * Save a new record to the local outbox (no network). Copies the attached media into app storage so
@@ -2440,13 +2460,37 @@ class FieldRepository(
         label: String,
         mediaUris: List<Uri>,
         recordName: String?,
-        caption: String?
+        caption: String?,
+        location: LocationRequest? = null,
+        /** The record being edited; null for a new record. */
+        editOf: String? = null
     ) = queueOfflineEntry(
         context, type, payloadJson, label,
         mediaUris.mapIndexed { index, uri ->
-            OfflineMediaSpec(uri = uri, caption = caption, recordName = recordName, batchIndex = index + 1)
-        }
+            OfflineMediaSpec(uri = uri, caption = caption, recordName = recordName, batchIndex = index + 1, location = location)
+        },
+        kind = if (editOf != null) OutboxKind.UPDATE else OutboxKind.CREATE,
+        targetId = editOf
     )
+
+    /**
+     * Keep files that could not reach an EXISTING record (no signal, or the connection dropped
+     * part-way) on the device, and attach them to [recordId] when the connection returns.
+     */
+    suspend fun queueAttachments(
+        context: Context,
+        recordType: String,
+        recordId: String,
+        label: String,
+        items: List<OfflineMediaSpec>
+    ) = queueOfflineEntry(context, recordType, "", label, items, kind = OutboxKind.ATTACH, targetId = recordId)
+
+    /**
+     * Keep a small non-record write ([type] is "comment", "feedback" or "task-progress") on the device
+     * and send it when the connection returns. [targetId] is the task, for "task-progress".
+     */
+    suspend fun queueAction(context: Context, type: String, payloadJson: String, label: String, targetId: String? = null) =
+        queueOfflineEntry(context, type, payloadJson, label, emptyList(), kind = OutboxKind.ACTION, targetId = targetId)
 
     /** Queue an offline entry with a fully specified media list (e.g. attachments + stage captures). */
     suspend fun queueOfflineEntry(
@@ -2454,7 +2498,9 @@ class FieldRepository(
         type: String,
         payloadJson: String,
         label: String,
-        items: List<OfflineMediaSpec>
+        items: List<OfflineMediaSpec>,
+        kind: String = OutboxKind.CREATE,
+        targetId: String? = null
     ) = withContext(Dispatchers.IO) {
         val media = items.map { spec ->
             OfflineOutbox.stageMedia(
@@ -2468,7 +2514,8 @@ class FieldRepository(
                 processing = spec.processing,
                 stageStep = spec.stageStep,
                 linkedType = spec.linkedType,
-                stepIndex = spec.stepIndex
+                stepIndex = spec.stepIndex,
+                location = spec.location
             )
         }
         OfflineOutbox.enqueue(
@@ -2479,9 +2526,17 @@ class FieldRepository(
                 payloadJson = payloadJson,
                 label = label,
                 media = media,
-                createdAt = Instant.now().toString()
+                createdAt = Instant.now().toString(),
+                kind = kind,
+                targetId = targetId,
+                // An ATTACH entry's record already exists, so its replay starts at the media.
+                createdId = if (kind == OutboxKind.ATTACH) targetId else null,
+                ownerUserId = currentUserId()
             )
         )
+        // Sync even if the app is never opened again: WorkManager runs the pass once there is a
+        // network, across process death and reboots.
+        OutboxSyncWorker.schedule(context)
     }
 
     /**
@@ -2515,7 +2570,9 @@ class FieldRepository(
             AppScope.io.launch { runCatching { sweepStagedObjects(context) } }
         }
         return syncMutex.withLock {
-            val queue = OfflineOutbox.all(context)
+            // Only this account's entries (and legacy ones with no owner). Another account's wait,
+            // untouched, for that account to sign in again on this device.
+            val queue = OfflineOutbox.all(context).replayableBy(currentUserId())
             // Read first, then reported, and reported before the connection is even checked: a queue
             // file that would not parse is the one problem the researcher cannot see for themselves,
             // because its only symptom is a count that quietly drops.
@@ -2566,7 +2623,14 @@ class FieldRepository(
         var entry = queued
         if (entry.createdId == null) {
             val created = try {
-                createFromEntry(entry)
+                when (entry.kind) {
+                    OutboxKind.UPDATE -> updateFromEntry(entry)
+                    OutboxKind.ACTION -> actionFromEntry(entry)
+                    OutboxKind.ATTACH -> CreatedRecord(
+                        entry.targetId ?: throw SerializationException("Attachment entry has no record id")
+                    )
+                    else -> createFromEntry(entry)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -2806,6 +2870,43 @@ class FieldRepository(
         else -> throw IllegalStateException("Unknown offline entry type: ${entry.type}")
     }
 
+    /**
+     * Replay an edit made with no signal onto the existing record.
+     *
+     * CONFLICTS: last write wins, exactly as an online edit does. The form sends the record as it
+     * stood when the researcher opened it plus their changes, and the server applies it. A record
+     * deleted in the meantime answers 404, which the pass records as a refusal and keeps on the device.
+     */
+    private suspend fun updateFromEntry(entry: PendingEntry): CreatedRecord {
+        // A missing id is as permanent as a bad payload: the next pass reads the same bytes.
+        val id = entry.targetId ?: throw SerializationException("Queued edit has no record id")
+        return when (entry.type) {
+            "artisan" -> CreatedRecord(api.updateArtisan(id, offlineJson.decodeFromString<ArtisanCreateRequest>(entry.payloadJson)).id)
+            "product" -> CreatedRecord(api.updateProduct(id, offlineJson.decodeFromString<ProductCreateRequest>(entry.payloadJson)).id)
+            "tool" -> CreatedRecord(api.updateTool(id, offlineJson.decodeFromString<ToolCreateRequest>(entry.payloadJson)).id)
+            "workshop" -> CreatedRecord(api.updateWorkshop(id, offlineJson.decodeFromString<WorkshopCreateRequest>(entry.payloadJson)).id)
+            "craft" -> CreatedRecord(api.updateCraft(id, offlineJson.decodeFromString<CraftCreateRequest>(entry.payloadJson)).id)
+            "process" -> api.updateProcess(id, offlineJson.decodeFromString<ProcessCreateRequest>(entry.payloadJson))
+                .let { detail -> CreatedRecord(detail.id, detail.steps.map { it.id }) }
+            else -> throw SerializationException("Unknown offline edit type: ${entry.type}")
+        }
+    }
+
+    /** Replay a small non-record write. Its "created id" only marks it as done. */
+    private suspend fun actionFromEntry(entry: PendingEntry): CreatedRecord = when (entry.type) {
+        "comment" -> CreatedRecord(api.addEntryComment(offlineJson.decodeFromString<EntryCommentBody>(entry.payloadJson)).id)
+        "feedback" -> CreatedRecord(
+            api.upsertMyFeedback(offlineJson.decodeFromString<FeedbackUpsertRequest>(entry.payloadJson)).id.ifBlank { entry.id }
+        )
+        "task-progress" -> CreatedRecord(
+            api.updateTask(
+                entry.targetId ?: throw SerializationException("Queued task update has no task id"),
+                offlineJson.decodeFromString<TaskUpdateBody>(entry.payloadJson)
+            ).id
+        )
+        else -> throw SerializationException("Unknown offline action: ${entry.type}")
+    }
+
     private suspend fun uploadLocalFile(
         context: Context,
         pm: PendingMedia,
@@ -2849,7 +2950,9 @@ class FieldRepository(
                 caption = pm.caption.blankToNull(),
                 linkedRecordType = linkedRecordType,
                 linkedRecordId = linkedRecordId,
-                recordedAt = Instant.now().toString(),
+                // When it was captured, not when the signal came back.
+                recordedAt = pm.capturedAt ?: Instant.now().toString(),
+                location = pm.location,
                 processingRequests = resolvedProcessing
             ),
             target.checksum
