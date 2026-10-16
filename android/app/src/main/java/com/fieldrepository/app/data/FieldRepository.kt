@@ -1274,6 +1274,17 @@ class FieldRepository(
 
     suspend fun crafts(): List<CraftDto> = api.crafts(pageSize = 100).items
 
+    // The app-wide search panel's three list sources (`ui/AppSearchSources.kt`). Each is the list
+    // route's own `search` filter, so a match means what it means on that list's screen.
+    suspend fun searchCrafts(query: String, pageSize: Int = 10): List<CraftDto> =
+        api.crafts(pageSize = pageSize, search = query.trim()).items
+
+    suspend fun searchProcesses(query: String, pageSize: Int = 10): List<ProcessDetailDto> =
+        api.processes(pageSize = pageSize, search = query.trim()).items
+
+    suspend fun searchInterviews(query: String, pageSize: Int = 10): List<QuestionnaireInterviewDetailDto> =
+        api.interviews(pageSize = pageSize, search = query.trim()).items
+
     /** [crafts] with the envelope kept, for the same reason as [artisansPage]. */
     suspend fun craftsPage(): PageResponse<CraftDto> = api.crafts(pageSize = 100)
 

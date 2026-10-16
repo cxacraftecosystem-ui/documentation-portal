@@ -175,7 +175,10 @@ one on Android 16 or 17 and one tablet or foldable — and, signed in:
    bottom) sits above the navigation bar, and the last field or button scrolls clear of the island;
    typing into a record form or into search hides the island and keeps the field above the
    keyboard. As an admin with admin view on, the fifth slot reads "More" and its sheet lists Admin
-   and Account. Open the drawer, a multi-select picker (a bottom sheet), the date picker and the
+   and Account. The first row of every main screen is the app name and logo; it scrolls away with
+   the page, and tapping it opens search (records, screens, settings; Back closes it). The drawer
+   reaches the screen edges, leaves a strip of page to tap, and closes with Back even mid-slide.
+   Open the drawer, a multi-select picker (a bottom sheet), the date picker and the
    media viewer too.
 2. **Back.** From a half-filled form the back gesture asks Save / Discard; inside the admin hub it
    goes one tool up; with the drawer open it closes the drawer; on the dashboard it leaves the app.

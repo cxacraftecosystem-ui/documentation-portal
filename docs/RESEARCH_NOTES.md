@@ -1148,6 +1148,13 @@ object keys share the single `media/` prefix.
 > padding. Source: `android/app/src/main/java/com/fieldrepository/app/ui/IslandBottomNav.kt`, which is
 > identical in both Android apps apart
 > from the package line. The web is unchanged. The text below records the top bar as it was.
+>
+> **2026-10-16, later:** the app's name and logo are back at the top of every main screen as the
+> first row of the scrolling page (`ui/AppSearch.kt`, `AppSearchHeader`). The row scrolls away with
+> the page, isn't sticky and doesn't collapse. Tapping it opens an app-wide search over records
+> (`GET /search` plus the `search` filter of the crafts, processes and interview lists), the role's
+> own menu screens and settings, with recent searches. The drawer's fixes are listed in
+> `ui/AppMenuDrawer.kt`. Android only.
 
 The Android navigation bar sheds width in five ordered tiers rather than scrolling horizontally. The
 rationale, from `android/.../ui/AppNavigation.kt`, is worth quoting because it is a usability claim

@@ -718,7 +718,9 @@ interface FieldRepositoryApi {
          * and narrowing its own group to the workshop currently on screen would hide the sittings the
          * aggregation exists to gather. See `FieldRepository.interviewsForArtisan`.
          */
-        @Query("artisanId") artisanId: String? = null
+        @Query("artisanId") artisanId: String? = null,
+        // The route's own text filter (`questionnaire.py`'s `search`), used by the app-wide search.
+        @Query("search") search: String? = null
     ): PageResponse<QuestionnaireInterviewDetailDto>
 
     @GET("questionnaire/interviews/{id}")
