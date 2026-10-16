@@ -160,9 +160,13 @@ val ISLAND_SHORT_LABELS: Map<String, String> = mapOf(
 /** The word the bar prints for [label]. */
 fun islandShortLabel(label: String): String = ISLAND_SHORT_LABELS[label] ?: label
 
-/** The bar's label size, and the smallest it shrinks to before it gives up words for glyphs. */
-const val ISLAND_LABEL_MAX_SP = 12f
-const val ISLAND_LABEL_MIN_SP = 11f
+/**
+ * The bar's label size, and the smallest it shrinks to before it gives up words for glyphs. The
+ * largest is the theme's labelSmall (11sp, the size the bar always used), so where the words fit the
+ * bar looks exactly as it did; on a narrow phone they shrink to 10sp first.
+ */
+const val ISLAND_LABEL_MAX_SP = 11f
+const val ISLAND_LABEL_MIN_SP = 10f
 private const val ISLAND_LABEL_STEP_SP = 0.5f
 
 /**
@@ -183,6 +187,17 @@ fun islandLabelSize(
         size -= ISLAND_LABEL_STEP_SP
     }
     return null
+}
+
+/**
+ * The room, in dp, a slot's word has on a bar [barWidth] dp wide carrying [slotCount] slots: the bar
+ * less its padding, the menu button and its divider, split evenly, less each slot's own padding.
+ * The same sum [FieldIslandNav] lays out; pure so `IslandBottomNavTest` can check narrow phones.
+ */
+fun islandLabelRoom(barWidth: Float, slotCount: Int): Float {
+    val fixed = ISLAND_BAR_PADDING.value * 2 + ISLAND_TOUCH_TARGET.value + ISLAND_DIVIDER_GAP.value * 2 + 1f
+    return (barWidth.coerceAtMost(ISLAND_MAX_WIDTH.value) - fixed) / slotCount.coerceAtLeast(1) -
+        ISLAND_SLOT_PADDING.value * 2
 }
 
 /** One destination in the island: what it says, what it looks like, what it does. */
@@ -442,13 +457,11 @@ fun FieldIslandNav(
             ) {
                 BoxWithConstraints {
                     val slotCount = slotLabels.size.coerceAtLeast(1)
-                    val slotWidth = (maxWidth - ISLAND_BAR_PADDING * 2 - ISLAND_TOUCH_TARGET -
-                        ISLAND_DIVIDER_GAP * 2 - 1.dp) / slotCount
                     // Every slot carries its word, or none does: a bar where three slots are named
                     // and two are bare glyphs reads as two different kinds of thing. The words shrink
                     // to ISLAND_LABEL_MIN_SP before the bar gives them up; the full name is the
                     // slot's accessible name either way.
-                    val available = slotWidth - ISLAND_SLOT_PADDING * 2
+                    val available = islandLabelRoom(maxWidth.value, slotCount).dp
                     val labelSp = remember(slotLabels, labelStyle, density, measurer, available) {
                         islandLabelSize(available.value, { size ->
                             val style = labelStyle.copy(fontSize = size.sp)
