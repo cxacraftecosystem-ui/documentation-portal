@@ -1,8 +1,8 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
-import { ApiError, apiFetch, setToken } from "@/lib/api";
+import { ApiError, apiFetch, clearPasswordChangeOwed, onPasswordChangeRequired, setToken } from "@/lib/api";
 import type { loginBody } from "@/lib/oidcSignIn";
 import { isTwoFactorChallenge, type SignInResult, type TwoFactorChallenge } from "@/lib/twoFactor";
 import type { User } from "@/lib/types";
@@ -22,6 +22,15 @@ type AuthContextValue = {
   verifyTwoFactor: (challengeToken: string, code: string) => Promise<User>;
   logout: () => Promise<void>;
   refreshMe: () => Promise<void>;
+  /** Forget the session in this tab without calling the server — a password link has just ended it. */
+  clearSession: () => void;
+  /**
+   * The password of the last password sign-in that succeeded in this tab, so `FirstPasswordGate` does
+   * not ask somebody to retype what they typed seconds ago. "" when there is none.
+   */
+  recentPassword: () => string;
+  /** The gate was satisfied: forget the remembered password and re-read the account. */
+  markPasswordChanged: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -30,11 +39,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const signInPassword = useRef("");
+  const pendingPassword = useRef("");
+
   const refreshMe = useCallback(async () => {
     try {
       const me = await apiFetch<User>("/me");
       setUser(me);
     } catch (err) {
+      // A request that left with a token this tab has since replaced says nothing about the live one.
+      if (err instanceof ApiError && err.sessionReplaced) return;
       // Only discard the stored token when the server explicitly rejected it. On network
       // failures / 5xx the token may still be valid, so keep it for a later retry.
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
@@ -48,6 +62,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refreshMe();
+  }, [refreshMe]);
+
+  // A request refused because the account must choose a new password: re-read `/me` (which carries
+  // `mustChangePassword`) so the shell draws the gate in place. One re-read at a time.
+  const rereading = useRef(false);
+  useEffect(() => {
+    onPasswordChangeRequired(() => {
+      if (rereading.current) return;
+      rereading.current = true;
+      void refreshMe().finally(() => {
+        rereading.current = false;
+      });
+    });
+    return () => onPasswordChangeRequired(null);
+  }, [refreshMe]);
+
+  const clearSession = useCallback(() => {
+    setToken(null);
+    setUser(null);
+    signInPassword.current = "";
+    pendingPassword.current = "";
+    clearPasswordChangeOwed();
+  }, []);
+
+  const recentPassword = useCallback(() => signInPassword.current, []);
+
+  const markPasswordChanged = useCallback(async () => {
+    signInPassword.current = "";
+    clearPasswordChangeOwed();
+    await refreshMe();
   }, [refreshMe]);
 
   /**
@@ -67,11 +111,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [open]
   );
 
-  const login = useCallback((email: string, password: string) => signIn({ email, password }), [signIn]);
+  const login = useCallback(
+    async (email: string, password: string) => {
+      const result = await signIn({ email, password });
+      // Held in memory only, and only for the forced change straight after this sign-in.
+      if (isTwoFactorChallenge(result)) pendingPassword.current = password;
+      else signInPassword.current = password;
+      return result;
+    },
+    [signIn]
+  );
 
-  const loginWithGoogle = useCallback((googleIdToken: string) => signIn({ googleIdToken }), [signIn]);
+  const loginWithGoogle = useCallback(
+    (googleIdToken: string) => {
+      signInPassword.current = "";
+      pendingPassword.current = "";
+      return signIn({ googleIdToken });
+    },
+    [signIn]
+  );
 
-  const loginWithOidc = useCallback((body: ReturnType<typeof loginBody>) => signIn(body), [signIn]);
+  const loginWithOidc = useCallback(
+    (body: ReturnType<typeof loginBody>) => {
+      signInPassword.current = "";
+      pendingPassword.current = "";
+      return signIn(body);
+    },
+    [signIn]
+  );
 
   const verifyTwoFactor = useCallback(
     async (challengeToken: string, code: string) => {
@@ -82,6 +149,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         })
       );
       if (isTwoFactorChallenge(account)) throw new Error("Sign in again.");
+      signInPassword.current = pendingPassword.current;
+      pendingPassword.current = "";
       return account;
     },
     [open]
@@ -91,14 +160,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await apiFetch("/auth/logout", { method: "POST" });
     } finally {
-      setToken(null);
-      setUser(null);
+      clearSession();
     }
-  }, []);
+  }, [clearSession]);
 
   const value = useMemo(
-    () => ({ user, loading, login, loginWithGoogle, loginWithOidc, verifyTwoFactor, logout, refreshMe }),
-    [user, loading, login, loginWithGoogle, loginWithOidc, verifyTwoFactor, logout, refreshMe]
+    () => ({
+      user,
+      loading,
+      login,
+      loginWithGoogle,
+      loginWithOidc,
+      verifyTwoFactor,
+      logout,
+      refreshMe,
+      clearSession,
+      recentPassword,
+      markPasswordChanged
+    }),
+    [
+      user,
+      loading,
+      login,
+      loginWithGoogle,
+      loginWithOidc,
+      verifyTwoFactor,
+      logout,
+      refreshMe,
+      clearSession,
+      recentPassword,
+      markPasswordChanged
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

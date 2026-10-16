@@ -1,5 +1,6 @@
 import asyncio
 import os
+from datetime import UTC, datetime
 
 from app.core.config import get_settings
 from app.core.db import connect_db, db, disconnect_db
@@ -17,6 +18,11 @@ async def upsert_admin(email: str, name: str, password: str, role: str) -> None:
             data={
                 "name": name,
                 "passwordHash": hash_password(password),
+                # A password set here is the account's own (the operator chose it for the admin).
+                # The new hash also retires every session opened with the old one (the ``cred``
+                # fingerprint in deps._user_from_bearer).
+                "passwordSetAt": datetime.now(UTC),
+                "mustChangePassword": False,
                 "role": role,
                 "canManageQuestionnaire": True if is_master_admin else existing.canManageQuestionnaire,
             },
@@ -33,6 +39,7 @@ async def upsert_admin(email: str, name: str, password: str, role: str) -> None:
                 "email": email,
                 "name": name,
                 "passwordHash": hash_password(password),
+                "passwordSetAt": datetime.now(UTC),
                 "role": role,
                 "authProvider": "LOCAL",
                 "canManageQuestionnaire": is_master_admin,

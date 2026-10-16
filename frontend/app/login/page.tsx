@@ -447,9 +447,15 @@ function LoginView() {
               </div>
 
               <div className="grid gap-2">
-                <label htmlFor="password" className="text-sm font-medium text-ink-900">
-                  Password
-                </label>
+                <div className="flex items-baseline justify-between gap-3">
+                  <label htmlFor="password" className="text-sm font-medium text-ink-900">
+                    Password
+                  </label>
+                  {/* Self-service: emails a one-time set-password link. Same answer for every address. */}
+                  <Link href="/forgot-password" className="text-sm font-medium text-purple-700 hover:underline">
+                    Forgot your password?
+                  </Link>
+                </div>
                 <div className="relative">
                   <Lock aria-hidden className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-ink-500" />
                   <input

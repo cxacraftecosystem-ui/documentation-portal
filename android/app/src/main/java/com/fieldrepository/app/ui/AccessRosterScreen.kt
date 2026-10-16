@@ -18,7 +18,12 @@ import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.RadioButton
+import androidx.compose.ui.semantics.Role
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
@@ -156,6 +161,12 @@ fun AccessRosterScreen(
     var newName by remember { mutableStateOf("") }
     var newNote by remember { mutableStateOf("") }
     var newRole by remember { mutableStateOf("") }
+    // How the person will sign in: with a provider (the address alone), or with a password the
+    // administrator sets now. See `AccessSignIn` in AccountRecoveryCopy.kt.
+    var signIn by remember { mutableStateOf(AccessSignIn.PROVIDER) }
+    var newPassword by remember { mutableStateOf("") }
+    var newMustChange by remember { mutableStateOf(true) }
+    var revealNew by remember { mutableStateOf(false) }
     var adding by remember { mutableStateOf(false) }
 
     val roleOptions = remember(user.role) { assignableRoleOptions(user.role) }
@@ -370,9 +381,51 @@ fun AccessRosterScreen(
                     label = { Text("Note") },
                     modifier = Modifier.fillMaxWidth()
                 )
+                // How they will sign in: an address alone is made into an account at their first
+                // sign-in; a password makes it now. See `accessSignInNote`.
+                Text(ACCESS_SIGN_IN_QUESTION, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                listOf(
+                    AccessSignIn.PROVIDER to ACCESS_SIGN_IN_PROVIDER,
+                    AccessSignIn.PASSWORD to ACCESS_SIGN_IN_PASSWORD,
+                ).forEach { (option, label) ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                            .selectable(selected = signIn == option, role = Role.RadioButton, onClick = { signIn = option })
+                    ) {
+                        RadioButton(selected = signIn == option, onClick = null)
+                        Text(label, fontSize = 13.sp, modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
+                Text(accessSignInNote(signIn), color = MaterialTheme.field.muted, fontSize = 12.sp)
+                if (signIn == AccessSignIn.PASSWORD) {
+                    OutlinedTextField(
+                        value = newPassword,
+                        onValueChange = { newPassword = it },
+                        label = { Text("Password") },
+                        supportingText = { Text(passwordRuleLine()) },
+                        singleLine = true,
+                        visualTransformation = passwordTransformation(revealNew),
+                        trailingIcon = { PasswordRevealIcon(revealNew, { revealNew = !revealNew }) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                            .toggleable(value = newMustChange, role = Role.Checkbox, onValueChange = { newMustChange = it })
+                    ) {
+                        Checkbox(checked = newMustChange, onCheckedChange = null)
+                        Text(ACCESS_MUST_CHANGE_LABEL, fontSize = 13.sp, modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
                 Button(
                     enabled = !adding && newEmail.isNotBlank(),
                     onClick = {
+                        val refusal = accessAddProblem(signIn, newPassword, newName)
+                        if (refusal != null) {
+                            error = refusal
+                            return@Button
+                        }
                         scope.launch {
                             adding = true
                             error = null
@@ -382,17 +435,19 @@ fun AccessRosterScreen(
                                     email = newEmail,
                                     fullName = newName,
                                     notes = newNote,
-                                    grantedRole = newRole
+                                    grantedRole = newRole,
+                                    password = if (signIn == AccessSignIn.PASSWORD) newPassword else null,
+                                    mustChangePassword = newMustChange
                                 )
                             }
                                 .onSuccess { created ->
-                                    notice = "${created.email} is on the roster as " +
-                                        "${roleLabelFor(created.grantedRole)}. They can sign in with that " +
-                                        "address — the account is created the first time they do."
+                                    notice = accessAddedLine(created.email, signIn) + " " +
+                                        "Joins as ${roleLabelFor(created.grantedRole)}."
                                     newEmail = ""
                                     newName = ""
                                     newNote = ""
                                     newRole = ""
+                                    newPassword = ""
                                     reload()
                                 }
                                 .onFailure {

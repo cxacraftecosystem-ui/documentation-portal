@@ -34,6 +34,15 @@ export type User = {
   twoFactorEnabled?: boolean;
   /** ISO-8601, when it was last switched on; null while it is off. */
   twoFactorEnabledAt?: string | null;
+  /** The account must choose a new password before it can do anything else (`FirstPasswordGate`). */
+  mustChangePassword?: boolean;
+  /** Whether the account has a password of its own; false for an account that only signs in with
+   *  Google, Microsoft or Yahoo. Derived by the server on every account payload. */
+  hasPassword?: boolean;
+  /** ISO-8601, when the account's password was last set; null when it has none. */
+  passwordSetAt?: string | null;
+  /** ISO-8601, the first sign-in that got in; null for an account nobody has used yet. */
+  firstLoginAt?: string | null;
 };
 
 export type FieldProvenanceEntry = { by?: string; byName?: string; at?: string };

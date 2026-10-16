@@ -1,13 +1,16 @@
 import logging
+import secrets
 from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
+from prisma.errors import UniqueViolationError
 
 from app.core.db import db
 from app.core.config import get_settings
 from app.core.deps import (
+    ROLE_LABELS,
     ROLE_RANK,
     get_current_user,
     invalidate_cached_user,
@@ -19,8 +22,9 @@ from app.core.deps import (
 )
 from app.core.security import hash_password
 from app.schemas.users import UserCreate, UserUpdate
+from app.services import credential_links
 from app.services.access_roster import ensure_admitted
-from app.core.user_fields import SECRET_USER_FIELDS
+from app.core.user_fields import public_user
 from app.services.two_factor import CLEAR_FAILURES
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import clean_data, contains
@@ -32,10 +36,28 @@ ALLOWED_ROLES = set(ROLE_RANK)
 
 
 def serialize_user(user: Any) -> dict[str, Any]:
-    payload = jsonable_encoder(user)
-    for field in SECRET_USER_FIELDS:
-        payload.pop(field, None)
-    return payload
+    """The row as the users screen reads it: no secrets, plus ``hasPassword`` (whether a link or a
+    temporary password makes sense). ``mustChangePassword``, ``passwordSetAt`` and ``firstLoginAt``
+    ride along, so the screen can say whether a temporary password is still live."""
+    return public_user(jsonable_encoder(user), user)
+
+
+#: A password, the password flag, or "sign out of every device" asked for on your own account. Your
+#: own password is changed from the account screen, which asks for the current one.
+OWN_CREDENTIALS_DETAIL = (
+    "You cannot set or reset your own password here. Change it from your own account (Change "
+    "password), which asks for the password you use now."
+)
+
+#: ``mustChangePassword: true`` on an account that has no password to change.
+NO_PASSWORD_TO_CHANGE_DETAIL = (
+    "This account has no password to change. Set a temporary password or make a password link instead."
+)
+
+#: "Sign out of every device" on your own account.
+OWN_SESSIONS_DETAIL = (
+    "Use Sign out on this device instead; your own sessions end when you change your password."
+)
 
 
 def assert_role(role: str | None, current_user: Any) -> None:
@@ -121,49 +143,198 @@ async def list_users(
     return page_payload([serialize_user(user) for user in users], total, page, page_size)
 
 
+#: The header a duplicate-address refusal carries: the id of the account that already has the
+#: address, so the screen can offer "Open their account" instead of a second account. In
+#: ``expose_headers`` in app/main.py.
+EXISTING_ACCOUNT_HEADER = "X-Existing-Account-Id"
+
+#: Unambiguous characters for a generated temporary password: no 0/O, 1/l/I, so it can be read out
+#: over a telephone or typed from a WhatsApp message without a second try.
+_TEMPORARY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+TEMPORARY_PASSWORD_LENGTH = 16
+
+#: The per-role list question (section F of the parity contract): this repository keeps NO per-role
+#: list beside the access list (no designer roster, no officer or inspector list). The access list's
+#: ``grantedRole`` is the whole record, so a new account is written to two tables, never more.
+ROLE_LISTS: dict[str, str] = {}
+
+
+def generate_temporary_password() -> str:
+    """A strong temporary password: 16 characters from :data:`_TEMPORARY_ALPHABET` (about 92 bits)."""
+    return "".join(secrets.choice(_TEMPORARY_ALPHABET) for _ in range(TEMPORARY_PASSWORD_LENGTH))
+
+
+def assert_may_create_role(role: str | None, current_user: Any) -> None:
+    """Who may ADD a person at *role*: strictly below the actor's own rank, and only the master admin
+    adds an administrator (or another master admin). Stricter than :func:`assert_role`, which lets an
+    administrator move an existing account up to their own tier on the role ladder."""
+    if not role or role not in ALLOWED_ROLES:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Invalid user role")
+    if is_master_admin(current_user):
+        return
+    if ROLE_RANK[role] >= ROLE_RANK["ADMIN"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the master admin can add an administrator.",
+        )
+    if ROLE_RANK[role] >= role_rank(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only add people at a level below your own.",
+        )
+
+
+def duplicate_account_refusal(existing: Any) -> HTTPException:
+    """409 naming the account that already holds the address, with its id in a header."""
+    role = str(getattr(existing.role, "value", existing.role))
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            f"{existing.email} already has an account ({existing.name}, {ROLE_LABELS.get(role, role)}). "
+            "Open it to change their role or access instead."
+        ),
+        headers={EXISTING_ACCOUNT_HEADER: str(existing.id)},
+    )
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_user(payload: UserCreate, current_user: Any = Depends(require_admin)) -> dict[str, Any]:
-    role = "MASTER_ADMIN" if is_master_email(payload.email) else payload.role
-    assert_role(role, current_user)
-    existing = await db.user.find_unique(where={"email": payload.email.lower()})
+    """Add a person in ONE step: the account, admitted to the access list at the same role.
+
+    ``passwordMode`` says how they will sign in: SET (the administrator types a password), GENERATE
+    (the server makes a strong temporary one, answered ONCE as ``temporaryPassword``, never logged or
+    stored in clear) or NONE (Google, Microsoft or Yahoo; with ``sendPasswordLink`` they are also
+    e-mailed an invitation link to set a password, sent only after the account is committed; the
+    answer carries ``passwordLink``, or ``passwordLinkError`` when mail could not take it, and the
+    account stands either way). A password the administrator chose or the server made is temporary
+    by default (``mustChangePassword``, forced for GENERATE).
+
+    ONE TRANSACTION: the ``User`` row and its ``AccessRoster`` row are written together or not at all.
+    This repository keeps no per-role list beside the access list (:data:`ROLE_LISTS`).
+
+    Strictly below the actor's own rank; only the master admin adds an administrator. An address
+    that already has an account is a 409 naming it, with ``X-Existing-Account-Id``.
+    """
+    user, extra = await create_account(current_user, payload)
+    return {**serialize_user(user), **extra}
+
+
+async def create_account(
+    current_user: Any, payload: UserCreate, *, via: str = "created this account"
+) -> tuple[Any, dict[str, Any]]:
+    """Every rule ``POST /users`` applies, and the write. Returns the account and the one-time extras
+    for the answer (``temporaryPassword``, ``passwordLink`` or ``passwordLinkError``). The access
+    list's "with a password" door (``POST /access-roster``) calls this too, so the two cannot drift."""
+    email = payload.email.lower()
+    role = "MASTER_ADMIN" if is_master_email(email) else payload.role
+    assert_may_create_role(role, current_user)
+    existing = await db.user.find_unique(where={"email": email})
     if existing:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
+        raise duplicate_account_refusal(existing)
+
+    mode = payload.passwordMode or "SET"
+    temporary: str | None = None
+    password: str | None
+    if mode == "GENERATE":
+        temporary = generate_temporary_password()
+        password = temporary
+    elif mode == "SET":
+        password = payload.password
+    else:
+        password = None
+    password_hash = hash_password(password) if password is not None else None
     is_master = role == "MASTER_ADMIN"
-    user = await db.user.create(
-        data={
-            "email": payload.email.lower(),
-            "name": payload.name,
-            "passwordHash": hash_password(payload.password),
-            "role": role,
-            "authProvider": "LOCAL",
-            "canManageQuestionnaire": is_master or payload.canManageQuestionnaire,
-            "canManageCrafts": is_master or payload.canManageCrafts,
-            "canManageWorkshops": is_master or payload.canManageWorkshops,
-            "canReview": is_master or payload.canReview,
-            "canViewProvenance": is_master or payload.canViewProvenance,
-            # Dataset download is grantable by any admin (the whole route is admin-gated), unlike the
-            # master-admin-only grants above — so it needs no extra permission assertion.
-            "canDownloadDataset": is_master or payload.canDownloadDataset,
-        }
-    )
+    now = datetime.now(UTC)
+    data: dict[str, Any] = {
+        "email": email,
+        "name": payload.name,
+        "passwordHash": password_hash,
+        "passwordSetAt": now if password_hash else None,
+        "mustChangePassword": bool(password_hash) and bool(payload.mustChangePassword),
+        "role": role,
+        "authProvider": "LOCAL",
+        "canManageQuestionnaire": is_master or payload.canManageQuestionnaire,
+        "canManageCrafts": is_master or payload.canManageCrafts,
+        "canManageWorkshops": is_master or payload.canManageWorkshops,
+        "canReview": is_master or payload.canReview,
+        "canViewProvenance": is_master or payload.canViewProvenance,
+        # Dataset download is grantable by any admin (the whole route is admin-gated), unlike the
+        # master-admin-only grants above, so it needs no extra permission assertion.
+        "canDownloadDataset": is_master or payload.canDownloadDataset,
+    }
+    # -- ONE TRANSACTION: THE ACCOUNT AND ITS ADMISSION -----------------------------------------
+    #
     # AN ACCOUNT CREATED HERE MUST ALSO BE ADMITTED BY THE SIGN-IN GATE, or the admin has just made
-    # an account that cannot sign in — and they would find that out from the new user, by telephone,
-    # a day later. Creating the account IS the decision to let this person in; there is no second
-    # approval step an admin was meant to remember, and requiring one would be a trap with no signal
-    # attached to it. The roster row carries the same tier the account was created at, and the
-    # admin's own id as the decider.
-    await ensure_admitted(
-        user.email,
-        granted_role=role,
-        full_name=user.name,
-        notes="Admitted automatically: an administrator created this account.",
-        decided_by_id=current_user.id,
-        joined_at=user.createdAt,
-    )
+    # an account that cannot sign in. Creating the account IS the decision to let this person in, and
+    # the roster row carries the same tier with the admin as the decider. Both writes go through
+    # ``tx`` (``db.tx()`` hands back a DIFFERENT client, and a write through the module ``db`` would
+    # escape the transaction), so a failure in either leaves neither.
+    try:
+        async with db.tx() as tx:
+            user = await tx.user.create(data=data)
+            await ensure_admitted(
+                user.email,
+                granted_role=role,
+                full_name=user.name,
+                notes=f"Admitted automatically: an administrator {via}.",
+                decided_by_id=current_user.id,
+                joined_at=user.createdAt,
+                client=tx,
+            )
+    except UniqueViolationError as exc:
+        # Another request took the address between the check above and this write.
+        clash = await db.user.find_unique(where={"email": email})
+        if clash is not None:
+            raise duplicate_account_refusal(clash) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists") from exc
     # A brand-new cuid cannot already be cached, but every write to a User row invalidates without
-    # exception — a rule with a documented exception is a rule the next person has to re-derive.
+    # exception: a rule with a documented exception is a rule the next person has to re-derive.
     invalidate_cached_user(user.id)
-    return serialize_user(user)
+
+    extra: dict[str, Any] = {}
+    if temporary is not None:
+        # ONCE, in this answer only. Never logged, never stored in clear.
+        extra["temporaryPassword"] = temporary
+    if mode == "NONE" and payload.sendPasswordLink:
+        # AFTER THE COMMIT: an e-mail about an account a rollback then erased would be a link to
+        # nothing. A link that cannot be sent leaves the account standing and says so.
+        try:
+            issued = await credential_links.issue_link(
+                user=user,
+                purpose=credential_links.INVITE,
+                issued_by_id=current_user.id,
+                deliver_by=credential_links.EMAIL,
+            )
+            extra["passwordLink"] = {
+                "id": issued.id,
+                "expiresAt": issued.expiresAt,
+                "purpose": issued.purpose,
+                "deliveredBy": issued.deliveredBy,
+            }
+        except credential_links.DeliveryUnavailable:
+            extra["passwordLinkError"] = (
+                "The account was created, but the link could not be e-mailed. Make a password link "
+                "from their account and pass it on yourself."
+            )
+        except credential_links.IssueThrottled:
+            extra["passwordLinkError"] = (
+                "The account was created, but several links were issued for it already. Wait an hour "
+                "before making another."
+            )
+    role_lists = ROLE_LISTS.get(role)
+    # Ids, the role and the mode only: never a password, never a link.
+    logger.warning(
+        "AUDIT account created: user=%s role=%s by=%s passwordMode=%s mustChangePassword=%s "
+        "rosterAdded=True roleListsAdded=%s linkEmailed=%s",
+        user.id,
+        role,
+        current_user.id,
+        mode,
+        bool(data["mustChangePassword"]),
+        role_lists or "none",
+        "passwordLink" in extra,
+    )
+    return user, extra
 
 
 @router.patch("/{user_id}")
@@ -186,14 +357,17 @@ async def update_user(
             )
     if "email" in data:
         data["email"] = data["email"].lower()
-    if "password" in data:
-        data["passwordHash"] = hash_password(data.pop("password"))
     user = await db.user.find_unique(where={"id": user_id})
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     if user.id == current_user.id:
+        # YOUR OWN PASSWORD IS NOT SET HERE (2026-10-16): this route asks for no current password, so
+        # it would turn any open session into a permanent password. ``POST /auth/change-password``
+        # asks for the current one and ends every other session.
+        if "password" in data or "mustChangePassword" in data:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=OWN_CREDENTIALS_DETAIL)
         # Self-service is limited to identity fields; nobody edits their own role or privileges.
-        privileged_fields = set(data) - {"name", "email", "passwordHash"}
+        privileged_fields = set(data) - {"name", "email"}
         if privileged_fields:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -201,6 +375,25 @@ async def update_user(
             )
     else:
         assert_can_manage_target(current_user, user)
+
+    # ── A PASSWORD AN ADMINISTRATOR TYPES FOR SOMEBODY ELSE IS TEMPORARY (ported 2026-10-16) ─────
+    #
+    # A shared secret, exactly as at account creation: the account is sent to the change-password
+    # screen at its next sign-in unless ``mustChangePassword: false`` is sent beside it. And EVERY
+    # SESSION OF THE ACCOUNT ENDS (``sessionsValidFrom``) — the usual reason for this is "help them
+    # back in", and a session somebody else holds must not survive it. Raising the flag alone ends the
+    # sessions too, so "at the next sign-in" is literal on a handset that would otherwise not re-read
+    # ``/me`` until a cold start. The two-step factor is untouched: their next sign-in still asks.
+    ends_sessions = False
+    if "password" in data:
+        data["passwordHash"] = hash_password(data.pop("password"))
+        data.setdefault("mustChangePassword", True)
+        ends_sessions = True
+    if data.get("mustChangePassword") is True:
+        if "passwordHash" not in data and user.passwordHash is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=NO_PASSWORD_TO_CHANGE_DETAIL)
+        if not user.mustChangePassword:
+            ends_sessions = True
     assert_not_demoting_master(user, data.get("role"), current_user)
     if "email" in data and data["email"] != user.email:
         if is_master_email(data["email"]) and not is_master_admin(current_user):
@@ -224,6 +417,13 @@ async def update_user(
     # still holds the old value" is an assumption about the ORM's identity map, not about this code,
     # and the thing that depends on it below is whether somebody can still sign in.
     previous_email = user.email
+    # The timestamps last, after bcrypt and every awaited check, immediately before the write.
+    now = datetime.now(UTC)
+    if "passwordHash" in data:
+        data["passwordSetAt"] = now
+    if ends_sessions:
+        data["sessionsValidFrom"] = now
+    promoted = "role" in data and ROLE_RANK.get(str(data["role"]), 0) > role_rank(user)
     updated = await db.user.update(where={"id": user_id}, data=data)
     if "email" in data and data["email"] != previous_email:
         # CHANGING SOMEBODY'S ADDRESS MOVES THEM PAST THEIR OWN ROSTER ROW. The gate is keyed by
@@ -244,7 +444,48 @@ async def update_user(
     # This is the promotion/demotion route: the cached identity now describes authority the user no
     # longer has (or has not been given yet), so it must not outlive the write by even one request.
     invalidate_cached_user(user_id)
+    # A password link is its issuer's credential; a promotion must not carry it above the issuer's
+    # reach. A new password makes every outstanding link dead through the fingerprint anyway.
+    links_withdrawn = await credential_links.revoke_outstanding(user_id) if promoted else 0
+    if "passwordHash" in data or "mustChangePassword" in data or links_withdrawn:
+        # Field names only, never the password.
+        logger.warning(
+            "AUDIT account credentials changed: user=%s by=%s passwordSet=%s mustChangePassword=%s "
+            "sessionsEnded=%s linksWithdrawn=%s",
+            user_id,
+            current_user.id,
+            "passwordHash" in data,
+            bool(updated.mustChangePassword),
+            ends_sessions,
+            links_withdrawn,
+        )
     return serialize_user(updated)
+
+
+@router.post("/{user_id}/sign-out-everywhere")
+async def sign_out_everywhere(user_id: str, current_user: Any = Depends(require_admin)) -> dict[str, Any]:
+    """"Sign out of every device": end every session of somebody else's account, now.
+
+    The same authority as resetting their password: an administrator, over an account ranked below
+    them (the master admin over anyone), never their own (403: their own sessions end with Sign out,
+    and all of them when they change their password). Stamps ``sessionsValidFrom``, which every
+    bearer token minted before it fails against (``deps._user_from_bearer``), and drops the cached
+    identity so the refusal lands on the very next request. Nothing else changes: the password, the
+    two-step factor and the access list are as they were, so the person signs in again exactly as
+    before. Answers the user row as it now is.
+    """
+    user = await db.user.find_unique(where={"id": user_id})
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if user.id == current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=OWN_SESSIONS_DETAIL)
+    assert_can_manage_target(current_user, user)
+    updated = await db.user.update(where={"id": user_id}, data={"sessionsValidFrom": datetime.now(UTC)})
+    invalidate_cached_user(user_id)
+    logger.warning(
+        "AUDIT signed out of every device by an administrator: user=%s by=%s", user_id, current_user.id
+    )
+    return serialize_user(updated or user)
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -285,7 +526,9 @@ async def reset_two_factor(user_id: str, current_user: Any = Depends(require_adm
     ranked below them (the master admin over anyone). An administrator may REMOVE a second factor
     and may never READ one: nothing here returns the secret, and the recovery codes go with it.
     Refused for your own account, which is turned off from the account screen with a current code.
-    Sessions are left alone; there is no revoke-all in this API. Answers the user row as it now is.
+    EVERY SESSION OF THE ACCOUNT ENDS (``sessionsValidFrom``, 2026-10-16): the person asking for this
+    has usually lost the phone, and a session opened on it must not outlive the factor it was opened
+    with. Answers the user row as it now is.
     """
     user = await db.user.find_unique(where={"id": user_id})
     if not user:
@@ -312,6 +555,7 @@ async def reset_two_factor(user_id: str, current_user: Any = Depends(require_adm
             "twoFactorEnabledAt": None,
             # The lock and the failure count go too: the owner is about to start again.
             **CLEAR_FAILURES,
+            "sessionsValidFrom": datetime.now(UTC),
         },
     )
     invalidate_cached_user(user_id)

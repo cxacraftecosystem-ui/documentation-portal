@@ -1,8 +1,10 @@
 from typing import Literal
 
-from pydantic import EmailStr, Field, model_validator
+from pydantic import EmailStr, Field, field_validator, model_validator
 
+from app.core.security import BCRYPT_MAX_PASSWORD_BYTES
 from app.schemas.common import APIModel
+from app.schemas.users import _storable_password
 
 
 class LoginRequest(APIModel):
@@ -79,3 +81,64 @@ class DatasetTokenRequest(LoginRequest):
     mint a 30-day credential, which is exactly what the second factor exists to stop."""
 
     code: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+# ── PASSWORDS: links, the link redemption, the change, and "Forgot your password?" ─────────────────
+#
+# Ported on 2026-10-16 from the Design Prototype Workshop's app/schemas/auth.py — same class names,
+# same field names, so the two portals' clients send one body. Every NEW password goes through
+# ``schemas.users._storable_password`` (bcrypt's 72-byte rule, as a 422), the one rule the admin forms
+# use, so a temporary password an administrator can set is one these forms can accept back.
+
+
+class IssuePasswordLinkRequest(APIModel):
+    """An administrator asking for a password link for somebody else's account. No ``purpose``: it is
+    derived (``credential_links.purpose_for``) from whether the account has a password and has ever
+    signed in."""
+
+    userId: str = Field(min_length=1, max_length=64)
+    delivery: Literal["COPY_LINK", "EMAIL"] = "COPY_LINK"
+
+
+class PasswordLinkCheckRequest(APIModel):
+    """Asking whether a link is still good, with the token in the BODY so no request line carries it.
+    No length bound: an over-long token is "malformed" from ``credential_links.verify_token``."""
+
+    token: str | None = None
+
+
+class SetPasswordRequest(APIModel):
+    """Redeeming a link. Unauthenticated by necessity: the token is the entire authority."""
+
+    token: str = Field(min_length=1, max_length=1024)
+    password: str = Field(min_length=8, max_length=BCRYPT_MAX_PASSWORD_BYTES)
+
+    @field_validator("password")
+    @classmethod
+    def password_fits_bcrypt(cls, value: str) -> str:
+        return _storable_password(value)
+
+
+class ChangePasswordRequest(APIModel):
+    """The signed-in account changing its own password, or setting its first one.
+
+    ``currentPassword`` is required for every account that HAS a password, even one carrying
+    ``mustChangePassword``. An account with NO password (Google, Microsoft or Yahoo only) sends none
+    and SETS a first password instead, allowed only on a session opened in the last
+    ``auth.PASSWORD_REAUTH_MINUTES`` minutes (see ``routes/auth.change_password``).
+    """
+
+    currentPassword: str = Field(default="", max_length=256)
+    newPassword: str = Field(min_length=8, max_length=BCRYPT_MAX_PASSWORD_BYTES)
+
+    @field_validator("newPassword")
+    @classmethod
+    def password_fits_bcrypt(cls, value: str) -> str:
+        return _storable_password(value)
+
+
+class ForgotPasswordRequest(APIModel):
+    """``POST /auth/forgot-password``: the address a signed-out person asks a link for. A malformed
+    address is the one refusal this door gives about its body (422)."""
+
+    email: EmailStr = Field(max_length=320)

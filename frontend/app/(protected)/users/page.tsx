@@ -5,7 +5,6 @@ import { ShieldCheck } from "lucide-react";
 
 import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
-import { Field, Select, TextInput } from "@/components/FormControls";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { ResizableTh } from "@/components/ResizableTh";
@@ -15,7 +14,14 @@ import { adminChromeVisible, useAdminView } from "@/components/AdminViewProvider
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
 import { resetTwoFactorForUser } from "@/lib/twoFactor";
-import { requiredText } from "@/lib/forms";
+import { fetchNotificationPreferences } from "@/lib/notifications";
+import {
+  issuePasswordLink,
+  revokePasswordLink,
+  signOutEverywhere,
+  type IssuedPasswordLink,
+  type PasswordLinkDelivery
+} from "@/lib/signIn";
 import {
   assignableRoles,
   canManageUser,
@@ -26,6 +32,10 @@ import {
   roleRank
 } from "@/lib/permissions";
 import type { PageResult, User } from "@/lib/types";
+
+import { RequirePasswordChangeDialog, TemporaryPasswordDialog } from "./AccountDialogs";
+import { AddPersonForm } from "./AddPersonForm";
+import { rowOffers, signInSummary } from "./accountAdmin";
 
 function GrantCell({
   included,
@@ -79,6 +89,91 @@ export default function UsersPage() {
   const [grantDataset, setGrantDataset] = useState(false);
   const [applying, setApplying] = useState(false);
   const [adminMessage, setAdminMessage] = useState<string | null>(null);
+  /** "Help them back in": whether e-mail can carry a link, the link just made, and the two dialogs. */
+  const [mailAvailable, setMailAvailable] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [issuedLink, setIssuedLink] = useState<{ user: User; link: IssuedPasswordLink } | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [temporary, setTemporary] = useState<{ open: boolean; user: User | null }>({ open: false, user: null });
+  const [requireChange, setRequireChange] = useState<{ open: boolean; user: User | null }>({ open: false, user: null });
+
+  useEffect(() => {
+    let live = true;
+    void fetchNotificationPreferences().then((answer) => {
+      if (live) setMailAvailable(answer.available);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  /**
+   * Make a password link for somebody — copied and handed over (by phone, WhatsApp, in person), or
+   * e-mailed to their own address. The link exists only in this answer: no route reads one back.
+   */
+  async function issueLink(user: User, delivery: PasswordLinkDelivery) {
+    setLinkBusy(true);
+    setError(null);
+    setNotice(null);
+    setLinkCopied(false);
+    try {
+      const link = await issuePasswordLink(user.id, delivery);
+      setIssuedLink({ user, link });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to make a password link");
+    } finally {
+      setLinkBusy(false);
+    }
+  }
+
+  async function withdrawLink() {
+    if (!issuedLink) return;
+    setLinkBusy(true);
+    try {
+      await revokePasswordLink(issuedLink.link.id);
+      setIssuedLink(null);
+      setNotice("The link was withdrawn. It no longer works.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to withdraw the link");
+    } finally {
+      setLinkBusy(false);
+    }
+  }
+
+  async function copyLink() {
+    if (!issuedLink?.link.link) return;
+    try {
+      await navigator.clipboard.writeText(issuedLink.link.link);
+      setLinkCopied(true);
+    } catch {
+      // Clipboard refused: say nothing rather than claim success — the link is on screen to select.
+      setLinkCopied(false);
+    }
+  }
+
+  async function endSessions(user: User) {
+    const ok = await confirm({
+      title: "Sign them out of every device?",
+      body: (
+        <>
+          Every session <span className="font-medium text-ink-900">{user.name || user.email}</span> has open, on the
+          web and on the phone, ends now. Their password does not change; they sign in again as usual.
+        </>
+      ),
+      tone: "danger",
+      confirmLabel: "Sign out everywhere"
+    });
+    if (!ok) return;
+    try {
+      await signOutEverywhere(user.id);
+      setError(null);
+      setNotice(`${user.name || user.email} is signed out of every device.`);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to sign them out");
+    }
+  }
 
   function toggleAdminSelection(id: string) {
     setAdminSelection((prev) => {
@@ -164,28 +259,12 @@ export default function UsersPage() {
     return () => clearTimeout(timer);
   }, [query]);
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    // Capture the element before awaiting: React nulls currentTarget after dispatch.
-    const formElement = event.currentTarget;
-    const form = new FormData(formElement);
-    try {
-      await apiFetch("/users", {
-        method: "POST",
-        body: JSON.stringify({
-          name: requiredText(form, "name"),
-          email: requiredText(form, "email"),
-          password: requiredText(form, "password"),
-          role: requiredText(form, "role"),
-          canManageQuestionnaire: form.get("canManageQuestionnaire") === "on",
-          canDownloadDataset: form.get("canDownloadDataset") === "on"
-        })
-      });
-      formElement.reset();
-      load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to create user");
-    }
+  /** "Open their account" after a duplicate: bring that row up in the table, where its role and access are. */
+  function openExisting(_accountId: string, email: string) {
+    setQuery(email);
+    setApplied(email);
+    setPage(1);
+    window.requestAnimationFrame(() => document.getElementById("users-table")?.scrollIntoView({ block: "start" }));
   }
 
   async function updateRole(user: User, role: string) {
@@ -277,48 +356,37 @@ export default function UsersPage() {
         description="User management for professors and administrators — promotions for professors, full account control for admins."
         icon={<ShieldCheck className="h-5 w-5" aria-hidden />}
       />
-      {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+      {error ? (
+        <div role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
+      {/* Mounted from the first render, so a notice that appears later is announced. */}
+      <div aria-live="polite">
+        {notice ? (
+          <div className="mb-4 rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-700">{notice}</div>
+        ) : null}
+      </div>
+      {issuedLink ? (
+        <IssuedLinkPanel
+          issued={issuedLink}
+          copied={linkCopied}
+          busy={linkBusy}
+          onCopy={copyLink}
+          onWithdraw={withdrawLink}
+          onDone={() => setIssuedLink(null)}
+        />
+      ) : null}
       {admin ? (
-      <form onSubmit={submit} className="panel mb-5 grid gap-3 p-4 md:grid-cols-5">
-        <Field label="Name" required>
-          <TextInput name="name" required />
-        </Field>
-        <Field label="Email" required>
-          <TextInput name="email" type="email" required />
-        </Field>
-        <Field label="Password" required>
-          <TextInput name="password" type="password" minLength={8} required />
-        </Field>
-        <Field label="Role">
-          <Select name="role" defaultValue="RESEARCHER">
-            {assignableRoles(currentUser)
-              .filter((role) => role !== "MASTER_ADMIN" || isMasterAdmin(currentUser))
-              .map((role) => (
-                <option key={role} value={role}>
-                  {roleLabel(role)}
-                </option>
-              ))}
-          </Select>
-        </Field>
-        <div className="md:col-span-5 flex flex-wrap gap-2">
-          <label className="flex items-center gap-2 rounded-md border border-line-200 bg-field-100 px-3 py-2 text-sm text-ink-muted">
-            <input name="canManageQuestionnaire" type="checkbox" />
-            Manage questionnaire
-          </label>
-          {/* Crafts and workshops are NOT here, deliberately. They are rank-only now
-              (require_craft_manager / require_workshop_manager = Professor and above), so a
-              checkbox for them would set a column nothing reads — a control that looks like it
-              grants access and does not is worse than no control at all. Promote the person
-              instead. */}
-          <label className="flex items-center gap-2 rounded-md border border-line-200 bg-field-100 px-3 py-2 text-sm text-ink-muted">
-            <input name="canDownloadDataset" type="checkbox" />
-            Download dataset
-          </label>
-        </div>
-        <div className="md:col-span-5">
-          <button className="field-button">Create user</button>
-        </div>
-      </form>
+        <AddPersonForm
+          viewer={currentUser}
+          mailAvailable={mailAvailable}
+          onAdded={() => {
+            setError(null);
+            load();
+          }}
+          onOpenExisting={openExisting}
+        />
       ) : null}
       <p className="mb-4 text-xs text-ink-muted">
         Six tiers: Master Admin → Admin → Professor → Researcher → Field Contributor → Crowdsource
@@ -346,7 +414,7 @@ export default function UsersPage() {
           placeholder="Search users by name or email"
         />
       </div>
-      <section className="panel overflow-hidden">
+      <section id="users-table" className="panel scroll-mt-28 overflow-hidden">
         {!data ? (
           <div className="p-4 text-sm text-ink-700">Loading...</div>
         ) : data.items.length === 0 ? (
@@ -363,7 +431,7 @@ export default function UsersPage() {
                   <ResizableTh>Role</ResizableTh>
                   <ResizableTh>Questionnaire</ResizableTh>
                   <ResizableTh>Dataset</ResizableTh>
-                  <ResizableTh>Provider</ResizableTh>
+                  <ResizableTh>Sign-in</ResizableTh>
                   <ResizableTh className="text-right">Actions</ResizableTh>
                 </tr>
               </thead>
@@ -413,17 +481,22 @@ export default function UsersPage() {
                       label={`Allow ${user.email} to download the entire dataset`}
                       onChange={(value) => updateGrant(user, "canDownloadDataset", value)}
                     />
-                    <td className="px-4 py-3 text-ink-700">{user.authProvider ?? "-"}</td>
+                    <td className="px-4 py-3 text-ink-700">{signInSummary(user)}</td>
                     <td className="px-4 py-3 text-right">
                       {user.role === "MASTER_ADMIN" ? (
                         <span className="text-xs font-semibold text-amber-700">Protected</span>
                       ) : admin && canManageUser(currentUser, user) ? (
                         <RowActions>
-                          {user.twoFactorEnabled && user.id !== currentUser?.id ? (
-                            <button className={rowAction("danger")} onClick={() => turnOffTwoStep(user)}>
-                              Turn off two-step verification
-                            </button>
-                          ) : null}
+                          <HelpThemBackIn
+                            offers={rowOffers(currentUser, user, { adminView: admin, mailAvailable })}
+                            busy={linkBusy}
+                            onEmailLink={() => void issueLink(user, "EMAIL")}
+                            onCopyLink={() => void issueLink(user, "COPY_LINK")}
+                            onTemporaryPassword={() => setTemporary({ open: true, user })}
+                            onRequireChange={() => setRequireChange({ open: true, user })}
+                            onSignOutEverywhere={() => void endSessions(user)}
+                            onTurnOffTwoStep={() => void turnOffTwoStep(user)}
+                          />
                           <button className={rowAction("danger")} onClick={() => remove(user)}>
                             Delete
                           </button>
@@ -442,6 +515,33 @@ export default function UsersPage() {
         )}
         {data ? <Pagination page={data.page} pages={data.pages} total={data.total} onPage={setPage} /> : null}
       </section>
+      <TemporaryPasswordDialog
+        open={temporary.open}
+        target={temporary.user}
+        onClose={() => setTemporary((state) => ({ ...state, open: false }))}
+        onSaved={(updated, required) => {
+          setTemporary((state) => ({ ...state, open: false }));
+          setError(null);
+          setNotice(
+            `${updated.name || updated.email} has a new password and is signed out everywhere.${
+              required ? " They choose their own at their next sign-in." : ""
+            } Send it to them yourself.`
+          );
+          load();
+        }}
+      />
+      <RequirePasswordChangeDialog
+        open={requireChange.open}
+        target={requireChange.user}
+        onClose={() => setRequireChange((state) => ({ ...state, open: false }))}
+        onSaved={(updated, withLink) => {
+          setRequireChange((state) => ({ ...state, open: false }));
+          setError(null);
+          setNotice(`${updated.name || updated.email} must choose a new password at their next sign-in.`);
+          if (withLink) void issueLink(updated, "COPY_LINK");
+          load();
+        }}
+      />
       {masterControls ? (
         <section className="panel mt-6 p-4">
           <h2 className="font-display font-bold text-xl text-ink">Admin management</h2>
@@ -496,5 +596,124 @@ export default function UsersPage() {
         </section>
       ) : null}
     </>
+  );
+}
+
+/**
+ * "HELP THEM BACK IN" — every way an administrator can get somebody into their account again, on
+ * the row of an account they manage. Only the offers `rowOffers` makes are drawn.
+ */
+function HelpThemBackIn({
+  offers,
+  busy,
+  onEmailLink,
+  onCopyLink,
+  onTemporaryPassword,
+  onRequireChange,
+  onSignOutEverywhere,
+  onTurnOffTwoStep
+}: {
+  offers: ReturnType<typeof rowOffers>;
+  busy: boolean;
+  onEmailLink: () => void;
+  onCopyLink: () => void;
+  onTemporaryPassword: () => void;
+  onRequireChange: () => void;
+  onSignOutEverywhere: () => void;
+  onTurnOffTwoStep: () => void;
+}) {
+  return (
+    <>
+      {offers.emailLink ? (
+        <button className={rowAction("neutral")} disabled={busy} onClick={onEmailLink}>
+          Email them a password link
+        </button>
+      ) : null}
+      {offers.copyLink ? (
+        <button className={rowAction("neutral")} disabled={busy} onClick={onCopyLink}>
+          Make a password link
+        </button>
+      ) : null}
+      {offers.temporaryPassword ? (
+        <button className={rowAction("neutral")} onClick={onTemporaryPassword}>
+          Set a temporary password
+        </button>
+      ) : null}
+      {offers.requireChange ? (
+        <button className={rowAction("neutral")} onClick={onRequireChange}>
+          Require a new password
+        </button>
+      ) : null}
+      {offers.signOutEverywhere ? (
+        <button className={rowAction("danger")} onClick={onSignOutEverywhere}>
+          Sign out of every device
+        </button>
+      ) : null}
+      {offers.turnOffTwoStep ? (
+        <button className={rowAction("danger")} onClick={onTurnOffTwoStep}>
+          Turn off two-step verification
+        </button>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * THE LINK JUST MADE, above the table and not inside the row that made it: this is the one panel
+ * whose content cannot be recovered — no route reads a link back. An e-mailed link is not shown at
+ * all; the administrator is told where it went and may withdraw it.
+ */
+function IssuedLinkPanel({
+  issued,
+  copied,
+  busy,
+  onCopy,
+  onWithdraw,
+  onDone
+}: {
+  issued: { user: User; link: IssuedPasswordLink };
+  copied: boolean;
+  busy: boolean;
+  onCopy: () => void;
+  onWithdraw: () => void;
+  onDone: () => void;
+}) {
+  const kind = issued.link.purpose === "INVITE" ? "Invitation link" : "Password reset link";
+  const expires = new Date(issued.link.expiresAt).toLocaleString();
+  const emailed = issued.link.deliveredBy === "EMAIL";
+  return (
+    <div className="mb-4 grid gap-2 rounded-md border border-line-200 bg-field-50 px-3 py-3">
+      <p className="text-sm font-medium text-ink-900">
+        {kind} {emailed ? "e-mailed to" : "for"} {issued.user.name} · {issued.user.email}
+      </p>
+      {emailed ? null : (
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            readOnly
+            value={issued.link.link ?? ""}
+            aria-label="Password link"
+            onFocus={(event) => event.currentTarget.select()}
+            className="field-input min-w-0 flex-1 font-mono text-xs"
+          />
+          <button type="button" className="field-button-secondary" onClick={onCopy}>
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+      )}
+      <p className="text-xs leading-5 text-ink-500">
+        It works once and expires {expires}.{" "}
+        {emailed
+          ? "Withdraw it if it went to the wrong address."
+          : "Send it to them yourself — by phone, WhatsApp or in person. It is shown only here, once. Setting a password with it signs them out everywhere; if two-step verification is on, they still need their code to sign in."}
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" className="field-button-secondary" disabled={busy} onClick={onWithdraw}>
+          Withdraw
+        </button>
+        <button type="button" className="field-button-secondary" onClick={onDone}>
+          Done
+        </button>
+      </div>
+    </div>
   );
 }

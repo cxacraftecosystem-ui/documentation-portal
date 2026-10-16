@@ -38,15 +38,56 @@ const baseIsLoopback = ((): boolean => {
   }
 })();
 
+/**
+ * The header the server adds to a 401 it sends because the account must choose a new password
+ * (`deps.PASSWORD_CHANGE_REQUIRED_HEADER`). That 401 is NOT a dead session: the token stays, and the
+ * protected tree draws `FirstPasswordGate` in place of the page. Lower-case because `Headers.get` is
+ * case-insensitive and this is how the browser reports it.
+ */
+export const PASSWORD_CHANGE_REQUIRED_HEADER = "x-password-change-required";
+
 export class ApiError extends Error {
   status: number;
   payload: unknown;
+  /** The response's headers, where the request got one. */
+  headers: Headers | null;
+  /** A 401 carrying {@link PASSWORD_CHANGE_REQUIRED_HEADER}: keep the session, show the gate. */
+  passwordChangeRequired: boolean;
+  /** A 401 for a token this tab has already replaced (a password change hands back a new one). */
+  sessionReplaced: boolean;
 
-  constructor(status: number, message: string, payload: unknown) {
+  constructor(status: number, message: string, payload: unknown, headers: Headers | null = null) {
     super(message);
     this.status = status;
     this.payload = payload;
+    this.headers = headers;
+    this.passwordChangeRequired = status === 401 && headers?.get(PASSWORD_CHANGE_REQUIRED_HEADER) === "1";
+    this.sessionReplaced = false;
   }
+}
+
+/** Pages a signed-out person uses; an expired token found there is dropped without navigating away. */
+export const SIGNED_OUT_PAGES = new Set(["/login", "/set-password", "/forgot-password"]);
+
+let passwordChangeListener: (() => void) | null = null;
+let passwordChangeOwed = false;
+
+/**
+ * `AuthProvider` registers here to be told when the server refuses a request because the account owes
+ * a new password; it re-reads `/me`, which carries `mustChangePassword`, and the shell draws the gate.
+ */
+export function onPasswordChangeRequired(listener: (() => void) | null) {
+  passwordChangeListener = listener;
+}
+
+/** Has the server told this tab that the signed-in account must choose a new password? */
+export function sessionOwesPasswordChange(): boolean {
+  return passwordChangeOwed;
+}
+
+/** Called once the gate has been satisfied (or the session ends). */
+export function clearPasswordChangeOwed() {
+  passwordChangeOwed = false;
 }
 
 /**
@@ -159,6 +200,18 @@ export function setToken(token: string | null) {
 }
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  return (await apiFetchWithHeaders<T>(path, init)).body;
+}
+
+/**
+ * {@link apiFetch}, with the response's headers handed back too — for the one answer that carries
+ * something in a header: `POST /auth/change-password` puts the fresh session token in
+ * `X-Session-Token` (see `lib/signIn.ts`). Same refusals, same 401 handling.
+ */
+export async function apiFetchWithHeaders<T>(
+  path: string,
+  init: RequestInit = {}
+): Promise<{ body: T; headers: Headers }> {
   assertApiConfigured();
 
   const headers = new Headers(init.headers);
@@ -174,7 +227,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     cache: "no-store"
   });
 
-  if (response.status === 204) return undefined as T;
+  if (response.status === 204) return { body: undefined as T, headers: response.headers };
 
   const contentType = response.headers.get("content-type") ?? "";
   const body = contentType.includes("application/json") ? await response.json() : await response.text();
@@ -184,6 +237,20 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     // `statusText` is empty over HTTP/2 — which every deployed request is — so it cannot be the last
     // resort on its own, or a body-less failure reaches the screen as a blank error box.
     const message = describeApiDetail(detail, response.statusText || "Something went wrong. Try again.");
+    const error = new ApiError(response.status, message, body, response.headers);
+    if (error.passwordChangeRequired) {
+      // NOT a dead session: the account must choose a new password first. Keep the token, never
+      // navigate, and let AuthProvider re-read `/me` so the shell draws the gate in place.
+      passwordChangeOwed = true;
+      passwordChangeListener?.();
+      throw error;
+    }
+    if (response.status === 401 && token && getToken() !== token) {
+      // The token this request carried has already been replaced in this tab (a password change hands
+      // back a fresh one). The 401 is about a session already let go of; the live one is untouched.
+      error.sessionReplaced = true;
+      throw error;
+    }
     if (response.status === 401 && token && typeof window !== "undefined") {
       // A previously-valid session expired: drop the stored token and send the user to login
       // (unless they are already there). Anonymous requests — e.g. the landing page's /me probe —
@@ -194,12 +261,14 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
       // no router to push with, and the session has just ended: a page load is what discards the
       // signed-out session's in-memory state instead of carrying it onto the login screen.
       // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-      if (window.location.pathname !== "/login") window.location.assign("/login");
+      // Never away from a signed-out page: somebody holding a password link or asking for one must not
+      // lose that screen because an old token was still in this browser.
+      if (!SIGNED_OUT_PAGES.has(window.location.pathname)) window.location.assign("/login");
     }
-    throw new ApiError(response.status, message, body);
+    throw error;
   }
 
-  return body as T;
+  return { body: body as T, headers: response.headers };
 }
 
 export function buildQuery(params: Record<string, string | number | undefined | null>) {

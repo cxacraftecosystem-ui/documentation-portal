@@ -58,6 +58,32 @@ interface FieldRepositoryApi {
     @DELETE("users/{id}/two-factor")
     suspend fun resetTwoFactorForUser(@Path("id") id: String): UserDto
 
+    // ── PASSWORDS — the same routes as the Design Prototype Workshop's handset. DTOs in ApiModels.kt; recovery routes in AccountRecovery.kt.
+
+    /**
+     * The signed-in account replacing its own password. A `Response` because the fresh session token
+     * rides in the [SESSION_TOKEN_HEADER] response header; `FieldRepository.changeOwnPassword` throws
+     * the `HttpException` itself. A FIRST password is `AccountRecoveryApi.setFirstPassword`.
+     */
+    @POST("auth/change-password")
+    suspend fun changeOwnPassword(@Body body: ChangePasswordRequest): Response<ChangePasswordResponse>
+
+    /** Mint a set-password link for another account. Throttled per SUBJECT on the server. */
+    @POST("auth/password-links")
+    suspend fun issuePasswordLink(@Body body: IssuePasswordLinkRequest): IssuedPasswordLinkDto
+
+    /** Withdraw a link that has not been used yet. */
+    @POST("auth/password-links/{id}/revoke")
+    suspend fun revokePasswordLink(@Path("id") id: String): Map<String, Boolean>
+
+    /** Is this link still good? Unauthenticated; the token travels in the body, never the address. */
+    @POST("auth/set-password/check")
+    suspend fun checkPasswordLinkInBody(@Body body: PasswordLinkCheckRequest): PasswordLinkCheckDto
+
+    /** Redeem a link. Unauthenticated; the token is the entire authority. Opens no session. */
+    @POST("auth/set-password")
+    suspend fun setPasswordWithLink(@Body body: SetPasswordRequest): Map<String, Boolean>
+
     @GET("me")
     suspend fun me(): UserDto
 

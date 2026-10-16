@@ -254,10 +254,14 @@ def _account(user_id: str, role: str, password: str) -> SimpleNamespace:
 
 def test_admin_credentials_mint_a_scoped_token_that_works(api) -> None:
     """The end-to-end claim of this API: email + password in, a working read-only credential out."""
-    api.table("user", [_account("boss", "ADMIN", "correct-horse-battery")])
+    boss = _account("boss", "ADMIN", "correct-horse-battery")
+    api.table("user", [boss])
     for name in datasets.DATASETS:
         api.table(datasets.DATASETS[name].delegate, [])
-    api.users["boss"] = _row("boss", "ADMIN")
+    # The SAME row the password was checked against, as the database would return: the token is
+    # bound to that row's password fingerprint (``security.CREDENTIAL_CLAIM``), so a stand-in row
+    # without the hash would read as an account whose password has since changed.
+    api.users["boss"] = boss
 
     minted = api.request(
         "POST",

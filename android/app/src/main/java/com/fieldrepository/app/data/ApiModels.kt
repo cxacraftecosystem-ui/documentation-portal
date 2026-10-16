@@ -45,7 +45,21 @@ data class UserDto(
     val canDownloadDataset: Boolean = false,
     val authProvider: String? = null,
     /** Two-step verification is on for this account: the "Two-step on" badge on the users screen. */
-    val twoFactorEnabled: Boolean = false
+    val twoFactorEnabled: Boolean = false,
+    /**
+     * The password this account holds was typed by somebody else and must be replaced before the
+     * product opens. NULLABLE: a server older than the column sends nothing, and only `== true`
+     * gates (`mustChangePasswordBlocks`).
+     */
+    val mustChangePassword: Boolean? = null,
+    /** When the account's password was last set. Null on an account that has never had one. */
+    val passwordSetAt: String? = null,
+    /**
+     * Whether the account has a password at all — derived by the server. False for an account that
+     * signs in only with Google, Microsoft or Yahoo; null from a server older than the field, where
+     * [passwordSetAt] is the fallback (see `accountHasPassword`).
+     */
+    val hasPassword: Boolean? = null
 )
 
 /**
@@ -438,6 +452,10 @@ data class MediaFileDto(
 @Serializable
 data class UserUpdateRequest(
     val role: String? = null,
+    /** A temporary password an administrator sets. Never logged, never stored on the device. */
+    val password: String? = null,
+    /** Sent beside [password]: must the person replace it at their next sign-in. */
+    val mustChangePassword: Boolean? = null,
     val canManageQuestionnaire: Boolean? = null,
     val canManageCrafts: Boolean? = null,
     val canManageWorkshops: Boolean? = null,
@@ -2927,6 +2945,8 @@ data class MapPointRecordsDto(
 @Serializable
 data class AccessRosterDto(
     val id: String = "",
+    /** True when this add also created a password account (an add with a password). */
+    val accountCreated: Boolean? = null,
     val email: String = "",
     /** PENDING | ACTIVE | REJECTED | SUSPENDED — `AccessStatus` in prisma/schema.prisma. */
     val status: String = "PENDING",
@@ -2981,7 +3001,15 @@ data class AccessRosterCreateBody(
     val fullName: String? = null,
     val notes: String? = null,
     val grantedRole: String? = null,
-    val isActive: Boolean = true
+    val isActive: Boolean = true,
+    /**
+     * Present when the person will sign in WITH A PASSWORD: the server then creates the account with
+     * it as well as admitting the address. Absent: they sign in with Google, Microsoft or Yahoo and
+     * the account is made at their first sign-in.
+     */
+    val password: String? = null,
+    /** Beside [password]: ask them to choose their own at first sign-in. Server default true. */
+    val mustChangePassword: Boolean? = null
 )
 
 /**
@@ -3095,4 +3123,70 @@ data class UserAiKeyDto(
 data class UserAiKeySetBody(
     val key: String? = null,
     val model: String? = null
+)
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+ * PASSWORDS — `/api/auth/change-password`, `/api/auth/password-links`, `/api/auth/set-password`.
+ * The same names and fields as the Design Prototype Workshop's `data/ApiModels.kt`, so the two apps'
+ * password code is copyable. The account-recovery routes are in `data/AccountRecovery.kt`.
+ * None of these is ever written to disk.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** `POST /auth/change-password` for an account that has a password. A first password is `FirstPasswordRequest`. */
+@Serializable
+data class ChangePasswordRequest(
+    val currentPassword: String,
+    val newPassword: String
+)
+
+/**
+ * What a successful change answers in its BODY: `{"ok": true}`. The fresh session token comes back
+ * in the [SESSION_TOKEN_HEADER] response header and never in the body.
+ */
+@Serializable
+data class ChangePasswordResponse(
+    val ok: Boolean = false,
+)
+
+/** The response header `POST /auth/change-password` hands the fresh session back in. */
+const val SESSION_TOKEN_HEADER = "X-Session-Token"
+
+/** An administrator asking for a password link to copy. E-mailing one is `PasswordLinkDeliveryRequest`. */
+@Serializable
+data class IssuePasswordLinkRequest(
+    val userId: String
+)
+
+/** One issued link. **No `token` field beside `link`**: the link contains it and nothing needs it twice. */
+@Serializable
+data class IssuedPasswordLinkDto(
+    val id: String = "",
+    val link: String = "",
+    val expiresAt: String = "",
+    val purpose: String = "",
+    val deliveredBy: String = ""
+)
+
+/** Redeeming a link. Unauthenticated by necessity — the whole point is that the person cannot sign in. */
+@Serializable
+data class SetPasswordRequest(
+    val token: String,
+    val password: String
+)
+
+/** The body of `POST /auth/set-password/check`: the token, in a body rather than in an address. */
+@Serializable
+data class PasswordLinkCheckRequest(
+    val token: String
+)
+
+/**
+ * Is this link still good. [valid] has no default on purpose: a 2xx body that does not answer the
+ * question fails to decode, and the screen treats a failed check as "not examined".
+ */
+@Serializable
+data class PasswordLinkCheckDto(
+    val valid: Boolean,
+    val reason: String? = null,
+    val purpose: String? = null
 )

@@ -30,6 +30,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.core.config import get_settings
 from app.core.db import db
 from app.core.deps import invalidate_cached_user, require_admin
 from app.schemas.access_roster import AccessRosterCreate, AccessRosterUpdate
@@ -55,7 +56,8 @@ from app.services.records import contains
 # already. A second copy here would agree today and drift the first time somebody changes one of
 # them, and the way that drift surfaces is an admin promoting somebody above themselves through
 # whichever screen was forgotten.
-from app.api.routes.users import assert_role
+from app.api.routes.users import assert_role, create_account, serialize_user
+from app.schemas.users import UserCreate
 
 router = APIRouter(prefix="/access-roster", tags=["access-roster"])
 
@@ -167,6 +169,13 @@ async def add_to_roster(
     arrive here is an admin re-adding somebody they suspended in March, and overwriting would erase
     the note recording why — the one thing the row exists to preserve. The answer says where the row
     is and that restoring it is a PATCH.
+
+    WITH A PASSWORD (2026-10-16). When ``password`` is sent, the account is created NOW with it,
+    through ``users.create_account`` — the same rules and transaction as ``POST /users``, which
+    also admits the address at ``grantedRole`` — and ``mustChangePassword`` (default true) sends the
+    person to choose their own at the first sign-in. The answer is the roster row as always, plus
+    ``accountCreated: true`` and the account. They may still sign in with Google, Microsoft or Yahoo
+    on the same address: both ways in lead to the one account. Without a password nothing changes.
     """
     email = normalise_email(payload.email)
     if not email:
@@ -186,6 +195,33 @@ async def add_to_roster(
                 f"again."
             ),
         )
+
+    if payload.password:
+        if not payload.isActive:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="An account made with a password is admitted at once. Leave it active, or add the address without a password.",
+            )
+        account, _extra = await create_account(
+            current_user,
+            UserCreate(
+                email=email,
+                name=(payload.fullName or "").strip() or email.split("@")[0],
+                password=payload.password,
+                passwordMode="SET",
+                mustChangePassword=payload.mustChangePassword,
+                role=payload.grantedRole or get_settings().default_signup_role,
+            ),
+            via="added this address to the access list with a password",
+        )
+        row = await db.accessroster.find_unique(where={"email": account.email})
+        if row is not None and payload.notes:
+            row = await db.accessroster.update(
+                where={"id": row.id}, data={"notes": clean_text(payload.notes, MAX_NOTES_LENGTH)}
+            )
+        if payload.sendInvite:
+            await notify_access_granted(email, name=payload.fullName)
+        return {**roster_payload(row, account=account), "accountCreated": True, "account": serialize_user(account)}
 
     if payload.isActive:
         row = await ensure_admitted(

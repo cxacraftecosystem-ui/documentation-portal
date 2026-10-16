@@ -478,6 +478,159 @@ class FieldRepository(
 
     suspend fun resetTwoFactorForUser(id: String): UserDto = api.resetTwoFactorForUser(id)
 
+    /* ══════════════════════════════════════════════════════════════════════════════════════════
+     * PASSWORDS — ported from the Design Prototype Workshop's `WorkshopRepository`, same names.
+     *
+     * NONE OF THESE IS EVER QUEUED. A password write replayed hours later out of an outbox would set
+     * a credential its owner had long since replaced, from a device they may no longer be holding.
+     * Every one throws, and the screen says what happened.
+     * ══════════════════════════════════════════════════════════════════════════════════════════ */
+
+    /**
+     * Mark the cached profile as owing a new password, for a `GET /me` that came back gated. Written
+     * to the store so a relaunch with no signal shows the same gate. Null when there is no profile.
+     */
+    fun holdForPasswordChange(): UserDto? {
+        val held = cachedUser()?.copy(mustChangePassword = true) ?: return null
+        tokenStore.setUser(held)
+        return held
+    }
+
+    /**
+     * Replace this account's own password. The call `mustChangePassword` sends somebody to.
+     *
+     * THE ANSWER'S TOKEN IS ADOPTED FIRST: the write retires every session opened with the old
+     * password, this one included, and the fresh token arrives in [SESSION_TOKEN_HEADER]. A blank or
+     * absent header leaves the store as it was. The profile is then re-read, best-effort; if that
+     * fails the flag is cleared in the store anyway, because the server cleared it in the same write.
+     */
+    suspend fun changeOwnPassword(currentPassword: String, newPassword: String) {
+        val answer = api.changeOwnPassword(
+            ChangePasswordRequest(currentPassword = currentPassword, newPassword = newPassword)
+        )
+        if (!answer.isSuccessful) throw HttpException(answer)
+        answer.headers()[SESSION_TOKEN_HEADER]?.takeIf { it.isNotBlank() }?.let { tokenStore.setToken(it) }
+        val profile = runCatching { refreshUser() }.getOrNull() ?: cachedUser()
+        if (profile?.mustChangePassword == true) {
+            tokenStore.setUser(profile.copy(mustChangePassword = false))
+        }
+    }
+
+    /** Mint a set-password link for [userId]. Shown once; never stored, logged or cached here. */
+    suspend fun issuePasswordLink(userId: String): IssuedPasswordLinkDto =
+        api.issuePasswordLink(IssuePasswordLinkRequest(userId = userId))
+
+    /** Withdraw a link that has not been used. */
+    suspend fun revokePasswordLink(linkId: String) {
+        api.revokePasswordLink(linkId)
+    }
+
+    /** Is a link still good? A thrown check means "unknown", never "dead" — the caller offers the form. */
+    suspend fun checkPasswordLink(token: String): PasswordLinkCheckDto =
+        api.checkPasswordLinkInBody(PasswordLinkCheckRequest(token = token))
+
+    /**
+     * Redeem a link. It signs THIS device out too: the redemption ends every session of the account
+     * server-side, and a dead token left in the store would give the next screen an unexplained 401.
+     */
+    suspend fun setPasswordWithLink(token: String, password: String) {
+        api.setPasswordWithLink(SetPasswordRequest(token = token, password = password))
+        logout()
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════════════════════════
+     * GETTING BACK IN — see data/AccountRecovery.kt for the routes. Like the ones above, every one of
+     * these throws and none is ever queued: a password write replayed later from an outbox would set
+     * a credential its owner had long since replaced.
+     * ══════════════════════════════════════════════════════════════════════════════════════════ */
+
+    private val recoveryApi: AccountRecoveryApi by lazy {
+        ApiClient.retrofit(tokenStore).create(AccountRecoveryApi::class.java)
+    }
+
+    /** "Forgot your password?" — the server's one answer, printed as it is. Works signed out. */
+    suspend fun forgotPassword(email: String): String =
+        recoveryApi.forgotPassword(ForgotPasswordRequest(email = email.trim().lowercase())).message
+
+    /**
+     * Change this account's password — or, for an account with none ([currentPassword] null), set its
+     * first one. The change goes through [changeOwnPassword] untouched. The first password takes the
+     * same answer: the fresh session token from [SESSION_TOKEN_HEADER] is adopted before the profile
+     * is re-read, because the write retires the token this call was made with.
+     *
+     * A 400 carrying [SIGN_IN_AGAIN_HEADER] is thrown as [SignInAgainRequired] with the server's
+     * sentence, so the screen can offer to sign out rather than print a refusal with no way forward.
+     */
+    suspend fun saveOwnPassword(currentPassword: String?, newPassword: String) {
+        if (currentPassword != null) {
+            changeOwnPassword(currentPassword, newPassword)
+            return
+        }
+        val answer = recoveryApi.setFirstPassword(FirstPasswordRequest(newPassword = newPassword))
+        if (!answer.isSuccessful) {
+            val refused = HttpException(answer)
+            if (answer.headers()[SIGN_IN_AGAIN_HEADER] != null) {
+                throw SignInAgainRequired(
+                    refused.apiErrorMessage(
+                        "For your security, sign out and sign in again, then set your password within 15 minutes."
+                    )
+                )
+            }
+            throw refused
+        }
+        answer.headers()[SESSION_TOKEN_HEADER]?.takeIf { it.isNotBlank() }?.let { tokenStore.setToken(it) }
+        val profile = runCatching { refreshUser() }.getOrNull() ?: cachedUser()
+        if (profile != null && profile.hasPassword != true) {
+            tokenStore.setUser(profile.copy(hasPassword = true, mustChangePassword = false))
+        }
+    }
+
+    /** "Email them a password link": queued to the account's own address. The answer has no link. */
+    suspend fun emailPasswordLink(userId: String): IssuedPasswordLinkDto =
+        recoveryApi.issuePasswordLink(PasswordLinkDeliveryRequest(userId = userId, delivery = PASSWORD_LINK_BY_EMAIL))
+
+    /** A temporary password, which the person must replace at their next sign-in. Never trimmed. */
+    suspend fun setTemporaryPassword(userId: String, password: String): UserDto =
+        recoveryApi.setTemporaryPassword(userId, TemporaryPasswordBody(password = password))
+
+    /** Every device that account is signed in on has to sign in again. */
+    suspend fun signOutEverywhere(userId: String): UserDto = recoveryApi.signOutEverywhere(userId)
+
+    /**
+     * Does this deployment send e-mail? Remembered once it has been answered, because it is a fact
+     * about the server and not about the person; a failure is not remembered, and reads as "no" so
+     * the "Email them a link" button is simply not offered.
+     */
+    suspend fun mailAvailable(): Boolean {
+        knownMailAvailable?.let { return it }
+        val answer = runCatching { recoveryApi.mailStatus().available }.getOrNull() ?: return false
+        knownMailAvailable = answer
+        return answer
+    }
+
+    @Volatile
+    private var knownMailAvailable: Boolean? = null
+
+    /**
+     * "Add a person" — `POST /users` with a [PasswordMode]. A 409 for an address that already has an
+     * account is thrown as [AccountAlreadyExists], carrying the server's sentence and the existing
+     * account's id from [EXISTING_ACCOUNT_HEADER] so the screen can open it instead.
+     */
+    suspend fun createAccount(body: CreateAccountBody): CreatedAccountDto {
+        val answer = recoveryApi.createAccount(body.copy(email = body.email.trim().lowercase(), name = body.name.trim()))
+        if (answer.isSuccessful) {
+            return answer.body() ?: throw IllegalStateException("The server's answer could not be read. Try again.")
+        }
+        val refused = HttpException(answer)
+        if (answer.code() == 409) {
+            throw AccountAlreadyExists(
+                refused.apiErrorMessage("That address already has an account."),
+                answer.headers()[EXISTING_ACCOUNT_HEADER]?.trim()?.ifBlank { null }
+            )
+        }
+        throw refused
+    }
+
     fun logout() {
         tokenStore.clear()
         // The read cache holds this account's records; the next person to sign in must not be shown
@@ -568,13 +721,19 @@ class FieldRepository(
         email: String,
         fullName: String? = null,
         notes: String? = null,
-        grantedRole: String? = null
+        grantedRole: String? = null,
+        /** Null: they sign in with Google, Microsoft or Yahoo. Set: the account is made with it. */
+        password: String? = null,
+        mustChangePassword: Boolean = true
     ): AccessRosterDto = api.addToAccessRoster(
         AccessRosterCreateBody(
             email = email.trim(),
             fullName = fullName?.trim()?.ifBlank { null },
             notes = notes?.trim()?.ifBlank { null },
-            grantedRole = grantedRole?.ifBlank { null }
+            grantedRole = grantedRole?.ifBlank { null },
+            // Never trimmed: a password is exactly what was typed.
+            password = password?.takeIf { it.isNotEmpty() },
+            mustChangePassword = if (password.isNullOrEmpty()) null else mustChangePassword
         )
     )
 
