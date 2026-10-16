@@ -20,4 +20,8 @@ SECRET_USER_FIELDS: tuple[str, ...] = (
     "twoFactorFailureWindowStartedAt",
     "twoFactorLockedUntil",
     "twoFactorLockouts",
+    "twoFactorRecoveryFailedAttempts",
+    "twoFactorRecoveryWindowStartedAt",
+    "twoFactorRecoveryLockedUntil",
+    "twoFactorRecoveryLockouts",
 )

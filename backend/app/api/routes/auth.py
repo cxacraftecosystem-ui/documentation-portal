@@ -393,11 +393,15 @@ async def login(payload: LoginRequest) -> dict[str, Any]:
     # THE SECOND STEP, after the gate (a refused person learns that before being asked for a code)
     # and before anything that means "got in". No session yet: the client shows the code screen.
     if getattr(user, "twoFactorEnabled", False):
-        # LOCKED (too many wrong codes recently): no challenge is minted, so none can be stockpiled
-        # to spend the moment the lock lapses — and the refusal is the wrong-credentials one, word
-        # for word and status for status, so a lock is not something this endpoint confirms.
-        if two_factor.is_locked(user):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=INVALID_CREDENTIALS_DETAIL)
+        # LOCKED: no challenge is minted, so none can be stockpiled to spend the moment the lock
+        # lapses. Said plainly, with /verify's own words: only somebody holding the password reaches
+        # this line, and hiding the lock would hide from the owner that the password is known.
+        # "Locked" means EVERY way in — a six-digit lock alone still leaves the owner's recovery
+        # codes, and they need a challenge to use one.
+        if two_factor.fully_locked(user):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=two_factor.TOO_MANY_ATTEMPTS_DETAIL
+            )
         return {
             "two_factor_required": True,
             "challenge_token": await two_factor.issue_challenge(user),

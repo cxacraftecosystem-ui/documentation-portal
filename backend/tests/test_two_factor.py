@@ -537,18 +537,87 @@ def test_fresh_challenges_do_not_buy_more_guesses(monkeypatch, clock) -> None:
     row = fake.user.rows[0]
     assert row.twoFactorLockedUntil is not None and row.twoFactorLockouts == 1
 
-    # Locked: the RIGHT code on a challenge already in hand is refused plainly…
+    # Locked: the RIGHT six-digit code on a challenge already in hand is refused plainly…
     locked = _call(
         "POST", "/api/auth/two-factor/verify", {"challenge_token": stockpiled, "code": two_factor.current_totp(secret)}
     )
     assert locked.status_code == 429 and locked.json()["detail"] == "Too many attempts. Try again later."
-    # …the dataset token shares the lock…
+    # …and the dataset token shares the lock.
     assert _dataset_token(email, two_factor.current_totp(secret)).status_code == 429
-    # …and sign-in mints no new challenge, answering exactly as a wrong password does.
+
+
+def test_a_six_digit_lock_still_lets_the_owner_in_with_a_recovery_code(monkeypatch, clock) -> None:
+    email = "meera@example.org"
+    fake = install(monkeypatch, FakeDb(users=[_account(email)], roster=_admitted(email)))
+    secret, codes = _enrol(f"id-{email}", clock)
+    row = fake.user.rows[0]
+    row.twoFactorLockedUntil = datetime.now(UTC) + timedelta(minutes=10)
+    # Sign-in still mints a challenge — the recovery codes are a way in — and one of them works.
+    challenge = _password_login(email).json()["challenge_token"]
+    assert _call("POST", "/api/auth/two-factor/verify", {"challenge_token": challenge, "code": two_factor.current_totp(secret)}).status_code == 429
+    assert _call("POST", "/api/auth/two-factor/verify", {"challenge_token": challenge, "code": codes[0]}).status_code == 200
+
+
+def test_recovery_codes_have_their_own_smaller_budget(monkeypatch, clock) -> None:
+    email = "meera@example.org"
+    fake = install(monkeypatch, FakeDb(users=[_account(email)], roster=_admitted(email)))
+    secret, codes = _enrol(f"id-{email}", clock)
+    token = _session(f"id-{email}")
+    for _ in range(two_factor.RECOVERY_FAILURE_BUDGET):
+        assert _call("POST", "/api/auth/two-factor/disable", {"code": "zzzz-zzzz"}, token).status_code == 400
+    row = fake.user.rows[0]
+    assert two_factor.is_locked(row, two_factor.RECOVERY_BUDGET) and row.twoFactorRecoveryLockouts == 1
+    # The six-digit budget is untouched and independent.
+    assert not two_factor.is_locked(row) and row.twoFactorFailedAttempts == 0
+    assert _call("POST", "/api/auth/two-factor/disable", {"code": codes[0]}, token).status_code == 429
+    assert _call("POST", "/api/auth/two-factor/recovery-codes", {"code": two_factor.current_totp(secret)}, token).status_code == 200
+
+
+def test_sign_in_says_too_many_attempts_only_when_every_way_in_is_locked(monkeypatch, clock) -> None:
+    email = "meera@example.org"
+    fake = install(monkeypatch, FakeDb(users=[_account(email)], roster=_admitted(email)))
+    _enrol(f"id-{email}", clock)
+    row = fake.user.rows[0]
+    row.twoFactorLockedUntil = datetime.now(UTC) + timedelta(minutes=10)
+    assert _password_login(email).json().get("two_factor_required") is True
+    row.twoFactorRecoveryLockedUntil = datetime.now(UTC) + timedelta(minutes=10)
     refused = _password_login(email)
-    wrong_password = _call("POST", "/api/auth/login", {"email": email, "password": "not-the-password"})
-    assert refused.status_code == wrong_password.status_code == 401
-    assert refused.json() == wrong_password.json()
+    assert refused.status_code == 429 and refused.json()["detail"] == two_factor.TOO_MANY_ATTEMPTS_DETAIL
+    assert "challenge_token" not in refused.text
+    # A wrong password is still the wrong-password answer, not a lock confirmation.
+    assert _call("POST", "/api/auth/login", {"email": email, "password": "not-the-password"}).status_code == 401
+
+
+def test_the_owner_is_emailed_once_when_a_lock_is_written(monkeypatch, clock) -> None:
+    from app.services import email_outbox, mailer
+
+    email = "meera@example.org"
+    fake = install(monkeypatch, FakeDb(users=[_account(email)], roster=_admitted(email)))
+    secret, _ = _enrol(f"id-{email}", clock)
+    sent: list[tuple[str, dict[str, Any]]] = []
+
+    async def capture(kind: str, *, to_address: str, recipient_id: str | None, params: dict[str, Any], **_: Any) -> None:
+        sent.append((kind, {"to": to_address, "recipient": recipient_id, **params}))
+
+    monkeypatch.setattr(email_outbox, "enqueue", capture)
+    row = fake.user.rows[0]
+    for _ in range(two_factor.FAILURE_BUDGET + 3):
+        try:
+            asyncio.run(two_factor.check_second_factor(row, _wrong(secret)))
+        except two_factor.SecondFactorLocked:
+            pass
+    assert len(sent) == 1
+    kind, params = sent[0]
+    assert kind == mailer.SECOND_FACTOR_LOCKED and params["to"] == email and params["recipient"] == row.id
+    assert set(params) == {"to", "recipient", "recipientName", "lockedUntil", "codeKind"}
+
+    rendered = mailer.render(kind, params)
+    assert "entered your Field Repository password and then several wrong verification codes" in rendered.text
+    assert "change your password now" in rendered.text
+    assert mailer.locked_until_words(params["lockedUntil"]) in rendered.text
+    assert secret not in rendered.text and _wrong(secret) not in rendered.text
+    recovery = mailer.render(kind, {**params, "codeKind": "recovery"})
+    assert "recovery codes still work" not in recovery.text
 
 
 def test_a_lapsed_lock_lets_the_right_code_in_and_resets_the_budget(monkeypatch, clock) -> None:
@@ -591,7 +660,7 @@ def test_a_burst_of_concurrent_wrong_codes_gets_only_the_budget(monkeypatch, clo
         await asyncio.sleep(0)  # yield, so the burst genuinely interleaves
         return False
 
-    monkeypatch.setattr(two_factor, "consume_any_code", counting_consume)
+    monkeypatch.setattr(two_factor, "consume_totp", counting_consume)
 
     async def burst() -> list[Any]:
         user = fake.user.rows[0]
@@ -713,6 +782,10 @@ def test_public_encode_strips_every_secret_user_field_at_any_depth() -> None:
         "twoFactorFailureWindowStartedAt": datetime.now(UTC),
         "twoFactorLockedUntil": datetime.now(UTC),
         "twoFactorLockouts": 1,
+        "twoFactorRecoveryFailedAttempts": 2,
+        "twoFactorRecoveryWindowStartedAt": datetime.now(UTC),
+        "twoFactorRecoveryLockedUntil": datetime.now(UTC),
+        "twoFactorRecoveryLockouts": 1,
     }
     assert set(SECRET_USER_FIELDS) <= set(populated), "the fixture must populate every secret field"
     record = {

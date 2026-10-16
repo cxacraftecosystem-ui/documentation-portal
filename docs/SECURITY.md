@@ -382,11 +382,18 @@ Android. RFC 6238: SHA-1, 6 digits, 30-second steps, ±1 step accepted. Implemen
   increments `twoFactorLockouts`: 15 minutes, then 30, capped at **one hour**
   (`twoFactorLockedUntil`), so somebody holding only the password cannot keep the owner out for long;
   the lockout count decays to zero when a new window starts more than 24 hours after the last lock
-  ended. Each lock is an `AUDIT two-factor locked …` line, beside enable/disable/reset. While locked,
-  `/auth/login` mints **no challenge** and answers exactly as a wrong password does (401, the same
-  sentence), so challenges cannot be stockpiled and the lock is not confirmed. A correct code clears
-  the budget only if nobody claimed a slot after it (otherwise it hands back its own slot, so racing
-  failures stay counted); turning it off or an administrator's reset clears everything.
+  ended. Each lock is an `AUDIT two-factor locked …` line, beside enable/disable/reset, and the owner
+  is e-mailed (`SECOND_FACTOR_LOCKED`, through the outbox; nothing is sent when mail is off): somebody
+  entered the password and then wrong codes, two-step sign-in is paused until a stated time, change
+  the password now. No code and no address is in it. **Recovery codes have their own budget** —
+  five per window, the `twoFactorRecovery*` columns, the same atomic claim, lock, backoff and decay —
+  independent of the six-digit one, so a six-digit lock never shuts the owner out: their recovery
+  codes still work. `/auth/login` refuses to mint a challenge only when **both** are locked, and then
+  says so with `/verify`'s own `429 "Too many attempts. Try again later."` — only a password holder
+  can reach that answer, and hiding it would hide from the owner that the password is known. A
+  correct code clears its own budget only if nobody claimed a slot after it (otherwise it hands back
+  its own slot, so racing failures stay counted); turning it off or an administrator's reset clears
+  both.
 - **The dataset token is a sign-in too.** `POST /api/datasets/token` for an account with two-step
   verification on requires `code`, checked by the same path (spent once, recovery codes allowed,
   counted against the budget); missing or wrong is one generic `401`.
@@ -532,7 +539,7 @@ misrepresents the subject's location; publishing it at all discloses the researc
 
 ## 4B. E-mail
 
-The product e-mails exactly three things, through Amazon SES, and only when `MAIL_FROM_ADDRESS` is set
+The product e-mails exactly four things, through Amazon SES, and only when `MAIL_FROM_ADDRESS` is set
 ([ENVIRONMENT.md](ENVIRONMENT.md)):
 
 1. **"You can now sign in"**, to an address an administrator admits on the access roster — only when
@@ -540,6 +547,9 @@ The product e-mails exactly three things, through Amazon SES, and only when `MAI
    and nothing else: no credential, no role, no note.
 2. **A task handed in for approval**, to the person who gave the task out.
 3. **A task approved or sent back**, to its assignee.
+4. **"Someone used your password"**, to an account whose two-step verification has just been locked
+   by wrong codes (§3.3B): when the pause ends and that the password should be changed now. No code, no
+   IP address. Always sent — it cannot be switched off.
 
 (2) and (3) name the task's title and who moved it, and link to Tasks; each person can switch them off
 in Settings (`UserPreference.emailTaskUpdates`, opt-out). Nobody is e-mailed about their own move.

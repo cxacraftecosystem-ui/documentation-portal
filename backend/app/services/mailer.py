@@ -21,6 +21,7 @@ from __future__ import annotations
 import html
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
 
@@ -33,7 +34,10 @@ ACCESS_GRANTED = "ACCESS_GRANTED"
 TASK_SUBMITTED = "TASK_SUBMITTED"
 TASK_SENT_BACK = "TASK_SENT_BACK"
 TASK_APPROVED = "TASK_APPROVED"
-KINDS = frozenset({ACCESS_GRANTED, TASK_SUBMITTED, TASK_SENT_BACK, TASK_APPROVED})
+#: Somebody got past the password and then entered too many wrong verification codes. A security
+#: notice: always sent (no opt-out), carries no code and no address, only when the pause ends.
+SECOND_FACTOR_LOCKED = "SECOND_FACTOR_LOCKED"
+KINDS = frozenset({ACCESS_GRANTED, TASK_SUBMITTED, TASK_SENT_BACK, TASK_APPROVED, SECOND_FACTOR_LOCKED})
 #: The kinds a person can switch off in Settings (``UserPreference.emailTaskUpdates``).
 TASK_KINDS = frozenset({TASK_SUBMITTED, TASK_SENT_BACK, TASK_APPROVED})
 
@@ -173,6 +177,15 @@ def _html(paragraphs: list[str], *, button: tuple[str, str] | None = None) -> st
     return "".join(parts)
 
 
+def locked_until_words(value: Any) -> str:
+    """``2026-10-16T11:06:00+00:00`` as "11:06 UTC on 16 October 2026"; the raw value if unreadable."""
+    try:
+        moment = datetime.fromisoformat(str(value)).astimezone(UTC)
+    except ValueError:
+        return str(value or "later today")
+    return f"{moment:%H:%M} UTC on {moment.day} {moment:%B %Y}"
+
+
 def subject_for(kind: str, params: dict[str, Any]) -> str:
     title = str(params.get("taskTitle") or "a task").strip()
     if kind == ACCESS_GRANTED:
@@ -183,6 +196,8 @@ def subject_for(kind: str, params: dict[str, Any]) -> str:
         return f"“{title}” has been sent back to you"
     if kind == TASK_APPROVED:
         return f"“{title}” has been approved"
+    if kind == SECOND_FACTOR_LOCKED:
+        return f"Someone used your {PRODUCT_NAME} password"
     raise ValueError(f"Unknown e-mail kind {kind!r}")
 
 
@@ -201,6 +216,27 @@ def render(kind: str, params: dict[str, Any], *, settings: Settings | None = Non
         unasked = "If you were not expecting this, you can ignore this message."
         text = "\n\n".join([greeting, lead, f"Sign in: {link}", unasked, sign_off]) + "\n"
         return Rendered(subject, text, _html([_e(greeting), _e(lead), _e(unasked)], button=("Sign in", _e(link))))
+
+    if kind == SECOND_FACTOR_LOCKED:
+        until = locked_until_words(params.get("lockedUntil"))
+        lead = (
+            f"Someone entered your {PRODUCT_NAME} password and then several wrong verification codes. "
+            f"To protect your account, two-step sign-in is paused until {until}."
+        )
+        act = (
+            "If this was not you, change your password now — or ask an administrator to change it — "
+            "because whoever did this knows it. If you sign in with Google, Microsoft or Yahoo, change "
+            "the password of that account."
+        )
+        # Only the six-digit pause leaves a way in; a recovery-code pause says nothing it cannot keep.
+        later = ["Your recovery codes still work while the pause lasts."] if params.get("codeKind") != "recovery" else []
+        link = app_url("/login", settings)
+        text = "\n\n".join([greeting, lead, act, *later, sign_off]) + "\n"
+        return Rendered(
+            subject,
+            text,
+            _html([_e(greeting), _e(lead), _e(act), *(_e(line) for line in later)], button=("Open the sign-in page", _e(link))),
+        )
 
     if kind in TASK_KINDS:
         title = str(params.get("taskTitle") or "a task")
