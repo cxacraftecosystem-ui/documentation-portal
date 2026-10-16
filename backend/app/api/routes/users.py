@@ -67,17 +67,19 @@ OWN_EMAIL_DETAIL = "Ask another administrator to change your email address."
 #: A master admin's password, sessions or second factor, touched by ANOTHER master admin (security
 #: review B4, 2026-10-16). The Design Prototype Workshop refuses it, and so does this portal: two
 #: master admins are peers, and a peer who could reset the other's password, sign them out or turn off
-#: their two-step could take their account.
+#: their two-step could take their account. Since B4's leftover (same day) it covers the whole account:
+#: a master admin does not demote, rename or delete another one either (assert_can_manage_target).
 MASTER_PEER_DETAIL = (
-    "Another master admin's password, sessions and two-step verification are theirs to manage. Ask "
-    "them to do it from their own account."
+    "Master admin accounts can't change or remove each other. Ask them to change their own password, "
+    "sessions or two-step verification from their own account."
 )
 
 
 def assert_not_another_master(actor: Any, target: Any) -> None:
     """403 when ``target`` is a master admin other than ``actor`` — for the credential doors only:
     password links, a temporary password or the password flag, "sign out of every device", and
-    turning off two-step. Role changes and deletion keep their own rules."""
+    turning off two-step. Since B4's leftover :func:`assert_can_manage_target` refuses the same pair
+    for every action; this stays as the credential doors' explicit, second statement of it."""
     if is_master_admin(target) and getattr(target, "id", None) != getattr(actor, "id", None):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=MASTER_PEER_DETAIL)
 
@@ -99,9 +101,18 @@ def assert_role(role: str | None, current_user: Any) -> None:
 
 
 def assert_can_manage_target(current_user: Any, target_user: Any) -> None:
-    """Only the master admin may manage peers; everyone else manages strictly lower tiers.
-    This blocks one admin from silently rewriting another admin's account."""
+    """Nobody manages a peer, INCLUDING the master admin; everyone else manages strictly lower tiers.
+    This blocks one admin from silently rewriting another admin's account.
+
+    A MASTER ADMIN OVER ANOTHER MASTER ADMIN (security review B4, 2026-10-16), as the Design
+    Prototype Workshop's ``account_provisioning.assert_can_manage_target`` has it: the only peer
+    protection here used to key on ``MASTER_ADMIN_EMAIL`` (``assert_not_demoting_master`` and the
+    delete route), so a second MASTER_ADMIN could be demoted or deleted by the first with one call.
+    Protection follows the privilege now, not one address in the environment. Every caller branches
+    on "your own account" before reaching here; the self-exception is written anyway."""
     if is_master_admin(current_user):
+        if is_master_admin(target_user) and getattr(target_user, "id", None) != getattr(current_user, "id", None):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=MASTER_PEER_DETAIL)
         return
     if role_rank(target_user) >= role_rank(current_user):
         raise HTTPException(
@@ -492,6 +503,13 @@ async def update_user(
         # The owner hears of it at their own address (security review B2): an administrator set a
         # temporary password, and if they did not ask for that, they need to know today.
         await email_outbox.notify_password_event(updated, mailer.PASSWORD_CHANGED, when=now)
+        # AND AT THE ADDRESS IT HAD (security review N4): an address and a password changed in one
+        # request would otherwise tell only the new inbox, which is exactly the one a hijacker
+        # would choose. The previous owner hears of it where they still read their mail.
+        if previous_email and previous_email.lower() != (updated.email or "").lower():
+            await email_outbox.notify_password_event(
+                updated, mailer.PASSWORD_CHANGED, when=now, to_address=previous_email
+            )
     return serialize_user(updated)
 
 

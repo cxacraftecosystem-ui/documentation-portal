@@ -297,14 +297,20 @@ async def notify_task_change(
         return 0
 
 
-async def notify_password_event(user: Any, kind: str, *, when: datetime | None = None) -> bool:
+async def notify_password_event(
+    user: Any, kind: str, *, when: datetime | None = None, to_address: str | None = None
+) -> bool:
     """Tell an account's own address that a password was added (``mailer.PASSWORD_ADDED``) or
     changed (``mailer.PASSWORD_CHANGED``). A security notice: always sent, no opt-out, a no-op when
-    mail is off. Carries no password and no link. NEVER RAISES: the password is already written."""
+    mail is off. Carries no password and no link. NEVER RAISES: the password is already written.
+
+    ``to_address`` sends the same notice somewhere other than the address the account holds now —
+    the address it held BEFORE an administrator changed it in the same request (security review N4),
+    so the person who owned the account hears of it at the inbox they still read."""
     try:
         row = await enqueue(
             kind,
-            to_address=_value(user, "email") or "",
+            to_address=to_address or _value(user, "email") or "",
             recipient_id=_value(user, "id"),
             params={
                 "recipientName": _value(user, "name"),

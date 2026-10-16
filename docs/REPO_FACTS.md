@@ -104,7 +104,7 @@ no key is skipped wherever it sits.
 
 | Surface | Files | Cases | Runner |
 |---|---|---|---|
-| Backend unit (`backend/tests/`) | 73 | 1189 `def test_` | `python -m pytest -q` from `backend/` |
+| Backend unit (`backend/tests/`) | 73 | 1192 `def test_` | `python -m pytest -q` from `backend/` |
 | Web end-to-end (`frontend/e2e/`) | 48 | 713 `test(` | Playwright, `frontend/playwright.config.ts` |
 | Android unit (`android/app/src/test/`) | 47 | 668 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
 | Android instrumented | **none** — the `src/androidTest` source set does not exist | — | not run in CI |
@@ -117,7 +117,7 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 
 | Area | Tracked files | Tracked lines | Tree files | Tree lines |
 |---|---|---|---|---|
-| `backend/app` | 127 | 48,359 | 127 | 48,359 |
+| `backend/app` | 127 | 48,433 | 127 | 48,433 |
 | `frontend/app` | 47 | 19,208 | 47 | 19,208 |
 | `frontend/components` | 182 | 53,993 | 182 | 53,993 |
 | `frontend/lib` | 78 | 28,373 | 78 | 28,373 |

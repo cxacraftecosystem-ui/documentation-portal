@@ -8,7 +8,11 @@ B1  "Forgot your password?" is limited per client on an address a client cannot 
 B2  "a password was added" / "your password was changed" notices, and the two-step code before a
     first password;
 B3  your own email address is not changed through the users screen;
-B4  a master admin cannot reset, sign out or turn off two-step for ANOTHER master admin.
+B4  a master admin cannot reset, sign out or turn off two-step for ANOTHER master admin, nor demote,
+    rename or delete one (whatever MASTER_ADMIN_EMAIL says);
+N1  an unknown address meets the same per-account budget as a real one: identical 401/429 sequences
+    at the sign-in and the dataset-token door;
+N4  an administrator who changes an address and a password in one request tells BOTH addresses.
 
 Driven over HTTP through the real routers against ``access_roster_fakes``, with the harness of
 ``test_account_passwords`` (its autouse ``environment`` fixture is imported, so it applies here too).
@@ -279,3 +283,64 @@ def test_a_master_admin_cannot_reset_another_master_admin(monkeypatch) -> None:
     # Over an administrator, every one of them still works.
     assert _call("POST", "/api/auth/password-links", {"userId": "id-admin@example.org"}, master).status_code == 201
     assert _call("POST", "/api/users/id-admin@example.org/sign-out-everywhere", token=master).status_code == 200
+    # Nor demoted, renamed or deleted: the protection follows the privilege, not MASTER_ADMIN_EMAIL.
+    assert _call("PATCH", "/api/users/id-deputy@example.org", {"role": "ADMIN"}, master).status_code == 403
+    assert _call("PATCH", "/api/users/id-deputy@example.org", {"name": "Renamed"}, master).status_code == 403
+    assert _call("DELETE", "/api/users/id-deputy@example.org", token=master).status_code == 403
+    deputy = _row(fake, "deputy@example.org")
+    assert str(getattr(deputy.role, "value", deputy.role)) == "MASTER_ADMIN" and deputy.name == "Somebody"
+    assert _call("PATCH", "/api/users/id-admin@example.org", {"role": "RESEARCHER"}, master).status_code == 200
+
+
+# --- N1: no enumeration through the per-account 429 ------------------------------------------------
+
+
+def _sequence(path: str, email: str, attempts: int = 11) -> list[tuple[int, Any]]:
+    return [
+        (r.status_code, r.json())
+        for r in (_call("POST", path, {"email": email, "password": f"wrong-guess-{n}"}) for n in range(attempts))
+    ]
+
+
+@pytest.mark.parametrize("path", ["/api/auth/login", "/api/datasets/token"])
+def test_an_unknown_address_answers_exactly_as_a_real_one_does(monkeypatch, path) -> None:
+    _fake(monkeypatch, [_account("real@example.org", "ADMIN")], _admitted("real@example.org"))
+    known = _sequence(path, "real@example.org")
+    unknown = _sequence(path, "nobody@example.org")
+    assert known == unknown
+    assert [status for status, _ in known] == [401] * 10 + [429]
+    # The typed address is normalised before it is a key: a new spelling is not a fresh allowance.
+    assert _call("POST", path, {"email": "  NoBody@Example.org ", "password": "another-guess"}).status_code == 429
+
+
+def test_an_unknown_address_spends_a_bcrypt_check_like_a_real_one(monkeypatch) -> None:
+    from app.core import security
+
+    checks: list[bytes] = []
+    real = security.bcrypt.checkpw
+    monkeypatch.setattr(security.bcrypt, "checkpw", lambda pw, hashed: checks.append(hashed) or real(pw, hashed))
+    _fake(monkeypatch, [_account("real@example.org")], _admitted("real@example.org"))
+    assert _call("POST", "/api/auth/login", {"email": "nobody@example.org", "password": "a-wrong-guess"}).status_code == 401
+    assert checks == [security._TIMING_DECOY_HASH.encode()]
+
+
+# --- N4: an address and a password changed together ---------------------------------------------
+
+
+def test_a_password_set_with_a_new_address_tells_the_old_address_too(monkeypatch) -> None:
+    _mail_on(monkeypatch)
+    fake = _fake(
+        monkeypatch,
+        [_account("admin@example.org", "ADMIN"), _account("t@example.org")],
+        _admitted("admin@example.org", "t@example.org"),
+    )
+    changed = _call(
+        "PATCH", "/api/users/id-t@example.org", {"email": "t.new@example.org", "password": "temporary-pass-3"}, _session("id-admin@example.org")
+    )
+    assert changed.status_code == 200, changed.text
+    notices = sorted(row.toAddress for row in fake.emailmessage.rows if row.kind == mailer.PASSWORD_CHANGED)
+    assert notices == ["t.new@example.org", "t@example.org"]
+    # A password alone still sends one notice, to the one address.
+    fake.emailmessage.rows.clear()
+    assert _call("PATCH", "/api/users/id-t@example.org", {"password": "temporary-pass-4"}, _session("id-admin@example.org")).status_code == 200
+    assert [row.toAddress for row in fake.emailmessage.rows] == ["t.new@example.org"]
