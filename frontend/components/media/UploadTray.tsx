@@ -1,5 +1,6 @@
 "use client";
 
+import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, ChevronDown, UploadCloud, X } from "lucide-react";
 
@@ -109,9 +110,7 @@ export function UploadTray() {
           </div>
 
           {aggregate ? (
-            <div className="h-2 overflow-hidden rounded-full bg-line-200">
-              <div className="h-full rounded-full bg-purple-700 transition-all" style={{ width: `${percent}%` }} />
-            </div>
+            <ProgressBar percent={percent} className="h-2" fillClassName="transition-all" />
           ) : null}
 
           {expanded && sections.length ? (
@@ -127,9 +126,7 @@ export function UploadTray() {
                         {section.progress.fileCount} · {formatEta(section.progress.etaSeconds)}
                       </span>
                     </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-line-200">
-                      <div className="h-full rounded-full bg-purple-600 transition-all" style={{ width: `${sectionPercent}%` }} />
-                    </div>
+                    <ProgressBar percent={sectionPercent} fillClassName="transition-all" />
                     <LocalFileDownloads files={section.progress.files} />
                   </li>
                 );

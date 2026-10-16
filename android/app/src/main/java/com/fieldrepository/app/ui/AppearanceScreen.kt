@@ -28,7 +28,6 @@ import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.ElevatedCard
@@ -655,7 +654,7 @@ private fun AccessibilitySwitchRow(
 private fun SaveStatusLine(saving: Boolean, error: String?) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (saving && error == null) {
-            CircularProgressIndicator(
+            FieldCircularProgressIndicator(
                 modifier = Modifier.size(14.dp),
                 strokeWidth = 2.dp,
                 color = MaterialTheme.colorScheme.primary

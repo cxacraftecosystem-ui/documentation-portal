@@ -19,7 +19,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -233,7 +232,7 @@ fun TwoStepVerificationScreen(
 
             val current = status
             if (current == null) {
-                if (error == null) CircularProgressIndicator()
+                if (error == null) FieldCircularProgressIndicator()
             } else when (val now = step) {
                 is TwoStepStep.Setup -> {
                     Text("1. Scan this code with an authenticator app, or open it in the app on this phone.", color = Body)

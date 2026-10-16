@@ -55,14 +55,12 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -705,7 +703,7 @@ fun DataBrowserScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        LinearProgressIndicator(
+                        FieldLinearProgressIndicator(
                             progress = { fraction },
                             modifier = Modifier.fillMaxWidth().height(6.dp)
                         )
@@ -830,7 +828,7 @@ private fun DataBrowserTopBar(onBack: () -> Unit, loading: Boolean, onReload: ()
         }
         Spacer(Modifier.weight(1f))
         if (loading) {
-            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+            FieldCircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
             Spacer(Modifier.width(4.dp))
         }
         IconButton(onClick = onReload) {
@@ -863,7 +861,7 @@ private fun BrowserPanel(content: @Composable ColumnScope.() -> Unit) {
 @Composable
 private fun LoadingRow(label: String) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+        FieldCircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
         Text(
             label,
             style = MaterialTheme.typography.bodySmall,

@@ -49,7 +49,12 @@ export function AudioPlayer({ src, className }: { src: string; className?: strin
 
   const max = duration > 0 ? duration : Math.max(current, 1);
   const pct = Math.min(100, Math.max(0, (current / max) * 100));
-  const fill = `linear-gradient(to right, oklch(0.47 0.198 305) 0%, oklch(0.47 0.198 305) ${pct}%, #e4e2ef ${pct}%, #e4e2ef 100%)`;
+  // The progress tokens every bar uses (globals.css). This was a literal purple-700 over a literal
+  // `#e4e2ef` — 1.28:1 on this white card (the voice note whose bar "disappears"), never inverting,
+  // and the purple fill 2.32:1 on the dark card.
+  const fill =
+    `linear-gradient(to right, rgb(var(--progress-fill)) 0%, rgb(var(--progress-fill)) ${pct}%, ` +
+    `rgb(var(--progress-track)) ${pct}%, rgb(var(--progress-track)) 100%)`;
 
   return (
     <div className={`flex items-center gap-3 rounded-md border border-line-200 bg-card px-3 py-2 ${className ?? ""}`}>

@@ -16,6 +16,7 @@
  * so it is checked here before a 25 MB upload starts rather than discovered later.
  */
 
+import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useEffect, useState } from "react";
 import { Loader2, Rocket, Upload } from "lucide-react";
 
@@ -169,9 +170,7 @@ export function PublishAppUpdatePanel() {
 
         {progress !== null ? (
           <div className="grid gap-1">
-            <div className="h-1.5 overflow-hidden rounded-full bg-line-200">
-              <div className="h-full rounded-full bg-purple-700 transition-[width]" style={{ width: `${Math.round(progress * 100)}%` }} />
-            </div>
+            <ProgressBar percent={Math.round(progress * 100)} fillClassName="transition-[width]" />
             <p className="text-xs text-ink-500">Uploading… {Math.round(progress * 100)}%</p>
           </div>
         ) : null}
