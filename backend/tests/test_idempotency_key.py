@@ -1,0 +1,226 @@
+"""``Idempotency-Key``: a create sent twice is written once, and everything without the header is
+untouched. See ``app/core/idempotency.py``.
+
+NO DATABASE. The middleware runs in front of a small route that counts the records it writes, with
+an in-memory store; the Prisma store is driven against a recording stub of its table.
+"""
+
+import asyncio
+import itertools
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+
+from fastapi import FastAPI, Request
+from fastapi.testclient import TestClient
+from prisma.errors import UniqueViolationError
+
+from app.core import idempotency
+from app.core.idempotency import IdempotencyMiddleware, PrismaIdempotencyStore, StoredAnswer
+from app.core.security import create_access_token
+
+
+class MemoryStore:
+    def __init__(self) -> None:
+        self.rows: dict[tuple[str, str], StoredAnswer] = {}
+
+    async def get(self, user_id, key):
+        return self.rows.get((user_id, key))
+
+    async def claim(self, user_id, key, fingerprint):
+        if (user_id, key) in self.rows:
+            return False
+        self.rows[(user_id, key)] = StoredAnswer(fingerprint, None, None, None, datetime.now(UTC))
+        return True
+
+    async def take_over(self, user_id, key, fingerprint):
+        self.rows[(user_id, key)] = StoredAnswer(fingerprint, None, None, None, datetime.now(UTC))
+
+    async def complete(self, user_id, key, status_code, body, content_type):
+        row = self.rows[(user_id, key)]
+        self.rows[(user_id, key)] = StoredAnswer(row.fingerprint, status_code, body, content_type, row.created_at)
+
+    async def release(self, user_id, key):
+        self.rows.pop((user_id, key), None)
+
+
+def _app(store: MemoryStore):
+    records: list[dict] = []
+    ids = itertools.count(1)
+    app = FastAPI()
+
+    @app.post("/api/crafts", status_code=201)
+    async def create_craft(request: Request):
+        body = await request.json()
+        if body.get("name") == "boom":
+            raise RuntimeError("the route failed")
+        if body.get("name") == "refuse":
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=409, detail="A craft with this name exists")
+        record = {"id": f"craft_{next(ids)}", "name": body["name"]}
+        records.append(record)
+        return record
+
+    app.add_middleware(IdempotencyMiddleware, store=store)
+    return app, records
+
+
+def _auth(user: str = "user_1") -> dict[str, str]:
+    return {"Authorization": f"Bearer {create_access_token(user)}"}
+
+
+def test_a_repeat_returns_the_same_record_and_writes_no_duplicate():
+    store = MemoryStore()
+    app, records = _app(store)
+    client = TestClient(app)
+    headers = {**_auth(), "Idempotency-Key": "4f1d2c7e-0000-4000-8000-000000000001"}
+
+    first = client.post("/api/crafts", json={"name": "Ajrakh"}, headers=headers)
+    second = client.post("/api/crafts", json={"name": "Ajrakh"}, headers=headers)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert second.json() == first.json() == {"id": "craft_1", "name": "Ajrakh"}
+    assert second.headers.get("idempotent-replayed") == "true"
+    assert len(records) == 1
+
+
+def test_without_the_header_every_post_runs_as_before():
+    app, records = _app(MemoryStore())
+    client = TestClient(app)
+    client.post("/api/crafts", json={"name": "Ajrakh"}, headers=_auth())
+    client.post("/api/crafts", json={"name": "Ajrakh"}, headers=_auth())
+    assert [r["id"] for r in records] == ["craft_1", "craft_2"]
+
+
+def test_keys_are_per_account():
+    app, records = _app(MemoryStore())
+    client = TestClient(app)
+    key = {"Idempotency-Key": "shared-key-0001"}
+    a = client.post("/api/crafts", json={"name": "Ajrakh"}, headers={**_auth("user_a"), **key})
+    b = client.post("/api/crafts", json={"name": "Ajrakh"}, headers={**_auth("user_b"), **key})
+    assert a.json()["id"] != b.json()["id"]
+    assert len(records) == 2
+
+
+def test_the_same_key_for_a_different_body_is_refused():
+    app, records = _app(MemoryStore())
+    client = TestClient(app)
+    headers = {**_auth(), "Idempotency-Key": "reused-key-0001"}
+    client.post("/api/crafts", json={"name": "Ajrakh"}, headers=headers)
+    other = client.post("/api/crafts", json={"name": "Bandhani"}, headers=headers)
+    assert other.status_code == 422
+    assert len(records) == 1
+
+
+def test_a_refused_or_failed_create_is_not_remembered():
+    store = MemoryStore()
+    app, records = _app(store)
+    client = TestClient(app, raise_server_exceptions=False)
+    headers = {**_auth(), "Idempotency-Key": "failing-key-0001"}
+    assert client.post("/api/crafts", json={"name": "refuse"}, headers=headers).status_code == 409
+    assert store.rows == {}
+    assert client.post("/api/crafts", json={"name": "boom"}, headers=headers).status_code == 500
+    assert store.rows == {}
+
+
+def test_a_repeat_while_the_first_is_running_is_told_to_retry():
+    store = MemoryStore()
+    app, records = _app(store)
+    client = TestClient(app)
+    asyncio.run(store.claim("user_1", "running-key-0001", "anything"))
+    # The fingerprint must match for the in-progress answer; take it from what the request will send.
+    store.rows[("user_1", "running-key-0001")] = StoredAnswer(
+        idempotency._fingerprint("POST", "/api/crafts", b"", b'{"name":"Ajrakh"}'), None, None, None, datetime.now(UTC)
+    )
+    answer = client.post(
+        "/api/crafts",
+        content=b'{"name":"Ajrakh"}',
+        headers={**_auth(), "Idempotency-Key": "running-key-0001", "Content-Type": "application/json"},
+    )
+    assert answer.status_code == 409
+    assert answer.headers.get("idempotency-status") == "in-progress"
+    assert records == []
+
+
+def test_a_first_request_killed_mid_way_is_taken_over():
+    store = MemoryStore()
+    app, records = _app(store)
+    client = TestClient(app)
+    body = b'{"name":"Ajrakh"}'
+    store.rows[("user_1", "stale-key-00001")] = StoredAnswer(
+        idempotency._fingerprint("POST", "/api/crafts", b"", body), None, None, None,
+        datetime.now(UTC) - timedelta(minutes=10),
+    )
+    answer = client.post(
+        "/api/crafts", content=body,
+        headers={**_auth(), "Idempotency-Key": "stale-key-00001", "Content-Type": "application/json"},
+    )
+    assert answer.status_code == 201
+    assert len(records) == 1
+
+
+def test_malformed_keys_and_anonymous_callers():
+    app, records = _app(MemoryStore())
+    client = TestClient(app)
+    bad = client.post("/api/crafts", json={"name": "x"}, headers={**_auth(), "Idempotency-Key": "short"})
+    assert bad.status_code == 422
+    # No session: passed through untouched (a real route would answer 401 itself).
+    anon = client.post("/api/crafts", json={"name": "x"}, headers={"Idempotency-Key": "anon-key-00001"})
+    assert anon.status_code == 201
+    assert len(records) == 1
+
+
+def test_the_real_app_installs_it():
+    from app.main import create_app
+
+    app = create_app()
+    assert any(m.cls is IdempotencyMiddleware for m in app.user_middleware)
+
+
+class _Table:
+    """A recording stand-in for ``db.idempotencykey``."""
+
+    def __init__(self) -> None:
+        self.rows: dict[tuple[str, str], SimpleNamespace] = {}
+
+    async def find_unique(self, where):
+        k = where["userId_key"]
+        return self.rows.get((k["userId"], k["key"]))
+
+    async def create(self, data):
+        pair = (data["userId"], data["key"])
+        if pair in self.rows:
+            raise UniqueViolationError({"user_facing_error": {"message": "unique"}})
+        self.rows[pair] = SimpleNamespace(statusCode=None, responseBody=None, contentType=None, **data)
+
+    async def update(self, where, data):
+        k = where["userId_key"]
+        row = self.rows[(k["userId"], k["key"])]
+        for name, value in data.items():
+            setattr(row, name, value)
+
+    async def delete_many(self, where):
+        if "expiresAt" in where:
+            cutoff = where["expiresAt"]["lt"]
+            for pair in [p for p, r in self.rows.items() if r.expiresAt < cutoff]:
+                del self.rows[pair]
+        else:
+            self.rows.pop((where["userId"], where["key"]), None)
+
+
+def test_the_prisma_store_round_trip_and_24_hour_expiry():
+    table = _Table()
+    store = PrismaIdempotencyStore(SimpleNamespace(idempotencykey=table))
+
+    async def scenario():
+        assert await store.claim("u", "k-000001", "fp") is True
+        assert await store.claim("u", "k-000001", "fp") is False
+        await store.complete("u", "k-000001", 201, b'{"id":"c1"}', "application/json")
+        stored = await store.get("u", "k-000001")
+        assert stored.status_code == 201 and stored.body == b'{"id":"c1"}'
+        table.rows[("u", "k-000001")].expiresAt = datetime.now(UTC) - timedelta(seconds=1)
+        assert await store.get("u", "k-000001") is None
+        assert table.rows == {}
+
+    asyncio.run(scenario())
