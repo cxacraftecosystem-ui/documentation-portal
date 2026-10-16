@@ -1005,7 +1005,7 @@ ANDROID_REGISTER = (
     / "fieldrepository"
     / "app"
     / "ui"
-    / "WalkthroughSteps.kt"
+    / "WalkthroughJourney.kt"
 )
 PRINTED_GUIDE = _ROOT / "docs" / "WALKTHROUGH.md"
 
@@ -1056,25 +1056,20 @@ def _web_register_fields() -> list[str]:
 
 
 def _android_register_fields() -> list[str]:
-    """The same list out of `WalkthroughSteps.kt`, in order.
+    """The same list out of `WalkthroughJourney.kt`'s `WALKTHROUGH_FIELDS`, in order.
 
-    Kotlin-stripped first, and that is not belt-and-braces: `WalkStep.fields`' own KDoc quotes
-    `GuideStep.fields`, names `backend/tests/test_walkthrough_fields_parity.py`, and discusses the
-    very strings below. Read raw, this would pick up quoted runs out of a paragraph about the
+    Kotlin-stripped first, and that is not belt-and-braces: the register's own KDoc quotes
+    `GuideStep.fields`, names this file, and discusses the very strings below. Read raw, this would pick up quoted runs out of a paragraph about the
     register and report them as entries in it.
     """
     source = _strip_kotlin_comments(ANDROID_REGISTER.read_text(encoding="utf-8"))
-    at = source.find('id = "questionnaire"')
-    assert at >= 0, (
-        f'{ANDROID_REGISTER.name} no longer declares a step with `id = "questionnaire"`. The ids '
-        "are the join between the two walkthroughs; a step whose id this file cannot find is a step "
-        "that has been renamed on one client alone."
+    found = re.search(r'"questionnaire"\s+to\s+listOf\(', source)
+    assert found, (
+        f'{ANDROID_REGISTER.name} no longer declares `"questionnaire" to listOf(...)` in its field '
+        "register. The ids are the join between the two walkthroughs; a step whose id this file "
+        "cannot find is a step that has been renamed on one client alone."
     )
-    opener = re.search(r"\bfields\s*=\s*listOf\(", source[at:])
-    assert opener, (
-        f"{ANDROID_REGISTER.name}'s questionnaire step no longer declares `fields = listOf(...)`."
-    )
-    block = _balanced(source, at + opener.end() - 1, "(", ")")
+    block = _balanced(source, found.end() - 1, "(", ")")
     return re.findall(r'"((?:[^"\\]|\\.)*)"', block)
 
 
