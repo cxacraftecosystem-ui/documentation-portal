@@ -70,11 +70,16 @@ from app.core.deps import (
     require_dataset_admin,
 )
 from app.core.deps import password_credential
-from app.core.security import create_access_token, verify_password
+from app.core.security import create_access_token, verify_password_or_decoy
 from app.api.routes.auth import ACCOUNT_THROTTLED_DETAIL
-from app.scale.rate_limit import account_credential_attempt, account_credential_refund
+from app.scale.rate_limit import (
+    account_credential_attempt,
+    account_credential_refund,
+    address_credential_attempt,
+)
 from app.schemas.auth import DatasetTokenRequest
 from app.services import two_factor
+from app.services.access_roster import normalise_email
 from app.services.concurrency import gather_reads
 from app.services.csv_export import record_media
 from app.services.pagination import normalize_pagination, page_payload
@@ -499,16 +504,21 @@ async def mint_dataset_token(payload: DatasetTokenRequest) -> dict[str, Any]:
             detail="Dataset tokens are issued from an email and password, not a Google ID token.",
         )
 
-    user = await db.user.find_unique(where={"email": (payload.email or "").lower()})
+    email = normalise_email(payload.email)
+    user = await db.user.find_unique(where={"email": email}) if email else None
     # One message for "no such account" and "wrong password", the same as POST /auth/login: telling
     # them apart turns this endpoint into an oracle for which admin addresses exist.
     # The sign-in's per-account guessing budget, the same bucket: this door trades a password for a
-    # thirty-day credential, so it must not be the one door where guessing is free.
+    # thirty-day credential, so it must not be the one door where guessing is free. An unknown
+    # address spends the same-sized bucket keyed on the typed address, and the same bcrypt time
+    # (security review N1), so the 429 does not mark which addresses exist.
     if user is not None:
         allowed, _retry = account_credential_attempt(user.id)
-        if not allowed:
-            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=ACCOUNT_THROTTLED_DETAIL)
-    if not user or not verify_password(payload.password or "", user.passwordHash):
+    else:
+        allowed, _retry = address_credential_attempt(email)
+    if not allowed:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=ACCOUNT_THROTTLED_DETAIL)
+    if not verify_password_or_decoy(payload.password or "", user.passwordHash if user else None) or not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password"
         )

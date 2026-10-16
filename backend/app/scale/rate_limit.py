@@ -218,6 +218,17 @@ def account_credential_attempt(account_id: str) -> tuple[bool, float]:
     return _account_buckets.take(f"acct:{account_id}")
 
 
+def address_credential_attempt(address: str) -> tuple[bool, float]:
+    """Spend one guess against a typed ``address`` that matches NO account (security review N1).
+
+    Without it, an unknown address was never charged, so the eleventh wrong password answered 401
+    for an address nobody holds and 429 for a real one — an enumeration oracle. The same buckets,
+    the same capacity and refill, keyed on the normalised typed address instead of an account id: the
+    two sequences are indistinguishable. Never refunded (no password can be right for no account).
+    """
+    return _account_buckets.take(f"addr:{address}")
+
+
 def account_credential_refund(account_id: str) -> None:
     """Give the token back — called only after a password actually verified."""
     _account_buckets.refund(f"acct:{account_id}")
