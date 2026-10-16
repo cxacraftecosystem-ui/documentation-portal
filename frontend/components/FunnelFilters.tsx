@@ -37,12 +37,19 @@ const occurredAt = workshopOccurrenceDate;
 export function FunnelFilters({
   value,
   onChange,
-  showArtisan = false
+  showArtisan = false,
+  restore
 }: {
   value: FunnelValue;
   /** Next filter value plus the selected workshop row (null = all workshops) for client-side narrowing. */
   onChange: (next: FunnelValue, workshop: FunnelWorkshop | null) => void;
   showArtisan?: boolean;
+  /**
+   * The filter this list had when a record was opened from it, read once the workshops have loaded
+   * (`useListReturn`). Returning from a record puts the reader back on the workshop they were
+   * filtering by rather than on the newest one. Null — the ordinary case — keeps the default.
+   */
+  restore?: () => FunnelValue | null;
 }) {
   const [workshops, setWorkshops] = useState<FunnelWorkshop[]>([]);
   const [crafts, setCrafts] = useState<Craft[]>([]);
@@ -79,6 +86,14 @@ export function FunnelFilters({
       setWorkshops(workshopRows);
       setCrafts(craftRows);
       const latest = workshopRows[0] ?? null;
+      // A remembered workshop that has since gone (deleted, or no longer visible to this account)
+      // falls back to the default rather than filtering by an id nothing on screen can name.
+      const back = restore?.() ?? null;
+      const backWorkshop = back?.workshopId ? (workshopRows.find((row) => row.id === back.workshopId) ?? null) : null;
+      if (back && (!back.workshopId || backWorkshop)) {
+        onChange(back, backWorkshop);
+        return;
+      }
       onChange({ workshopId: latest?.id ?? "", craftId: "", artisanId: "" }, latest);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps

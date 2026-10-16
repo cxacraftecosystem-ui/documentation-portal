@@ -73,6 +73,10 @@ import com.fieldrepository.app.ui.trace.TracePanel
 import com.fieldrepository.app.ui.MediaDownloadButton
 import com.fieldrepository.app.ui.OutboxPendingBanner
 import com.fieldrepository.app.ui.FormDraft
+import com.fieldrepository.app.ui.RECORD_UPDATE_LABEL
+import com.fieldrepository.app.ui.recordUpdateAllowed
+import com.fieldrepository.app.ui.recordUpdateTitle
+import com.fieldrepository.app.ui.recordViewTitle
 import com.fieldrepository.app.ui.rememberFormDraft
 import com.fieldrepository.app.ui.FormDraftAutosave
 import com.fieldrepository.app.ui.DraftOfferCard
@@ -431,6 +435,9 @@ import com.fieldrepository.app.data.WorkshopMappingPlanDto
 import com.fieldrepository.app.data.WorkshopSubmissionCheckDto
 import com.fieldrepository.app.data.titleCasePreview
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineScope
@@ -600,7 +607,13 @@ private sealed interface Screen {
         val searchFocus: String? = null
     ) : Screen
     data class Browse(val mode: EntryMode) : Screen
-    data class Edit(val mode: EntryMode, val recordId: String) : Screen
+    /**
+     * One record, READ-ONLY — where a tap on any record card or row lands (`ui/RecordOpen.kt`).
+     * [back] is the screen the tap came from, so Back returns there rather than to a guess.
+     */
+    data class View(val mode: EntryMode, val recordId: String, val back: Screen = Dashboard) : Screen
+    /** The record's edit form, reached only through "Update". [back] null = the type's Update picker. */
+    data class Edit(val mode: EntryMode, val recordId: String, val back: Screen? = null) : Screen
     // Hamburger-only screens (not on the dashboard).
     data object MyActivity : Screen
     data object ToolAssign : Screen
@@ -1381,6 +1394,14 @@ private fun HomeScreen(
     var crafts by remember { mutableStateOf<List<CraftDto>>(emptyList()) }
     var artisans by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
+    /*
+     * BACK FROM A RECORD RETURNS TO THE SAME PLACE IN THE LIST. A tap on a record now opens its
+     * read-only view, so the list it came from is left on every tap. Each screen's scroll position
+     * is written down as it is left ([scrollMemory]) and handed back only when Back returns to it from
+     * a record ([scrollRestoreFor]); opening a screen fresh from the menu still starts at the top.
+     */
+    var scrollRestoreFor by remember { mutableStateOf<Screen?>(null) }
+    val scrollMemory = remember { mutableMapOf<Screen, Int>() }
     var carryForward by remember { mutableStateOf<Prefill?>(null) }
     // "I can no longer see this record" and "there is no signal" are different answers, and the
     // carry prefill treats them differently: only a list that actually arrived is entitled to
@@ -1536,15 +1557,21 @@ private fun HomeScreen(
         appMessage.show(text, tone, onRetry)
     }
 
+    // Opening a record READS it: every card and row lands on the read-only view, which carries the
+    // "Update" button. Back from the view returns to the screen the tap came from.
+    fun openRecordView(mode: EntryMode, recordId: String) {
+        message = null
+        screen = Screen.View(mode, recordId, back = screen)
+    }
+
     // Where a search hit, a map pin and an app-search result go: one arm, so the three cannot drift.
-    // A type this app has no form for gets a sentence instead of the wrong editor.
+    // A type this app has no form for gets a sentence instead of the wrong screen.
     fun openSearchRecord(recordType: String, recordId: String) {
         val mode = searchRecordEntryMode(recordType)
         if (mode == null) {
             showMessage(unroutableRecordLine(recordType))
         } else {
-            message = null
-            screen = Screen.Edit(mode, recordId)
+            openRecordView(mode, recordId)
         }
     }
 
@@ -1733,8 +1760,10 @@ private fun HomeScreen(
     // System back / in-app back: step to the logical previous screen instead of leaving the app.
     fun goBack() {
         message = null
-        screen = when (val s = screen) {
-            is Screen.Edit -> Screen.Browse(s.mode)
+        val leaving = screen
+        val target = when (val s = screen) {
+            is Screen.View -> s.back
+            is Screen.Edit -> s.back ?: Screen.Browse(s.mode)
             is Screen.Browse -> Screen.Dashboard
             is Screen.Create -> Screen.Dashboard
             is Screen.MyActivity -> Screen.Dashboard
@@ -1751,6 +1780,9 @@ private fun HomeScreen(
             is Screen.AdminHub -> if (s.section != null) Screen.AdminHub() else Screen.Dashboard
             is Screen.Dashboard -> Screen.Dashboard
         }
+        // Back to a list from a record puts the list back where it was scrolled (see `pageScroll`).
+        scrollRestoreFor = if (leaving is Screen.View || leaving is Screen.Edit) target else null
+        screen = target
     }
 
     // Null where the page has nothing of its own to announce, which is the Dashboard and only the
@@ -1766,9 +1798,10 @@ private fun HomeScreen(
         is Screen.Dashboard -> null
         is Screen.Create -> s.mode.actionTitle
         is Screen.Browse -> "Update ${s.mode.label.lowercase()}"
-        // A media file has no edit form (the web opens the object itself), so "Edit …" would be a lie
-        // for the one non-editable type search can land on.
-        is Screen.Edit -> if (s.mode.editable) "Edit ${s.mode.label.lowercase()}" else s.mode.label
+        // The read-only view says only what the record is; the edit screen says "Update", the word
+        // on the button that opened it. A media file has no edit form, so it never claims one.
+        is Screen.View -> recordViewTitle(s.mode.label)
+        is Screen.Edit -> if (s.mode.editable) recordUpdateTitle(s.mode.label) else s.mode.label
         is Screen.MyActivity -> "My Activity"
         is Screen.ToolAssign -> "Assign tools to artisans"
         is Screen.Feedback -> "App feedback"
@@ -1813,7 +1846,7 @@ private fun HomeScreen(
         }
         // The legacy app-settings screen, which no menu reaches.
         is Screen.Settings -> null
-        is Screen.Browse, is Screen.Edit -> null
+        is Screen.Browse, is Screen.Edit, is Screen.View -> null
         is Screen.Create -> when (s.mode) {
             EntryMode.ARTISAN -> NavDestination.RECORD_ARTISAN
             EntryMode.PRODUCT -> NavDestination.RECORD_PRODUCT
@@ -1984,6 +2017,17 @@ private fun HomeScreen(
                 // nothing on it to explain why. `key` throws the state away when the destination
                 // changes, so each page starts where a page starts.
                 val pageScroll = key(screen) { rememberScrollState() }
+                // Where this page was scrolled when it was left, and — only when Back is returning to it
+                // from a record — scrolled back there once its rows have arrived (see `scrollMemory`).
+                val shownScreen = screen
+                DisposableEffect(shownScreen) { onDispose { scrollMemory[shownScreen] = pageScroll.value } }
+                LaunchedEffect(shownScreen) {
+                    val target = if (scrollRestoreFor == shownScreen) scrollMemory[shownScreen] else null
+                    scrollRestoreFor = null
+                    if (target == null || target <= 0) return@LaunchedEffect
+                    withTimeoutOrNull(4_000L) { snapshotFlow { pageScroll.maxValue }.first { it >= target } }
+                    pageScroll.scrollTo(target.coerceAtMost(pageScroll.maxValue))
+                }
                 // The island floats over the BOTTOM of the page (see IslandBottomNav.kt), outside the
                 // scroller so it stays put while the page moves underneath it. The scaffold measures
                 // the bar and hands the page that height as bottom padding, so the last field or
@@ -2135,15 +2179,34 @@ private fun HomeScreen(
                     // Every "Your contribution" figure counts this account's own rows, and My Activity
                     // asks the API for exactly those — so the number and the list behind it agree.
                     onOpenMyActivity = { message = null; screen = Screen.MyActivity },
-                    onOpenRecord = { mode, recordId -> message = null; screen = Screen.Edit(mode, recordId) },
-                    onOpenArtisan = { artisanId -> message = null; screen = Screen.Edit(EntryMode.ARTISAN, artisanId) }
+                    // A tap READS the record; its view carries "Update" (`ui/RecordOpen.kt`).
+                    onOpenRecord = { mode, recordId -> openRecordView(mode, recordId) },
+                    onOpenArtisan = { artisanId -> openRecordView(EntryMode.ARTISAN, artisanId) }
                 )
             }
 
             is Screen.Browse -> RecordPickerScreen(
                 repository = repository,
                 mode = s.mode,
+                // The dropdown's "Update" button and a card's own Update go to the form; a tap on a
+                // card anywhere else opens the record read-only, as every other card does.
                 onPick = { recordId -> screen = Screen.Edit(s.mode, recordId) },
+                onView = { recordId -> openRecordView(s.mode, recordId) },
+                onError = { showMessage(it) }
+            )
+
+            is Screen.View -> RecordViewScreen(
+                repository = repository,
+                mode = s.mode,
+                recordId = s.recordId,
+                canUpdate = s.mode.editable && recordUpdateAllowed(
+                    s.mode.linkedRecordType(),
+                    canManageCrafts = user.canManageTheCrafts(),
+                    canManageWorkshops = user.canManageTheWorkshops()
+                ),
+                onUpdate = { message = null; screen = Screen.Edit(s.mode, s.recordId, back = s) },
+                canOverrideCompletion = isAdmin && adminChrome,
+                showProvenance = canViewProvenance,
                 onError = { showMessage(it) }
             )
 
@@ -2390,7 +2453,7 @@ private fun HomeScreen(
             is Screen.MyActivity -> MyActivityScreen(
                 repository = repository,
                 userId = user.id,
-                onOpen = { mode, recordId -> message = null; screen = Screen.Edit(mode, recordId) },
+                onOpen = { mode, recordId -> openRecordView(mode, recordId) },
                 onError = { showMessage(it) }
             )
 
@@ -3071,10 +3134,11 @@ private fun DashboardScreen(
                             .clickable(
                                 interactionSource = interaction,
                                 indication = LocalIndication.current,
-                                onClickLabel = "Edit ${artisan.name}"
+                                role = Role.Button,
+                                onClickLabel = "Open ${artisan.name}"
                             ) { onOpenArtisan(artisan.id) }
                             .semantics(mergeDescendants = true) {
-                                contentDescription = "${artisan.name}. Opens this artisan for editing."
+                                contentDescription = "${artisan.name}. Opens this artisan to read; Update is on the next screen."
                             }
                             .padding(12.dp)
                     ) {
@@ -3126,6 +3190,13 @@ private class DashboardTile(
  * `weight(1f)` so it — not the buttons — absorbs the slack. That is the web card's `mt-auto`: the
  * action row is pinned to the bottom edge, so it sits at one height across the whole row no matter
  * how many lines each label needs.
+ *
+ * THE WHOLE CARD IS THE PRIMARY ACTION (owner ruling, 2026-10-16): a tap anywhere on it does what
+ * the filled button says — New, Open, Upload, Manage — and the outlined "Update" is the only way to
+ * the update screen. The click sits on the card's content, inside the card's own clip, so the ripple
+ * follows the rounded corner; both buttons are children with their own pointer handling, so a tap on
+ * "Update" never also fires the card. The web card does the same with one stretched link
+ * (`components/DashboardCard.tsx`).
  */
 @Composable
 private fun DashboardActionCard(tile: DashboardTile, modifier: Modifier = Modifier) {
@@ -3137,6 +3208,7 @@ private fun DashboardActionCard(tile: DashboardTile, modifier: Modifier = Modifi
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .clickable(role = Role.Button, onClickLabel = "${tile.primaryLabel} ${tile.label}") { tile.onPrimary() }
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -3175,7 +3247,7 @@ private fun DashboardActionCard(tile: DashboardTile, modifier: Modifier = Modifi
                     onClick = update,
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
-                ) { CardButtonLabel(Icons.Filled.Edit, "Update") }
+                ) { CardButtonLabel(Icons.Filled.Edit, RECORD_UPDATE_LABEL) }
             }
         }
     }
@@ -3481,15 +3553,15 @@ private fun RecentSubmissionRow(
     val typeLabel = item.type.replaceFirstChar { it.uppercase() }
     val title = item.title?.takeIf { it.isNotBlank() }
         ?: "Untitled ${item.type.ifBlank { "record" }}"
-    // The row a researcher recognises is the one they want to correct, so the title is the way in —
-    // straight into the edit view for that record type, exactly as the web links it.
+    // The whole row is the way in, and it opens the record READ-ONLY — the same view the web's row
+    // opens. Changing it is the view's "Update" button, never a tap on the row.
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
             .then(
                 if (mode == null) Modifier
-                else Modifier.clickable(onClickLabel = "Open $title") { onOpenRecord(mode, item.id) }
+                else Modifier.clickable(role = Role.Button, onClickLabel = "Open $title") { onOpenRecord(mode, item.id) }
             )
             .padding(vertical = 8.dp, horizontal = 4.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -5807,7 +5879,10 @@ private fun LoadingCard(mode: EntryMode, error: String? = null, onRetry: () -> U
 private fun RecordPickerScreen(
     repository: FieldRepository,
     mode: EntryMode,
+    /** Open the record's edit form — the dropdown's button and each card's own "Update". */
     onPick: (String) -> Unit,
+    /** Open the record read-only — a tap anywhere else on a card (`ui/RecordOpen.kt`). */
+    onView: (String) -> Unit,
     onError: (String) -> Unit
 ) {
     var loading by remember(mode) { mutableStateOf(true) }
@@ -5982,7 +6057,7 @@ private fun RecordPickerScreen(
     }
 
     RecordCard(title = "Update existing ${mode.label.lowercase()}") {
-        Text("Pick a record from the dropdown to open and edit it. Edits are attributed to you per field.", color = Muted, fontSize = 12.sp)
+        Text("Pick a record from the dropdown and choose Update to change it, or tap a recent record to read it first. Changes are attributed to you per field.", color = Muted, fontSize = 12.sp)
         if (mode == EntryMode.QUESTIONNAIRE) {
             // ABOVE the list, because it changes what the list IS — the same placement the completion
             // matrix and the consolidated index give it, for the same reason.
@@ -6015,21 +6090,30 @@ private fun RecordPickerScreen(
                     onClick = { if (selected.isNotBlank()) onPick(selected) },
                     enabled = selected.isNotBlank(),
                     modifier = Modifier.fillMaxWidth()
-                ) { Text("Open for editing") }
-                Text("Or tap a recent record", color = Muted, fontSize = 12.sp)
+                ) { Text(RECORD_UPDATE_LABEL) }
+                Text("Or tap a recent record to read it", color = Muted, fontSize = 12.sp)
                 options.take(12).forEach { (id, label) ->
+                    // THE WHOLE CARD READS THE RECORD; only its Update button edits it. The click sits
+                    // inside the card so the ripple stops at the rounded corner, and the button is a
+                    // child with its own pointer handling, so a tap on it never also opens the view.
                     ElevatedCard(
                         colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onPick(id) }
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(role = Role.Button, onClickLabel = "Open") { onView(id) }
+                                .heightIn(min = 48.dp)
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(label, color = Body, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                            Text("Edit ›", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            OutlinedButton(
+                                onClick = { onPick(id) },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                modifier = Modifier.semantics { contentDescription = "$RECORD_UPDATE_LABEL $label" }
+                            ) { Text(RECORD_UPDATE_LABEL, fontSize = 12.sp) }
                         }
                     }
                 }
@@ -12223,6 +12307,43 @@ private fun CompletionStatusButton(color: Color, label: String, onClick: () -> U
         Box(modifier = Modifier.size(18.dp).background(color, RoundedCornerShape(4.dp)))
         Text(label, color = Body, fontSize = 14.sp)
     }
+}
+
+/**
+ * One record, READ-ONLY — where a tap on any record card or row lands (`ui/RecordOpen.kt`).
+ *
+ * The body is [ViewDataDetail], the same read-only detail the View Data screen has always drawn —
+ * every field, the attached files with their previews, transcripts and Download, and the comments —
+ * so a record reads the same whichever way it was reached. Above it sits the one way to change it:
+ * "Update", drawn only for an account the server would let save it ([canUpdate]) and only for a type
+ * that has an edit form (a media file has none).
+ */
+@Composable
+private fun RecordViewScreen(
+    repository: FieldRepository,
+    mode: EntryMode,
+    recordId: String,
+    canUpdate: Boolean,
+    onUpdate: () -> Unit,
+    canOverrideCompletion: Boolean,
+    showProvenance: Boolean,
+    onError: (String) -> Unit
+) {
+    if (canUpdate) {
+        Button(onClick = onUpdate, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+            Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(RECORD_UPDATE_LABEL)
+        }
+    }
+    ViewDataDetail(
+        repository = repository,
+        mode = mode,
+        recordId = recordId,
+        canOverrideCompletion = canOverrideCompletion,
+        showProvenance = showProvenance,
+        onError = onError
+    )
 }
 
 @Composable

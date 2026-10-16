@@ -23,6 +23,9 @@ import { Pagination } from "@/components/Pagination";
 import { ResizableTh } from "@/components/ResizableTh";
 import { RowActions, rowAction } from "@/components/RowActions";
 import { SearchInput } from "@/components/SearchInput";
+import { useListReturn } from "@/components/hooks/useListReturn";
+import { OpenableRow, RecordTitleLink } from "@/components/records/OpenableRow";
+import { recordViewHref } from "@/lib/recordView";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { useAdminView } from "@/components/AdminViewProvider";
@@ -155,6 +158,25 @@ function CraftsPageBody() {
     }, 350);
     return () => clearTimeout(timer);
   }, [query]);
+
+  /*
+   * BACK FROM A CRAFT'S VIEW PUTS THE LIST BACK AS IT WAS — search, page and scroll. A row click
+   * opens the read-only view (`/crafts/[id]`); see `lib/listReturn.ts`.
+   */
+  const listReturn = useListReturn("crafts");
+  useEffect(() => {
+    const note = listReturn.restored;
+    if (!note) return;
+    if (note.query) {
+      skipFirstDebounce.current = true;
+      setQuery(note.query);
+      setApplied(note.query);
+    }
+    setPage(note.page);
+  }, [listReturn.restored]);
+  const restoreListScroll = listReturn.restoreScroll;
+  useEffect(() => restoreListScroll(Boolean(data)), [data, restoreListScroll]);
+  const rememberPlace = () => listReturn.remember({ query: applied, page });
 
   // Warn on hard navigation (close tab / reload) while the craft form has unsaved edits.
   useEffect(() => {
@@ -537,8 +559,12 @@ function CraftsPageBody() {
               </thead>
               <tbody className="divide-y divide-line-200">
                 {rows.map((craft) => (
-                  <tr key={craft.id}>
-                    <td className="px-4 py-3 font-medium text-ink-900">{craft.name}</td>
+                  <OpenableRow key={craft.id} href={recordViewHref("craft", craft.id)!} onOpen={rememberPlace}>
+                    <td className="px-4 py-3">
+                      <RecordTitleLink href={recordViewHref("craft", craft.id)!} onOpen={rememberPlace}>
+                        {craft.name}
+                      </RecordTitleLink>
+                    </td>
                     <td className="px-4 py-3 text-ink-700">{craft.localName ?? "-"}</td>
                     <td className="px-4 py-3 text-ink-700">{craft.category ?? "-"}</td>
                     <td className="px-4 py-3 text-ink-700">{craft.place ?? "-"}</td>
@@ -548,7 +574,7 @@ function CraftsPageBody() {
                       <RowActions>
                         {allowManage ? (
                           <button className={rowAction("edit")} onClick={() => guard(() => resetForm(craft))}>
-                            Edit
+                            Update
                           </button>
                         ) : null}
                         <button className={rowAction("neutral")} onClick={() => setCollabId(craft.id)}>
@@ -561,7 +587,7 @@ function CraftsPageBody() {
                         ) : null}
                       </RowActions>
                     </td>
-                  </tr>
+                  </OpenableRow>
                 ))}
               </tbody>
             </table>

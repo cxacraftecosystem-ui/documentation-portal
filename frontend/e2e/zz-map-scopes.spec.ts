@@ -197,9 +197,9 @@ test("a pin can be navigated from", async ({ page }) => {
   // an implicit grid track sized itself to the longest one.
   await expectNoHorizontalOverflow(page);
 
-  // And it genuinely lands on the record, rather than being a link-shaped thing.
+  // And it genuinely lands on the record — its read-only view, never straight into the edit form.
   await record.first().click();
-  await page.waitForURL(/\/(artisans|products|tools)\/[^/]+\/edit/, { timeout: 45_000 });
+  await page.waitForURL(/\/(artisans|products|tools)\/[^/?]+$/, { timeout: 45_000 });
 });
 
 test("the graphic is hidden from assistive technology and holds nothing focusable", async ({ page }) => {

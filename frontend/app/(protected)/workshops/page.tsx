@@ -24,6 +24,9 @@ import { Pagination } from "@/components/Pagination";
 import { ResizableTh } from "@/components/ResizableTh";
 import { RowActions, rowAction } from "@/components/RowActions";
 import { SearchInput } from "@/components/SearchInput";
+import { useListReturn } from "@/components/hooks/useListReturn";
+import { OpenableRow, RecordTitleLink } from "@/components/records/OpenableRow";
+import { recordViewHref } from "@/lib/recordView";
 import { StatusBadge, statusLabel } from "@/components/StatusBadge";
 import { WorkshopMappingPanel } from "@/components/settings/WorkshopMappingPanel";
 import { MultiSelectDropdown } from "@/components/ui/Dropdown";
@@ -285,6 +288,25 @@ function WorkshopsPageBody() {
     }, 350);
     return () => clearTimeout(timer);
   }, [query]);
+
+  /*
+   * BACK FROM A WORKSHOP'S VIEW PUTS THE LIST BACK AS IT WAS — search, page and scroll. A row click
+   * opens the read-only view (`/workshops/[id]`); see `lib/listReturn.ts`.
+   */
+  const listReturn = useListReturn("workshops");
+  useEffect(() => {
+    const note = listReturn.restored;
+    if (!note) return;
+    if (note.query) {
+      skipFirstDebounce.current = true;
+      setQuery(note.query);
+      setApplied(note.query);
+    }
+    setPage(note.page);
+  }, [listReturn.restored]);
+  const restoreListScroll = listReturn.restoreScroll;
+  useEffect(() => restoreListScroll(Boolean(data)), [data, restoreListScroll]);
+  const rememberPlace = () => listReturn.remember({ query: applied, page });
 
   // Warn on hard navigation (close tab / reload) while the workshop form has unsaved edits.
   useEffect(() => {
@@ -739,9 +761,11 @@ function WorkshopsPageBody() {
               </thead>
               <tbody className="divide-y divide-line-200">
                 {rows.map((workshop) => (
-                  <tr key={workshop.id}>
+                  <OpenableRow key={workshop.id} href={recordViewHref("workshop", workshop.id)!} onOpen={rememberPlace}>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-ink-900">{workshop.title}</div>
+                      <RecordTitleLink href={recordViewHref("workshop", workshop.id)!} onOpen={rememberPlace}>
+                        {workshop.title}
+                      </RecordTitleLink>
                       <div className="text-xs text-ink-500">{workshop.description ?? "-"}</div>
                     </td>
                     <td className="px-4 py-3 text-ink-700">
@@ -758,7 +782,7 @@ function WorkshopsPageBody() {
                       <RowActions>
                         {allowManage ? (
                           <button className={rowAction("edit")} onClick={() => guard(() => resetForm(workshop))}>
-                            Edit
+                            Update
                           </button>
                         ) : null}
                         <button className={rowAction("neutral")} onClick={() => setCollabId(workshop.id)}>
@@ -776,7 +800,7 @@ function WorkshopsPageBody() {
                         ) : null}
                       </RowActions>
                     </td>
-                  </tr>
+                  </OpenableRow>
                 ))}
               </tbody>
             </table>

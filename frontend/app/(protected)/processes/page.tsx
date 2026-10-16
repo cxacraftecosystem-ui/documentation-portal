@@ -16,6 +16,9 @@ import { SearchInput } from "@/components/SearchInput";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
+import { useListReturn } from "@/components/hooks/useListReturn";
+import { OpenableRow, RecordTitleLink } from "@/components/records/OpenableRow";
+import { recordViewHref } from "@/lib/recordView";
 import { ProcessForm, type ProcessRecord } from "@/components/forms/ProcessForm";
 import { RecordSwitcher } from "@/components/forms/RecordSwitcher";
 import { useEditDeepLink } from "@/components/hooks/useEditDeepLink";
@@ -103,9 +106,33 @@ function ProcessesPageInner() {
     return () => clearTimeout(timer);
   }, [query]);
 
+  /*
+   * BACK FROM A RECORD PUTS THE LIST BACK AS IT WAS. A row click opens the process's read-only view,
+   * so the search, page, funnel and scroll position are written down as it opens (`rememberPlace`)
+   * and restored here on the way back — see `lib/listReturn.ts` and the artisans list, which carries
+   * the same block.
+   */
+  const listReturn = useListReturn("processes");
+  const restoredPage = useRef<number | null>(null);
+  useEffect(() => {
+    const note = listReturn.restored;
+    if (!note) return;
+    if (note.query) {
+      skipFirstDebounce.current = true;
+      setQuery(note.query);
+      setApplied(note.query);
+    }
+    restoredPage.current = note.page;
+    setPage(note.page);
+  }, [listReturn.restored]);
+  const restoreListScroll = listReturn.restoreScroll;
+  useEffect(() => restoreListScroll(Boolean(data)), [data, restoreListScroll]);
+  const rememberPlace = () => listReturn.remember({ query: applied, page, funnel });
+
   function onFunnelChange(next: FunnelValue, _workshop: FunnelWorkshop | null) {
     setFunnel(next);
-    setPage(1);
+    setPage(restoredPage.current ?? 1);
+    restoredPage.current = null;
     setFunnelReady(true);
   }
 
@@ -206,7 +233,7 @@ function ProcessesPageInner() {
     return (
       <>
         <PageHeader
-          title="Edit process"
+          title="Update process"
           description="Update the process record; existing step media is preserved unless you remove it."
           icon={<GitBranch className="h-5 w-5" aria-hidden />}
         />
@@ -271,7 +298,7 @@ function ProcessesPageInner() {
           placeholder="Search process title or notes"
         />
       </div>
-      <FunnelFilters value={funnel} onChange={onFunnelChange} showArtisan />
+      <FunnelFilters value={funnel} onChange={onFunnelChange} showArtisan restore={listReturn.restoredFunnel} />
 
       <section className="panel overflow-hidden">
         {!data ? (
@@ -300,9 +327,11 @@ function ProcessesPageInner() {
               </thead>
               <tbody className="divide-y divide-line-200">
                 {data.items.map((process) => (
-                  <tr key={process.id}>
+                  <OpenableRow key={process.id} href={recordViewHref("process", process.id)!} onOpen={rememberPlace}>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-ink-900">{process.name}</div>
+                      <RecordTitleLink href={recordViewHref("process", process.id)!} onOpen={rememberPlace}>
+                        {process.name}
+                      </RecordTitleLink>
                       {process.notes ? <div className="max-w-xs truncate text-xs text-ink-500">{process.notes}</div> : null}
                     </td>
                     <td className="px-4 py-3 text-ink-700">{process.product?.productName ?? "-"}</td>
@@ -321,7 +350,7 @@ function ProcessesPageInner() {
                           type="button"
                         >
                           <Pencil className="h-3.5 w-3.5" aria-hidden />
-                          {editLoadingId === process.id ? "Loading..." : "Edit"}
+                          {editLoadingId === process.id ? "Loading..." : "Update"}
                         </button>
                         <button className={rowAction("neutral")} onClick={() => setCollabId(process.id)} type="button">
                           <MessageSquare className="h-3.5 w-3.5" aria-hidden />
@@ -335,7 +364,7 @@ function ProcessesPageInner() {
                         ) : null}
                       </RowActions>
                     </td>
-                  </tr>
+                  </OpenableRow>
                 ))}
               </tbody>
             </table>

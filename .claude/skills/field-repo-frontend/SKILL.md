@@ -1216,6 +1216,20 @@ a SECOND record. It was wrong in six places at once (`/data`'s `editHref`, the d
 `recordHref` **and** its Update tiles, `/search`, `DataSearchPanel`, the map's `RECORD_HREF`) because
 each had independently decided the id was not carryable.
 
+**Opening a record READS it; only "Update" edits it** (owner ruling, 2026-10-16). Every list row,
+recent-submission row, search hit, map pin and My Activity row opens the record's READ-ONLY view —
+`/{artisans,products,tools,crafts,workshops,processes}/[id]` and `/questionnaire/interviews/[id]`,
+all one `components/records/RecordView.tsx` — and the edit shapes in the table above are reached only
+through an "Update" button (on the row, and in the view's header). Build every such link from
+`lib/recordView.ts` (`recordViewHref`, `recordUpdateHref`, `canUpdateRecord`), never by hand. A table
+row is made openable with `OpenableRow` (the title cell's `RecordTitleLink` is the real link for the
+keyboard; inner controls keep their own clicks through `rowClickOpensRecord`), a `<div>` row with
+`OpenableBlock`. A list remembers its search, page, funnel and scroll as a row opens and puts them
+back on Back (`useListReturn`, `lib/listReturn.ts`). The row action is labelled **Update**, never
+"Edit". A dashboard tile is one stretched link over the whole card (its primary action), with Update
+lifted above it as a separate link. `e2e/record-view-unit.spec.ts` pins all of it; Android's twin is
+`ui/RecordOpen.kt` + `RecordOpenTest`.
+
 **Receiving side — always `useEditDeepLink` (`components/hooks/useEditDeepLink.ts`), never hand-rolled.**
 
 ```tsx

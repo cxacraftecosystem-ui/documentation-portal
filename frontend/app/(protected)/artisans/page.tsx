@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Boxes, ClipboardList, Hammer, Plus, Users } from "lucide-react";
+import { Plus, Users } from "lucide-react";
 
 import { CollabDialog } from "@/components/CollabDialog";
 import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
@@ -17,8 +17,11 @@ import { RowActions, rowAction } from "@/components/RowActions";
 import { SearchInput } from "@/components/SearchInput";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useAdminView } from "@/components/AdminViewProvider";
+import { useListReturn } from "@/components/hooks/useListReturn";
+import { OpenableRow, RecordTitleLink } from "@/components/records/OpenableRow";
 import { apiFetch, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
+import { recordUpdateHref, recordViewHref } from "@/lib/recordView";
 import type { Artisan, PageResult } from "@/lib/types";
 
 export default function ArtisansPage() {
@@ -32,7 +35,6 @@ export default function ArtisansPage() {
   const [funnel, setFunnel] = useState<FunnelValue>(EMPTY_FUNNEL);
   const [funnelWorkshop, setFunnelWorkshop] = useState<FunnelWorkshop | null>(null);
   const [funnelReady, setFunnelReady] = useState(false);
-  const [selectedArtisan, setSelectedArtisan] = useState<Artisan | null>(null);
   const [collabId, setCollabId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const skipFirstDebounce = useRef(true);
@@ -84,10 +86,35 @@ export default function ArtisansPage() {
     return () => clearTimeout(timer);
   }, [query]);
 
+  /*
+   * BACK FROM A RECORD PUTS THE LIST BACK AS IT WAS. A row click now opens the artisan's view, so the
+   * search, the page, the funnel and the scroll position are written down as it opens
+   * (`rememberPlace`) and restored here on the way back — see `lib/listReturn.ts`. The funnel comes
+   * back through `FunnelFilters`' own `restore`, and its first `onChange` keeps the restored page
+   * instead of resetting to page one.
+   */
+  const listReturn = useListReturn("artisans");
+  const restoredPage = useRef<number | null>(null);
+  useEffect(() => {
+    const note = listReturn.restored;
+    if (!note) return;
+    if (note.query) {
+      skipFirstDebounce.current = true;
+      setQuery(note.query);
+      setApplied(note.query);
+    }
+    restoredPage.current = note.page;
+    setPage(note.page);
+  }, [listReturn.restored]);
+  const restoreListScroll = listReturn.restoreScroll;
+  useEffect(() => restoreListScroll(Boolean(data)), [data, restoreListScroll]);
+  const rememberPlace = () => listReturn.remember({ query: applied, page, funnel });
+
   function onFunnelChange(next: FunnelValue, workshop: FunnelWorkshop | null) {
     setFunnel(next);
     setFunnelWorkshop(workshop);
-    setPage(1);
+    setPage(restoredPage.current ?? 1);
+    restoredPage.current = null;
     setFunnelReady(true);
   }
 
@@ -106,43 +133,6 @@ export default function ArtisansPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to delete artisan");
     }
-  }
-
-  /**
-   * "Start questionnaire" / "Document a product" — open the capture form with this artisan already on
-   * it, which is the whole advertised purpose of these links.
-   *
-   * ── THE ARTISAN'S OWN WORKSHOP DELIBERATELY DOES NOT TRAVEL ────────────────────────────────────
-   *
-   * `artisan.workshopId` is not in this bag, and that is a decision rather than an omission.
-   *
-   * It was considered, because for a while the questionnaire form quietly unticked a seeded artisan
-   * who was not on the DEFAULT workshop's roster: the researcher clicked a link promising a prefilled
-   * interview, watched the name appear and vanish, and concluded the link was broken. Sending the
-   * workshop along would have removed the commonest case of that.
-   *
-   * IT WAS THE WRONG FIX, TWICE OVER. `artisan.workshopId` is where the PERSON'S RECORD was filed,
-   * which is routinely a workshop months ago and a district away — not where the researcher clicking
-   * this link is standing. Opening the interview form on it would file the sitting at the wrong
-   * workshop by default, which is a wrong stored record rather than a confusing screen; and it would
-   * override `useWorkshopSelection`'s probe, whose entire job is to land on a workshop this account
-   * may actually SUBMIT to (`components/forms/WorkshopSelect.tsx`), so the form could open already
-   * refusing to save. The carry-forward bag may move the workshop precisely because the workshop it
-   * carries is the one the LAST RECORD was filed at, minutes ago, by this researcher.
-   *
-   * The disappearing tick is fixed where it belonged: nothing unticks a seeded artisan any more, on
-   * either client, and a ticked artisan the workshop's roster does not hold is named in a sentence
-   * under the picker. See rule 6 in `components/questionnaires/interviewArtisans.ts`.
-   */
-  function artisanEntryHref(path: string, artisan: Artisan) {
-    const params = new URLSearchParams({
-      artisanId: artisan.id,
-      artisanName: artisan.name,
-      place: artisan.place
-    });
-    if (artisan.craftId) params.set("craftId", artisan.craftId);
-    if (artisan.craft?.name) params.set("craftName", artisan.craft.name);
-    return `${path}?${params.toString()}`;
   }
 
   // The workshop filter is applied client-side (no workshopId param on /artisans): keep only the
@@ -181,28 +171,8 @@ export default function ArtisansPage() {
           placeholder="Search by name, craft, place or notes"
         />
       </div>
-      <FunnelFilters value={funnel} onChange={onFunnelChange} />
+      <FunnelFilters value={funnel} onChange={onFunnelChange} restore={listReturn.restoredFunnel} />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
-      {selectedArtisan ? (
-        <section className="mb-5 grid gap-3 md:grid-cols-3">
-          {[
-            { href: artisanEntryHref("/tools/new", selectedArtisan), title: "Make a tool entry", body: "Document a tool used by this artisan.", icon: Hammer },
-            { href: artisanEntryHref("/products/new", selectedArtisan), title: "Make a product entry", body: "Record an object, product or sample.", icon: Boxes },
-            { href: artisanEntryHref("/questionnaire", selectedArtisan), title: "Start questionnaire", body: "Open the interview with RESP prefilled.", icon: ClipboardList }
-          ].map((item) => (
-            <Link key={item.href} href={item.href} className="panel group flex min-h-32 items-start gap-3 p-4 transition hover:-translate-y-0.5 hover:shadow-panel">
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-field-200 text-field-700 dark:text-purple-300">
-                <item.icon className="h-5 w-5" aria-hidden />
-              </span>
-              <span>
-                <span className="block font-display font-bold text-xl text-ink">{item.title}</span>
-                <span className="mt-1 block text-sm leading-6 text-ink-muted">{item.body}</span>
-                <span className="mt-3 block text-xs font-semibold uppercase text-field-700 dark:text-purple-300">{selectedArtisan.name}</span>
-              </span>
-            </Link>
-          ))}
-        </section>
-      ) : null}
       <section className="panel overflow-hidden">
         {!data ? (
           <div className="p-4 text-sm text-ink-700">Loading...</div>
@@ -226,10 +196,12 @@ export default function ArtisansPage() {
               </thead>
               <tbody className="divide-y divide-line-200">
                 {rows.map((artisan) => (
-                  <tr key={artisan.id} className="cursor-pointer hover:bg-field-100" onClick={() => setSelectedArtisan(artisan)}>
+                  <OpenableRow key={artisan.id} href={recordViewHref("artisan", artisan.id)!} onOpen={rememberPlace}>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium text-ink-900">{artisan.name}</span>
+                        <RecordTitleLink href={recordViewHref("artisan", artisan.id)!} onOpen={rememberPlace}>
+                          {artisan.name}
+                        </RecordTitleLink>
                         {/* Identity numbers are regulated data and never printed in a list: the chip
                             only answers "is this artisan's card on file?", which is what a
                             researcher scanning for gaps actually needs to know. */}
@@ -253,12 +225,8 @@ export default function ArtisansPage() {
                     <td className="px-4 py-3 text-ink-700">{formatDate(artisan.createdAt)}</td>
                     <td className="px-4 py-3 text-right">
                       <RowActions>
-                        <Link
-                          className={rowAction("edit")}
-                          href={`/artisans/${artisan.id}/edit`}
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          Edit
+                        <Link className={rowAction("edit")} href={recordUpdateHref("artisan", artisan.id)!} onClick={rememberPlace}>
+                          Update
                         </Link>
                         <button
                           className={rowAction("neutral")}
@@ -282,7 +250,7 @@ export default function ArtisansPage() {
                         ) : null}
                       </RowActions>
                     </td>
-                  </tr>
+                  </OpenableRow>
                 ))}
               </tbody>
             </table>

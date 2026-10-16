@@ -7,6 +7,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
+import { OpenableRow, RecordTitleLink } from "@/components/records/OpenableRow";
 import { Pagination } from "@/components/Pagination";
 import { ResizableTh } from "@/components/ResizableTh";
 import { ReviewEditPanel } from "@/components/review/ReviewEditPanel";
@@ -16,6 +17,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { isAdmin, roleLabel } from "@/lib/permissions";
+import { recordViewHref } from "@/lib/recordView";
 
 /**
  * One row of the review queue. The backend only returns records whose creator ranks strictly
@@ -40,6 +42,27 @@ type PendingItem = {
 /** Identifies one queue row. Type + id, because ids are only unique within a record type. */
 function rowKey(item: PendingItem) {
   return `${item.recordType}-${item.id}`;
+}
+
+/**
+ * A pending record's title opens it READ-ONLY, so a reviewer can read the whole record before
+ * deciding; the decision buttons and the in-place Update panel stay on this row. On a wide screen
+ * the whole row opens it (`OpenableRow`); the phone card keeps the title link only, because its
+ * card also holds the open decision panel and a stray tap there must not leave the page.
+ */
+function ReviewTitle({ item }: { item: PendingItem }) {
+  const href = recordViewHref(item.recordType, item.id);
+  return href ? <RecordTitleLink href={href}>{item.label}</RecordTitleLink> : <>{item.label}</>;
+}
+
+function ReviewRow({ item, className, children }: { item: PendingItem; className?: string; children: React.ReactNode }) {
+  const href = recordViewHref(item.recordType, item.id);
+  if (!href) return <tr className={className}>{children}</tr>;
+  return (
+    <OpenableRow href={href} className={className}>
+      {children}
+    </OpenableRow>
+  );
 }
 
 /**
@@ -282,7 +305,7 @@ export default function ReviewPage() {
             onClick={() => toggleAction(item, "edit")}
             disabled={submitting}
           >
-            {activeAction === "edit" ? "Close editor" : "Edit"}
+            {activeAction === "edit" ? "Close editor" : "Update"}
           </button>
         )}
         <button
@@ -406,7 +429,7 @@ export default function ReviewPage() {
     <>
       <PageHeader
         title="Review"
-        description="Approve, fix in place with Edit, send for revision, or reject pending submissions from contributors you may review."
+        description="Approve, fix in place with Update, send for revision, or reject pending submissions from contributors you may review."
         icon={<ClipboardCheck className="h-5 w-5" aria-hidden />}
       />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
@@ -479,7 +502,7 @@ export default function ReviewPage() {
                       {rowCheckbox(item)}
                       <div className="min-w-0 flex-1">
                         <div className="font-medium text-ink-900">
-                          {item.label}
+                          <ReviewTitle item={item} />
                           {outOfWindowNotes(item)}
                         </div>
                         <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs text-ink-700">
@@ -534,11 +557,11 @@ export default function ReviewPage() {
                   const activeAction = active?.key === key ? active.action : null;
                   return (
                     <Fragment key={key}>
-                      <tr className={selected.has(key) ? "bg-purple-50/60 dark:bg-purple-950/30" : undefined}>
+                      <ReviewRow item={item} className={selected.has(key) ? "bg-purple-50/60 dark:bg-purple-950/30" : undefined}>
                         <td className="px-4 py-3 align-top">{rowCheckbox(item)}</td>
                         <td className="px-4 py-3">
                           <div className="font-medium text-ink-900">
-                            {item.label}
+                            <ReviewTitle item={item} />
                             {outOfWindowNotes(item)}
                           </div>
                         </td>
@@ -559,7 +582,7 @@ export default function ReviewPage() {
                         </td>
                         <td className="px-4 py-3 text-ink-700">{formatDateTime(item.createdAt)}</td>
                         <td className="px-4 py-3 text-right">{decisionButtons(item, activeAction)}</td>
-                      </tr>
+                      </ReviewRow>
                       {activeAction ? (
                         <tr className="bg-surface-50">
                           {/* Eight, not seven: the bulk-select checkbox added a column ahead of

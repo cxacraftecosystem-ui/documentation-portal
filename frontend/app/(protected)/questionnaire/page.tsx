@@ -16,6 +16,7 @@ import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { QuestionnaireCaptureControls, useCapturePrefs } from "@/components/forms/QuestionnaireCaptureControls";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
 import { useEditDeepLink } from "@/components/hooks/useEditDeepLink";
+import { useListReturn } from "@/components/hooks/useListReturn";
 import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
 import { UploadProgress } from "@/components/media/UploadProgress";
 import { UploadTray } from "@/components/media/UploadTray";
@@ -25,6 +26,7 @@ import { DictatedTextInput } from "@/components/richtext/DictatedTextInput";
 import { appendDictatedPhrase } from "@/components/richtext/dictatedValue";
 import { DictationUnavailableNotice } from "@/components/richtext/DictationUnavailableNotice";
 import { PageHeader } from "@/components/PageHeader";
+import { OpenableRow, RecordTitleLink } from "@/components/records/OpenableRow";
 import { Pagination } from "@/components/Pagination";
 import {
   artisanPickerOptions,
@@ -57,6 +59,7 @@ import {
   type BatchProgress
 } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
+import { recordUpdateHref, recordViewHref } from "@/lib/recordView";
 import { canManageQuestionnaire, hasRank, isAdmin } from "@/lib/permissions";
 import { UploadsProvider, useEagerStaging, useUploads } from "@/lib/uploads";
 import type { MediaFile, PageResult, Questionnaire, QuestionnaireInterview, QuestionnaireQuestion, QuestionnaireSection } from "@/lib/types";
@@ -383,6 +386,27 @@ function QuestionnairePageBody() {
   const [funnelReady, setFunnelReady] = useState(false);
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  /*
+   * BACK FROM AN INTERVIEW'S VIEW PUTS THE LIST BACK AS IT WAS. A row click opens the read-only view
+   * (`/questionnaire/interviews/[id]`), so the search, page, funnel and scroll position are written
+   * down as it opens and restored here — see `lib/listReturn.ts`. The funnel returns through
+   * `FunnelFilters`' `restore`, whose first `onChange` keeps the restored page.
+   */
+  const listReturn = useListReturn("questionnaire");
+  const restoredPage = useRef<number | null>(null);
+  useEffect(() => {
+    const note = listReturn.restored;
+    if (!note) return;
+    if (note.query) {
+      setSearchInput(note.query);
+      setSearchQuery(note.query);
+    }
+    restoredPage.current = note.page;
+    setPage(note.page);
+  }, [listReturn.restored]);
+  const restoreListScroll = listReturn.restoreScroll;
+  useEffect(() => restoreListScroll(Boolean(data)), [data, restoreListScroll]);
+  const rememberPlace = () => listReturn.remember({ query: searchQuery, page, funnel });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /**
@@ -2476,9 +2500,11 @@ function QuestionnairePageBody() {
           onChange={(next) => {
             setFunnel(next);
             setFunnelReady(true);
-            setPage(1);
+            setPage(restoredPage.current ?? 1);
+            restoredPage.current = null;
           }}
           showArtisan
+          restore={listReturn.restoredFunnel}
         />
         <SearchInput
           value={searchInput}
@@ -2511,16 +2537,19 @@ function QuestionnairePageBody() {
               </thead>
               <tbody className="divide-y divide-line-200">
                 {data.items.map((interview) => (
-                  <tr key={interview.id}>
+                  <OpenableRow key={interview.id} href={recordViewHref("questionnaire", interview.id)!} onOpen={rememberPlace}>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-ink-900">{interview.title}</div>
+                      <RecordTitleLink href={recordViewHref("questionnaire", interview.id)!} onOpen={rememberPlace}>
+                        {interview.title}
+                      </RecordTitleLink>
                       <div className="text-xs text-ink-500">{interview.place ?? "-"}</div>
                     </td>
                     <td className="px-4 py-3 text-ink-700">
                       {interview.artisans?.map((link) => link.artisan.name).join(", ") || "-"}
                     </td>
                     <td className="px-4 py-3 text-ink-700">
-                      <details>
+                      {/* `data-row-ignore`: reading the answers in place must not open the interview. */}
+                      <details data-row-ignore>
                         <summary className="cursor-pointer font-semibold text-field-700 dark:text-purple-300">{interview.responses?.length ?? 0} answers</summary>
                         <div className="mt-2 grid max-w-lg gap-2">
                           {interview.responses?.map((response) => (
@@ -2544,7 +2573,7 @@ function QuestionnairePageBody() {
                     <td className="px-4 py-3 text-right">
                       <RowActions>
                         {/*
-                          EDIT IS OFFERED TO EVERYONE, AND DELETE IS STILL NOT.
+                          UPDATE IS OFFERED TO EVERYONE, AND DELETE IS STILL NOT.
 
                           The server's own `guard_record_edit` decides whether this account may write
                           to this interview, and a refusal arrives in the page's error banner saying
@@ -2557,9 +2586,9 @@ function QuestionnairePageBody() {
                           browser, the dashboard and search all produce — one route into editing, and
                           one that survives a refresh or being shared.
                         */}
-                        <Link className={rowAction()} href={`/questionnaire?edit=${interview.id}`}>
+                        <Link className={rowAction("edit")} href={recordUpdateHref("questionnaire", interview.id)!}>
                           <Pencil className="h-3.5 w-3.5" aria-hidden />
-                          Edit
+                          Update
                         </Link>
                         {adminMode ? (
                           <button className={rowAction("danger")} onClick={() => remove(interview.id)}>
@@ -2571,7 +2600,7 @@ function QuestionnairePageBody() {
                         <span className="sr-only">Deleting is available in admin view only</span>
                       )}
                     </td>
-                  </tr>
+                  </OpenableRow>
                 ))}
               </tbody>
             </table>
@@ -3719,7 +3748,7 @@ function QuestionTile({
             <>
               <button type="button" className="field-button-secondary" onClick={() => setEditing(true)} disabled={disabled}>
                 <Pencil className="h-4 w-4" aria-hidden />
-                Edit
+                Update
               </button>
               {otherSections.length ? (
                 <label className="flex items-center gap-1.5 text-xs text-ink-muted">

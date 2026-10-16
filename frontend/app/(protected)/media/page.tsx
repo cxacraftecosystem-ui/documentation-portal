@@ -24,6 +24,7 @@ import { useAdminView } from "@/components/AdminViewProvider";
 import { ComboBox, Dropdown } from "@/components/ui/Dropdown";
 import { apiFetch, listResource } from "@/lib/api";
 import { bytes, formatDateTime } from "@/lib/format";
+import { rowClickOpensRecord } from "@/lib/recordView";
 import { locationFromForm, textValue } from "@/lib/forms";
 import { inferMediaType, uploadMediaBatch, type BatchProgress } from "@/lib/media";
 import { UploadsProvider, useUploads } from "@/lib/uploads";
@@ -479,7 +480,31 @@ function MediaPageBody() {
               </thead>
               <tbody className="divide-y divide-line-200">
                 {data.items.map((item) => (
-                  <tr key={item.id}>
+                  // A file's read-only view IS its preview — the lightbox, with its Download button —
+                  // so a click anywhere on the row opens that, as the thumbnail always did. The
+                  // thumbnail's own button is the keyboard route; Delete and the transcript keep
+                  // their own clicks (`rowClickOpensRecord`).
+                  <tr
+                    key={item.id}
+                    className={item.url ? "cursor-pointer transition hover:bg-field-100" : undefined}
+                    onClick={(event) => {
+                      if (!item.url || !rowClickOpensRecord(event.target as Element, event.currentTarget)) return;
+                      if (window.getSelection()?.toString()) return;
+                      setActivePreview({
+                        key: item.id,
+                        id: item.id,
+                        name: item.originalFilename,
+                        mediaType: item.mediaType,
+                        mimeType: item.mimeType,
+                        sizeBytes: item.sizeBytes,
+                        url: item.url,
+                        caption: item.caption,
+                        transcriptStatus: item.transcriptStatus,
+                        transcriptText: item.transcriptText,
+                        transcriptError: item.transcriptError
+                      });
+                    }}
+                  >
                     <td className="px-4 py-3">
                       {item.url ? (
                         <div className="w-36">
@@ -526,7 +551,7 @@ function MediaPageBody() {
                     </td>
                     <td className="px-4 py-3 text-ink-700">
                       {item.transcriptText ? (
-                        <details>
+                        <details data-row-ignore>
                           <summary className="cursor-pointer font-semibold text-field-700 dark:text-purple-300">View transcript</summary>
                           <div className="mt-2 max-h-64 min-w-64 overflow-auto rounded-md bg-field-100 p-3">
                             <Markdown text={item.transcriptText} />

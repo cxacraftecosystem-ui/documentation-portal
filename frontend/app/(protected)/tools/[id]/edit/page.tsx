@@ -23,7 +23,7 @@ export default function EditToolPage() {
 
   return (
     <>
-      <PageHeader title="Edit Tool Documentation" />
+      <PageHeader title="Update Tool Documentation" />
       {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       {record ? (
         <div className="grid gap-6">
