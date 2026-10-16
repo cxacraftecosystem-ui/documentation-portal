@@ -654,10 +654,10 @@
       "shape": "GuideStep.fields — the real form labels, in screen order, with (required) marked"
     },
     "android": {
-      "file": "android/app/src/main/java/com/fieldrepository/app/ui/WalkthroughSteps.kt",
-      "anchor": "internal val walkthroughJourney",
+      "file": "android/app/src/main/java/com/fieldrepository/app/ui/WalkthroughJourney.kt",
+      "anchor": "private val WALKTHROUGH_FIELDS",
       "step": "questionnaire",
-      "shape": "WalkStep.fields — the web's GuideStep.fields verbatim"
+      "shape": "WALKTHROUGH_FIELDS[questionnaire] — the web's GuideStep.fields verbatim"
     },
     "printed": {
       "file": "docs/WALKTHROUGH.md",

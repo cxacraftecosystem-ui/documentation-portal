@@ -18,11 +18,11 @@ fix is: **S** means days or less, **M** days to weeks, **L** weeks and several s
 **What is missing.** The web has a review queue. On Android, the "Review" row opens the record
 browser, which is where a reviewer reads a submission and acts on it.
 
-**What users see.** The walkthrough (`ui/WalkthroughSteps.kt`, the "review" step) describes what the
-row does. It no longer says that the handset has no queue.
+**What users see.** The walkthrough (`ui/WalkthroughSteps.kt`, the "review" step) says what the
+row does in one line. It does not claim the handset has a queue.
 
 **To close it.** A queue screen on Android backed by the same listing the web queue uses. When it
-exists, update the walkthrough step and `BODY_EXTENDED["review"]` in `WalkthroughStepsTest`.
+exists, update the "review" steps in `ui/WalkthroughSteps.kt`.
 
 ### F25a. Who changed a task's status — S–M
 
