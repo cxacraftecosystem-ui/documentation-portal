@@ -7,6 +7,7 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -60,8 +61,12 @@ object ApiClient {
         coerceInputValues = true
     }
 
-    fun create(tokenStore: TokenStore): FieldRepositoryApi =
-        retrofit(tokenStore).create(FieldRepositoryApi::class.java)
+    /**
+     * [readCacheDir], when given, turns on [OfflineReadCache]: every screen's last answer is kept on the
+     * device and served when there is no connection. The app passes it; JVM tests do not.
+     */
+    fun create(tokenStore: TokenStore, readCacheDir: File? = null): FieldRepositoryApi =
+        retrofit(tokenStore, readCacheDir).create(FieldRepositoryApi::class.java)
 
     /**
      * The configured Retrofit — the gateway retry, the auth header, the timeouts and the lenient JSON
@@ -70,12 +75,14 @@ object ApiClient {
      * feature out of the 504 retry that exists because CloudFront times out this origin, and out of
      * the Decimal-as-string leniency that keeps one measured record from failing a whole list.
      */
-    fun retrofit(tokenStore: TokenStore): Retrofit {
+    fun retrofit(tokenStore: TokenStore, readCacheDir: File? = null): Retrofit {
         val logging = HttpLoggingInterceptor().apply {
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
         }
 
         val client = OkHttpClient.Builder()
+            // FIRST, so its offline fallback wraps the retry below rather than the other way round.
+            .apply { if (readCacheDir != null) OfflineReadCache.install(this, readCacheDir) }
             // Mobile data is slower and drops connections more than Wi-Fi, so allow generous timeouts
             // and let OkHttp retry a connection that fails mid-handshake (e.g. a NAT64 path settling).
             .retryOnConnectionFailure(true)
@@ -88,7 +95,10 @@ object ApiClient {
             // brief delay instead of an "Upload failed" the user sees. Unsafe requests pass through once.
             .addInterceptor { chain ->
                 val original = chain.request()
-                val retriable = isSafelyRetriable(original.method, original.url.encodedPath)
+                // A cache-only read (OfflineReadCache's fallback) never touches the network, and its
+                // miss is a synthetic 504 that retrying cannot change.
+                val retriable = !original.cacheControl.onlyIfCached &&
+                    isSafelyRetriable(original.method, original.url.encodedPath)
                 val maxAttempts = if (retriable) MAX_GATEWAY_ATTEMPTS else 1
                 var attempt = 0
                 var lastError: IOException? = null

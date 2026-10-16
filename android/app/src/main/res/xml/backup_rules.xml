@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto Backup on Android 11 and older (android:fullBackupContent). Android 12+ reads
+  data_extraction_rules.xml instead; the two lists must say the same thing.
+
+  BACKED UP, ON PURPOSE: the offline outbox (files/outbox: queued records and copies of their
+  media), unsaved form drafts (files/drafts and files/field-captures), and the small device
+  settings. They are the researcher's work and must survive a lost or replaced phone. A restored
+  queued create still carries its Idempotency-Key, so one the old phone sent within the last 24
+  hours is answered from the server's record instead of being filed twice.
+
+  NEVER BACKED UP: the sign-in session (field_repository_auth.xml holds the bearer token and the
+  cached profile), so a restored phone signs in again and two-step verification is asked again;
+  the staged-object journal, whose entries belong to a process on the old phone; the read cache
+  and WorkManager's own bookkeeping. Two-step state and secrets are never stored on the device.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="field_repository_auth.xml" />
+    <exclude domain="file" path="staged-objects.json" />
+    <exclude domain="database" path="androidx.work.workdb" />
+    <exclude domain="database" path="androidx.work.workdb-shm" />
+    <exclude domain="database" path="androidx.work.workdb-wal" />
+</full-backup-content>

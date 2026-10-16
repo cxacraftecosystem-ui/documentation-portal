@@ -71,6 +71,14 @@ import androidx.compose.material.icons.filled.Timeline
 import com.fieldrepository.app.ui.trace.TracePanel
 import com.fieldrepository.app.ui.MediaDownloadButton
 import com.fieldrepository.app.ui.OutboxPendingBanner
+import com.fieldrepository.app.ui.FormDraft
+import com.fieldrepository.app.ui.rememberFormDraft
+import com.fieldrepository.app.ui.FormDraftAutosave
+import com.fieldrepository.app.ui.DraftOfferCard
+import com.fieldrepository.app.data.DraftStore
+import com.fieldrepository.app.data.DraftValues
+import com.fieldrepository.app.data.OutboxStep
+import androidx.compose.runtime.MutableState
 import com.fieldrepository.app.ui.parseFieldDate
 import com.fieldrepository.app.ui.FieldDateField
 import com.fieldrepository.app.ui.FieldIslandNav
@@ -149,6 +157,11 @@ import com.fieldrepository.app.data.DataAccessGrantDto
 import com.fieldrepository.app.data.DataAccessScopeItemDto
 import com.fieldrepository.app.data.DataAccessTierInfo
 import com.fieldrepository.app.data.EntryCommentDto
+import com.fieldrepository.app.data.EntryCommentBody
+import com.fieldrepository.app.data.OfflineMediaSpec
+import com.fieldrepository.app.data.OutboxKind
+import com.fieldrepository.app.data.OutboxSyncWorker
+import com.fieldrepository.app.data.TaskUpdateBody
 import com.fieldrepository.app.data.MyGrantsDto
 import com.fieldrepository.app.data.RecordRevisionDto
 import com.fieldrepository.app.data.DashboardRecentSubmissionDto
@@ -406,7 +419,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         val tokenStore = TokenStore(applicationContext)
-        val repository = FieldRepository(ApiClient.create(tokenStore), tokenStore)
+        val repository = FieldRepository(ApiClient.create(tokenStore, OutboxSyncWorker.readCacheDir(applicationContext)), tokenStore)
         val googleAuthClient = GoogleAuthClient(this)
         // Microsoft and Yahoo. Created with the activity because AppAuth binds the browser's
         // custom-tab service to it; the client disposes of that binding when the activity goes.
@@ -734,17 +747,25 @@ private fun RepositoryApp(
     // so the look travels to the next device the researcher signs in on. Never throws — a failure
     // simply leaves what the device already had on screen.
     val latestPreferences by rememberUpdatedState(preferences)
+    val preferencesContext = LocalContext.current.applicationContext
     LaunchedEffect(user?.id) {
         if (user == null) return@LaunchedEffect
-        onPreferencesChanged(syncAppPreferences(repository, latestPreferences))
+        // With the store, so a change queued on this device while offline wins over an older row.
+        onPreferencesChanged(syncAppPreferences(repository, latestPreferences, AppPreferencesStore(preferencesContext)))
     }
 
     // Offline outbox auto-sync: drain queued entries on login/start, whenever the network returns, and
     // on a periodic fallback. `pendingUploads` powers the "saved offline — uploading" banner.
     val appContext = LocalContext.current.applicationContext
     var pendingUploads by remember { mutableStateOf(0) }
+    // Whether the device has validated internet, for the "offline" line at the foot of the screen.
+    var online by remember { mutableStateOf(repository.isOnline(appContext)) }
     LaunchedEffect(user) {
         if (user == null) return@LaunchedEffect
+        // The background half (data/OutboxSyncWorker.kt): carries on after the app is closed.
+        OutboxSyncWorker.schedule(appContext)
+        // Capture files no draft refers to any more, from earlier runs. Nothing is open yet.
+        runCatching { DraftStore.sweep(appContext) }
         while (true) {
             runCatching { repository.syncOutbox(appContext) }
             pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
@@ -757,9 +778,23 @@ private fun RepositoryApp(
         val callback = object : android.net.ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: android.net.Network) {
                 scope.launch {
+                    online = repository.isOnline(appContext)
+                    // An appearance change made offline is sent now, rather than at the next sign-in.
+                    val preferencesStore = AppPreferencesStore(appContext)
+                    if (preferencesStore.pendingSince() != null) {
+                        runCatching { onPreferencesChanged(syncAppPreferences(repository, latestPreferences, preferencesStore)) }
+                    }
                     runCatching { repository.syncOutbox(appContext) }
                     pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
                 }
+            }
+
+            override fun onCapabilitiesChanged(network: android.net.Network, caps: android.net.NetworkCapabilities) {
+                scope.launch { online = repository.isOnline(appContext) }
+            }
+
+            override fun onLost(network: android.net.Network) {
+                scope.launch { online = repository.isOnline(appContext) }
             }
         }
         runCatching { cm?.registerDefaultNetworkCallback(callback) }
@@ -872,21 +907,45 @@ private fun RepositoryApp(
                 onPreferencesChanged = onPreferencesChanged,
                 onLogout = {
                     scope.launch {
+                        // Counted BEFORE the session goes: the count is this account's entries.
+                        val waiting = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
                         runCatching { googleAuthClient.clear() }
                         repository.logout()
                         user = null
+                        if (waiting > 0) {
+                            Toast.makeText(
+                                appContext,
+                                "$waiting entr${if (waiting == 1) "y is" else "ies are"} still saved on this device. " +
+                                    "They will upload the next time you sign in.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
                     }
                 }
             )
         }
-        if (user != null && pendingUploads > 0) {
-            OutboxPendingBanner(
-                pendingUploads = pendingUploads,
+        if (user != null && (pendingUploads > 0 || !online)) {
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(bottom = 8.dp)
-            )
+                    .padding(bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                if (!online) OfflineNotice(modifier = Modifier.fillMaxWidth())
+                if (pendingUploads > 0) {
+                    OutboxPendingBanner(
+                        pendingUploads = pendingUploads,
+                        modifier = Modifier.fillMaxWidth(),
+                        entries = { repository.pendingEntries(appContext) },
+                        onRetry = { entryId ->
+                            repository.retryRefused(appContext, entryId)
+                            runCatching { repository.syncOutbox(appContext) }
+                            pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
+                        }
+                    )
+                }
+            }
         }
     }
 }
@@ -1909,8 +1968,8 @@ private fun HomeScreen(
                             .onFailure { showMessage(it.message) }
                         loadLookups()
                     },
-                    onSubmit = { body ->
-                        val created = repository.createQuestionnaireInterview(body)
+                    onSubmit = { body, idempotencyKey ->
+                        val created = repository.createQuestionnaireInterview(body, idempotencyKey)
                         refresh()
                         created.id
                     },
@@ -3575,6 +3634,7 @@ private suspend fun uploadAttachments(
     // Resilient: attempt every attachment so one bad file never blocks the rest; the saved record
     // already persisted before this runs, so partial uploads are kept and only the failures surface.
     val failures = mutableListOf<String>()
+    val failedUris = mutableListOf<Pair<Int, Uri>>()
     media.uris.forEachIndexed { index, uri ->
         // Prefer the eagerly pre-uploaded object (awaiting any still-in-flight transfer); only fall
         // back to a fresh upload if pre-upload never started or failed.
@@ -3609,8 +3669,22 @@ private suspend fun uploadAttachments(
             val error = result.exceptionOrNull()
             if (error is kotlinx.coroutines.CancellationException) throw error
             failures.add(uri.lastPathSegment ?: "file ${index + 1}")
+            failedUris.add(index to uri)
         }
     }
+    // The record IS saved. Files that did not make it (the connection dropped part-way, usually) are
+    // copied into the outbox and attached to it when the connection returns, instead of being held
+    // only by a form the researcher is about to leave.
+    if (failedUris.isNotEmpty() && queueFailedAttachments(
+            repository, context, recordType, recordId, titleHint,
+            failedUris.map { (index, uri) ->
+                OfflineMediaSpec(
+                    uri = uri, caption = caption, recordName = titleHint, customSegment = customSegment,
+                    batchIndex = index + 1, location = media.location
+                )
+            }
+        )
+    ) return
     if (failures.isNotEmpty()) {
         val allFailed = failures.size == media.uris.size
         val prefix = if (allFailed) "All ${failures.size} media file(s) failed to upload" else "${failures.size} media file(s) failed to upload"
@@ -3619,6 +3693,55 @@ private suspend fun uploadAttachments(
                 "and re-open it from \"Update existing\" to re-attach the media."
         )
     }
+}
+
+/**
+ * Copy files that could not reach the saved record [recordId] into the outbox, to attach when the
+ * connection returns, and say so. False when even that failed; the caller then reports the failure.
+ */
+private suspend fun queueFailedAttachments(
+    repository: FieldRepository,
+    context: Context,
+    recordType: String,
+    recordId: String,
+    label: String?,
+    items: List<OfflineMediaSpec>
+): Boolean {
+    if (items.isEmpty()) return true
+    val queued = runCatching {
+        repository.queueAttachments(context, recordType, recordId, label?.trim().orEmpty().ifBlank { "Attachments" }, items)
+    }.isSuccess
+    if (queued) {
+        Toast.makeText(
+            context.applicationContext,
+            "The record was saved. ${items.size} file(s) are kept on this device and will attach automatically when you're back online.",
+            Toast.LENGTH_LONG
+        ).show()
+    }
+    return queued
+}
+
+/**
+ * Keep a small write (a comment, feedback, a task's progress) on the device when it cannot be sent,
+ * and send it from the outbox when the connection returns. True when it was queued.
+ *
+ * [failure] null means "check before trying": queue only when there is no connection. Otherwise it is
+ * the error the online attempt threw, and a transport failure queues only when [idempotent]: a POST
+ * whose answer was lost may already have landed, and replaying it would post it twice.
+ */
+private suspend fun queueSmallWrite(
+    repository: FieldRepository,
+    context: Context,
+    failure: Throwable?,
+    idempotent: Boolean,
+    type: String,
+    payloadJson: String,
+    label: String,
+    targetId: String? = null
+): Boolean {
+    val queue = if (failure == null) !repository.isOnline(context) else idempotent && failure is java.io.IOException
+    if (!queue) return false
+    return runCatching { repository.queueAction(context, type, payloadJson, label, targetId) }.isSuccess
 }
 
 private suspend fun uploadMeasurement(
@@ -5844,7 +5967,7 @@ private fun InterviewEditLoader(
               wraps the save in `runCatching`, so this surfaces through `onError` as a sentence
               rather than as a crash — loud, recoverable, and impossible to mistake for success.
             */
-            onSubmit = { error("An open edit must PATCH the interview, never create a second one.") },
+            onSubmit = { _, _ -> error("An open edit must PATCH the interview, never create a second one.") },
             onError = onError,
             onSaved = onDone
         )
@@ -5864,13 +5987,15 @@ private fun CraftForm(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // The unsaved form, kept on disk until it is saved or queued (ui/FormDrafts.kt).
+    val draft = rememberFormDraft(repository, "craft", editing?.id)
     val media = rememberMediaCaptureState()
     val isEdit = editing != null
-    var name by remember(editing) { mutableStateOf(editing?.name ?: "") }
-    var localName by remember(editing) { mutableStateOf(editing?.localName ?: "") }
-    var category by remember(editing) { mutableStateOf(editing?.category ?: "") }
-    var place by remember(editing) { mutableStateOf(editing?.place ?: "") }
-    var description by remember(editing) { mutableStateOf(editing?.description ?: "") }
+    var name by remember(editing) { mutableStateOf(editing?.name ?: "") }.drafted(draft, "name")
+    var localName by remember(editing) { mutableStateOf(editing?.localName ?: "") }.drafted(draft, "localName")
+    var category by remember(editing) { mutableStateOf(editing?.category ?: "") }.drafted(draft, "category")
+    var place by remember(editing) { mutableStateOf(editing?.place ?: "") }.drafted(draft, "place")
+    var description by remember(editing) { mutableStateOf(editing?.description ?: "") }.drafted(draft, "description")
     val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
     var saving by remember { mutableStateOf(false) }
     var nameError by remember { mutableStateOf<String?>(null) }
@@ -5895,13 +6020,13 @@ private fun CraftForm(
                 recordedAt = if (isEdit) null else Instant.now().toString()
             )
             val queuedOffline = runCatching {
-                trySaveOffline(repository, context, isEdit, "craft", offlineFormJson.encodeToString(body),
+                trySaveOffline(repository, context, editing?.id, "craft", offlineFormJson.encodeToString(body),
                     name.trim(), media, name.trim(), "Field media for ${name.trim()}")
             }.getOrElse { false }
             if (queuedOffline) {
                 media.reset()
                 onError("Saved on this device. It'll upload automatically when you're back online.")
-                onDone()
+                draft.clear(); onDone()
                 saving = false
                 return@launch
             }
@@ -5909,13 +6034,14 @@ private fun CraftForm(
                 val craftId = if (isEdit) {
                     repository.updateCraft(editing!!.id, body).id
                 } else {
-                    repository.createCraft(body).id
+                    createOrKeep(repository, context, "craft", offlineFormJson.encodeToString(body), name.trim(),
+                        { media.offlineSpecs(name.trim(), "Field media for ${name.trim()}") }) { key -> repository.createCraft(body, key) }.id
                 }
                 uploadAttachments(repository, context, media, "craft", craftId, name, "Field media for ${name.trim()}")
             }.onSuccess {
                 media.reset()
-                onDone()
-            }.onFailure { onError(it.message ?: "Unable to save craft") }
+                draft.clear(); onDone()
+            }.onFailure { if (it is KeptOnDevice) { media.reset(); draft.clear(); onError(it.message!!); onDone() } else onError(it.message ?: "Unable to save craft") }
             saving = false
         }
     }
@@ -5930,7 +6056,11 @@ private fun CraftForm(
     // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.CRAFT)
     RecordCard(title = if (isEdit) "Edit craft" else "Add craft") {
+        DraftOfferCard(draft)
         RegisterUnsavedGuard(dirty = dirty) { submit() }
+        media.draftInto(draft, "media")
+        workshop.draftInto(draft)
+        FormDraftAutosave(draft, dirty, label = name)
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
@@ -5973,22 +6103,24 @@ private fun ArtisanForm(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // The unsaved form, kept on disk until it is saved or queued (ui/FormDrafts.kt).
+    val draft = rememberFormDraft(repository, "artisan", editing?.id)
     val media = rememberMediaCaptureState()
     val isEdit = editing != null
-    var name by remember(editing) { mutableStateOf(editing?.name ?: prefill?.artisanName ?: "") }
-    var localName by remember(editing) { mutableStateOf(editing?.localName ?: "") }
-    var gender by remember(editing) { mutableStateOf(editing?.gender?.takeIf { it.isNotBlank() } ?: "Male") }
-    var phone by remember(editing) { mutableStateOf(editing?.phone ?: "") }
-    var email by remember(editing) { mutableStateOf(editing?.email ?: "") }
-    var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }
-    var address by remember(editing) { mutableStateOf(editing?.address ?: "") }
-    var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }
+    var name by remember(editing) { mutableStateOf(editing?.name ?: prefill?.artisanName ?: "") }.drafted(draft, "name")
+    var localName by remember(editing) { mutableStateOf(editing?.localName ?: "") }.drafted(draft, "localName")
+    var gender by remember(editing) { mutableStateOf(editing?.gender?.takeIf { it.isNotBlank() } ?: "Male") }.drafted(draft, "gender")
+    var phone by remember(editing) { mutableStateOf(editing?.phone ?: "") }.drafted(draft, "phone")
+    var email by remember(editing) { mutableStateOf(editing?.email ?: "") }.drafted(draft, "email")
+    var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }.drafted(draft, "place")
+    var address by remember(editing) { mutableStateOf(editing?.address ?: "") }.drafted(draft, "address")
+    var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }.drafted(draft, "notes")
     // Identity. `aadhaar` holds BARE digits — the 4-4-4 grouping is a visual transformation on the
     // field, never part of the value. The Pehchan card defaults to "available", matching the API's
     // default and the common case, which is why its number is effectively required on create.
-    var aadhaar by remember(editing) { mutableStateOf(editing?.aadhaarNumber.orEmpty()) }
-    var pehchanAvailable by remember(editing) { mutableStateOf(editing?.pehchanCardAvailable ?: true) }
-    var pehchanNumber by remember(editing) { mutableStateOf(editing?.pehchanCardNumber.orEmpty()) }
+    var aadhaar by remember(editing) { mutableStateOf(editing?.aadhaarNumber.orEmpty()) }.drafted(draft, "aadhaar")
+    var pehchanAvailable by remember(editing) { mutableStateOf(editing?.pehchanCardAvailable ?: true) }.drafted(draft, "pehchanAvailable")
+    var pehchanNumber by remember(editing) { mutableStateOf(editing?.pehchanCardNumber.orEmpty()) }.drafted(draft, "pehchanNumber")
     /*
      * ── THE TWO FACTS THE DESIGN WORKSHOP ASKS OF EVERY ARTISAN ─────────────────────────────
      *
@@ -6002,14 +6134,14 @@ private fun ArtisanForm(
         mutableStateOf<java.time.LocalDate?>(
             editing?.dateOfBirth?.take(10)?.let { parseFieldDate(it) }
         )
-    }
+    }.drafted(draft, "dateOfBirth")
     var experienceYears by remember(editing) {
         mutableStateOf(editing?.experienceYears?.toString().orEmpty())
-    }
-    var dosItems by remember(editing) { mutableStateOf(splitNumbered(editing?.dos)) }
-    var dontsItems by remember(editing) { mutableStateOf(splitNumbered(editing?.donts)) }
-    var craftId by remember(editing) { mutableStateOf(editing?.craftId ?: prefill?.craftId ?: "") }
-    var newCraftName by remember(editing) { mutableStateOf("") }
+    }.drafted(draft, "experienceYears")
+    var dosItems by remember(editing) { mutableStateOf(splitNumbered(editing?.dos)) }.drafted(draft, "dosItems")
+    var dontsItems by remember(editing) { mutableStateOf(splitNumbered(editing?.donts)) }.drafted(draft, "dontsItems")
+    var craftId by remember(editing) { mutableStateOf(editing?.craftId ?: prefill?.craftId ?: "") }.drafted(draft, "craftId")
+    var newCraftName by remember(editing) { mutableStateOf("") }.drafted(draft, "newCraftName")
     /**
      * This artisan's own craft, offered whether or not it is on the loaded page — see
      * `ui/RecordPickers.rememberCraftOptions` for why the craft dropdown needs that rescue more
@@ -6053,7 +6185,7 @@ private fun ArtisanForm(
         craftId = ""
     }
     val canSetStatus = remember { canSetRecordStatus(repository.cachedUser()?.role) }
-    var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }
+    var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }.drafted(draft, "status")
     var saving by remember { mutableStateOf(false) }
     val hasCraft = craftId.isNotBlank() || newCraftName.isNotBlank()
     var nameError by remember { mutableStateOf<String?>(null) }
@@ -6202,13 +6334,13 @@ private fun ArtisanForm(
             )
             // No connection: save to the device and sync on reconnect, instead of failing the upload.
             val queuedOffline = runCatching {
-                trySaveOffline(repository, context, isEdit, "artisan", offlineFormJson.encodeToString(body),
+                trySaveOffline(repository, context, editing?.id, "artisan", offlineFormJson.encodeToString(body),
                     name.trim(), media, name.trim(), "Field media for ${name.trim()}")
             }.getOrElse { false }
             if (queuedOffline) {
                 media.reset()
                 onError("Saved on this device. It'll upload automatically when you're back online.")
-                onDone()
+                draft.clear(); onDone()
                 saving = false
                 return@launch
             }
@@ -6216,14 +6348,15 @@ private fun ArtisanForm(
                 val artisanId = if (isEdit) {
                     repository.updateArtisan(editing!!.id, body).id
                 } else {
-                    repository.createArtisan(body).id
+                    createOrKeep(repository, context, "artisan", offlineFormJson.encodeToString(body), name.trim(),
+                        { media.offlineSpecs(name.trim(), "Field media for ${name.trim()}") }) { key -> repository.createArtisan(body, key) }.id
                 }
                 uploadAttachments(repository, context, media, "artisan", artisanId, name, "Field media for ${name.trim()}")
                 artisanId
             }.onSuccess { artisanId ->
                 if (isEdit) {
                     media.reset()
-                    onDone()
+                    draft.clear(); onDone()
                 } else {
                     val resolvedCraftName = craftOptions.firstOrNull { it.id == craftId }?.name ?: newCraftName.blankToNull()
                     val prefillOut = Prefill(
@@ -6234,13 +6367,13 @@ private fun ArtisanForm(
                         craftName = resolvedCraftName
                     )
                     media.reset()
-                    onArtisanCreated(prefillOut)
+                    draft.clear(); onArtisanCreated(prefillOut)
                 }
             }.onFailure {
                 // A duplicate Aadhaar/Pehchan number comes back as a structured 409 whose message
                 // names the artisan already holding it — far more use than "HTTP 409 Conflict", which
                 // is all the exception itself says.
-                onError(it.apiErrorMessage("Unable to save artisan"))
+                if (it is KeptOnDevice) { media.reset(); draft.clear(); onError(it.message!!); onDone() } else onError(it.apiErrorMessage("Unable to save artisan"))
             }
             saving = false
         }
@@ -6266,7 +6399,11 @@ private fun ArtisanForm(
     // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.ARTISAN)
     RecordCard(title = if (isEdit) "Edit artisan" else "Add artisan") {
+        DraftOfferCard(draft)
         RegisterUnsavedGuard(dirty = dirty) { submit() }
+        media.draftInto(draft, "media")
+        workshop.draftInto(draft)
+        FormDraftAutosave(draft, dirty, label = name)
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
@@ -6463,27 +6600,29 @@ private fun WorkshopForm(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // The unsaved form, kept on disk until it is saved or queued (ui/FormDrafts.kt).
+    val draft = rememberFormDraft(repository, "workshop", editing?.id)
     val media = rememberMediaCaptureState()
     val isEdit = editing != null
-    var title by remember(editing) { mutableStateOf(editing?.title ?: "") }
-    var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }
-    var description by remember(editing) { mutableStateOf(editing?.description ?: "") }
-    var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }
-    var startDate by remember(editing) { mutableStateOf(parseIsoToLocalDate(editing?.startDate)) }
-    var endDate by remember(editing) { mutableStateOf(parseIsoToLocalDate(editing?.endDate)) }
+    var title by remember(editing) { mutableStateOf(editing?.title ?: "") }.drafted(draft, "title")
+    var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }.drafted(draft, "place")
+    var description by remember(editing) { mutableStateOf(editing?.description ?: "") }.drafted(draft, "description")
+    var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }.drafted(draft, "notes")
+    var startDate by remember(editing) { mutableStateOf(parseIsoToLocalDate(editing?.startDate)) }.drafted(draft, "startDate")
+    var endDate by remember(editing) { mutableStateOf(parseIsoToLocalDate(editing?.endDate)) }.drafted(draft, "endDate")
     val canSetStatus = remember { canSetRecordStatus(repository.cachedUser()?.role) }
-    var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }
+    var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }.drafted(draft, "status")
     var selectedArtisans by remember(editing) {
         mutableStateOf(
             editing?.artisans?.map { it.artisanId }?.toSet()
                 ?: prefill?.artisanId?.let { setOf(it) }
                 ?: emptySet()
         )
-    }
+    }.drafted(draft, "selectedArtisans")
     var crafts by remember { mutableStateOf<List<CraftDto>>(emptyList()) }
     var selectedCrafts by remember(editing) {
         mutableStateOf(editing?.crafts?.map { it.craftId }?.toSet() ?: emptySet())
-    }
+    }.drafted(draft, "selectedCrafts")
     var saving by remember { mutableStateOf(false) }
     var titleError by remember { mutableStateOf<String?>(null) }
     var placeError by remember { mutableStateOf<String?>(null) }
@@ -6528,13 +6667,13 @@ private fun WorkshopForm(
                 location = locationForBody(isEdit, media.location, editing?.location)
             )
             val queuedOffline = runCatching {
-                trySaveOffline(repository, context, isEdit, "workshop", offlineFormJson.encodeToString(body),
+                trySaveOffline(repository, context, editing?.id, "workshop", offlineFormJson.encodeToString(body),
                     title.trim(), media, title.trim(), "Field media for ${title.trim()}")
             }.getOrElse { false }
             if (queuedOffline) {
                 media.reset()
                 onError("Saved on this device. It'll upload automatically when you're back online.")
-                onDone()
+                draft.clear(); onDone()
                 saving = false
                 return@launch
             }
@@ -6542,13 +6681,14 @@ private fun WorkshopForm(
                 val workshopId = if (isEdit) {
                     repository.updateWorkshop(editing!!.id, body).id
                 } else {
-                    repository.createWorkshop(body).id
+                    createOrKeep(repository, context, "workshop", offlineFormJson.encodeToString(body), title.trim(),
+                        { media.offlineSpecs(title.trim(), "Field media for ${title.trim()}") }) { key -> repository.createWorkshop(body, key) }.id
                 }
                 uploadAttachments(repository, context, media, "workshop", workshopId, title, "Field media for ${title.trim()}")
             }.onSuccess {
                 media.reset()
-                onDone()
-            }.onFailure { onError(it.message ?: "Unable to save workshop") }
+                draft.clear(); onDone()
+            }.onFailure { if (it is KeptOnDevice) { media.reset(); draft.clear(); onError(it.message!!); onDone() } else onError(it.message ?: "Unable to save workshop") }
             saving = false
         }
     }
@@ -6575,7 +6715,10 @@ private fun WorkshopForm(
     // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.WORKSHOP)
     RecordCard(title = if (isEdit) "Edit workshop" else "Add workshop") {
+        DraftOfferCard(draft)
         RegisterUnsavedGuard(dirty = dirty) { submit() }
+        media.draftInto(draft, "media")
+        FormDraftAutosave(draft, dirty, label = title)
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
@@ -6652,15 +6795,17 @@ private fun ProductForm(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // The unsaved form, kept on disk until it is saved or queued (ui/FormDrafts.kt).
+    val draft = rememberFormDraft(repository, "product", editing?.id)
     val media = rememberMediaCaptureState()
     val isEdit = editing != null
-    var productName by remember(editing) { mutableStateOf(editing?.productName ?: "") }
-    var localName by remember(editing) { mutableStateOf(editing?.localName ?: "") }
-    var craftName by remember(editing) { mutableStateOf(editing?.craftName ?: prefill?.craftName ?: "") }
-    var artisanName by remember(editing) { mutableStateOf(editing?.artisanName ?: prefill?.artisanName ?: "") }
-    var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }
-    var craftId by remember(editing) { mutableStateOf(editing?.craftId ?: prefill?.craftId ?: "") }
-    var artisanId by remember(editing) { mutableStateOf(editing?.artisanId ?: prefill?.artisanId ?: "") }
+    var productName by remember(editing) { mutableStateOf(editing?.productName ?: "") }.drafted(draft, "productName")
+    var localName by remember(editing) { mutableStateOf(editing?.localName ?: "") }.drafted(draft, "localName")
+    var craftName by remember(editing) { mutableStateOf(editing?.craftName ?: prefill?.craftName ?: "") }.drafted(draft, "craftName")
+    var artisanName by remember(editing) { mutableStateOf(editing?.artisanName ?: prefill?.artisanName ?: "") }.drafted(draft, "artisanName")
+    var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }.drafted(draft, "place")
+    var craftId by remember(editing) { mutableStateOf(editing?.craftId ?: prefill?.craftId ?: "") }.drafted(draft, "craftId")
+    var artisanId by remember(editing) { mutableStateOf(editing?.artisanId ?: prefill?.artisanId ?: "") }.drafted(draft, "artisanId")
     /**
      * WHAT THE CRAFT AND ARTISAN DROPDOWNS ACTUALLY OFFER — see `ui/RecordPickers.kt`, which the web
      * forms share word for word (`frontend/components/forms/recordPickers.ts`).
@@ -6681,13 +6826,13 @@ private fun ProductForm(
     val craftOptions = rememberCraftOptions(repository, crafts, craftId)
     val picker = rememberArtisanPicker(repository, artisans, craftId, artisanId)
 
-    var productType by remember(editing) { mutableStateOf(editing?.productType ?: "OTHER") }
-    var marketDemand by remember(editing) { mutableStateOf(editing?.marketDemand ?: "UNKNOWN") }
-    var timeTaken by remember(editing) { mutableStateOf(editing?.timeTakenToCompleteProduct ?: "") }
-    var size by remember(editing) { mutableStateOf(editing?.size ?: "") }
-    var length by remember(editing) { mutableStateOf(numToText(editing?.lengthInches)) }
-    var breadth by remember(editing) { mutableStateOf(numToText(editing?.breadthInches)) }
-    var height by remember(editing) { mutableStateOf(numToText(editing?.heightInches)) }
+    var productType by remember(editing) { mutableStateOf(editing?.productType ?: "OTHER") }.drafted(draft, "productType")
+    var marketDemand by remember(editing) { mutableStateOf(editing?.marketDemand ?: "UNKNOWN") }.drafted(draft, "marketDemand")
+    var timeTaken by remember(editing) { mutableStateOf(editing?.timeTakenToCompleteProduct ?: "") }.drafted(draft, "timeTaken")
+    var size by remember(editing) { mutableStateOf(editing?.size ?: "") }.drafted(draft, "size")
+    var length by remember(editing) { mutableStateOf(numToText(editing?.lengthInches)) }.drafted(draft, "length")
+    var breadth by remember(editing) { mutableStateOf(numToText(editing?.breadthInches)) }.drafted(draft, "breadth")
+    var height by remember(editing) { mutableStateOf(numToText(editing?.heightInches)) }.drafted(draft, "height")
     /*
      * HOW THE THREE BOXES ABOVE WERE MEASURED, for the ones somebody accepted a proposal into.
      *
@@ -6698,14 +6843,14 @@ private fun ProductForm(
      * reads an absent marker as UNRECORDED rather than as TYPED.
      */
     val markers = remember(editing) { MeasurementMarkers() }
-    var costOfMaking by remember(editing) { mutableStateOf(numToText(editing?.costOfMaking)) }
-    var sellingPrice by remember(editing) { mutableStateOf(numToText(editing?.sellingPrice)) }
-    var rawMaterials by remember(editing) { mutableStateOf(editing?.rawMaterialsUsed ?: "") }
-    var mainTools by remember(editing) { mutableStateOf(editing?.mainToolsUsed ?: "") }
-    var functionUse by remember(editing) { mutableStateOf(editing?.productFunctionUse ?: "") }
-    var remarks by remember(editing) { mutableStateOf(editing?.remarks ?: "") }
+    var costOfMaking by remember(editing) { mutableStateOf(numToText(editing?.costOfMaking)) }.drafted(draft, "costOfMaking")
+    var sellingPrice by remember(editing) { mutableStateOf(numToText(editing?.sellingPrice)) }.drafted(draft, "sellingPrice")
+    var rawMaterials by remember(editing) { mutableStateOf(editing?.rawMaterialsUsed ?: "") }.drafted(draft, "rawMaterials")
+    var mainTools by remember(editing) { mutableStateOf(editing?.mainToolsUsed ?: "") }.drafted(draft, "mainTools")
+    var functionUse by remember(editing) { mutableStateOf(editing?.productFunctionUse ?: "") }.drafted(draft, "functionUse")
+    var remarks by remember(editing) { mutableStateOf(editing?.remarks ?: "") }.drafted(draft, "remarks")
     val canSetStatus = remember { canSetRecordStatus(repository.cachedUser()?.role) }
-    var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }
+    var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }.drafted(draft, "status")
     val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
     /**
      * Offer the sitting this researcher was last working in, however they got here — the in-memory
@@ -6825,7 +6970,7 @@ private fun ProductForm(
                 workshopName = workshop.workshops.firstOrNull { it.id == workshop.value() }?.title
             )
             val queuedOffline = runCatching {
-                trySaveOffline(repository, context, isEdit, "product", offlineFormJson.encodeToString(body),
+                trySaveOffline(repository, context, editing?.id, "product", offlineFormJson.encodeToString(body),
                     productName.trim(), media, productName.trim(), "Field media for ${productName.trim()}")
             }.getOrElse { false }
             if (queuedOffline) {
@@ -6837,7 +6982,7 @@ private fun ProductForm(
                 carry.remember(sitting)
                 media.reset()
                 onError("Saved on this device. It'll upload automatically when you're back online.")
-                onDone()
+                draft.clear(); onDone()
                 saving = false
                 return@launch
             }
@@ -6845,7 +6990,8 @@ private fun ProductForm(
                 val productId = if (isEdit) {
                     repository.updateProduct(editing!!.id, body).id
                 } else {
-                    repository.createProduct(body).id
+                    createOrKeep(repository, context, "product", offlineFormJson.encodeToString(body), productName.trim(),
+                        { media.offlineSpecs(productName.trim(), "Field media for ${productName.trim()}") }) { key -> repository.createProduct(body, key) }.id
                 }
                 uploadAttachments(repository, context, media, "product", productId, productName, "Field media for ${productName.trim()}")
                 productId
@@ -6854,8 +7000,8 @@ private fun ProductForm(
                 // the process form should be offering this one rather than making them find it again.
                 carry.remember(sitting.copy(productId = productId, productName = productName.trim()))
                 media.reset()
-                onDone()
-            }.onFailure { onError(it.message ?: "Unable to save product") }
+                draft.clear(); onDone()
+            }.onFailure { if (it is KeptOnDevice) { carry.prune(CarryNode.PRODUCT); carry.remember(sitting); media.reset(); draft.clear(); onError(it.message!!); onDone() } else onError(it.message ?: "Unable to save product") }
             saving = false
         }
     }
@@ -6880,7 +7026,11 @@ private fun ProductForm(
     // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.PRODUCT)
     RecordCard(title = if (isEdit) "Edit product" else "Add product") {
+        DraftOfferCard(draft)
         RegisterUnsavedGuard(dirty = dirty) { submit() }
+        media.draftInto(draft, "media")
+        workshop.draftInto(draft)
+        FormDraftAutosave(draft, dirty, label = productName)
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
@@ -7078,12 +7228,14 @@ private fun ToolForm(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // The unsaved form, kept on disk until it is saved or queued (ui/FormDrafts.kt).
+    val draft = rememberFormDraft(repository, "tool", editing?.id)
     val media = rememberMediaCaptureState()
     val stages = rememberMediaCaptureState()
     val isEdit = editing != null
-    var toolkitName by remember(editing) { mutableStateOf(editing?.toolkitName ?: "") }
-    var localName by remember(editing) { mutableStateOf(editing?.localName ?: "") }
-    var englishName by remember(editing) { mutableStateOf(editing?.englishName ?: "") }
+    var toolkitName by remember(editing) { mutableStateOf(editing?.toolkitName ?: "") }.drafted(draft, "toolkitName")
+    var localName by remember(editing) { mutableStateOf(editing?.localName ?: "") }.drafted(draft, "localName")
+    var englishName by remember(editing) { mutableStateOf(editing?.englishName ?: "") }.drafted(draft, "englishName")
     /**
      * IS THE ENGLISH NAME STILL FOLLOWING THE TOOLKIT NAME? — the "sticky divorce" flag.
      *
@@ -7110,10 +7262,10 @@ private fun ToolForm(
      */
     var mirrorArmed by remember(editing) {
         mutableStateOf((editing?.englishName ?: "").isBlank() || editing?.englishName == editing?.toolkitName)
-    }
-    var craftName by remember(editing) { mutableStateOf(editing?.craftName ?: prefill?.craftName ?: "") }
-    var artisanName by remember(editing) { mutableStateOf(editing?.artisanName ?: prefill?.artisanName ?: "") }
-    var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }
+    }.drafted(draft, "mirrorArmed")
+    var craftName by remember(editing) { mutableStateOf(editing?.craftName ?: prefill?.craftName ?: "") }.drafted(draft, "craftName")
+    var artisanName by remember(editing) { mutableStateOf(editing?.artisanName ?: prefill?.artisanName ?: "") }.drafted(draft, "artisanName")
+    var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }.drafted(draft, "place")
     /**
      * THE CRAFTS AND ARTISANS THIS TOOL IS LINKED TO — plural since 2026-09-15, and ORDERED.
      *
@@ -7168,8 +7320,8 @@ private fun ToolForm(
         val own = (editing?.artisanId ?: prefill?.artisanId)?.ifBlank { null }
         (listOfNotNull(own) + editing?.artisanLinks?.map { it.artisanId }.orEmpty()).distinct()
     }
-    var craftIds by remember(editing) { mutableStateOf(seededCraftIds) }
-    var artisanIds by remember(editing) { mutableStateOf(seededArtisanIds) }
+    var craftIds by remember(editing) { mutableStateOf(seededCraftIds) }.drafted(draft, "craftIds")
+    var artisanIds by remember(editing) { mutableStateOf(seededArtisanIds) }.drafted(draft, "artisanIds")
     /**
      * THE FIRST OF EACH, DERIVED — not a second source of truth.
      *
@@ -7228,9 +7380,9 @@ private fun ToolForm(
         hydrated = editing?.artisanLinks?.mapNotNull { it.artisan }.orEmpty()
     )
 
-    var processUsedIn by remember(editing) { mutableStateOf(editing?.processUsedIn ?: "") }
-    var material by remember(editing) { mutableStateOf(editing?.material ?: "") }
-    var yearsInUse by remember(editing) { mutableStateOf(editing?.yearsInUse?.toString() ?: "") }
+    var processUsedIn by remember(editing) { mutableStateOf(editing?.processUsedIn ?: "") }.drafted(draft, "processUsedIn")
+    var material by remember(editing) { mutableStateOf(editing?.material ?: "") }.drafted(draft, "material")
+    var yearsInUse by remember(editing) { mutableStateOf(editing?.yearsInUse?.toString() ?: "") }.drafted(draft, "yearsInUse")
     /*
      * THE CENTIMETRE PAIR AND THE INCH TRIPLE — five boxes, and the rule that stops two of them from
      * eating each other.
@@ -7257,14 +7409,14 @@ private fun ToolForm(
      * and the next save would store the rewrite. Conversion fires on USER INPUT ONLY — see the boxes
      * themselves, and `propagateDimension`'s header for the whole rule.
      */
-    var height by remember(editing) { mutableStateOf(numToText(editing?.height)) }
-    var heightInches by remember(editing) { mutableStateOf(numToText(editing?.heightInches)) }
-    var width by remember(editing) { mutableStateOf(numToText(editing?.width)) }
-    var length by remember(editing) { mutableStateOf(numToText(editing?.lengthInches)) }
-    var breadth by remember(editing) { mutableStateOf(numToText(editing?.breadthInches)) }
-    var thickness by remember(editing) { mutableStateOf(numToText(editing?.thickness)) }
-    var weight by remember(editing) { mutableStateOf(numToText(editing?.weight)) }
-    var radius by remember(editing) { mutableStateOf(numToText(editing?.radius)) }
+    var height by remember(editing) { mutableStateOf(numToText(editing?.height)) }.drafted(draft, "height")
+    var heightInches by remember(editing) { mutableStateOf(numToText(editing?.heightInches)) }.drafted(draft, "heightInches")
+    var width by remember(editing) { mutableStateOf(numToText(editing?.width)) }.drafted(draft, "width")
+    var length by remember(editing) { mutableStateOf(numToText(editing?.lengthInches)) }.drafted(draft, "length")
+    var breadth by remember(editing) { mutableStateOf(numToText(editing?.breadthInches)) }.drafted(draft, "breadth")
+    var thickness by remember(editing) { mutableStateOf(numToText(editing?.thickness)) }.drafted(draft, "thickness")
+    var weight by remember(editing) { mutableStateOf(numToText(editing?.weight)) }.drafted(draft, "weight")
+    var radius by remember(editing) { mutableStateOf(numToText(editing?.radius)) }.drafted(draft, "radius")
     /*
      * HOW `length` / `breadth` / `heightInches` WERE MEASURED, for the ones somebody accepted a
      * proposal into — and NEVER `height`, `width`, `thickness`, `weight` or `radius`.
@@ -7283,11 +7435,11 @@ private fun ToolForm(
      * KEYED ON `editing` LIKE THE BOXES THEMSELVES — see ProductForm for why.
      */
     val markers = remember(editing) { MeasurementMarkers() }
-    var maker by remember(editing) { mutableStateOf(editing?.maker ?: "UNKNOWN") }
-    var traditionType by remember(editing) { mutableStateOf(editing?.traditionType ?: "UNKNOWN") }
-    var replacementCost by remember(editing) { mutableStateOf(numToText(editing?.replacementCost)) }
-    var suggestions by remember(editing) { mutableStateOf(editing?.suggestionsForToolImprovement ?: "") }
-    var remarks by remember(editing) { mutableStateOf(editing?.remarks ?: "") }
+    var maker by remember(editing) { mutableStateOf(editing?.maker ?: "UNKNOWN") }.drafted(draft, "maker")
+    var traditionType by remember(editing) { mutableStateOf(editing?.traditionType ?: "UNKNOWN") }.drafted(draft, "traditionType")
+    var replacementCost by remember(editing) { mutableStateOf(numToText(editing?.replacementCost)) }.drafted(draft, "replacementCost")
+    var suggestions by remember(editing) { mutableStateOf(editing?.suggestionsForToolImprovement ?: "") }.drafted(draft, "suggestions")
+    var remarks by remember(editing) { mutableStateOf(editing?.remarks ?: "") }.drafted(draft, "remarks")
     val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
     /**
      * Offer the sitting this researcher was last working in, however they got here.
@@ -7510,7 +7662,7 @@ private fun ToolForm(
         syncArtisanHead(previousHead, next)
     }
     val canSetStatus = remember { canSetRecordStatus(repository.cachedUser()?.role) }
-    var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }
+    var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }.drafted(draft, "status")
     var saving by remember { mutableStateOf(false) }
     var toolkitNameError by remember { mutableStateOf<String?>(null) }
     var craftNameError by remember { mutableStateOf<String?>(null) }
@@ -7681,25 +7833,36 @@ private fun ToolForm(
                 workshopId = workshop.value(),
                 workshopName = workshop.workshops.firstOrNull { it.id == workshop.value() }?.title
             )
-            if (!isEdit && !repository.isOnline(context)) {
+            fun toolOfflineItems(): List<com.fieldrepository.app.data.OfflineMediaSpec> =
+                media.uris.mapIndexed { i, uri ->
+                    com.fieldrepository.app.data.OfflineMediaSpec(uri = uri, caption = "Field media for ${toolkitName.trim()}", recordName = toolkitName.trim(), batchIndex = i + 1, location = media.location)
+                } + stages.uris.mapIndexed { i, uri ->
+                    com.fieldrepository.app.data.OfflineMediaSpec(uri = uri, caption = "Process stage step ${i + 1} for ${toolkitName.trim()}", recordName = toolkitName.trim(), stageStep = i + 1, location = stages.location)
+                }
+            if (!repository.isOnline(context)) {
                 val ok = runCatching {
-                    val items = media.uris.mapIndexed { i, uri ->
-                        com.fieldrepository.app.data.OfflineMediaSpec(uri = uri, caption = "Field media for ${toolkitName.trim()}", recordName = toolkitName.trim(), batchIndex = i + 1)
-                    } + stages.uris.mapIndexed { i, uri ->
-                        com.fieldrepository.app.data.OfflineMediaSpec(uri = uri, caption = "Process stage step ${i + 1} for ${toolkitName.trim()}", recordName = toolkitName.trim(), stageStep = i + 1)
-                    }
-                    repository.queueOfflineEntry(context, "tool", offlineFormJson.encodeToString(body), toolkitName.trim(), items)
+                    val items = toolOfflineItems()
+                    repository.queueOfflineEntry(
+                        context, "tool", offlineFormJson.encodeToString(body), toolkitName.trim(), items,
+                        kind = if (isEdit) OutboxKind.UPDATE else OutboxKind.CREATE,
+                        targetId = editing?.id
+                    )
                 }.isSuccess
                 if (ok) {
-                    // Offline is the normal case, but a queued tool has no id yet, so nothing can be
-                    // assigned to it. Whatever tool was in the bag is dropped rather than left to
-                    // stand in for the one just recorded — an old tool offered under a new one's
-                    // name is a wrong link.
-                    carry.prune(CarryNode.TOOL)
-                    carry.remember(sitting)
+                    if (isEdit) {
+                        // An edited tool already has its id, so it can stay in the bag as itself.
+                        carry.remember(sitting.copy(toolId = editing!!.id, toolName = toolkitName.trim()))
+                    } else {
+                        // Offline is the normal case, but a queued tool has no id yet, so nothing can be
+                        // assigned to it. Whatever tool was in the bag is dropped rather than left to
+                        // stand in for the one just recorded — an old tool offered under a new one's
+                        // name is a wrong link.
+                        carry.prune(CarryNode.TOOL)
+                        carry.remember(sitting)
+                    }
                     media.reset(); stages.reset()
                     onError("Saved on this device. It'll upload automatically when you're back online.")
-                    onDone(); saving = false; return@launch
+                    draft.clear(); onDone(); saving = false; return@launch
                 } else onError("Couldn't save offline")
                 saving = false; return@launch
             }
@@ -7707,21 +7870,41 @@ private fun ToolForm(
                 val toolId = if (isEdit) {
                     repository.updateTool(editing!!.id, body).id
                 } else {
-                    repository.createTool(body).id
+                    createOrKeep(repository, context, "tool", offlineFormJson.encodeToString(body), toolkitName.trim(),
+                        { toolOfflineItems() }) { key -> repository.createTool(body, key) }.id
                 }
                 uploadAttachments(repository, context, media, "tool", toolId, toolkitName, "Field media for ${toolkitName.trim()}")
-                // Each stage capture is uploaded as a numbered process step (STAGE_STEP_n).
+                // Each stage capture is uploaded as a numbered process step (STAGE_STEP_n). The tool is
+                // saved by now, so a capture that fails goes to the outbox rather than failing the
+                // save (which invited a second tap and a second tool).
+                val stagesLeft = mutableListOf<OfflineMediaSpec>()
                 stages.uris.forEachIndexed { index, uri ->
-                    repository.uploadMedia(
-                        context = context,
-                        uri = uri,
-                        linkedRecordType = "tool",
-                        linkedRecordId = toolId,
-                        caption = "Process stage step ${index + 1} for ${toolkitName.trim()}",
-                        location = stages.location,
-                        titleHint = toolkitName,
-                        batchIndex = 1,
-                        stageStep = index + 1
+                    runCatching {
+                        repository.uploadMedia(
+                            context = context,
+                            uri = uri,
+                            linkedRecordType = "tool",
+                            linkedRecordId = toolId,
+                            caption = "Process stage step ${index + 1} for ${toolkitName.trim()}",
+                            location = stages.location,
+                            titleHint = toolkitName,
+                            batchIndex = 1,
+                            stageStep = index + 1
+                        )
+                    }.onFailure { error ->
+                        if (error is kotlinx.coroutines.CancellationException) throw error
+                        stagesLeft.add(
+                            OfflineMediaSpec(
+                                uri = uri, caption = "Process stage step ${index + 1} for ${toolkitName.trim()}",
+                                recordName = toolkitName.trim(), stageStep = index + 1, location = stages.location
+                            )
+                        )
+                    }
+                }
+                if (!queueFailedAttachments(repository, context, "tool", toolId, toolkitName, stagesLeft)) {
+                    throw IllegalStateException(
+                        "The tool was saved, but ${stagesLeft.size} stage capture(s) couldn't be uploaded. " +
+                            "Re-open it from \"Update existing\" to attach them again."
                     )
                 }
                 toolId
@@ -7731,8 +7914,8 @@ private fun ToolForm(
                 carry.remember(sitting.copy(toolId = toolId, toolName = toolkitName.trim()))
                 media.reset()
                 stages.reset()
-                onDone()
-            }.onFailure { onError(it.message ?: "Unable to save tool") }
+                draft.clear(); onDone()
+            }.onFailure { if (it is KeptOnDevice) { carry.prune(CarryNode.TOOL); carry.remember(sitting); media.reset(); stages.reset(); draft.clear(); onError(it.message!!); onDone() } else onError(it.message ?: "Unable to save tool") }
             saving = false
         }
     }
@@ -7764,7 +7947,12 @@ private fun ToolForm(
     // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.TOOL)
     RecordCard(title = if (isEdit) "Edit tool" else "Add tool") {
+        DraftOfferCard(draft)
         RegisterUnsavedGuard(dirty = dirty) { submit() }
+        media.draftInto(draft, "media")
+        stages.draftInto(draft, "stages")
+        workshop.draftInto(draft)
+        FormDraftAutosave(draft, dirty, label = toolkitName)
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
@@ -8176,6 +8364,8 @@ private fun ProcessForm(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // The unsaved form, kept on disk until it is saved or queued (ui/FormDrafts.kt).
+    val draft = rememberFormDraft(repository, "process", editing?.id)
     val isEdit = editing != null
     val preMedia = rememberMediaCaptureState()
 
@@ -8184,15 +8374,15 @@ private fun ProcessForm(
     // "I can no longer see this artisan" and "there is no signal" are different answers, and the
     // carry prefill treats them differently — see [rememberFormCarry].
     var artisanListState by remember { mutableStateOf(CarryScopeState.PENDING) }
-    var name by remember(editing) { mutableStateOf(editing?.name ?: "") }
-    var artisanId by remember(editing) { mutableStateOf(editing?.product?.artisanId ?: "") }
-    var productId by remember(editing) { mutableStateOf(editing?.productId ?: "") }
+    var name by remember(editing) { mutableStateOf(editing?.name ?: "") }.drafted(draft, "name")
+    var artisanId by remember(editing) { mutableStateOf(editing?.product?.artisanId ?: "") }.drafted(draft, "artisanId")
+    var productId by remember(editing) { mutableStateOf(editing?.productId ?: "") }.drafted(draft, "productId")
     var artisanError by remember { mutableStateOf<String?>(null) }
-    var preProcessAvailable by remember(editing) { mutableStateOf(editing?.preProcessAvailable ?: false) }
-    var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }
+    var preProcessAvailable by remember(editing) { mutableStateOf(editing?.preProcessAvailable ?: false) }.drafted(draft, "preProcessAvailable")
+    var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }.drafted(draft, "notes")
     val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
     val canSetStatus = remember { canSetRecordStatus(repository.cachedUser()?.role) }
-    var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }
+    var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }.drafted(draft, "status")
     var saving by remember { mutableStateOf(false) }
     var nameError by remember { mutableStateOf<String?>(null) }
     var productError by remember { mutableStateOf<String?>(null) }
@@ -8387,46 +8577,59 @@ private fun ProcessForm(
             )
             // Offline: queue the process with its pre-process media (linked to the process) and each
             // step's media (linked to that step on sync, by index), preserving the step nomenclature.
-            if (!isEdit && !repository.isOnline(context)) {
+            fun processOfflineItems(): List<com.fieldrepository.app.data.OfflineMediaSpec> {
+                val items = mutableListOf<com.fieldrepository.app.data.OfflineMediaSpec>()
+                if (preProcessAvailable) {
+                    preMedia.uris.forEachIndexed { i, uri ->
+                        items.add(com.fieldrepository.app.data.OfflineMediaSpec(
+                            uri = uri, caption = "Pre-process media for ${name.trim()}", recordName = name.trim(),
+                            customSegment = "PRE", batchIndex = i + 1, linkedType = "process", location = preMedia.location))
+                    }
+                }
+                steps.forEachIndexed { index, local ->
+                    local.media.uris.forEachIndexed { fileIndex, uri ->
+                        items.add(com.fieldrepository.app.data.OfflineMediaSpec(
+                            uri = uri, caption = "Process step ${local.name.trim()}", recordName = name.trim(),
+                            customSegment = processStepSegment(index + 1, local.stepType, fileIndex),
+                            batchIndex = fileIndex + 1, linkedType = "processstep", stepIndex = index,
+                            location = local.media.location))
+                    }
+                }
+                return items
+            }
+            if (!repository.isOnline(context)) {
                 val ok = runCatching {
-                    val items = mutableListOf<com.fieldrepository.app.data.OfflineMediaSpec>()
-                    if (preProcessAvailable) {
-                        preMedia.uris.forEachIndexed { i, uri ->
-                            items.add(com.fieldrepository.app.data.OfflineMediaSpec(
-                                uri = uri, caption = "Pre-process media for ${name.trim()}", recordName = name.trim(),
-                                customSegment = "PRE", batchIndex = i + 1, linkedType = "process"))
-                        }
-                    }
-                    steps.forEachIndexed { index, local ->
-                        local.media.uris.forEachIndexed { fileIndex, uri ->
-                            items.add(com.fieldrepository.app.data.OfflineMediaSpec(
-                                uri = uri, caption = "Process step ${local.name.trim()}", recordName = name.trim(),
-                                customSegment = processStepSegment(index + 1, local.stepType, fileIndex),
-                                batchIndex = fileIndex + 1, linkedType = "processstep", stepIndex = index))
-                        }
-                    }
-                    repository.queueOfflineEntry(context, "process", offlineFormJson.encodeToString(body), name.trim(), items)
+                    val items = processOfflineItems()
+                    repository.queueOfflineEntry(
+                        context, "process", offlineFormJson.encodeToString(body), name.trim(), items,
+                        kind = if (isEdit) OutboxKind.UPDATE else OutboxKind.CREATE,
+                        targetId = editing?.id
+                    )
                 }.isSuccess
                 if (ok) {
                     carry.remember(sitting)
                     preMedia.reset(); steps.forEach { it.media.reset() }
                     onError("Saved on this device. It'll upload automatically when you're back online.")
-                    onDone()
+                    draft.clear(); onDone()
                 } else onError("Couldn't save offline")
                 saving = false
                 return@launch
             }
             runCatching {
-                val detail = if (isEdit) repository.updateProcess(editing!!.id, body) else repository.createProcess(body)
+                val detail = if (isEdit) repository.updateProcess(editing!!.id, body) else createOrKeep(repository, context, "process", offlineFormJson.encodeToString(body), name.trim(),
+                    { processOfflineItems() }) { key -> repository.createProcess(body, key) }
                 if (preProcessAvailable) {
                     uploadAttachments(repository, context, preMedia, "process", detail.id, name, "Pre-process media for ${name.trim()}", customSegment = "PRE")
                 }
                 detail.steps.forEachIndexed { index, serverStep ->
                     val local = steps.getOrNull(index) ?: return@forEachIndexed
+                    // The process is saved by now: a step file that fails goes to the outbox, attached
+                    // to its step, instead of failing the save and inviting a second process.
+                    val stepLeft = mutableListOf<OfflineMediaSpec>()
                     local.media.uris.forEachIndexed { fileIndex, uri ->
                         val segment = processStepSegment(index + 1, serverStep.stepType, fileIndex)
                         val staged = local.media.stagedDeferred[uri]?.let { runCatching { it.await() }.getOrNull() } ?: local.media.staged[uri]
-                        if (staged != null) {
+                        runCatching { if (staged != null) {
                             repository.completeStaged(
                                 staged = staged,
                                 linkedRecordType = "processstep",
@@ -8449,15 +8652,29 @@ private fun ProcessForm(
                                 batchIndex = fileIndex + 1,
                                 customSegment = segment
                             )
+                        } }.onFailure { error ->
+                            if (error is kotlinx.coroutines.CancellationException) throw error
+                            stepLeft.add(
+                                OfflineMediaSpec(
+                                    uri = uri, caption = "Process step ${serverStep.name}", recordName = name.trim(),
+                                    customSegment = segment, batchIndex = fileIndex + 1, location = local.media.location
+                                )
+                            )
                         }
+                    }
+                    if (!queueFailedAttachments(repository, context, "processstep", serverStep.id, name, stepLeft)) {
+                        throw IllegalStateException(
+                            "The process was saved, but ${stepLeft.size} step file(s) couldn't be uploaded. " +
+                                "Re-open it from \"Update existing\" to attach them again."
+                        )
                     }
                 }
             }.onSuccess {
                 carry.remember(sitting)
                 preMedia.reset()
                 steps.forEach { it.media.reset() }
-                onDone()
-            }.onFailure { onError(it.message ?: "Unable to save process") }
+                draft.clear(); onDone()
+            }.onFailure { if (it is KeptOnDevice) { carry.remember(sitting); preMedia.reset(); steps.forEach { s -> s.media.reset() }; draft.clear(); onError(it.message!!); onDone() } else onError(it.message ?: "Unable to save process") }
             saving = false
         }
     }
@@ -8481,7 +8698,12 @@ private fun ProcessForm(
     // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.PROCESS)
     RecordCard(title = if (isEdit) "Edit process" else "Document process") {
+        DraftOfferCard(draft)
         RegisterUnsavedGuard(dirty = dirty) { submit() }
+        preMedia.draftInto(draft, "preMedia")
+        workshop.draftInto(draft)
+        bindProcessSteps(draft, steps) { id -> editing?.steps?.firstOrNull { it.id == id }?.media.orEmpty() }
+        FormDraftAutosave(draft, dirty, label = name)
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
@@ -9659,6 +9881,7 @@ private fun QualitativeRow(label: String, value: String?) {
 @Composable
 private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Unit) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     // Quantitative (0 = not yet rated).
     var rating by remember { mutableStateOf(0) }
     var easeOfUse by remember { mutableStateOf(0) }
@@ -9774,9 +9997,7 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
                     }
                     scope.launch {
                         saving = true
-                        runCatching {
-                            repository.upsertMyFeedback(
-                                FeedbackUpsertRequest(
+                        val request = FeedbackUpsertRequest(
                                     rating = rating.takeIf { it > 0 },
                                     easeOfUse = easeOfUse.takeIf { it > 0 },
                                     reliability = reliability.takeIf { it > 0 },
@@ -9791,13 +10012,26 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
                                     bugs = bugs.blankToNull(),
                                     featureRequests = featureRequests.blankToNull()
                                 )
-                            )
+                        // Feedback is an upsert, so replaying it later is safe whatever happened to
+                        // this attempt.
+                        val payload = offlineFormJson.encodeToString(request)
+                        if (queueSmallWrite(repository, context, null, idempotent = true, type = "feedback", payloadJson = payload, label = "App feedback")) {
+                            status = ActionStatus.SUCCESS
+                            onError("Saved on this device. It'll send automatically when you're back online.")
+                            saving = false
+                            return@launch
                         }
+                        runCatching { repository.upsertMyFeedback(request) }
                             .onSuccess { existing = it; status = ActionStatus.SUCCESS }
                             .onFailure {
                                 if (it !is kotlinx.coroutines.CancellationException) {
-                                    status = ActionStatus.ERROR
-                                    onError(it.message ?: "Unable to save your feedback")
+                                    if (queueSmallWrite(repository, context, it, idempotent = true, type = "feedback", payloadJson = payload, label = "App feedback")) {
+                                        status = ActionStatus.SUCCESS
+                                        onError("Saved on this device. It'll send automatically when you're back online.")
+                                    } else {
+                                        status = ActionStatus.ERROR
+                                        onError(it.message ?: "Unable to save your feedback")
+                                    }
                                 }
                             }
                         saving = false
@@ -11626,6 +11860,7 @@ private fun RecordCollabSection(
     onError: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var comments by remember(recordId) { mutableStateOf<List<EntryCommentDto>>(emptyList()) }
     var revisions by remember(recordId) { mutableStateOf<List<RecordRevisionDto>?>(null) }
     var draft by remember(recordId) { mutableStateOf("") }
@@ -11658,6 +11893,16 @@ private fun RecordCollabSection(
                 onClick = {
                     scope.launch {
                         busy = true
+                        // No signal: the comment waits in the outbox rather than in a box the
+                        // researcher is about to navigate away from.
+                        val body = EntryCommentBody(recordType = recordType, recordId = recordId, body = draft.trim())
+                        if (queueSmallWrite(repository, context, null, idempotent = false, type = "comment",
+                                payloadJson = offlineFormJson.encodeToString(body), label = "Comment")) {
+                            draft = ""
+                            onError("Saved on this device. It'll post automatically when you're back online.")
+                            busy = false
+                            return@launch
+                        }
                         runCatching { repository.addEntryComment(recordType, recordId, draft.trim()); draft = "" }
                             .onSuccess { reload() }
                             .onFailure { onError(it.message ?: "Unable to post comment") }
@@ -11706,14 +11951,19 @@ private fun AndroidMediaForm(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // The unsaved form, kept on disk until it is saved or queued (ui/FormDrafts.kt).
+    val draft = rememberFormDraft(repository, "media", null)
     var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
-    var mediaTitle by remember { mutableStateOf("") }
+    var mediaTitle by remember { mutableStateOf("") }.drafted(draft, "mediaTitle")
     var linkedMode by remember { mutableStateOf<EntryMode?>(null) }
     var linkedEntryId by remember { mutableStateOf("") }
+    // A record picked before the process died, re-applied once its type's entries reload (the
+    // type change below clears the pick).
+    var restoredEntryId by remember { mutableStateOf<String?>(null) }
     var entryOptions by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var loadingEntries by remember { mutableStateOf(false) }
-    var caption by remember { mutableStateOf("") }
-    var location by remember { mutableStateOf<LocationRequest?>(null) }
+    var caption by remember { mutableStateOf("") }.drafted(draft, "caption")
+    var location by remember { mutableStateOf<LocationRequest?>(null) }.drafted(draft, "location")
     var uploading by remember { mutableStateOf(false) }
     var uploadStatus by remember { mutableStateOf(ActionStatus.IDLE) }
     var uploadFraction by remember { mutableStateOf(0f) }
@@ -11755,7 +12005,8 @@ private fun AndroidMediaForm(
     }
     // When the linked record type changes, load that type's entries for the second dropdown.
     LaunchedEffect(linkedMode) {
-        linkedEntryId = ""
+        linkedEntryId = restoredEntryId ?: ""
+        restoredEntryId = null
         entryOptions = emptyList()
         val mode = linkedMode ?: return@LaunchedEffect
         loadingEntries = true
@@ -11770,6 +12021,30 @@ private fun AndroidMediaForm(
     // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.MEDIA)
     RecordCard(title = "Capture media") {
+        DraftOfferCard(draft)
+        draft.bindCustom("selectedUris", { FormDraft.encodeUris(selectedUris) }, { el -> FormDraft.decodeUris(el)?.let { selectedUris = it } })
+        draft.bindCustom("linked", {
+            linkedMode?.let { mode ->
+                JsonObject(
+                    mapOf(
+                        "mode" to kotlinx.serialization.json.JsonPrimitive(mode.name),
+                        "entryId" to kotlinx.serialization.json.JsonPrimitive(linkedEntryId)
+                    )
+                )
+            }
+        }, { el ->
+            val o = el as JsonObject
+            val mode = runCatching { EntryMode.valueOf((o["mode"] as kotlinx.serialization.json.JsonPrimitive).content) }.getOrNull()
+            if (mode != null) {
+                restoredEntryId = (o["entryId"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
+                if (mode == linkedMode) { linkedEntryId = restoredEntryId ?: linkedEntryId; restoredEntryId = null } else linkedMode = mode
+            }
+        })
+        FormDraftAutosave(
+            draft,
+            dirty = !uploading && (selectedUris.isNotEmpty() || mediaTitle.isNotBlank() || caption.isNotBlank()),
+            label = mediaTitle.ifBlank { caption }
+        )
         // "transcription", not "Whisper transcription": the backend now runs a provider chain
         // (ElevenLabs → Deepgram → Whisper), so naming one of them tells the researcher something
         // that is only sometimes true. The web misc-media screen already says it this way.
@@ -11972,7 +12247,27 @@ private fun AndroidMediaForm(
                             localMessage = null
                             uploadStatus = ActionStatus.SUCCESS
                             refreshMedia()
-                            onUploaded(success)
+                            draft.clear(); onUploaded(success)
+                        }
+                        linkedEntryId.isNotBlank() && linkedMode != null && queueFailedAttachments(
+                            repository, context, linkedMode!!.linkedRecordType(), linkedEntryId,
+                            mediaTitle.ifBlank { caption },
+                            failedUris.map { uri ->
+                                OfflineMediaSpec(
+                                    uri = uri, caption = caption.ifBlank { null }, recordName = mediaTitle.ifBlank { caption },
+                                    batchIndex = uris.indexOf(uri) + 1, location = location
+                                )
+                            }
+                        ) -> {
+                            // No signal, or it dropped part-way: the files that did not make it are
+                            // copied into the outbox and attach to the record when it returns.
+                            draft.clear()
+                            selectedUris = emptyList()
+                            mediaTitle = ""
+                            caption = ""
+                            localMessage = null
+                            uploadStatus = ActionStatus.SUCCESS
+                            if (success > 0) refreshMedia()
                         }
                         else -> {
                             // Keep only the failed files staged so the user can retry just those.
@@ -12527,24 +12822,27 @@ private fun QuestionnaireForm(
      */
     onRefreshSections: suspend (String?) -> Unit,
     onSync: suspend (String?) -> Unit = onRefreshSections,
-    onSubmit: suspend (QuestionnaireInterviewCreateRequest) -> String,
+    /** Creates the interview; the second argument is the Idempotency-Key to send with it. */
+    onSubmit: suspend (QuestionnaireInterviewCreateRequest, String?) -> String,
     onError: (String) -> Unit,
     onSaved: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // The unsaved form, kept on disk until it is saved or queued (ui/FormDrafts.kt).
+    val draft = rememberFormDraft(repository, "questionnaire", editing?.id)
     val isEdit = editing != null
     var syncing by remember { mutableStateOf(false) }
     var saveState by remember { mutableStateOf(SaveState.IDLE) }
-    var title by remember(editing) { mutableStateOf(editing?.title ?: prefill?.artisanName?.let { "Interview with $it" } ?: "") }
+    var title by remember(editing) { mutableStateOf(editing?.title ?: prefill?.artisanName?.let { "Interview with $it" } ?: "") }.drafted(draft, "title")
     var selectedArtisans by remember(editing) {
         mutableStateOf(
             editing?.artisans?.map { it.artisanId }?.toSet()
                 ?: prefill?.artisanId?.let { setOf(it) }
                 ?: emptySet()
         )
-    }
-    var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }
+    }.drafted(draft, "selectedArtisans")
+    var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }.drafted(draft, "place")
     /*
       THE LANGUAGE BOX OPENS BLANK, and the comment that stood here — "Hindi is the primary/default
       language; the dropdown lists English + the major Indian languages" — described a control this
@@ -12559,9 +12857,9 @@ private fun QuestionnaireForm(
       about, the moment somebody opened it to fix a typo. The browser opens this box blank; so does
       this one.
     */
-    var language by remember(editing) { mutableStateOf(editing?.language.orEmpty()) }
-    var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }
-    var capturedLocation by remember(editing) { mutableStateOf(editing?.location?.toRequest()) }
+    var language by remember(editing) { mutableStateOf(editing?.language.orEmpty()) }.drafted(draft, "language")
+    var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }.drafted(draft, "notes")
+    var capturedLocation by remember(editing) { mutableStateOf(editing?.location?.toRequest()) }.drafted(draft, "capturedLocation")
     val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
     /*
       ── WHICH INSTRUMENT THIS SITTING IS ON ─────────────────────────────────────────────────────
@@ -12583,8 +12881,8 @@ private fun QuestionnaireForm(
       flag the answers go to the instrument they did not pick, silently.
     */
     var instruments by remember { mutableStateOf<List<QuestionnaireDto>>(emptyList()) }
-    var questionnaireId by remember(editing) { mutableStateOf(editing?.questionnaireId) }
-    var instrumentTouched by remember(editing) { mutableStateOf(false) }
+    var questionnaireId by remember(editing) { mutableStateOf(editing?.questionnaireId) }.drafted(draft, "questionnaireId")
+    var instrumentTouched by remember(editing) { mutableStateOf(false) }.drafted(draft, "instrumentTouched")
     /*
       WHAT AN EMPTY INSTRUMENT LIST MEANS, WHICH IS NOT ALWAYS "THERE ARE NO QUESTIONNAIRES".
 
@@ -12757,7 +13055,7 @@ private fun QuestionnaireForm(
     // "Pending" chip. Without this control the interview was the ONE record type an interviewing
     // professor could not approve as they filed it — the request defaulted to PENDING regardless.
     val canSetStatus = remember { canSetRecordStatus(repository.cachedUser()?.role) }
-    var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }
+    var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }.drafted(draft, "status")
     var titleError by remember { mutableStateOf<String?>(null) }
     val titleFocus = remember { FocusRequester() }
     val questions = remember(sections) { sections.flatMap { it.questions }.filter { it.isActive } }
@@ -13000,6 +13298,7 @@ private fun QuestionnaireForm(
     }
 
     RecordCard(title = if (isEdit) "Edit interview" else "Add questionnaire interview") {
+        DraftOfferCard(draft)
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
@@ -13567,7 +13866,7 @@ private fun QuestionnaireForm(
                         // way a completed save leaves (`onSaved` is `InterviewEditLoader`'s
                         // `onDone`). Staying would leave a form bound to a deleted id whose next
                         // save 404s with nothing on screen explaining why.
-                        onSaved()
+                        draft.clear(); onSaved()
                     }
                     .onFailure { error ->
                         merging = false
@@ -13686,9 +13985,75 @@ private fun QuestionnaireForm(
                         } else null
                     }
                     // Offline: queue the interview + every recorded clip (with its section/question
-                    // nomenclature) and attachments, to upload on reconnect. New interviews only.
-                    if (!isEdit && !repository.isOnline(context)) {
+                    // nomenclature) and attachments, to upload on reconnect.
+                    fun questionnaireOfflineItems(): List<com.fieldrepository.app.data.OfflineMediaSpec> {
+                        val questionsById = questions.associateBy { it.id }
+                        val sectionsById = sections.associateBy { it.id }
+                        val items = mutableListOf<com.fieldrepository.app.data.OfflineMediaSpec>()
+                        questionAudio.forEach { (key, uris) ->
+                            val caption: String
+                            val hint: String
+                            val sectionCodePart: String?
+                            val questionNumberPart: String?
+                            if (key.startsWith("section:")) {
+                                val section = sectionsById[key.removePrefix("section:")]
+                                caption = "Section audio: ${section?.code ?: ""} ${section?.title ?: ""}".trim()
+                                hint = title.ifBlank { section?.title ?: "Section recording" }
+                                sectionCodePart = section?.code
+                                questionNumberPart = "SEC"
+                            } else {
+                                val question = questionsById[key]
+                                caption = "Question audio: ${question?.sectionCode ?: ""}${question?.sortOrder ?: ""} ${question?.prompt ?: ""}".trim()
+                                hint = title.ifBlank { question?.prompt ?: "Question recording" }
+                                sectionCodePart = question?.sectionCode
+                                questionNumberPart = question?.sortOrder?.toString()
+                            }
+                            uris.forEachIndexed { index, uri ->
+                                val baseName = questionnaireClipBaseName(context, sectionCodePart, questionNumberPart, title, uri)
+                                    .let { if (uris.size > 1) "${it}_${index + 1}" else it }
+                                items.add(com.fieldrepository.app.data.OfflineMediaSpec(
+                                    uri = uri, caption = caption, recordName = hint,
+                                    overrideBaseName = baseName, batchIndex = index + 1))
+                            }
+                        }
+                        media.uris.forEachIndexed { i, uri ->
+                            items.add(com.fieldrepository.app.data.OfflineMediaSpec(
+                                uri = uri,
+                                caption = "Field media for ${title.trim().ifBlank { "interview" }}",
+                                recordName = title.ifBlank { "Interview" },
+                                batchIndex = i + 1))
+                        }
+                        return items
+                    }
+                    fun interviewUpdateRequest(): QuestionnaireInterviewUpdateRequest {
+                        val original = editing!!
+                        val originalArtisans = original.artisans.map { it.artisanId }.toSet()
+                        return QuestionnaireInterviewUpdateRequest(
+                            title = title.trim(),
+                            place = place.blankToNull(),
+                            language = language.blankToNull(),
+                            notes = notes.blankToNull(),
+                            // Unauthorized status changes are dropped server-side either way.
+                            status = status,
+                            artisanIds = if (selectedArtisans != originalArtisans) selectedArtisans.toList() else null,
+                            responses = responsesToSend.ifEmpty { null },
+                            workshopId = workshop.value(),
+                            location = locationForBody(true, capturedLocation, original.location)
+                        )
+                    }
+                    // Offline: a new interview queues as a create; an EDIT queues as one ordered unit
+                    // (the PATCH, then its clips and attachments), replayed in order when the
+                    // connection returns and stopped at the first step the server refuses.
+                    if (!repository.isOnline(context)) {
                         val ok = runCatching {
+                            if (isEdit) {
+                                repository.queueSequence(
+                                    context, "questionnaire", editing!!.id, title.trim().ifBlank { "Interview" },
+                                    listOf(OutboxStep("questionnaire.update", editing.id, offlineFormJson.encodeToString(interviewUpdateRequest()))),
+                                    questionnaireOfflineItems()
+                                )
+                                return@runCatching
+                            }
                             val request = QuestionnaireInterviewCreateRequest(
                                 title = title.trim(),
                                 place = place.blankToNull(),
@@ -13710,45 +14075,19 @@ private fun QuestionnaireForm(
                                 responses = responsesToSend,
                                 recordedAt = now
                             )
-                            val questionsById = questions.associateBy { it.id }
-                            val sectionsById = sections.associateBy { it.id }
-                            val items = mutableListOf<com.fieldrepository.app.data.OfflineMediaSpec>()
-                            questionAudio.forEach { (key, uris) ->
-                                val caption: String
-                                val hint: String
-                                val sectionCodePart: String?
-                                val questionNumberPart: String?
-                                if (key.startsWith("section:")) {
-                                    val section = sectionsById[key.removePrefix("section:")]
-                                    caption = "Section audio: ${section?.code ?: ""} ${section?.title ?: ""}".trim()
-                                    hint = title.ifBlank { section?.title ?: "Section recording" }
-                                    sectionCodePart = section?.code
-                                    questionNumberPart = "SEC"
-                                } else {
-                                    val question = questionsById[key]
-                                    caption = "Question audio: ${question?.sectionCode ?: ""}${question?.sortOrder ?: ""} ${question?.prompt ?: ""}".trim()
-                                    hint = title.ifBlank { question?.prompt ?: "Question recording" }
-                                    sectionCodePart = question?.sectionCode
-                                    questionNumberPart = question?.sortOrder?.toString()
-                                }
-                                uris.forEachIndexed { index, uri ->
-                                    val baseName = questionnaireClipBaseName(context, sectionCodePart, questionNumberPart, title, uri)
-                                        .let { if (uris.size > 1) "${it}_${index + 1}" else it }
-                                    items.add(com.fieldrepository.app.data.OfflineMediaSpec(
-                                        uri = uri, caption = caption, recordName = hint,
-                                        overrideBaseName = baseName, batchIndex = index + 1))
-                                }
-                            }
-                            media.uris.forEachIndexed { i, uri ->
-                                items.add(com.fieldrepository.app.data.OfflineMediaSpec(
-                                    uri = uri,
-                                    caption = "Field media for ${title.trim().ifBlank { "interview" }}",
-                                    recordName = title.ifBlank { "Interview" },
-                                    batchIndex = i + 1))
-                            }
+                            val items = questionnaireOfflineItems()
                             repository.queueOfflineEntry(context, "questionnaire", offlineFormJson.encodeToString(request),
                                 title.trim().ifBlank { "Interview" }, items)
                         }.isSuccess
+                        if (ok && isEdit) {
+                            media.reset(); qMedia.reset(); questionAudio = emptyMap()
+                            draft.clear()
+                            saveState = SaveState.SAVED
+                            onError("Saved on this device. It'll upload automatically when you're back online.")
+                            delay(SAVED_CONFIRM_MS)
+                            onSaved()
+                            return@launch
+                        }
                         if (ok) {
                             media.reset(); qMedia.reset(); questionAudio = emptyMap()
                             // `language = ""` and no longer `"Hindi"`: the box is free text (see
@@ -13765,7 +14104,7 @@ private fun QuestionnaireForm(
                             workshop.markSaved()
                             saveState = SaveState.SAVED
                             delay(SAVED_CONFIRM_MS)
-                            onSaved()
+                            draft.clear(); onSaved()
                         } else {
                             saveState = SaveState.IDLE
                             onError("Couldn't save offline")
@@ -13783,23 +14122,11 @@ private fun QuestionnaireForm(
                                 // field, because a sitting's answers are keyed to one instrument's
                                 // question ids and moving the sitting would orphan every one of them.
                                 // The picker above is disabled on an edit for the same reason.
-                                QuestionnaireInterviewUpdateRequest(
-                                    title = title.trim(),
-                                    place = place.blankToNull(),
-                                    language = language.blankToNull(),
-                                    notes = notes.blankToNull(),
-                                    // Unauthorized status changes are dropped server-side either way.
-                                    status = status,
-                                    artisanIds = if (selectedArtisans != originalArtisans) selectedArtisans.toList() else null,
-                                    responses = responsesToSend.ifEmpty { null },
-                                    workshopId = workshop.value(),
-                                    location = locationForBody(true, capturedLocation, original.location)
-                                )
+                                interviewUpdateRequest()
                             )
                             original.id
                         } else {
-                            onSubmit(
-                                QuestionnaireInterviewCreateRequest(
+                            val request = QuestionnaireInterviewCreateRequest(
                                     title = title.trim(),
                                     place = place.blankToNull(),
                                     language = language.blankToNull(),
@@ -13816,7 +14143,10 @@ private fun QuestionnaireForm(
                                     responses = responsesToSend,
                                     recordedAt = now
                                 )
-                            )
+                            createOrKeep(
+                                repository, context, "questionnaire", offlineFormJson.encodeToString(request),
+                                title.trim().ifBlank { "Interview" }, { questionnaireOfflineItems() }
+                            ) { key -> onSubmit(request, key) }
                         }
                         // Upload all recorded clips, whether keyed by question id or by section.
                         val questionsById = questions.associateBy { it.id }
@@ -13891,6 +14221,15 @@ private fun QuestionnaireForm(
                             "Field media for ${title.trim().ifBlank { "interview" }}"
                         )
                     }.onFailure { error ->
+                        if (error is KeptOnDevice) {
+                            media.reset(); qMedia.reset(); questionAudio = emptyMap()
+                            draft.clear()
+                            saveState = SaveState.SAVED
+                            onError(error.message!!)
+                            delay(SAVED_CONFIRM_MS)
+                            onSaved()
+                            return@launch
+                        }
                         saveState = SaveState.IDLE
                         /*
                           ── A REFUSED SAVE READ PROPERLY, AND THE ONE REFUSAL THAT HAS A WAY OUT ──
@@ -13985,7 +14324,7 @@ private fun QuestionnaireForm(
                     }
                     saveState = SaveState.SAVED
                     delay(SAVED_CONFIRM_MS)
-                    onSaved()
+                    draft.clear(); onSaved()
                 }
         }
         val qSig: () -> String = {
@@ -14002,6 +14341,12 @@ private fun QuestionnaireForm(
         // interview "dirty" so an accidental Back offers to save it (including in-progress recordings).
         val dirty = qSig() != initialSig || workshop.isDirty() || qMedia.uris.isNotEmpty() || media.uris.isNotEmpty()
         RegisterUnsavedGuard(dirty = dirty) { submit() }
+        media.draftInto(draft, "media")
+        qMedia.draftInto(draft, "qMedia")
+        workshop.draftInto(draft)
+        bindQuestionnaireAnswers(draft, answers)
+        draft.bindCustom("questionAudio", { FormDraft.encodeUriMap(questionAudio) }, { el -> FormDraft.decodeUriMap(el)?.let { questionAudio = it } })
+        FormDraftAutosave(draft, dirty, label = title)
         SaveButton(
             state = saveState,
             idleLabel = if (isEdit) "Update interview" else "Save questionnaire"
@@ -15156,6 +15501,7 @@ private fun MyTasksScreen(
     onError: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val myId = remember { repository.cachedUser()?.id }
     var view by remember { mutableStateOf("assigned") }
     // Flipping admin view off while "Assigned by me" is showing must not strand the user on a view
@@ -15181,12 +15527,28 @@ private fun MyTasksScreen(
     fun update(task: TaskDto, status: String? = null, progressCount: Int? = null, ok: String) {
         scope.launch {
             busyId = task.id
+            // Offline, or the connection dropped: the change waits in the outbox (it is a plain
+            // update, so sending it later is safe) and the list shows it straight away.
+            val payload = offlineFormJson.encodeToString(TaskUpdateBody(status = status, progressCount = progressCount))
+            suspend fun keepOnDevice(failure: Throwable?): Boolean {
+                if (!queueSmallWrite(repository, context, failure, idempotent = true, type = "task-progress",
+                        payloadJson = payload, label = task.title.ifBlank { "Task" }, targetId = task.id)) return false
+                tasks = tasks.map {
+                    if (it.id == task.id) it.copy(status = status ?: it.status, progressCount = progressCount ?: it.progressCount) else it
+                }
+                onMessage("Saved on this device. It'll update automatically when you're back online.")
+                return true
+            }
+            if (keepOnDevice(null)) { busyId = null; return@launch }
             runCatching { repository.updateTaskProgress(task.id, status = status, progressCount = progressCount) }
                 .onSuccess { updated ->
                     tasks = tasks.map { if (it.id == updated.id) updated else it }
                     onMessage(ok)
                 }
-                .onFailure { onError(it.apiErrorMessage("Unable to update the task")) }
+                .onFailure {
+                    if (it is kotlinx.coroutines.CancellationException) throw it
+                    if (!keepOnDevice(it)) onError(it.apiErrorMessage("Unable to update the task"))
+                }
             busyId = null
         }
     }
@@ -15672,15 +16034,16 @@ private fun MappingStatTile(label: String, value: Int, modifier: Modifier = Modi
 private val offlineFormJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
 /**
- * Offline save: when there's no connection, persist this new record (and copies of its captured media)
+ * Offline save: when there's no connection, persist this record (and copies of its captured media)
  * to the local outbox and return true so the form can confirm "saved on device" and navigate. Returns
- * false when online (the form should take its normal upload path). Only for NEW records — edits need
- * the existing server record. The outbox auto-syncs on reconnect.
+ * false when online (the form should take its normal upload path). [editId] is the record being
+ * edited, or null for a new one: an edit is replayed onto that record (last write wins, as online).
+ * The outbox syncs on reconnect, in the background if the app has been closed.
  */
 private suspend fun trySaveOffline(
     repository: FieldRepository,
     context: Context,
-    isEdit: Boolean,
+    editId: String?,
     type: String,
     payloadJson: String,
     label: String,
@@ -15688,9 +16051,149 @@ private suspend fun trySaveOffline(
     recordName: String?,
     caption: String?
 ): Boolean {
-    if (isEdit || repository.isOnline(context)) return false
-    repository.queueOffline(context, type, payloadJson, label, media.uris, recordName, caption)
+    if (repository.isOnline(context)) return false
+    repository.queueOffline(context, type, payloadJson, label, media.uris, recordName, caption, media.location, editOf = editId)
     return true
+}
+
+/**
+ * The one line that says the app is working from the device: screens show what they last loaded,
+ * and anything saved now waits on the device. Shown at the foot of every screen while offline.
+ */
+@Composable
+private fun OfflineNotice(modifier: Modifier = Modifier) {
+    val ink = Color(0xFFE0C9B0)
+    Row(
+        modifier = modifier
+            .background(Color(0xFF2A2520), RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(Icons.Filled.CloudOff, contentDescription = null, tint = ink, modifier = Modifier.size(16.dp))
+        Text(
+            "You're offline. Showing what was last loaded; anything you save stays on this device until you're back online.",
+            color = ink,
+            fontSize = 12.sp
+        )
+    }
+}
+
+/**
+ * Thrown by [createOrKeep] when a create's answer was lost and the record went to the outbox
+ * instead. Its message is what the form tells the researcher.
+ */
+private class KeptOnDevice : Exception("Saved on this device. It'll upload automatically when you're back online.")
+
+/**
+ * Send a create with a fresh `Idempotency-Key`, and if its answer is lost (no signal part-way, a
+ * timeout, a 5xx) move the record into the outbox under the SAME key, then throw [KeptOnDevice].
+ *
+ * The key is what makes this safe. The server may already have written the record; the replay
+ * carries the key, and the server answers it from the first record instead of writing a second
+ * (backend `app/core/idempotency.py`). A refusal (4xx) is not a lost answer and is thrown as it was.
+ */
+private suspend fun <T> createOrKeep(
+    repository: FieldRepository,
+    context: Context,
+    type: String,
+    payloadJson: String,
+    label: String,
+    items: () -> List<OfflineMediaSpec>,
+    create: suspend (idempotencyKey: String) -> T
+): T {
+    val key = java.util.UUID.randomUUID().toString()
+    try {
+        return create(key)
+    } catch (e: Throwable) {
+        if (e is kotlinx.coroutines.CancellationException || !repository.isTransientFailure(e)) throw e
+        val queued = runCatching {
+            repository.queueOfflineEntry(context, type, payloadJson, label, items(), idempotencyKey = key)
+        }.isSuccess
+        if (!queued) throw e
+        throw KeptOnDevice()
+    }
+}
+
+/** This batch as outbox items: the same captions and order the online upload uses. */
+private fun MediaCaptureState.offlineSpecs(recordName: String?, caption: String?): List<OfflineMediaSpec> =
+    uris.mapIndexed { index, uri ->
+        OfflineMediaSpec(uri = uri, caption = caption, recordName = recordName, batchIndex = index + 1, location = location)
+    }
+
+/** Keep this state in the form's draft under [key] (ui/FormDrafts.kt). */
+private fun <T> MutableState<T>.drafted(draft: FormDraft, key: String): MutableState<T> = draft.bind(key, this)
+
+/** Keep a media batch (its files and its location) in the form's draft. */
+private fun MediaCaptureState.draftInto(draft: FormDraft, key: String) {
+    draft.bindCustom("$key.uris", { FormDraft.encodeUris(uris) }, { el -> FormDraft.decodeUris(el)?.let { uris = it } })
+    draft.bindCustom("$key.location", { DraftValues.encode(location) }, { el ->
+        val decoded = DraftValues.decode(el)
+        if (decoded == null || decoded is LocationRequest) location = decoded as LocationRequest?
+    })
+}
+
+/** Keep the chosen workshop in the form's draft. */
+private fun WorkshopPickerState.draftInto(draft: FormDraft) {
+    draft.bindCustom("workshop", { DraftValues.encode(selectedId) }, { el ->
+        (DraftValues.decode(el) as? String)?.let { selectedId = it }
+    })
+}
+
+/** Keep a questionnaire's typed answers in the form's draft. */
+private fun bindQuestionnaireAnswers(draft: FormDraft, answers: Map<String, MutableState<String>>) {
+    draft.bindCustom("answers", {
+        DraftValues.encode(answers.mapValues { it.value.value }.filterValues { it.isNotEmpty() })
+    }, { el ->
+        (DraftValues.decode(el) as? Map<*, *>)?.forEach { (id, text) ->
+            if (id is String && text is String) answers[id]?.value = text
+        }
+    })
+}
+
+/** Keep a process's steps (names, types, notes and each step's files) in the form's draft. */
+private fun bindProcessSteps(
+    draft: FormDraft,
+    steps: androidx.compose.runtime.snapshots.SnapshotStateList<ProcessStepUi>,
+    existingMediaFor: (String) -> List<MediaFileDto>
+) {
+    draft.bindCustom("steps", {
+        kotlinx.serialization.json.JsonArray(steps.map { step ->
+            JsonObject(
+                mapOf(
+                    "key" to kotlinx.serialization.json.JsonPrimitive(step.key),
+                    "serverId" to (step.serverId?.let { kotlinx.serialization.json.JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull),
+                    "name" to kotlinx.serialization.json.JsonPrimitive(step.name),
+                    "stepType" to kotlinx.serialization.json.JsonPrimitive(step.stepType),
+                    "notes" to kotlinx.serialization.json.JsonPrimitive(step.notes),
+                    "recordAdditional" to kotlinx.serialization.json.JsonPrimitive(step.recordAdditional),
+                    "uris" to FormDraft.encodeUris(step.media.uris),
+                    "location" to (DraftValues.encode(step.media.location) ?: kotlinx.serialization.json.JsonNull)
+                )
+            )
+        })
+    }, { el ->
+        val restored = (el as kotlinx.serialization.json.JsonArray).map { item ->
+            val o = item as JsonObject
+            fun text(name: String): String? = (o[name] as? kotlinx.serialization.json.JsonPrimitive)
+                ?.takeUnless { it is kotlinx.serialization.json.JsonNull }?.content
+            val serverId = text("serverId")
+            ProcessStepUi(
+                key = text("key") ?: java.util.UUID.randomUUID().toString(),
+                serverId = serverId,
+                name = text("name").orEmpty(),
+                stepType = text("stepType") ?: "SEQUENTIAL",
+                existingMedia = serverId?.let(existingMediaFor).orEmpty(),
+                notes = text("notes")
+            ).apply {
+                recordAdditional = text("recordAdditional") == "true"
+                o["uris"]?.let { FormDraft.decodeUris(it) }?.let { media.uris = it }
+                o["location"]?.let { DraftValues.decode(it) }?.let { if (it is LocationRequest) media.location = it }
+            }
+        }
+        steps.clear()
+        steps.addAll(restored)
+    })
 }
 
 /** Save-button lifecycle: idle, in-flight (spinner + "Saving…"), then a brief "Saved ✓" confirmation. */
@@ -16120,7 +16623,10 @@ private fun requiredAndroidPermissions(): Array<String> {
 }
 
 private fun createAppFile(context: Context, prefix: String, suffix: String): File {
-    val directory = File(context.cacheDir, "field-captures").apply { mkdirs() }
+    // App storage, not cacheDir: an unsaved form's draft points at these files, and they must still be
+    // there after the process dies (the camera app pushing it out is the usual way). Swept by
+    // DraftStore.sweep once no draft refers to them.
+    val directory = DraftStore.capturesDir(context)
     return File.createTempFile(prefix, suffix, directory)
 }
 

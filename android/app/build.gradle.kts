@@ -407,6 +407,9 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
+    // The offline outbox's background sync (data/OutboxSyncWorker.kt): queued records upload once a
+    // network is connected, across process death and reboots, without the app being opened.
+    implementation("androidx.work:work-runtime-ktx:2.12.0")
     implementation("androidx.credentials:credentials:1.6.0")
     implementation("androidx.credentials:credentials-play-services-auth:1.6.0")
     implementation("com.google.android.libraries.identity.googleid:googleid:1.2.1")

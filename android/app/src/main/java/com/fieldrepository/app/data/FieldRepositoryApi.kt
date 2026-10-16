@@ -11,6 +11,7 @@ import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.Header
 import retrofit2.http.Multipart
 import retrofit2.http.PATCH
 import retrofit2.http.POST
@@ -279,7 +280,7 @@ interface FieldRepositoryApi {
     ): PageResponse<CraftDto>
 
     @POST("artisans")
-    suspend fun createArtisan(@Body body: ArtisanCreateRequest): ArtisanDto
+    suspend fun createArtisan(@Header("Idempotency-Key") idempotencyKey: String?, @Body body: ArtisanCreateRequest): ArtisanDto
 
     // Pre-flight duplicate check for the artisan form's Aadhaar field. Declared BEFORE `artisan(id)`
     // only for readability — Retrofit matches on the literal path, so "lookup/aadhaar" can never be
@@ -297,7 +298,7 @@ interface FieldRepositoryApi {
     suspend fun artisanQuestionnaire(@Path("id") id: String): ArtisanQuestionnaireDto
 
     @POST("crafts")
-    suspend fun createCraft(@Body body: CraftCreateRequest): CreatedRecordDto
+    suspend fun createCraft(@Header("Idempotency-Key") idempotencyKey: String?, @Body body: CraftCreateRequest): CreatedRecordDto
 
     @GET("crafts/{id}")
     suspend fun craft(@Path("id") id: String): CraftDto
@@ -583,19 +584,19 @@ interface FieldRepositoryApi {
     suspend fun process(@Path("id") id: String): ProcessDetailDto
 
     @POST("processes")
-    suspend fun createProcess(@Body body: ProcessCreateRequest): ProcessDetailDto
+    suspend fun createProcess(@Header("Idempotency-Key") idempotencyKey: String?, @Body body: ProcessCreateRequest): ProcessDetailDto
 
     @PATCH("processes/{id}")
     suspend fun updateProcess(@Path("id") id: String, @Body body: ProcessCreateRequest): ProcessDetailDto
 
     @POST("workshops")
-    suspend fun createWorkshop(@Body body: WorkshopCreateRequest): CreatedRecordDto
+    suspend fun createWorkshop(@Header("Idempotency-Key") idempotencyKey: String?, @Body body: WorkshopCreateRequest): CreatedRecordDto
 
     @POST("products")
-    suspend fun createProduct(@Body body: ProductCreateRequest): CreatedRecordDto
+    suspend fun createProduct(@Header("Idempotency-Key") idempotencyKey: String?, @Body body: ProductCreateRequest): CreatedRecordDto
 
     @POST("tools")
-    suspend fun createTool(@Body body: ToolCreateRequest): CreatedRecordDto
+    suspend fun createTool(@Header("Idempotency-Key") idempotencyKey: String?, @Body body: ToolCreateRequest): CreatedRecordDto
 
     /**
      * Every instrument, in picker order (sortOrder asc). `isDefault` says which one a request that
@@ -648,7 +649,7 @@ interface FieldRepositoryApi {
     suspend fun reorderQuestionnaireQuestions(@Body body: QuestionnaireQuestionReorderRequest): List<QuestionnaireSectionDto>
 
     @POST("questionnaire/interviews")
-    suspend fun createQuestionnaireInterview(@Body body: QuestionnaireInterviewCreateRequest): CreatedRecordDto
+    suspend fun createQuestionnaireInterview(@Header("Idempotency-Key") idempotencyKey: String?, @Body body: QuestionnaireInterviewCreateRequest): CreatedRecordDto
 
     @GET("questionnaire/interviews")
     suspend fun interviews(
@@ -815,7 +816,7 @@ interface FieldRepositoryApi {
     ): List<EntryCommentDto>
 
     @POST("data-access/comments")
-    suspend fun addEntryComment(@Body body: EntryCommentBody): EntryCommentDto
+    suspend fun addEntryComment(@Header("Idempotency-Key") idempotencyKey: String?, @Body body: EntryCommentBody): EntryCommentDto
 
     @GET("data-access/revisions")
     suspend fun recordRevisions(

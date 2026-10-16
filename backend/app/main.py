@@ -14,6 +14,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.db import connect_db, db, disconnect_db
+from app.core.idempotency import IdempotencyMiddleware
 from app.core.security import verify_jwt_configuration
 from app.services.email_outbox import process_next_email_jobs
 from app.services.media_queue import process_next_media_jobs
@@ -394,6 +395,10 @@ def create_app() -> FastAPI:
     # Added BEFORE CORS, which makes it the INNERMOST of the two — load-bearing, see the class
     # docstring. An unhandled error must become a normal response *below* CORS so the CORS layer can
     # still stamp `access-control-allow-origin` on the way out.
+    # Added FIRST, so it is the innermost user middleware: it sees the route's own answer (before
+    # CORS or security headers are stamped on it) and exceptions on their way to the handler below.
+    # See app/core/idempotency.py for the contract.
+    app.add_middleware(IdempotencyMiddleware)
     app.add_middleware(UnhandledErrorMiddleware)
     app.add_middleware(
         CORSMiddleware,

@@ -15,7 +15,6 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileOutputStream
-import java.io.IOException
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
@@ -44,10 +43,26 @@ data class PendingMedia(
     // Override the link target type (e.g. "processstep" for a process step's media). Null = the entry's
     // own type. `stepIndex` (process only) selects which created step's server id to attach to on sync.
     val linkedType: String? = null,
-    val stepIndex: Int? = null
+    val stepIndex: Int? = null,
+    /**
+     * Where the capture was made. Null on entries queued by builds before 2026-10-16, which dropped it
+     * on the offline path while the online path sent it.
+     */
+    val location: LocationRequest? = null,
+    /**
+     * When the file was put in the outbox, ISO-8601. The upload's `recordedAt` used to be the moment
+     * the sync ran, which for a week-old capture is a week wrong. Null on older entries.
+     */
+    val capturedAt: String? = null
 )
 
-/** One queued create: the record type, its serialized create request, and the media to attach after. */
+/**
+ * One queued write: the record type, its serialized request, and the media to attach after.
+ *
+ * [kind] says what the replay does with [payloadJson] — see [OutboxKind]. Every field added after
+ * the first release is defaulted, so a queue written by an older build decodes unchanged after an
+ * app update (`OfflineQueueFileTest` pins that).
+ */
 @Serializable
 data class PendingEntry(
     val id: String,
@@ -56,6 +71,16 @@ data class PendingEntry(
     val label: String,
     val media: List<PendingMedia> = emptyList(),
     val createdAt: String,
+    /** [OutboxKind.CREATE] for everything queued before edits, comments and attachments could queue. */
+    val kind: String = OutboxKind.CREATE,
+    /** The existing server record an UPDATE edits, an ATTACH attaches to, or an ACTION acts on. */
+    val targetId: String? = null,
+    /**
+     * The account that queued this entry. The sync pass replays only the signed-in account's entries,
+     * so a shared handset never files one researcher's fieldwork under another's name. Null on
+     * entries queued before 2026-10-16; those replay under whoever is signed in, as they always did.
+     */
+    val ownerUserId: String? = null,
     /**
      * REPLAY PROGRESS, written back as each step lands. All defaulted, so an entry queued by an
      * older build decodes into "nothing has happened yet" and replays exactly as it used to.
@@ -79,8 +104,56 @@ data class PendingEntry(
      */
     val failure: String? = null,
     /** When [failure] was recorded, ISO-8601. */
-    val failedAt: String? = null
+    val failedAt: String? = null,
+    /**
+     * Sent as the `Idempotency-Key` header on the create (or comment) this entry replays, so a create
+     * that reached the server but whose answer was lost is answered from the first record instead of
+     * making a second (backend `app/core/idempotency.py`, 24 hours). Minted when the entry is queued,
+     * or before the first send for an entry an older build queued without one.
+     */
+    val idempotencyKey: String? = null,
+    /** A [OutboxKind.SEQUENCE] entry's requests, replayed in order. */
+    val steps: List<OutboxStep> = emptyList(),
+    /** How many of [steps] the server has accepted; the replay resumes at the next one. */
+    val completedSteps: Int = 0
 )
+
+/**
+ * One request of a [OutboxKind.SEQUENCE] entry. [op] names what the replay sends, for example
+ * `questionnaire.update`; [payloadJson] is its serialized body.
+ */
+@Serializable
+data class OutboxStep(
+    val op: String,
+    val targetId: String? = null,
+    val payloadJson: String
+)
+
+/** What a queued entry's replay does. Strings, not an enum, so an unknown value still decodes. */
+object OutboxKind {
+    /** POST the payload as a new record, then attach the media to it. */
+    const val CREATE = "create"
+    /** PATCH/PUT the payload onto [PendingEntry.targetId], then attach the media to it. */
+    const val UPDATE = "update"
+    /** No payload: attach the media to the existing record [PendingEntry.targetId]. */
+    const val ATTACH = "attach"
+    /** A small write that is not a record (a comment, feedback, a task's progress). */
+    const val ACTION = "action"
+    /**
+     * An edit that takes more than one request, replayed as one ordered unit: [PendingEntry.steps]
+     * in order, each ticked off as it lands, stopping at the first one the server refuses. The media
+     * attach to [PendingEntry.targetId] once every step is in.
+     */
+    const val SEQUENCE = "sequence"
+}
+
+/**
+ * The entries [userId] may replay: their own, plus legacy entries that carry no owner.
+ *
+ * Another account's entries stay on the device, untouched, until that account signs in again.
+ */
+internal fun List<PendingEntry>.replayableBy(userId: String?): List<PendingEntry> =
+    filter { it.ownerUserId == null || it.ownerUserId == userId }
 
 /** One captured media item to stage for an offline entry (input form for staging). */
 data class OfflineMediaSpec(
@@ -93,7 +166,8 @@ data class OfflineMediaSpec(
     val stageStep: Int? = null,
     val processing: List<String>? = null,
     val linkedType: String? = null,
-    val stepIndex: Int? = null
+    val stepIndex: Int? = null,
+    val location: LocationRequest? = null
 )
 
 /** Live connectivity check (validated internet, not just an attached interface). */
@@ -108,7 +182,6 @@ object ConnectivityObserver {
 }
 
 object OfflineOutbox {
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val mutex = Mutex()
 
     /**
@@ -127,80 +200,12 @@ object OfflineOutbox {
     /** The one pending queue-level alert, cleared as it is taken so it is reported exactly once. */
     fun takeAlert(): String? = alert.getAndSet(null)
 
-    /**
-     * Read the queue, or quarantine it and say so.
-     *
-     * A FILE THAT WILL NOT PARSE IS NEVER TREATED AS AN EMPTY QUEUE. It used to be — a bare
-     * `getOrDefault(emptyList())` — and the next [write] then overwrote the damage with whatever was
-     * left, so a queue full of unsent fieldwork became zero entries, with no error, no trace and no
-     * way back. The bytes are moved aside under a name a support request can ask for instead, the
-     * researcher is told the count they can see is not the whole story, and the app carries on able
-     * to queue new work (refusing to would turn one bad file into a device that cannot save at all).
-     *
-     * A ZERO-LENGTH file counts as damage too: [write] never produces one — an empty queue is the two
-     * bytes `[]` — so a truncated file is the fingerprint of the non-atomic write this class used to
-     * do, killed between truncating the old contents and writing the new ones.
-     */
-    private fun read(context: Context): List<PendingEntry> {
-        val file = queueFile(context)
-        if (!file.exists()) return emptyList()
-        val text = runCatching { file.readText() }.getOrElse { error ->
-            quarantine(file, "could not be read (${error.javaClass.simpleName})")
-            return emptyList()
-        }
-        if (text.isBlank()) {
-            quarantine(file, "was empty, which means a save was interrupted part-way through")
-            return emptyList()
-        }
-        return runCatching { json.decodeFromString<List<PendingEntry>>(text) }.getOrElse { error ->
-            quarantine(file, "could not be understood (${error.javaClass.simpleName})")
-            emptyList()
-        }
-    }
+    /** Read the queue; damage is quarantined and reported — see [OfflineQueueFile.read]. */
+    private fun read(context: Context): List<PendingEntry> =
+        OfflineQueueFile.read(queueFile(context)) { message -> alert.set(message) }
 
-    /** Move a damaged queue file out of the way, keeping every byte, and raise the alert. */
-    private fun quarantine(file: File, reason: String) {
-        val kept = File(file.parentFile, "queue.damaged-${System.currentTimeMillis()}.json")
-        val moved = runCatching { file.renameTo(kept) }.getOrDefault(false)
-        alert.set(
-            if (moved) {
-                "The list of records saved on this device $reason. Nothing has been deleted — it has been " +
-                    "kept as ${kept.name} in the app's storage. Please report this before uninstalling the app."
-            } else {
-                "The list of records saved on this device $reason, and could not be set aside. Please report " +
-                    "this before uninstalling the app."
-            }
-        )
-    }
-
-    /**
-     * Replace the queue file with [entries] as one indivisible step: write a temp file, flush it to
-     * the actual storage, then rename it over the real one.
-     *
-     * This used to be a plain `writeText`, which truncates the file and then writes — so a process
-     * killed in that window (a low-memory kill, a flat battery, the researcher swiping the app away
-     * while it drained) left a truncated or half-written queue, and the read above turned that into
-     * an empty one. Every record queued on that device was gone, silently. A rename within one
-     * directory is atomic: either the old file is there or the whole new one is, never a mixture.
-     * The `sync()` matters as much as the rename — a rename whose bytes are still only in the page
-     * cache publishes an empty file after a power loss.
-     */
-    private fun write(context: Context, entries: List<PendingEntry>) {
-        val target = queueFile(context)
-        val temp = File(target.parentFile, "${target.name}.writing")
-        val bytes = json.encodeToString(entries).toByteArray()
-        try {
-            FileOutputStream(temp).use { out ->
-                out.write(bytes)
-                out.flush()
-                out.fd.sync()
-            }
-            if (!temp.renameTo(target)) throw IOException("Unable to replace ${target.name}")
-        } catch (e: Throwable) {
-            runCatching { temp.delete() }
-            throw e
-        }
-    }
+    private fun write(context: Context, entries: List<PendingEntry>) =
+        OfflineQueueFile.write(queueFile(context), entries)
 
     // Every read and write below runs on the IO dispatcher. These are called from `LaunchedEffect`s
     // and save handlers that start on the main dispatcher, and reading the whole queue — every
@@ -253,6 +258,19 @@ object OfflineOutbox {
         }
     }
 
+    /**
+     * Forget the server's refusal so the next sync pass tries [entryId] again — for after the cause
+     * has been fixed (an access level granted, a duplicate number corrected on the server).
+     */
+    suspend fun clearFailure(context: Context, entryId: String) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val current = read(context)
+            if (current.any { it.id == entryId && it.failure != null }) {
+                write(context, current.map { if (it.id == entryId) it.copy(failure = null, failedAt = null) else it })
+            }
+        }
+    }
+
     /** Every entry the server has refused, for a surface that wants to show or discard them. */
     suspend fun failed(context: Context): List<PendingEntry> =
         withContext(Dispatchers.IO) { mutex.withLock { read(context).filter { it.failure != null } } }
@@ -275,7 +293,8 @@ object OfflineOutbox {
         processing: List<String>?,
         stageStep: Int? = null,
         linkedType: String? = null,
-        stepIndex: Int? = null
+        stepIndex: Int? = null,
+        location: LocationRequest? = null
     ): PendingMedia {
         val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
         val originalName = displayName(context, uri) ?: "field-media-${System.currentTimeMillis()}"
@@ -297,7 +316,9 @@ object OfflineOutbox {
             stageStep = stageStep,
             processing = processing,
             linkedType = linkedType,
-            stepIndex = stepIndex
+            stepIndex = stepIndex,
+            location = location,
+            capturedAt = Instant.now().toString()
         )
     }
 
@@ -315,5 +336,62 @@ object OfflineOutbox {
         mimeType.startsWith("audio/") -> "AUDIO"
         mimeType == "application/pdf" -> "PDF"
         else -> "DOCUMENT"
+    }
+}
+
+/**
+ * The queue file's format and its two failure rules, kept apart from [OfflineOutbox] so a JVM test
+ * can drive them with a temp file and no Android `Context`.
+ */
+internal object OfflineQueueFile {
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+    /**
+     * Read the queue, or quarantine it and say so through [onDamage].
+     *
+     * A FILE THAT WILL NOT PARSE IS NEVER TREATED AS AN EMPTY QUEUE. It used to be — a bare
+     * `getOrDefault(emptyList())` — and the next write then overwrote the damage with whatever was
+     * left, so a queue full of unsent fieldwork became zero entries, with no error, no trace and no
+     * way back. The bytes are moved aside under a name a support request can ask for instead, the
+     * researcher is told the count they can see is not the whole story, and the app carries on able
+     * to queue new work (refusing to would turn one bad file into a device that cannot save at all).
+     *
+     * A ZERO-LENGTH file counts as damage too: [write] never produces one — an empty queue is the two
+     * bytes `[]` — so a truncated file is the fingerprint of an interrupted non-atomic write.
+     */
+    fun read(file: File, onDamage: (String) -> Unit): List<PendingEntry> {
+        if (!file.exists()) return emptyList()
+        val text = runCatching { file.readText() }.getOrElse { error ->
+            quarantine(file, "could not be read (${error.javaClass.simpleName})", onDamage)
+            return emptyList()
+        }
+        if (text.isBlank()) {
+            quarantine(file, "was empty, which means a save was interrupted part-way through", onDamage)
+            return emptyList()
+        }
+        return runCatching { json.decodeFromString<List<PendingEntry>>(text) }.getOrElse { error ->
+            quarantine(file, "could not be understood (${error.javaClass.simpleName})", onDamage)
+            emptyList()
+        }
+    }
+
+    /** Replace the queue file with [entries] atomically — see [writeFileAtomically]. */
+    fun write(file: File, entries: List<PendingEntry>) {
+        writeFileAtomically(file, json.encodeToString(entries).toByteArray())
+    }
+
+    /** Move a damaged queue file out of the way, keeping every byte, and raise the alert. */
+    private fun quarantine(file: File, reason: String, onDamage: (String) -> Unit) {
+        val kept = File(file.parentFile, "queue.damaged-${System.currentTimeMillis()}.json")
+        val moved = runCatching { file.renameTo(kept) }.getOrDefault(false)
+        onDamage(
+            if (moved) {
+                "The list of records saved on this device $reason. Nothing has been deleted — it has been " +
+                    "kept as ${kept.name} in the app's storage. Please report this before uninstalling the app."
+            } else {
+                "The list of records saved on this device $reason, and could not be set aside. Please report " +
+                    "this before uninstalling the app."
+            }
+        )
     }
 }
