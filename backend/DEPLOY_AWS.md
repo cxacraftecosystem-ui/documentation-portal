@@ -296,7 +296,6 @@ terraform apply \
   -var="aws_region=ap-south-1" \
   -var="bucket_name=YOUR-GLOBALLY-UNIQUE-BUCKET" \
   -var="ssh_key_name=your-ec2-keypair" \
-  -var="ssh_ingress_cidr=YOUR.IP/32" \
   -var='cors_allowed_origins=["https://your-app.vercel.app"]'
 
 terraform output api_public_ip            # -> EC2_HOST
@@ -325,6 +324,8 @@ these repo secrets
 | `EC2_HOST` | the Elastic IP (`terraform output api_public_ip`) |
 | `EC2_SSH_KEY` | the **private** `.pem` contents for the EC2 key pair |
 | `BACKEND_ENV` | the entire `backend/.env` file (template in §5, with the Terraform S3 values) |
+| `DEPLOY_SG_AWS_ACCESS_KEY_ID`, `DEPLOY_SG_AWS_SECRET_ACCESS_KEY` | an access key for IAM user `fieldrepo-ci-sg`, which may only add and remove rules on the API's security group: the deploy opens port 22 for its own runner and closes it again |
+| `DEPLOY_SG_ID` | that security group, `sg-0a3ffc8a00c9246f1` |
 
 The `.env` is piped to the server over the SSH tunnel — it is never written to
 the workflow logs or a command line.

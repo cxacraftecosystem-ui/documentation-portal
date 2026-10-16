@@ -10,8 +10,10 @@
 #   terraform apply \
 #     -var="aws_region=ap-south-1" \
 #     -var="bucket_name=YOUR-GLOBALLY-UNIQUE-BUCKET" \
-#     -var="ssh_key_name=your-ec2-keypair" \
-#     -var="ssh_ingress_cidr=YOUR.IP.ADDR.ESS/32"
+#     -var="ssh_key_name=your-ec2-keypair"
+#
+# THERE IS NO STATE FOR THE LIVE ACCOUNT YET. imports.tf adopts the live resources a first `apply`
+# would otherwise duplicate; read `terraform plan` in full before any apply.
 #
 # NEVER commit terraform.tfstate or *.tfvars (already gitignored): state can
 # contain the generated IAM secret key. DO commit .terraform.lock.hcl: it is what
@@ -231,11 +233,11 @@ resource "aws_iam_access_key" "media" {
 # The box running on 2026-10-09 (i-06f177db5c4e3b0af) is still 24.04, built from the noble filter
 # that stood here.
 #
-# ⚠ CHANGING THIS FILTER REPLACES THE INSTANCE ON THE NEXT `apply` (a new AMI forces a new
-# aws_instance). That is how the move to 26.04 is meant to happen — the box is stateless (Supabase
-# holds the data, S3 the media) and the Elastic IP is reattached — but it is a production rebuild,
-# so apply it deliberately, after a deploy has proved the 3.14 venv on the current box, and with
-# backend/DEPLOY_AWS.md's restore steps (nginx/TLS, the two systemd units) to hand.
+# The instance ignores changes to the AMI and user_data (see `lifecycle` on aws_instance.api):
+# Canonical publishes a new 26.04 build every few days, and without that every `apply` would rebuild
+# production. A rebuild is a deliberate `terraform apply -replace=aws_instance.api`: the box is
+# stateless (Supabase holds the data, S3 the media) and the Elastic IP is reattached, but keep
+# backend/DEPLOY_AWS.md's restore steps (nginx, the two systemd units) to hand.
 data "aws_ami" "ubuntu" {
   most_recent = true
   owners      = ["099720109477"] # Canonical
@@ -249,17 +251,14 @@ data "aws_ami" "ubuntu" {
   }
 }
 
+# No standing ingress (2026-10-17). Port 22 was open to 0.0.0.0/0; it is now opened only for the
+# deploying runner's /32 by deploy-backend.yml (as `fieldrepo-ci-sg` below) and closed again at the
+# end of the job. People reach the box over SSM. Port 80 is the cloudfront_origin group's.
+# The description is what the live group was created with: changing it replaces the group.
 resource "aws_security_group" "api" {
   name        = "${var.project}-api"
   description = "Field Repository API: SSH (restricted) + HTTP/HTTPS via nginx"
 
-  ingress {
-    description = "SSH"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = [var.ssh_ingress_cidr]
-  }
   egress {
     from_port   = 0
     to_port     = 0
@@ -329,12 +328,47 @@ resource "aws_instance" "api" {
     volume_size = 30
     volume_type = "gp3"
     encrypted   = true
+    tags        = { Name = "${var.project}-api", Project = var.project }
   }
 
   tags = {
     Name    = "${var.project}-api"
     Project = var.project
   }
+
+  lifecycle {
+    ignore_changes = [ami, user_data]
+  }
+}
+
+# The deploy workflow's only AWS identity: it may add and remove rules on the API group and read
+# them back, nothing else. Its access key lives in the DEPLOY_SG_AWS_* Actions secrets and is not
+# managed here, so no secret lands in state.
+resource "aws_iam_user" "ci_sg" {
+  name = "${var.project}-ci-sg"
+  tags = { Project = var.project }
+}
+
+resource "aws_iam_user_policy" "ci_sg" {
+  name = "DeploySshWindow"
+  user = aws_iam_user.ci_sg.name
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "OpenAndCloseDeploySshOnTheApiSecurityGroupOnly"
+        Effect   = "Allow"
+        Action   = ["ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress"]
+        Resource = aws_security_group.api.arn
+      },
+      {
+        Sid      = "ReadTheRuleBackForVerification"
+        Effect   = "Allow"
+        Action   = ["ec2:DescribeSecurityGroups"]
+        Resource = "*"
+      }
+    ]
+  })
 }
 
 resource "aws_eip" "api" {

@@ -64,7 +64,7 @@ and therefore lost its open 80/443 too. If it is ever started again, attach the 
 
 | | Before | After |
 |---|---|---|
-| `sg-0a3ffc8a00c9246f1` inbound | 22, 80, 443 from `0.0.0.0/0` | 22 from `0.0.0.0/0` (untouched) |
+| `sg-0a3ffc8a00c9246f1` inbound | 22, 80, 443 from `0.0.0.0/0` | nothing standing; 22 from the deploying runner's `/32` during a deploy (since 2026-10-17) |
 | `sg-06f188c79829d38d7` inbound | did not exist | 80 from `pl-9aa247f3` |
 | Origin custom headers | none | `X-Origin-Verify` |
 | nginx | proxies everything | 403 without the header |
@@ -83,12 +83,26 @@ Verified on 2026-10-17 (status codes):
 Nothing else called the box directly: the web app and both Android apps use the CloudFront URL, and
 the deploy's health checks run on the box against `127.0.0.1:8000`, which skips nginx.
 
-## Port 22 is still open to the world
+**The deploy checks CloudFront, not just the box.** After writing the snippet and reloading nginx,
+"Require CloudFront's origin header in nginx" asks `https://d2b34i3e92al6i.cloudfront.net/health` (through CloudFront)
+for up to two minutes. Loopback is exempt from the check, so only that answer proves the Actions
+secret equals the CloudFront header. Anything but 200 (a mismatch shows as 403) puts the previous
+nginx config back and fails the deploy before the new code is switched in.
 
-Out of scope for this change and deliberately left alone: `sg-0a3ffc8a00c9246f1` allows SSH from
-`0.0.0.0/0`, and `deploy-backend.yml` depends on it. The box is reachable by SSM
-(`aws ssm start-session --target i-012eae3e379fbbeac`), so the designer portal's pattern (no
-standing port-22 rule, a temporary `/32` opened by the deploy) is the natural next step.
+## Port 22
+
+Since 2026-10-17 `sg-0a3ffc8a00c9246f1` has no standing SSH rule (it was open to `0.0.0.0/0`).
+`deploy-backend.yml` opens 22 for its runner's `/32` at the start of the job and closes it in an
+`if: always()` step at the end, as the IAM user `fieldrepo-ci-sg` (Actions secrets
+`DEPLOY_SG_AWS_ACCESS_KEY_ID`, `DEPLOY_SG_AWS_SECRET_ACCESS_KEY`, `DEPLOY_SG_ID`), which may only add
+and remove rules on that one group. People reach the box with
+`aws ssm start-session --target i-012eae3e379fbbeac`. To put the old rule back in an emergency:
+`aws ec2 authorize-security-group-ingress --group-id sg-0a3ffc8a00c9246f1 --protocol tcp --port 22 --cidr <your ip>/32`.
+
+`infra/terraform/imports.tf` adopts the live groups, instance, Elastic IP, bucket and IAM users, so
+`terraform plan` shows the live account rather than a fresh one. Read-only on 2026-10-17 it planned
+13 imports and one create (a media access key, which cannot be imported; the user already has two,
+so an apply stops there).
 
 ## Changing the secret
 
