@@ -1,5 +1,6 @@
 "use client";
 
+import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useEffect, useRef, useState } from "react";
 import { FileText, Headphones, Image as ImageIcon, Video } from "lucide-react";
 
@@ -124,9 +125,7 @@ export function UploadProgress({
             </span>
             <span className="shrink-0 font-semibold tabular-nums">{percent}%</span>
           </div>
-          <div className="h-2 overflow-hidden rounded-full bg-line-200">
-            <div className="h-full rounded-full bg-purple-700 transition-all" style={{ width: `${percent}%` }} />
-          </div>
+          <ProgressBar percent={percent} className="h-2" fillClassName="transition-all" />
           <div className="truncate text-xs text-ink-500" title={progress.currentFileName}>
             {progress.currentFileName} · {bytes(progress.uploadedBytes)} of {bytes(progress.totalBytes)} · {formatEta(progress.etaSeconds)}
           </div>

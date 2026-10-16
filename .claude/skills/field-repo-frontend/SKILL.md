@@ -561,13 +561,13 @@ you are looking at the last step. The identical instrument is reused on the publ
 
 ```tsx
 <div aria-hidden className="pointer-events-none absolute inset-y-6 left-0 flex w-[var(--guide-rail)] justify-center">
-  <div className="relative h-full w-0.5">
-    <span className="absolute inset-0 rounded-full bg-line-200" />                        {/* track */}
-    <motion.span style={{ scaleY: progress }} className="absolute inset-0 origin-top rounded-full bg-purple-700" />
+  <div className="relative h-full w-1">
+    <span className="absolute inset-0 rounded-full bg-progress-track" />                  {/* track */}
+    <motion.span style={{ scaleY: progress }} className="absolute inset-0 origin-top rounded-full bg-progress-fill" />
     {reduce ? null : <motion.span style={{ top: nodeTop }}
-      className="absolute -left-1 mt-[-5px] h-2.5 w-2.5 rounded-full bg-purple-700 ring-4 ring-purple-100" />}
+      className="absolute -left-[3px] mt-[-5px] h-2.5 w-2.5 rounded-full bg-progress-fill ring-4 ring-purple-100" />}
 ```
-The node is centred by **margins** (`-left-1` = (2−10)/2, `mt-[-5px]` = half of 10), never by a
+The node is centred by **margins** (`-left-[3px]` = (4−10)/2, `mt-[-5px]` = half of 10), never by a
 translate class — see §9.6. `inset-y-6` lines the track's ends up with the first and last bubbles
 (each `mt-6`).
 
@@ -600,8 +600,8 @@ uses different thresholds and therefore lives on a **different element** — `wh
 - **Ring:** `RING_RADIUS = 34`, `RING_CIRCUMFERENCE = 2π·34 ≈ 213.63`, `viewBox="0 0 80 80"`, `cx/cy 40`,
   `strokeWidth 6`, `strokeLinecap="round"`, svg `h-20 w-20 -rotate-90` so the arc starts at twelve
   o'clock. `strokeDasharray = CIRC`, `strokeDashoffset = useTransform(progress, [0,1], [CIRC, 0])`.
-  Track `className="stroke-line-200"` (themed, inverts); arc a **literal** `stroke="oklch(0.47 0.198 305)"`
-  (brand purple does not invert).
+  Track `className="stroke-progress-track"`, arc `className="stroke-progress-fill"` — the progress tokens
+  (§11 Progress indicators), so the arc moves to purple-400 in dark.
 - **Percent readout** is the only part that needs React: `useMotionValueEvent` + `Math.round(clamp)` +
   set only when the integer changed → ≤100 renders for the whole page, not one per frame.
 - **Active readout:** `AnimatePresence mode="wait" initial={false}` + one keyed child + `swapVariants`.
@@ -954,14 +954,43 @@ break `feImage`. The classes toggled are `lg-active` / `lg-fallback`; the compan
   and AI text are Markdown (bold speaker labels, `---` rules) — never raw text in a `<pre>`, never
   `dangerouslySetInnerHTML`.
 - **`AudioPlayer`** re-reads duration inside `onTimeUpdate` because fresh WebM streams report
-  `Infinity` until played through. ⚠ Its inline `--audio-range-fill` hardcodes `#e4e2ef` — the **light**
-  value of `--line-200` — so the unplayed track does not invert. This is a known leak, not a pattern.
+  `Infinity` until played through. Its inline `--audio-range-fill` reads `rgb(var(--progress-fill))` /
+  `rgb(var(--progress-track))` (2026-10-17; it hardcoded `#e4e2ef`, 1.28:1 on the white card and never
+  inverting — the voice-note bar that "disappeared"). See §11.10.
 - **`min-w-0`** appears in `Field`, `Accordion`, `SearchableSelect`'s wrapper and the login buttons and
   is load-bearing every time: a grid/flex item defaults to `min-width: auto` and refuses to shrink below
   its content's intrinsic width, so a long option label widens the column and spills over the field
   beside it. **`truncate` cannot save it** — truncation clips inside a box that has already grown.
 
 ---
+
+### 11.10 Progress indicators — one look, from one source
+
+Every progress bar, meter, seek track and progress ring — upload, the upload tray, voice-note
+recording and playback, dictation, transcription, report building, sync, downloads — draws through
+**`components/ui/ProgressBar.tsx`** (or, where a track carries its own ARIA, the
+`.progress-track` / `.progress-fill` recipes it renders). Owner report, 2026-10-17: the voice-note
+bar "disappears against the white of its card" — its track was `line-200`, 1.28:1 on white, and in
+dark the literal purple-700 fill was 2.32:1 on the card.
+
+- **Track: a tinted token, never the card's own white.** `--progress-track` = purple-700 at 28% over
+  white (`#d9c4e9`, 1.61:1 on the card) / purple-400 at 30% over the dark card (`#4c3b63`, 1.77:1).
+- **Fill: ≥ 3:1 (WCAG 1.4.11) against the track AND the card, both themes.** `--progress-fill` is
+  purple-700 light (7.59 / 4.71) and **purple-400 dark** (7.16 / 4.05) — `bg-purple-700` on a dark
+  card fails. `tone="done"` → `--progress-done`, success-600 / success-400 (5.02 / 3.11, 10.10 / 5.70).
+- **At least 4px, round ends.** `.progress-track` is `h-1.5` with `min-height: 4px`; pass `h-2` etc.
+  through `className`. Spines and rings keep the same 4px floor and the same two tokens
+  (`bg-progress-*`, `stroke-progress-*`).
+- **Never hand-roll one.** `<div className="h-2 overflow-hidden rounded-full bg-line-200"><div
+  className="h-full rounded-full bg-purple-700" style={{ width }} /></div>` is the shape that
+  shipped invisible; `e2e/progress-indicator-unit.spec.ts` fails on it and pins the token contrasts.
+  A scoped surface may re-tint both halves with utilities (the ministry dashboard's bar is
+  `bg-ministry-200 dark:bg-ministry-900` under a ministry fill) but must re-measure the 3:1.
+- **Android:** `ui/FieldProgress.kt` — `FieldLinearProgressIndicator`, `FieldCircularProgressIndicator`
+  and `FieldProgressDefaults` (same values, `sliderColors()` for the audio seek bar,
+  `onBrandTile*` for bars on the dark brand tile). Material's default track is `secondaryContainer`
+  (surface-100, 1.12:1 on white, 1.00:1 on the audio row); `ProgressIndicatorSourceTest` refuses a
+  direct `LinearProgressIndicator` / `CircularProgressIndicator` call anywhere else.
 
 ## 12. Forms and record editing
 

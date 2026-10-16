@@ -24,7 +24,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -335,7 +334,7 @@ fun ProviderOrderPanel(
 
             if (state.loading && state.trouble == null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+                    FieldCircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(
                         "Loading the current order…",
@@ -420,7 +419,7 @@ fun ProviderOrderPanel(
                     enabled = state.live && state.dirty && !state.saving
                 ) {
                     if (state.saving) {
-                        CircularProgressIndicator(
+                        FieldCircularProgressIndicator(
                             strokeWidth = 2.dp,
                             color = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(14.dp)
@@ -582,7 +581,7 @@ private fun ProviderRow(provider: SttProviderDto, index: Int, state: ProviderOrd
             enabled = live && state.testing == null
         ) {
             if (busy) {
-                CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+                FieldCircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
             } else {
                 Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
             }
@@ -696,7 +695,7 @@ private fun ProviderTroubleCard(trouble: SttTrouble, busy: Boolean, onRetry: () 
         if (trouble.retryable) {
             OutlinedButton(onClick = onRetry, enabled = !busy) {
                 if (busy) {
-                    CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+                    FieldCircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
                 } else {
                     Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                 }

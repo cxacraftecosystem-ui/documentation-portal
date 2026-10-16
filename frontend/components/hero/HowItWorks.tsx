@@ -142,7 +142,7 @@ export default function HowItWorks() {
 
       <div className="relative mt-14">
         {/* Timeline spine — left rail on phones, centred on large screens.
-            `-ml-px` puts the 2px track's centre on the bubbles' centre line: the bubbles sit at
+            `-ml-0.5` puts the 4px track's centre on the bubbles' centre line: the bubbles sit at
             `left-5` (and `lg:left-1/2`) pulled back by half their width, so the track has to give
             back half of its own. Nothing in here is centred with `translate` — framer-motion writes
             its own inline transform for `scaleY`, and an inline transform silently beats a Tailwind
@@ -150,19 +150,19 @@ export default function HowItWorks() {
         <div
           ref={spineRef}
           aria-hidden
-          className="pointer-events-none absolute bottom-6 left-5 top-2 -ml-px w-0.5 lg:left-1/2"
+          className="pointer-events-none absolute bottom-6 left-5 top-2 -ml-0.5 w-1 lg:left-1/2"
         >
-          <span className="absolute inset-0 rounded-full bg-line-200" />
+          <span className="absolute inset-0 rounded-full bg-progress-track" />
           <motion.span
             style={{ scaleY: progress }}
-            className="absolute inset-0 origin-top rounded-full bg-purple-700"
+            className="absolute inset-0 origin-top rounded-full bg-progress-fill"
           />
           {reduce ? null : (
             <motion.span
               style={{ top: nodeTop }}
-              // Centred on the 2px track by margins, not transforms: -4px = (2px − 10px) / 2
+              // Centred on the 4px track by margins, not transforms: -3px = (4px − 10px) / 2
               // horizontally, -5px = half the dot vertically.
-              className="absolute -left-1 mt-[-5px] h-2.5 w-2.5 rounded-full bg-purple-700 ring-4 ring-purple-100"
+              className="absolute -left-[3px] mt-[-5px] h-2.5 w-2.5 rounded-full bg-progress-fill ring-4 ring-purple-100 dark:ring-purple-950"
             />
           )}
         </div>

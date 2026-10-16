@@ -1,5 +1,6 @@
 "use client";
 
+import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useEffect, useRef, useState } from "react";
 import { Camera, FolderOpen, Mic, Square, Video } from "lucide-react";
 
@@ -262,12 +263,7 @@ export function MediaCaptureField({
             </p>
           </div>
           {!staging.allReady && !staging.failed ? (
-            <div className="h-1.5 overflow-hidden rounded-full bg-line-200" aria-hidden>
-              <div
-                className="h-full rounded-full bg-purple-700 transition-all"
-                style={{ width: `${Math.round(staging.fraction * 100)}%` }}
-              />
-            </div>
+            <ProgressBar percent={Math.round(staging.fraction * 100)} aria-hidden fillClassName="transition-all" />
           ) : null}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {previewItems.map((item, index) => {

@@ -89,18 +89,18 @@ export function GuideJourney() {
             aria-hidden
             className="pointer-events-none absolute inset-y-6 left-0 flex w-(--guide-rail) justify-center"
           >
-            <div className="relative h-full w-0.5">
-              <span className="absolute inset-0 rounded-full bg-line-200" />
+            <div className="relative h-full w-1">
+              <span className="absolute inset-0 rounded-full bg-progress-track" />
               <motion.span
                 style={{ scaleY: progress }}
-                className="absolute inset-0 origin-top rounded-full bg-purple-700"
+                className="absolute inset-0 origin-top rounded-full bg-progress-fill"
               />
               {reduce ? null : (
                 <motion.span
                   style={{ top: nodeTop }}
-                  // Centred on the 2px track by margins, not transforms: -4px = (2px − 10px) / 2
+                  // Centred on the 4px track by margins, not transforms: -3px = (4px − 10px) / 2
                   // horizontally, -5px = half the dot vertically.
-                  className="absolute -left-1 mt-[-5px] h-2.5 w-2.5 rounded-full bg-purple-700 ring-4 ring-purple-100"
+                  className="absolute -left-[3px] mt-[-5px] h-2.5 w-2.5 rounded-full bg-progress-fill ring-4 ring-purple-100 dark:ring-purple-950"
                 />
               )}
             </div>

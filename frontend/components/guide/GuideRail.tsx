@@ -60,14 +60,14 @@ export function GuideRail({
           <div className="flex items-center gap-4">
             <div className="relative h-20 w-20 shrink-0">
               <svg viewBox="0 0 80 80" className="h-20 w-20 -rotate-90" aria-hidden>
-                {/* Track: the themed border token, not a literal — `line-200` inverts in dark mode. */}
-                <circle cx="40" cy="40" r={RING_RADIUS} fill="none" className="stroke-line-200" strokeWidth="6" />
+                {/* Track and arc: the themed progress tokens (globals.css), so the ring reads like every bar. */}
+                <circle cx="40" cy="40" r={RING_RADIUS} fill="none" className="stroke-progress-track" strokeWidth="6" />
                 <motion.circle
                   cx="40"
                   cy="40"
                   r={RING_RADIUS}
                   fill="none"
-                  stroke="oklch(0.47 0.198 305)"
+                  className="stroke-progress-fill"
                   strokeWidth="6"
                   strokeLinecap="round"
                   strokeDasharray={RING_CIRCUMFERENCE}

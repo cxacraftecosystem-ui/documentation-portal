@@ -193,8 +193,8 @@ private val WALK_BUBBLE_MAX = 54.dp
 /** How far down its row the bubble sits — the Compose spelling of the web's `mt-6` on the bubble. */
 private val WALK_BUBBLE_TOP = 14.dp
 
-/** The spine's track. The web's is `w-0.5`, two CSS pixels. */
-private val WALK_TRACK = 2.dp
+/** The spine's track. The web's is `w-1`, four CSS pixels — the 4dp floor every progress indicator keeps. */
+private val WALK_TRACK = 4.dp
 
 /** The travelling node's radius, and the halo behind it (the web's `ring-4`). */
 private val WALK_NODE = 5.dp
@@ -786,7 +786,7 @@ internal fun WalkthroughJourney(
      */
     val revealAll = reduceMotion || walkthroughScreenReaderActive()
 
-    val trackColour = MaterialTheme.field.surface300
+    val trackColour = FieldProgressDefaults.trackColor
     val spineColour = MaterialTheme.colorScheme.primary
     val haloColour = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
     val trackPx = with(density) { WALK_TRACK.toPx() }
@@ -1093,8 +1093,8 @@ private fun WalkthroughHeader(
 @Composable
 private fun WalkthroughProgressRing(percent: () -> Int) {
     val density = LocalDensity.current
-    val track = MaterialTheme.field.surface300
-    val fill = MaterialTheme.colorScheme.primary
+    val track = FieldProgressDefaults.trackColor
+    val fill = FieldProgressDefaults.indicatorColor
     val diameter: Dp = with(density) { (12.sp.toDp() * 3.6f) }.coerceIn(44.dp, 76.dp)
     val strokePx = with(density) { 5.dp.toPx() }
     // Once, here, and then used three times below. Calling the lambda per use would be three snapshot
