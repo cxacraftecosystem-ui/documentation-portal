@@ -71,6 +71,31 @@ class PreviewCacheTest {
     }
 
     @Test
+    fun `a write started before a sign-out is dropped, not filed after it`() {
+        val before = PreviewFiles.generation()
+        PreviewFiles.invalidate()
+        PreviewFiles.store(root, "a", "late", byteArrayOf(1), 1_000, before)
+        assertNull(PreviewFiles.find(root, "a", "late"))
+        assertFalse(PreviewFiles.accountDir(root, "a").exists())
+        PreviewFiles.store(root, "a", "fresh", byteArrayOf(1), 1_000, PreviewFiles.generation())
+        assertNotNull(PreviewFiles.find(root, "a", "fresh"))
+    }
+
+    @Test
+    fun `the running total counts a replaced preview once and still trims at the cap`() {
+        PreviewFiles.store(root, "a", "one", ByteArray(400), 1_000)
+        PreviewFiles.store(root, "a", "one", ByteArray(400), 1_000)
+        PreviewFiles.store(root, "a", "two", ByteArray(400), 1_000)
+        assertTrue(PreviewFiles.file(root, "a", "one").exists())
+        PreviewFiles.file(root, "a", "one").setLastModified(1_000_000)
+        PreviewFiles.file(root, "a", "two").setLastModified(2_000_000)
+        PreviewFiles.store(root, "a", "three", ByteArray(400), 1_000)
+        assertFalse(PreviewFiles.file(root, "a", "one").exists())
+        assertTrue(PreviewFiles.file(root, "a", "two").exists())
+        assertTrue(PreviewFiles.file(root, "a", "three").exists())
+    }
+
+    @Test
     fun `the cap is 150 MB`() {
         assertEquals(150L * 1024 * 1024, PreviewCache.MAX_BYTES)
     }

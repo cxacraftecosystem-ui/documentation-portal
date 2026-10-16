@@ -45,6 +45,8 @@ export type User = {
   firstLoginAt?: string | null;
   /** ISO-8601, the most recent sign-in; null until the next one on an older account. */
   lastLoginAt?: string | null;
+  /** ISO-8601, when the account was made. */
+  createdAt?: string;
 };
 
 export type FieldProvenanceEntry = { by?: string; byName?: string; at?: string };

@@ -14,6 +14,13 @@
 --                                           treated as in use from the day it was created;
 --   * a roster row with no "firstSeenAt" -> never got in. Left NULL, so its link is an invitation.
 --
+-- EXCEPT WHEN THE ROSTER ROW IS NEWER THAN THE ACCOUNT. Changing an account's address
+-- (PATCH /users/{id}) admits the new address with a fresh, unstamped row, and the stamped row stays
+-- under the old address, which no longer matches.
+-- Such an account may well be in use, and a 72-hour link that ends its sessions is the wrong guess
+-- for it, so it is treated like the master admin: in use from the day it was created. A row written
+-- with the account (POST /users) is seconds apart from it; five minutes is the allowance.
+--
 -- Rows already stamped are left alone, which also makes re-running this file harmless.
 UPDATE "User" AS u
 SET "firstLoginAt" = COALESCE(r."firstSeenAt", u."createdAt")
@@ -21,4 +28,8 @@ FROM "User" AS self
 LEFT JOIN "AccessRoster" AS r ON r."email" = lower(self."email")
 WHERE self."id" = u."id"
   AND u."firstLoginAt" IS NULL
-  AND (r."id" IS NULL OR r."firstSeenAt" IS NOT NULL);
+  AND (
+    r."id" IS NULL
+    OR r."firstSeenAt" IS NOT NULL
+    OR r."createdAt" > self."createdAt" + interval '5 minutes'
+  );

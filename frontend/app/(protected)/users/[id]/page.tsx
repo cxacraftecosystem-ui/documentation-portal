@@ -28,7 +28,7 @@ import { formatDateTime } from "@/lib/format";
 import { assignableRoles, hasRank, isAdmin, isMasterAdmin, roleLabel, roleRank } from "@/lib/permissions";
 import type { User } from "@/lib/types";
 
-import { mayUpdateUser, signInSummary } from "../accountAdmin";
+import { FIRST_SIGN_IN_UNRECORDED, firstSignInRecorded, mayUpdateUser, signInSummary } from "../accountAdmin";
 
 export default function UserViewPage() {
   return (
@@ -175,7 +175,13 @@ function UserView() {
                 ? `On${person.twoFactorEnabledAt ? ` since ${formatDateTime(person.twoFactorEnabledAt)}` : ""}`
                 : "Off"}
             </Item>
-            <Item label="First signed in">{person.firstLoginAt ? formatDateTime(person.firstLoginAt) : "Not yet"}</Item>
+            <Item label="First signed in">
+              {!person.firstLoginAt
+                ? "Not yet"
+                : firstSignInRecorded(person)
+                  ? formatDateTime(person.firstLoginAt)
+                  : FIRST_SIGN_IN_UNRECORDED}
+            </Item>
             {person.lastLoginAt ? <Item label="Last signed in">{formatDateTime(person.lastLoginAt)}</Item> : null}
           </dl>
           {updating && mayUpdate && !mayGrant ? (

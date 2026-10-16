@@ -459,12 +459,18 @@ async def session_response(user: Any) -> dict[str, Any]:
     # so a suspended person's refused attempt must not consume the stamp an administrator reads as
     # "this approval was taken up".
     await mark_first_seen(user.email)
-    # "The first time this account got in", stamped once and never moved. It is what tells a
+    # One write, by id, and the body below is built from the row it returns, so the sign-in answer
+    # already shows this sign-in as the last one.
+    # ``lastLoginAt`` moves on every sign-in (the users screen's "Last signed in"). ``firstLoginAt``
+    # is "the first time this account got in", stamped once and never moved. It is what tells a
     # password link for an account nobody has used yet (a 72-hour invitation) from one for a live
     # account (a 2-hour reset) — ``credential_links.purpose_for``.
+    now = datetime.now(UTC)
+    stamps: dict[str, Any] = {"lastLoginAt": now}
     if getattr(user, "firstLoginAt", None) is None:
-        user = await db.user.update(where={"id": user.id}, data={"firstLoginAt": datetime.now(UTC)}) or user
-        invalidate_cached_user(user.id)
+        stamps["firstLoginAt"] = now
+    user = await db.user.update(where={"id": user.id}, data=stamps) or user
+    invalidate_cached_user(user.id)
     return {"accessToken": _session_token(user), "tokenType": "bearer", "user": serialize_user(user)}
 
 

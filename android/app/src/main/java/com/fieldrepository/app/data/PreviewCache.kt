@@ -18,6 +18,12 @@ import java.io.File
  * BOUNDED AND PRIVATE. At most [MAX_BYTES] in all, least recently shown first out. One folder per
  * account, and every folder is deleted at sign-out (`FieldRepository.logout`), so the next person on
  * a shared phone sees none of the previous one's photographs.
+ *
+ * A WRITE BELONGS TO THE ACCOUNT AND THE SESSION IT STARTED IN. Encoding runs in the background, so
+ * the caller takes a [Ticket] when the image loads — the account signed in then, and the sign-out
+ * generation — and [store] drops the write if a sign-out happened in between. Reading the account at
+ * write time instead would file account A's photograph in account B's folder after a quick switch,
+ * or recreate a folder that sign-out had just deleted.
  */
 object PreviewCache {
     const val MAX_BYTES: Long = 150L * 1024 * 1024
@@ -27,6 +33,9 @@ object PreviewCache {
 
     @Volatile
     private var accountOf: () -> String? = { null }
+
+    /** Who a pending write is for, and in which session. */
+    data class Ticket(val account: String, val generation: Long)
 
     /** Called once, when the activity builds the repository. */
     fun install(root: File, account: () -> String?) {
@@ -41,15 +50,25 @@ object PreviewCache {
         return PreviewFiles.find(base, account, mediaId)
     }
 
-    /** Keep [bytes] (an encoded image) as [mediaId]'s preview, then trim to the size cap. */
-    fun store(mediaId: String, bytes: ByteArray) {
-        val base = root ?: return
-        val account = accountOf() ?: return
-        PreviewFiles.store(base, account, mediaId, bytes, MAX_BYTES)
+    /** Taken when a preview loads, before it is encoded; null when nobody is signed in. */
+    fun ticket(): Ticket? {
+        if (root == null) return null
+        val account = accountOf() ?: return null
+        return Ticket(account, PreviewFiles.generation())
     }
 
-    /** Delete every account's previews, off the main thread. Safe before [install]. */
+    /** Keep [bytes] (an encoded image) as [mediaId]'s preview for [ticket]'s account, then trim. */
+    fun store(ticket: Ticket, mediaId: String, bytes: ByteArray) {
+        val base = root ?: return
+        PreviewFiles.store(base, ticket.account, mediaId, bytes, MAX_BYTES, ticket.generation)
+    }
+
+    /**
+     * Delete every account's previews, off the main thread. Safe before [install]. Every write
+     * ticketed before this call is void from this moment, even while the deletion is still queued.
+     */
     fun clear(): Job? {
+        PreviewFiles.invalidate()
         val base = root ?: return null
         return AppScope.io.launch(Dispatchers.IO) { runCatching { PreviewFiles.clear(base) } }
     }
@@ -58,6 +77,23 @@ object PreviewCache {
 /** The files themselves, against a root directory, so a JVM test can drive them. */
 internal object PreviewFiles {
     private const val EXTENSION = ".img"
+
+    /** Bumped by every sign-out; a write carrying an older number is dropped. */
+    @Volatile
+    private var generation = 0L
+
+    /**
+     * Bytes held under each root, counted once (lazily) and then kept up to date by every write, so
+     * a write costs a directory scan only when it takes the total over the cap — not on every tile.
+     */
+    private val totals = HashMap<String, Long>()
+
+    fun generation(): Long = generation
+
+    @Synchronized
+    fun invalidate() {
+        generation++
+    }
 
     private fun safe(part: String): String = part.replace(Regex("[^A-Za-z0-9_-]"), "_").take(80).ifBlank { "_" }
 
@@ -73,26 +109,47 @@ internal object PreviewFiles {
     }
 
     @Synchronized
-    fun store(root: File, account: String, mediaId: String, bytes: ByteArray, maxBytes: Long) {
+    fun store(
+        root: File,
+        account: String,
+        mediaId: String,
+        bytes: ByteArray,
+        maxBytes: Long,
+        ticketGeneration: Long = generation
+    ) {
+        if (ticketGeneration != generation) return
         if (bytes.isEmpty() || bytes.size > maxBytes) return
-        writeFileAtomically(file(root, account, mediaId), bytes)
-        trim(root, maxBytes)
+        val key = root.absolutePath
+        val target = file(root, account, mediaId)
+        val before = totals[key] ?: scanTotal(root)
+        val replaced = if (target.isFile) target.length() else 0L
+        writeFileAtomically(target, bytes)
+        val after = before - replaced + bytes.size
+        totals[key] = after
+        if (after > maxBytes) trim(root, maxBytes)
     }
 
     /** Delete least-recently-used previews, across every account folder, until the total fits. */
     @Synchronized
     fun trim(root: File, maxBytes: Long) {
-        val files = root.listFiles().orEmpty().filter { it.isDirectory }
-            .flatMap { dir -> dir.listFiles().orEmpty().filter { it.isFile && it.name.endsWith(EXTENSION) } }
+        val files = previewFiles(root)
         val entries = files.map { PreviewEntry(it.path, it.length(), it.lastModified()) }
         val doomed = evictionOrder(entries, maxBytes).toSet()
         files.filter { it.path in doomed }.forEach { it.delete() }
+        totals[root.absolutePath] = entries.filter { it.path !in doomed }.sumOf { it.bytes }
     }
 
     @Synchronized
     fun clear(root: File) {
         root.listFiles().orEmpty().forEach { it.deleteRecursively() }
+        totals[root.absolutePath] = 0L
     }
+
+    private fun previewFiles(root: File): List<File> =
+        root.listFiles().orEmpty().filter { it.isDirectory }
+            .flatMap { dir -> dir.listFiles().orEmpty().filter { it.isFile && it.name.endsWith(EXTENSION) } }
+
+    private fun scanTotal(root: File): Long = previewFiles(root).sumOf { it.length() }
 
     /** Which entries go, oldest use first, so that what is left is at most [maxBytes]. */
     fun evictionOrder(entries: List<PreviewEntry>, maxBytes: Long): List<String> {

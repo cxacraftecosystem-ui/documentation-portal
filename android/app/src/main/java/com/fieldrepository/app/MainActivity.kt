@@ -15611,7 +15611,8 @@ private fun UserManagementForm(
                         UserSummaryLine("Download entire dataset", if (targetIsProfessorPlus || appUser.canDownloadDataset) "Granted" else "Not granted")
                         UserSummaryLine("Password", if (accountHasPassword(appUser)) "Set" else "No password yet")
                         UserSummaryLine("Two-step verification", if (appUser.twoFactorEnabled) "On" else "Off")
-                        UserSummaryLine("Signed in", com.fieldrepository.app.ui.signInStatusLabel(appUser.lastLoginAt, appUser.firstLoginAt))
+                        com.fieldrepository.app.ui.signInStatusLabel(appUser.lastLoginAt, appUser.firstLoginAt, appUser.createdAt)
+                            ?.let { UserSummaryLine("Signed in", it) }
                         if (mayUpdate) {
                             OutlinedButton(
                                 onClick = { updatingUsers = updatingUsers + appUser.id },

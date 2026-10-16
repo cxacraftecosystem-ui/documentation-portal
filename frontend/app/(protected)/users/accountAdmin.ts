@@ -94,6 +94,21 @@ export function signInSummary(user: User): string {
   return "No password yet";
 }
 
+/** Shown for an account in use from before first sign-ins were recorded. */
+export const FIRST_SIGN_IN_UNRECORDED = "Yes, date not recorded";
+
+/**
+ * Whether `firstLoginAt` is a real first sign-in. For accounts that predate the column the server
+ * filled it with the account's creation time, to mark them as in use; a real sign-in is always later
+ * than the account it signs in to, so a value equal to `createdAt` is that marker, not a date.
+ */
+export function firstSignInRecorded(user: Pick<User, "firstLoginAt" | "createdAt">): boolean {
+  if (!user.firstLoginAt) return false;
+  const first = Date.parse(user.firstLoginAt);
+  const created = user.createdAt ? Date.parse(user.createdAt) : Number.NaN;
+  return !(Number.isFinite(first) && Number.isFinite(created) && first === created);
+}
+
 /* ── "Add a person" — one step: the account, the access roster, and how they sign in ─────────── */
 
 /**

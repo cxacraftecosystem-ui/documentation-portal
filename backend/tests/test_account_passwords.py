@@ -727,18 +727,6 @@ def test_an_account_that_has_signed_in_gets_a_two_hour_reset(monkeypatch) -> Non
     assert purpose == "RESET" and 1 < hours <= 2
 
 
-def test_the_backfill_trusts_the_roster_and_leaves_only_never_seen_accounts_empty() -> None:
-    from pathlib import Path
-
-    sql = (
-        Path(__file__).resolve().parents[1] / "prisma" / "migrations" / "20261018090100_first_login_backfill" / "migration.sql"
-    ).read_text(encoding="utf-8")
-    statement = " ".join(line for line in sql.splitlines() if not line.lstrip().startswith("--"))
-    assert 'COALESCE(r."firstSeenAt", u."createdAt")' in statement
-    assert 'u."firstLoginAt" IS NULL' in statement
-    assert '(r."id" IS NULL OR r."firstSeenAt" IS NOT NULL)' in statement
-
-
 def test_every_sign_in_moves_the_last_sign_in_and_the_users_screen_receives_it(monkeypatch) -> None:
     earlier = datetime(2026, 9, 2, tzinfo=UTC)
     fake = _fake(

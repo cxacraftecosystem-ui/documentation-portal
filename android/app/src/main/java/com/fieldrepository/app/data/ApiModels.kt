@@ -62,9 +62,18 @@ data class UserDto(
     val hasPassword: Boolean? = null,
     /** The first sign-in that got in; null when the account has never signed in. */
     val firstLoginAt: String? = null,
-    /** The most recent sign-in; null on a server older than the field, or before the next sign-in. */
-    val lastLoginAt: String? = null
+    /**
+     * The most recent sign-in; null until the account next signs in. [FIELD_NOT_SENT] when the
+     * server did not send the field at all (one older than it), so the users screen can leave the
+     * line out instead of saying "Not yet" for everybody.
+     */
+    val lastLoginAt: String? = FIELD_NOT_SENT,
+    /** When the account was made; tells a real first sign-in from the server's "in use" marker. */
+    val createdAt: String? = null
 )
+
+/** The default of a field the server may not send; it never sends an empty string for a date. */
+const val FIELD_NOT_SENT = ""
 
 /**
  * `GET /dashboard/stats`.
