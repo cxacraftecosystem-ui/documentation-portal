@@ -92,6 +92,11 @@ import com.fieldrepository.app.ui.IslandScaffold
 import com.fieldrepository.app.ui.APP_SEARCH_NAME
 import com.fieldrepository.app.ui.AppMenuFocusEffect
 import com.fieldrepository.app.ui.AppSearchHeader
+import com.fieldrepository.app.ui.QuickReturnHeader
+import com.fieldrepository.app.ui.rememberQuickReturnHeader
+import com.fieldrepository.app.ui.rememberIslandImeVisible
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
 import com.fieldrepository.app.ui.AppSearchItem
 import com.fieldrepository.app.ui.AppSearchPanel
 import com.fieldrepository.app.ui.AppSearchSettingTarget
@@ -2041,6 +2046,10 @@ private fun HomeScreen(
             }
         )
                 }) { islandReserve ->
+        // The header's quick-return state: the page's scroller reports to it, and the page is padded
+        // by the header's measured height so nothing sits under it at rest. See AppSearch.kt.
+        val quickReturn = rememberQuickReturnHeader(pageScroll, pinned = searchOpen)
+        val pageImeOpen by rememberIslandImeVisible()
         val clearance = LocalIslandClearance.current
         SideEffect { clearance?.value = islandReserve }
         DisposableEffect(clearance) { onDispose { clearance?.value = 0.dp } }
@@ -2048,19 +2057,13 @@ private fun HomeScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .nestedScroll(quickReturn.connection)
                 .verticalScroll(pageScroll)
+                .padding(top = with(LocalDensity.current) { quickReturn.reservePx.toDp() })
                 // Inside the scroller, so it is the END of the page that clears the bar.
                 .padding(bottom = islandReserve),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-
-        // The app's name and logo, FIRST INSIDE THE SCROLLER so it scrolls away with the page and is
-        // back at the top; tapping it opens the search panel drawn over the page below. AppSearch.kt.
-        AppSearchHeader(
-            appName = APP_SEARCH_NAME,
-            logo = { m -> FieldRepoLogo(modifier = m, cornerRadius = 7.dp) },
-            onOpenSearch = { searchOpen = true }
-        )
 
         // The dashboard is the root of every path, so only the screens below it get a back arrow —
         // and it is also the only screen with no title of its own, so on the dashboard this whole
@@ -2455,6 +2458,17 @@ private fun HomeScreen(
             is Screen.Appearance, is Screen.MyAiKeys, is Screen.TwoStepVerification, is Screen.DataBrowser -> Unit
         }
 
+                }
+                // The logo-and-name header, as a quick-return overlay on the top of the page: it hides
+                // on the way down and comes back on any move up. Hidden while the keyboard is up for a
+                // field on the page, never while the search field is open. AppSearch.kt.
+                QuickReturnHeader(quickReturn, hidden = pageImeOpen && !searchOpen) { elevated ->
+                    AppSearchHeader(
+                        appName = APP_SEARCH_NAME,
+                        logo = { m -> FieldRepoLogo(modifier = m, cornerRadius = 10.dp) },
+                        onOpenSearch = { searchOpen = true },
+                        elevated = elevated
+                    )
                 }
                 // Over the page, under nothing: the page keeps its scroll and any half-filled form.
                 if (searchOpen) {

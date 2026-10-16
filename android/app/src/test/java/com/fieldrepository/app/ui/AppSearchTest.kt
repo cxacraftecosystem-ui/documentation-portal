@@ -115,13 +115,81 @@ class AppSearchTest {
         assertEquals(listOf("indigo"), removeRecentSearch(listOf("Bagru", "indigo"), "bagru"))
     }
 
+    // ── quick return ───────────────────────────────────────────────────────────────────────────
+
+    private val header = 150
+    private val hideAfter = 60f
+
+    private fun step(s: QuickReturnStep, dy: Float, offset: Int, pinned: Boolean = false) =
+        quickReturnStep(s, dy, offset, header, hideAfter, pinned)
+
+    @Test
+    fun `scrolling down hides the header only after the travel threshold and past its height`() {
+        var s = QuickReturnStep(shown = true)
+        s = step(s, -30f, 400)
+        assertTrue("30px down is below the threshold", s.shown)
+        s = step(s, -40f, 440)
+        assertFalse("70px down, page past the header: hidden", s.shown)
+    }
+
+    @Test
+    fun `it never hides while the page has not moved past the header's own height`() {
+        var s = QuickReturnStep(shown = true)
+        s = step(s, -100f, 100)
+        assertTrue(s.shown)
+        s = step(s, -40f, 140)
+        assertTrue("still within the header's height", s.shown)
+        s = step(s, -20f, 160)
+        assertFalse(s.shown)
+    }
+
+    @Test
+    fun `any upward scroll brings it back at once, even mid-page`() {
+        val hidden = QuickReturnStep(shown = false, travelPx = 0f)
+        assertTrue(step(hidden, 1f, 2000).shown)
+        assertEquals("the travel restarts", 0f, step(hidden, 1f, 2000).travelPx)
+    }
+
+    @Test
+    fun `at the very top it is shown, whatever the direction`() {
+        val hidden = QuickReturnStep(shown = false)
+        assertTrue(step(hidden, -50f, 0).shown)
+        assertTrue(step(hidden, 0f, 0).shown)
+    }
+
+    @Test
+    fun `pinned by the open search field it stays shown while scrolling down`() {
+        var s = QuickReturnStep(shown = true)
+        repeat(10) { s = step(s, -100f, 500 + it * 100, pinned = true) }
+        assertTrue(s.shown)
+    }
+
+    @Test
+    fun `no movement changes nothing, and a hidden header stays hidden going further down`() {
+        val hidden = QuickReturnStep(shown = false, travelPx = 12f)
+        assertEquals(hidden, step(hidden, 0f, 800))
+        assertFalse(step(hidden, -500f, 1300).shown)
+    }
+
+    @Test
+    fun `reduced motion snaps instead of sliding`() {
+        assertEquals(0, quickReturnSlideMillis(reducedMotion = true))
+        assertEquals(QUICK_RETURN_SLIDE_MS, quickReturnSlideMillis(reducedMotion = false))
+        assertTrue(QUICK_RETURN_SLIDE_MS > 0)
+    }
+
     // ── screens follow the menu's role filter ──────────────────────────────────────────────────
 
     private fun user(role: String) = UserDto(id = "u-$role", email = "$role@example.org", name = role, role = role)
 
+    // Every tier this app's FieldPermissions ladder knows (six on the documentation portal).
+    private val everyRole = listOf(
+        "CROWDSOURCE_VOLUNTEER", "FIELD_CONTRIBUTOR", "RESEARCHER", "PROFESSOR", "ADMIN", "MASTER_ADMIN"
+    )
+
     @Test
     fun `the screens a search offers are exactly the menu this role sees`() {
-        listOf("CROWDSOURCE_VOLUNTEER", "RESEARCHER", "PROFESSOR", "ADMIN", "MASTER_ADMIN").forEach { role ->
+        everyRole.forEach { role ->
             listOf(true, false).forEach { adminMode ->
                 val visible = visibleNavItems(user(role), adminMode)
                 val screens = appSearchScreenItems(visible) {}
