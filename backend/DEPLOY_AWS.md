@@ -608,7 +608,7 @@ from i-06f177db5c4e3b0af on 2026-10-09, and the new box takes the same values:
 | AMI | `ami-006f82a1d5a27da54` (noble 24.04, 20260610) | Canonical's current 26.04 amd64 gp3 image, resolved at launch from the public SSM parameter below (`ami-039bcc649e447aea2`, `ubuntu-resolute-26.04-amd64-server-20261003`, on 2026-10-09) |
 | Instance type | t3.micro (CPU credits: unlimited) | **t3.small** (unlimited) |
 | Subnet | `subnet-09cf3361e0a18df70` (the default subnet of `vpc-0010b4077934ea06d`, public IPv4 on launch) | the same |
-| Security group | `sg-0a3ffc8a00c9246f1` (`fieldrepo-api`: 22, 80 and 443 from anywhere) | the same |
+| Security groups | `sg-0a3ffc8a00c9246f1` (`fieldrepo-api`: 22 from anywhere) and `sg-06f188c79829d38d7` (`cloudfront-origin-only-documentation`: 80 from CloudFront only, [docs/INFRA_ORIGIN_LOCK.md](../docs/INFRA_ORIGIN_LOCK.md)) | the same |
 | Key pair | `fieldrepo-deploy` (its private half is the `EC2_SSH_KEY` secret) | the same |
 | Instance profile | `fieldrepo-ssm` (AmazonSSMManagedInstanceCore; SSM is the only shell that does not need the key) | the same |
 | Instance metadata | IMDSv2 required, hop limit 2 | the same |
@@ -628,7 +628,7 @@ aws ec2 run-instances --region ap-south-1 \
   --credit-specification CpuCredits=unlimited \
   --key-name fieldrepo-deploy \
   --subnet-id subnet-09cf3361e0a18df70 \
-  --security-group-ids sg-0a3ffc8a00c9246f1 \
+  --security-group-ids sg-0a3ffc8a00c9246f1 sg-06f188c79829d38d7 \
   --iam-instance-profile Name=fieldrepo-ssm \
   --metadata-options HttpTokens=required,HttpEndpoint=enabled,HttpPutResponseHopLimit=2 \
   --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":30,"VolumeType":"gp3","Iops":3000,"Throughput":125,"Encrypted":true,"DeleteOnTermination":true}}]' \

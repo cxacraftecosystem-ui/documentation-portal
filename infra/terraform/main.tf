@@ -260,19 +260,42 @@ resource "aws_security_group" "api" {
     protocol    = "tcp"
     cidr_blocks = [var.ssh_ingress_cidr]
   }
-  ingress {
-    description = "HTTP (nginx)"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+}
+
+# ─── PORT 80 ANSWERS CLOUDFRONT ONLY (2026-10-17) ────────────────────────────────────────────────
+# Port 80 used to be open to 0.0.0.0/0, along with 443, which nothing listens on: CloudFront reaches
+# this origin over plain HTTP (origin protocol policy `http-only`), so the box holds no certificate.
+# Anyone who knew the address could skip CloudFront and send the API a forged X-Forwarded-For. Now:
+#   1. this group admits port 80 only from AWS's managed prefix list of CloudFront's origin-facing
+#      servers. That list weighs about 55 rules against the 60-rule-per-group quota, so it lives in
+#      its own group rather than in `api` above;
+#   2. nginx answers 403 unless the request carries the `X-Origin-Verify` header that only this
+#      portal's distribution sends (deploy-backend.yml writes the check from ORIGIN_VERIFY_SECRET).
+# The prefix list on its own would still admit SOMEBODY ELSE's CloudFront distribution pointed at
+# this address; the header is what makes it this portal's. docs/INFRA_ORIGIN_LOCK.md has the ids
+# and the rollback. Name and description are what the live group was created with: changing either
+# replaces the group.
+data "aws_ec2_managed_prefix_list" "cloudfront_origin_facing" {
+  name = "com.amazonaws.global.cloudfront.origin-facing"
+}
+
+resource "aws_security_group" "cloudfront_origin" {
+  name        = "cloudfront-origin-only-documentation"
+  description = "HTTP to nginx from CloudFront origin-facing servers only (documentation-portal)"
+  tags        = { Name = "cloudfront-origin-only-documentation" }
+
   ingress {
-    description = "HTTPS (nginx)"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    description     = "CloudFront origin-facing"
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront_origin_facing.id]
   }
   egress {
     from_port   = 0
@@ -292,7 +315,7 @@ resource "aws_instance" "api" {
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = "t3.small"
   key_name               = var.ssh_key_name
-  vpc_security_group_ids = [aws_security_group.api.id]
+  vpc_security_group_ids = [aws_security_group.api.id, aws_security_group.cloudfront_origin.id]
   user_data              = file("${path.module}/user_data.sh")
   # The SSM instance profile the live box was given BY HAND on 2026-06-17 (role `fieldrepo-ssm`, with
   # AmazonSSMManagedInstanceCore attached), which is how the box is inspected without SSH. It is not

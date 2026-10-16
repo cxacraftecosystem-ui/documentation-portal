@@ -824,6 +824,57 @@ jobs:
             echo \"sign-in providers pinned: \$(grep -c -E \"^(MICROSOFT|YAHOO)_CLIENT_ID=\" \"\$ENVFILE\" || true)\"
           '"
 
+      # ─── THE BOX ANSWERS CLOUDFRONT AND NOTHING ELSE ────────────────────────────────────────────
+      # CloudFront sends `X-Origin-Verify: <ORIGIN_VERIFY_SECRET>` to this origin (a custom origin
+      # header on the distribution) and nginx answers 403 to any request without it, so somebody who
+      # finds the box's address cannot skip CloudFront and hand the API a forged X-Forwarded-For. The
+      # security group also admits port 80 only from CloudFront's origin-facing prefix list. Both are
+      # in docs/INFRA_ORIGIN_LOCK.md. Rewritten on every deploy so a rebuilt box converges. The value
+      # rides ssh's STDIN as the first line of the script, never an argument (visible in `ps`). It is
+      # also written to the .env, per the rule that every secret lives in Actions AND the box's .env.
+      # A missing secret fails here rather than shipping a box that turns CloudFront away. nginx is
+      # RELOADED, never restarted; a config that fails `nginx -t` is put back as it was.
+      - name: Require CloudFront's origin header in nginx
+        env:
+          ORIGIN_VERIFY_SECRET: ${{ secrets.ORIGIN_VERIFY_SECRET }}
+        run: |
+          if ! printf '%s' "$ORIGIN_VERIFY_SECRET" | grep -qE '^[A-Za-z0-9]{32,}$'; then
+            echo "::error::ORIGIN_VERIFY_SECRET is unset or is not 32+ letters and digits. It must equal the X-Origin-Verify header on the CloudFront origin: docs/INFRA_ORIGIN_LOCK.md."
+            exit 1
+          fi
+          { printf 'secret=%s\n' "$ORIGIN_VERIFY_SECRET"; cat; } <<'REMOTE' | ssh ubuntu@${{ secrets.EC2_HOST }} 'bash -s'
+          set -euo pipefail
+          SITE=/etc/nginx/sites-available/fieldrepo
+          SNIP=/etc/nginx/snippets/origin-verify.conf
+          ENVFILE="/home/ubuntu/app/backend/.env"
+          tmp="$(mktemp)"
+          {
+            echo '# Written by deploy-backend.yml from ORIGIN_VERIFY_SECRET. CloudFront sends this value as the'
+            echo '# X-Origin-Verify origin header; anything reaching the box without it gets 403.'
+            echo 'set $origin_verified 0;'
+            printf 'if ($http_x_origin_verify = "%s") { set $origin_verified 1; }\n' "$secret"
+            echo 'if ($remote_addr = 127.0.0.1) { set $origin_verified 1; }'
+            echo 'if ($origin_verified = 0) { return 403; }'
+          } > "$tmp"
+          sudo cp -a "$SITE" /tmp/fieldrepo.site.prev
+          if [ -f "$SNIP" ]; then sudo cp -a "$SNIP" /tmp/origin-verify.prev; else sudo rm -f /tmp/origin-verify.prev; fi
+          sudo install -m 600 -o root -g root "$tmp" "$SNIP"; rm -f "$tmp"
+          grep -q 'snippets/origin-verify.conf' "$SITE" \
+            || sudo sed -i 's#^\(\s*client_max_body_size .*;\)$#\1\n    include /etc/nginx/snippets/origin-verify.conf;#' "$SITE"
+          if ! grep -q 'snippets/origin-verify.conf' "$SITE" || ! sudo nginx -t; then
+            sudo cp -a /tmp/fieldrepo.site.prev "$SITE"
+            if [ -f /tmp/origin-verify.prev ]; then sudo cp -a /tmp/origin-verify.prev "$SNIP"; else sudo rm -f "$SNIP"; fi
+            sudo rm -f /tmp/origin-verify.prev
+            echo "::error::nginx refused the origin check; the previous config was put back"; exit 1
+          fi
+          sudo rm -f /tmp/origin-verify.prev
+          sudo systemctl reload nginx
+          [ -s "$ENVFILE" ] && [ -n "$(tail -c1 "$ENVFILE")" ] && printf '\n' >> "$ENVFILE"
+          sed -i '/^ORIGIN_VERIFY_SECRET=/d' "$ENVFILE"
+          printf 'ORIGIN_VERIFY_SECRET=%s\n' "$secret" >> "$ENVFILE"
+          echo "origin check: nginx $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/health) from loopback"
+          REMOTE
+
       # ─── THE PROJECT, THE PRISMA CLIENT, THE MIGRATION, THE SWITCH ──────────────────────────────
       # Everything up to the switch happens inside the venv the build step chose, while the API is
       # still serving from the old one; the switch happens with both services stopped. The order of
