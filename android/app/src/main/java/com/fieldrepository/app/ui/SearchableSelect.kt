@@ -321,6 +321,11 @@ fun SearchableMultiSelectField(
     placeholder: String = "Select",
     emptyMessage: String = "No options available.",
     enabled: Boolean = true,
+    /**
+     * The chosen options as removable chips under the trigger (default on) — the web's `showChips`.
+     * Turn off only where the screen already draws the selection beside the field.
+     */
+    showChips: Boolean = true,
     onSelectedChange: (Set<String>) -> Unit
 ) {
     var sheetOpen by remember { mutableStateOf(false) }
@@ -346,7 +351,7 @@ fun SearchableMultiSelectField(
                 enabled = enabled,
                 onClick = { sheetOpen = true }
             )
-            if (chosen.isNotEmpty()) {
+            if (showChips && chosen.isNotEmpty()) {
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),

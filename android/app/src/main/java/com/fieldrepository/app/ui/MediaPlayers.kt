@@ -33,7 +33,6 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.runtime.Composable
@@ -107,11 +106,16 @@ fun MediaViewerDialog(uri: Uri, mediaType: String, onSave: (() -> Unit)? = null,
                     modifier = Modifier.align(Alignment.Center)
                 )
             }
-            Row(modifier = Modifier.align(Alignment.TopEnd)) {
+            Row(
+                modifier = Modifier.align(Alignment.TopEnd),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 if (onSave != null) {
-                    IconButton(onClick = onSave) {
-                        Icon(Icons.Filled.Download, contentDescription = "Save to device", tint = Color.White)
-                    }
+                    // The shared tonal "Download" (MediaDownloads.MediaActionButton): icon AND word on
+                    // its own container, so it reads over a white photo as well as a dark one — the
+                    // bare white icon it replaces vanished against a light image (owner, 2026-10-17).
+                    MediaActionButton(action = MediaAction.DOWNLOAD, onClick = onSave)
                 }
                 IconButton(onClick = onDismiss) {
                     Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)

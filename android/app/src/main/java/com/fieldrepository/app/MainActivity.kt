@@ -91,6 +91,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import com.fieldrepository.app.ui.parseFieldDate
 import com.fieldrepository.app.ui.CalendarField
+import com.fieldrepository.app.ui.FieldDateRangeField
 import com.fieldrepository.app.ui.FieldIslandNav
 import com.fieldrepository.app.ui.NavGroup
 import com.fieldrepository.app.ui.visibleNavItems
@@ -358,9 +359,7 @@ import com.fieldrepository.app.ui.SurfaceCard
 import kotlinx.coroutines.launch
 import coil3.compose.AsyncImage
 import retrofit2.HttpException
-import android.app.DatePickerDialog
 import androidx.activity.compose.BackHandler
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DrawerValue
@@ -5123,87 +5122,6 @@ private fun ArtisanAadhaarField(
 }
 
 /**
- * A WALL OF CHECKBOXES OVER AN ARTISAN LIST — one row per artisan, painted straight into the form.
- *
- * ── ONE CALLER LEFT, AND IT IS NOT AN OVERSIGHT ─────────────────────────────────────────────────
- *
- * The WORKSHOP record form's "Linked artisans" box, and nothing else. The two callers that used to
- * sit beside it — the questionnaire capture form and the browse screen's interview filter — both
- * moved to [SearchableMultiSelectField] on 2026-09-16, because the owner asked for that by name:
- * *"the checkbox list should be replaced with multi-select dropdown for artisans over there as
- * well"*. `shared/questionnaire-form-contract.json` pins the capture form's control so it cannot
- * come back, and `QuestionnaireFormWiringTest` says the same thing where an Android change is made.
- *
- * SO WHY IS THIS STILL HERE. The owner's report was about the questionnaire page, and the workshop
- * form is a different screen with a materially different list: it is the roster a researcher is
- * ASSEMBLING for a workshop they are creating, seen all at once, ticked in bulk, from a list that is
- * short at the moment the workshop is being written. The wall's real cost — no summary line, so the
- * only way to see who is ticked is to scroll the form back over them — is what made it wrong in a
- * long capture form; it is the least bad thing about it in a short one. The dropdown is probably
- * still the better control there. That is a decision to take with the workshop form in front of you,
- * not one to take by extension from another screen's complaint, and it is deliberately NOT taken
- * here so that this commit means one thing.
- *
- * WHEN THAT LAST CALLER MOVES, DELETE THIS. There is no third control to write and nothing here that
- * [SearchableMultiSelectField] cannot draw better; the one thing to carry across is [emptyMessage],
- * which is the parameter below.
- */
-@Composable
-private fun ArtisanMultiSelectField(
-    label: String,
-    artisans: List<ArtisanDto>,
-    selectedIds: Set<String>,
-    /**
-     * WHAT AN EMPTY LIST MEANS, WHICH IS NOT ALWAYS "THERE ARE NO ARTISANS".
-     *
-     * The default is the sentence this control has always printed and is right for the caller that
-     * remains: the workshop form hands it a list it already holds, so an empty one really does mean
-     * the repository has nobody in it yet and the next thing to do really is to create an artisan.
-     *
-     * THE PARAMETER EXISTS FOR A CALLER THAT HAS SINCE LEFT, and the reasoning is what left with it —
-     * to [SearchableMultiSelectField]'s identically-named parameter, at the questionnaire form's
-     * artisan control. A list FETCHED PER WORKSHOP is empty in three more states — in flight, failed,
-     * and "this workshop has nobody yet" — in which that default is a claim about the repository
-     * built out of a claim about the network, and sends a researcher off to create a duplicate of an
-     * artisan who already exists. The browser prints the same four sentences off the same three facts
-     * (`frontend/app/(protected)/questionnaire/page.tsx`, the picker's `emptyLabel`).
-     *
-     * It is kept rather than removed with its last user because the next caller to fetch a scoped
-     * list needs it, and because a control whose only empty message is a hard-coded claim is how that
-     * defect happened the first time.
-     */
-    emptyMessage: String = "No artisans available yet. Create an artisan first.",
-    onToggle: (String) -> Unit
-) {
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("$label (${selectedIds.size} selected)", color = Muted, fontSize = 12.sp)
-        if (artisans.isEmpty()) {
-            Text(emptyMessage, color = Muted, fontSize = 12.sp)
-        } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(SurfaceCard, RoundedCornerShape(12.dp))
-                    .padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                artisans.forEach { artisan ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onToggle(artisan.id) }
-                    ) {
-                        Checkbox(checked = selectedIds.contains(artisan.id), onCheckedChange = { onToggle(artisan.id) })
-                        Text("${artisan.name} · ${artisan.place}", color = Body, fontSize = 13.sp)
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
  * Generic many-of-many over (id, label) options. Now a thin adapter over
  * [SearchableMultiSelectField], which trades the wall of checkboxes this used to paint into the
  * form for a summary trigger, the chosen rows as chips, and a searchable sheet with Select all.
@@ -5288,29 +5206,6 @@ private fun CheckboxMultiSelectField(
         enabled = enabled,
         onSelectedChange = onSelectedChange
     )
-}
-
-@Composable
-private fun DatePickerField(label: String, value: LocalDate?, onChange: (LocalDate) -> Unit) {
-    val context = LocalContext.current
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, color = Muted, fontSize = 12.sp)
-        OutlinedButton(
-            onClick = {
-                val initial = value ?: LocalDate.now()
-                DatePickerDialog(
-                    context,
-                    { _, year, month, day -> onChange(LocalDate.of(year, month + 1, day)) },
-                    initial.year,
-                    initial.monthValue - 1,
-                    initial.dayOfMonth
-                ).show()
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(value?.toString() ?: "Pick date")
-        }
-    }
 }
 
 private enum class RecPhase { IDLE, RECORDING, PAUSED, RECORDED }
@@ -7324,26 +7219,26 @@ private fun WorkshopForm(
         RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
         // Web parity (components/forms/DateRangeField): the two dates are one answer — how long the
         // workshop ran — and they are labelled as one before being split into start and end.
-        Text("Workshop duration", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Box(modifier = Modifier.weight(1f)) {
-                DatePickerField("Start date", startDate) { picked ->
-                    startDate = picked
-                    if (endDate == null || endDate!!.isBefore(picked)) endDate = picked
-                }
+        // CalendarField's range form (ui/DateTimeFields.FieldDateRangeField): typed dd/mm/yyyy boxes
+        // and one themed range calendar, never the platform DatePickerDialog (owner, 2026-10-17).
+        FieldDateRangeField(
+            label = "Workshop duration",
+            start = startDate,
+            end = endDate,
+            onRangeChange = { from, to ->
+                startDate = from
+                endDate = to
             }
-            Box(modifier = Modifier.weight(1f)) {
-                DatePickerField("End date", endDate) { endDate = it }
-            }
-        }
+        )
         StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
         // `Workshop.description` — the narrative of what happened at the workshop, and the field a
         // reader of the record is actually looking for. Both controls.
         TextInput("Description", description, minLines = 3, dictate = dictates("description"), rich = true) { description = it }
         MultiNoteInput(value = notes, dictate = dictates("notes")) { notes = it }
-        ArtisanMultiSelectField(
+        CheckboxMultiSelectField(
             label = "Linked artisans",
-            artisans = artisans,
+            emptyMessage = "No artisans available yet. Create an artisan first.",
+            options = artisans.map { it.id to "${it.name} · ${it.place}" },
             selectedIds = selectedArtisans
         ) { id ->
             selectedArtisans = if (selectedArtisans.contains(id)) selectedArtisans - id else selectedArtisans + id
@@ -8568,9 +8463,9 @@ private fun ToolForm(
         // name stops writing into it. There is no re-arming gesture and there must not be one.
         TextInput("English name", englishName, titleCased = true, dictate = dictates("englishName")) { englishName = it; mirrorArmed = false }
         // A MANY-OF-MANY SINCE 2026-09-15 — one documented toolkit can belong to several crafts.
-        // `CheckboxMultiSelectField` and never `ArtisanMultiSelectField`: the latter paints an
-        // unsearchable wall of checkboxes straight into the form, with no summary line and no cap
-        // notice, and a craft register runs to the hundreds. This one is a summary trigger, the
+        // `CheckboxMultiSelectField`, never a wall of checkboxes painted straight into the form (the
+        // old `ArtisanMultiSelectField`, removed 2026-10-17 when the workshop form, its last caller,
+        // moved): a craft register runs to the hundreds. This one is a summary trigger, the
         // chosen rows as chips, and a searchable sheet with Select all.
         //
         // `craftOptions`, not `crafts`: the page is 100 rows of a NAME-ordered list, so a craft whose
@@ -14260,7 +14155,7 @@ private fun QuestionnaireForm(
 
           The owner asked for this one by name: *"the checkbox list should be replaced with
           multi-select dropdown for artisans over there as well"*. What stood here was
-          [ArtisanMultiSelectField], which paints a Column of checkboxes -- every artisan at the
+          `ArtisanMultiSelectField` (since removed, 2026-10-17), which painted a Column of checkboxes -- every artisan at the
           workshop, one row each, straight into a form that is already long. It has no summary line,
           so the only way to see who is ticked is to scroll the form back over them, and no room for
           a Select-all row without pushing the next field further down.

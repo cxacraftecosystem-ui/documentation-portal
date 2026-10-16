@@ -9,13 +9,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -72,7 +68,6 @@ fun AddPersonCard(
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var role by remember(roles) { mutableStateOf(defaultNewRole(roles)) }
-    var rolesOpen by remember { mutableStateOf(false) }
     var mode by remember { mutableStateOf(PasswordMode.SET) }
     var password by remember { mutableStateOf("") }
     var reveal by remember { mutableStateOf(false) }
@@ -146,19 +141,15 @@ fun AddPersonCard(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                 modifier = Modifier.fillMaxWidth()
             )
-            Column {
-                OutlinedButton(onClick = { rolesOpen = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text(role?.let { "Role: ${FieldPermissions.label(it)}" } ?: "Choose a role")
-                }
-                DropdownMenu(expanded = rolesOpen, onDismissRequest = { rolesOpen = false }) {
-                    roles.forEach { option ->
-                        DropdownMenuItem(
-                            text = { Text(FieldPermissions.label(option)) },
-                            onClick = { role = option; rolesOpen = false }
-                        )
-                    }
-                }
-            }
+            // The shared one-of-many (SearchableSelect.SearchableSelectField), never a bare menu.
+            SearchableSelectField(
+                label = "Role",
+                options = roles.map { SelectOption(it, FieldPermissions.label(it)) },
+                selectedValue = role.orEmpty(),
+                placeholder = "Choose a role",
+                includeNone = false,
+                onSelect = { picked -> role = picked.ifBlank { null } }
+            )
             Text(ADD_PERSON_SIGN_IN_QUESTION, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
             listOf(
                 PasswordMode.SET to ADD_PERSON_MODE_SET,

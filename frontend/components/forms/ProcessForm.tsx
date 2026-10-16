@@ -292,7 +292,7 @@ function MultiNoteInput({ label, value, onChange }: { label: string; value: stri
  *
  *  - **Workshop, Artisan, Product, Status** — record pickers and a closed vocabulary. The artisan is
  *    the one that decides which product list appears, so it is chosen from a list and never typed.
- *  - **Pre-processes available / Record additional information** — checkboxes. A recogniser answers a
+ *  - **Pre-processes available / Record additional information** — switches. A recogniser answers a
  *    yes/no question with a sentence.
  *  - **Pre-process media, per-step media** — file pickers.
  *

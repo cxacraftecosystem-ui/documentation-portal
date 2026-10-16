@@ -239,10 +239,11 @@ export function MediaLightbox({ item, onClose }: { item: PreviewMedia; onClose: 
           </div>
           <div className="flex items-center gap-2">
             {item.url ? (
-              <button type="button" className="field-button-secondary" onClick={() => void downloadUploadedMedia(item.url as string, item.name, item.mimeType)}>
-                <Download className="h-4 w-4" aria-hidden />
-                Save
-              </button>
+              <MediaActionButton
+                kind="download"
+                label={`Download ${item.name}`}
+                onClick={() => void downloadUploadedMedia(item.url as string, item.name, item.mimeType)}
+              />
             ) : null}
             {item.url ? (
               <a className="field-button-secondary" href={item.url} target="_blank" rel="noreferrer">

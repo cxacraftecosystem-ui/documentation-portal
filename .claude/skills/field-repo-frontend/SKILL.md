@@ -989,6 +989,29 @@ setting, no native date input, and no single-box code input — anywhere.**
 | A date | `CalendarField` (`CalendarField.tsx`) | `CalendarField` (`DateTimeFields.kt`) |
 | A 6-digit code | `OtpCodeInput` (`OtpCodeInput.tsx`, rules in `lib/otp.ts`) | `OtpCodeField` (`OtpCode.kt`, rules in `OtpCode`) |
 
+**What is NOT one of these, on purpose** (swept 2026-10-17; leave them alone):
+
+- **A choice of five or fewer, each with a sentence under it** — sign-in method, password mode,
+  transcription mode, theme, share scope — stays a radio group of cards. The rule for lists is
+  "more than five options → `SearchableSelect`"; a card group shows every answer and its reason at
+  once, which a closed dropdown cannot.
+- **Selecting rows to act on** (the review queue's bulk tick boxes, "Select every record on this
+  page") stays a checkbox: that is a selection, not a setting.
+- **Chip rows and segmented buttons** (`aria-pressed`) that filter or move a view — search type
+  chips, task status filters, map detail, trace views and frame presets — are commands, not fields.
+- **A date RANGE** is `DateRangeField` (web) / `FieldDateRangeField` (Android): two typed
+  `CalendarField`-style boxes over one range calendar. The workshop form on Android used the
+  platform `DatePickerDialog` until 2026-10-17; it now uses `FieldDateRangeField`.
+- **Times** (`TimeField`, the Android `TimePickerField`) are not dates and keep their own picker.
+
+Every list of people or records that used to be a wall of checkboxes is now `SearchableMultiSelect`
+(web: grant-admin users, workshop assignees, records to share, search Record types; Android: the
+workshop form's Linked artisans — `ArtisanMultiSelectField` is deleted — search Record types, and
+every Task-builder picker). Android's hand-rolled `DropdownMenu`/`ExposedDropdownMenuBox` pickers
+(Add person's Role, My AI keys' Model, search filters, Task-builder single selects) are
+`SearchableSelectField`. Android's full-screen media viewer saves through the tonal
+`MediaActionButton` Download, not a bare white icon.
+
 #### Toggle / AppToggle — every on/off setting
 
 - **When:** anything a person turns on or off — a preference, a permission grant, "Active", "E-mail

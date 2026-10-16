@@ -30,6 +30,7 @@ import { recordViewHref } from "@/lib/recordView";
 import { StatusBadge, statusLabel } from "@/components/StatusBadge";
 import { WorkshopMappingPanel } from "@/components/settings/WorkshopMappingPanel";
 import { MultiSelectDropdown } from "@/components/ui/Dropdown";
+import { SearchableMultiSelect } from "@/components/ui/SearchableSelect";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { useAdminView } from "@/components/AdminViewProvider";
@@ -235,15 +236,6 @@ function WorkshopsPageBody() {
     } finally {
       setAssignBusy(false);
     }
-  }
-
-  function toggleAssign(id: string) {
-    setAssignIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
   }
 
   async function load() {
@@ -823,19 +815,19 @@ function WorkshopsPageBody() {
               Only assigned researchers can create entries for <span className="font-medium">{assigning.title}</span>. Submissions outside the
               workshop dates are flagged for admin approval. Leave empty to keep the workshop open to everyone.
             </p>
-            <div className="mt-3 grid max-h-72 gap-1 overflow-y-auto rounded-md border border-line-200 bg-field-50 p-2">
+            <div className="mt-3">
               {researchers.length === 0 ? (
                 <p className="px-2 py-1 text-sm text-ink-muted">No users to assign.</p>
               ) : (
-                researchers.map((r) => (
-                  <label key={r.id} className="flex items-center gap-2 rounded px-2 py-1 hover:bg-field-100">
-                    <input type="checkbox" checked={assignIds.has(r.id)} onChange={() => toggleAssign(r.id)} />
-                    <span className="min-w-0 flex-1 truncate text-sm text-ink">
-                      {r.name} <span className="text-ink-muted">· {r.email}</span>
-                    </span>
-                    <span className="rounded-full bg-field-200 px-2 py-0.5 text-xs text-ink-muted">{r.role}</span>
-                  </label>
-                ))
+                <SearchableMultiSelect
+                  values={Array.from(assignIds)}
+                  onChange={(next) => setAssignIds(new Set(next))}
+                  options={researchers.map((r) => ({ value: r.id, label: `${r.name} · ${r.email} · ${r.role}` }))}
+                  placeholder="Open to everyone"
+                  ariaLabel="Researchers to assign"
+                  confirmOnSelect={false}
+                  searchable
+                />
               )}
             </div>
             <div className="mt-4 flex justify-end gap-2">

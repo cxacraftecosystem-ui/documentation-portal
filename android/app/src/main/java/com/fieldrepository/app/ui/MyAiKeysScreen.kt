@@ -18,11 +18,8 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -213,7 +210,6 @@ private fun ProviderKeyCard(
 ) {
     var typedKey by remember(state.provider) { mutableStateOf("") }
     var chosenModel by remember(state.provider, state.model) { mutableStateOf(state.model) }
-    var modelMenuOpen by remember { mutableStateOf(false) }
     var howToOpen by remember { mutableStateOf(false) }
 
     val chosen = provider.models.firstOrNull { it.id == chosenModel }
@@ -293,40 +289,22 @@ private fun ProviderKeyCard(
             )
 
             Spacer(Modifier.height(12.dp))
-            ExposedDropdownMenuBox(
-                expanded = modelMenuOpen,
-                onExpandedChange = { modelMenuOpen = it }
-            ) {
-                OutlinedTextField(
-                    value = chosen?.label ?: chosenModel,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Model") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(modelMenuOpen) },
-                    modifier = Modifier.fillMaxWidth().menuAnchor(
-                        androidx.compose.material3.MenuAnchorType.PrimaryNotEditable, true
+            // The shared one-of-many (SearchableSelect.SearchableSelectField), never a hand-rolled
+            // ExposedDropdownMenuBox (owner, 2026-10-17). A saved model this app no longer offers is
+            // still named in the trigger, through the placeholder, until another is picked.
+            SearchableSelectField(
+                label = "Model",
+                options = provider.models.map { model ->
+                    SelectOption(
+                        model.id,
+                        model.label + if (model.id == provider.defaultModel) " (recommended)" else ""
                     )
-                )
-                ExposedDropdownMenu(
-                    expanded = modelMenuOpen,
-                    onDismissRequest = { modelMenuOpen = false }
-                ) {
-                    provider.models.forEach { model ->
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    model.label +
-                                        if (model.id == provider.defaultModel) " (recommended)" else ""
-                                )
-                            },
-                            onClick = {
-                                chosenModel = model.id
-                                modelMenuOpen = false
-                            }
-                        )
-                    }
-                }
-            }
+                },
+                selectedValue = chosenModel,
+                placeholder = chosenModel.ifBlank { "Choose a model" },
+                includeNone = false,
+                onSelect = { chosenModel = it }
+            )
 
             if (chosen != null) {
                 Spacer(Modifier.height(6.dp))

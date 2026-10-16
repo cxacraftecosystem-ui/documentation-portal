@@ -26,9 +26,6 @@ import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -1042,13 +1039,6 @@ internal fun SearchFilterBar(
         scope.launch { sheetState.hide() }.invokeOnCompletion { if (!sheetState.isVisible) open = false }
     }
 
-    fun toggleType(recordType: String) {
-        val next = if (recordType in value.types) value.types - recordType else value.types + recordType
-        // Stored in bucket order so the state reads the same as the row of chips above it, whatever
-        // order the ticks went in. `bucketTypes()` re-derives it anyway; this keeps the state honest.
-        onChange(value.copy(types = SearchRecordTypes.ALL.filter { it in next }.toSet()))
-    }
-
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             SearchChip(
@@ -1155,35 +1145,25 @@ internal fun SearchFilterBar(
                     }
                 }
 
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        "Record types",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        "The same setting as the chips above. Tick any number; nothing ticked " +
-                            "searches everything.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                SearchRecordTypes.ALL.forEach { recordType ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(MaterialTheme.shapes.small)
-                            .clickable { toggleType(recordType) }
-                    ) {
-                        Checkbox(checked = recordType in value.types, onCheckedChange = { toggleType(recordType) })
-                        Text(
-                            SearchRecordTypes.label(recordType),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.field.body
-                        )
+                // The shared many-of-many (ui/SearchableSelect.SearchableMultiSelectField), never a
+                // column of checkboxes — the web's Record types control is the same multi-select.
+                SearchableMultiSelectField(
+                    label = "Record types",
+                    options = SearchRecordTypes.ALL.map { SelectOption(it, SearchRecordTypes.label(it)) },
+                    selected = value.types,
+                    placeholder = "Everything",
+                    onSelectedChange = { next ->
+                        // Stored in bucket order so the state reads the same as the row of chips
+                        // above it, whatever order the choices went in.
+                        onChange(value.copy(types = SearchRecordTypes.ALL.filter { it in next }.toSet()))
                     }
-                }
+                )
+                Text(
+                    "The same setting as the chips above. Pick any number; nothing picked " +
+                        "searches everything.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
 
                 extraFilters?.invoke(this)
 
@@ -1362,53 +1342,16 @@ private fun SearchDropdownField(
     /** False when "no filter" is already one of [options], so the list does not offer it twice. */
     allowNone: Boolean = true
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    val selectedLabel = options.firstOrNull { it.first == selectedValue }?.second
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Box(modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    selectedLabel ?: placeholder,
-                    color = if (selectedLabel != null) MaterialTheme.field.body else MaterialTheme.field.placeholder,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                Text("▾", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
-                modifier = Modifier.background(MaterialTheme.colorScheme.surface)
-            ) {
-                if (allowNone) {
-                    DropdownMenuItem(
-                        text = { Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                        trailingIcon = {
-                            if (selectedValue.isBlank()) Text("✓", color = MaterialTheme.colorScheme.primary)
-                        },
-                        onClick = { onSelect(""); expanded = false }
-                    )
-                }
-                options.forEach { (value, text) ->
-                    val isSelected = value == selectedValue
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                text,
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.field.body,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        },
-                        trailingIcon = { if (isSelected) Text("✓", color = MaterialTheme.colorScheme.primary) },
-                        onClick = { onSelect(value); expanded = false }
-                    )
-                }
-            }
-        }
-    }
+    // The shared one-of-many (SearchableSelect.SearchableSelectField): the anchored menu under 8
+    // options, the searchable sheet at 8 and over — never a hand-rolled DropdownMenu.
+    SearchableSelectField(
+        label = label,
+        options = remember(options) { options.asSelectOptions() },
+        selectedValue = selectedValue,
+        placeholder = placeholder,
+        includeNone = allowNone,
+        onSelect = onSelect
+    )
 }
 
 // ---------------------------------------------------------------------------------------------
