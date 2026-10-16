@@ -131,6 +131,25 @@ def test_the_account_says_whether_it_has_a_password_and_never_the_hash(monkeypat
     assert "passwordHash" not in with_password and "passwordHash" not in google
 
 
+def test_one_account_reads_as_its_list_row_and_only_for_the_list_s_readers(monkeypatch) -> None:
+    """``GET /users/{id}`` backs the read-only view of a person: the list's gate, the list's shape."""
+    _fake(
+        monkeypatch,
+        [_account("prof@example.org", "PROFESSOR"), _account("r@example.org"), _account("v@example.org", "CROWDSOURCE_VOLUNTEER")],
+        _admitted("prof@example.org", "r@example.org", "v@example.org"),
+    )
+    prof = _session("id-prof@example.org")
+    one = _call("GET", "/api/users/id-r@example.org", token=prof)
+    assert one.status_code == 200, one.text
+    listed = next(row for row in _call("GET", "/api/users", token=prof).json()["items"] if row["id"] == "id-r@example.org")
+    assert one.json() == listed
+    assert "passwordHash" not in one.json()
+    assert _call("GET", "/api/users/no-such-id", token=prof).status_code == 404
+    assert _call("GET", "/api/users/id-prof@example.org", token=_session("id-r@example.org")).status_code == 403
+    # "/directory" is still the directory, not an account called "directory".
+    assert isinstance(_call("GET", "/api/users/directory", token=_session("id-v@example.org")).json(), list)
+
+
 # --- administrator password links ----------------------------------------------------------------
 
 

@@ -4,6 +4,7 @@
  */
 
 import type { RecordType } from "@/components/search/SearchFilters";
+import { recordViewHref } from "@/lib/recordView";
 
 /**
  * How far a drawn point may be from what the record actually meant.
@@ -207,20 +208,17 @@ export type PointRecordsResponse = {
 };
 
 /**
- * Where a record of each type is opened. The SAME destinations the search results use, so a pin and
- * a search hit for one record never lead to two different places.
- *
- * Workshops are edited INLINE on the workshops list rather than at a `/[id]/edit` route, so the id
- * travels as `?edit=` instead of as a path segment — `useEditDeepLink` on that page reads it and
- * loads the record. It used to be a bare `/workshops`, which discarded the id this signature
- * declares and landed every pin's workshop on a blank create form. Media genuinely has no
- * per-record route, so it alone still lands on its list page.
+ * Where a record of each type is opened. The SAME destinations the search results and the list rows
+ * use — the record's read-only view (`lib/recordView.ts`) — so a pin and a search hit for one record
+ * never lead to two different places, and neither drops the reader straight into an edit form. The
+ * view carries the Update button. Media genuinely has no per-record view, so it alone still lands on
+ * its list page.
  */
 export const RECORD_HREF: Record<RecordType, (id: string) => string> = {
-  artisans: (id) => `/artisans/${id}/edit`,
-  products: (id) => `/products/${id}/edit`,
-  tools: (id) => `/tools/${id}/edit`,
-  workshops: (id) => `/workshops?edit=${id}`,
+  artisans: (id) => recordViewHref("artisan", id)!,
+  products: (id) => recordViewHref("product", id)!,
+  tools: (id) => recordViewHref("tool", id)!,
+  workshops: (id) => recordViewHref("workshop", id)!,
   media: () => "/media"
 };
 

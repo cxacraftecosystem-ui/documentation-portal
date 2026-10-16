@@ -181,9 +181,11 @@ test("the answers are seeded by question id, not by position", () => {
   expect(CODE).toMatch(/\(interview\.artisans \?\? \[\]\)\.map\(\(link\) => link\.artisan\?\.id\)/);
 });
 
-test("the browse table offers Edit, and it is the same ?edit= navigation as everywhere else", () => {
-  expect(CODE).toMatch(/href=\{`\/questionnaire\?edit=\$\{interview\.id\}`\}/);
-  // Delete stays behind adminMode; Edit does not, because the server decides who may write.
+test("the browse table offers Update, and it is the same ?edit= navigation as everywhere else", () => {
+  // Through `recordUpdateHref`, whose questionnaire arm is `/questionnaire?edit=<id>` — pinned in
+  // `record-view-unit.spec.ts`. The row itself opens the interview's read-only view.
+  expect(CODE).toMatch(/href=\{recordUpdateHref\("questionnaire", interview\.id\)!\}/);
+  // Delete stays behind adminMode; Update does not, because the server decides who may write.
   expect(CODE).toMatch(/\{adminMode \? \(\s*<button className=\{rowAction\("danger"\)\}/);
 });
 

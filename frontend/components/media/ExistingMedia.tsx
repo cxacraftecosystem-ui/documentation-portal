@@ -21,11 +21,17 @@ const IN_FLIGHT_TRANSCRIPT = new Set(["QUEUED", "PROCESSING", "PENDING", "RUNNIN
 export function ExistingMedia({
   linkedRecordType,
   linkedRecordId,
-  title = "Previously uploaded media"
+  title = "Previously uploaded media",
+  readOnly = false
 }: {
   linkedRecordType: string;
   linkedRecordId: string;
   title?: string;
+  /**
+   * A record's read-only VIEW mounts this too, and there nothing may change: no ✕ on a file and no
+   * sentence offering one. Previews, the lightbox and its Download button all stay.
+   */
+  readOnly?: boolean;
 }) {
   const [items, setItems] = useState<MediaFile[] | null>(null);
   const [active, setActive] = useState<PreviewMedia | null>(null);
@@ -92,7 +98,8 @@ export function ExistingMedia({
       <div>
         <h3 className="font-display font-bold text-lg text-ink">{title}</h3>
         <p className="mt-1 text-sm text-ink-muted">
-          {items.length} file{items.length === 1 ? "" : "s"} already attached. Audio transcripts appear once processing finishes. Use the ✕ on a file to remove it.
+          {items.length} file{items.length === 1 ? "" : "s"} attached. Audio transcripts appear once processing finishes.
+          {readOnly ? " Open a file to see it full size or download it." : " Use the ✕ on a file to remove it."}
         </p>
         {error ? <p className="mt-1 text-sm text-red-700">{error}</p> : null}
       </div>
@@ -116,7 +123,7 @@ export function ExistingMedia({
               <MediaPreviewTile
                 item={preview}
                 onOpen={() => setActive(preview)}
-                onRemove={removingId === media.id ? undefined : () => removeMedia(media)}
+                onRemove={readOnly || removingId === media.id ? undefined : () => removeMedia(media)}
                 removeLabel="Remove"
               />
               <div className="min-w-0">

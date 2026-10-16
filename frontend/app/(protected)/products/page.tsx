@@ -19,6 +19,9 @@ import { RowActions, rowAction } from "@/components/RowActions";
 import { SearchInput } from "@/components/SearchInput";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useAdminView } from "@/components/AdminViewProvider";
+import { useListReturn } from "@/components/hooks/useListReturn";
+import { OpenableRow, RecordTitleLink } from "@/components/records/OpenableRow";
+import { recordUpdateHref, recordViewHref } from "@/lib/recordView";
 import { apiFetch, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import type { PageResult, ProductDocumentation } from "@/lib/types";
@@ -77,9 +80,33 @@ export default function ProductsPage() {
     return () => clearTimeout(timer);
   }, [query]);
 
+  /*
+   * BACK FROM A RECORD PUTS THE LIST BACK AS IT WAS. A row click opens the product's read-only view,
+   * so the search, page, funnel and scroll position are written down as it opens (`rememberPlace`)
+   * and restored here on the way back — see `lib/listReturn.ts` and the artisans list, which carries
+   * the same block.
+   */
+  const listReturn = useListReturn("products");
+  const restoredPage = useRef<number | null>(null);
+  useEffect(() => {
+    const note = listReturn.restored;
+    if (!note) return;
+    if (note.query) {
+      skipFirstDebounce.current = true;
+      setQuery(note.query);
+      setApplied(note.query);
+    }
+    restoredPage.current = note.page;
+    setPage(note.page);
+  }, [listReturn.restored]);
+  const restoreListScroll = listReturn.restoreScroll;
+  useEffect(() => restoreListScroll(Boolean(data)), [data, restoreListScroll]);
+  const rememberPlace = () => listReturn.remember({ query: applied, page, funnel });
+
   function onFunnelChange(next: FunnelValue, _workshop: FunnelWorkshop | null) {
     setFunnel(next);
-    setPage(1);
+    setPage(restoredPage.current ?? 1);
+    restoredPage.current = null;
     setFunnelReady(true);
   }
 
@@ -132,7 +159,7 @@ export default function ProductsPage() {
           placeholder="Search product, craft, artisan, place, materials or remarks"
         />
       </div>
-      <FunnelFilters value={funnel} onChange={onFunnelChange} showArtisan />
+      <FunnelFilters value={funnel} onChange={onFunnelChange} showArtisan restore={listReturn.restoredFunnel} />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       <section className="panel overflow-hidden">
         {!data ? (
@@ -159,9 +186,11 @@ export default function ProductsPage() {
               </thead>
               <tbody className="divide-y divide-line-200">
                 {data.items.map((product) => (
-                  <tr key={product.id}>
+                  <OpenableRow key={product.id} href={recordViewHref("product", product.id)!} onOpen={rememberPlace}>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-ink-900">{product.productName}</div>
+                      <RecordTitleLink href={recordViewHref("product", product.id)!} onOpen={rememberPlace}>
+                        {product.productName}
+                      </RecordTitleLink>
                       <div className="text-xs text-ink-500">{product.localName ?? product.productType}</div>
                     </td>
                     <td className="px-4 py-3 text-ink-700">{product.craftName}</td>
@@ -199,8 +228,8 @@ export default function ProductsPage() {
                     <td className="px-4 py-3 text-ink-700">{formatDate(product.createdAt)}</td>
                     <td className="px-4 py-3 text-right">
                       <RowActions>
-                        <Link className={rowAction("edit")} href={`/products/${product.id}/edit`}>
-                          Edit
+                        <Link className={rowAction("edit")} href={recordUpdateHref("product", product.id)!} onClick={rememberPlace}>
+                          Update
                         </Link>
                         <button className={rowAction("neutral")} onClick={() => setCollabId(product.id)}>
                           Discuss
@@ -212,7 +241,7 @@ export default function ProductsPage() {
                         ) : null}
                       </RowActions>
                     </td>
-                  </tr>
+                  </OpenableRow>
                 ))}
               </tbody>
             </table>

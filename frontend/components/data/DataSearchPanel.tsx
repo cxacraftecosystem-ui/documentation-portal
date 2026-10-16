@@ -28,7 +28,9 @@ import {
   typeVisible,
   type SearchFilters
 } from "@/components/search/SearchFilters";
+import { OpenableBlock } from "@/components/records/OpenableRow";
 import { apiFetch, buildQuery } from "@/lib/api";
+import { recordViewHref } from "@/lib/recordView";
 import type { Artisan, MediaFile, ProductDocumentation, ToolDocumentation, Workshop } from "@/lib/types";
 
 type SearchResult = {
@@ -71,7 +73,7 @@ function rowsFrom(result: SearchResult, filters: SearchFilters): Row[] {
       kind: "Artisan",
       title: a.name,
       subtitle: [a.craft?.name, a.place].filter(Boolean).join(" · "),
-      href: `/artisans/${a.id}/edit`,
+      href: recordViewHref("artisan", a.id),
       locate: { type: "artisan", id: a.id }
     });
   }
@@ -81,7 +83,7 @@ function rowsFrom(result: SearchResult, filters: SearchFilters): Row[] {
       kind: "Product",
       title: p.productName,
       subtitle: p.artisanName ?? "",
-      href: `/products/${p.id}/edit`,
+      href: recordViewHref("product", p.id),
       locate: { type: "product", id: p.id }
     });
   }
@@ -91,7 +93,7 @@ function rowsFrom(result: SearchResult, filters: SearchFilters): Row[] {
       kind: "Tool",
       title: t.toolkitName,
       subtitle: t.artisanName ?? "",
-      href: `/tools/${t.id}/edit`,
+      href: recordViewHref("tool", t.id),
       locate: { type: "tool", id: t.id }
     });
   }
@@ -101,10 +103,9 @@ function rowsFrom(result: SearchResult, filters: SearchFilters): Row[] {
       kind: "Workshop",
       title: w.title,
       subtitle: [w.place, w.date ? new Date(w.date).toLocaleDateString() : ""].filter(Boolean).join(" · "),
-      // The id has to travel: a workshop is edited inline on its list page, so `?edit=` is its
-      // equivalent of the `/[id]/edit` route the other record types have. A bare "/workshops" here
-      // opened the blank create form, even though `locate` on the next line proves the id was known.
-      href: `/workshops?edit=${w.id}`,
+      // The workshop's read-only view, like every other record here — the id travels (a bare
+      // "/workshops" once opened the blank create form although `locate` proves the id was known).
+      href: recordViewHref("workshop", w.id),
       locate: { type: "workshop", id: w.id }
     });
   }
@@ -269,10 +270,10 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
         <>
           <ul className="grid gap-1.5">
             {rows.map((row) => (
-              <li
-                key={row.key}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-line-200 bg-surface-50 px-3 py-2"
-              >
+              <li key={row.key}>
+                {/* The whole row opens the record (its read-only view, or the file); "Show in
+                    folders" and the title link keep their own clicks. */}
+                <RowSurface href={row.href} external={row.external}>
                 <div className="flex min-w-0 items-center gap-2">
                   <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${KIND_CLASS[row.kind]}`}>
                     {row.kind}
@@ -308,6 +309,7 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
                     )
                   ) : null}
                 </div>
+                </RowSurface>
               </li>
             ))}
           </ul>
@@ -327,5 +329,16 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
         </>
       ) : null}
     </section>
+  );
+}
+
+const ROW_CLASS = "flex flex-wrap items-center justify-between gap-2 rounded-md border border-line-200 bg-surface-50 px-3 py-2";
+
+function RowSurface({ href, external, children }: { href: string | null; external?: boolean; children: React.ReactNode }) {
+  if (!href) return <div className={ROW_CLASS}>{children}</div>;
+  return (
+    <OpenableBlock href={href} external={external} className={ROW_CLASS}>
+      {children}
+    </OpenableBlock>
   );
 }

@@ -56,6 +56,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.data.ArtisanDto
 import com.fieldrepository.app.data.CraftDto
@@ -908,7 +909,9 @@ internal fun SearchResultRow(row: SearchRow, onOpen: () -> Unit) {
             .fillMaxWidth()
             .background(MaterialTheme.field.surface50, MaterialTheme.shapes.medium)
             .border(1.dp, MaterialTheme.field.hairline, MaterialTheme.shapes.medium)
-            .clickable(onClick = onOpen)
+            // The whole row opens the record read-only; the ripple keeps to the row's own corners.
+            .clip(MaterialTheme.shapes.medium)
+            .clickable(role = Role.Button, onClickLabel = "Open ${row.title}", onClick = onOpen)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {

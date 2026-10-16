@@ -6,7 +6,9 @@ import { useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
 
 import { EmptyState } from "@/components/EmptyState";
+import { useAuth } from "@/components/AuthProvider";
 import { PageHeader } from "@/components/PageHeader";
+import { OpenableBlock } from "@/components/records/OpenableRow";
 import { RowActions, rowAction } from "@/components/RowActions";
 import {
   EMPTY_SEARCH_FILTERS,
@@ -27,6 +29,7 @@ import {
 } from "@/components/WorkshopScopeSelect";
 import { apiFetch, buildQuery } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import { canUpdateRecord, recordUpdateHref, recordViewHref } from "@/lib/recordView";
 import type { Artisan, MediaFile, ProductDocumentation, ToolDocumentation, Workshop } from "@/lib/types";
 
 type SearchResult = {
@@ -44,10 +47,10 @@ type SearchResult = {
 };
 
 /**
- * One row in a result bucket. `href` is the SAME destination the matching list page uses, so a hit
- * here opens the record instead of dead-ending: artisans, products and tools have `[id]/edit`
- * routes; workshops are edited inline on the workshops list, and a media file opens the object
- * itself (`external`), because neither has a per-record route to link to.
+ * One row in a result bucket. `href` is where a click on the row goes — the SAME destination the
+ * matching list page's row opens, which is the record's read-only view (`lib/recordView.ts`); a
+ * media file opens the object itself (`external`), because it has no view of its own. Editing is
+ * the separate "Update" button (`updateHref`).
  */
 type ResultItem = {
   id: string;
@@ -60,6 +63,11 @@ type ResultItem = {
   external?: boolean;
   /** Row-action label; defaults to "Open". */
   actionLabel?: string;
+  /**
+   * The record's edit form, for the "Update" button — present only for a record type that has a
+   * read-only view (which is then `href`) and for an account the server would let save it.
+   */
+  updateHref?: string | null;
 };
 
 /**
@@ -72,6 +80,7 @@ const PAGE_SIZE = 20;
 type AppliedFilters = { q: string; filters: SearchFilters };
 
 export default function SearchPage() {
+  const { user } = useAuth();
   /**
    * The URL SEEDS the filters, it does not own them.
    *
@@ -324,7 +333,8 @@ export default function SearchPage() {
               subtitle: [item.place, item.craft?.name].filter(Boolean).join(" · "),
               status: item.status,
               date: item.createdAt,
-              href: `/artisans/${item.id}/edit`
+              href: recordViewHref("artisan", item.id)!,
+              updateHref: canUpdateRecord(user, "artisan") ? recordUpdateHref("artisan", item.id) : null
             }))}
           />
           ) : null}
@@ -337,11 +347,10 @@ export default function SearchPage() {
               subtitle: item.place,
               status: item.status,
               date: item.date,
-              // Workshops are created and edited inline on their list page — there is no
-              // /workshops/[id] — so the id travels as `?edit=`, which that page reads via
-              // `useEditDeepLink`. Linking to the bare list dropped the id and opened a create form.
-              href: `/workshops?edit=${item.id}`,
-              actionLabel: "Open in Workshops"
+              // The workshop's read-only view; "Update" carries the id to the inline form as `?edit=`
+              // (`useEditDeepLink`). Linking to the bare list once dropped the id and opened a create form.
+              href: recordViewHref("workshop", item.id)!,
+              updateHref: canUpdateRecord(user, "workshop") ? recordUpdateHref("workshop", item.id) : null
             }))}
           />
           ) : null}
@@ -354,7 +363,8 @@ export default function SearchPage() {
               subtitle: `${item.craftName} · ${item.artisanName} · ${item.place}`,
               status: item.status,
               date: item.createdAt,
-              href: `/products/${item.id}/edit`
+              href: recordViewHref("product", item.id)!,
+              updateHref: canUpdateRecord(user, "product") ? recordUpdateHref("product", item.id) : null
             }))}
           />
           ) : null}
@@ -367,7 +377,8 @@ export default function SearchPage() {
               subtitle: `${item.craftName} · ${item.artisanName} · ${item.place}`,
               status: item.status,
               date: item.createdAt,
-              href: `/tools/${item.id}/edit`
+              href: recordViewHref("tool", item.id)!,
+              updateHref: canUpdateRecord(user, "tool") ? recordUpdateHref("tool", item.id) : null
             }))}
           />
           ) : null}
@@ -420,7 +431,13 @@ function ResultSection({ title, items }: { title: string; items: ResultItem[] })
       </div>
       <div className="divide-y divide-line-200">
         {items.map((item) => (
-          <div key={item.id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          // The whole result opens the record (its read-only view, or the file); the title is the link.
+          <OpenableBlock
+            key={item.id}
+            href={item.href}
+            external={item.external}
+            className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+          >
             <div className="min-w-0">
               <ResultLink item={item} className="font-medium text-ink-900 hover:text-purple-700 hover:underline">
                 {item.title}
@@ -431,12 +448,18 @@ function ResultSection({ title, items }: { title: string; items: ResultItem[] })
               <StatusBadge status={item.status} />
               <span className="text-sm text-ink-700">{formatDateTime(item.date)}</span>
               <RowActions>
-                <ResultLink item={item} className={rowAction("edit")}>
-                  {item.actionLabel ?? "Open"}
-                </ResultLink>
+                {item.updateHref ? (
+                  <Link className={rowAction("edit")} href={item.updateHref}>
+                    Update
+                  </Link>
+                ) : item.external || item.actionLabel ? (
+                  <ResultLink item={item} className={rowAction("edit")}>
+                    {item.actionLabel ?? "Open"}
+                  </ResultLink>
+                ) : null}
               </RowActions>
             </div>
-          </div>
+          </OpenableBlock>
         ))}
       </div>
     </section>

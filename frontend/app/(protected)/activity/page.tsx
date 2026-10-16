@@ -7,9 +7,11 @@ import { Activity, ChevronRight } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { Field, Select } from "@/components/FormControls";
 import { PageHeader } from "@/components/PageHeader";
+import { OpenableBlock, RecordTitleLink } from "@/components/records/OpenableRow";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
+import { recordViewHref } from "@/lib/recordView";
 import { ROLE_RANK, isMasterAdmin, roleLabel, roleRank } from "@/lib/permissions";
 import type {
   Artisan,
@@ -25,7 +27,8 @@ import type {
 /** One row in a group: enough to name the record and say when it was created. */
 type ActivityRow = { id: string; name: string; createdAt?: string | null };
 
-type ActivityGroup = { title: string; href: string; rows: ActivityRow[] };
+/** `viewType` is the record type each row's view opens as; null for media, which has no view. */
+type ActivityGroup = { title: string; href: string; viewType: string | null; rows: ActivityRow[] };
 
 type WithCreator = { createdById?: string | null };
 type MediaWithUploader = MediaFile & { uploadedById?: string | null };
@@ -164,31 +167,37 @@ export default function MyActivityPage() {
     return [
       {
         title: "Artisans",
+        viewType: "artisan",
         href: "/artisans",
         rows: by(raw.artisans).map((a) => ({ id: a.id, name: a.name, createdAt: a.createdAt }))
       },
       {
         title: "Products",
+        viewType: "product",
         href: "/products",
         rows: by(raw.products).map((p) => ({ id: p.id, name: p.productName, createdAt: p.createdAt }))
       },
       {
         title: "Tools",
+        viewType: "tool",
         href: "/tools",
         rows: by(raw.tools).map((t) => ({ id: t.id, name: t.toolkitName, createdAt: t.createdAt }))
       },
       {
         title: "Workshops",
+        viewType: "workshop",
         href: "/workshops",
         rows: by(raw.workshops).map((w) => ({ id: w.id, name: w.title, createdAt: w.createdAt }))
       },
       {
         title: "Crafts",
+        viewType: "craft",
         href: "/crafts",
         rows: by(raw.crafts).map((c) => ({ id: c.id, name: c.name, createdAt: c.createdAt }))
       },
       {
         title: "Questionnaire interviews",
+        viewType: "questionnaire",
         href: "/questionnaire",
         rows: raw.interviews
           .filter((i) => i.createdById === activeUserId)
@@ -196,6 +205,7 @@ export default function MyActivityPage() {
       },
       {
         title: "Miscellaneous media",
+        viewType: null,
         href: "/media",
         rows: raw.media
           .filter((m) => (m.uploadedById ?? m.uploadedBy?.id) === activeUserId)
@@ -260,12 +270,28 @@ export default function MyActivityPage() {
                 </Link>
               </div>
               <ul className="divide-y divide-line-200">
-                {group.rows.map((row) => (
-                  <li className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm" key={row.id}>
-                    <span className="min-w-0 truncate font-medium text-ink-900">{row.name}</span>
-                    <span className="shrink-0 text-xs text-ink-500">{formatDate(row.createdAt)}</span>
-                  </li>
-                ))}
+                {group.rows.map((row) => {
+                  // Each row opens its record's read-only view, the same place the list page's row
+                  // goes. Media has no view, so its rows stay plain text under the group's Open.
+                  const href = group.viewType ? recordViewHref(group.viewType, row.id) : null;
+                  return (
+                    <li key={row.id}>
+                      {href ? (
+                        <OpenableBlock href={href} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                          <span className="min-w-0 truncate">
+                            <RecordTitleLink href={href}>{row.name}</RecordTitleLink>
+                          </span>
+                          <span className="shrink-0 text-xs text-ink-500">{formatDate(row.createdAt)}</span>
+                        </OpenableBlock>
+                      ) : (
+                        <div className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                          <span className="min-w-0 truncate font-medium text-ink-900">{row.name}</span>
+                          <span className="shrink-0 text-xs text-ink-500">{formatDate(row.createdAt)}</span>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             </section>
           ))}

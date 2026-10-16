@@ -24,7 +24,7 @@ export default function EditArtisanPage() {
 
   return (
     <>
-      <PageHeader title="Edit Artisan" />
+      <PageHeader title="Update artisan" />
       {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       {record ? (
         <div className="grid gap-6">

@@ -835,7 +835,7 @@ export function ProcessForm({
       }}
     >
       <div>
-        <h2 className="font-display text-lg font-bold text-ink-900">{isEdit ? "Edit process" : "Document process"}</h2>
+        <h2 className="font-display text-lg font-bold text-ink-900">{isEdit ? "Update process" : "Document process"}</h2>
         <p className="mt-1 text-xs text-ink-500">
           Capture how a product is made, step by step. Each process is tied to a product; multiple people can document the same
           product&apos;s processes.

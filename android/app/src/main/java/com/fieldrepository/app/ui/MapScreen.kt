@@ -53,6 +53,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -68,6 +69,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
@@ -2281,11 +2283,13 @@ private fun PointRecordRow(
             // not is worse than a row that does not.
             .let { base ->
                 if (onOpenRecord == null) base
-                else base.clickable {
-                    onOpenRecord?.invoke(singularRecordType(row.type), row.id)
-                }
+                else base
+                    .clip(MaterialTheme.shapes.small)
+                    .clickable(role = Role.Button, onClickLabel = "Open ${row.title.ifBlank { "this record" }}") {
+                        onOpenRecord.invoke(singularRecordType(row.type), row.id)
+                    }
             }
-            .heightIn(min = 44.dp)
+            .heightIn(min = 48.dp)
             .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
         Text(

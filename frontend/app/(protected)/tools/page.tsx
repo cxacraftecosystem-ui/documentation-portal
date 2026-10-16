@@ -20,6 +20,9 @@ import { SearchInput } from "@/components/SearchInput";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ToolAssignmentSection } from "@/components/forms/ToolAssignmentSection";
 import { useAdminView } from "@/components/AdminViewProvider";
+import { useListReturn } from "@/components/hooks/useListReturn";
+import { OpenableRow, RecordTitleLink } from "@/components/records/OpenableRow";
+import { recordUpdateHref, recordViewHref } from "@/lib/recordView";
 import { apiFetch, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import type { PageResult, ToolDocumentation } from "@/lib/types";
@@ -87,9 +90,33 @@ export default function ToolsPage() {
     return () => clearTimeout(timer);
   }, [query]);
 
+  /*
+   * BACK FROM A RECORD PUTS THE LIST BACK AS IT WAS. A row click opens the tool's read-only view,
+   * so the search, page, funnel and scroll position are written down as it opens (`rememberPlace`)
+   * and restored here on the way back — see `lib/listReturn.ts` and the artisans list, which carries
+   * the same block.
+   */
+  const listReturn = useListReturn("tools");
+  const restoredPage = useRef<number | null>(null);
+  useEffect(() => {
+    const note = listReturn.restored;
+    if (!note) return;
+    if (note.query) {
+      skipFirstDebounce.current = true;
+      setQuery(note.query);
+      setApplied(note.query);
+    }
+    restoredPage.current = note.page;
+    setPage(note.page);
+  }, [listReturn.restored]);
+  const restoreListScroll = listReturn.restoreScroll;
+  useEffect(() => restoreListScroll(Boolean(data)), [data, restoreListScroll]);
+  const rememberPlace = () => listReturn.remember({ query: applied, page, funnel });
+
   function onFunnelChange(next: FunnelValue, _workshop: FunnelWorkshop | null) {
     setFunnel(next);
-    setPage(1);
+    setPage(restoredPage.current ?? 1);
+    restoredPage.current = null;
     setFunnelReady(true);
   }
 
@@ -142,7 +169,7 @@ export default function ToolsPage() {
           placeholder="Search tool, craft, artisan, place, material or remarks"
         />
       </div>
-      <FunnelFilters value={funnel} onChange={onFunnelChange} showArtisan />
+      <FunnelFilters value={funnel} onChange={onFunnelChange} showArtisan restore={listReturn.restoredFunnel} />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       <section className="panel overflow-hidden">
         {!data ? (
@@ -169,9 +196,11 @@ export default function ToolsPage() {
               </thead>
               <tbody className="divide-y divide-line-200">
                 {data.items.map((tool) => (
-                  <tr key={tool.id}>
+                  <OpenableRow key={tool.id} href={recordViewHref("tool", tool.id)!} onOpen={rememberPlace}>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-ink-900">{tool.toolkitName}</div>
+                      <RecordTitleLink href={recordViewHref("tool", tool.id)!} onOpen={rememberPlace}>
+                        {tool.toolkitName}
+                      </RecordTitleLink>
                       <div className="text-xs text-ink-500">{tool.englishName ?? tool.localName ?? tool.traditionType}</div>
                     </td>
                     <td className="px-4 py-3 text-ink-700">{tool.craftName}</td>
@@ -209,8 +238,8 @@ export default function ToolsPage() {
                     <td className="px-4 py-3 text-ink-700">{formatDate(tool.createdAt)}</td>
                     <td className="px-4 py-3 text-right">
                       <RowActions>
-                        <Link className={rowAction("edit")} href={`/tools/${tool.id}/edit`}>
-                          Edit
+                        <Link className={rowAction("edit")} href={recordUpdateHref("tool", tool.id)!} onClick={rememberPlace}>
+                          Update
                         </Link>
                         <button className={rowAction("neutral")} onClick={() => setCollabId(tool.id)}>
                           Discuss
@@ -222,7 +251,7 @@ export default function ToolsPage() {
                         ) : null}
                       </RowActions>
                     </td>
-                  </tr>
+                  </OpenableRow>
                 ))}
               </tbody>
             </table>

@@ -30,11 +30,13 @@ import {
 import { DashboardCard } from "@/components/DashboardCard";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
+import { OpenableRow, RecordTitleLink } from "@/components/records/OpenableRow";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import { recordViewHref } from "@/lib/recordView";
 import {
   canCreateRecords,
   canDownloadDataset,
@@ -94,41 +96,13 @@ type Tile = {
 };
 
 /**
- * Where a "recent submission" row goes when it is clicked.
- *
- * Two shapes, because the app has two ways of editing a record and neither is going away:
- *
- * * artisans, products and tools own a real `/[id]/edit` ROUTE, so the id is a path segment;
- * * workshops, crafts and processes are edited INLINE on their list page, so the id travels as
- *   `?edit=` and `useEditDeepLink` on that page loads it into the form.
- *
- * The three inline types used to return the bare list route and drop the id — clicking a named row
- * in Recent submissions opened the blank CREATE form for its type, which is the same screen the
- * "New" tile opens. (`/processes?edit=` was the exception: it carried the id but nothing on the
- * receiving page read it, so it behaved identically until that page grew the hook.) Interviews are
- * still list-level: an interview is identified by its artisan SET, not by a row id, so
- * `/questionnaire` has no single-record form to deep-link into.
+ * Where a "recent submission" row goes when it is clicked: the record's READ-ONLY view
+ * (`lib/recordView.ts`). It used to go straight into the edit form, so glancing at a record somebody
+ * had just added put a form under the reader's hands; the view carries the Update button for the
+ * reader who does mean to change it. Media, and any type with no view, stay plain text.
  */
 function recordHref(type: string, id: string): string | null {
-  switch ((type || "").toLowerCase()) {
-    case "artisan":
-      return `/artisans/${id}/edit`;
-    case "product":
-      return `/products/${id}/edit`;
-    case "tool":
-      return `/tools/${id}/edit`;
-    case "process":
-      return `/processes?edit=${id}`;
-    case "workshop":
-      return `/workshops?edit=${id}`;
-    case "craft":
-      return `/crafts?edit=${id}`;
-    case "questionnaire":
-    case "interview":
-      return "/questionnaire";
-    default:
-      return null;
-  }
+  return recordViewHref(type, id);
 }
 
 export default function DashboardPage() {
@@ -407,17 +381,12 @@ function DashboardView() {
               </thead>
               <tbody className="divide-y divide-line-200">
                 {stats.recentSubmissions.map((item) => (
-                  <tr key={`${item.type}-${item.id}`} className="hover:bg-surface-50">
+                  <RecentRow key={`${item.type}-${item.id}`} href={recordHref(item.type, item.id)}>
                     <td className="px-4 py-3 font-medium text-ink-900">
-                      {/* The row a researcher recognises is the one they want to correct, so the
-                          title is the link — straight into the edit view for that record type. */}
+                      {/* The whole row opens the record's view; the title is the real link for the
+                          keyboard (`OpenableRow`). */}
                       {recordHref(item.type, item.id) ? (
-                        <Link
-                          href={recordHref(item.type, item.id)!}
-                          className="text-purple-700 dark:text-purple-300 underline-offset-2 hover:underline"
-                        >
-                          {item.title}
-                        </Link>
+                        <RecordTitleLink href={recordHref(item.type, item.id)!}>{item.title}</RecordTitleLink>
                       ) : (
                         item.title
                       )}
@@ -429,7 +398,7 @@ function DashboardView() {
                       <StatusBadge status={item.status} />
                     </td>
                     <td className="px-4 py-3 text-ink-700">{formatDateTime(item.createdAt)}</td>
-                  </tr>
+                  </RecentRow>
                 ))}
               </tbody>
             </table>
@@ -438,4 +407,10 @@ function DashboardView() {
       </section>
     </>
   );
+}
+
+/** A recent-submission row: openable when its type has a view, a plain row when it has none. */
+function RecentRow({ href, children }: { href: string | null; children: React.ReactNode }) {
+  if (!href) return <tr>{children}</tr>;
+  return <OpenableRow href={href}>{children}</OpenableRow>;
 }

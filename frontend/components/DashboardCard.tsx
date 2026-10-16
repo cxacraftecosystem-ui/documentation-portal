@@ -13,6 +13,15 @@ import { GLASS_TILE, GlassSurface } from "@/components/ui/GlassSurface";
  * The card is liquid glass: `bg-card/70` instead of an opaque fill, because the filter
  * refracts what is behind the tile and an opaque background would hide it. The dashboard
  * paints a mesh under the grid to give it something worth bending.
+ *
+ * THE WHOLE CARD IS THE PRIMARY ACTION (owner ruling, 2026-10-16): a click anywhere on it does what
+ * its filled button says — "New", "Open", "Upload", "Manage" — and "Update" is the only way to the
+ * update screen. It is one real link, not a clickable `<div>`: the primary `<Link>` stretches an
+ * invisible `::after` over the card, so the card is announced and focused as that one link, Enter
+ * opens it, and the global focus ring draws on the button. "Update" is lifted above the stretched
+ * area (`relative z-10`) and stays a separate, separately focusable link — two links side by side,
+ * never one inside the other. Android draws the same card with `Modifier.clickable` on the whole
+ * `ElevatedCard` (`DashboardActionCard`).
  */
 export function DashboardCard({
   label,
@@ -38,14 +47,18 @@ export function DashboardCard({
   return (
     <GlassSurface
       options={GLASS_TILE}
-      className="flex flex-col gap-2 rounded-lg border border-line-200 bg-card/70 p-3 shadow-sm"
+      className="relative flex cursor-pointer flex-col gap-2 rounded-lg border border-line-200 bg-card/70 p-3 shadow-sm transition hover:border-purple-300 hover:shadow-md"
     >
       <div className="grid h-10 w-10 place-items-center rounded-md bg-purple-800">
         <Icon className="h-5 w-5 text-white" aria-hidden />
       </div>
       <div className="font-display text-base font-bold leading-snug text-ink-900">{label}</div>
       <div className="mt-auto flex flex-col gap-1.5 pt-1">
-        <Link className="field-button h-9 min-h-0 pointer-coarse:h-11 px-3 text-xs" href={newHref}>
+        <Link
+          className="field-button h-9 min-h-0 pointer-coarse:h-11 px-3 text-xs after:absolute after:inset-0 after:rounded-lg after:content-['']"
+          href={newHref}
+          aria-label={`${newLabel} — ${label}`}
+        >
           {/* "Open"/"Manage" are not creations, so they do not get the plus. Android draws the same
               distinction (`primaryIcon`), and a plus on a button that only navigates is a lie. */}
           {newLabel === "Open" || newLabel === "Manage" ? (
@@ -56,7 +69,7 @@ export function DashboardCard({
           {newLabel}
         </Link>
         {updateHref ? (
-          <Link className="field-button-secondary h-9 min-h-0 pointer-coarse:h-11 px-3 text-xs" href={updateHref}>
+          <Link className="field-button-secondary relative z-10 h-9 min-h-0 pointer-coarse:h-11 px-3 text-xs" href={updateHref} aria-label={`Update — ${label}`}>
             <Pencil className="h-3.5 w-3.5" aria-hidden />
             Update
           </Link>

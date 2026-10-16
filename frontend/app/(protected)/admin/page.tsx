@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 
 import { EmptyState } from "@/components/EmptyState";
+import { MediaLightbox, type PreviewMedia } from "@/components/media/MediaLightbox";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { usePendingAccessCount } from "@/components/hooks/usePendingAccessCount";
@@ -29,6 +30,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { apiFetch } from "@/lib/api";
 import { bytes, formatDateTime } from "@/lib/format";
 import { isAdmin, isMasterAdmin } from "@/lib/permissions";
+import { rowClickOpensRecord } from "@/lib/recordView";
 import type { MediaFile } from "@/lib/types";
 
 type Tile = {
@@ -60,6 +62,23 @@ const PAGE_SIZE = 20;
  * view is off" panel and this component never mounts — no /media/orphans call, no flash of tiles.
  * Both gates keep their role check, so the toggle can only ever subtract.
  */
+/** A recovered file, in the shape the preview takes. */
+function previewOf(item: MediaFile): PreviewMedia {
+  return {
+    key: item.id,
+    id: item.id,
+    name: item.originalFilename,
+    mediaType: item.mediaType,
+    mimeType: item.mimeType,
+    sizeBytes: item.sizeBytes,
+    url: item.url,
+    caption: item.caption,
+    transcriptStatus: item.transcriptStatus,
+    transcriptText: item.transcriptText,
+    transcriptError: item.transcriptError
+  };
+}
+
 export default function AdminHubPage() {
   const { user, loading: authLoading } = useAuth();
   const permitted = isAdmin(user);
@@ -72,6 +91,7 @@ export default function AdminHubPage() {
   const { pending: pendingAccess } = usePendingAccessCount();
 
   const [orphans, setOrphans] = useState<MediaFile[] | null>(null);
+  const [activePreview, setActivePreview] = useState<PreviewMedia | null>(null);
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
 
@@ -284,7 +304,18 @@ export default function AdminHubPage() {
               </thead>
               <tbody className="divide-y divide-line-200">
                 {visibleOrphans.map((item) => (
-                  <tr key={item.id}>
+                  // As on the media page: a file's read-only view is its preview, so a click anywhere
+                  // on the row opens it (with Download). Open is the keyboard route; Relink keeps its
+                  // own click (`rowClickOpensRecord`).
+                  <tr
+                    key={item.id}
+                    className={item.url ? "cursor-pointer transition hover:bg-field-100" : undefined}
+                    onClick={(event) => {
+                      if (!item.url || !rowClickOpensRecord(event.target as Element, event.currentTarget)) return;
+                      if (window.getSelection()?.toString()) return;
+                      setActivePreview(previewOf(item));
+                    }}
+                  >
                     <td className="px-4 py-3">
                       <div className="font-medium text-ink-900">{item.originalFilename}</div>
                       {item.caption ? <div className="max-w-xs truncate text-xs text-ink-500">{item.caption}</div> : null}
@@ -296,9 +327,9 @@ export default function AdminHubPage() {
                     <td className="px-4 py-3 text-right">
                       <RowActions>
                         {item.url ? (
-                          <a href={item.url} target="_blank" rel="noreferrer" className={rowAction("neutral")}>
+                          <button type="button" className={rowAction("neutral")} onClick={() => setActivePreview(previewOf(item))}>
                             Open
-                          </a>
+                          </button>
                         ) : null}
                         <Link href="/media" className={rowAction("edit")}>
                           Relink in Media
@@ -315,6 +346,7 @@ export default function AdminHubPage() {
           <Pagination page={orphanPage} pages={orphanPages} total={orphans.length} onPage={setPage} />
         ) : null}
       </section>
+      {activePreview ? <MediaLightbox item={activePreview} onClose={() => setActivePreview(null)} /> : null}
     </>
   );
 }
