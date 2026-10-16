@@ -107,9 +107,13 @@ data class ForgotPasswordRequest(val email: String)
 @Serializable
 data class ForgotPasswordAnswer(val message: String = "")
 
-/** No `currentPassword` key at all: there is none to send, and the server reads its absence. */
+/**
+ * No `currentPassword` key at all: there is none to send, and the server reads its absence.
+ * [twoFactorCode] is required when the account has two-step verification on — a six-digit code or a
+ * recovery code; the server refuses without it ([TWO_FACTOR_REQUIRED_HEADER]).
+ */
 @Serializable
-data class FirstPasswordRequest(val newPassword: String)
+data class FirstPasswordRequest(val newPassword: String, val twoFactorCode: String? = null)
 
 @Serializable
 data class PasswordLinkDeliveryRequest(
@@ -139,6 +143,18 @@ const val SIGN_IN_AGAIN_HEADER = "X-Sign-In-Again"
 
 /** Thrown by `FieldRepository.saveOwnPassword` for the [SIGN_IN_AGAIN_HEADER] refusal. */
 class SignInAgainRequired(message: String) : Exception(message)
+
+/**
+ * The header a refused first-password answer carries when the account has two-step verification on
+ * and the request had no good code from the authenticator app (a missing one or a wrong one).
+ */
+const val TWO_FACTOR_REQUIRED_HEADER = "X-Two-Factor-Required"
+
+/** What the first-password form says when the code is missing — the server's own sentence. */
+const val TWO_FACTOR_CODE_FOR_PASSWORD = "Enter the code from your authenticator app to set a password."
+
+/** Thrown by `FieldRepository.saveOwnPassword` for the [TWO_FACTOR_REQUIRED_HEADER] refusal. */
+class TwoFactorCodeRequired(message: String) : Exception(message)
 
 /**
  * Does this account hold a password of its own?

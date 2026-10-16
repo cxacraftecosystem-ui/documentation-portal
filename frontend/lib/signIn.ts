@@ -137,6 +137,17 @@ export const SESSION_TOKEN_HEADER = "x-session-token";
  */
 export const SIGN_IN_AGAIN_HEADER = "x-sign-in-again";
 
+/**
+ * The header a set-first-password refusal carries when the account has two-step verification on and
+ * the request lacked a good code from the authenticator app (a missing one or a wrong one).
+ */
+export const TWO_FACTOR_REQUIRED_HEADER = "x-two-factor-required";
+
+/** Did the server refuse a first password for want of a good two-step code? */
+export function asksForTwoFactorCode(error: unknown): boolean {
+  return error instanceof ApiError && error.headers?.get(TWO_FACTOR_REQUIRED_HEADER) === "1";
+}
+
 /** Did the server ask for a fresh sign-in before a first password may be set? */
 export function asksToSignInAgain(error: unknown): boolean {
   return error instanceof ApiError && error.headers?.get(SIGN_IN_AGAIN_HEADER) === "1";
@@ -148,8 +159,17 @@ export function asksToSignInAgain(error: unknown): boolean {
  * this call was sent with is retired by its own success, so the caller adopts the fresh one BEFORE
  * re-reading `/me`.
  */
-export async function changeOwnPassword(currentPassword: string, newPassword: string): Promise<string | null> {
-  const body = currentPassword ? { currentPassword, newPassword } : { newPassword };
+export async function changeOwnPassword(
+  currentPassword: string,
+  newPassword: string,
+  twoFactorCode?: string
+): Promise<string | null> {
+  const code = twoFactorCode?.trim();
+  const body = currentPassword
+    ? { currentPassword, newPassword }
+    : code
+      ? { newPassword, twoFactorCode: code }
+      : { newPassword };
   const { headers } = await apiFetchWithHeaders<unknown>("/auth/change-password", {
     method: "POST",
     body: JSON.stringify(body)

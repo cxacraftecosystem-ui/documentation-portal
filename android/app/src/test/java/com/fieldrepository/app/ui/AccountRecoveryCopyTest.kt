@@ -134,4 +134,25 @@ class AccountRecoveryCopyTest {
         assertTrue(body.contains("sign in again"))
         assertTrue(body.contains("two-step"))
     }
+    @Test
+    fun `a first password asks for the two-step code only when two-step is on`() {
+        val twoStep = user(provider = "GOOGLE", hasPassword = false).copy(twoFactorEnabled = true)
+        assertTrue(firstPasswordNeedsCode(hasPassword = false, user = twoStep))
+        assertFalse(firstPasswordNeedsCode(hasPassword = false, user = user(provider = "GOOGLE", hasPassword = false)))
+        // Changing an existing password proves the current one instead.
+        assertFalse(firstPasswordNeedsCode(hasPassword = true, user = twoStep))
+        assertFalse(firstPasswordNeedsCode(hasPassword = false, user = null))
+    }
+
+    @Test
+    fun `the first-password body carries the code only when one was typed`() {
+        assertEquals(
+            """{"newPassword":"longenough1","twoFactorCode":"123456"}""",
+            wire.encodeToString(FirstPasswordRequest(newPassword = "longenough1", twoFactorCode = "123456"))
+        )
+        assertEquals(
+            """{"newPassword":"longenough1"}""",
+            wire.encodeToString(FirstPasswordRequest(newPassword = "longenough1"))
+        )
+    }
 }

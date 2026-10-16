@@ -22,7 +22,7 @@ from app.core.deps import (
 )
 from app.core.security import hash_password
 from app.schemas.users import UserCreate, UserUpdate
-from app.services import credential_links
+from app.services import credential_links, email_outbox, mailer
 from app.services.access_roster import ensure_admitted
 from app.core.user_fields import public_user
 from app.services.two_factor import CLEAR_FAILURES
@@ -58,6 +58,28 @@ NO_PASSWORD_TO_CHANGE_DETAIL = (
 OWN_SESSIONS_DETAIL = (
     "Use Sign out on this device instead; your own sessions end when you change your password."
 )
+
+#: Your own email address, through the users screen (security review B3, 2026-10-16). The address is
+#: what "Forgot your password?" mails a link to and what the allow-list admits, so moving it is the
+#: one edit that would hand a stolen session the account for good. Another administrator changes it.
+OWN_EMAIL_DETAIL = "Ask another administrator to change your email address."
+
+#: A master admin's password, sessions or second factor, touched by ANOTHER master admin (security
+#: review B4, 2026-10-16). The Design Prototype Workshop refuses it, and so does this portal: two
+#: master admins are peers, and a peer who could reset the other's password, sign them out or turn off
+#: their two-step could take their account.
+MASTER_PEER_DETAIL = (
+    "Another master admin's password, sessions and two-step verification are theirs to manage. Ask "
+    "them to do it from their own account."
+)
+
+
+def assert_not_another_master(actor: Any, target: Any) -> None:
+    """403 when ``target`` is a master admin other than ``actor`` — for the credential doors only:
+    password links, a temporary password or the password flag, "sign out of every device", and
+    turning off two-step. Role changes and deletion keep their own rules."""
+    if is_master_admin(target) and getattr(target, "id", None) != getattr(actor, "id", None):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=MASTER_PEER_DETAIL)
 
 
 def assert_role(role: str | None, current_user: Any) -> None:
@@ -380,8 +402,13 @@ async def update_user(
         # asks for the current one and ends every other session.
         if "password" in data or "mustChangePassword" in data:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=OWN_CREDENTIALS_DETAIL)
-        # Self-service is limited to identity fields; nobody edits their own role or privileges.
-        privileged_fields = set(data) - {"name", "email"}
+        # YOUR OWN EMAIL ADDRESS IS NOT CHANGED HERE EITHER (security review B3): a session that could
+        # move the address could then ask "Forgot your password?" for the new one and keep the account.
+        if "email" in data and data["email"] != (user.email or "").lower():
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=OWN_EMAIL_DETAIL)
+        data.pop("email", None)
+        # Self-service is limited to the name; nobody edits their own role or privileges.
+        privileged_fields = set(data) - {"name"}
         if privileged_fields:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -389,6 +416,8 @@ async def update_user(
             )
     else:
         assert_can_manage_target(current_user, user)
+        if "password" in data or "mustChangePassword" in data:
+            assert_not_another_master(current_user, user)
 
     # ── A PASSWORD AN ADMINISTRATOR TYPES FOR SOMEBODY ELSE IS TEMPORARY (ported 2026-10-16) ─────
     #
@@ -473,6 +502,10 @@ async def update_user(
             ends_sessions,
             links_withdrawn,
         )
+    if "passwordHash" in data:
+        # The owner hears of it at their own address (security review B2): an administrator set a
+        # temporary password, and if they did not ask for that, they need to know today.
+        await email_outbox.notify_password_event(updated, mailer.PASSWORD_CHANGED, when=now)
     return serialize_user(updated)
 
 
@@ -494,6 +527,7 @@ async def sign_out_everywhere(user_id: str, current_user: Any = Depends(require_
     if user.id == current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=OWN_SESSIONS_DETAIL)
     assert_can_manage_target(current_user, user)
+    assert_not_another_master(current_user, user)
     updated = await db.user.update(where={"id": user_id}, data={"sessionsValidFrom": datetime.now(UTC)})
     invalidate_cached_user(user_id)
     logger.warning(
@@ -553,6 +587,7 @@ async def reset_two_factor(user_id: str, current_user: Any = Depends(require_adm
             detail="Turn off your own two-step verification from your account screen.",
         )
     assert_can_manage_target(current_user, user)
+    assert_not_another_master(current_user, user)
     if not user.twoFactorEnabled:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

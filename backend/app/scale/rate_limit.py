@@ -72,6 +72,20 @@ class _TokenBuckets:
             self._buckets.popitem(last=False)
         return True, 0.0
 
+    def refund(self, identity: str) -> None:
+        """Give one token back to a bucket that has already spent it.
+
+        Only the credential path uses this: "charge the attempt, refund everything that was not a
+        wrong password", because a check-then-charge two awaits apart would let a hundred parallel
+        guesses all pass the check before any of them was counted. An evicted bucket is not
+        resurrected, and its timestamp is left alone so the refill accrued since the take stands.
+        """
+        entry = self._buckets.get(identity)
+        if entry is None:
+            return
+        tokens, last = entry
+        self._buckets[identity] = (min(self._capacity, tokens + 1.0), last)
+
     def tracked(self) -> int:
         return len(self._buckets)
 
@@ -118,19 +132,100 @@ _forgot_password_buckets = _TokenBuckets(
 )
 
 
+#: "FORGOT YOUR PASSWORD?" FOR THE WHOLE PROCESS: thirty requests a minute, whoever sends them.
+#:
+#: The per-client bucket above is keyed on a network address, and an attacker with many addresses
+#: meets each bucket fresh. Every request this door accepts can end in an e-mail, so the door as a
+#: whole is capped too (security review, 2026-10-16). A 429 here says nothing about any account.
+FORGOT_PASSWORD_GLOBAL_REQUESTS = 30
+FORGOT_PASSWORD_GLOBAL_WINDOW_SECONDS = 60.0
+
+_forgot_password_global = _TokenBuckets(
+    capacity=FORGOT_PASSWORD_GLOBAL_REQUESTS,
+    refill_per_second=FORGOT_PASSWORD_GLOBAL_REQUESTS / FORGOT_PASSWORD_GLOBAL_WINDOW_SECONDS,
+)
+
+
 def client_address(scope: Scope) -> str:
-    """The network address a request came from, as the limiter keys it (never a bearer digest)."""
-    return _identity(scope, ignore_bearer=True)
+    """The network address a request came from, for a limit that must not be dodged by a header.
+
+    NEVER THE LEFT-MOST ``X-Forwarded-For`` ENTRY (security review, 2026-10-16). That entry is
+    whatever the client typed: ``X-Forwarded-For: 1.2.3.4`` sent by a script arrives here as
+    ``1.2.3.4, <real address>``, so keying on it gave every request a fresh bucket. Each proxy we run
+    APPENDS the address that connected to it, so the trustworthy entries are the right-most ones.
+    ``TRUSTED_PROXY_HOPS`` (default 1: the box's nginx) says how many proxies of ours append in front
+    of the API, and the client is the entry the outermost of them wrote, ``entries[-hops]``. With
+    fewer entries than that, the left-most was still written by a proxy of ours (nothing in front of
+    it added one), so it is used. No header at all is a direct connection: the socket peer.
+
+    Production today is CloudFront -> nginx -> uvicorn, so the default keys on the address nginx
+    appends, the CloudFront edge that forwarded the request: unforgeable, but shared by the viewers
+    that edge serves. ``TRUSTED_PROXY_HOPS=2`` keys on the viewer address CloudFront appends instead —
+    per person, and forgeable only by somebody who reaches the origin directly past CloudFront
+    (docs/SECURITY.md risk P1). The default is the unforgeable one.
+    """
+    from app.core.config import get_settings
+
+    hops = max(1, int(getattr(get_settings(), "trusted_proxy_hops", 1) or 1))
+    forwarded = b""
+    for name, value in scope.get("headers", []):
+        if name == b"x-forwarded-for":
+            # Several headers are one list, in order (RFC 9110 section 5.3).
+            forwarded = value if not forwarded else forwarded + b"," + value
+    entries = [part.strip().decode("latin-1") for part in forwarded.split(b",") if part.strip()]
+    if not entries:
+        client = scope.get("client")
+        return f"ip:{client[0]}" if client else "ip:unknown"
+    return "ip:" + (entries[-hops] if len(entries) >= hops else entries[0])
 
 
 def forgot_password_attempt(scope: Scope) -> tuple[bool, float]:
-    """Spend one "Forgot your password?" request from this client. ``(allowed, retry_after_seconds)``."""
-    return _forgot_password_buckets.take(f"forgot:{client_address(scope)}")
+    """Spend one "Forgot your password?" request from this client, then one from the whole door.
+    ``(allowed, retry_after_seconds)``. The global bucket is charged only once the client's own
+    allows the request, so one noisy client cannot spend the door's allowance on refused requests."""
+    allowed, retry = _forgot_password_buckets.take(f"forgot:{client_address(scope)}")
+    if not allowed:
+        return allowed, retry
+    return _forgot_password_global.take("forgot:all")
 
 
 def reset_forgot_password_budget() -> None:
-    """Forget every "Forgot your password?" bucket. For the tests."""
+    """Forget every "Forgot your password?" bucket, the global one too. For the tests."""
     _forgot_password_buckets._buckets.clear()  # noqa: SLF001 - the module owns this object
+    _forgot_password_global._buckets.clear()  # noqa: SLF001 - the module owns this object
+
+
+# ── ONE BUCKET PER ACCOUNT FOR EVERY DOOR THAT CHECKS A PASSWORD (ported 2026-10-16) ───────────────
+#
+# The middleware above can only key on the network a request came from, and an attacker spread
+# across many networks never meets it twice for one victim. This is the other half: ten wrong
+# passwords per account per five minutes, shared by the sign-in and the change-password screen's
+# "current password" (a stolen session would otherwise be an unlimited oracle against the one
+# password that turns it into a permanent takeover). Charged before bcrypt, refunded when the
+# password was right, so somebody typing their own password correctly never spends anything. Same
+# names and numbers as the Design Prototype Workshop's.
+_ACCOUNT_FAILURES = 10
+_ACCOUNT_WINDOW_SECONDS = 300.0
+
+_account_buckets = _TokenBuckets(
+    capacity=_ACCOUNT_FAILURES,
+    refill_per_second=_ACCOUNT_FAILURES / _ACCOUNT_WINDOW_SECONDS,
+)
+
+
+def account_credential_attempt(account_id: str) -> tuple[bool, float]:
+    """Spend one guess against ``account_id``. Returns ``(allowed, retry_after_seconds)``."""
+    return _account_buckets.take(f"acct:{account_id}")
+
+
+def account_credential_refund(account_id: str) -> None:
+    """Give the token back — called only after a password actually verified."""
+    _account_buckets.refund(f"acct:{account_id}")
+
+
+def reset_account_credential_budget() -> None:
+    """Forget every account bucket. For the tests, which sign in wrongly more than ten times."""
+    _account_buckets._buckets.clear()  # noqa: SLF001 - the module owns this object
 
 
 class RateLimitMiddleware:

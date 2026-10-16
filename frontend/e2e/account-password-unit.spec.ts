@@ -34,6 +34,7 @@ import { rosterCreateBody } from "@/lib/accessRoster";
 import { hasOwnPassword, newPasswordProblem, passwordFailureSentence } from "@/lib/passwordChange";
 import {
   MAX_PASSWORD_LENGTH,
+  asksForTwoFactorCode,
   asksToSignInAgain,
   describeRetryAfter,
   existingAccountId,
@@ -264,4 +265,32 @@ test("no copy admits a gap", () => {
   ]) {
     expect(file).not.toMatch(/coming soon|not (yet )?available|not built/i);
   }
+});
+
+test("a first password on a two-step account asks for the authenticator code", () => {
+  const refused = new ApiError(400, "Enter the code from your authenticator app to set a password.", undefined, new Headers({ "X-Two-Factor-Required": "1" }));
+  expect(asksForTwoFactorCode(refused)).toBe(true);
+  expect(asksForTwoFactorCode(new ApiError(400, "Current password is incorrect", undefined))).toBe(false);
+  const card = read("components", "settings", "ChangePasswordCard.tsx");
+  expect(card).toMatch(/needsCode\s*=\s*setting\s*&&\s*Boolean\(user\.twoFactorEnabled\)/);
+  expect(card).toContain("Code from your authenticator app");
+  const signIn = read("lib", "signIn.ts");
+  expect(signIn).toMatch(/twoFactorCode:\s*code/);
+});
+
+test("a master admin is offered nothing on another master admin's row", () => {
+  const master = account({ id: "m1", role: "MASTER_ADMIN", email: "m1@example.org" });
+  const other = account({ id: "m2", role: "MASTER_ADMIN", email: "m2@example.org", twoFactorEnabled: true });
+  const offers = rowOffers(master, other, { adminView: true, mailAvailable: true });
+  expect(Object.values(offers).some(Boolean)).toBe(false);
+});
+
+test("the set-password App Link is verified by an assetlinks.json naming the release certificate", () => {
+  const links = JSON.parse(read("public", ".well-known", "assetlinks.json"));
+  expect(links[0].target.package_name).toBe("com.fieldrepository.app");
+  expect(links[0].target.sha256_cert_fingerprints).toEqual([
+    "9B:D9:5F:76:37:43:DE:00:46:E7:E8:39:74:D3:81:B8:F5:D7:B2:FA:F5:BB:BA:AB:A4:E6:09:B5:CC:48:5F:3E"
+  ]);
+  const manifest = readFileSync(join(root, "..", "android", "app", "src", "main", "AndroidManifest.xml"), "utf8");
+  expect(manifest).toMatch(/<intent-filter android:autoVerify="true">[\s\S]*?android:path="\/set-password"/);
 });

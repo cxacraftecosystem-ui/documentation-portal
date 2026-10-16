@@ -30,6 +30,7 @@ import {
 import {
   MAX_PASSWORD_LENGTH,
   MIN_PASSWORD_LENGTH,
+  asksForTwoFactorCode,
   asksToSignInAgain,
   changeOwnPassword,
   passwordRuleLine
@@ -37,6 +38,7 @@ import {
 
 const CHANGED_HERE_ONLY = "Password changed. You are still signed in here; everywhere else, sign in with the new one.";
 const CHANGED = "Password changed. Use the new one the next time you sign in.";
+const TWO_FACTOR_CODE_MISSING = "Enter the code from your authenticator app to set a password.";
 const FIRST_SET = "Password set. You can now sign in with it as well as the way you do now.";
 
 export function ChangePasswordCard() {
@@ -44,6 +46,7 @@ export function ChangePasswordCard() {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [code, setCode] = useState("");
   const [show, setShow] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +61,10 @@ export function ChangePasswordCard() {
 
   if (!user) return null;
   const setting = !hasOwnPassword(user);
+  // A first password on an account with two-step on needs a code from the authenticator app: the
+  // session alone is not enough to add a second way in (the server refuses it with
+  // `X-Two-Factor-Required`).
+  const needsCode = setting && Boolean(user.twoFactorEnabled);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -68,11 +75,16 @@ export function ChangePasswordCard() {
       setError(problem);
       return;
     }
+    if (needsCode && !code.trim()) {
+      setError(TWO_FACTOR_CODE_MISSING);
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      const fresh = await changeOwnPassword(setting ? "" : current, next);
+      const fresh = await changeOwnPassword(setting ? "" : current, next, needsCode ? code : undefined);
       setCurrent("");
+      setCode("");
       setNext("");
       setConfirm("");
       setShow(false);
@@ -87,6 +99,9 @@ export function ChangePasswordCard() {
     } catch (err) {
       if (asksToSignInAgain(err)) {
         setSignInAgain(true);
+      } else if (asksForTwoFactorCode(err)) {
+        // The form is kept; only the code is cleared, so the next one can be typed straight in.
+        setCode("");
       } else if (!setting && currentPasswordRefused(err)) {
         setCurrent("");
         setCurrentRefusals((count) => count + 1);
@@ -156,6 +171,28 @@ export function ChangePasswordCard() {
             />
           </div>
         )}
+
+        {needsCode ? (
+          <div>
+            <label htmlFor="settings-two-factor-code" className="field-label">
+              Code from your authenticator app
+            </label>
+            <input
+              id="settings-two-factor-code"
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              required
+              maxLength={64}
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+              className="field-input mt-1.5"
+            />
+            <p className="mt-1 text-xs leading-5 text-ink-500">
+              Two-step verification is on for your account. A recovery code works too.
+            </p>
+          </div>
+        ) : null}
 
         <div>
           <label htmlFor="settings-new-password" className="field-label">

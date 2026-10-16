@@ -43,6 +43,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fieldrepository.app.data.SignInAgainRequired
+import com.fieldrepository.app.data.TWO_FACTOR_CODE_FOR_PASSWORD
+import com.fieldrepository.app.data.TwoFactorCodeRequired
 import com.fieldrepository.app.data.UserDto
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.accountHasPassword
@@ -209,11 +211,14 @@ fun AccountPasswordCard(repository: FieldRepository, onSignOut: () -> Unit) {
     var current by remember { mutableStateOf("") }
     var next by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf("") }
     var reveal by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var signInAgain by remember { mutableStateOf(false) }
     var saved by remember { mutableStateOf<String?>(null) }
+    // A first password on an account with two-step on also needs a code from the authenticator app.
+    val needsCode = firstPasswordNeedsCode(hasPassword, user)
 
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -260,6 +265,18 @@ fun AccountPasswordCard(repository: FieldRepository, onSignOut: () -> Unit) {
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 modifier = Modifier.fillMaxWidth()
             )
+            if (needsCode) {
+                OutlinedTextField(
+                    value = code,
+                    onValueChange = { code = it; error = null; saved = null },
+                    label = { Text(TWO_FACTOR_CODE_LABEL) },
+                    supportingText = { Text(TWO_FACTOR_CODE_HINT) },
+                    singleLine = true,
+                    enabled = !busy,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
             saved?.let {
                 Text(
                     it,
@@ -289,23 +306,38 @@ fun AccountPasswordCard(repository: FieldRepository, onSignOut: () -> Unit) {
                         error = problem
                         return@Button
                     }
+                    if (needsCode && code.isBlank()) {
+                        error = TWO_FACTOR_CODE_FOR_PASSWORD
+                        return@Button
+                    }
                     scope.launch {
                         busy = true
                         error = null
                         signInAgain = false
                         val hadPassword = hasPassword
-                        runCatching { repository.saveOwnPassword(if (hadPassword) current else null, next) }
+                        runCatching {
+                            repository.saveOwnPassword(
+                                if (hadPassword) current else null,
+                                next,
+                                if (needsCode) code else null
+                            )
+                        }
                             .onSuccess {
                                 saved = passwordSavedLine(hadPassword)
                                 current = ""
                                 next = ""
                                 confirm = ""
+                                code = ""
                                 user = repository.cachedUser()
                             }
                             .onFailure { failure ->
                                 if (failure is SignInAgainRequired) {
                                     error = failure.message
                                     signInAgain = true
+                                } else if (failure is TwoFactorCodeRequired) {
+                                    // The form is kept; only the code is cleared for the next one.
+                                    error = failure.message
+                                    code = ""
                                 } else {
                                     error = failure.apiErrorMessage(PASSWORD_CHANGE_NOT_SENT)
                                 }

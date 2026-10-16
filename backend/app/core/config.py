@@ -131,6 +131,11 @@ class Settings(BaseSettings):
     # script, another worker). Every second added here is a second a demoted or deleted account
     # keeps working after such a write. See app.core.deps for the full argument.
     auth_user_cache_ttl_seconds: float = Field(default=5.0, alias="AUTH_USER_CACHE_TTL_SECONDS")
+    # How many proxies OF OURS append to X-Forwarded-For in front of the API (nginx on the box = 1;
+    # CloudFront + nginx = 2). The "Forgot your password?" per-client limit keys on the entry the
+    # outermost of them wrote, never on the client-typed left-most one. See
+    # app.scale.rate_limit.client_address for why 1 is the default.
+    trusted_proxy_hops: int = Field(default=1, ge=1, le=5, alias="TRUSTED_PROXY_HOPS")
     # Hard entry ceiling on a 1 GiB box. A cached row is the User model's scalar columns and no
     # relations — order 1 KB — so 512 concurrent identities is well under a megabyte, and the worst
     # case is a number chosen here rather than one decided by how many people log in.

@@ -297,6 +297,26 @@ async def notify_task_change(
         return 0
 
 
+async def notify_password_event(user: Any, kind: str, *, when: datetime | None = None) -> bool:
+    """Tell an account's own address that a password was added (``mailer.PASSWORD_ADDED``) or
+    changed (``mailer.PASSWORD_CHANGED``). A security notice: always sent, no opt-out, a no-op when
+    mail is off. Carries no password and no link. NEVER RAISES: the password is already written."""
+    try:
+        row = await enqueue(
+            kind,
+            to_address=_value(user, "email") or "",
+            recipient_id=_value(user, "id"),
+            params={
+                "recipientName": _value(user, "name"),
+                "changedAt": (when or datetime.now(UTC)).isoformat(),
+            },
+        )
+        return row is not None
+    except Exception:  # see the docstring
+        logger.exception("mail: could not queue a password notice for %s", _value(user, "id"))
+        return False
+
+
 async def notify_access_granted(email: str, *, name: str | None) -> bool:
     """Tell an address it may now sign in. Asked for explicitly by the admitting administrator.
     NEVER RAISES: the admission is already saved."""

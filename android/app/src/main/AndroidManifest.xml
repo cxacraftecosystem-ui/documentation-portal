@@ -67,11 +67,14 @@
                  app beside the browser for https://field-repository.vercel.app/set-password, and the
                  app opens its own redeem screen with the link already in the box. `singleTop` above
                  is what delivers a second tap to the running app (onNewIntent) instead of stacking a
-                 second copy. A plain filter, not a verified App Link, so the chooser decides; the
-                 paste box on the sign-in card stays the way in for everything else. `path`, not a
-                 prefix: this is one screen. MainActivity re-checks scheme, host and path, because the
-                 activity is exported and a filter never sees an explicit intent. -->
-            <intent-filter>
+                 second copy. A VERIFIED App Link (autoVerify): Android checks
+                 https://field-repository.vercel.app/.well-known/assetlinks.json (frontend/public) for
+                 this package and the RELEASE certificate's SHA-256, so the link opens this app and no
+                 other app can claim it. The paste box on the sign-in card stays the way in for
+                 everything else. `path`, not a prefix: this is one screen. MainActivity re-checks
+                 scheme, host and path, because the activity is exported and a filter never sees an
+                 explicit intent. -->
+            <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
