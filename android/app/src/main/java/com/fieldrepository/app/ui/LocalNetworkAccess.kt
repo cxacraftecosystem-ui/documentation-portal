@@ -131,9 +131,7 @@ internal fun LocalNetworkAccessForDevelopmentBackend(apiBaseUrl: String = BuildC
              */
             Toast.makeText(
                 context,
-                "Android 17 blocks this debug build from reaching the development backend at " +
-                    "$apiBaseUrl until Nearby devices is allowed for the app. Allow it in Settings, " +
-                    "or use adb reverse and point apiBaseUrl at 127.0.0.1 (android/README.md).",
+                "Allow Nearby devices in Settings to reach $apiBaseUrl, or use adb reverse to 127.0.0.1 (see android/README.md).",
                 Toast.LENGTH_LONG
             ).show()
         }

@@ -310,19 +310,19 @@ private val THEME_OPTIONS = listOf(
     ThemeOption(
         value = THEME_SYSTEM,
         label = "Match my device",
-        helper = "Follows your system's light/dark setting, and switches with it.",
+        helper = "Matches your device.",
         icon = Icons.Filled.PhoneAndroid
     ),
     ThemeOption(
         value = THEME_LIGHT,
         label = "Light",
-        helper = "The default paper-white canvas.",
+        helper = "Paper white.",
         icon = Icons.Filled.LightMode
     ),
     ThemeOption(
         value = THEME_DARK,
         label = "Dark",
-        helper = "Purple-tinted dark surfaces for low light.",
+        helper = "For low light.",
         icon = Icons.Filled.DarkMode
     )
 )
@@ -342,14 +342,13 @@ private data class AccessibilityOption(
 private val ACCESSIBILITY_OPTIONS = listOf(
     AccessibilityOption(
         label = "Reduce motion",
-        helper = "Stops animations and transitions. Your device's own reduce-motion setting is always " +
-            "honoured too — this only ever adds to it.",
+        helper = "Turns off animations. Your device setting still applies.",
         read = { it.reducedMotion },
         write = { preferences, next -> preferences.copy(reducedMotion = next) }
     ),
     AccessibilityOption(
         label = "Larger text",
-        helper = "Scales the whole interface up by about a tenth.",
+        helper = "About 10% larger.",
         read = { it.largerText },
         write = { preferences, next -> preferences.copy(largerText = next) }
     ),
@@ -416,7 +415,7 @@ fun AppearanceScreen(
                 .onSuccess { store.clearPending(changedAt) }
                 .onFailure {
                     if (it !is kotlinx.coroutines.CancellationException && !repository.isOnline(appContext)) {
-                        error = "Saved on this device. It will sync to your account when you're back online."
+                        error = "Saved on this phone. Syncs when you're online."
                     } else if (it !is kotlinx.coroutines.CancellationException) {
                         error = it.apiErrorMessage("Unable to save preferences")
                     }
@@ -453,7 +452,7 @@ fun AppearanceScreen(
 
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                "How this account looks and reads.",
+                "How the app looks.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.field.muted
             )
@@ -464,7 +463,7 @@ fun AppearanceScreen(
             PreferenceCardHeading(Icons.Filled.Palette, "Appearance")
             Text(
                 buildString {
-                    append("Applies to this account everywhere you sign in.")
+                    append("Applies everywhere you sign in.")
                     if (current.theme == THEME_SYSTEM) {
                         append(" Your device is currently ")
                         append(if (systemDark) THEME_DARK else THEME_LIGHT)
@@ -487,7 +486,7 @@ fun AppearanceScreen(
         PreferenceCard {
             PreferenceCardHeading(Icons.Filled.Accessibility, "Accessibility")
             Text(
-                "Reading comfort for this account. Each switch applies the moment it is flipped.",
+                "Applies instantly.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.field.muted
             )
@@ -516,9 +515,7 @@ fun AppearanceScreen(
         PreferenceCard {
             PreferenceCardHeading(Icons.Filled.VpnKey, "My AI keys")
             Text(
-                "Use your own OpenAI, Gemini or Claude key for transcription and the other " +
-                    "AI work you ask for, at a model of your choice, billed to you. Leave it " +
-                    "empty and everything works as it does now.",
+                "Optional. Use your own OpenAI, Gemini or Claude key for AI features, billed to you.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.field.muted
             )
@@ -532,8 +529,7 @@ fun AppearanceScreen(
         PreferenceCard {
             PreferenceCardHeading(Icons.Filled.Lock, "Two-step verification")
             Text(
-                "After your password or Google, Microsoft or Yahoo sign-in, also ask for a 6-digit " +
-                    "code from an authenticator app on your phone.",
+                "Also ask for a code from an authenticator app at sign-in.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.field.muted
             )
@@ -662,7 +658,7 @@ private fun SaveStatusLine(saving: Boolean, error: String?) {
             )
         }
         Text(
-            error ?: if (saving) "Saving to your account…" else "Saved to your account automatically.",
+            error ?: if (saving) "Saving to your account…" else "Saves automatically.",
             style = MaterialTheme.typography.bodySmall,
             color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.field.muted
         )

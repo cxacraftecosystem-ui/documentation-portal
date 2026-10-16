@@ -157,33 +157,24 @@ fun traceSentence(kind: TraceFailureKind, detail: String = ""): String {
     val trimmed = detail.trim().let { if (it.isNotEmpty() && it.length <= TRACE_DETAIL_MAX) it else "" }
     return when (kind) {
         TraceFailureKind.OUT_OF_MEMORY ->
-            "This phone ran out of memory part-way through the trace. Set the trace resolution to " +
-                "Fast, or choose a different edge engine — Canny needs about three times the memory " +
-                "of the others. Closing other apps first also helps."
+            "Ran out of memory. Set resolution to Fast, avoid Canny, or close other apps."
 
         TraceFailureKind.ENGINE_ERROR ->
             if (trimmed.isEmpty()) {
-                "The tracing engine could not finish this photograph. Try a different edge engine, " +
-                    "or set the trace resolution to Fast."
+                "Couldn't trace this photo. Try another engine or Fast resolution."
             } else {
-                "The tracing engine could not finish this photograph: $trimmed"
+                "Couldn't trace this photo: $trimmed"
             }
 
         TraceFailureKind.FRAME_MISMATCH ->
-            "The trace finished in a different frame from the photograph, so the two cannot be laid " +
-                "over each other and there is no comparison to show. The drawing itself is " +
-                "unaffected and can still be attached. Turn off “Rectify the page” and trace " +
-                "again if you want the comparison as well." +
+            "The drawing is unaffected, but the page was rectified. Turn off “Rectify the page” to compare." +
                 if (trimmed.isEmpty()) "" else " ($trimmed)"
 
         TraceFailureKind.IMAGE_UNREADABLE ->
-            "This phone could not read that photograph, so there is nothing to trace. The " +
-                "photograph on the record is unaffected — it can still be attached as it is, and " +
-                "the portal can trace it on a laptop."
+            "Can't read this photo here. Try tracing it on the web."
 
         TraceFailureKind.IMAGE_EMPTY ->
-            "That photograph decoded to no pixels at all, so there is nothing to trace. Take or " +
-                "choose another photograph of the sheet."
+            "This photo is empty. Choose another."
     }
 }
 

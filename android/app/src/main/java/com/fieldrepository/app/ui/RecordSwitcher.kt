@@ -548,7 +548,7 @@ internal fun RecordSwitcher(
         )
 
         if (canJumpToRecordWorkshop) {
-            Row(modifier = Modifier.fillMaxWidth()) {
+            ActionRow {
                 TextButton(onClick = { workshop.selectedId = currentWorkshopId }) {
                     Text("Show this ${kind.singular}'s own workshop", fontSize = 12.sp)
                 }

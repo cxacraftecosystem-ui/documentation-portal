@@ -323,14 +323,11 @@ internal fun RecordDictationButton(
                 currentPartial("")
                 val message = when (error) {
                     SpeechRecognizer.ERROR_NO_MATCH ->
-                        "Nothing was recognised. Check that the language beside the microphone " +
-                            "matches what you are speaking, and try again closer to the phone."
+                        "Nothing recognised. Check the language and speak closer."
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT ->
-                        "No speech was heard. Tap the microphone and begin speaking straight away " +
-                            "— it stops listening after a few seconds of silence."
+                        "No speech heard. Tap the mic and start speaking right away."
                     SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
-                        "This app does not have permission to use the microphone. Grant it under " +
-                            "Settings › Apps › permissions, then tap the microphone again."
+                        "Microphone access is off. Allow it in Settings, then try again."
                     // NOT reported: stepped past. A network failure on the offline rung is nonsense
                     // and on the network rung means the next rung (if any) is the one to try — and
                     // if there is no next rung, `advance` produces the sentence that names the
@@ -340,9 +337,9 @@ internal fun RecordDictationButton(
                         return
                     }
                     SpeechRecognizer.ERROR_RECOGNIZER_BUSY ->
-                        "The phone's speech service is busy. Wait a moment and tap the microphone again."
+                        "Speech service busy. Try again in a moment."
                     SpeechRecognizer.ERROR_AUDIO ->
-                        "The microphone could not be read. Something else on the phone may be using it."
+                        "Can't use the microphone — another app may have it."
                     /*
                       12 is ERROR_LANGUAGE_NOT_SUPPORTED and 13 is ERROR_LANGUAGE_UNAVAILABLE, both
                       added in API 33 and both written as literals because this module builds against
@@ -357,7 +354,7 @@ internal fun RecordDictationButton(
                         return
                     }
                     else ->
-                        "Dictation stopped unexpectedly (code $error). Type the answer in, or try again."
+                        "Dictation stopped (code $error). Try again or type."
                 }
                 release()
                 currentError(message)
@@ -395,14 +392,14 @@ internal fun RecordDictationButton(
         )
         if (built == null) {
             release()
-            currentError("This phone would not start its speech recogniser.")
+            currentError("Speech recognition didn't start.")
             return
         }
         recognizer = built
         state = RecordDictationState.WORKING
         runCatching { built.startListening(intentFor()) }.onFailure {
             release()
-            currentError("This phone would not start its speech recogniser.")
+            currentError("Speech recognition didn't start.")
         }
     }
 
@@ -437,7 +434,7 @@ internal fun RecordDictationButton(
             // Asked at the point of use and refused HERE means refused for dictation specifically,
             // which is a different thing from a launch-time batch declined months ago on a shared
             // handset. Say what was refused and what it was for.
-            currentError("Dictation needs the microphone. Nothing was recorded.")
+            currentError("Dictation needs the microphone.")
         }
     }
 
@@ -554,8 +551,7 @@ internal fun RecordDictationButton(
                     Text(
                         // Said here because this is where somebody chooses a language their phone may
                         // not have, and the alternative is discovering it as a refusal after a tap.
-                        "The languages a phone can dictate offline depend on the packs installed on " +
-                            "it. If one is refused here, another usually works.",
+                        "Offline languages depend on this phone's installed packs.",
                         color = MaterialTheme.field.muted,
                         fontSize = 12.sp
                     )

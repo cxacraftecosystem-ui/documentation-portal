@@ -384,8 +384,7 @@ fun outOfWorkshopNotice(names: List<String>): String? {
     val remainder = clean.size - shown.size
     val list = shown.joinToString(", ") + if (remainder > 0) " and $remainder more" else ""
     val subject = if (clean.size == 1) "$list is" else "$list are"
-    return "$subject not recorded at this workshop yet. They stay ticked \u2014 saving this interview here " +
-        "is what links them to it. Untick anyone who should not be on it."
+    return "$subject not yet linked to this workshop. Saving links them \u2014 untick anyone who shouldn't be here."
 }
 
 /**

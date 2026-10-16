@@ -1668,16 +1668,18 @@ private fun WalkthroughHeroCard(step: WalkStep, onStart: () -> Unit) {
                 fontSize = 14.sp,
                 lineHeight = 21.sp,
             )
-            Button(
-                onClick = onStart,
-                colors = ButtonDefaults.buttonColors(
-                    // Primary is too dark to sit ON the brand tile; this is the role that exists for
-                    // exactly that, and it is why `FieldTokens` carries it separately (Theme.kt:222).
-                    containerColor = MaterialTheme.field.accentOnBrandTile,
-                    contentColor = MaterialTheme.field.brandTile,
-                ),
-                modifier = Modifier.heightIn(min = 48.dp),
-            ) { Text("Start at step 1") }
+            ActionRow {
+                Button(
+                    onClick = onStart,
+                    colors = ButtonDefaults.buttonColors(
+                        // Primary is too dark to sit ON the brand tile; this is the role that exists for
+                        // exactly that, and it is why `FieldTokens` carries it separately (Theme.kt:222).
+                        containerColor = MaterialTheme.field.accentOnBrandTile,
+                        contentColor = MaterialTheme.field.brandTile,
+                    ),
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Start at step 1") }
+            }
         }
     }
 }
@@ -1760,10 +1762,12 @@ private fun WalkthroughOutroCard(step: WalkStep, onFinish: () -> Unit) {
                 }
             }
 
-            Button(
-                onClick = onFinish,
-                modifier = Modifier.heightIn(min = 48.dp),
-            ) { Text("Done") }
+            ActionRow {
+                Button(
+                    onClick = onFinish,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Done") }
+            }
         }
     }
 }

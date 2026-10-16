@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 // The two-typeface `Text`, shadowing androidx.compose.material3.Text — see ui/FieldText.kt.
+import com.fieldrepository.app.ui.ActionRow
 import com.fieldrepository.app.ui.Text
 import com.fieldrepository.app.ui.field
 import kotlin.math.roundToInt
@@ -266,8 +267,7 @@ private fun TraceFrameChooser(
             warning = true,
             // The trace itself may still work — it uses a different decoder with a different ceiling and
             // a different pixel format — so this refuses the FRAMING and says nothing about the drawing.
-            text = "This phone could not open that photograph to show it here, so the frame cannot " +
-                "be chosen on this device. The whole photograph is what gets traced.",
+            text = "Can't show this photo here, so the whole photo will be traced.",
             polite = true,
         )
     }
@@ -382,10 +382,7 @@ private fun TraceFrameEditor(
 
         /* ── Committing ─────────────────────────────────────────────────────────────────────── */
 
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
+        ActionRow {
             OutlinedButton(
                 onClick = {
                     onApply(
@@ -401,7 +398,7 @@ private fun TraceFrameEditor(
             ) {
                 Icon(Icons.Filled.Crop, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("Use this frame for the trace", fontSize = 12.sp)
+                Text("Use this frame", fontSize = 12.sp)
             }
             if (applied != null || !traceIsWholeFrame(box, frameWidth, frameHeight)) {
                 OutlinedButton(
@@ -413,7 +410,7 @@ private fun TraceFrameEditor(
                     enabled = enabled,
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) {
-                    Text("Use the whole photograph", fontSize = 12.sp)
+                    Text("Use whole photo", fontSize = 12.sp)
                 }
             }
         }
@@ -428,7 +425,7 @@ private fun TraceFrameEditor(
             TracePanelNote(
                 warning = false,
                 text = if (applied == null) {
-                    "Nothing has been applied yet: the trace is still using the whole photograph."
+                    "Tracing the whole photo."
                 } else {
                     traceCropStaleNote(applied.rect)
                 },

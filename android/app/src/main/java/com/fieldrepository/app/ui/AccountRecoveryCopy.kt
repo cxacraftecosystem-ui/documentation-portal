@@ -14,19 +14,14 @@ import com.fieldrepository.app.data.UserDto
 
 const val FORGOT_PASSWORD_HEADING = "Forgot your password?"
 
-const val FORGOT_PASSWORD_INTRO = "Enter the email address you sign in with. If it belongs to an " +
-    "account that uses a password, we will email it a link to choose a new one. The link works once " +
-    "and lasts 2 hours."
+const val FORGOT_PASSWORD_INTRO = "Enter your sign-in email. We'll send a link to set a new password — it works once, for 2 hours."
 
-const val FORGOT_PASSWORD_TWO_STEP_NOTE = "If two-step verification is on for your account, you will " +
-    "still need your authenticator app to sign in afterwards."
+const val FORGOT_PASSWORD_TWO_STEP_NOTE = "With two-step verification on, you'll still need your authenticator code."
 
 const val FORGOT_PASSWORD_NO_EMAIL_NOTE = "No email? Ask an administrator — they can make you a link."
 
 /** Shown only if a server answers 200 with no sentence of its own. The server's words win. */
-const val FORGOT_PASSWORD_FALLBACK = "If that address belongs to an account that signs in with a " +
-    "password, a link to choose a new password is on its way. If nothing arrives within a few " +
-    "minutes, check your spam folder, or ask an administrator to make you a link."
+const val FORGOT_PASSWORD_FALLBACK = "If that address uses a password, a reset link is on its way. Nothing after a few minutes? Check spam, or ask an administrator."
 
 /**
  * What is wrong with the typed address before it is sent, or null. As shallow as the access screen's
@@ -56,16 +51,14 @@ fun passwordCardIntro(hasPassword: Boolean, user: UserDto?): String =
         "Enter your current password, then choose a new one. $PASSWORD_CHANGE_SESSIONS"
     } else {
         val provider = providerLabel(user?.authProvider)
-        "You sign in with $provider. Set a password too and you can sign in with either — your " +
-            "email address and this password, or $provider as before."
+        "You sign in with $provider. Add a password to sign in either way."
     }
 
 fun passwordSavedLine(hadPassword: Boolean): String =
     if (hadPassword) {
         "Your password has been changed. $PASSWORD_CHANGE_SESSIONS"
     } else {
-        "Your password is set. You can now sign in with your email address and this password, or " +
-            "the way you did before."
+        "Password set. Sign in with your email and password, or as before."
     }
 
 /** "Google", "Microsoft" or "Yahoo"; a generic phrase for anything else. */
@@ -86,11 +79,10 @@ fun emailedLinkLine(name: String, email: String): String =
     "A password link is on its way to $name at $email. It works once."
 
 fun temporaryPasswordIntro(name: String): String =
-    "$name signs in with this password once and is then asked to choose their own. Send it to them " +
-        "yourself. Every device they are signed in on has to sign in again."
+    "$name uses this once, then chooses their own. Send it yourself. They'll be signed out everywhere."
 
 fun temporaryPasswordSetLine(name: String): String =
-    "Temporary password set for $name. They will choose their own at their next sign-in."
+    "Temporary password set for $name."
 
 /** Length rules for a password typed for somebody else, or null when it may be sent. */
 fun temporaryPasswordProblem(password: String): String? {
@@ -106,8 +98,7 @@ fun temporaryPasswordProblem(password: String): String? {
 fun signOutEverywhereTitle(name: String): String = "Sign $name out of every device?"
 
 fun signOutEverywhereBody(name: String): String =
-    "Every phone and browser $name is signed in on has to sign in again. Their password, two-step " +
-        "verification and access stay as they are."
+    "$name will have to sign in again everywhere. Their password, two-step verification and access don't change."
 
 fun signedOutEverywhereLine(name: String): String = "$name has been signed out of every device."
 
@@ -130,16 +121,15 @@ const val ACCESS_MUST_CHANGE_LABEL = "Ask them to choose a new one at first sign
 
 fun accessSignInNote(method: AccessSignIn): String = when (method) {
     AccessSignIn.PROVIDER ->
-        "Their account is made the first time they sign in with that address."
+        "Their account is created when they first sign in."
     AccessSignIn.PASSWORD ->
-        "Their account is made now, with this password. Send it to them yourself. They can also " +
-            "sign in with Google on the same address later."
+        "Their account is created now with this password. Send it to them yourself."
 }
 
 /** Why the add form cannot be sent yet, or null. A password account needs a name and a password. */
 fun accessAddProblem(method: AccessSignIn, password: String, fullName: String): String? {
     if (method == AccessSignIn.PROVIDER) return null
-    if (fullName.isBlank()) return "Enter their full name — it becomes the account's name."
+    if (fullName.isBlank()) return "Enter their full name."
     return temporaryPasswordProblem(password)
 }
 

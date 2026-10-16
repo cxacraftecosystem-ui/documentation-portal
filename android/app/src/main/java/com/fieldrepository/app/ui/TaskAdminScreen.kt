@@ -322,30 +322,27 @@ fun taskOverrideConfirm(current: String, next: String, assigneeName: String?): T
     return when {
         next == TASK_STATUS_DONE && current == TASK_STATUS_SUBMITTED -> TaskOverrideCopy(
             title = "Approve this work?",
-            body = "$whom handed this in and it is waiting on you. Approving records it as finished.",
-            note = "It leaves their task list and stops appearing as outstanding. The completion date " +
-                "stays the date they handed it in, not today — so approving late does not make them " +
-                "look late.",
+            body = "$whom handed this in. Approve to mark it finished.",
+            note = "It leaves their list. Completion stays dated the day they handed it in, not today.",
             confirmLabel = "Approve"
         )
         next == TASK_STATUS_DONE -> TaskOverrideCopy(
             title = "Mark this done for them?",
-            body = "$whom has not handed this in. You would be recording it as finished on their behalf.",
-            note = "This marks it done for them. If you only think it's done, ask them first.",
+            body = "$whom hasn't handed this in. You'd be marking it finished for them.",
+            note = "If unsure, ask them first.",
             confirmLabel = "Mark done for them"
         )
         current == TASK_STATUS_SUBMITTED -> TaskOverrideCopy(
             title = "Send this back?",
-            body = "$whom said this was finished. Sending it back refuses that and reopens the task.",
-            note = "It returns to their list as unfinished work. Let them know why.",
+            body = "$whom marked this finished. Sending it back reopens it.",
+            note = "Let them know why.",
             confirmLabel = "Send back"
         )
         else -> TaskOverrideCopy(
             title = "Reopen this task?",
             body = "This is approved. Reopening puts it back on ${whom}'s list as " +
                 "${taskStatusLabel(next).lowercase()}.",
-            note = "The completion date is cleared. What they have already recorded is kept; only " +
-                "the task's status changes.",
+            note = "The completion date is cleared. Their records are kept.",
             confirmLabel = "Back to ${taskStatusLabel(next).lowercase()}"
         )
     }
@@ -391,13 +388,13 @@ fun taskReviewNotice(task: TaskDto, assignerName: String? = null): TaskReviewNot
     val who = assignerName?.trim().orEmpty()
     return TaskReviewNotice(
         title = "Handed in — under review",
-        body = "You marked this done and it has been recorded. " +
+        body = "You marked this done. " +
             (if (who.isNotEmpty()) "$who or another admin" else "An admin or the master admin") +
-            " has to approve it before it is finished, so it stays on your list until then.",
+            " will approve it; it stays on your list until then.",
         // The third sentence exists because the second one, alone, reads as an instruction to wait
         // and do something. There is nothing to do, and saying so is the difference between a queue
         // and a problem.
-        action = "Nothing more is needed from you unless it comes back."
+        action = "Nothing more to do unless it comes back."
     )
 }
 
@@ -458,7 +455,7 @@ fun assigneeStatusActionLabel(current: String, next: String): String = when {
  * consequence, and says nothing about the task staying put.
  */
 fun assigneeStatusConfirmation(next: String): String = when (next) {
-    TASK_STATUS_SUBMITTED -> "Sent for approval. It stays on your list until an admin approves it."
+    TASK_STATUS_SUBMITTED -> "Sent for approval. It stays on your list until approved."
     TASK_STATUS_OPEN -> "Moved back to your to-do list."
     TASK_STATUS_IN_PROGRESS -> "Marked in progress."
     else -> "Marked ${taskStatusLabel(next).lowercase()}."
@@ -566,15 +563,13 @@ fun taskSummaryBar(summary: TaskSummaryDto): TaskSummaryBar {
     val active = maxOf(0, summary.taskCount - summary.cancelledCount)
     val caveats = mutableListOf<String>()
     if (summary.truncated) {
-        caveats += "You have more tasks than this summary can scan in one go, so these counts are a " +
-            "floor rather than a total."
+        caveats += "Counts may be incomplete."
     }
     if (summary.derivationSkipped) {
         // The server declined to count records for a list this long. Not a failure and not hidden:
         // the alternative is a bar that looks measured and is not, which is the outcome ruled out
         // above.
-        caveats += "You have too many tasks to count from records in one go, so nothing here was " +
-            "counted from records."
+        caveats += "Too many tasks to count from records."
     }
 
     if (summary.taskCount == 0) {
@@ -583,7 +578,7 @@ fun taskSummaryBar(summary: TaskSummaryDto): TaskSummaryBar {
     if (active == 0) {
         return TaskSummaryBar(
             null,
-            "Every task assigned to you has been withdrawn, so there is nothing left to measure.",
+            "All your tasks were withdrawn.",
             "none",
             caveats
         )
@@ -601,20 +596,16 @@ fun taskSummaryBar(summary: TaskSummaryDto): TaskSummaryBar {
             // Both halves are said because the card cannot tell which one is true from this payload,
             // and guessing would put one of two different explanations on screen as if it were
             // certain.
-            "Nothing has been recorded or reported against these tasks yet, so there is no progress " +
-                "to show.",
+            "No progress yet.",
             measured,
             caveats
         )
     }
 
     val caption = when (measured) {
-        "all" -> "All $active of your tasks are counted from your records — this bar moves on its " +
-            "own as you record."
-        "some" -> "${summary.measuredCount} of $active tasks counted from records; the rest " +
-            "from what you reported or handed in."
-        else -> "Based on what you have reported and handed in — none of these tasks could be " +
-            "counted from records."
+        "all" -> "All $active counted from your records — updates as you record."
+        "some" -> "${summary.measuredCount} of $active counted from records; the rest from your reports."
+        else -> "Based on what you've reported."
     }
     return TaskSummaryBar(summary.percentComplete.coerceIn(0, 100), caption, measured, caveats)
 }
@@ -653,10 +644,8 @@ fun taskDueSentence(summary: TaskSummaryDto): String? {
  */
 fun taskAwaitingReviewSentence(count: Int): String? = when {
     count <= 0 -> null
-    count == 1 -> "One task is under review. It stays on your list until an admin approves it — " +
-        "there is nothing more for you to do on it."
-    else -> "$count tasks are under review. They stay on your list until an admin approves them — " +
-        "there is nothing more for you to do on them."
+    count == 1 -> "One task is under review — nothing more to do."
+    else -> "$count tasks are under review — nothing more to do."
 }
 
 /** The six-tier ladder, highest first — the display order the web uses for role pickers. */
@@ -1000,8 +989,7 @@ fun TaskAdminScreen(
             )
         }
         Text(
-            "Hand documentation work to the people below you, then watch what they report against " +
-                "what has actually been recorded.",
+            "Assign work and track it against what's recorded.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -1027,10 +1015,9 @@ fun TaskAdminScreen(
             )
             Text(
                 if (workshopTitle != null) {
-                    "Artisans, the rollup and the assignment list below are all limited to $workshopTitle."
+                    "Showing $workshopTitle only."
                 } else {
-                    "Nothing is narrowed yet. Pick a workshop to scope the artisan picker, the rollup " +
-                        "and the assignment list."
+                    "Pick a workshop to narrow this page."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1125,10 +1112,9 @@ fun TaskAdminScreen(
                                 refreshAll()
                                 onMessage(
                                     if (nextStatus == TASK_STATUS_DONE) {
-                                        "Approved. It has left their task list."
+                                        "Approved."
                                     } else {
-                                        "Sent back. It is on their list again as " +
-                                            "${taskStatusLabel(nextStatus).lowercase()}."
+                                        "Sent back as ${taskStatusLabel(nextStatus).lowercase()}."
                                     }
                                 )
                             }
@@ -1257,8 +1243,7 @@ private fun AssignWorkTab(
             StepHeader(
                 number = 2,
                 title = "Who does the work",
-                hint = "Only people ranked below you can be given a task. Narrow by tier first if the " +
-                    "list is long — each person gets their own task."
+                hint = "People ranked below you. Each gets their own task."
             )
             FieldLabel("Filter by tier")
             SingleSelectField(
@@ -1309,8 +1294,7 @@ private fun AssignWorkTab(
             StepHeader(
                 number = 3,
                 title = "What they must produce",
-                hint = "Record types and questionnaire sections can be combined. Leave the artisan " +
-                    "list empty to mean every artisan in scope."
+                hint = "Combine record types and sections. No artisans means all of them."
             )
             MultiSelectField(
                 label = "Record types",
@@ -1376,7 +1360,7 @@ private fun AssignWorkTab(
                 if (validTarget != null) {
                     "Each person is asked for $validTarget record${if (validTarget == 1) "" else "s"}."
                 } else {
-                    "Optional. Without it, record work reads as “as many as apply” and has no percentage."
+                    "Optional."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1388,7 +1372,7 @@ private fun AssignWorkTab(
             StepHeader(
                 number = 4,
                 title = "Title, brief and deadline",
-                hint = "Leave the title empty to use the one generated from the scope."
+                hint = "Leave empty to generate one."
             )
             FieldLabel("Title")
             OutlinedTextField(
@@ -1429,7 +1413,7 @@ private fun AssignWorkTab(
                 label = null,
                 value = form.description,
                 onValueChange = { form.description = it },
-                placeholder = "What good work looks like here. Markdown is supported.",
+                placeholder = "What good work looks like. Markdown supported.",
                 minLines = 3,
                 dictate = true,
             )
@@ -1463,7 +1447,7 @@ private fun AssignWorkTab(
                         workshopTitle = workshopTitle
                     )
                 } else {
-                    "Pick the people and the work — the preview appears here."
+                    "Pick people and work to preview."
                 },
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onSurface
@@ -1483,12 +1467,11 @@ private fun AssignWorkTab(
 
             if (!hasWork && hasPeople) {
                 WarningLine(
-                    "Pick at least one record type or questionnaire section — a task with no work in " +
-                        "it is rejected."
+                    "Pick at least one record type or section."
                 )
             }
             if (hasWork && !hasPeople) {
-                WarningLine("Pick at least one person to assign this to.")
+                WarningLine("Pick at least one person.")
             }
         }
 
@@ -1562,8 +1545,7 @@ private fun AccountabilityTab(
         report == null -> Unit
         report.assignees.isEmpty() -> EmptyStateBlock(
             title = "Nobody has been given work here yet",
-            body = "Assign work on the first tab and this becomes the accountability view: who has " +
-                "what, what they say they have done, and what has actually been recorded."
+            body = "Assigned work and progress will show here."
         )
         else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
             StatTileGrid(
@@ -1589,22 +1571,18 @@ private fun AccountabilityTab(
 
             if (report.truncated) {
                 WarningBanner(
-                    "This rollup hit its scan limit, so it is a partial picture. Pick a single " +
-                        "workshop above to narrow it."
+                    "Partial — pick one workshop to see all."
                 )
             }
 
             Text(
-                "Reported is what the person says they have done. Recorded is what they have " +
-                    "actually created inside the task's scope. Neither overwrites " +
-                    "the other — a wide gap is the thing to ask about.",
+                "Reported is what they say; recorded is what they saved. Ask about wide gaps.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             if (report.awaitingReviewCount > 0) {
                 Text(
-                    "\"Waiting on you\" is work that has been handed in. It stays on the researcher's " +
-                        "own list until somebody approves it, so nothing here clears itself.",
+                    "\"Waiting on you\" is handed-in work to approve.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1765,7 +1743,7 @@ private fun TaskEffectiveProgress(task: TaskDto) {
             // somebody moved by typing a number into the box below it, and on this screen of all
             // screens that is the distinction worth a line of text.
             Text(
-                "Counted automatically — this moves on its own as records are saved" +
+                "Counted automatically" +
                     (task.derivedArtisanCount?.let { ", across $it in scope" } ?: "") + ".",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1778,9 +1756,7 @@ private fun TaskEffectiveProgress(task: TaskDto) {
         // sending an unfair message and an admin fixing the interview.
         task.derivedBreakdown["unlinkedSections"]?.takeIf { it > 0 }?.let { orphans ->
             Text(
-                "$orphans answered ${if (orphans == 1) "section" else "sections"} are on an interview " +
-                    "with no artisan attached, so they cannot count towards this. Link the interview " +
-                    "to an artisan and this moves.",
+                "$orphans answered ${if (orphans == 1) "section isn't" else "sections aren't"} counted — link the interview to an artisan.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.field.onWarningContainer
             )
@@ -1863,11 +1839,7 @@ private fun TaskReviewControls(
         }
     }
     error?.let { ErrorBanner(it) }
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
+    ActionRow {
         targets.forEach { next ->
             val approving = next == TASK_STATUS_DONE && task.status == TASK_STATUS_SUBMITTED
             if (approving) {
@@ -1956,8 +1928,7 @@ private fun AssignmentsTab(
         loading && items.isEmpty() -> LoadingLine("Loading assignments...")
         items.isEmpty() -> EmptyStateBlock(
             title = "No assignments here yet",
-            body = "Everything handed out from the assignment builder shows up here as one manageable " +
-                "unit, with the whole group's progress and a single withdraw action."
+            body = "Each assignment appears here with its group progress."
         )
         else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
             deleteError?.let { ErrorBanner(it) }
@@ -2754,7 +2725,7 @@ private fun ProgressGapMeter(reported: Int, derived: Int?, target: Int?) {
         GapChip(reported = reported, derived = derived)
         if (!hasTarget) {
             Text(
-                "No target count on this task — the bars compare the two figures to each other.",
+                "No target set.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.field.placeholder
             )
@@ -2843,16 +2814,14 @@ private fun PaginationRow(page: Int, pages: Int, total: Int, onPage: (Int) -> Un
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.field.body
         )
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ActionRow {
             OutlinedButton(
                 onClick = { onPage(page - 1) },
                 enabled = page > 1,
-                modifier = Modifier.weight(1f)
             ) { Text("Previous") }
             OutlinedButton(
                 onClick = { onPage(page + 1) },
                 enabled = page < pages,
-                modifier = Modifier.weight(1f)
             ) { Text("Next") }
         }
     }
@@ -3141,19 +3110,14 @@ fun AssigneeTaskActions(
         // never allowed to press.
         if (task.status == TASK_STATUS_DONE) {
             Text(
-                "Approved — this one is finished. Only an admin or the person who assigned it can " +
-                    "reopen it now.",
+                "Approved and finished.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
         return
     }
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
+    ActionRow {
         choices.forEach { next ->
             val label = assigneeStatusActionLabel(task.status, next)
             if (next == TASK_STATUS_SUBMITTED) {
@@ -3174,8 +3138,7 @@ fun AssigneeTaskActions(
         // under the same button: "Mark done" no longer finishes a task, and a researcher who learns
         // that only from the card not disappearing has already decided the app is broken.
         Text(
-            "Marking this done sends it to an admin to approve. It stays on your list, marked under " +
-                "review, until they do.",
+            "An admin approves it next.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

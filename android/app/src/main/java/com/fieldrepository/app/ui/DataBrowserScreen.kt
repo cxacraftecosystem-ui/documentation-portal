@@ -335,7 +335,7 @@ class DataBrowserState(
             try {
                 val path = repository.locateRecord(recordType, recordId)
                 if (path == null) {
-                    unfiled = "$title is not filed under any workshop yet, so it has no folder to open."
+                    unfiled = "$title isn't in a workshop yet."
                 } else {
                     open(path)
                 }
@@ -514,8 +514,7 @@ fun DataBrowserScreen(
                         )
                     }
                     Text(
-                        "Browse every record as folders, preview media and transcripts, " +
-                            "and download any folder as a zip, filtered by file type.",
+                        "Browse records as folders, preview files, download as zip.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -564,8 +563,7 @@ fun DataBrowserScreen(
                     }
                     if (state.truncated) {
                         NoticeBox(
-                            "Showing the first part of this folder. Open its subfolders to see " +
-                                "everything it holds.",
+                            "Showing part of this folder. Open subfolders for the rest.",
                             container = MaterialTheme.field.warningContainer,
                             content = MaterialTheme.field.onWarningContainer
                         )
@@ -662,8 +660,7 @@ fun DataBrowserScreen(
                                     // files" over a subtree that has more is the one message here
                                     // that could send somebody away believing they have everything.
                                     val short = if (result.truncated) {
-                                        " This folder holds more than one archive can carry, so " +
-                                            "some of it is not included."
+                                        " Too large for one archive — some files left out."
                                     } else {
                                         ""
                                     }
@@ -937,9 +934,7 @@ private fun RestrictedPanel() {
             color = MaterialTheme.colorScheme.onBackground
         )
         Text(
-            "Browsing and downloading the dataset is available to professors and above, or to " +
-                "accounts that have been granted the dataset-download permission. Ask an admin to " +
-                "grant you access if you need it for your research.",
+            "Needs professor access or the dataset-download permission. Ask an admin.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
@@ -996,7 +991,7 @@ private fun JumpToRecordPanel(
         // Directly under the field, so the chips read as part of the search and not a separate tool.
         SearchFilterBar(value = filters, onChange = onFiltersChange)
         Text(
-            "Find an artisan, workshop, product, tool or media file and open the folder that holds it.",
+            "Find a record or file and open its folder.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -1023,7 +1018,7 @@ private fun JumpToRecordPanel(
         // letting the shortlist read as the whole answer.
         if (search.total > search.hits.size) {
             Text(
-                "Showing ${search.hits.size} of ${search.total}. Narrow the filters to see the rest.",
+                "Showing ${search.hits.size} of ${search.total}. Narrow the filters for more.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1441,7 +1436,7 @@ private fun FileActions(
     // start buffering every recording a folder holds as the list scrolls past on field data.
     val previewable = entry.mediaType in setOf("IMAGE", "VIDEO", "AUDIO") && !entry.url.isNullOrBlank()
     if (entry.content == null && !entry.transcriptAvailable && !previewable && entry.mediaId == null) return
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+    ActionRow {
         if (entry.content != null) {
             TextButton(onClick = onToggleInline) { Text(if (inlineOpen) "Hide" else "View") }
         }

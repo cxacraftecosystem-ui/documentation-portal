@@ -574,7 +574,7 @@ class FieldRepository(
             if (answer.headers()[SIGN_IN_AGAIN_HEADER] != null) {
                 throw SignInAgainRequired(
                     refused.apiErrorMessage(
-                        "For your security, sign out and sign in again, then set your password within 15 minutes."
+                        "Sign out and back in, then set your password within 15 minutes."
                     )
                 )
             }
@@ -624,7 +624,7 @@ class FieldRepository(
     suspend fun createAccount(body: CreateAccountBody): CreatedAccountDto {
         val answer = recoveryApi.createAccount(body.copy(email = body.email.trim().lowercase(), name = body.name.trim()))
         if (answer.isSuccessful) {
-            return answer.body() ?: throw IllegalStateException("The server's answer could not be read. Try again.")
+            return answer.body() ?: throw IllegalStateException("Something went wrong. Try again.")
         }
         val refused = HttpException(answer)
         if (answer.code() == 409) {
@@ -3019,9 +3019,7 @@ class FieldRepository(
                 return when {
                     isTransient(e) -> ReplayOutcome.Retry
                     isKeyReused(e) -> ReplayOutcome.Review(
-                        "The server already has a request under this entry's key with different " +
-                            "contents, so this record may already be saved. Check the record list; if it " +
-                            "is not there, tap Send again (its photos are kept on this device either way)."
+                        "This may already be saved. Check the list; if it isn't there, tap Send again. Photos stay on this phone."
                     )
                     else -> ReplayOutcome.Rejected(e.apiErrorMessage("This record couldn't be saved."))
                 }
@@ -3080,8 +3078,7 @@ class FieldRepository(
             // The record IS saved, so the entry must never be replayed — but its files are still only
             // here, so it must not be deleted either. Kept, with the reason, exactly as the web does.
             return ReplayOutcome.Rejected(
-                "It was saved, but ${refused.size} file(s) couldn't be uploaded: " +
-                    "${refused.distinct().joinToString(" ")} Attach them again on the record."
+                "Saved, but ${refused.size} file(s) didn't upload: ${refused.distinct().joinToString(" ")} Attach them again."
             )
         }
         return ReplayOutcome.Synced
@@ -3125,8 +3122,7 @@ class FieldRepository(
                     landed.add(
                         FileOutcome.Refused(
                             index,
-                            "\"${pm.originalFilename}\" had nowhere to attach — the saved record has fewer " +
-                                "process steps than were captured."
+                            "\"${pm.originalFilename}\" wasn't attached — its process step no longer exists."
                         )
                     )
                     return@launch

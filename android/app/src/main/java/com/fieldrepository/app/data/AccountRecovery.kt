@@ -151,7 +151,7 @@ class SignInAgainRequired(message: String) : Exception(message)
 const val TWO_FACTOR_REQUIRED_HEADER = "X-Two-Factor-Required"
 
 /** What the first-password form says when the code is missing — the server's own sentence. */
-const val TWO_FACTOR_CODE_FOR_PASSWORD = "Enter the code from your authenticator app to set a password."
+const val TWO_FACTOR_CODE_FOR_PASSWORD = "Enter your authenticator code to set a password."
 
 /** Thrown by `FieldRepository.saveOwnPassword` for the [TWO_FACTOR_REQUIRED_HEADER] refusal. */
 class TwoFactorCodeRequired(message: String) : Exception(message)

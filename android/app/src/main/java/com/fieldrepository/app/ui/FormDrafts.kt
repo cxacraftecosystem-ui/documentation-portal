@@ -294,14 +294,14 @@ fun DraftOfferCard(draft: FormDraft) {
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
-            "You have an unsaved draft of this form" +
+            "Unsaved draft" +
                 (offer.parentLabel?.takeIf { it.isNotBlank() }?.let { " for $it" } ?: "") +
                 (offer.label.takeIf { it.isNotBlank() }?.let { " (“$it”)" } ?: "") +
                 (if (savedAt.isNotBlank()) ", last changed $savedAt." else "."),
             color = MaterialTheme.colorScheme.onSecondaryContainer,
             fontSize = 13.sp
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ActionRow {
             Button(onClick = {
                 draft.recordKey = offer.recordKey
                 draft.copies.clear()
@@ -309,7 +309,7 @@ fun DraftOfferCard(draft: FormDraft) {
                 offer.ownedFiles.forEach { path -> draft.copies["file:$path"] = path }
                 draft.offer = null
                 draft.decided = true
-            }) { Text("Continue your draft") }
+            }) { Text("Continue") }
             OutlinedButton(onClick = {
                 draft.offer = null
                 draft.decided = true

@@ -308,9 +308,7 @@ private fun ConsolidatedIndex(
 
     ConsolidatedCard(title = "Consolidated questionnaire", icon = Icons.Filled.Layers) {
         Text(
-            "An interview is stored once per exact set of artisans, so most artisans' answers are " +
-                "spread across several entries. Pick an artisan to read everything they contributed " +
-                "as one document, with each answer still naming the interview it came from.",
+            "Pick an artisan to read all their answers as one document.",
             color = MaterialTheme.field.muted,
             fontSize = 12.sp
         )
@@ -340,8 +338,7 @@ private fun ConsolidatedIndex(
         // interview and carries its own control, so this line names the difference rather than leaving
         // a reader to assume the two match.
         Text(
-            "This list is the artisans in the chosen workshops. Each document opens on every " +
-                "interview that artisan took part in — narrow it there to read one workshop's account.",
+            "Artisans in the chosen workshops.",
             color = MaterialTheme.field.muted,
             fontSize = 12.sp
         )
@@ -354,7 +351,7 @@ private fun ConsolidatedIndex(
 
         loading -> ConsolidatedCard(title = "Loading artisans…") {
             Text(
-                "Reading the artisans in scope.",
+                "Loading artisans…",
                 color = MaterialTheme.field.muted,
                 fontSize = 12.sp
             )
@@ -363,8 +360,7 @@ private fun ConsolidatedIndex(
         filtered.isEmpty() -> ConsolidatedCard(title = "No artisans match") {
             Text(
                 if (!scope.isAllRecords) {
-                    "No artisan in the chosen workshops matches. Widen the workshop scope, or " +
-                        "choose All records."
+                    "No matches in these workshops."
                 } else {
                     "Try a different name, craft or place."
                 },
@@ -500,11 +496,9 @@ private fun ConsolidatedDocument(
             val plural = if (count == 1) "" else "s"
             Text(
                 if (!scope.isAllRecords) {
-                    "Questionnaire answers from the $count interview$plural this artisan took part " +
-                        "in within the chosen workshops."
+                    "Answers from $count interview$plural in the chosen workshops."
                 } else {
-                    "Every questionnaire answer recorded for this artisan, gathered from all " +
-                        "$count interview$plural they took part in."
+                    "All answers, from $count interview$plural."
                 },
                 color = MaterialTheme.field.muted,
                 fontSize = 12.sp
@@ -519,12 +513,7 @@ private fun ConsolidatedDocument(
                 Text(error.orEmpty(), color = MaterialTheme.field.body, fontSize = 13.sp)
             }
 
-        current == null -> ConsolidatedCard(title = "Gathering answers from every interview…") {
-            Text(
-                "Reading every sitting this artisan took part in.",
-                color = MaterialTheme.field.muted,
-                fontSize = 12.sp
-            )
+        current == null -> ConsolidatedCard(title = "Gathering answers…") {
         }
 
         else -> {
@@ -557,12 +546,11 @@ private fun NothingRecordedCard(artisanName: String, interviewCount: Int, scoped
         Text(
             when {
                 interviewCount == 0 && scoped ->
-                    "$artisanName took part in no interviews at the chosen workshops. Widen the " +
-                        "workshop scope, or choose All records."
-                interviewCount == 0 -> "$artisanName has not taken part in any interview yet."
+                    "$artisanName has no interviews in these workshops."
+                interviewCount == 0 -> "$artisanName has no interviews yet."
                 else -> "$artisanName appears in $interviewCount interview" +
                     (if (interviewCount == 1) "" else "s") +
-                    ", but no answers or recordings have been filed against them."
+                    ", with nothing filed yet."
             },
             color = MaterialTheme.field.muted,
             fontSize = 13.sp
@@ -582,16 +570,14 @@ private fun ConsolidatedSummaryBlock(data: ConsolidatedQuestionnaireDto) {
         )
         if (summary.groupSittingCount > 0) {
             Notice(
-                text = "${summary.groupSittingCount} of these were group sittings. Answers recorded in a group " +
-                    "cannot be attributed to one artisan — the record does not store who spoke.",
+                text = "${summary.groupSittingCount} were group sittings — those answers aren't attributed to one artisan.",
                 container = MaterialTheme.field.warningContainer,
                 ink = MaterialTheme.field.onWarningContainer
             )
         }
         if (summary.conflictCount > 0) {
             Notice(
-                text = "${summary.conflictCount} question${if (summary.conflictCount == 1) "" else "s"} " +
-                    "answered differently in different interviews. Every account is shown, most recent first.",
+                text = "${summary.conflictCount} question${if (summary.conflictCount == 1) "" else "s"} answered differently. All answers shown, newest first.",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 ink = MaterialTheme.colorScheme.onPrimaryContainer
             )
@@ -710,8 +696,7 @@ private fun SectionCard(section: ConsolidatedSectionDto) {
                     )
                     if (question.conflict) {
                         Notice(
-                            text = "Answered differently in ${question.answers.size} interviews. Both accounts are " +
-                                "shown, most recent first. Neither has been chosen for you.",
+                            text = "Answered differently in ${question.answers.size} interviews. Newest first.",
                             container = MaterialTheme.colorScheme.primaryContainer,
                             ink = MaterialTheme.colorScheme.onPrimaryContainer
                         )
@@ -733,7 +718,7 @@ private fun SectionCard(section: ConsolidatedSectionDto) {
                     // Said plainly rather than pinned to a nearby question: the clip identifies the
                     // section and stops there, and inventing the rest is the error this screen avoids.
                     Text(
-                        "These clips identify the section but not a specific question.",
+                        "Section only — no specific question.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -775,9 +760,9 @@ private fun AnswerRow(answer: ConsolidatedAnswerDto, ordinal: Int?) {
             )
             Text(
                 if (answer.transcriptStatus != null && answer.transcriptStatus != "COMPLETED") {
-                    "Transcription did not complete for this clip — the audio is the record."
+                    "Transcription failed. Audio only."
                 } else {
-                    "No transcript yet — the audio is the record."
+                    "No transcript yet."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -820,8 +805,7 @@ private fun UnfiledCard(rows: List<ConsolidatedAnswerDto>) {
                 color = MaterialTheme.colorScheme.onSurface
             )
             Text(
-                "Recorded against this artisan's interviews but carrying no section in their filename or " +
-                    "metadata. Listed here rather than dropped.",
+                "No section in their filename or metadata.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

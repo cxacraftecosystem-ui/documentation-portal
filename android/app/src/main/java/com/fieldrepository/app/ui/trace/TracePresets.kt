@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.fieldrepository.app.ui.SearchableSelectField
 import com.fieldrepository.app.ui.SelectOption
 // The two-typeface `Text`, shadowing androidx.compose.material3.Text — see ui/FieldText.kt.
+import com.fieldrepository.app.ui.ActionRow
 import com.fieldrepository.app.ui.Text
 import com.fieldrepository.app.ui.field
 
@@ -175,13 +176,13 @@ fun TraceSubjectPicker(
             buildString {
                 append(
                     subjects.firstOrNull { it.id == selectedId }?.description
-                        ?: "Adjusts the settings for the material, and leaves the style's look alone.",
+                        ?: "Tunes for the material, keeping the style.",
                 )
                 if (seededFromHost) {
                     // NAMED, not hidden. The upstream's contract for work done on somebody's behalf is
                     // "a named suggestion with a one-tap override", and a pre-selection nobody is told
                     // about is not a suggestion — it is a decision somebody else made in their name.
-                    append(" Chosen from what this record already says; change it if it is wrong.")
+                    append(" Picked from this record.")
                 }
             },
             color = MaterialTheme.field.muted,
@@ -244,16 +245,13 @@ fun TraceStyleSuggestion(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
-            "Looking at this photograph, the engine suggests the “${suggested.name}” style. " +
+            "Suggested: “${suggested.name}”. " +
                 suggested.description,
             color = MaterialTheme.field.body,
             fontSize = 11.sp,
             lineHeight = 16.sp,
         )
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
+        ActionRow {
             OutlinedButton(
                 onClick = { onApply(suggested.id) },
                 enabled = enabled,

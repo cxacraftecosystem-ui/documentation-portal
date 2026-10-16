@@ -94,8 +94,7 @@ import com.offlinetracer.pipeline.TraceParams
  * discards what was there, so re-picking the style is a genuine reset to the preset.
  */
 internal const val TRACE_SUBJECT_COMPOUNDS_NOTE: String =
-    "Tapping this again adjusts the settings that are on screen now, so it compounds; pick the " +
-        "style again to start from the preset."
+    "Tapping again builds on the current settings."
 
 /**
  * The subjects this engine carries that the portal's register has no row for, in `Subjects.ALL` order.

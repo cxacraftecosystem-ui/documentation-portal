@@ -188,7 +188,7 @@ class ProviderOrderState internal constructor(
             val blocked = list[from]
             val reason = blocked.frozenReason ?: "It has not passed a provider test."
             announcement = "${blocked.name} cannot move there yet. $reason"
-            warning = "${blocked.name} stays below the engines that have passed a test. $reason"
+            warning = "${blocked.name} stays below tested engines. $reason"
             return
         }
         val moved = list[from]
@@ -216,7 +216,7 @@ class ProviderOrderState internal constructor(
                         warning = note
                         announcement = "Saved with changes. $note"
                     } else {
-                        notice = "Saved. The next transcription job uses this order — nothing needs restarting."
+                        notice = "Saved."
                         announcement = "Order saved."
                     }
                 }
@@ -238,11 +238,11 @@ class ProviderOrderState internal constructor(
                     if (after?.keyState == STT_KEY_PASSING) {
                         // The thaw is the point, and it has already happened in the rows above by
                         // the time this line is read — no reload, no save.
-                        notice = "${provider.name} answered. It is verified now and can be ranked wherever you like."
+                        notice = "${provider.name} works — rank it anywhere."
                         announcement = "${provider.name} passed its test and is now rankable."
                     } else {
                         val why = after?.testError ?: "the provider refused the key"
-                        warning = "${provider.name} did not pass: $why. It stays below the engines that did."
+                        warning = "${provider.name} failed: $why."
                         announcement = "${provider.name} failed its test."
                     }
                 }
@@ -315,9 +315,7 @@ fun ProviderOrderPanel(
                 color = MaterialTheme.colorScheme.onSurface
             )
             Text(
-                "The engine at the top is tried first; if it fails, or has no API key, the next one down " +
-                    "takes the job. An engine can only be ranked once it has passed a test — tap Test to ask " +
-                    "the provider whether its key works. This applies to everyone, not just this phone.",
+                "Top is tried first, then the next. Test an engine to rank it. Applies to everyone.",
                 style = MaterialTheme.typography.bodySmall,
                 color = tokens.muted
             )
@@ -326,7 +324,7 @@ fun ProviderOrderPanel(
             state.trouble?.let { trouble ->
                 ProviderTroubleCard(trouble = trouble, busy = state.loading, onRetry = state::load)
                 Text(
-                    "Showing the default order. It can be changed once the current order loads.",
+                    "Default order — loading the saved one…",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = tokens.muted
@@ -410,11 +408,7 @@ fun ProviderOrderPanel(
                 )
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+            ActionRow {
                 Button(
                     onClick = state::save,
                     enabled = state.live && state.dirty && !state.saving
@@ -577,20 +571,22 @@ private fun ProviderRow(provider: SttProviderDto, index: Int, state: ProviderOrd
             }
         }
 
-        OutlinedButton(
-            onClick = { state.test(provider) },
-            enabled = live && state.testing == null
-        ) {
-            if (busy) {
-                CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
-            } else {
-                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+        ActionRow {
+            OutlinedButton(
+                onClick = { state.test(provider) },
+                enabled = live && state.testing == null
+            ) {
+                if (busy) {
+                    CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+                } else {
+                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                }
+                Spacer(Modifier.width(6.dp))
+                // The provider's name is IN the label rather than in a separate description, so TalkBack
+                // reads "Test ElevenLabs, button" once instead of reading a description and then the
+                // word "Test" after it.
+                Text(if (busy) "Testing ${provider.name}…" else "Test ${provider.name}", maxLines = 1)
             }
-            Spacer(Modifier.width(6.dp))
-            // The provider's name is IN the label rather than in a separate description, so TalkBack
-            // reads "Test ElevenLabs, button" once instead of reading a description and then the
-            // word "Test" after it.
-            Text(if (busy) "Testing ${provider.name}…" else "Test ${provider.name}", maxLines = 1)
         }
     }
 }
@@ -607,7 +603,7 @@ private fun ProviderMoveArrow(
 ) {
     val direction = if (up) "up" else "down"
     val label = if (blocked) {
-        "Move ${provider.name} $direction — not allowed until it passes a provider test"
+        "Move ${provider.name} $direction — test it first"
     } else {
         // Just the direction. Naming the destination ("up to position 0" on the first row) reads as
         // nonsense; where it actually landed is announced afterwards instead.
@@ -694,14 +690,16 @@ private fun ProviderTroubleCard(trouble: SttTrouble, busy: Boolean, onRetry: () 
             color = tokens.onWarningContainer
         )
         if (trouble.retryable) {
-            OutlinedButton(onClick = onRetry, enabled = !busy) {
-                if (busy) {
-                    CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
-                } else {
-                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+            ActionRow {
+                OutlinedButton(onClick = onRetry, enabled = !busy) {
+                    if (busy) {
+                        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+                    } else {
+                        Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Text("Try again")
                 }
-                Spacer(Modifier.width(6.dp))
-                Text("Try again")
             }
         }
     }
@@ -768,40 +766,29 @@ private fun providerBanners(state: ProviderOrderState): List<Pair<BannerTone, St
 
     if (runnable.isEmpty()) {
         out += BannerTone.WARN to (
-            "None of these engines has an API key, so recordings cannot be transcribed at all yet. The " +
-                "ranking is still saved and starts applying the moment a key is added and passes its test."
+            "No engine has a key, so nothing can be transcribed yet."
             )
     } else if (verified.isEmpty()) {
         out += BannerTone.INFO to (
-            "Nothing here has been tested yet, so nothing is frozen — rank the engines however you like. " +
-                "Tap Test on the one you want first: until an engine has answered, this list is a " +
-                "preference rather than a promise."
+            "Nothing tested yet. Test the engine you want first."
             )
     } else if (saved.firstOrNull()?.configured == false) {
         out += BannerTone.WARN to (
-            "${saved.first().name} is ranked first but has no API key, so the next recording actually goes " +
-                "to ${runnable.first().name}. Add the ${saved.first().keyLabel} key to make this ranking count."
+            "${saved.first().name} has no key, so ${runnable.first().name} is used. Add the ${saved.first().keyLabel} key."
             )
     }
 
     if (sttOrderViolations(saved) > 0) {
         val stragglers = saved.filterNot { it.rankable }
         out += BannerTone.WARN to (
-            "This saved order puts ${joinSttNames(stragglers.map { it.name })} above " +
-                "${joinSttNames(verified.map { it.name })}, which ${if (verified.size == 1) "has" else "have"} " +
-                "passed a test. The next save moves the unverified ${if (stragglers.size == 1) "one" else "ones"} " +
-                "below — the pipeline already prefers whatever actually answers, so the list will simply stop " +
-                "disagreeing with it."
+            "Untested ${joinSttNames(stragglers.map { it.name })} will move below ${joinSttNames(verified.map { it.name })} on the next save."
             )
     }
 
     val failing = saved.filter { it.keyState == STT_KEY_FAILING }
     if (failing.isNotEmpty()) {
         out += BannerTone.WARN to (
-            "${joinSttNames(failing.map { it.name })} still ${if (failing.size == 1) "has" else "have"} a key, " +
-                "so every job keeps trying ${if (failing.size == 1) "it" else "them"} and waiting for the " +
-                "refusal before moving on. Replacing or removing the key is worth doing even though " +
-                "transcription still finishes."
+            "${joinSttNames(failing.map { it.name })} keep${if (failing.size == 1) "s" else ""} failing and slows every job. Replace or remove the key."
             )
     }
     return out

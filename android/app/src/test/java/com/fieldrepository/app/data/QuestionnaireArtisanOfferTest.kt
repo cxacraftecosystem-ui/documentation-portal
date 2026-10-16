@@ -297,11 +297,10 @@ class QuestionnaireArtisanOfferTest {
     fun `names one artisan, and does not read as an accusation`() {
         val line = outOfWorkshopNotice(listOf("Ramesh Kumar"))
         assertNotNull(line)
-        assertTrue(line!!.contains("Ramesh Kumar is not recorded at this workshop yet"))
-        assertTrue(line.contains("They stay ticked"))
+        assertTrue(line!!.contains("Ramesh Kumar is not yet linked to this workshop"))
         // The whole point of the rule: saving is what creates the link, so the sentence says so rather
         // than telling a researcher they have made a mistake they have not made.
-        assertTrue(line.contains("saving this interview here is what links them to it"))
+        assertTrue(line.contains("Saving links them"))
     }
 
     @Test

@@ -345,11 +345,11 @@ class TraceParamsTest {
     @Test
     fun theHiddenSentenceNamesThemRatherThanCountingThem() {
         assertEquals(
-            "One setting that is not on screen has moved: Simplify.",
+            "A hidden setting changed: Simplify.",
             traceHiddenChangedSentence(listOf("Simplify")),
         )
         assertEquals(
-            "2 settings that are not on screen have moved: Simplify, Keep corners.",
+            "2 hidden settings changed: Simplify, Keep corners.",
             traceHiddenChangedSentence(listOf("Simplify", "Keep corners")),
         )
     }

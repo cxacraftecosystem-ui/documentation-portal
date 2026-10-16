@@ -232,7 +232,7 @@ fun AccessRosterScreen(
                     notice = if (approve) {
                         "${updated.email} can sign in, as ${roleLabelFor(updated.grantedRole)}."
                     } else {
-                        "${updated.email} is refused. The entry stays on the roster and can be approved later."
+                        "${updated.email} refused. You can approve them later."
                     }
                     reload()
                 }
@@ -265,8 +265,7 @@ fun AccessRosterScreen(
             )
         }
         Text(
-            "Who may sign in at all. An address here marked “May sign in” is " +
-                "admitted; everybody else is turned away and lands in the queue below.",
+            "Who may sign in. Everyone else waits in the queue below.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -295,9 +294,7 @@ fun AccessRosterScreen(
                     if (queue != null) CountPill(queueTotal)
                 }
                 Text(
-                    "Somebody proved they own one of these addresses and was turned away because it " +
-                        "is not on the roster. They have been told they are waiting for an administrator, " +
-                        "and nothing else happens until you decide.",
+                    "Signed in but not on the roster. They wait until you decide.",
                     color = Muted,
                     fontSize = 12.sp
                 )
@@ -306,7 +303,7 @@ fun AccessRosterScreen(
                 when {
                     pending == null -> Text("Loading the queue…", color = Muted, fontSize = 12.sp)
                     pending.isEmpty() -> Text(
-                        "Nobody is waiting. New requests appear here the moment somebody is turned away.",
+                        "Nobody is waiting.",
                         color = Muted,
                         fontSize = 12.sp
                     )
@@ -340,9 +337,7 @@ fun AccessRosterScreen(
                     fontSize = 15.sp
                 )
                 Text(
-                    "The email address is all that is needed and no account has to exist yet — that " +
-                        "is how somebody is admitted before they have ever opened the app. The account " +
-                        "is created, at the tier chosen here, the first time they sign in.",
+                    "Only the email is needed. Their account is created at this role when they first sign in.",
                     color = Muted,
                     fontSize = 12.sp
                 )
@@ -356,7 +351,7 @@ fun AccessRosterScreen(
                 OutlinedTextField(
                     value = newName,
                     onValueChange = { newName = it },
-                    label = { Text("Full name (your own note of who this is)") },
+                    label = { Text("Full name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -371,7 +366,7 @@ fun AccessRosterScreen(
                     // "All the users by default join as the lowest rung unless promoted there
                     // itself" — this control is the "there itself", and the server bounds it by the
                     // admin's own tier so it can never hand out more than the admin holds.
-                    "Everybody joins at the lowest rung unless you promote them here.",
+                    "Defaults to the lowest role.",
                     color = Muted,
                     fontSize = 12.sp
                 )
@@ -500,11 +495,9 @@ fun AccessRosterScreen(
             list == null -> Text("Loading the roster…", color = Muted, fontSize = 12.sp)
             list.isEmpty() -> Text(
                 if (appliedSearch.isNotBlank() || statusFilter.isNotBlank()) {
-                    "No entry matches this search. Clear it to see every address the roster knows " +
-                        "about, refused and suspended ones included."
+                    "No matches."
                 } else {
-                    "Nobody is on the roster yet. Every account that existed when the sign-in gate " +
-                        "shipped was admitted automatically, so an empty list here is worth investigating."
+                    "The roster is empty."
                 },
                 color = Muted,
                 fontSize = 12.sp
@@ -519,7 +512,7 @@ fun AccessRosterScreen(
                             error = null
                             runCatching { repository.suspendAccessRosterEntry(entry.id) }
                                 .onSuccess {
-                                    notice = "${it.email} is suspended. The entry stays on the roster."
+                                    notice = "${it.email} suspended."
                                     reload()
                                 }
                                 // The master admin's row is protected server-side and the 403 explains
@@ -544,17 +537,14 @@ fun AccessRosterScreen(
 
         if (list != null) {
             Text(accessRosterPageNotice(rosterPage, rosterPages, rosterTotal), color = Muted, fontSize = 12.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ActionRow {
                 OutlinedButton(enabled = rosterPage > 1, onClick = { rosterPage -= 1 }) { Text("Previous") }
                 OutlinedButton(enabled = rosterPage < rosterPages, onClick = { rosterPage += 1 }) { Text("Next") }
             }
         }
 
         Text(
-            "The master admin address is never gated and cannot be taken off this list. The roster " +
-                "is a table only an administrator can edit, so an administrator locked out by it would " +
-                "be an outage with no remedy inside the app — that one exemption is what makes the rest " +
-                "of this screen safe to use.",
+            "The master admin is always allowed and can't be removed.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -566,13 +556,8 @@ fun AccessRosterScreen(
             title = { Text("Refuse access for ${decision.entry.email}?") },
             text = {
                 Text(
-                    "They will be told this address is not approved, and told to contact an " +
-                        "administrator.\n\n" +
-                        // The part an admin actually needs, because the alternative design — a
-                        // rejection the applicant can undo by signing in again — is the one that
-                        // makes this queue unworkable.
-                        "Signing in again will NOT put them back in this queue: the entry stays " +
-                        "refused and only the attempt counter moves. The entry is kept either way."
+                    // Says the part an admin needs: signing in again does not re-queue a refusal.
+                    "They'll be told to contact an administrator. Signing in again won't re-queue them."
                 )
             },
             confirmButton = {
@@ -615,8 +600,8 @@ private fun PendingRequestRow(
             enabled = !busy,
             onSelect = { role = it }
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(enabled = !busy, onClick = { onApprove(role) }, modifier = Modifier.weight(1f)) {
+        ActionRow {
+            Button(enabled = !busy, onClick = { onApprove(role) }) {
                 Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(if (busy) "Working…" else "Approve")
@@ -625,7 +610,6 @@ private fun PendingRequestRow(
                 enabled = !busy,
                 onClick = onRefuse,
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                modifier = Modifier.weight(1f)
             ) {
                 Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
@@ -675,14 +659,18 @@ private fun RosterRow(
             if (entry.status == "ACTIVE") {
                 // Never labelled "Delete". The verb has to say what happens, and what happens is
                 // that the row stays.
-                OutlinedButton(
-                    enabled = !busy,
-                    onClick = onSuspend,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                ) { Text("Suspend") }
+                ActionRow {
+                    OutlinedButton(
+                        enabled = !busy,
+                        onClick = onSuspend,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) { Text("Suspend") }
+                }
             } else {
-                OutlinedButton(enabled = !busy, onClick = onRestore) {
-                    Text(if (entry.status == "PENDING") "Approve" else "Restore")
+                ActionRow {
+                    OutlinedButton(enabled = !busy, onClick = onRestore) {
+                        Text(if (entry.status == "PENDING") "Approve" else "Restore")
+                    }
                 }
             }
         }
@@ -851,8 +839,7 @@ fun accessJoinedLabel(joinedAt: String?): String =
  */
 fun accessQueueNotice(shown: Int, total: Int): String? {
     if (total <= shown) return null
-    return "Showing the $shown most recent of $total waiting requests. " +
-        "Set the status filter below to “Awaiting approval” to page through the rest."
+    return "Showing $shown of $total. Filter by “Awaiting approval” to see all."
 }
 
 /**

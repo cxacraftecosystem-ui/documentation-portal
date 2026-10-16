@@ -599,7 +599,7 @@ fun AppSearchPanel(
         }
         if (offline && query.trim().length >= APP_SEARCH_MIN_REMOTE_CHARS) {
             Text(
-                "You're offline. Showing screens, settings and records saved on this phone.",
+                "Offline — showing what's on this phone.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.field.muted,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)

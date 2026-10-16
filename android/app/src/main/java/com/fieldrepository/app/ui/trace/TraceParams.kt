@@ -425,17 +425,17 @@ val TRACE_RESOLUTION: List<TraceNumberOption> = listOf(
     TraceNumberOption(
         value = 1024.0,
         label = "Fast",
-        note = "1024 px. About a quarter of the work of Standard. Fine for a large, boldly drawn sheet.",
+        note = "1024 px. Fast; fine for bold drawings.",
     ),
     TraceNumberOption(
         value = 2048.0,
         label = "Standard",
-        note = "2048 px. The engine's own default, and what the portal uses unless it is told otherwise.",
+        note = "2048 px. The default.",
     ),
     TraceNumberOption(
         value = 4096.0,
         label = "Detailed",
-        note = "4096 px. Four times the work of Standard, for faint pencil and fine hatching. Slow on a phone.",
+        note = "4096 px. For faint pencil and fine hatching. Slow.",
     ),
 )
 
@@ -452,7 +452,7 @@ val TRACE_SLIDERS: List<TraceSlider> = listOf(
     TraceSlider(
         key = "preprocess.denoiseStrength",
         label = "Noise reduction",
-        hint = "How hard the chosen filter smooths before edges are looked for. Too much erases the thinnest lines.",
+        hint = "Smoothing before edge detection. Too much erases thin lines.",
         group = TRACE_GROUP_SOURCE,
         tier = TraceTier.ADVANCED,
         min = 0.0,
@@ -462,7 +462,7 @@ val TRACE_SLIDERS: List<TraceSlider> = listOf(
     TraceSlider(
         key = "preprocess.claheClip",
         label = "Local contrast",
-        hint = "CLAHE clip limit. Higher pulls detail out of shadow and haze, and eventually amplifies grain with it.",
+        hint = "Higher lifts detail from shadow, but adds grain.",
         group = TRACE_GROUP_SOURCE,
         tier = TraceTier.ADVANCED,
         min = 1.0,
@@ -472,7 +472,7 @@ val TRACE_SLIDERS: List<TraceSlider> = listOf(
     TraceSlider(
         key = "preprocess.unsharpAmount",
         label = "Sharpen amount",
-        hint = "How much of the difference between the photograph and a blurred copy of it is added back. 0 is off; past about 2 a pencil line grows a pale halo on both sides.",
+        hint = "Sharpening strength. 0 is off; above 2 lines get halos.",
         group = TRACE_GROUP_SHARPEN,
         // PRIMARY, following the portal: a photograph taken under one tube light in a workshop is soft
         // far more often than it is noisy.
@@ -484,7 +484,7 @@ val TRACE_SLIDERS: List<TraceSlider> = listOf(
     TraceSlider(
         key = "preprocess.unsharpSigma",
         label = "Sharpen radius",
-        hint = "The width of detail sharpening acts on, in pixels. Small values crisp the hairlines; large ones lift broad tonal edges and leave the hairlines alone.",
+        hint = "Sharpening radius. Small for hairlines, large for broad edges.",
         group = TRACE_GROUP_SHARPEN,
         tier = TraceTier.ADVANCED,
         min = 0.05,
@@ -494,7 +494,7 @@ val TRACE_SLIDERS: List<TraceSlider> = listOf(
     TraceSlider(
         key = "edge.sensitivity",
         label = "Edge sensitivity",
-        hint = "More ink as it rises. The one control that means the same thing in every edge engine.",
+        hint = "Higher means more ink.",
         group = TRACE_GROUP_EDGES,
         tier = TraceTier.PRIMARY,
         min = 0.0,
@@ -504,7 +504,7 @@ val TRACE_SLIDERS: List<TraceSlider> = listOf(
     TraceSlider(
         key = "edge.blurSigma",
         label = "Pre-blur",
-        hint = "Gaussian applied before the detector. Raise it to ignore texture, lower it to keep hairlines.",
+        hint = "Raise to ignore texture, lower to keep hairlines.",
         group = TRACE_GROUP_EDGES,
         tier = TraceTier.ADVANCED,
         min = 0.05,
@@ -514,7 +514,7 @@ val TRACE_SLIDERS: List<TraceSlider> = listOf(
     TraceSlider(
         key = "edge.flow.sigmaM",
         label = "Stroke length",
-        hint = "How far the flow-based engine follows a stroke before letting it end. Only affects the flow engine.",
+        hint = "How far Flow follows a stroke.",
         group = TRACE_GROUP_EDGES,
         tier = TraceTier.ADVANCED,
         min = 0.05,
@@ -524,7 +524,7 @@ val TRACE_SLIDERS: List<TraceSlider> = listOf(
     TraceSlider(
         key = "edge.xdogPhi",
         label = "Edge hardness",
-        hint = "XDoG sharpness: 3 is soft graphite, 300 is a woodcut with no soft edge anywhere.",
+        hint = "3 is soft graphite, 300 is a hard woodcut.",
         group = TRACE_GROUP_EDGES,
         tier = TraceTier.ADVANCED,
         min = 0.1,
@@ -541,7 +541,7 @@ val TRACE_SLIDERS: List<TraceSlider> = listOf(
     TraceSlider(
         key = "cleanup.minBlobArea",
         label = "Minimum speck",
-        hint = "Ink blobs smaller than this many pixels are dust and are dropped.",
+        hint = "Drops specks smaller than this (px).",
         group = TRACE_GROUP_CLEANUP,
         tier = TraceTier.PRIMARY,
         min = 0.0,
@@ -549,13 +549,12 @@ val TRACE_SLIDERS: List<TraceSlider> = listOf(
         step = 1.0,
         scale = TraceScale.SQUARE,
         integral = true,
-        handsetNote = "This is the workbench-grit control: a sheet photographed on a table traces the " +
-            "table's texture as dust unless something drops it.",
+        handsetNote = "Raise to drop table texture.",
     ),
     TraceSlider(
         key = "cleanup.closeRadius",
         label = "Close gaps",
-        hint = "Morphological closing radius: joins strokes that already nearly touch. Too large fuses neighbouring lines.",
+        hint = "Joins strokes that nearly touch. Too high fuses lines.",
         group = TRACE_GROUP_CLEANUP,
         tier = TraceTier.ADVANCED,
         min = 0.0,
@@ -566,7 +565,7 @@ val TRACE_SLIDERS: List<TraceSlider> = listOf(
     TraceSlider(
         key = "cleanup.maxGap",
         label = "Bridge reach",
-        hint = "How far apart two stroke ends may be and still be joined. Ignored when gap bridging is off.",
+        hint = "Max gap to bridge between stroke ends.",
         group = TRACE_GROUP_CLEANUP,
         tier = TraceTier.ADVANCED,
         min = 0.0,
@@ -577,7 +576,7 @@ val TRACE_SLIDERS: List<TraceSlider> = listOf(
     TraceSlider(
         key = "cleanup.pruneSpurs",
         label = "Prune spurs",
-        hint = "Skeleton branches shorter than this are removed. 0 keeps every whisker thinning produced.",
+        hint = "Removes short whiskers. 0 keeps all.",
         group = TRACE_GROUP_CLEANUP,
         tier = TraceTier.ADVANCED,
         min = 0.0,
@@ -588,7 +587,7 @@ val TRACE_SLIDERS: List<TraceSlider> = listOf(
     TraceSlider(
         key = "output.simplify",
         label = "Simplify",
-        hint = "Douglas–Peucker tolerance in working pixels. Fewer nodes, straighter runs; 0 keeps every traced vertex.",
+        hint = "Higher means fewer nodes and straighter lines.",
         group = TRACE_GROUP_OUTPUT,
         tier = TraceTier.PRIMARY,
         min = 0.0,
@@ -600,7 +599,7 @@ val TRACE_SLIDERS: List<TraceSlider> = listOf(
         label = "Keep corners",
         // Copied and NOT paraphrased, because the control is inverted from intuition and this sentence
         // is the only thing that says so: higher keeps MORE corners.
-        hint = "Higher keeps MORE corners: a vertex survives as a corner when its neighbours subtend a sharper angle than this.",
+        hint = "Higher keeps more corners.",
         group = TRACE_GROUP_OUTPUT,
         tier = TraceTier.ADVANCED,
         min = 0.0,
@@ -610,7 +609,7 @@ val TRACE_SLIDERS: List<TraceSlider> = listOf(
     TraceSlider(
         key = "output.smoothIterations",
         label = "Smoothing passes",
-        hint = "Chaikin passes over the polyline before curve fitting. Each one rounds the geometry a little more.",
+        hint = "Each pass rounds the lines a little more.",
         group = TRACE_GROUP_OUTPUT,
         tier = TraceTier.ADVANCED,
         min = 0.0,
@@ -652,63 +651,61 @@ val TRACE_TOGGLES: List<TraceToggle> = listOf(
     TraceToggle(
         key = "preprocess.invertInput",
         label = "Source is light-on-dark",
-        hint = "Set for chalkboards, negatives and white ink on black, so “ink” stays the dark class everywhere downstream.",
+        hint = "For chalkboards, negatives and white-on-black.",
         group = TRACE_GROUP_SOURCE,
         tier = TraceTier.ADVANCED,
     ),
     TraceToggle(
         key = "preprocess.claheEnabled",
         label = "Equalise local contrast",
-        hint = "Turn off for a source that is already evenly lit; CLAHE will otherwise amplify its grain.",
+        hint = "Turn off for evenly lit photos.",
         group = TRACE_GROUP_SOURCE,
         tier = TraceTier.ADVANCED,
     ),
     TraceToggle(
         key = "preprocess.perspectiveCorrect",
         label = "Rectify the page",
-        hint = "Look for a document quadrilateral and flatten to it. For photographs of paper taken at an angle.",
+        hint = "Flattens paper photographed at an angle.",
         group = TRACE_GROUP_SOURCE,
         tier = TraceTier.ADVANCED,
         // THE ONE CONSEQUENCE A RESEARCHER CANNOT SEE COMING, so it is said here rather than discovered
         // when the comparator refuses. Rectifying makes the document's frame the flattened PAGE rather
         // than the photograph, and the two plates can then no longer be laid over each other at all —
         // `TraceFailureKind.FRAME_MISMATCH`, which costs the comparison and never the drawing.
-        handsetNote = "This is the engine's own automatic search for the sheet, and it changes the " +
-            "drawing's frame — so when it finds a page there is no side-by-side comparison to show, " +
-            "only the drawing. Leave it off for a sheet photographed square on.",
+        handsetNote = "Disables the comparison view. Leave off for square-on photos.",
     ),
     TraceToggle(
         key = "cleanup.skeletonize",
         label = "Reduce ink to centrelines",
-        hint = "Thins strokes to one pixel before tracing. Ignored in outline mode, where a skeleton would delete the boundary being traced.",
+        hint = "Thins strokes to one pixel. Ignored in outline mode.",
         group = TRACE_GROUP_CLEANUP,
         tier = TraceTier.ADVANCED,
     ),
     TraceToggle(
         key = "cleanup.bridgeGaps",
         label = "Bridge stroke ends",
-        hint = "Join nearby stroke ends that point at each other. Off keeps a line that stopped, stopped.",
+        hint = "Joins nearby stroke ends.",
         group = TRACE_GROUP_CLEANUP,
         tier = TraceTier.ADVANCED,
     ),
     TraceToggle(
         key = "cleanup.removeBorderTouching",
         label = "Drop shapes touching the frame",
-        hint = "Removes the drawing board, the scanner lid and the table edge, which a photograph almost always includes.",
+        hint = "Removes board, lid and table edges.",
         group = TRACE_GROUP_CLEANUP,
         tier = TraceTier.ADVANCED,
     ),
     TraceToggle(
         key = "output.modulateWidth",
         label = "Vary width with the stroke",
-        hint = "Samples the distance transform per node so thick-and-thin brushwork survives. Emitted as a filled outline, because SVG has no variable-width stroke.",
+        hint = "Keeps thick-and-thin brushwork.",
         group = TRACE_GROUP_OUTPUT,
         tier = TraceTier.ADVANCED,
     ),
     TraceToggle(
         key = "output.fillClosed",
         label = "Fill closed shapes",
-        hint = "Paints every closed region solid instead of outlining it. Outline mode with fill is the woodcut look.",
+        hint = "Fills closed regions solid.",
         group = TRACE_GROUP_OUTPUT,
         tier = TraceTier.ADVANCED,
     ),
@@ -723,8 +720,7 @@ val TRACE_TOGGLES: List<TraceToggle> = listOf(
         // renders on whatever ground that document happens to have.
         group = TRACE_GROUP_EXPORT,
         tier = TraceTier.EXPORT,
-        handsetNote = "The comparison above always shows the drawing on white so the wipe means " +
-            "something. This decides the file only.",
+        handsetNote = "Affects the file only.",
         // `null` is a meaningful value here — it is how "transparent" is spelled — which is why this
         // cannot be expressed as a flag.
         read = { it.present("output.background") },
@@ -742,7 +738,7 @@ val TRACE_CHOICES: List<TraceChoice> = listOf(
     TraceChoice(
         key = "edge.engine",
         label = "Edge engine",
-        hint = "Which detector runs. They fail differently, which is why all of them exist.",
+        hint = "Which edge detector to use.",
         group = TRACE_GROUP_EDGES,
         tier = TraceTier.ADVANCED,
         // MODEL is deliberately absent, upstream's reason and still true: it needs a side-loaded edge
@@ -756,14 +752,12 @@ val TRACE_CHOICES: List<TraceChoice> = listOf(
             TraceChoiceOption("ADAPTIVE", "Adaptive threshold (already line art)"),
             TraceChoiceOption("LOG", "Laplacian (thinnest, most delicate)"),
         ),
-        handsetNote = "Flow is the engine's default and by far the slowest on a phone — it was " +
-            "measured at about six times the others at the same size. The panel says what a change " +
-            "here will cost before you run it.",
+        handsetNote = "Flow is the default but about six times slower on a phone.",
     ),
     TraceChoice(
         key = "preprocess.denoise",
         label = "Noise filter",
-        hint = "Bilateral keeps edges, median kills speckle, anisotropic flattens woven texture.",
+        hint = "Bilateral keeps edges, median removes speckle, anisotropic flattens weave.",
         group = TRACE_GROUP_SOURCE,
         tier = TraceTier.ADVANCED,
         options = listOf(
@@ -776,7 +770,7 @@ val TRACE_CHOICES: List<TraceChoice> = listOf(
     TraceChoice(
         key = "matte.mode",
         label = "Background matte",
-        hint = "Separates the subject from its background. Never applied unless you choose it, and the pipeline reports how much of the frame it removed.",
+        hint = "Separates the subject from its background.",
         group = TRACE_GROUP_SOURCE,
         tier = TraceTier.ADVANCED,
         // SUBJECT is absent for the web's reason, inverted from MODEL's: it is not broken, it is what a
@@ -787,13 +781,12 @@ val TRACE_CHOICES: List<TraceChoice> = listOf(
             TraceChoiceOption("BORDER_FLOOD", "Flood from the border"),
             TraceChoiceOption("SALIENCY", "Keep the salient subject"),
         ),
-        handsetNote = "The engine's default is None and stays there: a wrong matte deleting half of " +
-            "somebody's artwork is the worst failure this can have.",
+        handsetNote = "Off by default — a wrong matte can delete artwork.",
     ),
     TraceChoice(
         key = "output.vectorMode",
         label = "Vector mode",
-        hint = "Centreline turns one stroke into one open path; outline turns one region into one closed path. The most consequential choice here.",
+        hint = "Centreline: one path per stroke. Outline: one closed path per region.",
         group = TRACE_GROUP_OUTPUT,
         tier = TraceTier.PRIMARY,
         options = listOf(
@@ -808,7 +801,7 @@ val TRACE_NUMBER_CHOICES: List<TraceNumberChoice> = listOf(
     TraceNumberChoice(
         key = "preprocess.workingLongEdge",
         label = "Trace resolution",
-        hint = "The long edge the trace runs at. Higher resolves finer detail and costs time; the vector is scaled back to the source size either way.",
+        hint = "Higher captures finer detail but takes longer.",
         group = TRACE_GROUP_SOURCE,
         tier = TraceTier.PRIMARY,
         options = TRACE_RESOLUTION,
@@ -996,8 +989,7 @@ fun traceDisclosureState(open: Boolean): String = if (open) "Expanded" else "Col
  * the frame tool inside a section it is not in.
  */
 fun traceDisclosureBlurb(revealed: Int): String =
-    "Inside: the ${traceSettings(revealed)} that are not above, under the same headings as the " +
-        "portal. Nothing in there is required — the trace runs on what is on screen now."
+    "The other ${traceSettings(revealed)}. All optional."
 
 /**
  * The sentence naming the folded-away controls a preset has moved, or null when it has moved none.
@@ -1015,9 +1007,9 @@ fun traceDisclosureBlurb(revealed: Int): String =
  */
 fun traceHiddenChangedSentence(labels: List<String>): String? = when {
     labels.isEmpty() -> null
-    labels.size == 1 -> "One setting that is not on screen has moved: ${labels.first()}."
+    labels.size == 1 -> "A hidden setting changed: ${labels.first()}."
     else ->
-        "${labels.size} settings that are not on screen have moved: ${labels.joinToString(", ")}."
+        "${labels.size} hidden settings changed: ${labels.joinToString(", ")}."
 }
 
 /**
@@ -1160,7 +1152,7 @@ fun traceInactiveReason(control: TraceControl, values: TraceValues): String? {
         "preprocess.denoiseStrength" -> when (values.choice("preprocess.denoise")) {
             "NONE" -> "The noise filter is set to None."
             "MEDIAN" ->
-                "The median filter works from a fixed radius the panel does not expose, not from this."
+                "The median filter uses a fixed radius instead."
             else -> null
         }
         else -> null

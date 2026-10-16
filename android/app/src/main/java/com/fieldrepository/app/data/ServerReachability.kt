@@ -22,7 +22,7 @@ object ServerReachability {
     const val FAILURES_BEFORE_UNREACHABLE = 2
 
     /** The line the app shows while [unreachable] is true and the phone itself is online. */
-    const val SERVER_UNREACHABLE_SENTENCE = "Can't reach the server — your work is kept on this phone."
+    const val SERVER_UNREACHABLE_SENTENCE = "Offline — your work is saved on this phone."
 
     private val consecutiveFailures = AtomicInteger(0)
     private val state = MutableStateFlow(false)

@@ -235,22 +235,16 @@ fun traceCropClampNote(
     height: Int,
 ): String = when (field) {
     "Left" ->
-        "Left cannot be $typed: the frame is ${applied.width} wide on a ${width}px photograph, so " +
-            "it would hang off the edge. It was set to ${applied.x}. Reduce Width first to move it " +
-            "further right."
+        "Left set to ${applied.x} — $typed would go off the edge. Reduce Width first."
 
     "Top" ->
-        "Top cannot be $typed: the frame is ${applied.height} tall on a ${height}px photograph, so " +
-            "it would hang off the edge. It was set to ${applied.y}. Reduce Height first to move it " +
-            "further down."
+        "Top set to ${applied.y} — $typed would go off the edge. Reduce Height first."
 
     "Width" ->
-        "Width cannot be $typed: the frame is between ${minOf(TRACE_CROP_MIN_EDGE_PX, width)} " +
-            "and $width pixels. It was set to ${applied.width}."
+        "Width must be between ${minOf(TRACE_CROP_MIN_EDGE_PX, width)} and $width px. Set to ${applied.width}."
 
     else ->
-        "Height cannot be $typed: the frame is between ${minOf(TRACE_CROP_MIN_EDGE_PX, height)} " +
-            "and $height pixels. It was set to ${applied.height}."
+        "Height must be between ${minOf(TRACE_CROP_MIN_EDGE_PX, height)} and $height px. Set to ${applied.height}."
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -344,8 +338,7 @@ fun traceCropReadout(rect: TraceCropRect, width: Int, height: Int): String {
     val part = box.width.toLong() * box.height.toLong()
     val whole = width.toLong() * height.toLong()
     val percent = Math.round(part * 100.0 / whole).toInt()
-    return "${box.width}×${box.height} of $width×$height — $percent% of the frame. Everything " +
-        "outside it is absent from the drawing."
+    return "${box.width}×${box.height} of $width×$height ($percent%)."
 }
 
 /**
@@ -356,8 +349,7 @@ fun traceCropReadout(rect: TraceCropRect, width: Int, height: Int): String {
  * own aim. Saying it only when a crop exists would attach the explanation to the wrong cause.
  */
 const val TRACE_CROP_ENGINE_NOTE: String =
-    "The engine may still narrow the frame further on its own when it finds a subject it is " +
-        "confident about; the notes under the traced result say when it did."
+    "The tracer may tighten this further; the result notes say when."
 
 /**
  * What the panel says when the box on screen is no longer the box being traced.
@@ -368,6 +360,4 @@ const val TRACE_CROP_ENGINE_NOTE: String =
  * what is on screen.
  */
 fun traceCropStaleNote(applied: TraceCropRect): String =
-    "The frame on screen is not the one being traced. The trace is still using " +
-        "${applied.width}×${applied.height} from the last press — press “Use this frame for the " +
-        "trace” to catch it up."
+    "Not applied yet — still tracing ${applied.width}×${applied.height}. Tap “Use this frame”."

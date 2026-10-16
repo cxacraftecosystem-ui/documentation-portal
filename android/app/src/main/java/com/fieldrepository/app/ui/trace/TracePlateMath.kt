@@ -172,9 +172,7 @@ fun traceDifferenceRow(photograph: IntArray, trace: IntArray, out: IntArray, wid
  * researcher holding the sheet.
  */
 const val TRACE_DIFFERENCE_NOTE: String =
-    "Difference subtracts the two pictures from each other: black where they agree, bright where " +
-        "they do not. A line the trace missed and a line it invented both come out bright, and the " +
-        "paper's own tone shows as an even dim grey."
+    "Bright where the trace and photo differ."
 
 /**
  * What the comparator says when the difference plate could not be allocated.
@@ -185,8 +183,7 @@ const val TRACE_DIFFERENCE_NOTE: String =
  * honest thing to say is which single view is missing.
  */
 const val TRACE_DIFFERENCE_REFUSAL: String =
-    "This phone could not make room for the difference picture. The wipe and the two whole " +
-        "pictures still work, and the drawing is unaffected."
+    "Not enough memory for the difference view. The drawing is unaffected."
 
 /**
  * What the comparator says while the difference plate is being worked out.
@@ -209,8 +206,7 @@ const val TRACE_DIFFERENCE_PENDING: String = "Working out the difference picture
  * and leaves a reader who cannot see the plate with no way to read it.
  */
 const val TRACE_DIFFERENCE_DESCRIPTION: String =
-    "The traced drawing and the photograph subtracted from each other. Dark where they agree, " +
-        "bright where they differ."
+    "Dark where they agree, bright where they differ."
 
 /**
  * The word written on the picture while the difference is showing, and the name of the chip that gets
@@ -236,8 +232,7 @@ const val TRACE_DIFFERENCE_LABEL: String = "Difference"
  * explanation for it, and the obvious conclusion is that the trace has flooded their sheet.
  */
 const val TRACE_COMPARE_WHITE_NOTE: String =
-    "The comparison paints the drawing on white so it is visible over the photograph; the file " +
-        "that is attached or downloaded keeps whatever background you chose."
+    "Shown on white here; the file keeps your background."
 
 /**
  * That the two pictures in the comparator are smaller than the drawing, when they are.
@@ -257,8 +252,7 @@ fun traceComparisonReduction(
 ): String {
     if (plateWidth < 1 || plateHeight < 1 || tracedWidth < 1 || tracedHeight < 1) return ""
     if (plateWidth >= tracedWidth && plateHeight >= tracedHeight) return ""
-    return "Both pictures here are $plateWidth×$plateHeight, reduced from $tracedWidth×" +
-        "$tracedHeight for the comparison only."
+    return "Shown at $plateWidth×$plateHeight (from $tracedWidth×$tracedHeight)."
 }
 
 /**
@@ -293,18 +287,17 @@ fun traceComparisonStatus(
     // that stops answering with nothing on screen to explain it is, for those few seconds,
     // indistinguishable from a frozen one.
     hasPlates && running ->
-        "A newer trace is running. This is the last finished one, and its controls come back when " +
-            "the new drawing lands."
+        "A newer trace is running; showing the last one."
 
     hasPlates -> ""
 
     plateRefusal.isNotBlank() -> plateRefusal
 
-    running -> "Tracing… the comparison appears here when it finishes."
+    running -> "Tracing…"
 
-    failed -> "The trace did not finish, so there is nothing to compare. The reason is above."
+    failed -> "The trace didn't finish. The reason is above."
 
-    !hasResult -> "The comparison appears as soon as the first trace finishes."
+    !hasResult -> "Appears as soon as the first trace finishes."
 
     // A result with no plates and no refusal is a state nothing constructs. Said rather than left
     // blank, because a blank here is the very thing this function exists to remove.
@@ -323,6 +316,4 @@ fun traceComparisonStatus(
  * they say it before naming the remedy.
  */
 const val TRACE_PLATE_MEMORY_REFUSAL: String =
-    "This phone could not make room for the two comparison pictures, so there is nothing to " +
-        "compare the drawing against. The drawing itself is unaffected and can still be attached — " +
-        "set the trace resolution to Fast if you want the comparison as well."
+    "The drawing is unaffected, but there's no memory to compare. Set resolution to Fast."

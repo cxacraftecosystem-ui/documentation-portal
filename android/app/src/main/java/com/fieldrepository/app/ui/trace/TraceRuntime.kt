@@ -254,10 +254,7 @@ fun traceMemoryRefusal(
     if (peak + TRACE_ENGINE_HEAP_RESERVE_BYTES <= heapBytes) return null
     val need = traceMegabytes(peak)
     val have = traceMegabytes(heapBytes - TRACE_ENGINE_HEAP_RESERVE_BYTES)
-    return "This trace needs about $need MB of memory and this phone can spare about $have MB right " +
-        "now, so it has not been started rather than started and lost part-way. Set the trace " +
-        "resolution lower, or choose a different edge engine — Canny needs about three times the " +
-        "memory of the others — and close other apps if you can."
+    return "Needs about $need MB; about $have MB free. Lower the resolution, choose another edge engine, or close other apps."
 }
 
 /**
@@ -558,8 +555,7 @@ fun traceTruncationNote(shapeCount: Int, shapesWritten: Int): String? {
     if (shapeCount <= shapesWritten) return null
     val count = traceCount(shapeCount)
     val kept = traceCount(shapesWritten)
-    return "This drawing has $count separate paths and the file holds the first $kept. Raise " +
-        "“Minimum speck” or “Simplify” and trace again to get a drawing that fits."
+    return "Only $kept of $count paths fit. Raise “Minimum speck” or “Simplify” and trace again."
 }
 
 /**

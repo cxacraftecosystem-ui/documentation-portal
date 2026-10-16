@@ -259,8 +259,7 @@ fun locationRequirementError(value: LocationRequest?, required: Boolean): String
 
 /** Web card parity, and deliberately about the fallback rather than the failure. */
 const val LOCATION_REQUIRED_MESSAGE: String =
-    "A location is required. Capture a GPS fix, drop a pin on the map, or enter the coordinates " +
-        "by hand — any of the three satisfies this."
+    "Location required — use GPS, drop a pin, or type coordinates."
 
 /**
  * A notice inside the location card. Two tones: [warn] for something the researcher has to act on,
@@ -594,11 +593,9 @@ fun LocationCaptureCard(
         )
         Text(
             description ?: if (required) {
-                "Where this was documented, and it is required. The app captures it by itself when " +
-                    "the form opens — if the device cannot answer, drop a pin on the map instead."
+                "Where this was documented. Captured automatically, or drop a pin."
             } else {
-                "Tag where this was documented. Enter coordinates, capture a GPS fix, or drop a pin " +
-                    "on the map."
+                "Where this was documented."
             },
             color = Muted,
             fontSize = 12.sp
@@ -607,12 +604,11 @@ fun LocationCaptureCard(
         when (status) {
             CaptureStatus.Locating -> CaptureNotice(
                 warn = false,
-                text = "Finding this device's location… ${seconds}s. " +
+                text = "Finding your location… ${seconds}s. " +
                     if (seconds >= 8) {
-                        "A first satellite fix can take up to a minute indoors — carry on filling " +
-                            "the form, the coordinates will drop in on their own."
+                        "Indoors this can take a minute — keep going, it fills in by itself."
                     } else {
-                        "Carry on filling the form."
+                        "Keep going."
                     }
             ) {
                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
@@ -621,59 +617,48 @@ fun LocationCaptureCard(
             CaptureStatus.Fixed -> if (coarse) {
                 CaptureNotice(
                     warn = true,
-                    text = "This fix is only accurate to ${accuracyLabel(capturedMetres ?: 0.0)} — that is " +
-                        "this device's network estimate of where it is, not a satellite reading. The " +
-                        "coordinates have been kept so nothing is lost, and the radius is saved with " +
-                        "them. If this record needs a real position, step outside and press Use " +
-                        "current GPS, or drop a pin on the map."
+                    text = "Only accurate to ${accuracyLabel(capturedMetres ?: 0.0)} (network estimate). For a precise position, step outside and use GPS, or drop a pin."
                 )
             } else {
                 CaptureNotice(
                     warn = false,
-                    text = "Location captured automatically: $latText, $lngText" +
+                    text = "Location: $latText, $lngText" +
                         (capturedMetres?.let { " (${accuracyLabel(it)})" } ?: "") +
-                        ". Check it is the right place — correct it below or point somewhere else on " +
-                        "the map if it is not."
+                        ". Correct it below if it's wrong."
                 )
             }
 
             CaptureStatus.PermissionDenied -> CaptureNotice(
                 warn = true,
-                text = "Location permission was declined, so nothing could be captured" +
+                text = "Location permission declined" +
                     (if (required) ", and a location is required" else "") +
-                    ". Allow it and the app will take the fix, or drop a pin on the map — a pin " +
-                    "satisfies this exactly as a GPS fix does."
+                    ". Allow it, or drop a pin."
             ) {
                 OutlinedButton(onClick = { requestPermissionThenCapture() }) { Text("Allow location") }
             }
 
             CaptureStatus.PermissionBlocked -> CaptureNotice(
                 warn = true,
-                text = "Location permission is blocked for this app, so only Android's settings can " +
-                    "turn it back on. You do not have to: drop a pin on the map instead and the " +
-                    "record saves normally."
+                text = "Location is blocked for this app. Turn it on in Settings, or drop a pin."
             ) {
                 OutlinedButton(onClick = { context.openAppSettings() }) { Text("Open app settings") }
             }
 
             CaptureStatus.ServicesOff -> CaptureNotice(
                 warn = true,
-                text = "Location is switched off on this device, so no app can get a fix. Switch it " +
-                    "on and press Use current GPS, or drop a pin on the map instead."
+                text = "Location is off. Turn it on and use GPS, or drop a pin."
             ) {
                 OutlinedButton(onClick = { context.openLocationSettings() }) { Text("Open location settings") }
             }
 
             CaptureStatus.TimedOut -> CaptureNotice(
                 warn = true,
-                text = "No fix after a minute of trying — thick walls and tin roofs do this. Step " +
-                    "outside and press Use current GPS, or drop a pin on the map."
+                text = "No GPS fix after a minute. Step outside and try again, or drop a pin."
             )
 
             CaptureStatus.Unsupported -> CaptureNotice(
                 warn = true,
-                text = "This device has no location hardware the app can use. Drop a pin on the map, " +
-                    "or type the coordinates in below."
+                text = "No GPS on this phone. Drop a pin or type the coordinates."
             )
 
             CaptureStatus.Idle -> Unit
@@ -719,23 +704,24 @@ fun LocationCaptureCard(
                 modifier = Modifier.weight(1f)
             )
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        ActionRow {
             OutlinedButton(
                 onClick = {
                     onMessage("Requesting a location fix…")
                     requestPermissionThenCapture()
                 },
-                modifier = Modifier.weight(1f)
             ) { Text("Use current GPS") }
-            OutlinedButton(onClick = { showMap = true }, modifier = Modifier.weight(1f)) {
+            OutlinedButton(onClick = { showMap = true }) {
                 Text("Pick on map")
             }
         }
         // Offered only when the record can survive it. A "Clear location" on a mandatory field is a
         // button whose whole effect is to make the form unsaveable.
         if (!required && (latText.isNotBlank() || lngText.isNotBlank())) {
-            TextButton(onClick = { listening = false; emitted = null; latText = ""; lngText = ""; onChange(null) }) {
-                Text("Clear location")
+            ActionRow {
+                TextButton(onClick = { listening = false; emitted = null; latText = ""; lngText = ""; onChange(null) }) {
+                    Text("Clear location")
+                }
             }
         }
     }

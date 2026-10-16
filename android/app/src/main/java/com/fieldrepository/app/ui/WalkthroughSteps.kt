@@ -655,14 +655,7 @@ private val walkthroughIntro = WalkStep(
     id = "intro",
     title = "The order the work happens in",
     icon = Icons.Filled.Explore,
-    body = "${walkthroughJourney.size} steps, in this order — the workshop first, then the " +
-        "records it contains, then reading the whole thing back. It is the same journey the " +
-        "Walkthrough teaches on the web, so a colleague working on a laptop is reading what you " +
-        "are reading. The order is the thing worth learning: get it wrong and the pickers inside " +
-        "the later screens have nothing to offer you, which costs a return trip rather than five " +
-        "minutes. Work down it once and you should not need this again. You can leave at any " +
-        "point, and you can reopen it from the menu without losing whatever form you are in the " +
-        "middle of.",
+    body = "${walkthroughJourney.size} steps, in order: the workshop first, then its records, then review. Reopen it any time from the menu.",
 )
 
 /**
@@ -677,14 +670,7 @@ private val walkthroughOutro = WalkStep(
     id = "before-you-leave",
     title = "Before you leave the field",
     icon = Icons.Filled.CheckCircle,
-    body = "A missing field is a phone call; a missing recording is another trip. Every artisan " +
-        "you spoke to has a record, with their Do's and Don'ts in it. Every product you " +
-        "photographed has its dimensions and its costs. Every process has its steps in order and " +
-        "the steps have video. Every tool has a material, a maker and a replacement cost. The " +
-        "interview has no unexplained gaps. Anything you shot that has no home is in " +
-        "Miscellaneous Media. And before the signal goes for good, check that everything you " +
-        "recorded has actually left this handset — a record still waiting here has not been " +
-        "uploaded.",
+    body = "Check every artisan has Do's and Don'ts, products have dimensions and costs, processes have ordered steps with video, tools have a material, maker and cost, and stray media is in Miscellaneous Media. Then make sure everything has uploaded.",
 )
 
 /**

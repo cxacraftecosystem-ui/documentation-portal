@@ -170,4 +170,4 @@ suspend fun appSearchRemoteItems(
 
 /** A search failure that is not "no network", in the words this app uses for API errors. */
 fun appSearchErrorLine(error: Throwable): String =
-    error.userMessage("Search could not reach the server. Showing what is saved on this phone.")
+    error.userMessage("Can't search online. Showing what's on this phone.")

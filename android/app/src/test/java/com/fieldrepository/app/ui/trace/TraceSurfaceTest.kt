@@ -274,7 +274,7 @@ class TraceSurfaceTest {
     fun theStaleFrameNoteCarriesTheNumbersBeingTraced() {
         val note = traceCropStaleNote(TraceCropRect(0, 0, 640, 480))
         assertTrue(note.contains("640×480"))
-        assertTrue(note.contains("Use this frame for the trace"))
+        assertTrue(note.contains("Use this frame"))
     }
 
     /* ══════════════════════════════════════════════════════════════════════════════════════════

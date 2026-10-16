@@ -399,10 +399,10 @@ class TaskReviewTest {
         // response to that is to press the button again, then do the work again.
         val notice = taskReviewNotice(task(status = TASK_STATUS_SUBMITTED))!!
         assertEquals("Handed in — under review", notice.title)
-        assertTrue(notice.body.contains("it has been recorded"))
-        assertTrue(notice.body.contains("has to approve it"))
+        assertTrue(notice.body.contains("You marked this done"))
+        assertTrue(notice.body.contains("will approve it"))
         assertTrue(notice.body.contains("stays on your list until then"))
-        assertEquals("Nothing more is needed from you unless it comes back.", notice.action)
+        assertEquals("Nothing more to do unless it comes back.", notice.action)
     }
 
     @Test
@@ -411,8 +411,7 @@ class TaskReviewTest {
         // decides whether a researcher trusts the button, and the person who would find a divergence
         // is the one who works a workshop on the handset and writes it up on the laptop that evening.
         assertEquals(
-            "You marked this done and it has been recorded. An admin or the master admin has to " +
-                "approve it before it is finished, so it stays on your list until then.",
+            "You marked this done. An admin or the master admin will approve it; it stays on your list until then.",
             taskReviewNotice(task(status = TASK_STATUS_SUBMITTED))!!.body
         )
     }
@@ -506,7 +505,7 @@ class TaskReviewTest {
         // about the person. So: no bar, and a sentence saying why.
         val bar = taskSummaryBar(summary(taskCount = 4, remainingCount = 4, measuredCount = 0, percentComplete = 0))
         assertNull(bar.percent)
-        assertTrue(bar.caption.contains("no progress to show"))
+        assertTrue(bar.caption.contains("No progress yet"))
     }
 
     @Test
@@ -524,7 +523,7 @@ class TaskReviewTest {
         val bar = taskSummaryBar(summary(taskCount = 4, remainingCount = 2, awaitingReviewCount = 2, percentComplete = 50))
         assertEquals(50, bar.percent)
         assertEquals("none", bar.measured)
-        assertTrue(bar.caption.contains("Based on what you have reported and handed in"))
+        assertTrue(bar.caption.contains("Based on what you've reported"))
     }
 
     @Test
@@ -533,16 +532,16 @@ class TaskReviewTest {
         // said to the person it is a promise to.
         val bar = taskSummaryBar(summary(taskCount = 6, remainingCount = 6, measuredCount = 6, percentComplete = 25))
         assertEquals("all", bar.measured)
-        assertTrue(bar.caption.contains("All 6 of your tasks are counted from your records"))
-        assertTrue(bar.caption.contains("moves on its own as you record"))
+        assertTrue(bar.caption.contains("All 6 counted from your records"))
+        assertTrue(bar.caption.contains("updates as you record"))
     }
 
     @Test
     fun `a partly measured card says how much of itself was counted`() {
         val bar = taskSummaryBar(summary(taskCount = 6, remainingCount = 6, measuredCount = 2, percentComplete = 30))
         assertEquals("some", bar.measured)
-        assertTrue(bar.caption.contains("2 of 6 tasks counted from records"))
-        assertTrue(bar.caption.contains("the rest from what you reported or handed in"))
+        assertTrue(bar.caption.contains("2 of 6 counted from records"))
+        assertTrue(bar.caption.contains("the rest from your reports"))
     }
 
     @Test
@@ -551,14 +550,14 @@ class TaskReviewTest {
         // "3 of 6 counted" beside a bar averaged over three.
         val bar = taskSummaryBar(summary(taskCount = 6, cancelledCount = 3, measuredCount = 3, percentComplete = 40))
         assertEquals("all", bar.measured)
-        assertTrue(bar.caption.contains("All 3 of your tasks"))
+        assertTrue(bar.caption.contains("All 3 counted"))
     }
 
     @Test
     fun `a list that is entirely withdrawn says so instead of showing zero percent`() {
         val bar = taskSummaryBar(summary(taskCount = 3, cancelledCount = 3))
         assertNull(bar.percent)
-        assertTrue(bar.caption.contains("has been withdrawn"))
+        assertTrue(bar.caption.contains("were withdrawn"))
     }
 
     @Test
@@ -575,7 +574,7 @@ class TaskReviewTest {
         val bar = taskSummaryBar(
             summary(taskCount = 400, remainingCount = 400, percentComplete = 20, derivationSkipped = true)
         )
-        assertTrue(bar.caveats.any { it.contains("nothing here was counted from records") })
+        assertTrue(bar.caveats.any { it.contains("Too many tasks to count from records") })
     }
 
     @Test
@@ -584,7 +583,7 @@ class TaskReviewTest {
         val bar = taskSummaryBar(
             summary(taskCount = 2000, remainingCount = 900, percentComplete = 10, truncated = true)
         )
-        assertTrue(bar.caveats.any { it.contains("a floor rather than a total") })
+        assertTrue(bar.caveats.any { it.contains("may be incomplete") })
     }
 
     @Test
@@ -639,13 +638,11 @@ class TaskReviewTest {
     fun `the under-review sentence is worded exactly as the web words it`() {
         // `frontend/components/tasks/AssigneeProgressCard.tsx`, singular and plural both.
         assertEquals(
-            "One task is under review. It stays on your list until an admin approves it — there is " +
-                "nothing more for you to do on it.",
+            "One task is under review — nothing more to do.",
             taskAwaitingReviewSentence(1)
         )
         assertEquals(
-            "3 tasks are under review. They stay on your list until an admin approves them — there " +
-                "is nothing more for you to do on them.",
+            "3 tasks are under review — nothing more to do.",
             taskAwaitingReviewSentence(3)
         )
     }
@@ -768,7 +765,7 @@ class TaskReviewTest {
         val bar = taskSummaryBar(decoded)
         assertEquals(48, bar.percent)
         assertEquals("some", bar.measured)
-        assertTrue(bar.caption.contains("4 of 7 tasks counted from records"))
+        assertTrue(bar.caption.contains("4 of 7 counted from records"))
         assertTrue(bar.caveats.isEmpty())
         val due = taskDueSentence(decoded)!!
         assertTrue(due.startsWith("1 task is past its due date · 2 due within the next two days · next due 20 Sep"))
