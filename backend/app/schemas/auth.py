@@ -71,3 +71,11 @@ class TwoFactorVerifyRequest(APIModel):
 
 class TwoFactorCodeRequest(APIModel):
     code: str = Field(min_length=1, max_length=64)
+
+
+class DatasetTokenRequest(LoginRequest):
+    """``POST /datasets/token``: an admin's email and password, and — when that account has two-step
+    verification on — a current 6-digit code or a recovery code. Without it the password alone would
+    mint a 30-day credential, which is exactly what the second factor exists to stop."""
+
+    code: str | None = Field(default=None, min_length=1, max_length=64)

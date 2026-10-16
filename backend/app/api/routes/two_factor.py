@@ -12,6 +12,9 @@ about WHO may do WHAT:
   stop them. Disabling accepts a recovery code too, for the person whose phone is gone.
 * **Every failure reads one sentence** (``two_factor.WRONG_CODE_DETAIL``): wrong digits, a replayed
   code and a used recovery code are not told apart. The log line says which.
+* **Wrong codes are counted against the account** (``two_factor.check_second_factor``): verify,
+  disable and recovery-codes share one budget with ``POST /datasets/token``, and a spent budget is a
+  429 here until the lock lapses.
 * Enabling, disabling and recovery-code use are written to the audit log (``AUDIT`` lines at WARNING,
   which reach journald on the box), as the managed-secret reveal is.
 """
@@ -39,6 +42,20 @@ NO_PENDING = "Start the setup again to get a new code to scan."
 def _bad_code() -> HTTPException:
     # 400, not 401: a 401 sends the web client off to refresh a perfectly good session.
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=two_factor.WRONG_CODE_DETAIL)
+
+
+def _too_many() -> HTTPException:
+    return HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=two_factor.TOO_MANY_ATTEMPTS_DETAIL)
+
+
+async def _second_factor_or_refuse(user: Any, code: str, *, allow_recovery: bool = True) -> None:
+    """The account's lock, then the code, then the budget (``two_factor.check_second_factor``)."""
+    try:
+        accepted = await two_factor.check_second_factor(user, code, allow_recovery=allow_recovery)
+    except two_factor.SecondFactorLocked as exc:
+        raise _too_many() from exc
+    if not accepted:
+        raise _bad_code()
 
 
 async def _fresh(user_id: str) -> Any:
@@ -73,8 +90,9 @@ async def verify(payload: TwoFactorVerifyRequest) -> dict[str, Any]:
         await two_factor.finish_challenge(jti)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=two_factor.CHALLENGE_DEAD_DETAIL)
 
-    if not await two_factor.consume_any_code(user, payload.code):
-        raise _bad_code()
+    # A wrong code costs this challenge one of its five AND the account one of its budget, so
+    # signing in again for a fresh challenge buys no more guesses than the budget allows.
+    await _second_factor_or_refuse(user, payload.code)
 
     await two_factor.finish_challenge(jti)
     await assert_access_admitted(user.email, user)
@@ -148,8 +166,7 @@ async def disable(payload: TwoFactorCodeRequest, current_user: Any = Depends(get
     user = await _fresh(current_user.id)
     if not user.twoFactorEnabled:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=NOT_ON)
-    if not await two_factor.consume_any_code(user, payload.code):
-        raise _bad_code()
+    await _second_factor_or_refuse(user, payload.code)
     await db.user.update(where={"id": user.id}, data=_switched_off())
     invalidate_cached_user(user.id)
     logger.warning("AUDIT two-factor disabled by its owner: user=%s (%s)", user.id, user.email)
@@ -165,8 +182,7 @@ async def regenerate_recovery_codes(
     user = await _fresh(current_user.id)
     if not user.twoFactorEnabled:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=NOT_ON)
-    if not two_factor.looks_like_totp(payload.code) or not await two_factor.consume_totp(user, payload.code):
-        raise _bad_code()
+    await _second_factor_or_refuse(user, payload.code, allow_recovery=False)
     codes = two_factor.generate_recovery_codes()
     hashes = await two_factor.hash_recovery_codes(codes)
     await db.user.update(where={"id": user.id}, data={"twoFactorRecoveryCodes": hashes})
@@ -185,4 +201,5 @@ def _switched_off() -> dict[str, Any]:
         "twoFactorRecoveryCodes": [],
         "twoFactorLastStep": None,
         "twoFactorEnabledAt": None,
+        **two_factor.CLEAR_FAILURES,
     }

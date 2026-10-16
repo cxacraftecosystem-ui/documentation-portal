@@ -36,6 +36,7 @@ from app.core.config import get_settings
 from app.core.db import db
 from app.core.deps import ROLE_RANK, get_current_user, invalidate_cached_user, role_rank
 from app.core.security import create_access_token, verify_password
+from app.core.user_fields import SECRET_USER_FIELDS
 from app.schemas.auth import LoginRequest, TokenResponse, TwoFactorChallengeResponse
 from app.services import oidc_sign_in, two_factor
 from app.services.access_roster import (
@@ -58,7 +59,7 @@ logger = logging.getLogger(__name__)
 
 def serialize_user(user: Any) -> dict[str, Any]:
     payload = jsonable_encoder(user)
-    for field in two_factor.SECRET_USER_FIELDS:
+    for field in SECRET_USER_FIELDS:
         payload.pop(field, None)
     return payload
 

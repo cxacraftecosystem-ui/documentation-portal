@@ -53,6 +53,7 @@ from app.core.config import get_settings
 from app.core.db import db
 from app.core.deps import invalidate_cached_user
 from app.core.security import hash_password, verify_password
+from app.core.user_fields import SECRET_USER_FIELDS as _SECRET_USER_FIELDS
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,17 @@ MAX_CHALLENGE_ATTEMPTS = 5
 #: used recovery code, an expired or exhausted challenge. The reasons are logged, not told.
 WRONG_CODE_DETAIL = "That code didn't work. Check your authenticator app and try again."
 CHALLENGE_DEAD_DETAIL = "This sign-in has timed out. Sign in again."
+TOO_MANY_ATTEMPTS_DETAIL = "Too many attempts. Try again later."
+
+#: THE PER-ACCOUNT FAILURE BUDGET. The five-code cap on one challenge is not a cap on the account:
+#: signing in again mints a fresh challenge. So every wrong second-factor code — at sign-in, turning
+#: it off, making new recovery codes, minting a dataset token — is also counted against the ACCOUNT,
+#: and ten inside a rolling fifteen minutes lock the second factor: 15 minutes, doubling on each
+#: lockout, capped at 24 hours. A correct code resets all of it. An administrator's reset clears it.
+FAILURE_BUDGET = 10
+FAILURE_WINDOW = timedelta(minutes=15)
+FIRST_LOCKOUT = timedelta(minutes=15)
+MAX_LOCKOUT = timedelta(hours=24)
 
 _ENCRYPTION_LABEL = b"field-repository-totp-v1"
 
@@ -387,6 +399,105 @@ async def consume_any_code(user: Any, code: str) -> bool:
     return False
 
 
+# ── The per-account failure budget ──────────────────────────────────────────────────────────────
+
+
+class SecondFactorLocked(Exception):
+    """Too many wrong codes on this account recently; nothing is checked until the lock lapses."""
+
+
+def lockout_duration(previous_lockouts: int) -> timedelta:
+    """15 minutes, doubling with each earlier lockout, never more than 24 hours."""
+    return min(FIRST_LOCKOUT * (2 ** min(previous_lockouts, 16)), MAX_LOCKOUT)
+
+
+def is_locked(user: Any, now: datetime | None = None) -> bool:
+    until = _user_field(user, "twoFactorLockedUntil")
+    if until is None:
+        return False
+    if until.tzinfo is None:
+        until = until.replace(tzinfo=UTC)
+    return until > (now or datetime.now(UTC))
+
+
+#: The columns a success, a switch-off or an administrator's reset puts back to "no failures".
+CLEAR_FAILURES: dict[str, Any] = {
+    "twoFactorFailedAttempts": 0,
+    "twoFactorFailureWindowStartedAt": None,
+    "twoFactorLockedUntil": None,
+    "twoFactorLockouts": 0,
+}
+
+
+async def record_failure(user_id: str) -> None:
+    """Count one wrong code against the account, and lock it when the budget is spent.
+
+    The count is an atomic increment inside a live window; a lapsed window is restarted with a
+    compare-and-swap on its start, so two failures arriving together cannot both restart it.
+    """
+    now = datetime.now(UTC)
+    row = None
+    for _ in range(5):
+        row = await db.user.find_unique(where={"id": user_id})
+        if row is None:
+            return
+        started = _user_field(row, "twoFactorFailureWindowStartedAt")
+        if started is not None and started.tzinfo is None:
+            started = started.replace(tzinfo=UTC)
+        if started is None or now - started > FAILURE_WINDOW:
+            restarted = await db.user.update_many(
+                where={"id": user_id, "twoFactorFailureWindowStartedAt": _user_field(row, "twoFactorFailureWindowStartedAt")},
+                data={"twoFactorFailedAttempts": 1, "twoFactorFailureWindowStartedAt": now},
+            )
+            if restarted:
+                row = await db.user.find_unique(where={"id": user_id})
+                break
+            continue
+        await db.user.update_many(where={"id": user_id}, data={"twoFactorFailedAttempts": {"increment": 1}})
+        row = await db.user.find_unique(where={"id": user_id})
+        break
+    if row is None:
+        return
+    invalidate_cached_user(user_id)
+    if (_user_field(row, "twoFactorFailedAttempts") or 0) < FAILURE_BUDGET:
+        return
+    lockouts = _user_field(row, "twoFactorLockouts") or 0
+    await db.user.update(
+        where={"id": user_id},
+        data={
+            "twoFactorLockedUntil": now + lockout_duration(lockouts),
+            "twoFactorLockouts": lockouts + 1,
+            "twoFactorFailedAttempts": 0,
+            "twoFactorFailureWindowStartedAt": None,
+        },
+    )
+    invalidate_cached_user(user_id)
+    logger.warning("AUDIT two-factor locked after repeated wrong codes: user=%s lockout=%d", user_id, lockouts + 1)
+
+
+async def clear_failures(user_id: str) -> None:
+    await db.user.update(where={"id": user_id}, data=dict(CLEAR_FAILURES))
+    invalidate_cached_user(user_id)
+
+
+async def check_second_factor(user: Any, code: str, *, allow_recovery: bool = True) -> bool:
+    """THE one way a second-factor code is checked outside enrolment: the lock, then the code (spent
+    if right), then the budget. Raises SecondFactorLocked while locked, without checking anything."""
+    if is_locked(user):
+        raise SecondFactorLocked()
+    user_id = _user_field(user, "id")
+    if allow_recovery:
+        accepted = await consume_any_code(user, code)
+    else:
+        accepted = code_kind(code) == "totp" and await consume_totp(user, code)
+    if accepted:
+        if _user_field(user, "twoFactorFailedAttempts") or _user_field(user, "twoFactorLockouts"):
+            await clear_failures(user_id)
+        return True
+    await record_failure(user_id)
+    return False
+
+
 # ── The sign-in challenge ───────────────────────────────────────────────────────────────────────
 
 
@@ -471,11 +582,5 @@ def status_of(user: Any) -> dict[str, Any]:
     }
 
 
-#: Columns that never leave the server in any user payload.
-SECRET_USER_FIELDS = (
-    "passwordHash",
-    "twoFactorSecret",
-    "twoFactorPendingSecret",
-    "twoFactorRecoveryCodes",
-    "twoFactorLastStep",
-)
+#: Re-exported from its one home, ``app/core/user_fields.py``.
+SECRET_USER_FIELDS = _SECRET_USER_FIELDS

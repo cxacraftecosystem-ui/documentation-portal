@@ -20,7 +20,8 @@ from app.core.deps import (
 from app.core.security import hash_password
 from app.schemas.users import UserCreate, UserUpdate
 from app.services.access_roster import ensure_admitted
-from app.services.two_factor import SECRET_USER_FIELDS
+from app.core.user_fields import SECRET_USER_FIELDS
+from app.services.two_factor import CLEAR_FAILURES
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import clean_data, contains
 
@@ -309,6 +310,8 @@ async def reset_two_factor(user_id: str, current_user: Any = Depends(require_adm
             "twoFactorRecoveryCodes": [],
             "twoFactorLastStep": None,
             "twoFactorEnabledAt": None,
+            # The lock and the failure count go too: the owner is about to start again.
+            **CLEAR_FAILURES,
         },
     )
     invalidate_cached_user(user_id)

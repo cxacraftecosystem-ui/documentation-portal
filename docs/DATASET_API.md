@@ -37,6 +37,14 @@ curl -sX POST https://api.example.org/api/datasets/token \
 }
 ```
 
+**An admin with two-step verification on must also send `"code"`** — the current 6-digit code from
+their authenticator app, or one of their recovery codes: `{"email": …, "password": …, "code": "123456"}`.
+It is checked exactly as the sign-in's second step checks it (the code is spent, so it cannot mint a
+second token), and a missing or wrong code is the same generic `401`. Wrong codes count against the
+account's failure budget shared with sign-in; once it is spent the answer is `429` until the lock
+lapses ([SECURITY.md §3.3B](SECURITY.md)). A cron job therefore needs a token minted by a person with
+the phone in hand, which is the point: a password alone no longer buys a 30-day credential.
+
 **This token can reach `/api/datasets` and nothing else in the API.** The containment is enforced in
 `deps._user_from_bearer`, the one function every authenticated route funnels through — a token
 carrying a `scope` claim is refused by default and admitted only where a dependency names that
@@ -273,7 +281,8 @@ Bytes come **straight from S3**, never through the API — the web box is a sing
 
 | status | when |
 |---|---|
-| `401` | no bearer token, or an expired/invalid one, or bad credentials at `/token` |
+| `401` | no bearer token, or an expired/invalid one, or bad credentials at `/token` (including a missing or wrong two-step code) |
+| `429` | at `/token`, the account's two-step verification is locked after too many wrong codes |
 | `403` | valid token, wrong scope; or not an admin; or `includeIdentityNumbers` without master admin |
 | `404` | unknown dataset name — the message lists the real ones |
 | `422` | `.csv` on a dataset the field registry does not describe (`media`) |
