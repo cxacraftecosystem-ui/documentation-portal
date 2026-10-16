@@ -63,7 +63,7 @@ owner to sign in again on this device, and the sign-out shows a count of what is
 
 **Sync runs without the app.** `OutboxSyncWorker` (WorkManager, needs a connected network) is
 scheduled whenever an entry is queued (`FieldRepository.kt:2517`) and at every sign-in
-(`MainActivity.kt:766`). WorkManager keeps the request across process death and reboots. A pass
+(`MainActivity.kt:951`). WorkManager keeps the request across process death and reboots. A pass
 that is waiting (for a network, or out an exponential backoff after failures) is replaced by a fresh
 one each time, so new work never waits for an old backoff; a pass that is running is kept. The
 in-app timer and network callback still run while the app is open. Every pass, in the foreground
@@ -133,7 +133,7 @@ server. When a read fails with no connection, the cached answer is returned inst
 was never made online still fails, as before. Sign-in state, two-step state, secrets, AI keys,
 Aadhaar lookups, preferences, the update check, downloads, exports and the late-submission check
 are never stored. Sign-out clears the cache on the IO dispatcher (`FieldRepository.kt:399`). A line at the foot of every
-screen says when the device is offline (`OfflineNotice`, `MainActivity.kt:16064`).
+screen says when the device is offline (`OfflineNotice`, `MainActivity.kt:17047`).
 
 ## The matrix
 
@@ -145,22 +145,22 @@ it survives process death, reboot, sign-out and update. **Sync**, how and when i
 
 | Screen | Writes | Pending data | Survives | Sync | Offline | Reads | Before | Now |
 |---|---|---|---|---|---|---|---|---|
-| Artisan, craft, workshop, product: **new** (`CraftForm` `MainActivity.kt:5981`, `ArtisanForm` `:6090`, `WorkshopForm` `:6592`, `ProductForm` `:6773`) | create + files | outbox | yes | outbox, foreground and background | "Saved on this device…" | pickers cached | OK | OK |
-| The same four: **edit** (`trySaveOffline`, `MainActivity.kt:16043`) | update + files | was: form memory only | was: no | now: outbox `update` | was: request error | cached | GAP | **Fixed** |
-| The same four: files that fail after an **online** save (`uploadAttachments`, `MainActivity.kt:3624`) | files | was: form memory; the record was saved but the form reported failure | was: no | now: outbox `attach` (`queueFailedAttachments`, `:3702`) | was: "re-attach from Update existing" | — | RISK | **Fixed** |
+| Artisan, craft, workshop, product: **new** (`CraftForm` `MainActivity.kt:6580`, `ArtisanForm` `:6689`, `WorkshopForm` `:7193`, `ProductForm` `:7374`) | create + files | outbox | yes | outbox, foreground and background | "Saved on this device…" | pickers cached | OK | OK |
+| The same four: **edit** (`trySaveOffline`, `MainActivity.kt:17026`) | update + files | was: form memory only | was: no | now: outbox `update` | was: request error | cached | GAP | **Fixed** |
+| The same four: files that fail after an **online** save (`uploadAttachments`, `MainActivity.kt:4131`) | files | was: form memory; the record was saved but the form reported failure | was: no | now: outbox `attach` (`queueFailedAttachments`, `:4209`) | was: "re-attach from Update existing" | — | RISK | **Fixed** |
 | Location on offline-captured files (`PendingMedia.location`, `Offline.kt`) | — | was: dropped on the offline path only | — | now: sent with each file | — | — | RISK | **Fixed** |
 | Capture time of queued files (`PendingMedia.capturedAt`; `recordedAt`, `FieldRepository.kt:3030`) | — | was: sync time sent as `recordedAt` | — | now: the time the file was queued | — | — | RISK | **Fixed** |
-| Tool (`ToolForm`, `MainActivity.kt:7214`): new | create + files + stage captures | outbox | yes | outbox | saved on device | cached | OK | OK |
-| Tool: edit (`MainActivity.kt:7842`) | update | was: form memory | was: no | outbox `update` | was: error | cached | GAP | **Fixed** |
+| Tool (`ToolForm`, `MainActivity.kt:7815`): new | create + files + stage captures | outbox | yes | outbox | saved on device | cached | OK | OK |
+| Tool: edit (`MainActivity.kt:8443`) | update | was: form memory | was: no | outbox `update` | was: error | cached | GAP | **Fixed** |
 | Tool: stage capture fails after an online save | file | was: form memory; save reported failed after the tool existed, so a second tap made a second tool | was: no | outbox `attach` | was: "Unable to save tool" | — | RISK | **Fixed** |
-| Process (`ProcessForm`, `MainActivity.kt:8358`): new | create + pre-process and step files | outbox (step files by step index) | yes | outbox | saved on device | cached | OK | OK |
-| Process: edit (`MainActivity.kt:8600`) | update | was: form memory | was: no | outbox `update`; step files map to the steps the update returns | was: error | cached | GAP | **Fixed** |
+| Process (`ProcessForm`, `MainActivity.kt:8966`): new | create + pre-process and step files | outbox (step files by step index) | yes | outbox | saved on device | cached | OK | OK |
+| Process: edit (`MainActivity.kt:9208`) | update | was: form memory | was: no | outbox `update`; step files map to the steps the update returns | was: error | cached | GAP | **Fixed** |
 | Process: step file fails after an online save | file | was: form memory; same duplicate risk as tool | was: no | outbox `attach` to the step | — | — | RISK | **Fixed** |
-| Questionnaire interview (`QuestionnaireForm`, `MainActivity.kt:12801`): new | create + files | outbox | yes | outbox | saved on device | **sections were not cached**, so an interview could not be started offline at all | GAP (reads) | **Fixed** (read cache) |
-| Questionnaire interview: edit (`MainActivity.kt:14047`) | update + answers + clips | was: form memory; now: outbox `sequence` (the PATCH as an ordered step, then the clips and attachments) | yes | in order, each step ticked off on disk, stopped at the first refusal (`FieldRepository.kt:2662`) | "Saved on this device…" | cached | GAP | **Fixed** |
+| Questionnaire interview (`QuestionnaireForm`, `MainActivity.kt:13618`): new | create + files | outbox | yes | outbox | saved on device | **sections were not cached**, so an interview could not be started offline at all | GAP (reads) | **Fixed** (read cache) |
+| Questionnaire interview: edit (`MainActivity.kt:14864`) | update + answers + clips | was: form memory; now: outbox `sequence` (the PATCH as an ordered step, then the clips and attachments) | yes | in order, each step ticked off on disk, stopped at the first refusal (`FieldRepository.kt:2662`) | "Saved on this device…" | cached | GAP | **Fixed** |
 | Any record form **before Save** (all of the above, and miscellaneous media) | every field, captured files, workshop, process steps, interview answers and clips | was: Compose `remember` only; now: `filesDir/drafts/<account>/<form>__<record>.json`, autosaved 0.7 s after a change while the form is dirty (`ui/FormDrafts.kt`, `data/DraftStore.kt`); camera captures now go to `filesDir/field-captures`, and files picked from other apps are copied into `filesDir/drafts-media` | yes: process death, camera, reboot, sign-out (drafts are per account), update | — | the form offers "Continue your draft" or "Discard"; the draft is deleted on save or queue | — | GAP | **Fixed** |
-| A create that fails part-way online (no answer, a timeout or a 5xx after the request left) | — | was: form memory; now: the outbox, under the `Idempotency-Key` the attempt sent (`createOrKeep`, `MainActivity.kt:16096`) | yes | outbox; the server answers a repeat of the key from the first record (`backend/app/core/idempotency.py`, 30 days) | "Saved on this device…" | — | RISK | **Fixed** |
-| Miscellaneous media upload (`AndroidMediaForm`, `MainActivity.kt:11947`) | files to an existing record | was: kept "staged" in form memory | was: no | now: outbox `attach` | was: "All files failed…"; now "kept on this device" | cached | GAP | **Fixed** |
+| A create that fails part-way online (no answer, a timeout or a 5xx after the request left) | — | was: form memory; now: the outbox, under the `Idempotency-Key` the attempt sent (`createOrKeep`, `MainActivity.kt:17089`) | yes | outbox; the server answers a repeat of the key from the first record (`backend/app/core/idempotency.py`, 30 days) | "Saved on this device…" | — | RISK | **Fixed** |
+| Miscellaneous media upload (`AndroidMediaForm`, `MainActivity.kt:12755`) | files to an existing record | was: kept "staged" in form memory | was: no | now: outbox `attach` | was: "All files failed…"; now "kept on this device" | cached | GAP | **Fixed** |
 | Trace panel (`ui/trace/`) | an exported drawing | `filesDir` (`TraceExportFile.kt`), then a form's attachments | yes, until attached | through the form that attaches it | works offline (on-device engine) | — | OK | OK |
 | Location reference list (`LocationFields.kt`) | — | `filesDir` cache file | yes | — | last list shown | own cache | OK | OK |
 
@@ -168,15 +168,15 @@ it survives process death, reboot, sign-out and update. **Sync**, how and when i
 
 | Screen | Writes | Pending data | Survives | Sync | Offline | Reads | Before | Now |
 |---|---|---|---|---|---|---|---|---|
-| Dashboard (`DashboardScreen`, `MainActivity.kt:2544`) | — | — | — | — | was: stats error | was: none; now: device cache | GAP | **Fixed** |
-| Update existing: record picker (`RecordPickerScreen`, `:5374`) | — | — | — | — | was: empty list and error | now: cached | GAP | **Fixed** |
-| Edit screen: loading the record (`EditScreen`, `:5665`) | — | — | — | — | was: "Unable to load" | now: cached | GAP | **Fixed** |
-| View Data and record detail (`ViewDataScreen` `:10481`, `ViewDataDetail` `:11641`) | — | — | — | — | was: error | now: cached | GAP | **Fixed** |
-| Comments on a record (`RecordCollabSection`, `:11856`) | a comment | was: the text box | was: no | now: outbox `action`, queued when offline before sending | "Saved on this device…" | cached | GAP | **Fixed** |
-| Search (`SearchScreen.kt`), Map (`MapScreen.kt`), Data Browser (`DataBrowserScreen.kt`), Consolidated questionnaire (`ConsolidatedQuestionnaireScreen.kt`), My Activity (`MyActivityScreen`, `:9081`) | — | — | — | — | was: error | now: cached (Data Browser downloads are not; they need a connection) | GAP | **Fixed** |
+| Dashboard (`DashboardScreen`, `MainActivity.kt:3014`) | — | — | — | — | was: stats error | was: none; now: device cache | GAP | **Fixed** |
+| Update existing: record picker (`RecordPickerScreen`, `:5930`) | — | — | — | — | was: empty list and error | now: cached | GAP | **Fixed** |
+| Edit screen: loading the record (`EditScreen`, `:6261`) | — | — | — | — | was: "Unable to load" | now: cached | GAP | **Fixed** |
+| View Data and record detail (`ViewDataScreen` `:11160`, `ViewDataDetail` `:12445`) | — | — | — | — | was: error | now: cached | GAP | **Fixed** |
+| Comments on a record (`RecordCollabSection`, `:12664`) | a comment | was: the text box | was: no | now: outbox `action`, queued when offline before sending | "Saved on this device…" | cached | GAP | **Fixed** |
+| Search (`SearchScreen.kt`), Map (`MapScreen.kt`), Data Browser (`DataBrowserScreen.kt`), Consolidated questionnaire (`ConsolidatedQuestionnaireScreen.kt`), My Activity (`MyActivityScreen`, `:9712`) | — | — | — | — | was: error | now: cached (Data Browser downloads are not; they need a connection) | GAP | **Fixed** |
 | Media previews of saved records | — | — | — | — | Coil's own image cache. A signed URL that has expired, or an image never viewed, cannot load offline | Coil disk cache | GAP | Remains. A limitation of signed media URLs, not a finding |
-| My tasks: progress and status (`MyTasksScreen`, `:15491`) | task update | was: nothing | was: no | now: outbox `action`; also on a dropped connection (the update is idempotent) | list shows the change at once, with "Saved on this device…" | cached | GAP | **Fixed** |
-| App feedback (`FeedbackScreen`, `:9882`) | feedback upsert | was: form memory | was: no | now: outbox `action`; also on a dropped connection (upsert) | "Saved on this device…" | cached | GAP | **Fixed** |
+| My tasks: progress and status (`MyTasksScreen`, `:16450`) | task update | was: nothing | was: no | now: outbox `action`; also on a dropped connection (the update is idempotent) | list shows the change at once, with "Saved on this device…" | cached | GAP | **Fixed** |
+| App feedback (`FeedbackScreen`, `:10559`) | feedback upsert | was: form memory | was: no | now: outbox `action`; also on a dropped connection (upsert) | "Saved on this device…" | cached | GAP | **Fixed** |
 | Appearance (`AppearanceScreen.kt`) | preferences | device copy, plus a queued-change time (`AppPreferencesStore.pendingSince`) | yes | PUT when online; otherwise at reconnect or the next sign-in, where the later write wins by timestamp (`localPreferencesWin`) | applied locally, "Saved on this device…" | never cached (on purpose) | RISK | **Fixed** |
 | Walkthrough (`WalkthroughScreen.kt`) | seen-state | SharedPreferences | yes | none needed | works | — | OK | OK |
 
@@ -190,7 +190,7 @@ AI keys and two-step state.
 
 | Screen | Before | Now |
 |---|---|---|
-| Sign-in and two-step challenge (`LoginScreen` `MainActivity.kt:954`, `TwoStepChallengeForm`). An already signed-in user opens the app offline from the cached profile (`MainActivity.kt:649`) | OK | OK |
+| Sign-in and two-step challenge (`LoginScreen` `MainActivity.kt:1222`, `TwoStepChallengeForm`). An already signed-in user opens the app offline from the cached profile (`MainActivity.kt:758`) | OK | OK |
 | Two-step verification settings, My AI keys, API keys (secrets): never cached | OK | OK |
 | Reviews and approvals, Recovered recordings, User feedback (admin), Tool assignments (`ToolAssignScreen`), Tasks admin (`TaskAdminScreen.kt`), Workshop assignments and access requests, Access roster (`AccessRosterScreen.kt`), Settings, Users (`UserManagementForm`), Sharing (`SharingForm`), Workshop access (`WorkshopAccessScreen`), Questionnaire builder (`QuestionnaireBuilder`), Delete record (`DeleteRecordSection`). Reads were not cached | GAP (reads) | OK by decision: reads now cached, writes online-only |
 
