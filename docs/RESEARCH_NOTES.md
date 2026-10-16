@@ -1136,6 +1136,19 @@ object keys share the single `media/` prefix.
 
 ## 13. Result 9 — responsive navigation priced by measurement, not by estimate
 
+> **Superseded on Android, 2026-10-16.** The island moved from the top of the screen to the
+> **bottom**, and the five density tiers below no longer exist. The bar now shows at most five
+> top-level slots in their existing order (Dashboard, Walkthrough, then the non-empty groups); when a
+> role has more than five, it shows the first four plus a fifth **More** slot, which opens a sheet
+> listing the rest with the same icons and labels and lights up when the current screen is behind
+> it. Every slot shows its label when the widest label fits its share of the bar, measured with
+> `rememberTextMeasurer()` as before, and otherwise shows only its glyph with the label as its
+> accessible name. The hamburger stays at the bar's right end for the drawer (admin view, Logout).
+> The bar hides while the keyboard is open, and the page gets the bar's measured height as bottom
+> padding. Source: `android/app/src/main/java/com/fieldrepository/app/ui/IslandBottomNav.kt`, which is
+> identical in both Android apps apart
+> from the package line. The web is unchanged. The text below records the top bar as it was.
+
 The Android navigation bar sheds width in five ordered tiers rather than scrolling horizontally. The
 rationale, from `android/.../ui/AppNavigation.kt`, is worth quoting because it is a usability claim
 with a mechanism: an earlier pass wrapped the bar in a horizontal scroller, and on a 360 dp phone

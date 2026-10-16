@@ -76,6 +76,7 @@ import com.fieldrepository.app.ui.NavGroup
 import com.fieldrepository.app.ui.visibleNavItems
 import com.fieldrepository.app.ui.IslandEntry
 import com.fieldrepository.app.ui.IslandGroup
+import com.fieldrepository.app.ui.IslandScaffold
 import com.fieldrepository.app.ui.Text
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
@@ -1573,21 +1574,17 @@ private fun HomeScreen(
                     )
 
                     else -> {
-                // Hoisted out of the modifier so the island bar can be told how far this page has
-                // travelled. It is handed over as a lambda below, never as a number — see
-                // FieldIslandNav's `scrollOffset`.
-                //
                 // Keyed on the screen, because every destination in this branch renders through the one
                 // composition slot below and therefore shared one ScrollState: leaving a long form
                 // half-way down opened the NEXT screen already scrolled past its own first fields, with
                 // nothing on it to explain why. `key` throws the state away when the destination
                 // changes, so each page starts where a page starts.
                 val pageScroll = key(screen) { rememberScrollState() }
-                // Two Columns, and the split is the whole point: the bar lives in the OUTER one, which
-                // does not scroll, so it stays put while the page moves underneath it and can collapse
-                // in response. It used to be the first child of the scroller, which meant it simply
-                // slid off the top — a collapsing bar you cannot see collapse.
-                Column(modifier = Modifier.fillMaxSize()) {
+                // The island floats over the BOTTOM of the page (see IslandBottomNav.kt), outside the
+                // scroller so it stays put while the page moves underneath it. The scaffold measures
+                // the bar and hands the page that height as bottom padding, so the last field or
+                // button of a long form scrolls clear of it instead of ending underneath it.
+                IslandScaffold(island = { islandModifier ->
         /*
          * The island bar, the web's DynamicIslandNav on the phone.
          *
@@ -1608,25 +1605,16 @@ private fun HomeScreen(
          */
         val navItems = visibleNavItems(user, adminView)
         FieldIslandNav(
-            modifier = Modifier.fillMaxWidth(),
-            // The wordmark is a Dashboard link that is on screen even mid-form, so it goes through the
-            // router like any other chip rather than jumping home on its own.
-            onBrandClick = { navigate(NavDestination.DASHBOARD) },
+            modifier = islandModifier,
+            // The drawer: the full menu, the admin-view switch (which left the bar when it moved to
+            // the bottom) and Logout.
             onOpenDrawer = { scope.launch { drawerState.open() } },
-            // Null hides the chip outright. ADMIN (50) and MASTER_ADMIN (60) only — see
-            // [canToggleAdminView]; a professor's chrome is granted by their role, not by a switch.
-            adminMode = if (canToggleAdminView) adminView else null,
-            onToggleAdminView = { adminViewRequested = !adminView },
             // The bar highlights by label, so the label has to be looked up from the DESTINATION the
             // user is on. This used to pass `headerTitle` — a page title, matched against nav labels
             // that are written for a menu — so the Dashboard ("Field Repository" against "Dashboard")
             // and most record forms lit nothing, while the handful whose two strings happened to
             // coincide were the only ones that worked.
             currentLabel = navItems.firstOrNull { it.destination == currentDestination }?.label,
-            // A lambda, not `pageScroll.value`: reading the offset here would make every frame of
-            // every scroll recompose this whole screen. The bar reads it inside its own derived
-            // state, where it feeds one Boolean.
-            scrollOffset = { pageScroll.value },
             roots = navItems.filter { it.group == null }
                 .map { entry -> IslandEntry(entry.label, entry.icon) { navigate(entry.destination) } },
             groups = NavGroup.entries.map { group ->
@@ -1646,11 +1634,14 @@ private fun HomeScreen(
                 )
             }
         )
+                }) { islandReserve ->
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(pageScroll),
+                .verticalScroll(pageScroll)
+                // Inside the scroller, so it is the END of the page that clears the bar.
+                .padding(bottom = islandReserve),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
 
