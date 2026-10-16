@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, ChevronDown, UploadCloud, X } from "lucide-react";
 
+import { LocalFileDownloads } from "@/components/media/DownloadMediaButton";
 import { UploadedMediaChips, formatEta } from "@/components/media/UploadProgress";
 import { bytes } from "@/lib/format";
 import { useUploads } from "@/lib/uploads";
@@ -129,6 +130,7 @@ export function UploadTray() {
                     <div className="h-1.5 overflow-hidden rounded-full bg-line-200">
                       <div className="h-full rounded-full bg-purple-600 transition-all" style={{ width: `${sectionPercent}%` }} />
                     </div>
+                    <LocalFileDownloads files={section.progress.files} />
                   </li>
                 );
               })}

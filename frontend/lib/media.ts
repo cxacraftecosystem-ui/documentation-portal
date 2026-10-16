@@ -1375,6 +1375,12 @@ export type BatchProgress = {
   fraction: number;
   etaSeconds: number | null;
   currentFileName: string;
+  /**
+   * The in-memory files this batch is sending, in the caller's order — the SAME objects the transfer
+   * reads, never copies. Progress rows draw a "Download" control per file from them, so a person can
+   * keep their own file while the upload is still running.
+   */
+  files?: File[];
 };
 
 export type BatchResult = {
@@ -1439,7 +1445,8 @@ export async function uploadMediaBatch({
       totalBytes,
       fraction: uploadedBytes / totalBytes,
       etaSeconds: rate > 0 ? Math.max(0, Math.round((totalBytes - uploadedBytes) / rate)) : null,
-      currentFileName
+      currentFileName,
+      files
     });
   };
 

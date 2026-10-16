@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { CloudOff, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
 
+import { LocalFileDownloads } from "@/components/media/DownloadMediaButton";
 import { useToast } from "@/components/ui/Toast";
 import {
   discardOutboxEntry,
@@ -34,6 +35,11 @@ import {
 /** Files across every batch of one entry — what the user attached, not how the form grouped it. */
 function fileCount(entry: OutboxEntry): number {
   return entry.media.reduce((sum, batch) => sum + batch.files.length, 0);
+}
+
+/** Every queued file of one entry, in the order it was attached. */
+function entryFiles(entry: OutboxEntry): File[] {
+  return entry.media.flatMap((batch) => batch.files);
 }
 
 export function OutboxBanner() {
@@ -175,6 +181,9 @@ export function OutboxBanner() {
                 Discard
               </button>
             ) : null}
+            {/* The queued files live only in this browser until the outbox drains — each can be saved
+                to the device from here, straight out of the IndexedDB copy. */}
+            <LocalFileDownloads files={entryFiles(entry)} className="basis-full" />
           </li>
         ))}
       </ul>

@@ -4,8 +4,10 @@ import { Download, ExternalLink, FileText, Headphones, Image as ImageIcon, Loade
 import { useEffect, useRef, type ReactNode } from "react";
 
 import { Markdown } from "@/components/Markdown";
+import { DownloadMediaButton } from "@/components/media/DownloadMediaButton";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
 import { bytes } from "@/lib/format";
+import { downloadUploadedMedia } from "@/lib/localMediaDownload";
 import type { MediaType } from "@/lib/types";
 
 export type PreviewMedia = {
@@ -95,7 +97,8 @@ export function MediaPreviewTile({
   progress = null,
   failed = false,
   statusLabel = null,
-  onRetry
+  onRetry,
+  downloadFile = null
 }: {
   item: PreviewMedia;
   onOpen: () => void;
@@ -108,6 +111,11 @@ export function MediaPreviewTile({
   statusLabel?: string | null;
   /** Offered next to the status line when a pre-upload failed. */
   onRetry?: () => void;
+  /**
+   * The copy this browser holds of a file that is uploading or queued. Draws the "Download" control,
+   * which saves it straight from memory — it works before, during and after the upload.
+   */
+  downloadFile?: Blob | null;
 }) {
   const kind = resolvePreviewKind(item);
   const percent = progress === null ? null : Math.round(Math.min(1, Math.max(0, progress)) * 100);
@@ -188,50 +196,14 @@ export function MediaPreviewTile({
           ) : null}
         </div>
       ) : null}
+      {downloadFile ? (
+        <div className="flex justify-end">
+          <DownloadMediaButton file={downloadFile} name={item.name} mimeType={item.mimeType} />
+        </div>
+      ) : null}
       {action ? <div onClick={(event) => event.stopPropagation()}>{action}</div> : null}
     </div>
   );
-}
-
-/**
- * Force a download of the (usually cross-origin S3) file to the user's device. We fetch it as a blob
- * so the browser saves rather than navigates; if CORS blocks the fetch we fall back to a download
- * anchor, and finally to opening the URL in a new tab.
- */
-async function saveToDevice(url: string, name: string) {
-  try {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error("The file couldn’t be downloaded.");
-    const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = objectUrl;
-    anchor.download = name || "media";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    // ⚠ REVOKED ON A LATER TASK, NEVER ON THE LINE AFTER `click()`.
-    //
-    // `anchor.click()` only SCHEDULES the download; the browser reads the object URL afterwards, and
-    // revoking it synchronously is a race against that read. Chrome usually wins it, which is what
-    // makes this so easy to ship — and Safari usually loses, downloading NOTHING AT ALL with no
-    // error anywhere: no rejected promise, no console entry, nothing for the `catch` below to reach.
-    // The researcher presses Save and the file simply does not arrive.
-    //
-    // A zero-delay timeout is enough because it only has to land after the current task, by which
-    // point the download has been handed to the browser. Still revoked, so the blob is not leaked
-    // for the life of the document — which is what dropping the call entirely would cost.
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
-  } catch {
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = name || "media";
-    anchor.target = "_blank";
-    anchor.rel = "noreferrer";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-  }
 }
 
 export function MediaLightbox({ item, onClose }: { item: PreviewMedia; onClose: () => void }) {
@@ -272,7 +244,7 @@ export function MediaLightbox({ item, onClose }: { item: PreviewMedia; onClose: 
           </div>
           <div className="flex items-center gap-2">
             {item.url ? (
-              <button type="button" className="field-button-secondary" onClick={() => saveToDevice(item.url as string, item.name)}>
+              <button type="button" className="field-button-secondary" onClick={() => void downloadUploadedMedia(item.url as string, item.name, item.mimeType)}>
                 <Download className="h-4 w-4" aria-hidden />
                 Save
               </button>
@@ -307,7 +279,7 @@ export function MediaLightbox({ item, onClose }: { item: PreviewMedia; onClose: 
               </div>
               <p className="text-sm text-ink-muted">This file type cannot be rendered inline — download it to view.</p>
               <div className="flex flex-wrap justify-center gap-2">
-                <button type="button" className="field-button" onClick={() => saveToDevice(item.url as string, item.name)}>
+                <button type="button" className="field-button" onClick={() => void downloadUploadedMedia(item.url as string, item.name, item.mimeType)}>
                   <Download className="h-4 w-4" aria-hidden />
                   Download file
                 </button>

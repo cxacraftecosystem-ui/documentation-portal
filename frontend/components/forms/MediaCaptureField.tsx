@@ -283,6 +283,7 @@ export function MediaCaptureField({
                   failed={entry?.status === "error"}
                   statusLabel={stageStatusLabel(entry)}
                   onRetry={entry ? () => staging.retry(entry.file) : undefined}
+                  downloadFile={files[index] ?? null}
                 />
               );
             })}
