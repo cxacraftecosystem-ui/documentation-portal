@@ -107,6 +107,30 @@ class OfflineQueueFileTest {
     }
 
     @Test
+    fun `an edit queued as an ordered unit keeps its steps, its progress and its key`() {
+        val sequence = entry("q1", owner = "u1", kind = OutboxKind.SEQUENCE).copy(
+            targetId = "interview-9",
+            payloadJson = "",
+            steps = listOf(
+                OutboxStep(op = "questionnaire.update", targetId = "interview-9", payloadJson = """{"title":"Ajrakh"}""")
+            ),
+            completedSteps = 1,
+            idempotencyKey = "key-0001"
+        )
+        OfflineQueueFile.write(queue, listOf(sequence))
+        assertEquals(listOf(sequence), OfflineQueueFile.read(queue) { error(it) })
+    }
+
+    @Test
+    fun `an entry from before keys and sequences decodes with neither`() {
+        queue.writeText("""[{"id":"e1","type":"craft","payloadJson":"{}","label":"Old","createdAt":"2026-10-01T00:00:00Z"}]""")
+        val old = OfflineQueueFile.read(queue) { error(it) }.single()
+        assertNull(old.idempotencyKey)
+        assertTrue(old.steps.isEmpty())
+        assertEquals(0, old.completedSteps)
+    }
+
+    @Test
     fun `a sync pass replays only the signed-in account's entries and legacy ones`() {
         val queue = listOf(entry("mine", owner = "u1"), entry("legacy", owner = null), entry("theirs", owner = "u2"))
         assertEquals(listOf("mine", "legacy"), queue.replayableBy("u1").map { it.id })

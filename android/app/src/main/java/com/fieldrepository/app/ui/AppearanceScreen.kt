@@ -190,7 +190,24 @@ class AppPreferencesStore(context: Context) {
         store.edit().clear().apply()
     }
 
+    /**
+     * When this device's copy was last changed without the server confirming it (epoch ms), or null
+     * when the server has it. This is the queued change: [reconcilePreferences] sends it at the next
+     * sync, and it wins over the server's row when it is newer than that row's `updatedAt`.
+     */
+    fun pendingSince(): Long? = store.getLong(KEY_PENDING_SINCE, 0L).takeIf { it > 0L }
+
+    fun markPending(at: Long = System.currentTimeMillis()) {
+        store.edit().putLong(KEY_PENDING_SINCE, at).apply()
+    }
+
+    /** Clear the queued change, but only if it is still the one [at] names (a newer one stays). */
+    fun clearPending(at: Long?) {
+        if (at == null || pendingSince() == at) store.edit().remove(KEY_PENDING_SINCE).apply()
+    }
+
     private companion object {
+        const val KEY_PENDING_SINCE = "pendingSince"
         const val KEY_THEME = "theme"
         const val KEY_REDUCED_MOTION = "reducedMotion"
         const val KEY_LARGER_TEXT = "largerText"
@@ -212,15 +229,31 @@ suspend fun syncAppPreferences(
     store: AppPreferencesStore? = null
 ): AppPreferences {
     val remote = runCatching { repository.myPreferences() }.getOrNull()
-    if (remote == null) {
-        // Either "no saved row yet" or an unreachable server. Seeding is safe in both cases: it is
-        // the same whole-object PUT every toggle makes, and a failure changes nothing.
+    val pending = store?.pendingSince()
+    if (remote == null || localPreferencesWin(pending, remote.updatedAt)) {
+        // No saved row, an unreachable server, or a change made on this device (offline, usually)
+        // that is newer than the server's row. Send the device copy: the same whole-object PUT every
+        // toggle makes. A failure changes nothing and the change stays queued for the next sync.
         runCatching { repository.savePreferences(local.toBody()) }
+            .onSuccess { store?.clearPending(pending) }
         return local
     }
+    store?.clearPending(pending)
     val resolved = remote.toAppPreferences()
     store?.write(resolved)
     return resolved
+}
+
+/**
+ * Last write wins, by timestamp: does a change queued on this device at [pendingSince] (epoch ms)
+ * beat the server's row, last written at [remoteUpdatedAt] (ISO-8601)? Nothing queued never wins;
+ * a row with no readable timestamp always loses to a queued change.
+ */
+internal fun localPreferencesWin(pendingSince: Long?, remoteUpdatedAt: String?): Boolean {
+    if (pendingSince == null) return false
+    val remoteAt = remoteUpdatedAt?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }
+        ?: return true
+    return pendingSince > remoteAt
 }
 
 /** The whole-object shape PUT /preferences/me wants. Kept private: screens go through the helpers. */
@@ -353,18 +386,15 @@ fun AppearanceScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var saveJob by remember { mutableStateOf<Job?>(null) }
     val systemDark = isSystemInDarkTheme()
+    val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    val store = remember { AppPreferencesStore(appContext) }
 
     // One-shot reconcile with the account. Keyed on Unit: `current` changes on every toggle and
-    // re-running this would fight the user.
+    // re-running this would fight the user. A change queued on this device that is newer than the
+    // server's row is sent rather than overwritten (see syncAppPreferences).
     LaunchedEffect(Unit) {
-        val remote = runCatching { repository.myPreferences() }.getOrNull()
-        if (remote != null) {
-            val resolved = remote.toAppPreferences()
-            if (resolved != current) onChanged(resolved)
-        } else {
-            // `{}` — no saved row. Seed the account with what this device is already showing.
-            runCatching { repository.savePreferences(current.toBody()) }
-        }
+        val resolved = syncAppPreferences(repository, current, store)
+        if (resolved != current) onChanged(resolved)
     }
 
     /** Apply locally, then PUT the whole object. Last write wins: an in-flight save is cancelled. */
@@ -373,10 +403,21 @@ fun AppearanceScreen(
         onChanged(next)
         error = null
         saveJob?.cancel()
+        // Queued first: if the PUT never lands (no signal), the change is sent at the next sync and
+        // wins over the server's older row instead of being undone by it.
+        val changedAt = System.currentTimeMillis()
+        store.markPending(changedAt)
         saveJob = scope.launch {
             saving = true
             runCatching { repository.savePreferences(next.toBody()) }
-                .onFailure { error = it.message ?: "Unable to save preferences" }
+                .onSuccess { store.clearPending(changedAt) }
+                .onFailure {
+                    if (it !is kotlinx.coroutines.CancellationException && !repository.isOnline(appContext)) {
+                        error = "Saved on this device. It will sync to your account when you're back online."
+                    } else if (it !is kotlinx.coroutines.CancellationException) {
+                        error = it.message ?: "Unable to save preferences"
+                    }
+                }
             saving = false
         }
     }

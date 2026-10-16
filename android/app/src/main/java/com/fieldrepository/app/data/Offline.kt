@@ -104,7 +104,29 @@ data class PendingEntry(
      */
     val failure: String? = null,
     /** When [failure] was recorded, ISO-8601. */
-    val failedAt: String? = null
+    val failedAt: String? = null,
+    /**
+     * Sent as the `Idempotency-Key` header on the create (or comment) this entry replays, so a create
+     * that reached the server but whose answer was lost is answered from the first record instead of
+     * making a second (backend `app/core/idempotency.py`, 24 hours). Minted when the entry is queued,
+     * or before the first send for an entry an older build queued without one.
+     */
+    val idempotencyKey: String? = null,
+    /** A [OutboxKind.SEQUENCE] entry's requests, replayed in order. */
+    val steps: List<OutboxStep> = emptyList(),
+    /** How many of [steps] the server has accepted; the replay resumes at the next one. */
+    val completedSteps: Int = 0
+)
+
+/**
+ * One request of a [OutboxKind.SEQUENCE] entry. [op] names what the replay sends, for example
+ * `questionnaire.update`; [payloadJson] is its serialized body.
+ */
+@Serializable
+data class OutboxStep(
+    val op: String,
+    val targetId: String? = null,
+    val payloadJson: String
 )
 
 /** What a queued entry's replay does. Strings, not an enum, so an unknown value still decodes. */
@@ -117,6 +139,12 @@ object OutboxKind {
     const val ATTACH = "attach"
     /** A small write that is not a record (a comment, feedback, a task's progress). */
     const val ACTION = "action"
+    /**
+     * An edit that takes more than one request, replayed as one ordered unit: [PendingEntry.steps]
+     * in order, each ticked off as it lands, stopping at the first one the server refuses. The media
+     * attach to [PendingEntry.targetId] once every step is in.
+     */
+    const val SEQUENCE = "sequence"
 }
 
 /**
