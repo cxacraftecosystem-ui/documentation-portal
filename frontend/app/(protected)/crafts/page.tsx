@@ -193,6 +193,12 @@ function CraftsPageBody() {
   // parks through the same mechanism, so Discard performs the navigation that was asked for.
   useLeaveGuard(dirty, () => guard(() => router.back()));
 
+  /**
+   * Opening a row's read-only view leaves this page, and with it the inline form above the list —
+   * so it asks first, exactly as the switcher and the deep link do.
+   */
+  const openThroughGuard = (href: string) => guard(() => router.push(href));
+
   /** Run `action` now, or park it behind the unsaved-changes dialog when the form is dirty. */
   function guard(action: () => void) {
     if (dirty) setConfirmAction(() => action);
@@ -559,9 +565,9 @@ function CraftsPageBody() {
               </thead>
               <tbody className="divide-y divide-line-200">
                 {rows.map((craft) => (
-                  <OpenableRow key={craft.id} href={recordViewHref("craft", craft.id)!} onOpen={rememberPlace}>
+                  <OpenableRow key={craft.id} href={recordViewHref("craft", craft.id)!} onOpen={rememberPlace} navigate={openThroughGuard}>
                     <td className="px-4 py-3">
-                      <RecordTitleLink href={recordViewHref("craft", craft.id)!} onOpen={rememberPlace}>
+                      <RecordTitleLink href={recordViewHref("craft", craft.id)!} onOpen={rememberPlace} navigate={openThroughGuard}>
                         {craft.name}
                       </RecordTitleLink>
                     </td>

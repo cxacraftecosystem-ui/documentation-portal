@@ -7,7 +7,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
-import { OpenableRow, RecordTitleLink } from "@/components/records/OpenableRow";
+import { OpenableBlock, OpenableRow, RecordTitleLink } from "@/components/records/OpenableRow";
 import { Pagination } from "@/components/Pagination";
 import { ResizableTh } from "@/components/ResizableTh";
 import { ReviewEditPanel } from "@/components/review/ReviewEditPanel";
@@ -47,12 +47,23 @@ function rowKey(item: PendingItem) {
 /**
  * A pending record's title opens it READ-ONLY, so a reviewer can read the whole record before
  * deciding; the decision buttons and the in-place Update panel stay on this row. On a wide screen
- * the whole row opens it (`OpenableRow`); the phone card keeps the title link only, because its
- * card also holds the open decision panel and a stray tap there must not leave the page.
+ * the whole row opens it (`OpenableRow`); on a phone the card's body does (`ReviewCardBody`) — the
+ * title, the details and the status. The decision buttons and the open panel below that body are
+ * marked `data-row-ignore`, so a tap there decides or types and never leaves the page.
  */
 function ReviewTitle({ item }: { item: PendingItem }) {
   const href = recordViewHref(item.recordType, item.id);
   return href ? <RecordTitleLink href={href}>{item.label}</RecordTitleLink> : <>{item.label}</>;
+}
+
+function ReviewCardBody({ item, children }: { item: PendingItem; children: React.ReactNode }) {
+  const href = recordViewHref(item.recordType, item.id);
+  if (!href) return <div className="flex items-start gap-2">{children}</div>;
+  return (
+    <OpenableBlock href={href} className="-m-2 flex items-start gap-2 rounded-md p-2">
+      {children}
+    </OpenableBlock>
+  );
 }
 
 function ReviewRow({ item, className, children }: { item: PendingItem; className?: string; children: React.ReactNode }) {
@@ -498,7 +509,7 @@ export default function ReviewPage() {
                 const activeAction = active?.key === key ? active.action : null;
                 return (
                   <li key={key} className={selected.has(key) ? "bg-purple-50/60 p-4 dark:bg-purple-950/30" : "p-4"}>
-                    <div className="flex items-start gap-2">
+                    <ReviewCardBody item={item}>
                       {rowCheckbox(item)}
                       <div className="min-w-0 flex-1">
                         <div className="font-medium text-ink-900">
@@ -520,9 +531,15 @@ export default function ReviewPage() {
                         </dl>
                       </div>
                       <StatusBadge status={item.status ?? "PENDING"} />
+                    </ReviewCardBody>
+                    <div data-row-ignore className="mt-3 [&>div]:justify-start">
+                      {decisionButtons(item, activeAction)}
                     </div>
-                    <div className="mt-3 [&>div]:justify-start">{decisionButtons(item, activeAction)}</div>
-                    {activeAction ? <div className="mt-3 rounded-md bg-surface-50 p-3">{actionPanel(item, activeAction)}</div> : null}
+                    {activeAction ? (
+                      <div data-row-ignore className="mt-3 rounded-md bg-surface-50 p-3">
+                        {actionPanel(item, activeAction)}
+                      </div>
+                    ) : null}
                   </li>
                 );
               })}

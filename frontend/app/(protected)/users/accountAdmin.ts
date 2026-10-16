@@ -75,6 +75,15 @@ export function passwordHasEdgeSpace(password: string): boolean {
 }
 
 /** What the "Sign-in" column says about an account. */
+/**
+ * Whether the viewer sees Update on a person — their row action and their view's button. The server's
+ * rule for a role change (`assert_can_manage_target`): somebody ranked below the viewer, and never the
+ * master admin. A viewer who may not change anything about them reads the view with no Update at all.
+ */
+export function mayUpdateUser(viewer: User | null | undefined, user: User): boolean {
+  return canManageUser(viewer, user) && user.role !== "MASTER_ADMIN";
+}
+
 export function signInSummary(user: User): string {
   const provider = (user.authProvider ?? "LOCAL").toUpperCase();
   const providerLabel = provider === "LOCAL" ? null : provider.charAt(0) + provider.slice(1).toLowerCase();

@@ -37,6 +37,7 @@ import { useAdminView, adminChromeVisible } from "@/components/AdminViewProvider
 import { useAuth } from "@/components/AuthProvider";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
+import { OpenableBlock, RecordTitleLink } from "@/components/records/OpenableRow";
 import { ArtefactNotice } from "@/components/questionnaires/ArtefactNotice";
 import { UploadReport } from "@/components/questionnaires/UploadReport";
 import { WorkbookUploadDialog } from "@/components/questionnaires/WorkbookUploadDialog";
@@ -52,7 +53,7 @@ import { RowActions, rowAction } from "@/components/RowActions";
 import { RestrictedPanel } from "@/components/settings/RestrictedPanel";
 import { useToast } from "@/components/ui/Toast";
 import { apiFetch } from "@/lib/api";
-import { isAdmin } from "@/lib/permissions";
+import { canManageQuestionnaire, isAdmin } from "@/lib/permissions";
 
 export default function QuestionnaireWorkbooksPage() {
   const { user, loading: authLoading } = useAuth();
@@ -180,58 +181,66 @@ export default function QuestionnaireWorkbooksPage() {
           />
         ) : (
           <ul className="grid gap-2">
+            {/* A click anywhere on an instrument opens its sections and questions read-only; the
+                download and re-upload buttons keep their own clicks. */}
             {instruments.map((instrument) => (
-              <li
-                key={instrument.id}
-                className="grid gap-2 rounded-md border border-line-200 bg-surface-50 p-3 md:flex md:items-center md:justify-between"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-ink-900">
-                    {instrument.title}
-                    {instrument.isDefault ? (
-                      <span className="ml-2 rounded bg-field-200 px-1.5 py-0.5 text-[11px] font-medium text-field-600 dark:text-purple-300">
-                        default
-                      </span>
+              <li key={instrument.id}>
+                <OpenableBlock
+                  href={`/questionnaire/workbooks/${encodeURIComponent(instrument.id)}`}
+                  className="grid gap-2 rounded-md border border-line-200 bg-surface-50 p-3 md:flex md:items-center md:justify-between"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-ink-900">
+                      <RecordTitleLink href={`/questionnaire/workbooks/${encodeURIComponent(instrument.id)}`}>
+                        {instrument.title}
+                      </RecordTitleLink>
+                      {instrument.isDefault ? (
+                        <span className="ml-2 rounded bg-field-200 px-1.5 py-0.5 text-[11px] font-medium text-field-600 dark:text-purple-300">
+                          default
+                        </span>
+                      ) : null}
+                      {instrument.isActive === false ? (
+                        <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800">
+                          retired
+                        </span>
+                      ) : null}
+                    </p>
+                    <p className="mt-0.5 text-xs leading-5 text-ink-500">
+                      {instrument.sectionCount ?? 0} sections · {instrument.questionCount ?? 0} questions
+                      {typeof instrument.version === "number" ? ` · version ${instrument.version}` : ""}
+                      {instrument.sourceFilename ? ` · last uploaded from ${instrument.sourceFilename}` : ""}
+                    </p>
+                  </div>
+                  <RowActions>
+                    <button
+                      type="button"
+                      className={rowAction("neutral")}
+                      disabled={busy === `xlsx-${instrument.id}`}
+                      onClick={() =>
+                        take(`xlsx-${instrument.id}`, () => downloadQuestionnaireWorkbook(instrument.id))
+                      }
+                    >
+                      Download .xlsx
+                    </button>
+                    <button
+                      type="button"
+                      className={rowAction("neutral")}
+                      disabled={busy === `set-${instrument.id}`}
+                      onClick={() => take(`set-${instrument.id}`, () => downloadQuestionSet(instrument.id))}
+                    >
+                      Download question set
+                    </button>
+                    {canManageQuestionnaire(user) ? (
+                      <button
+                        type="button"
+                        className={rowAction("edit")}
+                        onClick={() => setDialog({ id: instrument.id, title: instrument.title })}
+                      >
+                        Re-upload
+                      </button>
                     ) : null}
-                    {instrument.isActive === false ? (
-                      <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800">
-                        retired
-                      </span>
-                    ) : null}
-                  </p>
-                  <p className="mt-0.5 text-xs leading-5 text-ink-500">
-                    {instrument.sectionCount ?? 0} sections · {instrument.questionCount ?? 0} questions
-                    {typeof instrument.version === "number" ? ` · version ${instrument.version}` : ""}
-                    {instrument.sourceFilename ? ` · last uploaded from ${instrument.sourceFilename}` : ""}
-                  </p>
-                </div>
-                <RowActions>
-                  <button
-                    type="button"
-                    className={rowAction("neutral")}
-                    disabled={busy === `xlsx-${instrument.id}`}
-                    onClick={() =>
-                      take(`xlsx-${instrument.id}`, () => downloadQuestionnaireWorkbook(instrument.id))
-                    }
-                  >
-                    Download .xlsx
-                  </button>
-                  <button
-                    type="button"
-                    className={rowAction("neutral")}
-                    disabled={busy === `set-${instrument.id}`}
-                    onClick={() => take(`set-${instrument.id}`, () => downloadQuestionSet(instrument.id))}
-                  >
-                    Download question set
-                  </button>
-                  <button
-                    type="button"
-                    className={rowAction("edit")}
-                    onClick={() => setDialog({ id: instrument.id, title: instrument.title })}
-                  >
-                    Re-upload
-                  </button>
-                </RowActions>
+                  </RowActions>
+                </OpenableBlock>
               </li>
             ))}
           </ul>

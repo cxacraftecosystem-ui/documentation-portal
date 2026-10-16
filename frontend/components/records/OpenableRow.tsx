@@ -29,16 +29,23 @@ import { rowClickOpensRecord } from "@/lib/recordView";
 export function OpenableRow({
   href,
   onOpen,
+  navigate,
   className,
   children
 }: {
   href: string;
   /** Runs just before navigating — the list remembers its place here (`useListReturn`). */
   onOpen?: () => void;
+  /**
+   * How to go there, when the page has to be asked first. Crafts and workshops draw their inline
+   * form above the list, so a row clicked mid-edit must pass through that page's unsaved-changes
+   * prompt instead of dropping the form. Omitted, the row simply navigates.
+   */
+  navigate?: (href: string) => void;
   className?: string;
   children: ReactNode;
 }) {
-  const open = useOpenOnClick(href, onOpen);
+  const open = useOpenOnClick(href, onOpen, false, navigate);
   return (
     <tr className={`cursor-pointer transition hover:bg-field-100 ${className ?? ""}`} onClick={open}>
       {children}
@@ -70,7 +77,7 @@ export function OpenableBlock({
   );
 }
 
-function useOpenOnClick(href: string, onOpen?: () => void, external = false) {
+function useOpenOnClick(href: string, onOpen?: () => void, external = false, navigate?: (href: string) => void) {
   const router = useRouter();
   return (event: MouseEvent<HTMLElement>) => {
     if (!rowClickOpensRecord(event.target as Element, event.currentTarget)) return;
@@ -82,14 +89,38 @@ function useOpenOnClick(href: string, onOpen?: () => void, external = false) {
       return;
     }
     onOpen?.();
-    router.push(href);
+    if (navigate) navigate(href);
+    else router.push(href);
   };
 }
 
-/** The row's title, as the real link the keyboard and screen readers use (see `OpenableRow`). */
-export function RecordTitleLink({ href, onOpen, children }: { href: string; onOpen?: () => void; children: ReactNode }) {
+/**
+ * The row's title, as the real link the keyboard and screen readers use (see `OpenableRow`). With
+ * `navigate`, a plain click goes through it (the page's unsaved-changes prompt) rather than straight
+ * to the href; a Ctrl/Cmd/Shift click still opens a new tab or window as a link should.
+ */
+export function RecordTitleLink({
+  href,
+  onOpen,
+  navigate,
+  children
+}: {
+  href: string;
+  onOpen?: () => void;
+  navigate?: (href: string) => void;
+  children: ReactNode;
+}) {
+  const click = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (navigate && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+      event.preventDefault();
+      onOpen?.();
+      navigate(href);
+      return;
+    }
+    onOpen?.();
+  };
   return (
-    <Link href={href} onClick={onOpen} className="font-medium text-ink-900 hover:text-purple-700 hover:underline dark:hover:text-purple-300">
+    <Link href={href} onClick={click} className="font-medium text-ink-900 hover:text-purple-700 hover:underline dark:hover:text-purple-300">
       {children}
     </Link>
   );

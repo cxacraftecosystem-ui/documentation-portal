@@ -143,6 +143,20 @@ async def list_users(
     return page_payload([serialize_user(user) for user in users], total, page, page_size)
 
 
+@router.get("/{user_id}")
+async def get_user(user_id: str, _: Any = Depends(require_professor)) -> dict[str, Any]:
+    """One account, read-only, for the users screen's view of a person.
+
+    THE SAME GATE AND THE SAME SHAPE AS THE LIST ABOVE, and nothing more: anybody who may page through
+    ``GET /users`` already reads exactly this row there, so opening one person shows no field the list
+    does not. Declared below ``/directory`` so that path is never read as an id.
+    """
+    user = await db.user.find_unique(where={"id": user_id})
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return serialize_user(user)
+
+
 #: The header a duplicate-address refusal carries: the id of the account that already has the
 #: address, so the screen can offer "Open their account" instead of a second account. In
 #: ``expose_headers`` in app/main.py.

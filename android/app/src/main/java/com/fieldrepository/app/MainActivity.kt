@@ -450,6 +450,7 @@ import com.fieldrepository.app.data.ProcessStepDto
 import com.fieldrepository.app.data.ProcessStepRequest
 import com.fieldrepository.app.data.ToolDetailDto
 import com.fieldrepository.app.data.WorkshopDetailDto
+import com.fieldrepository.app.data.accountHasPassword
 import androidx.compose.runtime.mutableStateListOf
 import com.fieldrepository.app.ui.ArtisanQuestionnairePanel
 import com.fieldrepository.app.ui.LocationFieldsSection
@@ -2267,6 +2268,7 @@ private fun HomeScreen(
                     showProvenance = canViewProvenance,
                     canDownloadDataset = canDownloadDataset,
                     onOpenDataBrowser = { message = null; screen = Screen.DataBrowser },
+                    onOpenRecord = { mode, recordId -> openRecordView(mode, recordId) },
                     onError = { showMessage(it) }
                 )
                 // /search on the web — open to every signed-in user. It renders into the shared
@@ -2481,6 +2483,7 @@ private fun HomeScreen(
                     user = user,
                     isMasterAdmin = isMasterAdmin,
                     canReview = canReview,
+                    onOpenRecord = { mode, recordId -> openRecordView(mode, recordId) },
                     section = s.section,
                     onSectionChange = { next -> screen = Screen.AdminHub(next) },
                     onMessage = { showMessage(it, AppMessageTone.SUCCESS) },
@@ -2494,6 +2497,7 @@ private fun HomeScreen(
                 // refuses.
                 s.section == AdminHubEntry.REVIEWS && canReview -> ReviewApprovalCard(
                     repository = repository,
+                    onOpenRecord = { mode, recordId -> openRecordView(mode, recordId) },
                     onError = { showMessage(it) }
                 )
                 // Named after what the admin actually asked for. Arriving here from the menu's
@@ -6603,7 +6607,7 @@ private fun CraftForm(
     // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
     // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.CRAFT)
-    RecordCard(title = if (isEdit) "Edit craft" else "Add craft") {
+    RecordCard(title = if (isEdit) recordUpdateTitle("craft") else "Add craft") {
         DraftOfferCard(draft)
         RegisterUnsavedGuard(dirty = dirty) { submit() }
         media.draftInto(draft, "media")
@@ -6947,7 +6951,7 @@ private fun ArtisanForm(
     // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
     // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.ARTISAN)
-    RecordCard(title = if (isEdit) "Edit artisan" else "Add artisan") {
+    RecordCard(title = if (isEdit) recordUpdateTitle("artisan") else "Add artisan") {
         DraftOfferCard(draft)
         RegisterUnsavedGuard(dirty = dirty) { submit() }
         media.draftInto(draft, "media")
@@ -7264,7 +7268,7 @@ private fun WorkshopForm(
     // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
     // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.WORKSHOP)
-    RecordCard(title = if (isEdit) "Edit workshop" else "Add workshop") {
+    RecordCard(title = if (isEdit) recordUpdateTitle("workshop") else "Add workshop") {
         DraftOfferCard(draft)
         RegisterUnsavedGuard(dirty = dirty) { submit() }
         media.draftInto(draft, "media")
@@ -7575,7 +7579,7 @@ private fun ProductForm(
     // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
     // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.PRODUCT)
-    RecordCard(title = if (isEdit) "Edit product" else "Add product") {
+    RecordCard(title = if (isEdit) recordUpdateTitle("product") else "Add product") {
         DraftOfferCard(draft)
         RegisterUnsavedGuard(dirty = dirty) { submit() }
         media.draftInto(draft, "media")
@@ -8496,7 +8500,7 @@ private fun ToolForm(
     // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
     // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.TOOL)
-    RecordCard(title = if (isEdit) "Edit tool" else "Add tool") {
+    RecordCard(title = if (isEdit) recordUpdateTitle("tool") else "Add tool") {
         DraftOfferCard(draft)
         RegisterUnsavedGuard(dirty = dirty) { submit() }
         media.draftInto(draft, "media")
@@ -9254,7 +9258,7 @@ private fun ProcessForm(
     // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
     // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.PROCESS)
-    RecordCard(title = if (isEdit) "Edit process" else "Document process") {
+    RecordCard(title = if (isEdit) recordUpdateTitle("process") else "Document process") {
         DraftOfferCard(draft)
         RegisterUnsavedGuard(dirty = dirty) { submit() }
         preMedia.draftInto(draft, "preMedia")
@@ -9712,7 +9716,9 @@ private fun MyActivityScreen(
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onOpen(item.mode, item.id) }
+                        // Clipped to the card's own corners so the ripple does not paint past them.
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable(role = Role.Button, onClickLabel = "Open ${item.title}") { onOpen(item.mode, item.id) }
                 ) {
                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(item.title, display = true, color = Body, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
@@ -10975,6 +10981,8 @@ private fun AdminHubScreen(
     user: UserDto,
     isMasterAdmin: Boolean,
     canReview: Boolean,
+    /** Opens a pending record read-only (`Screen.View`) from its review card. */
+    onOpenRecord: ((EntryMode, String) -> Unit)? = null,
     /**
      * Which tool is open, owned by the HOST rather than by this screen.
      *
@@ -11051,7 +11059,7 @@ private fun AdminHubScreen(
         // No back control here on purpose. The screen already has one — the circular arrow in the
         // page header — and `goBack()` now pops the open tool before leaving the hub.
         when (current) {
-            AdminHubEntry.REVIEWS -> ReviewApprovalCard(repository = repository, onError = onError)
+            AdminHubEntry.REVIEWS -> ReviewApprovalCard(repository = repository, onOpenRecord = onOpenRecord, onError = onError)
             AdminHubEntry.RECOVERED -> OrphanRecordingsCard(repository = repository, onError = onError)
             AdminHubEntry.FEEDBACK -> MasterFeedbackCard(repository = repository, onError = onError)
             AdminHubEntry.TOOLS -> ToolAssignScreen(repository = repository, onError = onError)
@@ -11099,6 +11107,8 @@ private fun ViewDataScreen(
     showProvenance: Boolean = false,
     canDownloadDataset: Boolean = false,
     onOpenDataBrowser: (() -> Unit)? = null,
+    /** Opens a pending record read-only (`Screen.View`) from its review card. */
+    onOpenRecord: ((EntryMode, String) -> Unit)? = null,
     onError: (String) -> Unit
 ) {
     var mode by remember { mutableStateOf(EntryMode.ARTISAN) }
@@ -11385,7 +11395,7 @@ private fun ViewDataScreen(
     // admin chrome (the web keeps /review open with admin view off), so when the hub is hidden the
     // queue has to reappear here — otherwise the toggle would take away a capability, not just chrome.
     if (canReview && !(isAdmin && adminChrome)) {
-        ReviewApprovalCard(repository = repository, onError = onError)
+        ReviewApprovalCard(repository = repository, onOpenRecord = onOpenRecord, onError = onError)
     }
 }
 
@@ -11521,7 +11531,12 @@ private suspend fun loadReviewRecordValues(
  * drop off. Gated by [canReview] (any admin, or a user the master admin granted the review permission).
  */
 @Composable
-private fun ReviewApprovalCard(repository: FieldRepository, onError: (String) -> Unit) {
+private fun ReviewApprovalCard(
+    repository: FieldRepository,
+    /** Opens a pending record read-only, so a reviewer can read all of it before deciding. */
+    onOpenRecord: ((EntryMode, String) -> Unit)? = null,
+    onError: (String) -> Unit
+) {
     val scope = rememberCoroutineScope()
     var pending by remember { mutableStateOf<List<PendingReviewDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -11563,8 +11578,9 @@ private fun ReviewApprovalCard(repository: FieldRepository, onError: (String) ->
 
     RecordCard(title = "Reviews & approvals") {
         Text(
-            "Records submitted by the team that are still pending review. Approve to publish them, fix a " +
-                "small mistake yourself with Edit, send it back for revision with comments, or reject it.",
+            "Records submitted by the team that are still pending review. Tap a record to read it. Approve " +
+                "to publish it, fix a small mistake yourself with $RECORD_UPDATE_LABEL, send it back for " +
+                "revision with comments, or reject it.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -11599,6 +11615,7 @@ private fun ReviewApprovalCard(repository: FieldRepository, onError: (String) ->
                         PendingReviewRow(
                             repository = repository,
                             item = item,
+                            onOpenRecord = onOpenRecord,
                             onResolved = { message ->
                                 // Approve / reject / revise all move the record out of PENDING, so drop
                                 // it from the list rather than re-fetching the whole queue. Matched on
@@ -11635,6 +11652,7 @@ private fun ReviewApprovalCard(repository: FieldRepository, onError: (String) ->
 private fun PendingReviewRow(
     repository: FieldRepository,
     item: PendingReviewDto,
+    onOpenRecord: ((EntryMode, String) -> Unit)? = null,
     onResolved: (String) -> Unit,
     onInfo: (String) -> Unit,
     onError: (String) -> Unit
@@ -11683,17 +11701,34 @@ private fun PendingReviewRow(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(item.label, color = Body, fontWeight = FontWeight.SemiBold)
-            Text(
-                listOfNotNull(
-                    item.recordType.replaceFirstChar { it.uppercase() },
-                    item.place?.takeIf { it.isNotBlank() },
-                    item.createdBy?.name?.takeIf { it.isNotBlank() }?.let { "by $it" },
-                    formatIsoDate(item.createdAt)
-                ).joinToString(" · "),
-                color = Muted,
-                fontSize = 12.sp
-            )
+            // The title and its details open the record READ-ONLY, as the web's review row does. The
+            // decision buttons and the in-place Update panel below are their own taps, so a reviewer
+            // typing a comment never leaves the queue by accident.
+            val openMode = recentSubmissionEntryMode(item.recordType)
+            val open = onOpenRecord
+            Column(
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .then(
+                        if (openMode == null || open == null) Modifier
+                        else Modifier.clickable(role = Role.Button, onClickLabel = "Open ${item.label}") { open(openMode, item.id) }
+                    )
+            ) {
+                Text(item.label, color = Body, fontWeight = FontWeight.SemiBold)
+                Text(
+                    listOfNotNull(
+                        item.recordType.replaceFirstChar { it.uppercase() },
+                        item.place?.takeIf { it.isNotBlank() },
+                        item.createdBy?.name?.takeIf { it.isNotBlank() }?.let { "by $it" },
+                        formatIsoDate(item.createdAt)
+                    ).joinToString(" · "),
+                    color = Muted,
+                    fontSize = 12.sp
+                )
+            }
             if (item.needsAdminApproval) {
                 Text(
                     "Submitted outside its workshop's dates — only an admin can edit or approve it.",
@@ -11729,7 +11764,7 @@ private fun PendingReviewRow(
                 ) {
                     Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text(if (panel == "edit") "Close" else "Edit", maxLines = 1, fontSize = 13.sp)
+                    Text(if (panel == "edit") "Close" else RECORD_UPDATE_LABEL, maxLines = 1, fontSize = 13.sp)
                 }
                 OutlinedButton(
                     onClick = { panel = if (panel == "revise") null else "revise" },
@@ -14019,7 +14054,7 @@ private fun QuestionnaireForm(
         )
     }
 
-    RecordCard(title = if (isEdit) "Edit interview" else "Add questionnaire interview") {
+    RecordCard(title = if (isEdit) recordUpdateTitle("interview") else "Add questionnaire interview") {
         DraftOfferCard(draft)
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
@@ -15090,6 +15125,8 @@ private fun QuestionnaireBuilder(
     // Sections render collapsed by default; a section's editors + questions are only composed when it
     // is expanded, so opening the builder never composes hundreds of fields at once (was an ANR/crash).
     var expandedSections by remember { mutableStateOf(setOf<String>()) }
+    // A tap on a section READS it (its questions, as text); the editors open only behind Update.
+    var updatingSections by remember { mutableStateOf(setOf<String>()) }
 
     RecordCard(title = "Questionnaire builder") {
         Text("Master admin controls for adding, editing, removing, moving sections, and moving questions between sections. Tap a section to expand and edit it.", color = Muted, fontSize = 12.sp)
@@ -15123,7 +15160,9 @@ private fun QuestionnaireBuilder(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable {
+                            .heightIn(min = 48.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(role = Role.Button, onClickLabel = if (expanded) "Hide ${section.title}" else "Open ${section.title}") {
                                 expandedSections = if (expanded) expandedSections - section.id else expandedSections + section.id
                             },
                         verticalAlignment = Alignment.CenterVertically
@@ -15132,10 +15171,33 @@ private fun QuestionnaireBuilder(
                             Text("${section.sortOrder}. ${section.code} - ${section.title}", display = true, fontWeight = FontWeight.SemiBold)
                             Text("${section.questions.size} question(s)", color = Muted, fontSize = 12.sp)
                         }
-                        Text(if (expanded) "Hide ▲" else "Edit ▼", color = Body, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(if (expanded) "Hide ▲" else "Show ▼", color = Body, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
-                    // Heavy editors + per-question rows compose only for the expanded section.
-                    if (expanded) {
+                    val updating = section.id in updatingSections
+                    if (expanded && !updating) {
+                        if (section.questions.isEmpty()) {
+                            Text("No questions in this section yet.", color = Muted, fontSize = 12.sp)
+                        }
+                        section.questions.forEach { question ->
+                            Text("${question.sortOrder}. ${question.prompt}", color = Body, fontSize = 13.sp)
+                        }
+                        OutlinedButton(
+                            onClick = { updatingSections = updatingSections + section.id },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        ) {
+                            Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(RECORD_UPDATE_LABEL)
+                        }
+                    }
+                    if (expanded && updating) {
+                        OutlinedButton(
+                            onClick = { updatingSections = updatingSections - section.id },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        ) { Text("Done") }
+                    }
+                    // Heavy editors + per-question rows compose only for the section being updated.
+                    if (expanded && updating) {
                         var code by remember(section.id, section.code) { mutableStateOf(section.code) }
                         var sectionTitle by remember(section.id, section.title) { mutableStateOf(section.title) }
                         var newPrompt by remember(section.id) { mutableStateOf("") }
@@ -15320,9 +15382,11 @@ private fun UserManagementForm(
     LaunchedEffect(Unit) {
         refreshUsers()
     }
-    // Each user is collapsed by default (an accordion); tapping the header expands it to reveal the
-    // grantable privileges, so a long user list stays scannable.
+    // Each user is collapsed by default (an accordion); tapping the header opens a READ-ONLY summary
+    // of their role, privileges and sign-in, so a long user list stays scannable. The role picker and
+    // the grant buttons appear only after Update — a tap reads a person and never changes them.
     var expandedUsers by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var updatingUsers by remember { mutableStateOf<Set<String>>(emptySet()) }
     // The account whose two-step verification an administrator is about to turn off, awaiting confirm.
     var confirmTwoStepOff by remember { mutableStateOf<UserDto?>(null) }
     /**
@@ -15441,7 +15505,9 @@ private fun UserManagementForm(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable {
+                            .heightIn(min = 48.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(role = Role.Button, onClickLabel = if (expanded) "Hide ${appUser.name}" else "Open ${appUser.name}") {
                                 expandedUsers = if (expanded) expandedUsers - appUser.id else expandedUsers + appUser.id
                             },
                         verticalAlignment = Alignment.CenterVertically
@@ -15459,10 +15525,41 @@ private fun UserManagementForm(
                                 fontSize = 12.sp
                             )
                         }
-                        Text(if (expanded) "Hide ▲" else "Manage ▼", color = Body, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(if (expanded) "Hide ▲" else "Show ▼", color = Body, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
-                    if (expanded) {
+                    // Anything the viewer may change about this person: the role (`assert_can_manage_target`)
+                    // or, for an admin, a privilege or their sign-in help. Nobody else sees Update.
+                    val mayUpdate = canManageTarget && !isMaster && (actorIsAdmin || assignableRoles.isNotEmpty())
+                    val updating = mayUpdate && updatingUsers.contains(appUser.id)
+                    if (expanded && !updating) {
                         HorizontalDivider()
+                        UserSummaryLine("Role", roleLabel(appUser.role))
+                        UserSummaryLine("Questionnaire builder", if (targetIsProfessorPlus || appUser.canManageQuestionnaire) "Granted" else "Not granted")
+                        UserSummaryLine(
+                            "Record review & approval",
+                            if (roleRank(appUser.role) >= RANK_FIELD_CONTRIBUTOR || appUser.canReview) "Granted" else "Not granted"
+                        )
+                        UserSummaryLine("View provenance", if (roleRank(appUser.role) >= RANK_ADMIN || appUser.canViewProvenance) "Granted" else "Not granted")
+                        UserSummaryLine("Download entire dataset", if (targetIsProfessorPlus || appUser.canDownloadDataset) "Granted" else "Not granted")
+                        UserSummaryLine("Password", if (accountHasPassword(appUser)) "Set" else "No password yet")
+                        UserSummaryLine("Two-step verification", if (appUser.twoFactorEnabled) "On" else "Off")
+                        if (mayUpdate) {
+                            OutlinedButton(
+                                onClick = { updatingUsers = updatingUsers + appUser.id },
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            ) {
+                                Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(RECORD_UPDATE_LABEL)
+                            }
+                        }
+                    }
+                    if (expanded && updating) {
+                        HorizontalDivider()
+                        OutlinedButton(
+                            onClick = { updatingUsers = updatingUsers - appUser.id },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        ) { Text("Done") }
                         // The six-tier ladder, not an admin/researcher switch: the previous two-state
                         // button could neither reach Crowdsource Volunteer, Field Contributor or
                         // Professor nor be used by a professor at all, and demoting an admin dropped
@@ -16529,6 +16626,15 @@ private fun tierLabel(tier: String): String = when (tier) {
     "COMMENT" -> "Comment"
     "EDIT" -> "Edit"
     else -> tier
+}
+
+/** One line of a person's read-only summary on the users screen. */
+@Composable
+private fun UserSummaryLine(label: String, value: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Text(label, color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
+        Text(value, color = Body, fontSize = 13.sp)
+    }
 }
 
 @Composable

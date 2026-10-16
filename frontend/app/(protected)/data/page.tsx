@@ -48,7 +48,7 @@ import { useWorkshopScope, WorkshopScopeSelect } from "@/components/WorkshopScop
 import { API_BASE, apiFetch, buildQuery, getToken, listResource } from "@/lib/api";
 import { bytes, formatDateTime } from "@/lib/format";
 import { canDownloadDataset } from "@/lib/permissions";
-import { recordViewHref } from "@/lib/recordView";
+import { canUpdateRecord, recordViewHref } from "@/lib/recordView";
 import { saveBlobToDevice } from "@/lib/saveToDevice";
 import type {
   Artisan,
@@ -776,6 +776,7 @@ function mediaTypeIcon(mediaType?: string | null) {
 }
 
 function BrowseByTypePanel() {
+  const { user } = useAuth();
   const [typeKey, setTypeKey] = useState("");
   const [rows, setRows] = useState<BrowseRow[] | null>(null);
   const [cut, setCut] = useState<ListCut | null>(null);
@@ -1019,7 +1020,10 @@ function BrowseByTypePanel() {
                 {(rows ?? []).map((row) => {
                   // The row opens the record's read-only view; Update is the one way into its form.
                   // Media has no view of its own and keeps its single link to the media page.
+                  // Update only where the server would take the save: below Professor a craft or a
+                  // workshop opens read-only and its form is not drawn, so the link would lead nowhere.
                   const viewHref = recordViewHref(typeKey, row.id);
+                  const showLink = !viewHref || canUpdateRecord(user, typeKey);
                   const cells = (
                     <>
                       <td className="px-4 py-2.5">
@@ -1028,13 +1032,15 @@ function BrowseByTypePanel() {
                       <td className="px-4 py-2.5 text-ink-700">{row.creator}</td>
                       <td className="px-4 py-2.5 text-ink-700">{formatDateTime(row.createdAt)}</td>
                       <td className="px-4 py-2.5 text-right">
-                        <Link
-                          href={def?.editHref(row.id) ?? "#"}
-                          className="inline-flex items-center gap-1 text-sm font-semibold text-purple-700 dark:text-purple-300 hover:underline"
-                        >
-                          <Pencil className="h-3.5 w-3.5" aria-hidden />
-                          {viewHref ? "Update" : "Open"}
-                        </Link>
+                        {showLink ? (
+                          <Link
+                            href={def?.editHref(row.id) ?? "#"}
+                            className="inline-flex items-center gap-1 text-sm font-semibold text-purple-700 dark:text-purple-300 hover:underline"
+                          >
+                            <Pencil className="h-3.5 w-3.5" aria-hidden />
+                            {viewHref ? "Update" : "Open"}
+                          </Link>
+                        ) : null}
                       </td>
                     </>
                   );
@@ -1071,13 +1077,15 @@ function BrowseByTypePanel() {
                 View record
               </Link>
             ) : null}
-            <Link
-              href={def?.editHref(recordId) ?? "#"}
-              className="inline-flex items-center gap-1 text-sm font-semibold text-purple-700 dark:text-purple-300 hover:underline"
-            >
-              <Pencil className="h-3.5 w-3.5" aria-hidden />
-              {recordViewHref(typeKey, recordId) ? "Update" : "Open"}
-            </Link>
+            {!recordViewHref(typeKey, recordId) || canUpdateRecord(user, typeKey) ? (
+              <Link
+                href={def?.editHref(recordId) ?? "#"}
+                className="inline-flex items-center gap-1 text-sm font-semibold text-purple-700 dark:text-purple-300 hover:underline"
+              >
+                <Pencil className="h-3.5 w-3.5" aria-hidden />
+                {recordViewHref(typeKey, recordId) ? "Update" : "Open"}
+              </Link>
+            ) : null}
           </div>
           {mediaLoading ? (
             <div className="flex items-center gap-2 text-sm text-ink-500">

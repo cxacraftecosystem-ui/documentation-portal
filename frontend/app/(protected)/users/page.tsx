@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { ShieldCheck } from "lucide-react";
 
 import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
+import { useListReturn } from "@/components/hooks/useListReturn";
+import { OpenableRow, RecordTitleLink } from "@/components/records/OpenableRow";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { ResizableTh } from "@/components/ResizableTh";
@@ -22,40 +25,19 @@ import {
   type IssuedPasswordLink,
   type PasswordLinkDelivery
 } from "@/lib/signIn";
-import {
-  assignableRoles,
-  canManageUser,
-  hasRank,
-  isAdmin,
-  isMasterAdmin,
-  roleLabel,
-  roleRank
-} from "@/lib/permissions";
+import { canManageUser, hasRank, isAdmin, isMasterAdmin, roleLabel } from "@/lib/permissions";
 import type { PageResult, User } from "@/lib/types";
 
 import { RequirePasswordChangeDialog, TemporaryPasswordDialog } from "./AccountDialogs";
 import { AddPersonForm } from "./AddPersonForm";
-import { rowOffers, signInSummary } from "./accountAdmin";
+import { mayUpdateUser, rowOffers, signInSummary } from "./accountAdmin";
 
-function GrantCell({
-  included,
-  editable,
-  label,
-  onChange
-}: {
-  included: boolean;
-  editable: boolean;
-  label: string;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <td className="px-4 py-3 text-ink-700">
-      <label className="inline-flex items-center gap-2">
-        <input type="checkbox" checked={included} disabled={!editable} aria-label={label} onChange={(event) => onChange(event.target.checked)} />
-        <span>{included ? "Yes" : "No"}</span>
-      </label>
-    </td>
-  );
+/**
+ * A capability as the list reads it. The list only READS a person (owner ruling, 2026-10-16): a click
+ * on the row opens their view, and the role and these grants change only behind its Update button.
+ */
+function GrantCell({ included }: { included: boolean }) {
+  return <td className="px-4 py-3 text-ink-700">{included ? "Yes" : "No"}</td>;
 }
 
 export default function UsersPage() {
@@ -259,46 +241,31 @@ export default function UsersPage() {
     return () => clearTimeout(timer);
   }, [query]);
 
+  /*
+   * BACK FROM A PERSON'S VIEW PUTS THE LIST BACK AS IT WAS — search, page and scroll. A row click
+   * opens the read-only view (`/users/[id]`); see `lib/listReturn.ts`.
+   */
+  const listReturn = useListReturn("users");
+  useEffect(() => {
+    const note = listReturn.restored;
+    if (!note) return;
+    if (note.query) {
+      skipFirstDebounce.current = true;
+      setQuery(note.query);
+      setApplied(note.query);
+    }
+    setPage(note.page);
+  }, [listReturn.restored]);
+  const restoreListScroll = listReturn.restoreScroll;
+  useEffect(() => restoreListScroll(Boolean(data)), [data, restoreListScroll]);
+  const rememberPlace = () => listReturn.remember({ query: applied, page });
+
   /** "Open their account" after a duplicate: bring that row up in the table, where its role and access are. */
   function openExisting(_accountId: string, email: string) {
     setQuery(email);
     setApplied(email);
     setPage(1);
     window.requestAnimationFrame(() => document.getElementById("users-table")?.scrollIntoView({ block: "start" }));
-  }
-
-  async function updateRole(user: User, role: string) {
-    // UX audit DC-05: the role picker writes the moment it changes, so a DEMOTION asks first — a
-    // slip of the arrow key must not take somebody's access away. A promotion still writes at once.
-    if (roleRank(role as User["role"]) < roleRank(user.role)) {
-      const ok = await confirm({
-        title: `Lower ${user.name}'s role to ${roleLabel(role)}?`,
-        body: `They lose everything ${roleLabel(user.role)} could do that ${roleLabel(role)} cannot.`,
-        confirmLabel: "Lower role",
-        tone: "warning"
-      });
-      if (!ok) return;
-    }
-    try {
-      await apiFetch(`/users/${user.id}`, { method: "PATCH", body: JSON.stringify({ role }) });
-      setError(null);
-      load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to change role");
-    }
-  }
-
-  async function updateGrant(
-    user: User,
-    field: "canManageQuestionnaire" | "canDownloadDataset",
-    value: boolean
-  ) {
-    try {
-      await apiFetch(`/users/${user.id}`, { method: "PATCH", body: JSON.stringify({ [field]: value }) });
-      load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to update access");
-    }
   }
 
   async function remove(user: User) {
@@ -393,8 +360,9 @@ export default function UsersPage() {
         Volunteer. You can promote users to your own tier and below, and manage only users beneath
         your tier. Professors hold promotion rights only: they may change the role of anyone ranked
         beneath them (up to Professor) but cannot create or delete accounts or grant capabilities —
-        those remain admin actions. Professors and above hold every capability implicitly; the
-        checkboxes lift a single capability for a lower tier.
+        those remain admin actions. Professors and above hold every capability implicitly; for a lower
+        tier, a single capability can be switched on. Open a person to read their account, and press
+        Update to change their role or capabilities.
       </p>
       <p className="mb-4 text-xs text-ink-muted">
         Two things are decided by RANK alone and have no checkbox: adding or editing crafts and
@@ -436,10 +404,15 @@ export default function UsersPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-line-200">
+                {/* A click anywhere on a person opens their view, read-only. Their role and grants
+                    change only behind Update (here, or on the view); Delete and the sign-in help
+                    keep their own clicks. */}
                 {data.items.map((user) => (
-                  <tr key={user.id}>
+                  <OpenableRow key={user.id} href={`/users/${encodeURIComponent(user.id)}`} onOpen={rememberPlace}>
                     <td className="px-4 py-3 font-medium text-ink-900">
-                      {user.name}
+                      <RecordTitleLink href={`/users/${encodeURIComponent(user.id)}`} onOpen={rememberPlace}>
+                        {user.name}
+                      </RecordTitleLink>
                       {user.twoFactorEnabled ? (
                         <span className="ml-2 inline-flex items-center rounded-full border border-line-200 bg-surface-50 px-2 py-0.5 text-[11px] font-semibold text-ink-700">
                           Two-step on
@@ -447,46 +420,21 @@ export default function UsersPage() {
                       ) : null}
                     </td>
                     <td className="px-4 py-3 text-ink-700">{user.email}</td>
-                    <td className="px-4 py-3">
-                      {canManageUser(currentUser, user) && user.role !== "MASTER_ADMIN" ? (
-                        <select
-                          className="field-input max-w-44"
-                          aria-label={`Role for ${user.name}`}
-                          value={user.role}
-                          onChange={(event) => updateRole(user, event.target.value)}>
-                          {assignableRoles(currentUser)
-                            .filter((role) => role !== "MASTER_ADMIN" || isMasterAdmin(currentUser))
-                            .map((role) => (
-                              <option key={role} value={role}>
-                                {roleLabel(role)}
-                              </option>
-                            ))}
-                        </select>
-                      ) : (
-                        <span className="text-sm text-ink-700">{roleLabel(user.role)}</span>
-                      )}
-                    </td>
-                    <GrantCell
-                      included={hasRank(user, "PROFESSOR") || !!user.canManageQuestionnaire}
-                      editable={admin && canManageUser(currentUser, user) && !hasRank(user, "PROFESSOR")}
-                      label={`Allow ${user.email} to manage questionnaire`}
-                      onChange={(value) => updateGrant(user, "canManageQuestionnaire", value)}
-                    />
+                    <td className="px-4 py-3 text-sm text-ink-700">{roleLabel(user.role)}</td>
+                    <GrantCell included={hasRank(user, "PROFESSOR") || !!user.canManageQuestionnaire} />
                     {/* No Crafts or Workshops columns: both are rank-only now, so the cell could
                         only ever have restated the role beside it or offered a toggle that changed
                         nothing. Read the Role column for those two. */}
-                    <GrantCell
-                      included={hasRank(user, "PROFESSOR") || !!user.canDownloadDataset}
-                      editable={admin && canManageUser(currentUser, user) && !hasRank(user, "PROFESSOR")}
-                      label={`Allow ${user.email} to download the entire dataset`}
-                      onChange={(value) => updateGrant(user, "canDownloadDataset", value)}
-                    />
+                    <GrantCell included={hasRank(user, "PROFESSOR") || !!user.canDownloadDataset} />
                     <td className="px-4 py-3 text-ink-700">{signInSummary(user)}</td>
                     <td className="px-4 py-3 text-right">
                       {user.role === "MASTER_ADMIN" ? (
                         <span className="text-xs font-semibold text-amber-700">Protected</span>
                       ) : admin && canManageUser(currentUser, user) ? (
                         <RowActions>
+                          <Link href={`/users/${encodeURIComponent(user.id)}?update=1`} onClick={rememberPlace} className={rowAction("edit")}>
+                            Update
+                          </Link>
                           <HelpThemBackIn
                             offers={rowOffers(currentUser, user, { adminView: admin, mailAvailable })}
                             busy={linkBusy}
@@ -501,13 +449,17 @@ export default function UsersPage() {
                             Delete
                           </button>
                         </RowActions>
-                      ) : canManageUser(currentUser, user) ? (
-                        <span className="text-xs text-ink-500">Role only</span>
+                      ) : mayUpdateUser(currentUser, user) ? (
+                        <RowActions>
+                          <Link href={`/users/${encodeURIComponent(user.id)}?update=1`} onClick={rememberPlace} className={rowAction("edit")}>
+                            Update
+                          </Link>
+                        </RowActions>
                       ) : (
                         <span className="text-xs text-ink-500">Peer tier</span>
                       )}
                     </td>
-                  </tr>
+                  </OpenableRow>
                 ))}
               </tbody>
             </table>

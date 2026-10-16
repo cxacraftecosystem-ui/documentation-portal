@@ -323,6 +323,12 @@ function WorkshopsPageBody() {
   // parks through the same mechanism, so Discard performs the navigation that was asked for.
   useLeaveGuard(dirty, () => guard(() => router.back()));
 
+  /**
+   * Opening a row's read-only view leaves this page, and with it the inline form above the list —
+   * so it asks first, exactly as the switcher and the deep link do.
+   */
+  const openThroughGuard = (href: string) => guard(() => router.push(href));
+
   /** Run `action` now, or park it behind the unsaved-changes dialog when the form is dirty. */
   function guard(action: () => void) {
     if (dirty) setConfirmAction(() => action);
@@ -761,9 +767,9 @@ function WorkshopsPageBody() {
               </thead>
               <tbody className="divide-y divide-line-200">
                 {rows.map((workshop) => (
-                  <OpenableRow key={workshop.id} href={recordViewHref("workshop", workshop.id)!} onOpen={rememberPlace}>
+                  <OpenableRow key={workshop.id} href={recordViewHref("workshop", workshop.id)!} onOpen={rememberPlace} navigate={openThroughGuard}>
                     <td className="px-4 py-3">
-                      <RecordTitleLink href={recordViewHref("workshop", workshop.id)!} onOpen={rememberPlace}>
+                      <RecordTitleLink href={recordViewHref("workshop", workshop.id)!} onOpen={rememberPlace} navigate={openThroughGuard}>
                         {workshop.title}
                       </RecordTitleLink>
                       <div className="text-xs text-ink-500">{workshop.description ?? "-"}</div>

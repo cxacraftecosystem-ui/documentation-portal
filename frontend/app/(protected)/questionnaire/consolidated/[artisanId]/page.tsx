@@ -10,6 +10,7 @@ import { DownloadCsvButton } from "@/components/DownloadCsvButton";
 import { EmptyState } from "@/components/EmptyState";
 import { Markdown } from "@/components/Markdown";
 import { PageHeader } from "@/components/PageHeader";
+import { OpenableBlock } from "@/components/records/OpenableRow";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
   useWorkshopScope,
@@ -18,6 +19,7 @@ import {
 } from "@/components/WorkshopScopeSelect";
 import { apiFetch, buildQuery } from "@/lib/api";
 import { formatDate } from "@/lib/format";
+import { recordViewHref } from "@/lib/recordView";
 import {
   DATE_BASIS_NOTE,
   GROUP,
@@ -283,6 +285,14 @@ function AttributionChip({ row, compact = false }: { row: ConsolidatedAnswer | I
   );
 }
 
+/**
+ * An interview opens in its read-only view. These links used to hand the interview's id to the
+ * questionnaire page as a query parameter it never reads, so a reader landed on the capture form.
+ */
+function interviewViewHref(id: string): string {
+  return recordViewHref("questionnaire", id) ?? "/questionnaire";
+}
+
 /** Interview, date and who else was present — repeated on every answer, deliberately. */
 function Provenance({ row }: { row: ConsolidatedAnswer }) {
   return (
@@ -291,7 +301,7 @@ function Provenance({ row }: { row: ConsolidatedAnswer }) {
         <AttributionChip row={row} compact />
         <span aria-hidden>·</span>
         <Link
-          href={`/questionnaire?interviewId=${row.interviewId}`}
+          href={interviewViewHref(row.interviewId)}
           className="font-medium text-purple-700 dark:text-purple-300 underline decoration-purple-300 underline-offset-2 hover:text-purple-800"
         >
           {row.interviewTitle}
@@ -494,25 +504,27 @@ function SourcesPanel({ interviews }: { interviews: InterviewSource[] }) {
       <h2 className="eyebrow mb-3">Sources ({interviews.length})</h2>
       <ol className="space-y-3">
         {interviews.map((interview) => (
-          <li key={interview.id} className="border-l-2 border-line-200 pl-3">
-            <Link
-              href={`/questionnaire?interviewId=${interview.id}`}
-              className="block text-sm font-medium leading-5 text-purple-700 dark:text-purple-300 underline decoration-purple-300 underline-offset-2 hover:text-purple-800"
-            >
-              {interview.title}
-            </Link>
-            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-ink-500">
-              <time dateTime={interview.date ?? undefined} title={DATE_BASIS_NOTE[interview.dateBasis]}>
-                {formatDate(interview.date)}
-              </time>
-              <StatusBadge status={interview.status as RecordStatus} />
-            </div>
-            <div className="mt-1.5">
-              <AttributionChip row={interview} compact />
-            </div>
-            {interview.coParticipants.length > 0 ? (
-              <p className="mt-1 text-xs leading-5 text-ink-500">with {interview.coParticipants.join(", ")}</p>
-            ) : null}
+          <li key={interview.id}>
+            <OpenableBlock href={interviewViewHref(interview.id)} className="rounded-sm border-l-2 border-line-200 py-1 pl-3 pr-1">
+              <Link
+                href={interviewViewHref(interview.id)}
+                className="block text-sm font-medium leading-5 text-purple-700 dark:text-purple-300 underline decoration-purple-300 underline-offset-2 hover:text-purple-800"
+              >
+                {interview.title}
+              </Link>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-ink-500">
+                <time dateTime={interview.date ?? undefined} title={DATE_BASIS_NOTE[interview.dateBasis]}>
+                  {formatDate(interview.date)}
+                </time>
+                <StatusBadge status={interview.status as RecordStatus} />
+              </div>
+              <div className="mt-1.5">
+                <AttributionChip row={interview} compact />
+              </div>
+              {interview.coParticipants.length > 0 ? (
+                <p className="mt-1 text-xs leading-5 text-ink-500">with {interview.coParticipants.join(", ")}</p>
+              ) : null}
+            </OpenableBlock>
           </li>
         ))}
       </ol>

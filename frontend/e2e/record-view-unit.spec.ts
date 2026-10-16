@@ -231,6 +231,66 @@ test.describe("the lists are wired to it", () => {
     expect(read("app", "(protected)", "activity", "page.tsx")).toContain("recordViewHref(group.viewType, row.id)");
   });
 
+  test("an interview named on the consolidated answers opens its view, not the capture page", () => {
+    const code = read("app", "(protected)", "questionnaire", "consolidated", "[artisanId]", "page.tsx");
+    // The questionnaire page never read `interviewId`, so these links landed on the capture form.
+    expect(code).not.toContain("?interviewId=");
+    expect(code).toContain('recordViewHref("questionnaire", id)');
+    expect(code).toContain("<OpenableBlock href={interviewViewHref(interview.id)}");
+  });
+
+  test("the review queue's phone card opens the record from its body, never from its decisions", () => {
+    const code = read("app", "(protected)", "review", "page.tsx");
+    expect(code).toContain("<ReviewCardBody item={item}>");
+    expect(code).toContain('<div data-row-ignore className="mt-3 [&>div]:justify-start">');
+    expect(code).toContain('<div data-row-ignore className="mt-3 rounded-md bg-surface-50 p-3">');
+  });
+
+  test("a person on /users opens read-only, and their role and grants change only behind Update", () => {
+    const list = read("app", "(protected)", "users", "page.tsx");
+    expect(list).toContain("<OpenableRow key={user.id} href={`/users/${encodeURIComponent(user.id)}`}");
+    expect(list).toContain("<RecordTitleLink href={`/users/${encodeURIComponent(user.id)}`}");
+    // Nothing on the list writes a role or a grant any more.
+    expect(list).not.toContain("<select");
+    expect(list).not.toContain('type="checkbox" checked={included}');
+    expect(list).toContain("?update=1");
+    const view = read("app", "(protected)", "users", "[id]", "page.tsx");
+    expect(view).toContain("const mayUpdate = person ? mayUpdateUser(currentUser, person) : false;");
+    expect(view).toContain('{updating ? "Done" : "Update"}');
+    expect(view).toContain("{updating && mayUpdate ? (");
+  });
+
+  test("a questionnaire on the workbooks list opens its sections and questions read-only", () => {
+    const list = read("app", "(protected)", "questionnaire", "workbooks", "page.tsx");
+    expect(list).toContain("<OpenableBlock");
+    expect(list).toContain("href={`/questionnaire/workbooks/${encodeURIComponent(instrument.id)}`}");
+    expect(list).toContain("{canManageQuestionnaire(user) ? (");
+    expect(existsSync(join(__dirname, "..", "app", "(protected)", "questionnaire", "workbooks", "[id]", "page.tsx"))).toBe(true);
+  });
+
+  test("a recovered recording's row opens its preview, as a media row does", () => {
+    const code = read("app", "(protected)", "admin", "page.tsx");
+    expect(code).toContain("rowClickOpensRecord(event.target as Element, event.currentTarget)");
+    expect(code).toContain("<MediaLightbox item={activePreview}");
+  });
+
+  test("the data browser offers Update only to an account the server would let save", () => {
+    const code = read("app", "(protected)", "data", "page.tsx");
+    expect(code).toContain("const showLink = !viewHref || canUpdateRecord(user, typeKey);");
+    expect(code).toContain("{!recordViewHref(typeKey, recordId) || canUpdateRecord(user, typeKey) ? (");
+  });
+
+  test("a row on a page with an inline form asks before leaving it", () => {
+    for (const [page, type] of [["crafts", "craft"], ["workshops", "workshop"]] as const) {
+      const code = read("app", "(protected)", page, "page.tsx");
+      expect(code, page).toContain("const openThroughGuard = (href: string) => guard(() => router.push(href));");
+      expect(code, page).toContain(`href={recordViewHref("${type}", ${type}.id)!} onOpen={rememberPlace} navigate={openThroughGuard}>`);
+    }
+    const row = read("components", "records", "OpenableRow.tsx");
+    expect(row).toContain("if (navigate) navigate(href);");
+    expect(row).toContain("event.preventDefault();");
+  });
+
   test("a dashboard card is one link over the whole card, with Update beside it and not inside it", () => {
     const card = read("components", "DashboardCard.tsx");
     // The primary link stretches an ::after over the card…
