@@ -79,6 +79,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.Locale
 import kotlin.math.abs
+import com.fieldrepository.app.ui.AppToggle
 
 /**
  * **"TRACE THIS SKETCH INTO LINE ART" — the handset's surface over [TraceEngineRuntime].**
@@ -1225,30 +1226,17 @@ private fun TracePanelOpen(
 
         /* ── Previews ───────────────────────────────────────────────────────────────────────── */
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Switch(
-                checked = autoPreview,
-                onCheckedChange = { autoPreview = it },
-                enabled = enabled,
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Re-trace a preview as I change settings", color = MaterialTheme.field.body, fontSize = 12.sp)
-                Text(
-                    if (resumed) {
-                        "A small, fast trace after each pause. Turn it off to save battery."
-                    } else {
-                        "Paused while this screen is in the background."
-                    },
-                    color = MaterialTheme.field.muted,
-                    fontSize = 11.sp,
-                    lineHeight = 16.sp,
-                )
-            }
-        }
+        AppToggle(
+            label = "Re-trace a preview as I change settings",
+            description = if (resumed) {
+                "A small, fast trace after each pause. Turn it off to save battery."
+            } else {
+                "Paused while this screen is in the background."
+            },
+            checked = autoPreview,
+            enabled = enabled,
+            onCheckedChange = { autoPreview = it },
+        )
         OutlinedButton(
             onClick = { startRun(TraceRunKind.PREVIEW, 0L) },
             enabled = enabled && running == null,
@@ -1876,16 +1864,13 @@ private fun TraceToggleRow(
     onPatch: (Map<String, TraceValue>) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Switch(checked = on, onCheckedChange = { onPatch(control.patch(it)) }, enabled = enabled)
-            Box(modifier = Modifier.weight(1f)) {
-                TraceRowHeading(control.label, null, changed)
-            }
-        }
+        // The shared switch; "changed" is carried by the WORD in the label, as TraceRowHeading does.
+        AppToggle(
+            label = if (changed) "${control.label} · changed" else control.label,
+            checked = on,
+            enabled = enabled,
+            onCheckedChange = { onPatch(control.patch(it)) },
+        )
         TraceRowTail(control, inactive)
     }
 }

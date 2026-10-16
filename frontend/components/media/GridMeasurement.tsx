@@ -17,6 +17,7 @@ import {
   type MeasurementMethodMarker
 } from "@/components/media/gridProposal";
 import { analyzeMeasurementImage } from "@/lib/media";
+import { Toggle } from "@/components/ui/Toggle";
 
 export type { GridDimension, GridGroup } from "@/components/media/gridProposal";
 export type GridFiles = Partial<Record<GridGroup, File>>;
@@ -179,7 +180,7 @@ export function GridMeasurement({
     const status = grid.status[group];
     return (
       <div className="grid gap-2">
-        <label className="flex items-center gap-2 text-sm text-ink">
+        <div className="sm:max-w-md">
           {/* `react-hooks/refs` fails this line with "Cannot access refs during render". IT IS WRONG
               HERE, and the suppression is scoped to the one line rather than turned off for the
               project so the rule keeps working everywhere else.
@@ -190,7 +191,8 @@ export function GridMeasurement({
               cannot prove this one is deferred.
 
               WHY IT IS DEFERRED: [toggle] is never CALLED here. It is closed over by an arrow handed
-              to `onChange` on a DOM element, so it runs on a user event and never in a render pass.
+              to `onChange` (of the shared switch, which calls it from a click), so it runs on a user
+              event and never in a render pass.
               The sibling `<input type="file">` a few lines below does the same thing through [pick]
               and is NOT flagged, for the one difference that gives the analysis its answer: [pick] is
               `async`, so its body is deferred by construction.
@@ -202,9 +204,8 @@ export function GridMeasurement({
               exactly the case the counter exists for, and without it a late answer puts an accept
               button under a photograph the form no longer has. */}
           {/* eslint-disable-next-line react-hooks/refs */}
-          <input type="checkbox" checked={enabled.has(group)} onChange={(event) => toggle(group, event.target.checked)} />
-          {GRID_GROUP_LABELS[group]}
-        </label>
+          <Toggle label={GRID_GROUP_LABELS[group]} checked={enabled.has(group)} onChange={(next) => toggle(group, next)} />
+        </div>
         {enabled.has(group) ? (
           <div className="grid gap-1 pl-6">
             <p className="text-xs text-ink-muted">{GRID_GROUP_HINTS[group]}</p>

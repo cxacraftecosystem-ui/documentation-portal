@@ -129,20 +129,14 @@ export function AppSettingsPanel() {
           </section>
 
           <section className="panel p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="font-display font-bold text-ink-900">Process during an off-peak window</h2>
-                <p className="mt-1 text-xs leading-5 text-ink-500">
-                  When on, transcription &amp; refinement run only between the times below, so the heavy work happens when
-                  nobody is uploading. When off, they run immediately.
-                </p>
-              </div>
-              <Toggle
-                checked={settings.batchWindowEnabled}
-                label="Process during an off-peak window"
-                onChange={(next) => setSettings({ ...settings, batchWindowEnabled: next })}
-              />
-            </div>
+            <h2 className="font-display font-bold text-ink-900">Off-peak processing</h2>
+            <Toggle
+              className="mt-2"
+              checked={settings.batchWindowEnabled}
+              label="Process during an off-peak window"
+              description="When on, transcription & refinement run only between the times below, so the heavy work happens when nobody is uploading. When off, they run immediately."
+              onChange={(next) => setSettings({ ...settings, batchWindowEnabled: next })}
+            />
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <div className="grid gap-1.5">
                 <label className="field-label" htmlFor="batch-window-start">

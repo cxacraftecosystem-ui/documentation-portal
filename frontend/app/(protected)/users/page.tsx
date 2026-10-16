@@ -31,6 +31,7 @@ import type { PageResult, User } from "@/lib/types";
 import { RequirePasswordChangeDialog, TemporaryPasswordDialog } from "./AccountDialogs";
 import { AddPersonForm } from "./AddPersonForm";
 import { mayUpdateUser, rowOffers, signInSummary } from "./accountAdmin";
+import { Toggle } from "@/components/ui/Toggle";
 
 /**
  * A capability as the list reads it. The list only READS a person (owner ruling, 2026-10-16): a click
@@ -523,18 +524,9 @@ export default function UsersPage() {
             </div>
             <div className="grid content-start gap-2 rounded-md border border-line-200 bg-field-50 p-3">
               <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">Grant</div>
-              <label className="flex items-center gap-2 text-sm text-ink">
-                <input type="checkbox" checked={grantAdmin} onChange={(event) => setGrantAdmin(event.target.checked)} />
-                Administrator access (role = ADMIN)
-              </label>
-              <label className="flex items-center gap-2 text-sm text-ink">
-                <input type="checkbox" checked={grantQuestionnaire} onChange={(event) => setGrantQuestionnaire(event.target.checked)} />
-                Manage questionnaire
-              </label>
-              <label className="flex items-center gap-2 text-sm text-ink">
-                <input type="checkbox" checked={grantDataset} onChange={(event) => setGrantDataset(event.target.checked)} />
-                Download dataset
-              </label>
+              <Toggle label="Administrator access (role = ADMIN)" checked={grantAdmin} onChange={setGrantAdmin} />
+              <Toggle label="Manage questionnaire" checked={grantQuestionnaire} onChange={setGrantQuestionnaire} />
+              <Toggle label="Download dataset" checked={grantDataset} onChange={setGrantDataset} />
               <button
                 type="button"
                 className="field-button mt-2"

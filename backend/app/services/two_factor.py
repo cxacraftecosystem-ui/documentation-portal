@@ -722,11 +722,48 @@ async def finish_challenge(jti: str) -> None:
 # ── What the account screen reads ───────────────────────────────────────────────────────────────
 
 
-def status_of(user: Any) -> dict[str, Any]:
+#: How long a setup that was started (QR shown) but never confirmed with a code stays usable. After
+#: this the pending secret is an abandoned setup: ignored by ``/enable`` and cleared by the status read.
+PENDING_TTL = timedelta(minutes=15)
+
+#: The columns that say "a setup is in progress". Cleared together, and never the enabled secret.
+CLEAR_PENDING: dict[str, Any] = {"twoFactorPendingSecret": None, "twoFactorPendingAt": None}
+
+
+def pending_now() -> datetime:
+    """The instant a pending secret is stamped with, on the same clock the TOTP arithmetic uses."""
+    return datetime.fromtimestamp(_clock(), UTC)
+
+
+def pending_is_live(user: Any, now: datetime | None = None) -> bool:
+    """True only while a setup is genuinely in progress: a pending secret exists, the account is not
+    already on, and the secret was issued less than ``PENDING_TTL`` ago. A pending secret with no
+    issue time predates the stamp and is treated as abandoned."""
+    if _user_field(user, "twoFactorEnabled"):
+        return False
+    if not _user_field(user, "twoFactorPendingSecret"):
+        return False
+    issued = _aware(_user_field(user, "twoFactorPendingAt"))
+    if issued is None:
+        return False
+    return (now or pending_now()) - issued < PENDING_TTL
+
+
+def has_stale_pending(user: Any, now: datetime | None = None) -> bool:
+    """A pending secret is stored but is no longer a live setup (abandoned, or left over beside an
+    enabled secret). The status read clears it."""
+    return bool(_user_field(user, "twoFactorPendingSecret")) and not pending_is_live(user, now)
+
+
+def status_of(user: Any, now: datetime | None = None) -> dict[str, Any]:
+    """What the account screen reads. ``enabled`` is true ONLY once a code has been verified by
+    ``/enable``; a setup in progress is ``pending``, which a client shows as Off ("Setting up…" at
+    most), never On."""
     enabled_at = _user_field(user, "twoFactorEnabledAt")
     enabled = bool(_user_field(user, "twoFactorEnabled"))
     return {
         "enabled": enabled,
+        "pending": pending_is_live(user, now),
         "recovery_codes_remaining": len(_user_field(user, "twoFactorRecoveryCodes") or []) if enabled else 0,
         "enabled_at": enabled_at.isoformat() if isinstance(enabled_at, datetime) else enabled_at,
     }

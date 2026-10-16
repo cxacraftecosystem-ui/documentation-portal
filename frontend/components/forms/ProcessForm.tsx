@@ -28,6 +28,7 @@ import { saveOrQueue } from "@/lib/offline";
 import { hasRank } from "@/lib/permissions";
 import type { Artisan, ExtraMetadata, MediaFile, ProductDocumentation, RecordStatus, User, Workshop } from "@/lib/types";
 import { useConfirm } from "@/components/dialogs";
+import { Toggle } from "@/components/ui/Toggle";
 
 // ---------------------------------------------------------------------------
 // Types for the /processes endpoints (hydrated detail: media on the process =
@@ -1018,15 +1019,12 @@ export function ProcessForm({
         explainWhenUnavailable={false}
       />
 
-      <label className="flex items-center gap-2 text-sm text-ink-900">
-        <input
-          type="checkbox"
-          className="h-4 w-4 accent-purple-700"
-          checked={preProcessAvailable}
-          onChange={(event) => setPreProcessAvailable(event.target.checked)}
-        />
-        Pre-processes available
-      </label>
+      <Toggle
+        className="sm:max-w-md"
+        label="Pre-processes available"
+        checked={preProcessAvailable}
+        onChange={setPreProcessAvailable}
+      />
       {preProcessAvailable ? (
         <div className="grid gap-2">
           <p className="text-xs text-ink-500">Attach the pre-process media (required).</p>
@@ -1094,15 +1092,12 @@ export function ProcessForm({
                 onRemoved={(id) => updateStep(step.key, { existingMedia: step.existingMedia.filter((media) => media.id !== id) })}
                 onError={setError}
               />
-              <label className="flex items-center gap-2 text-sm text-ink-900">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 accent-purple-700"
-                  checked={step.recordAdditional}
-                  onChange={(event) => updateStep(step.key, { recordAdditional: event.target.checked, ...(event.target.checked ? {} : { notes: "" }) })}
-                />
-                Record additional information
-              </label>
+              <Toggle
+                className="sm:max-w-md"
+                label="Record additional information"
+                checked={step.recordAdditional}
+                onChange={(next) => updateStep(step.key, { recordAdditional: next, ...(next ? {} : { notes: "" }) })}
+              />
               {step.recordAdditional ? (
                 <MultiNoteInput
                   key={step.key}

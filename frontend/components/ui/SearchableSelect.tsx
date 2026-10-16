@@ -32,7 +32,7 @@
  * the keyboard is worse than the native `<select>` it replaces.
  */
 
-import { Check, ChevronDown, Search } from "lucide-react";
+import { Check, ChevronDown, Search, X } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { AnchoredPopover } from "@/components/ui/AnchoredPopover";
@@ -54,13 +54,18 @@ export type SelectOption = { value: string; label: string; disabled?: boolean };
 const SEARCH_THRESHOLD = 8;
 
 /**
- * Rows rendered at once, past which the list is capped and the footer says so.
- *
- * Cheaper than a virtualiser and better teaching: with 252 dial codes the way to reach Uruguay is
- * to type, not to flick a finger for ten seconds on a rural handset. The cap only limits what is
- * DRAWN — filtering and "select all" both still see every match, so nothing is silently unreachable.
+ * Past this many matches the list is VIRTUALISED: every row stays reachable by scrolling and by the
+ * keyboard, but only the rows in view (plus `OVERSCAN` either side) are in the DOM. Below it every
+ * row is drawn. (Owner, 2026-10-17: "works for long lists". The earlier answer was an 80-row cap
+ * with a "keep typing" footer, which left rows 81+ reachable only by typing.)
  */
-const RENDER_CAP = 80;
+const VIRTUALIZE_AT = 200;
+
+/** Rows drawn beyond each edge of the visible window, so a fast flick does not show a gap. */
+const OVERSCAN = 8;
+
+/** A row's height before one has been measured: `py-2` + a 20px `text-sm` line. */
+const ROW_HEIGHT_GUESS = 36;
 
 /** Selected labels read out in full before the summary switches to a count. */
 const SUMMARY_NAMES = 6;
@@ -172,11 +177,89 @@ function optionClass(option: SelectOption, highlighted: boolean, active: boolean
  * `block: "nearest"` rather than "center" so arrowing down a long list scrolls by one row instead
  * of jumping the viewport around under the reader.
  */
-function useScrollHighlightIntoView(open: boolean, highlight: number, baseId: string) {
+function useScrollHighlightIntoView(
+  open: boolean,
+  highlight: number,
+  baseId: string,
+  virtual: boolean,
+  scrollToIndex: (index: number) => void
+) {
   useEffect(() => {
     if (!open || highlight < 0) return;
-    document.getElementById(`${baseId}-opt-${highlight}`)?.scrollIntoView({ block: "nearest" });
-  }, [open, highlight, baseId]);
+    // A virtualised row may not be in the DOM yet, so the list is scrolled by arithmetic instead.
+    if (virtual) scrollToIndex(highlight);
+    else document.getElementById(`${baseId}-opt-${highlight}`)?.scrollIntoView({ block: "nearest" });
+  }, [open, highlight, baseId, virtual, scrollToIndex]);
+}
+
+type VirtualWindow = {
+  virtual: boolean;
+  start: number;
+  end: number;
+  padTop: number;
+  padBottom: number;
+  listRef: (node: HTMLUListElement | null) => void;
+  onScroll: (event: React.UIEvent<HTMLUListElement>) => void;
+  scrollToIndex: (index: number) => void;
+};
+
+/**
+ * The visible slice of a long list. Rows are one fixed height (measured from the first drawn row,
+ * so the larger-text mode's taller rows are honoured), the slice is padded above and below so the
+ * scrollbar is the true length, and `scrollToIndex` keeps the keyboard highlight on screen with
+ * `nearest` semantics (scroll by one row, never re-centre).
+ */
+function useVirtualWindow(count: number): VirtualWindow {
+  const virtual = count > VIRTUALIZE_AT;
+  const [node, setNode] = useState<HTMLUListElement | null>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewport, setViewport] = useState(288);
+  const [rowHeight, setRowHeight] = useState(ROW_HEIGHT_GUESS);
+
+  useEffect(() => {
+    if (!node || !virtual) return;
+    setViewport(node.clientHeight || 288);
+    const row = node.querySelector<HTMLElement>('[role="option"]');
+    if (row && row.offsetHeight > 0) setRowHeight(row.offsetHeight);
+  }, [node, virtual, count]);
+
+  // The node twice over: in state so the measuring effect re-runs when the list mounts, and in a ref
+  // so `scrollToIndex` (an effect-time call) may write its scrollTop without mutating state.
+  const nodeRef = useRef<HTMLUListElement | null>(null);
+  const listRef = useCallback((next: HTMLUListElement | null) => {
+    nodeRef.current = next;
+    setNode(next);
+  }, []);
+  const onScroll = useCallback((event: React.UIEvent<HTMLUListElement>) => {
+    setScrollTop(event.currentTarget.scrollTop);
+  }, []);
+  const scrollToIndex = useCallback(
+    (index: number) => {
+      const list = nodeRef.current;
+      if (!list) return;
+      const top = index * rowHeight;
+      if (top < list.scrollTop) list.scrollTop = top;
+      else if (top + rowHeight > list.scrollTop + list.clientHeight) list.scrollTop = top + rowHeight - list.clientHeight;
+      setScrollTop(list.scrollTop);
+    },
+    [rowHeight]
+  );
+
+  if (!virtual) {
+    return { virtual, start: 0, end: count, padTop: 0, padBottom: 0, listRef, onScroll, scrollToIndex };
+  }
+  const start = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN);
+  const end = Math.min(count, Math.ceil((scrollTop + viewport) / rowHeight) + OVERSCAN);
+  return {
+    virtual,
+    start,
+    end,
+    padTop: start * rowHeight,
+    padBottom: (count - end) * rowHeight,
+    listRef,
+    onScroll,
+    scrollToIndex
+  };
 }
 
 /**
@@ -185,28 +268,14 @@ function useScrollHighlightIntoView(open: boolean, highlight: number, baseId: st
  * The one piece of raw state is `highlight`, and even that is passed through `safeHighlight` before
  * anything reads it — see the file header on why a stored index is not trustworthy here.
  */
-function useSelectList(
-  options: SelectOption[],
-  query: string,
-  searchable: boolean,
-  chosen: ReadonlySet<string>
-) {
+function useSelectList(options: SelectOption[], query: string, searchable: boolean) {
   const filtered = useMemo(
     () => (searchable ? filterOptions(options, query) : options),
     [options, query, searchable]
   );
-  const rendered = useMemo(() => {
-    if (filtered.length <= RENDER_CAP) return filtered;
-    const window = filtered.slice(0, RENDER_CAP);
-    // A cap must never hide what the reader already picked. India is the 100-somethingth of 246
-    // dial codes, so the plain first-80 window reopened the country picker with no tick anywhere in
-    // it and no hint that the value was real — the control would have been lying about its own
-    // state. Anything selected that the window missed is pinned to the top, where the check mark
-    // says what it is.
-    const missing = filtered.filter((option) => chosen.has(option.value) && !window.includes(option));
-    return missing.length ? [...missing, ...window] : window;
-  }, [filtered, chosen]);
-  return { filtered, rendered, capped: filtered.length - rendered.length };
+  // Every match is a row. A long list is virtualised (useVirtualWindow), never capped, so a value
+  // the reader already picked — India, ~100th of 246 dial codes — is always there with its tick.
+  return { filtered, rendered: filtered };
 }
 
 /**
@@ -288,15 +357,6 @@ function SearchRow({
       </div>
       {trailing}
     </div>
-  );
-}
-
-/** The "N of M shown" footer. Only drawn when the cap actually bit. */
-function CapNotice({ shown, total }: { shown: number; total: number }) {
-  return (
-    <p className="shrink-0 border-t border-line-200 bg-surface-50 px-3.5 py-2 text-xs leading-4 text-ink-500">
-      Showing the first {shown} of {total}. Keep typing to narrow the list.
-    </p>
   );
 }
 
@@ -421,6 +481,17 @@ export type SearchableSelectProps = {
    * Everything else in the app leaves this undefined and gets the behaviour it has always had.
    */
   onSearch?: (query: string) => void;
+  /**
+   * Draw a "Clear" (x) button beside the chevron while a value is chosen; clearing calls
+   * `onChange("")`. Off by default, because a REQUIRED field has nothing honest to clear to.
+   */
+  clearable?: boolean;
+  /** The clear button's accessible name. */
+  clearLabel?: string;
+  /** The trigger's id, so a sibling `<label htmlFor>` names it. */
+  id?: string;
+  /** Ids of hint text describing the field. */
+  describedBy?: string;
 };
 
 export function SearchableSelect({
@@ -434,7 +505,11 @@ export function SearchableSelect({
   ariaLabel,
   searchable,
   advanceOnSelect = true,
-  onSearch
+  onSearch,
+  clearable = false,
+  clearLabel,
+  id,
+  describedBy
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -447,8 +522,10 @@ export function SearchableSelect({
   const typeahead = useTypeahead();
 
   const withSearch = searchable ?? options.length >= SEARCH_THRESHOLD;
-  const chosen = useMemo(() => new Set(value ? [value] : []), [value]);
-  const { filtered, rendered, capped } = useSelectList(options, query, withSearch, chosen);
+  const { filtered, rendered } = useSelectList(options, query, withSearch);
+  // Destructured, never held as one object: the object carries the list's callback ref, and the
+  // React compiler then treats every field read from it as a ref read during render.
+  const { virtual, start, end, padTop, padBottom, listRef, onScroll, scrollToIndex } = useVirtualWindow(rendered.length);
 
   // Derived, not stored — the stored index is only ever a hint. See the file header.
   const safeHighlight =
@@ -456,7 +533,7 @@ export function SearchableSelect({
       ? highlight
       : firstEnabled(rendered);
   const activeId = safeHighlight >= 0 ? `${baseId}-opt-${safeHighlight}` : undefined;
-  useScrollHighlightIntoView(open, safeHighlight, baseId);
+  useScrollHighlightIntoView(open, safeHighlight, baseId, virtual, scrollToIndex);
 
   const selected = options.find((option) => option.value === value);
 
@@ -609,11 +686,13 @@ export function SearchableSelect({
     <div ref={wrapperRef} className={cn("relative min-w-0", className)}>
       <button
         ref={triggerRef}
+        id={id}
         type="button"
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={ariaLabel}
+        aria-describedby={describedBy}
         aria-controls={open ? listboxId : undefined}
         // Only when the trigger itself owns the keyboard; with a search box the input does.
         aria-activedescendant={open && !withSearch ? activeId : undefined}
@@ -624,7 +703,7 @@ export function SearchableSelect({
         // instead of moving on to the next field.
         data-form-field=""
         data-searchable-select=""
-        className={TRIGGER_CLASS}
+        className={cn(TRIGGER_CLASS, clearable && selected && !disabled && "pr-11")}
       >
         <span className={cn("min-w-0 truncate", !selected && "text-ink-500")} title={selected?.label}>
           {selected ? selected.label : placeholder}
@@ -634,6 +713,22 @@ export function SearchableSelect({
           aria-hidden
         />
       </button>
+      {clearable && selected && !disabled ? (
+        // A sibling of the trigger, never inside it (a button may not contain a button). It sits
+        // over the trigger's right padding, left of the chevron.
+        <button
+          type="button"
+          aria-label={clearLabel ?? (ariaLabel ? `Clear ${ariaLabel}` : "Clear selection")}
+          title="Clear"
+          onClick={() => {
+            onChange("");
+            triggerRef.current?.focus({ preventScroll: true });
+          }}
+          className="absolute right-8 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full text-ink-500 transition hover:bg-surface-50 hover:text-ink-900 pointer-coarse:h-10 pointer-coarse:w-10"
+        >
+          <X className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      ) : null}
 
       <AnchoredPopover
         open={open}
@@ -661,21 +756,27 @@ export function SearchableSelect({
             />
           ) : null}
           <ul
+            ref={listRef}
             id={listboxId}
             role="listbox"
             aria-label={ariaLabel ?? "Options"}
+            onScroll={onScroll}
+            style={virtual ? { paddingTop: padTop, paddingBottom: padBottom } : undefined}
             className="min-h-0 max-h-72 shrink overflow-y-auto overscroll-contain py-1"
           >
             {rendered.length === 0 ? (
               <li className="px-3.5 py-2 text-sm text-ink-500">{query.trim() ? "No matches" : emptyLabel}</li>
             ) : null}
-            {rendered.map((option, index) => {
+            {rendered.slice(start, end).map((option, offset) => {
+              const index = start + offset;
               const active = option.value === value;
               return (
                 <li
                   key={option.value}
                   id={`${baseId}-opt-${index}`}
                   role="option"
+                  aria-setsize={virtual ? rendered.length : undefined}
+                  aria-posinset={virtual ? index + 1 : undefined}
                   aria-selected={active}
                   aria-disabled={option.disabled || undefined}
                   title={option.label}
@@ -694,7 +795,6 @@ export function SearchableSelect({
               );
             })}
           </ul>
-          {capped > 0 ? <CapNotice shown={rendered.length} total={filtered.length} /> : null}
           <p className="sr-only" role="status" aria-live="polite">
             {announcement}
           </p>
@@ -725,7 +825,16 @@ export type SearchableMultiSelectProps = {
    */
   confirmOnSelect?: boolean;
   confirmLabel?: string;
+  /**
+   * The chosen options as removable chips under the trigger (default on). Each chip's x removes that
+   * one value. Past `CHIP_LIMIT` the rest are summarised as "+N more" — the trigger and the panel
+   * still hold the full set. Turn off where the selection is already shown as a list beside it.
+   */
+  showChips?: boolean;
 };
+
+/** Chips drawn before the rest are summarised as "+N more". */
+const CHIP_LIMIT = 12;
 
 export function SearchableMultiSelect({
   values,
@@ -738,7 +847,8 @@ export function SearchableMultiSelect({
   ariaLabel,
   searchable,
   confirmOnSelect = true,
-  confirmLabel = "Confirm"
+  confirmLabel = "Confirm",
+  showChips = true
 }: SearchableMultiSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -752,14 +862,17 @@ export function SearchableMultiSelect({
 
   const withSearch = searchable ?? options.length >= SEARCH_THRESHOLD;
   const chosen = useMemo(() => new Set(values), [values]);
-  const { filtered, rendered, capped } = useSelectList(options, query, withSearch, chosen);
+  const { filtered, rendered } = useSelectList(options, query, withSearch);
+  // Destructured, never held as one object: the object carries the list's callback ref, and the
+  // React compiler then treats every field read from it as a ref read during render.
+  const { virtual, start, end, padTop, padBottom, listRef, onScroll, scrollToIndex } = useVirtualWindow(rendered.length);
 
   const safeHighlight =
     highlight >= 0 && highlight < rendered.length && !rendered[highlight].disabled
       ? highlight
       : firstEnabled(rendered);
   const activeId = safeHighlight >= 0 ? `${baseId}-opt-${safeHighlight}` : undefined;
-  useScrollHighlightIntoView(open, safeHighlight, baseId);
+  useScrollHighlightIntoView(open, safeHighlight, baseId, virtual, scrollToIndex);
 
   const close = useCallback(() => {
     setOpen(false);
@@ -888,10 +1001,12 @@ export function SearchableMultiSelect({
 
   const inputRef = useFilterBoxFocus(triggerRef);
 
-  const chosenLabels = useMemo(
-    () => options.filter((option) => chosen.has(option.value)).map((option) => option.label),
-    [options, chosen]
-  );
+  // In the order they were picked, so a chip row reads like the reader's own list.
+  const chosenOptions = useMemo(() => {
+    const byValue = new Map(options.map((option) => [option.value, option]));
+    return values.map((v) => byValue.get(v)).filter((option): option is SelectOption => Boolean(option));
+  }, [options, values]);
+  const chosenLabels = useMemo(() => chosenOptions.map((option) => option.label), [chosenOptions]);
   /** The selected set as prose, so a screen reader gets the names and not just "3 selected". */
   const selectionSummary = chosenLabels.length
     ? chosenLabels.length <= SUMMARY_NAMES
@@ -922,7 +1037,9 @@ export function SearchableMultiSelect({
     ) : null;
 
   return (
-    <div ref={wrapperRef} className={cn("relative min-w-0", className)}>
+    // The chips sit OUTSIDE the anchored wrapper, so the panel still opens right under the trigger.
+    <div className={cn("min-w-0", className)}>
+    <div ref={wrapperRef} className="relative min-w-0">
       <button
         ref={triggerRef}
         type="button"
@@ -980,22 +1097,28 @@ export function SearchableMultiSelect({
             <div className="flex shrink-0 justify-end border-b border-line-200 p-2">{bulkButton}</div>
           ) : null}
           <ul
+            ref={listRef}
             id={listboxId}
             role="listbox"
             aria-multiselectable
             aria-label={ariaLabel ?? "Options"}
+            onScroll={onScroll}
+            style={virtual ? { paddingTop: padTop, paddingBottom: padBottom } : undefined}
             className="min-h-0 max-h-72 shrink overflow-y-auto overscroll-contain py-1"
           >
             {rendered.length === 0 ? (
               <li className="px-3.5 py-2 text-sm text-ink-500">{query.trim() ? "No matches" : emptyLabel}</li>
             ) : null}
-            {rendered.map((option, index) => {
+            {rendered.slice(start, end).map((option, offset) => {
+              const index = start + offset;
               const checked = chosen.has(option.value);
               return (
                 <li
                   key={option.value}
                   id={`${baseId}-opt-${index}`}
                   role="option"
+                  aria-setsize={virtual ? rendered.length : undefined}
+                  aria-posinset={virtual ? index + 1 : undefined}
                   aria-selected={checked}
                   aria-disabled={option.disabled || undefined}
                   title={option.label}
@@ -1020,7 +1143,6 @@ export function SearchableMultiSelect({
               );
             })}
           </ul>
-          {capped > 0 ? <CapNotice shown={rendered.length} total={filtered.length} /> : null}
           {confirmOnSelect && values.length > 0 ? (
             <div className="shrink-0 border-t border-line-200 bg-card p-2">
               <button
@@ -1038,6 +1160,34 @@ export function SearchableMultiSelect({
           </p>
         </div>
       </AnchoredPopover>
+    </div>
+      {showChips && chosenOptions.length > 0 ? (
+        <ul className="mt-2 flex flex-wrap gap-1.5" aria-label={ariaLabel ? `${ariaLabel}: chosen` : "Chosen"}>
+          {chosenOptions.slice(0, CHIP_LIMIT).map((option) => (
+            <li
+              key={option.value}
+              className="inline-flex max-w-full items-center gap-1 rounded-full border border-purple-200 bg-purple-50 py-0.5 pl-2.5 pr-0.5 text-xs font-medium text-purple-800 dark:border-purple-700 dark:bg-purple-900 dark:text-purple-100"
+            >
+              <span className="min-w-0 truncate" title={option.label}>
+                {option.label}
+              </span>
+              {disabled ? null : (
+                <button
+                  type="button"
+                  aria-label={`Remove ${option.label}`}
+                  onClick={() => onChange(values.filter((v) => v !== option.value))}
+                  className="grid h-6 w-6 shrink-0 place-items-center rounded-full transition hover:bg-purple-100 dark:hover:bg-purple-800 pointer-coarse:h-9 pointer-coarse:w-9"
+                >
+                  <X className="h-3 w-3" aria-hidden />
+                </button>
+              )}
+            </li>
+          ))}
+          {chosenOptions.length > CHIP_LIMIT ? (
+            <li className="inline-flex items-center px-1 text-xs text-ink-500">+{chosenOptions.length - CHIP_LIMIT} more</li>
+          ) : null}
+        </ul>
+      ) : null}
     </div>
   );
 }

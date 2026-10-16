@@ -224,6 +224,8 @@ import {
   type TraceRuntime,
   type Tracer
 } from "./traceRuntime";
+import { Toggle } from "@/components/ui/Toggle";
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
 
 /**
  * The long edge the live preview is drawn at.
@@ -2846,27 +2848,16 @@ function ToggleRow({
   const value = spec.read(params);
   return (
     <div className={modified ? `${MODIFIED_RING} p-1` : "p-1"}>
-      <div className="flex items-start gap-2">
-        <input
-          id={id}
-          type="checkbox"
-          className="mt-0.5 h-4 w-4 shrink-0 accent-purple-700"
-          checked={value}
-          disabled={disabled}
-          aria-describedby={`${id}-hint`}
-          onChange={(event) => onPatch(spec.patch(event.target.checked))}
-        />
-        <div className="min-w-0">
-          <label className="text-xs font-medium text-ink-900" htmlFor={id}>
-            {spec.label}
-            {modified ? <span className="ml-1 text-purple-700 dark:text-purple-300">·</span> : null}
-          </label>
-          <p id={`${id}-hint`} className="text-xs leading-4 text-ink-500">
-            {spec.hint}
-          </p>
-          <InertNote reason={inactiveReason(spec.key, params)} />
-        </div>
-      </div>
+      {/* The shared switch (components/ui/Toggle): an on/off option is a setting, not a checkbox. */}
+      <Toggle
+        id={id}
+        label={modified ? `${spec.label} ·` : spec.label}
+        description={spec.hint}
+        checked={value}
+        disabled={disabled}
+        onChange={(next) => onPatch(spec.patch(next))}
+      />
+      <InertNote reason={inactiveReason(spec.key, params)} />
     </div>
   );
 }
@@ -2891,37 +2882,26 @@ function ChoiceRow({
   return (
     <div className={modified ? `${MODIFIED_RING} p-1` : "p-1"}>
       {/*
-        ── DELIBERATELY A NATIVE <select>, UNLIKE THE STYLE AND SUBJECT PICKERS ABOVE ──
-        Two reasons, and neither is inertia. First, every one of these lists is a per-parameter enum of
-        two to five values declared in `traceParamTable` — which is exactly the fixed vocabulary a
-        filter box makes worse: an extra tab stop and a "No matches" state over a list read at a
-        glance. `SearchableSelect`'s own threshold comment says the same thing about closed
-        vocabularies.
-
-        Second, and this is the part that would not be recoverable: a `<label htmlFor>` and an
-        `aria-describedby` are wired to this control by id, and the themed dropdown renders a
-        `<button>` and accepts no id, no ref and no `describedBy`. Converting would trade a correctly
-        named and described field for a filter box nobody needs, on a panel that renders up to
-        `PARAM_COUNT` of these at once.
+        ── THE THEMED DROPDOWN, NOT A NATIVE <select> (owner, 2026-10-17: none on any surface) ──
+        These are per-parameter enums of two to five values, so `SearchableSelect` draws them with no
+        filter box (its threshold is eight) — a plain list read at a glance, as before. The trigger
+        takes the `id` the `<label htmlFor>` points at and the `describedBy` for the hint, so the field
+        is named and described exactly as the native control was.
       */}
       <label className="text-xs font-medium text-ink-900" htmlFor={id}>
         {spec.label}
         {modified ? <span className="ml-1 text-purple-700 dark:text-purple-300">·</span> : null}
       </label>
-      <select
+      <SearchableSelect
         id={id}
-        className="field-input mt-1"
+        className="mt-1"
         value={value}
         disabled={disabled}
-        aria-describedby={`${id}-hint`}
-        onChange={(event) => onPatch(spec.patch(event.target.value))}
-      >
-        {spec.options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+        describedBy={`${id}-hint`}
+        advanceOnSelect={false}
+        options={spec.options.map((option) => ({ value: option.value, label: option.label }))}
+        onChange={(next) => onPatch(spec.patch(next))}
+      />
       <p id={`${id}-hint`} className="mt-0.5 text-xs leading-4 text-ink-500">
         {spec.hint}
       </p>

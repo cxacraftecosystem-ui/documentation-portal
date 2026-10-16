@@ -5,6 +5,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 
 import { Markdown } from "@/components/Markdown";
 import { DownloadMediaButton } from "@/components/media/DownloadMediaButton";
+import { MediaActionButton } from "@/components/media/MediaActionButton";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
 import { bytes } from "@/lib/format";
 import { downloadUploadedMedia } from "@/lib/localMediaDownload";
@@ -180,25 +181,19 @@ export function MediaPreviewTile({
         </div>
       ) : null}
       {statusLabel ? (
-        <div className="flex items-center justify-between gap-2">
-          <span className={`truncate text-xs ${failed ? "text-error-600" : "text-ink-muted"}`}>{statusLabel}</span>
-          {failed && onRetry ? (
-            <button
-              type="button"
-              className="shrink-0 rounded-sm border border-line-200 bg-card px-2 py-0.5 text-xs font-semibold text-field-600 dark:text-purple-300 transition hover:bg-field-50"
-              onClick={(event) => {
-                event.stopPropagation();
-                onRetry();
-              }}
-            >
-              Retry
-            </button>
-          ) : null}
-        </div>
+        <span className={`text-xs leading-4 ${failed ? "font-medium text-error-600" : "text-ink-muted"}`}>{statusLabel}</span>
       ) : null}
-      {downloadFile ? (
-        <div className="flex justify-end">
-          <DownloadMediaButton file={downloadFile} name={item.name} mimeType={item.mimeType} />
+      {/* One action row, always in the same place at the foot of the card: Retry first (it is the
+          way out of a failure), then Download. Full-width buttons on a narrow tile, so neither is
+          ever squeezed beside the status text or under the remove button. */}
+      {(failed && onRetry) || downloadFile ? (
+        <div className="flex flex-wrap gap-1.5" onClick={(event) => event.stopPropagation()}>
+          {failed && onRetry ? (
+            <MediaActionButton kind="retry" label={`Retry uploading ${item.name}`} onClick={onRetry} className="min-w-28 flex-1" />
+          ) : null}
+          {downloadFile ? (
+            <DownloadMediaButton file={downloadFile} name={item.name} mimeType={item.mimeType} className="min-w-28 flex-1" />
+          ) : null}
         </div>
       ) : null}
       {action ? <div onClick={(event) => event.stopPropagation()}>{action}</div> : null}

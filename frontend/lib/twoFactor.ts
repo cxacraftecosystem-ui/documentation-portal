@@ -12,7 +12,14 @@ import { apiFetch } from "@/lib/api";
 import type { User } from "@/lib/types";
 
 export type TwoFactorStatus = {
+  /** True ONLY once a code has been verified by `/enable`. The one fact that means "On". */
   enabled: boolean;
+  /**
+   * A setup was started (a QR was shown) and not yet confirmed, and is younger than 15 minutes.
+   * Still OFF: sign-in never asks for a code on the strength of it. Optional so a server that
+   * predates the field reads as "not pending".
+   */
+  pending?: boolean;
   recovery_codes_remaining: number;
   enabled_at: string | null;
 };
@@ -23,6 +30,8 @@ export type TwoFactorSetup = {
   otpauth_uri: string;
   /** Finished SVG markup from the server: a white square and one black path. */
   qr_svg: string;
+  /** How long this pending secret stays usable before the server discards it (900). */
+  expires_in_seconds?: number;
 };
 
 /** What `POST /auth/login` answers instead of a session when the account has this switched on. */
@@ -67,6 +76,44 @@ export function fetchTwoFactorStatus(): Promise<TwoFactorStatus> {
 
 export function beginTwoFactorSetup(): Promise<TwoFactorSetup> {
   return apiFetch<TwoFactorSetup>("/auth/two-factor/setup", { method: "POST" });
+}
+
+/**
+ * Forget a setup that was started and not confirmed. Idempotent on the server and never touches an
+ * enabled secret, so it is safe on every way out of setup: Cancel, switching the toggle back, leaving
+ * the page, the tab closing (`keepalive`, so the request outlives the page).
+ */
+export async function cancelTwoFactorSetup(options: { keepalive?: boolean } = {}): Promise<void> {
+  await apiFetch("/auth/two-factor/setup/cancel", { method: "POST", keepalive: options.keepalive });
+}
+
+/** What the two-step toggle shows. "setting-up" is still OFF on the switch — only "on" is on. */
+export type TwoFactorView = "off" | "setting-up" | "on";
+
+/**
+ * The toggle's state from the server's answer plus whether THIS screen is in the middle of setup.
+ *
+ * The server's `enabled` is the only thing that turns the switch on. A `pending` flag from the
+ * server WITHOUT a setup on this screen (the person started on another visit and walked away) is
+ * shown as Off — the switch offers to start again — and the screen cancels that pending secret.
+ */
+export function twoFactorView(status: TwoFactorStatus | null, settingUpHere: boolean): TwoFactorView {
+  if (status?.enabled) return "on";
+  if (settingUpHere) return "setting-up";
+  return "off";
+}
+
+/** The plain-words line under the toggle, e.g. "On since 17 Oct 2026 · 8 recovery codes left". */
+export function twoFactorStatusLine(
+  status: TwoFactorStatus | null,
+  view: TwoFactorView,
+  formatDate: (iso: string) => string
+): string {
+  if (view === "setting-up") return "Setting up… It turns on once the app's code is checked.";
+  if (!status || view === "off") return "Off. Turn it on to ask for a code from your phone at sign-in.";
+  const left = status.recovery_codes_remaining;
+  const codes = left === 1 ? "1 recovery code left" : `${left} recovery codes left`;
+  return status.enabled_at ? `On since ${formatDate(status.enabled_at)} · ${codes}` : `On · ${codes}`;
 }
 
 export async function enableTwoFactor(code: string): Promise<string[]> {

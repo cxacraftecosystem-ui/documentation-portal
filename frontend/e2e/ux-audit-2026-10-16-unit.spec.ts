@@ -78,7 +78,7 @@ test.describe("DC-04 / DC-05 · names for unnamed controls", () => {
 
   test("each user's role picker is named for that user", () => {
     // The picker moved off the list and behind Update on the person's own view (2026-10-16).
-    expect(read("app", "(protected)", "users", "[id]", "page.tsx")).toContain("aria-label={`Role for ${person.name}`}");
+    expect(read("app", "(protected)", "users", "[id]", "page.tsx")).toContain("ariaLabel={`Role for ${person.name}`}");
   });
 });
 

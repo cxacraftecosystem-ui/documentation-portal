@@ -63,6 +63,7 @@ import { recordUpdateHref, recordViewHref } from "@/lib/recordView";
 import { canManageQuestionnaire, hasRank, isAdmin } from "@/lib/permissions";
 import { UploadsProvider, useEagerStaging, useUploads } from "@/lib/uploads";
 import type { MediaFile, PageResult, Questionnaire, QuestionnaireInterview, QuestionnaireQuestion, QuestionnaireSection } from "@/lib/types";
+import { Toggle } from "@/components/ui/Toggle";
 
 /**
  * The API's own ceiling on an interview title — `QuestionnaireInterviewCreate.title` is
@@ -3461,10 +3462,9 @@ function QuestionnaireAdminEditor({
                   <TextInput name="code" defaultValue={section.code} required />
                 </Field>
                 <SectionTitleField section={section} />
-                <label className="flex items-end gap-2 pb-2 text-sm text-ink-muted">
-                  <input name="isActive" type="checkbox" defaultChecked={section.isActive} />
-                  Active
-                </label>
+                <div className="flex items-end">
+                  <Toggle name="isActive" defaultChecked={section.isActive} label="Active" />
+                </div>
                 <div className="flex flex-wrap items-end gap-2">
                   <button className="field-button-secondary" type="submit">
                     <Save className="h-4 w-4" aria-hidden />
@@ -3724,10 +3724,7 @@ function QuestionTile({
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {editing ? (
             <>
-              <label className="flex items-center gap-2 text-sm text-ink-muted">
-                <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} />
-                Active
-              </label>
+              <Toggle className="w-auto" label="Active" checked={isActive} onChange={setIsActive} />
               <button type="button" className="field-button-secondary" onClick={handleSave} disabled={savingTile || disabled}>
                 <Save className="h-4 w-4" aria-hidden />
                 {savingTile ? "Saving..." : "Save"}

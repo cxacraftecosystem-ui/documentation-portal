@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ChevronDown, ExternalLink, KeyRound, Loader2, Trash2 } from "lucide-react";
 
 import { apiFetch } from "@/lib/api";
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
 
 /**
  * **A researcher's OWN provider keys.** One card, one row per provider, and an accordion per provider
@@ -226,19 +227,17 @@ function ProviderRow({
       <label className="mt-3 block text-xs font-medium text-ink-700" htmlFor={`model-${provider.provider}`}>
         Model
       </label>
-      <select
+      <SearchableSelect
         id={`model-${provider.provider}`}
+        className="mt-1"
         value={model}
-        onChange={(event) => setModel(event.target.value)}
-        className="mt-1 w-full rounded-md border border-line-200 bg-card px-3 py-2 text-sm text-ink-900"
-      >
-        {provider.models.map((option) => (
-          <option key={option.id} value={option.id}>
-            {option.label}
-            {option.id === provider.defaultModel ? " (recommended)" : ""}
-          </option>
-        ))}
-      </select>
+        advanceOnSelect={false}
+        onChange={setModel}
+        options={provider.models.map((option) => ({
+          value: option.id,
+          label: option.id === provider.defaultModel ? `${option.label} (recommended)` : option.label
+        }))}
+      />
       {(() => {
         const chosen = provider.models.find((m) => m.id === model);
         if (!chosen) return null;

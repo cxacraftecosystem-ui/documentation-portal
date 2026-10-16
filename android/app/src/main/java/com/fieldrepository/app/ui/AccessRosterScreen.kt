@@ -409,14 +409,11 @@ fun AccessRosterScreen(
                         trailingIcon = { PasswordRevealIcon(revealNew, { revealNew = !revealNew }) },
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                            .toggleable(value = newMustChange, role = Role.Checkbox, onValueChange = { newMustChange = it })
-                    ) {
-                        Checkbox(checked = newMustChange, onCheckedChange = null)
-                        Text(ACCESS_MUST_CHANGE_LABEL, fontSize = 13.sp, modifier = Modifier.padding(start = 8.dp))
-                    }
+                    AppToggle(
+                        label = ACCESS_MUST_CHANGE_LABEL,
+                        checked = newMustChange,
+                        onCheckedChange = { newMustChange = it }
+                    )
                 }
                 Button(
                     enabled = !adding && newEmail.isNotBlank(),

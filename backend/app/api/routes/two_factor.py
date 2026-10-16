@@ -7,6 +7,13 @@ about WHO may do WHAT:
   signs in. Only ``/enable`` with a working code for that secret switches it on, which proves the
   authenticator app and the server agree before the account depends on them. A second ``/setup``
   replaces an abandoned pending secret.
+* **A setup that is left is DISCARDED.** ``POST /setup/cancel`` clears the pending secret (idempotent,
+  and it never touches an enabled secret); the client calls it when the person cancels, navigates
+  away, closes the page or leaves the app. A pending secret older than ``two_factor.PENDING_TTL``
+  (15 minutes) is ignored by ``/enable`` and cleared by the status read, so an account whose owner
+  opened setup and walked away reads as Off, never On. ``GET`` reports ``pending`` for the one
+  honest in-between state: "Setting up", which is still Off. Sign-in asks for a code ONLY when
+  ``twoFactorEnabled`` is true, so a pending secret never changes how anybody signs in.
 * **Turning it off and making new recovery codes both need a current code.** A session is not proof
   of presence: somebody at an unlocked laptop must not be able to remove the control that exists to
   stop them. Disabling accepts a recovery code too, for the person whose phone is gone.
@@ -37,6 +44,7 @@ logger = logging.getLogger(__name__)
 ALREADY_ON = "Two-step verification is already on. Turn it off first to move it to a new device."
 NOT_ON = "Two-step verification is off for this account."
 NO_PENDING = "Start the setup again to get a new code to scan."
+SETUP_EXPIRED = "That setup has expired. Start again to get a new code to scan."
 
 
 def _bad_code() -> HTTPException:
@@ -102,7 +110,18 @@ async def verify(payload: TwoFactorVerifyRequest) -> dict[str, Any]:
 
 @router.get("")
 async def get_status(current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    return two_factor.status_of(await _fresh(current_user.id))
+    user = await _fresh(current_user.id)
+    if two_factor.has_stale_pending(user):
+        # An abandoned setup (older than PENDING_TTL, or left beside an enabled secret): forget it
+        # so nothing half-made lingers. Conditional on the same ciphertext, so a /setup that raced
+        # this read keeps its fresh secret.
+        await db.user.update_many(
+            where={"id": user.id, "twoFactorPendingSecret": user.twoFactorPendingSecret},
+            data=dict(two_factor.CLEAR_PENDING),
+        )
+        invalidate_cached_user(user.id)
+        user = await _fresh(user.id)
+    return two_factor.status_of(user)
 
 
 @router.post("/setup")
@@ -113,12 +132,34 @@ async def setup(current_user: Any = Depends(get_current_user)) -> dict[str, Any]
     secret = two_factor.generate_totp_secret()
     await db.user.update(
         where={"id": user.id},
-        data={"twoFactorPendingSecret": two_factor.encrypt_secret(secret)},
+        data={
+            "twoFactorPendingSecret": two_factor.encrypt_secret(secret),
+            "twoFactorPendingAt": two_factor.pending_now(),
+        },
     )
     invalidate_cached_user(user.id)
     uri = two_factor.totp_uri(secret, user.email)
     # The only response that carries the secret, and only while it is still pending.
-    return {"secret": secret, "otpauth_uri": uri, "qr_svg": two_factor.qr_svg(uri)}
+    return {
+        "secret": secret,
+        "otpauth_uri": uri,
+        "qr_svg": two_factor.qr_svg(uri),
+        "expires_in_seconds": int(two_factor.PENDING_TTL.total_seconds()),
+    }
+
+
+@router.post("/setup/cancel", status_code=status.HTTP_204_NO_CONTENT)
+async def cancel_setup(current_user: Any = Depends(get_current_user)) -> Response:
+    """Forget a setup that was started and not confirmed. Idempotent: no pending secret is a 204
+    too, so a client may call it on every way out of setup (Cancel, Back, closing the page, the app
+    going to the background) without asking first. Never touches an ENABLED secret — the condition
+    on ``twoFactorEnabled`` makes this a no-op for an account that is on."""
+    await db.user.update_many(
+        where={"id": current_user.id, "twoFactorEnabled": False},
+        data=dict(two_factor.CLEAR_PENDING),
+    )
+    invalidate_cached_user(current_user.id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/enable")
@@ -126,6 +167,14 @@ async def enable(payload: TwoFactorCodeRequest, current_user: Any = Depends(get_
     user = await _fresh(current_user.id)
     if user.twoFactorEnabled:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=ALREADY_ON)
+    if user.twoFactorPendingSecret and not two_factor.pending_is_live(user):
+        # Abandoned: the QR on the screen is older than PENDING_TTL. Clear it and say to start again.
+        await db.user.update_many(
+            where={"id": user.id, "twoFactorPendingSecret": user.twoFactorPendingSecret},
+            data=dict(two_factor.CLEAR_PENDING),
+        )
+        invalidate_cached_user(user.id)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=SETUP_EXPIRED)
     pending = two_factor.decrypt_secret(user.twoFactorPendingSecret)
     if not pending:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=NO_PENDING)
@@ -147,6 +196,7 @@ async def enable(payload: TwoFactorCodeRequest, current_user: Any = Depends(get_
             "twoFactorEnabled": True,
             "twoFactorSecret": user.twoFactorPendingSecret,
             "twoFactorPendingSecret": None,
+            "twoFactorPendingAt": None,
             "twoFactorRecoveryCodes": hashes,
             # The enrolment code counts as used: it cannot also sign somebody in.
             "twoFactorLastStep": step,
@@ -198,6 +248,7 @@ def _switched_off() -> dict[str, Any]:
         "twoFactorEnabled": False,
         "twoFactorSecret": None,
         "twoFactorPendingSecret": None,
+        "twoFactorPendingAt": None,
         "twoFactorRecoveryCodes": [],
         "twoFactorLastStep": None,
         "twoFactorEnabledAt": None,

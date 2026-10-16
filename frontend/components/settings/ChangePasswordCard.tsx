@@ -18,7 +18,10 @@ import { useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, KeyRound } from "lucide-react";
 
 import { useAuth } from "@/components/AuthProvider";
+import { OtpCodeInput } from "@/components/ui/OtpCodeInput";
+import { Toggle } from "@/components/ui/Toggle";
 import { setToken } from "@/lib/api";
+import { isCompleteCode } from "@/lib/otp";
 import {
   FIRST_PASSWORD_NOTE,
   PASSWORD_CHANGE_SESSIONS,
@@ -47,6 +50,7 @@ export function ChangePasswordCard() {
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
   const [code, setCode] = useState("");
+  const [useRecoveryCode, setUseRecoveryCode] = useState(false);
   const [show, setShow] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +79,7 @@ export function ChangePasswordCard() {
       setError(problem);
       return;
     }
-    if (needsCode && !code.trim()) {
+    if (needsCode && (useRecoveryCode ? !code.trim() : !isCompleteCode(code))) {
       setError(TWO_FACTOR_CODE_MISSING);
       return;
     }
@@ -173,24 +177,46 @@ export function ChangePasswordCard() {
         )}
 
         {needsCode ? (
-          <div>
-            <label htmlFor="settings-two-factor-code" className="field-label">
-              Code from your authenticator app
-            </label>
-            <input
-              id="settings-two-factor-code"
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              required
-              maxLength={64}
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-              className="field-input mt-1.5"
-            />
-            <p className="mt-1 text-xs leading-5 text-ink-500">
-              Two-step verification is on for your account. A recovery code works too.
+          <div className="grid gap-2">
+            {useRecoveryCode ? (
+              <div>
+                <label htmlFor="settings-two-factor-code" className="field-label">
+                  Recovery code
+                </label>
+                <input
+                  id="settings-two-factor-code"
+                  type="text"
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  required
+                  maxLength={20}
+                  placeholder="xxxx-xxxx"
+                  value={code}
+                  onChange={(event) => setCode(event.target.value)}
+                  className="field-input mt-1.5 font-mono tracking-[0.15em]"
+                />
+              </div>
+            ) : (
+              <OtpCodeInput
+                value={code}
+                onChange={setCode}
+                label="Code from your authenticator app"
+                describedBy="settings-two-factor-hint"
+                error={Boolean(error) && !code}
+              />
+            )}
+            <p id="settings-two-factor-hint" className="text-xs leading-5 text-ink-500">
+              Two-step verification is on for your account.
             </p>
+            <Toggle
+              label="Use a recovery code instead"
+              checked={useRecoveryCode}
+              onChange={(nextValue) => {
+                setUseRecoveryCode(nextValue);
+                setCode("");
+              }}
+            />
           </div>
         ) : null}
 

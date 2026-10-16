@@ -198,6 +198,9 @@ model User {
   twoFactorRecoveryCodes String[]  @default([])
   twoFactorLastStep      Int?
   twoFactorEnabledAt     DateTime?
+  /// When `twoFactorPendingSecret` was issued. A pending secret older than fifteen minutes is an
+  /// abandoned setup: it is ignored and cleared, and the account reads as Off (never On).
+  twoFactorPendingAt     DateTime?
   /// THE PER-ACCOUNT FAILURE BUDGET (app/services/two_factor.py). Wrong second-factor codes inside
   /// the current fifteen-minute window, when that window started, how long the second factor is
   /// locked for after the budget ran out, and how many lockouts there have been (each doubles the

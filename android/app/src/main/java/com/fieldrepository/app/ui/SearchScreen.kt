@@ -1136,7 +1136,7 @@ internal fun SearchFilterBar(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         // Each end bounds the other in the picker itself, so an inverted range —
                         // which matches nothing and looks like a broken filter — cannot be entered.
-                        FieldDateField(
+                        CalendarField(
                             label = "From",
                             value = value.from,
                             onValueChange = { onChange(value.copy(from = it)) },
@@ -1144,7 +1144,7 @@ internal fun SearchFilterBar(
                             placeholder = "Any date",
                             clearable = true
                         )
-                        FieldDateField(
+                        CalendarField(
                             label = "To",
                             value = value.to,
                             onValueChange = { onChange(value.copy(to = it)) },

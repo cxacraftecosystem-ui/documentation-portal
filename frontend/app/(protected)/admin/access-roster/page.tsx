@@ -68,6 +68,7 @@ import { formatDate, formatDateTime } from "@/lib/format";
 import { fetchNotificationPreferences } from "@/lib/notifications";
 import { assignableRoles, canManageAccessRoster, roleLabel } from "@/lib/permissions";
 import type { PageResult, UserRole } from "@/lib/types";
+import { Toggle } from "@/components/ui/Toggle";
 
 const PAGE_SIZE = 20;
 
@@ -441,15 +442,7 @@ export default function AccessRosterPage() {
             </p>
           </div>
           {mailAvailable ? (
-            <label className="flex items-center gap-2 text-sm text-ink-700">
-              <input
-                type="checkbox"
-                className="h-4 w-4"
-                checked={inviteOnApprove}
-                onChange={(event) => setInviteOnApprove(event.target.checked)}
-              />
-              E-mail each person I approve
-            </label>
+            <Toggle className="w-auto" label="E-mail each person I approve" checked={inviteOnApprove} onChange={setInviteOnApprove} />
           ) : null}
         </div>
 
@@ -563,15 +556,11 @@ export default function AccessRosterPage() {
               <p className="text-xs leading-5 text-ink-500">
                 {passwordRuleLine("Send it to them yourself — nothing shows it again. Full name is needed for the account.")}
               </p>
-              <label className="flex items-start gap-2 text-sm text-ink-700">
-                <input
-                  type="checkbox"
-                  checked={addRequireChange}
-                  onChange={(event) => setAddRequireChange(event.target.checked)}
-                  className="mt-1"
-                />
-                <span>Ask them to choose a new password at first sign-in</span>
-              </label>
+              <Toggle
+                label="Ask them to choose a new password at first sign-in"
+                checked={addRequireChange}
+                onChange={setAddRequireChange}
+              />
             </div>
           ) : null}
         </fieldset>
@@ -584,10 +573,7 @@ export default function AccessRosterPage() {
           />
         </Field>
         {mailAvailable ? (
-          <label className="flex items-center gap-2 text-sm text-ink-700">
-            <input type="checkbox" name="sendInvite" className="h-4 w-4" defaultChecked />
-            E-mail them that they can sign in
-          </label>
+          <Toggle name="sendInvite" defaultChecked label="E-mail them that they can sign in" />
         ) : null}
         <div className="flex flex-wrap gap-2">
           <button className="field-button" disabled={saving}>

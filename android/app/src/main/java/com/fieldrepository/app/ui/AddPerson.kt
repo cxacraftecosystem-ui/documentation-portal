@@ -248,13 +248,8 @@ fun AddPersonCard(
     }
 }
 
+/** An on/off choice on the add-person form: the shared switch ([AppToggle]), never a checkbox. */
 @Composable
 private fun CheckRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().toggleable(value = checked, role = Role.Checkbox, onValueChange = onChange)
-    ) {
-        Checkbox(checked = checked, onCheckedChange = null)
-        Text(label, fontSize = 13.sp, modifier = Modifier.padding(start = 8.dp))
-    }
+    AppToggle(label = label, checked = checked, onCheckedChange = onChange)
 }

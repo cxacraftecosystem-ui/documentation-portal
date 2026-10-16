@@ -45,6 +45,10 @@ interface FieldRepositoryApi {
     @POST("auth/two-factor/setup")
     suspend fun beginTwoFactorSetup(): TwoFactorSetupDto
 
+    /** Forget a setup that was started and never confirmed. Idempotent; never touches an enabled secret. */
+    @POST("auth/two-factor/setup/cancel")
+    suspend fun cancelTwoFactorSetup(): Response<Unit>
+
     @POST("auth/two-factor/enable")
     suspend fun enableTwoFactor(@Body body: TwoFactorCodeRequest): RecoveryCodesDto
 

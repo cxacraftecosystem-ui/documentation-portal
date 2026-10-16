@@ -209,6 +209,11 @@ fun SearchableSelectField(
      * would hold a term the reader can plainly see is gone.
      */
     onSearch: ((String) -> Unit)? = null,
+    /**
+     * A Clear (x) button beside the trigger while a value is chosen; clearing calls `onSelect("")`.
+     * Off by default — a required field has nothing honest to clear to. The web's `clearable`.
+     */
+    clearable: Boolean = false,
     onSelect: (String) -> Unit
 ) {
     var sheetOpen by remember { mutableStateOf(false) }
@@ -218,7 +223,8 @@ fun SearchableSelectField(
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, color = MaterialTheme.field.muted, fontSize = 12.sp)
-        Box(modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(modifier = Modifier.weight(1f)) {
             SelectTrigger(
                 // The visible label sits in a separate Text above the button, which TalkBack reads
                 // as its own node — so a researcher swiping onto the control alone would hear
@@ -264,6 +270,12 @@ fun SearchableSelectField(
                     }
                 }
             }
+        }
+        if (clearable && enabled && selectedLabel != null) {
+            IconButton(onClick = { onSelect("") }) {
+                Icon(Icons.Filled.Close, contentDescription = "Clear $label", tint = MaterialTheme.field.muted)
+            }
+        }
         }
     }
 
@@ -338,27 +350,41 @@ fun SearchableMultiSelectField(
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
-                    // Cleared and re-set: the trigger above already reads every chip aloud, so
-                    // letting TalkBack walk them again is the same list twice. They are a glance
-                    // aid; removal happens in the sheet, where the row carries its checked state.
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .semantics { contentDescription = "" }
+                    // Each chip carries its own "Remove <name>" button (owner, 2026-10-17: chips for the
+                    // selections, with remove) — the web's SearchableMultiSelect chips, to the word.
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     chosen.forEach { option ->
-                        Text(
-                            option.label,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .background(
                                     MaterialTheme.colorScheme.primaryContainer,
-                                    RoundedCornerShape(8.dp)
+                                    RoundedCornerShape(50)
                                 )
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
+                                .padding(start = 12.dp)
+                        ) {
+                            Text(
+                                option.label,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            if (enabled) {
+                                IconButton(onClick = { onSelectedChange(selected - option.value) }) {
+                                    Icon(
+                                        Icons.Filled.Close,
+                                        contentDescription = "Remove ${option.label}",
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            } else {
+                                Spacer(Modifier.size(12.dp))
+                            }
+                        }
                     }
                 }
             }

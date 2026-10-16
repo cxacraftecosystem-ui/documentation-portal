@@ -2379,7 +2379,7 @@ private fun PersonChip(user: TaskUserDto, onRemove: () -> Unit) {
  */
 @Composable
 private fun DueDateField(value: LocalDate?, onChange: (LocalDate?) -> Unit) {
-    FieldDateField(
+    CalendarField(
         label = "Due date",
         value = value,
         onValueChange = onChange,

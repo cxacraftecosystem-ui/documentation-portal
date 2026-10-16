@@ -260,6 +260,7 @@ import {
   type RichToolbarState,
   type StoredRichDoc
 } from "@/lib/richText";
+import { Toggle } from "@/components/ui/Toggle";
 
 /* ────────────────────────────────────────────────────────────────────────────
  * The class ladders
@@ -2846,24 +2847,18 @@ export function RichTextEditor({
             </button>
           </div>
           <div className="sm:col-span-3 flex flex-wrap items-center gap-3 text-xs text-ink-500">
-            <label className="inline-flex items-center gap-1.5">
-              <input
-                type="checkbox"
-                className="h-3.5 w-3.5 accent-purple-700"
-                checked={find.caseSensitive}
-                onChange={(event) => setFind((current) => ({ ...current, caseSensitive: event.target.checked, index: 0 }))}
-              />
-              Match case
-            </label>
-            <label className="inline-flex items-center gap-1.5">
-              <input
-                type="checkbox"
-                className="h-3.5 w-3.5 accent-purple-700"
-                checked={find.wholeWord}
-                onChange={(event) => setFind((current) => ({ ...current, wholeWord: event.target.checked, index: 0 }))}
-              />
-              Whole words
-            </label>
+            <Toggle
+              className="w-auto gap-2"
+              label="Match case"
+              checked={find.caseSensitive}
+              onChange={(next) => setFind((current) => ({ ...current, caseSensitive: next, index: 0 }))}
+            />
+            <Toggle
+              className="w-auto gap-2"
+              label="Whole words"
+              checked={find.wholeWord}
+              onChange={(next) => setFind((current) => ({ ...current, wholeWord: next, index: 0 }))}
+            />
             {/* A live region, because the count is the only answer to "did that find anything" and
                 it changes without anything moving on screen. */}
             <span aria-live="polite">

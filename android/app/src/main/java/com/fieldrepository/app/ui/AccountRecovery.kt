@@ -212,6 +212,7 @@ fun AccountPasswordCard(repository: FieldRepository, onSignOut: () -> Unit) {
     var next by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
+    var useRecoveryCode by remember { mutableStateOf(false) }
     var reveal by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -266,15 +267,24 @@ fun AccountPasswordCard(repository: FieldRepository, onSignOut: () -> Unit) {
                 modifier = Modifier.fillMaxWidth()
             )
             if (needsCode) {
-                OutlinedTextField(
-                    value = code,
-                    onValueChange = { code = it; error = null; saved = null },
-                    label = { Text(TWO_FACTOR_CODE_LABEL) },
-                    supportingText = { Text(TWO_FACTOR_CODE_HINT) },
-                    singleLine = true,
+                // Six digit boxes (OtpCodeField) for the authenticator code; a recovery code is a
+                // different shape and gets its own field behind the switch (owner, 2026-10-17).
+                if (useRecoveryCode) {
+                    RecoveryCodeBox(code) { code = it; error = null; saved = null }
+                } else {
+                    OtpCodeField(
+                        value = code,
+                        onValueChange = { code = it; error = null; saved = null },
+                        label = TWO_FACTOR_CODE_LABEL,
+                        enabled = !busy
+                    )
+                }
+                Text(TWO_FACTOR_CODE_HINT, color = MaterialTheme.field.muted, fontSize = 12.sp)
+                AppToggle(
+                    label = "Use a recovery code instead",
+                    checked = useRecoveryCode,
                     enabled = !busy,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-                    modifier = Modifier.fillMaxWidth()
+                    onCheckedChange = { useRecoveryCode = it; code = "" }
                 )
             }
             saved?.let {
@@ -306,7 +316,7 @@ fun AccountPasswordCard(repository: FieldRepository, onSignOut: () -> Unit) {
                         error = problem
                         return@Button
                     }
-                    if (needsCode && code.isBlank()) {
+                    if (needsCode && (if (useRecoveryCode) code.isBlank() else !OtpCode.isComplete(code))) {
                         error = TWO_FACTOR_CODE_FOR_PASSWORD
                         return@Button
                     }

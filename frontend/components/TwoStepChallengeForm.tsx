@@ -8,9 +8,10 @@
  * this form trades it and a code for the session at `POST /auth/two-factor/verify`. Nobody is signed in
  * until that succeeds, so "Back to sign in" simply forgets the challenge.
  *
- * ONE BOX FOR BOTH KINDS OF CODE. The server tells a 6-digit authenticator code from an `xxxx-xxxx`
- * recovery code by shape, so the toggle below changes only the label, the keyboard and the autofill
- * hint — a recovery code typed into the authenticator box still works.
+ * TWO SHAPES, TWO FIELDS (owner, 2026-10-17). The 6-digit code is typed into `OtpCodeInput` — six
+ * boxes, digits only, sent the moment the sixth lands. A recovery code (`xxxx-xxxx`) is a different
+ * shape and has its own text field, reached by the "Use a recovery code instead" switch. The server
+ * still tells them apart by shape, so either box sends to the same endpoint.
  *
  * Every refusal is the server's sentence, in the card: a wrong code keeps the form, and a finished
  * challenge (five wrong codes, or five minutes) says to sign in again and offers the way back.
@@ -21,7 +22,10 @@ import { ShieldCheck } from "lucide-react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { Button } from "@/components/ui/button";
+import { OtpCodeInput } from "@/components/ui/OtpCodeInput";
+import { Toggle } from "@/components/ui/Toggle";
 import { ApiError } from "@/lib/api";
+import { isCompleteCode } from "@/lib/otp";
 import { CHALLENGE_ENDED_DETAIL } from "@/lib/twoFactor";
 import type { User } from "@/lib/types";
 
@@ -41,25 +45,30 @@ export function TwoStepChallengeForm({
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorNonce, setErrorNonce] = useState(0);
   /** The challenge is finished; only signing in again leads anywhere. */
   const [dead, setDead] = useState(false);
   const box = useRef<HTMLInputElement | null>(null);
 
-  // On arrival and on every switch of kind: the box is where the next keystroke belongs.
+  // On a switch to the recovery field: that box is where the next keystroke belongs. (The six code
+  // boxes focus themselves.)
   useEffect(() => {
-    box.current?.focus();
+    if (useRecovery) box.current?.focus();
   }, [useRecovery]);
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!code.trim() || busy || dead) return;
+  const ready = useRecovery ? code.trim().length > 0 : isCompleteCode(code);
+
+  async function send(typed: string) {
+    const value = typed.trim();
+    if (busy || dead || (useRecovery ? !value : !isCompleteCode(value))) return;
     setBusy(true);
     setError(null);
     try {
-      const account = await verifyTwoFactor(challengeToken, code.trim());
+      const account = await verifyTwoFactor(challengeToken, value);
       await onSignedIn(account);
     } catch (err) {
       setCode("");
+      setErrorNonce((n) => n + 1);
       if (err instanceof ApiError && err.status === 401 && err.message === CHALLENGE_ENDED_DETAIL) setDead(true);
       // A fetch that never reached the server rejects with a TypeError, not an ApiError.
       setError(
@@ -67,10 +76,15 @@ export function TwoStepChallengeForm({
           ? err.message
           : "Couldn't connect. Check your connection and try again."
       );
-      box.current?.focus();
+      if (useRecovery) box.current?.focus();
     } finally {
       setBusy(false);
     }
+  }
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void send(code);
   }
 
   return (
@@ -103,30 +117,43 @@ export function TwoStepChallengeForm({
         </Button>
       ) : (
         <form onSubmit={submit} className="grid gap-3">
-          <div className="grid gap-2">
-            <label htmlFor="two-step-code" className="text-sm font-medium text-ink-900">
-              {useRecovery ? "Recovery code" : "6-digit code"}
-            </label>
-            <input
-              id="two-step-code"
-              ref={box}
-              type="text"
-              required
-              inputMode={useRecovery ? "text" : "numeric"}
-              autoComplete={useRecovery ? "off" : "one-time-code"}
-              autoCapitalize="none"
-              spellCheck={false}
-              maxLength={useRecovery ? 20 : 7}
-              placeholder={useRecovery ? "xxxx-xxxx" : "123456"}
+          {useRecovery ? (
+            <div className="grid gap-2">
+              <label htmlFor="two-step-code" className="text-sm font-medium text-ink-900">
+                Recovery code
+              </label>
+              <input
+                id="two-step-code"
+                ref={box}
+                type="text"
+                required
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                maxLength={20}
+                placeholder="xxxx-xxxx"
+                value={code}
+                aria-invalid={error ? true : undefined}
+                onChange={(event) => setCode(event.target.value)}
+                className="field-input h-[52px] text-center font-mono text-lg tracking-[0.2em]"
+              />
+            </div>
+          ) : (
+            <OtpCodeInput
               value={code}
-              onChange={(event) => setCode(event.target.value)}
-              className="field-input h-[52px] text-center font-mono text-lg tracking-[0.3em]"
+              onChange={setCode}
+              onComplete={(full) => void send(full)}
+              label="6-digit code"
+              error={Boolean(error)}
+              errorNonce={errorNonce}
+              disabled={busy}
+              autoFocus
             />
-          </div>
+          )}
           <Button
             type="submit"
             size="auth"
-            disabled={busy || !code.trim()}
+            disabled={busy || !ready}
             className="w-full font-display text-base font-bold"
           >
             {busy ? "Checking…" : "Verify"}
@@ -134,23 +161,20 @@ export function TwoStepChallengeForm({
         </form>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-        {dead ? (
-          <span />
-        ) : (
-          <button
-            type="button"
-            onClick={() => {
-              setUseRecovery((value) => !value);
-              setCode("");
-              setError(null);
-            }}
-            className="font-medium text-purple-700 hover:underline"
-          >
-            {useRecovery ? "Use your authenticator app instead" : "Use a recovery code instead"}
-          </button>
-        )}
-        <button type="button" onClick={onCancel} className="text-ink-500 hover:text-ink-900">
+      {dead ? null : (
+        <Toggle
+          label="Use a recovery code instead"
+          description="For when your phone is lost or the authenticator app is gone."
+          checked={useRecovery}
+          onChange={(next) => {
+            setUseRecovery(next);
+            setCode("");
+            setError(null);
+          }}
+        />
+      )}
+      <div className="flex flex-wrap items-center justify-end gap-2 text-sm">
+        <button type="button" onClick={onCancel} className="min-h-11 text-ink-500 hover:text-ink-900">
           Back to sign in
         </button>
       </div>

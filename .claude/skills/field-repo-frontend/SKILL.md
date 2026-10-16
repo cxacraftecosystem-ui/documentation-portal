@@ -40,6 +40,12 @@ traps — check it before "simplifying" anything that looks redundant.
    dropdown twice.
 10. **Truncation, caps and skipped work must be stated on screen.** A list that quietly stops is
     indistinguishable from a place with no records — the single most repeated bug class in this repo.
+11. **Five shared primitives, no substitutes (§11.10).** Every on/off setting is a `Toggle`, every
+    list a `SearchableSelect`/`SearchableMultiSelect`, every date a `CalendarField`, every 6-digit
+    code an `OtpCodeInput` (six boxes, digits only, Plus Jakarta Sans). **No plain `<select>`, no
+    checkbox-as-setting, no native date input, no single-box code input — on any surface**, here or on
+    Android (`AppToggle`, `SearchableSelectField`, `SearchableMultiSelectField`, `CalendarField`,
+    `OtpCodeField`).
 
 ---
 
@@ -871,15 +877,22 @@ default offset 6, `CLOSE_ON_SCROLL_GRACE_MS 600`. Data attributes: `data-anchore
 
 ### 11.5 `SearchableSelect` / `SearchableMultiSelect`
 
-`SEARCH_THRESHOLD 8`, `RENDER_CAP 80`, `SUMMARY_NAMES 6`, `PANEL_MAX_WIDTH 520`,
+`SEARCH_THRESHOLD 8`, `VIRTUALIZE_AT 200`, `OVERSCAN 8`, `CHIP_LIMIT 12`, `SUMMARY_NAMES 6`, `PANEL_MAX_WIDTH 520`,
 `PANEL_CLASS "overflow-hidden! p-0! flex flex-col"` (the `!`s beat `AnchoredPopover`'s own
 `overflow-y-auto p-3` — see the `cn` note), list `max-h-72`, typeahead window 700ms.
 
 - **Highlight is derived through `safeHighlight` every render, never trusted raw** — a stored index goes
   stale the instant the filter changes, and Enter would commit a row that is not on screen.
-- **The 80-row cap pins already-selected options to the TOP.** Without it India (~100th of 246 dial
-  codes) reopened the picker with no tick anywhere — the control lying about its own state. Filtering
-  and select-all still see every match; only drawing is capped.
+- **Long lists are VIRTUALISED, never capped** (since 2026-10-17; the 80-row cap and its "keep typing"
+  footer are gone). Past 200 matches only the rows in view (plus 8 either side) are in the DOM, the
+  list is padded to its true height, rows carry `aria-setsize`/`aria-posinset`, and the keyboard
+  highlight is scrolled into view by arithmetic (the row may not exist yet). The capped version had to
+  pin chosen options to the top so India (~100th of 246 dial codes) still showed its tick; with every
+  row reachable that pin is unnecessary. ⚠ Hold the `useVirtualWindow` result DESTRUCTURED — the object
+  carries the list's callback ref, and the React compiler then flags every field read from it as a ref
+  read during render.
+- Single-select `clearable` (a sibling x button, never inside the trigger), `id`/`describedBy` for a
+  sibling label and hint; multi-select removable chips (`showChips`). See §11.10.
 - **"Select all" acts on the FILTERED set** and says which (`Select 6 matching` vs `Select all 74`).
   Ctrl/Cmd+A was dropped: inside a text box that chord already means "select the text I typed".
 - `containEvents` stops `keydown`/`input`/`change` propagation: a portal leaves the panel in the React
@@ -960,6 +973,128 @@ break `feImage`. The classes toggled are `lg-active` / `lg-fallback`; the compan
   is load-bearing every time: a grid/flex item defaults to `min-width: auto` and refuses to shrink below
   its content's intrinsic width, so a long option label widens the column and spills over the field
   beside it. **`truncate` cannot save it** — truncation clips inside a box that has already grown.
+
+### 11.10 The five shared primitives — Toggle, SearchableSelect, SearchableMultiSelect, CalendarField, OtpCodeInput
+
+Owner's ruling, 2026-10-17, for **every surface of both apps** (this repo and the Design Prototype
+Workshop, web and Android). One component per job, the same name on both platforms, and nothing
+hand-rolled beside it. The rule in one line: **no plain `<select>`, no checkbox standing in for a
+setting, no native date input, and no single-box code input — anywhere.**
+
+| Job | Web (`components/ui/`) | Android (`ui/`) |
+|---|---|---|
+| An on/off setting | `Toggle` (`Toggle.tsx`) | `AppToggle` (`AppToggle.kt`) |
+| Pick one from a list | `SearchableSelect` (`SearchableSelect.tsx`) | `SearchableSelectField` (`SearchableSelect.kt`) |
+| Pick several | `SearchableMultiSelect` (same file) | `SearchableMultiSelectField` (same file) |
+| A date | `CalendarField` (`CalendarField.tsx`) | `CalendarField` (`DateTimeFields.kt`) |
+| A 6-digit code | `OtpCodeInput` (`OtpCodeInput.tsx`, rules in `lib/otp.ts`) | `OtpCodeField` (`OtpCode.kt`, rules in `OtpCode`) |
+
+#### Toggle / AppToggle — every on/off setting
+
+- **When:** anything a person turns on or off — a preference, a permission grant, "Active", "E-mail
+  them", "Use a recovery code instead", admin view. **Not** for picking rows in a table (bulk select
+  stays a checkbox: that is a selection, not a setting).
+- **API (web):** `<Toggle label description? checked onChange />`; `hideLabel` draws the track alone
+  (the label becomes `aria-label`) where a visible label already sits beside it; `busy` holds the
+  switch still while the server decides; `name` (+ `defaultChecked`) posts `"on"` with a `<form>`,
+  exactly like the checkbox it replaces.
+- **API (Android):** `AppToggle(label, checked, onCheckedChange, description?, enabled, busy)`.
+- **Contract:** web is a `<button role="switch" aria-checked>` — Space and Enter toggle, the global
+  focus outline applies, the row shape is named by `aria-labelledby` (label only) and described by
+  `aria-describedby`; the bare shape is 44px on a touch screen (`pointer-coarse:`). Android is one
+  `Modifier.toggleable(role = Role.Switch)` row, ≥56dp, with the Material 3 `Switch` as decoration
+  (`onCheckedChange = null`) so TalkBack hears one node. Off = outlined track + ink knob, on = filled
+  purple-700 + white knob, so the state reads without hue.
+- **Do:** `<Toggle label="Download dataset" checked={x} onChange={setX} />`.
+- **Don't:** `<label><input type="checkbox" /> Download dataset</label>`; a "Yes"/"No" or "ON"/"OFF"
+  word as the control; a second home-made pill.
+
+#### SearchableSelect / SearchableMultiSelect — every list
+
+- **When:** every single- or multi-choice list. A list under 8 options draws no filter box (the
+  `SEARCH_THRESHOLD`), so short enums lose nothing; `searchable` forces it either way.
+- **Contract (web):** ARIA combobox/listbox — `role="combobox"` filter box with
+  `aria-activedescendant`, `role="listbox"` + `role="option"`, arrows/Home/End/Enter/Escape, typeahead
+  when closed. **Past 200 matches the list is virtualised** (`VIRTUALIZE_AT`, fixed row height measured
+  from the first row, `aria-setsize`/`aria-posinset` on each drawn row) — never capped, so a chosen value
+  is always reachable with its tick. Empty state "No options" / "No matches". `disabled` everywhere.
+  Single-select: `clearable` adds a Clear (x) beside the chevron (a sibling, never a button inside the
+  trigger); `id` + `describedBy` let a sibling `<label htmlFor>` and a hint name and describe it.
+  Multi-select: chosen options as **removable chips** under the trigger ("Remove <name>"), the first 12
+  then "+N more" (`showChips`, default on); "Select all N" / "Select 6 matching" acts on the FILTERED set.
+- **Contract (Android):** a bottom sheet with a search box at 8+ options (LazyColumn — virtualised by
+  construction), the anchored menu below that; `clearable` on the single field; removable chips on
+  the multi field.
+- **Don't:** `<select>`; a wall of checkboxes for a many-of-many answer; wrapping either in `Field`'s
+  `<label>` (use `FieldBlock` or a sibling label — §12.3).
+
+#### CalendarField — every date
+
+- **When:** every date. It is `DateField` (§12.7, `forms/DateTimeField.tsx`) plus a Clear button
+  (on by default; off when `required`), and on Android `FieldDateField` folded in with Clear on.
+- **API:** `<CalendarField id name? value|defaultValue onChange min max required ariaLabel />`.
+  Value is **`yyyy-mm-dd` built from LOCAL parts** (`toIsoDate` / `fromIsoDate` — the `parseDateInput`
+  rule): a date is a day on the wall calendar, never a UTC instant. For "today" as a bound write
+  `toIsoDate(new Date())`, **never** `new Date().toISOString().slice(0, 10)` (UTC: before 05:30 IST it is
+  still yesterday).
+- **Typed entry stays the primary path** (`dd/mm/yyyy`, also `yyyy-mm-dd`); the calendar is beside it.
+- **Don't:** `<input type="date">`; a wrapping `<label>` (it folds "Open calendar" into the name).
+
+#### OtpCodeInput / OtpCodeField — every 6-digit code
+
+- **When:** EVERY six-digit authenticator code — the sign-in challenge, two-step setup, turning
+  two-step off, making new recovery codes, the first-password two-step step, a dataset-token code
+  field, any admin flow, and (designer, behind its flag) the Aadhaar OTP.
+- **The rules (pinned by `e2e/primitives-unit.spec.ts` and `PrimitivesTest.kt`):**
+  1. EXACTLY six separate boxes; DIGITS ONLY — ASCII 0-9, everything else refused at the keystroke and
+     stripped from whatever slips past (`onlyDigits`).
+  2. Web boxes: `inputMode="numeric"`, `pattern="[0-9]*"`, the first carries
+     `autoComplete="one-time-code"`; Android: `KeyboardType.NumberPassword` + `ContentType.SmsOtpCode`.
+  3. A pasted / autofilled code (six or more digits arriving at once, in any box) fills ALL six from
+     the first box and replaces a half-typed one; typing advances one box; Backspace on an empty box
+     steps back and clears the one before; arrows/Home/End move.
+  4. `onComplete(code)` fires the moment the sixth digit lands — callers submit from it.
+  5. `error` paints all six red (`aria-invalid`) and shakes the row ONCE (360ms, the house curve);
+     a new `errorNonce` shakes again. Reduced motion (BOTH switches, read at the moment of the shake)
+     skips the shake; the red border and the announced error are the static half.
+  6. Screen reader: the group is named by its label; each box is "Digit n of 6".
+  7. Typeface: **Plus Jakarta Sans** (`font-display` / `FieldDisplayFontFamily`, the bundled
+     `jakarta` variable font), semibold, `tabular-nums` / `"tnum"`, 24-30px — the owner's choice.
+- **Recovery codes are a SEPARATE text field** (`xxxx-xxxx`, monospace), reached by a
+  `Toggle label="Use a recovery code instead"`. Never type a recovery code into the six boxes, and
+  never offer one where the server refuses it (making new recovery codes needs the 6-digit code).
+- **Android draws ONE input as six boxes** on purpose: a soft keyboard sends no Backspace event in an
+  empty field, so six separate fields cannot step back on Gboard/Samsung. Behaviour is identical.
+- **Don't:** one wide box with `tracking-[0.3em]`; `maxLength={7}`; a placeholder "123456".
+
+#### The two-step verification switch (both apps, web and Android)
+
+1. ONE `Toggle` labelled **"Two-step verification"**, with the state in plain words under it:
+   "On since 17 Oct 2026 · 8 recovery codes left" / "Setting up… It turns on once the app's code is
+   checked." / "Off. Turn it on to ask for a code from your phone at sign-in." (`twoFactorStatusLine`
+   / `TwoStepSwitch.statusLine`). Never a bare "Off." sentence and a "Turn on" button.
+2. Off → switch on → setup (QR, key, `OtpCodeInput`). The switch stays **OFF** (`busy`, "Setting
+   up…") until `POST /enable` has VERIFIED a code. Only `status.enabled` from the server is On
+   (`twoFactorView` / `TwoStepSwitch.view`).
+3. Leaving setup without a verified code DISCARDS it — `POST /api/auth/two-factor/setup/cancel`
+   (idempotent; clears the pending secret; never touches an enabled one) on Cancel, Back, navigating
+   away, `pagehide` (web, `keepalive`), and coming back after more than 5 minutes hidden/backgrounded.
+   A SHORT trip to the authenticator app on the same phone must NOT cancel it — that is how the code is
+   read. The server ignores and clears a pending secret older than 15 minutes, and `GET` reports
+   `pending: true|false`; a page that finds `pending` without a setup on screen shows Off and cancels it.
+4. Sign-in asks for a code ONLY when `twoFactorEnabled` is true — a pending secret never changes how
+   anybody signs in (`test_a_pending_only_account_signs_in_without_a_challenge`).
+5. On → switch off → a current code (`OtpCodeInput`) or, behind "Use a recovery code instead", a
+   recovery code; then off.
+
+#### Media card actions — Retry and Download
+
+Every media card, tile, upload row and outbox row draws its actions as **`MediaActionButton`**
+(web `components/media/MediaActionButton.tsx`, Android `ui/MediaDownloads.kt`): a tonal button with an
+icon AND a word — "Retry" (error rung) and "Download" (purple rung) — 14px/14sp semibold, ≥36px on a
+mouse and ≥44px/48dp on touch, AA contrast in light and dark, in ONE action row at the foot of the
+card (Retry first), wrapping rather than squeezing and never under the discard badge. Never a 12px
+TextButton or an outline chip.
 
 ---
 
@@ -1518,6 +1653,15 @@ Each of these looks wrong and is deliberate. Most were a shipped bug.
 - `aria-controls` only while the panel is mounted.
 - No tilt/parallax/spotlight on the guide cards — it was never there.
 
+**Primitives (§11.10)**
+- No `<select>`, no checkbox-as-setting, no `<input type="date">`, no single-box code input, anywhere.
+- A row-SELECTION checkbox (bulk approve, pick records) is not a setting and stays a checkbox.
+- The two-step switch is On only from the server's `enabled`; a pending setup is Off and is cancelled.
+- A short trip to the authenticator app must not cancel a setup; five minutes away does.
+- Recovery codes never go in the six boxes.
+- "Today" as a date bound is `toIsoDate(new Date())`, never `toISOString().slice(0, 10)` (UTC).
+- Android's OTP is one input drawn as six boxes — soft keyboards send no Backspace in an empty field.
+
 **Forms**
 - `new FormData(event.currentTarget)` first, before any `await`.
 - `Select`'s mirror is `type="text"`; `DosDontsField`'s must be a `<textarea>`.
@@ -1598,6 +1742,8 @@ Each of these looks wrong and is deliberate. Most were a shipped bug.
 ### New form
 - [ ] uncontrolled `FormData`; `new FormData(...)` first
 - [ ] `Field` for inputs, `FieldBlock` for anything containing a button
+- [ ] on/off → `Toggle`; list → `SearchableSelect`/`SearchableMultiSelect`; date → `CalendarField`;
+      6-digit code → `OtpCodeInput` (+ a separate recovery field behind a `Toggle`) — §11.10
 - [ ] every themed control calls `markDirty` by hand
 - [ ] `useLeaveGuard(dirty, …)`; **no** second back control
 - [ ] `LocationFields` — omit `initial` only on create
