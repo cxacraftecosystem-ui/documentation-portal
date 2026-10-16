@@ -80,6 +80,7 @@ import com.fieldrepository.app.data.DraftStore
 import com.fieldrepository.app.data.DraftValues
 import com.fieldrepository.app.data.OutboxStep
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.SideEffect
 import com.fieldrepository.app.ui.parseFieldDate
 import com.fieldrepository.app.ui.FieldDateField
 import com.fieldrepository.app.ui.FieldIslandNav
@@ -920,6 +921,8 @@ private fun RepositoryApp(
     var pendingUploads by remember { mutableStateOf(0) }
     // Whether the device has validated internet, for the "offline" line at the foot of the screen.
     var online by remember { mutableStateOf(repository.isOnline(appContext)) }
+    // How tall the island bar currently is, reported up by HomeScreen; 0 where there is no bar.
+    val islandClearance = remember { mutableStateOf(0.dp) }
     LaunchedEffect(user) {
         if (user == null || mustChangePasswordBlocks(user)) return@LaunchedEffect
         // The background half (data/OutboxSyncWorker.kt): carries on after the app is closed.
@@ -949,12 +952,20 @@ private fun RepositoryApp(
                 }
             }
 
+            // Read from the capabilities the callback HANDS us, not by asking ConnectivityManager
+            // again: inside these callbacks `activeNetwork` can still name the network being
+            // changed or lost, so the re-query answered "online" after the connection had gone and
+            // the offline line never appeared (release smoke test, 2026-10-16).
             override fun onCapabilitiesChanged(network: android.net.Network, caps: android.net.NetworkCapabilities) {
-                scope.launch { online = repository.isOnline(appContext) }
+                val usable = caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                scope.launch { online = usable }
             }
 
+            // The DEFAULT network went away. If another takes over, onAvailable and
+            // onCapabilitiesChanged for it follow and put this back.
             override fun onLost(network: android.net.Network) {
-                scope.launch { online = repository.isOnline(appContext) }
+                scope.launch { online = false }
             }
         }
         runCatching { cm?.registerDefaultNetworkCallback(callback) }
@@ -1126,7 +1137,7 @@ private fun RepositoryApp(
                     }
                 }
             )
-            else -> HomeScreen(
+            else -> CompositionLocalProvider(LocalIslandClearance provides islandClearance) { HomeScreen(
                 repository = repository,
                 user = user!!,
                 preferences = preferences,
@@ -1148,14 +1159,16 @@ private fun RepositoryApp(
                         }
                     }
                 }
-            )
+            ) }
         }
         if (user != null && (pendingUploads > 0 || !online)) {
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(bottom = 8.dp),
+                    // Above the island bar, never over it: offline, the bar is the only way around
+                    // the app, and this line used to sit on top of it (release smoke test 2026-10-16).
+                    .padding(bottom = 8.dp + islandClearance.value),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 if (!online) OfflineNotice(modifier = Modifier.fillMaxWidth())
@@ -2028,6 +2041,9 @@ private fun HomeScreen(
             }
         )
                 }) { islandReserve ->
+        val clearance = LocalIslandClearance.current
+        SideEffect { clearance?.value = islandReserve }
+        DisposableEffect(clearance) { onDispose { clearance?.value = 0.dp } }
         Box(Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -17482,6 +17498,9 @@ private fun moveIds(ids: List<String>, index: Int, direction: Int): List<String>
 
 private fun String.blankToNull(): String? = trim().takeIf { it.isNotEmpty() }
 
+
+/** The island bar's height, reported up so the app-level offline and outbox lines sit above it. */
+private val LocalIslandClearance = staticCompositionLocalOf<MutableState<androidx.compose.ui.unit.Dp>?> { null }
 
 /** A rich-text photograph's media id -> its URL, for [com.fieldrepository.app.ui.richtext.LocalRichMediaUrl]. */
 private fun richMediaUrlResolver(repository: FieldRepository): suspend (String) -> String? =
