@@ -129,6 +129,7 @@ import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.encodeToString
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
@@ -921,6 +922,8 @@ private fun RepositoryApp(
     var pendingUploads by remember { mutableStateOf(0) }
     // Whether the device has validated internet, for the "offline" line at the foot of the screen.
     var online by remember { mutableStateOf(repository.isOnline(appContext)) }
+    // The phone is online but the server has stopped answering (data/ServerReachability.kt).
+    val serverUnreachable by com.fieldrepository.app.data.ServerReachability.unreachable.collectAsState()
     // How tall the island bar currently is, reported up by HomeScreen; 0 where there is no bar.
     val islandClearance = remember { mutableStateOf(0.dp) }
     LaunchedEffect(user) {
@@ -1161,7 +1164,7 @@ private fun RepositoryApp(
                 }
             ) }
         }
-        if (user != null && (pendingUploads > 0 || !online)) {
+        if (user != null && (pendingUploads > 0 || !online || serverUnreachable)) {
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -1171,7 +1174,14 @@ private fun RepositoryApp(
                     .padding(bottom = 8.dp + islandClearance.value),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                if (!online) OfflineNotice(modifier = Modifier.fillMaxWidth())
+                if (!online) {
+                    OfflineNotice(modifier = Modifier.fillMaxWidth())
+                } else if (serverUnreachable) {
+                    OfflineNotice(
+                        modifier = Modifier.fillMaxWidth(),
+                        text = com.fieldrepository.app.data.ServerReachability.SERVER_UNREACHABLE_SENTENCE
+                    )
+                }
                 if (pendingUploads > 0) {
                     OutboxPendingBanner(
                         pendingUploads = pendingUploads,
@@ -4541,18 +4551,25 @@ internal class WorkshopPickerState(
      * only when every recent workshop is out of reach does it settle on the most recent anyway, so
      * the inline warning has something to explain rather than the field being silently empty.
      */
-    suspend fun applyMostRecentSubmittable(list: List<WorkshopDetailDto>) {
+    suspend fun applyMostRecentSubmittable(list: List<WorkshopDetailDto>, runningOnly: Boolean = false) {
         if (list.isEmpty()) return
         for (workshop in list.take(DEFAULT_PROBE_LIMIT)) {
             val answer = answerFor(workshop.id)
             // The user may have picked one themselves while the probe was in flight; their choice wins.
             if (selectedId.isNotBlank()) return
-            if (answer == null || answer.canSubmit) {
+            // A CREATE form takes only a workshop RUNNING TODAY (the web's DC-11 rule): a blank form
+            // must not open on an ended workshop and greet the researcher with a late-submission
+            // warning they did nothing to cause. With no pre-flight answer the workshop's own dates
+            // decide, exactly as `workshopWindowState` reads them for the warning itself.
+            val running = !runningOnly ||
+                workshopWindowState(answer, workshop) == WorkshopWindowState.IN_WINDOW
+            if ((answer == null || answer.canSubmit) && running) {
                 applyDefault(workshop.id)
                 return
             }
         }
-        if (selectedId.isBlank()) applyDefault(list.first().id)
+        // A list filter falls back to the newest workshop; a create form stays empty and asks.
+        if (selectedId.isBlank() && !runningOnly) applyDefault(list.first().id)
     }
 
     /**
@@ -4621,7 +4638,9 @@ internal fun rememberWorkshopPicker(
     repository: FieldRepository,
     isEdit: Boolean,
     initialId: String?,
-    resetKey: Any? = null
+    resetKey: Any? = null,
+    /** True on a record's create form: preselect only a workshop running today, else nothing. */
+    runningOnly: Boolean = false
 ): WorkshopPickerState {
     val state = remember(resetKey) {
         WorkshopPickerState(
@@ -4644,7 +4663,7 @@ internal fun rememberWorkshopPicker(
                 // walks up to DEFAULT_PROBE_LIMIT submission-check requests — which is why nothing may
                 // read `settled` as true until it has returned.
                 if (!isEdit && state.selectedId.isBlank()) {
-                    state.applyMostRecentSubmittable(list)
+                    state.applyMostRecentSubmittable(list, runningOnly)
                 }
             }
             .onFailure {
@@ -4702,7 +4721,10 @@ private fun WorkshopField(state: WorkshopPickerState, saving: Boolean = false) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         WorkshopDropdown(
             workshops = state.workshops,
-            selectedValue = state.selectedId
+            selectedValue = state.selectedId,
+            // A create form preselects only a workshop running today; when none is, the empty box
+            // says what it wants (the web's wording) instead of the bare "Unlinked".
+            placeholder = "Choose the workshop this record belongs to"
         ) { state.selectedId = it }
         if (blocked) {
             Text(
@@ -5635,7 +5657,10 @@ private fun MediaCaptureSection(
                 // Overall upload progress across the whole batch (staged files count as 100%).
                 val overall = media.uris.map { (media.stagedProgress[it] ?: 0f).coerceIn(0f, 1f) }.average().toFloat()
                 val allDone = media.staged.size >= media.uris.size
-                if (!allDone) {
+                // Nothing still moving: a failed file is not "Uploading… 0%" (smoke test 2026-10-16).
+                val failedCount = media.uris.count { it in media.stagedFailed }
+                val stalled = !allDone && media.staged.size + failedCount >= media.uris.size
+                if (!allDone && !stalled) {
                     LinearProgressIndicator(
                         progress = { overall },
                         modifier = Modifier.fillMaxWidth().height(6.dp),
@@ -5643,8 +5668,11 @@ private fun MediaCaptureSection(
                     )
                 }
                 Text(
-                    if (allDone) "All uploaded ✓ — ready to save"
-                    else "Uploading… ${(overall * 100).toInt()}% (${media.staged.size}/${media.uris.size} files done)",
+                    when {
+                        allDone -> "All uploaded ✓ — ready to save"
+                        stalled -> uploadStalledSentence(failedCount)
+                        else -> "Uploading… ${(overall * 100).toInt()}% (${media.staged.size}/${media.uris.size} files done)"
+                    },
                     color = MaterialTheme.field.onBrandTileMuted,
                     fontSize = 12.sp
                 )
@@ -5751,7 +5779,9 @@ private fun AttachedUploadsCard(
     ) {
         Text("${uris.size} $label(s) attached", color = MaterialTheme.field.onBrandTile, fontWeight = FontWeight.SemiBold)
         val overall = uris.map { (media.stagedProgress[it] ?: 0f).coerceIn(0f, 1f) }.average().toFloat()
-        if (!allDone) {
+        val failedCount = uris.count { it in media.stagedFailed }
+        val stalled = !allDone && doneCount + failedCount >= uris.size
+        if (!allDone && !stalled) {
             LinearProgressIndicator(
                 progress = { overall },
                 modifier = Modifier.fillMaxWidth().height(6.dp),
@@ -5759,8 +5789,11 @@ private fun AttachedUploadsCard(
             )
         }
         Text(
-            if (allDone) "All uploaded ✓ — ready to save"
-            else "Uploading… ${(overall * 100).toInt()}% ($doneCount/${uris.size} files done)",
+            when {
+                allDone -> "All uploaded ✓ — ready to save"
+                stalled -> uploadStalledSentence(failedCount)
+                else -> "Uploading… ${(overall * 100).toInt()}% ($doneCount/${uris.size} files done)"
+            },
             color = MaterialTheme.field.onBrandTileMuted,
             fontSize = 12.sp
         )
@@ -6460,7 +6493,7 @@ private fun CraftForm(
     var category by remember(editing) { mutableStateOf(editing?.category ?: "") }.drafted(draft, "category")
     var place by remember(editing) { mutableStateOf(editing?.place ?: "") }.drafted(draft, "place")
     var description by remember(editing) { mutableStateOf(editing?.description ?: "") }.drafted(draft, "description")
-    val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
+    val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing, runningOnly = true)
     var saving by remember { mutableStateOf(false) }
     var nameError by remember { mutableStateOf<String?>(null) }
     val nameFocus = remember { FocusRequester() }
@@ -6618,7 +6651,7 @@ private fun ArtisanForm(
      * in scope for it. That is not a style preference, it is what the compiler said.
      */
     val craftOptions = rememberCraftOptions(repository, crafts, craftId)
-    val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
+    val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing, runningOnly = true)
     /**
      * The craft and the workshop carry into a new artisan; the ARTISAN in the bag never does.
      *
@@ -7317,7 +7350,7 @@ private fun ProductForm(
     var remarks by remember(editing) { mutableStateOf(editing?.remarks ?: "") }.drafted(draft, "remarks")
     val canSetStatus = remember { canSetRecordStatus(repository.cachedUser()?.role) }
     var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }.drafted(draft, "status")
-    val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
+    val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing, runningOnly = true)
     /**
      * Offer the sitting this researcher was last working in, however they got here — the in-memory
      * [Prefill] only survives a tap made straight off the save screen, and the route they actually
@@ -7906,7 +7939,7 @@ private fun ToolForm(
     var replacementCost by remember(editing) { mutableStateOf(numToText(editing?.replacementCost)) }.drafted(draft, "replacementCost")
     var suggestions by remember(editing) { mutableStateOf(editing?.suggestionsForToolImprovement ?: "") }.drafted(draft, "suggestions")
     var remarks by remember(editing) { mutableStateOf(editing?.remarks ?: "") }.drafted(draft, "remarks")
-    val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
+    val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing, runningOnly = true)
     /**
      * Offer the sitting this researcher was last working in, however they got here.
      *
@@ -8853,7 +8886,7 @@ private fun ProcessForm(
     var artisanError by remember { mutableStateOf<String?>(null) }
     var preProcessAvailable by remember(editing) { mutableStateOf(editing?.preProcessAvailable ?: false) }.drafted(draft, "preProcessAvailable")
     var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }.drafted(draft, "notes")
-    val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
+    val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing, runningOnly = true)
     val canSetStatus = remember { canSetRecordStatus(repository.cachedUser()?.role) }
     var status by remember(editing) { mutableStateOf(editing?.status ?: defaultCreateStatus(repository.cachedUser()?.role)) }.drafted(draft, "status")
     var saving by remember { mutableStateOf(false) }
@@ -9958,11 +9991,7 @@ private data class WalkStep(val title: String, val body: String)
  * product, a researcher moves between them mid-workshop, and a step that is worded differently in
  * each reads as two different instructions.
  */
-private val walkthroughSteps = listOf(
-    WalkStep(
-        "Ten steps, in this order",
-        "This is the documentation process the app is built around, and it is the same ten steps in the same order on the web. Work down it once and you will not need the guide again. You can leave at any point and reopen this from the menu."
-    ),
+private val walkthroughBody = listOf(
     WalkStep(
         "1. Workshop \u00b7 Record workshop",
         "Open the workshop you are documenting under — or create it — before you record anything " +
@@ -10063,6 +10092,23 @@ private val walkthroughSteps = listOf(
             "Miscellaneous Media."
     )
 )
+
+/**
+ * The deck: an opening card, then [walkthroughBody]. The opening card COUNTS the numbered steps it
+ * introduces rather than typing a number — it said "Ten steps" over a deck the counter showed as
+ * 1/12, and nothing tied the word to the list (release smoke test, 2026-10-16).
+ */
+private val walkthroughSteps: List<WalkStep> = run {
+    val numbered = walkthroughBody.count { Regex("""^\d+\. """).containsMatchIn(it.title) }
+    listOf(
+        WalkStep(
+            "$numbered steps, in this order",
+            "This is the documentation process the app is built around, and it is the same $numbered steps " +
+                "in the same order on the web. Work down it once and you will not need the guide again. " +
+                "You can leave at any point and reopen this from the menu."
+        )
+    ) + walkthroughBody
+}
 
 /**
  * First-run (and on-demand) walkthrough: a stepped guide across the app's features with Back / Next /
@@ -12969,24 +13015,23 @@ private fun AndroidUriPreview(
     val mimeType = remember(uri) { context.contentResolver.getType(uri) }
     val mediaType = remember(mimeType) { mediaTypeFromMime(mimeType) }
     var showViewer by remember { mutableStateOf(false) }
-    Box(modifier = Modifier.fillMaxWidth()) {
-        MediaThumb(
-            uri = uri,
-            mediaType = mediaType,
-            title = uri.lastPathSegment.orEmpty(),
-            subtitle = mimeType ?: "Unknown file type",
-            onOpen = {
-                if (mediaType in IN_APP_PLAYABLE) showViewer = true else openUri(context, uri, mimeType)
+    MediaThumb(
+        uri = uri,
+        mediaType = mediaType,
+        title = uri.lastPathSegment.orEmpty(),
+        subtitle = mimeType ?: "Unknown file type",
+        onOpen = {
+            if (mediaType in IN_APP_PLAYABLE) showViewer = true else openUri(context, uri, mimeType)
+        },
+        trailing = onRemove?.let { remove ->
+            {
+                DiscardBadge(
+                    contentDescription = "Discard ${uri.lastPathSegment.orEmpty()}",
+                    onClick = remove
+                )
             }
-        )
-        if (onRemove != null) {
-            DiscardBadge(
-                contentDescription = "Discard ${uri.lastPathSegment.orEmpty()}",
-                onClick = onRemove,
-                modifier = Modifier.align(Alignment.TopEnd)
-            )
         }
-    }
+    )
     when {
         failed -> Text(
             "Upload failed — tap Retry, or Download to keep a copy on this device.",
@@ -13066,24 +13111,25 @@ private fun AndroidSavedMediaPreview(
             }
         }
     } else {
-        Box(modifier = Modifier.fillMaxWidth()) {
-            MediaThumb(
-                uri = uri,
-                mediaType = media.mediaType,
-                title = media.originalFilename,
-                subtitle = listOfNotNull(media.mimeType ?: media.mediaType, media.transcriptStatus?.let { "Transcript: $it" }).joinToString(" · "),
-                onOpen = {
-                    if (media.mediaType in IN_APP_PLAYABLE) showViewer = true else openUri(context, uri, media.mimeType)
+        MediaThumb(
+            uri = uri,
+            mediaType = media.mediaType,
+            title = media.originalFilename,
+            subtitle = listOfNotNull(media.mimeType ?: media.mediaType, media.transcriptStatus?.let { "Transcript: $it" }).joinToString(" · "),
+            onOpen = {
+                if (media.mediaType in IN_APP_PLAYABLE) showViewer = true else openUri(context, uri, media.mimeType)
+            },
+            trailing = if (onDelete != null) {
+                {
+                    DiscardBadge(
+                        contentDescription = "Remove ${media.originalFilename}",
+                        onClick = { confirmDelete = true }
+                    )
                 }
-            )
-            if (onDelete != null) {
-                DiscardBadge(
-                    contentDescription = "Remove ${media.originalFilename}",
-                    onClick = { confirmDelete = true },
-                    modifier = Modifier.align(Alignment.TopEnd)
-                )
+            } else {
+                null
             }
-        }
+        )
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             TextButton(onClick = { saveMediaToDevice(context, media.url, media.originalFilename, media.mimeType) }) {
                 Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -13461,7 +13507,7 @@ private fun QuestionnaireForm(
     var language by remember(editing) { mutableStateOf(editing?.language.orEmpty()) }.drafted(draft, "language")
     var notes by remember(editing) { mutableStateOf(editing?.notes ?: "") }.drafted(draft, "notes")
     var capturedLocation by remember(editing) { mutableStateOf(editing?.location?.toRequest()) }.drafted(draft, "capturedLocation")
-    val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing)
+    val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing, runningOnly = true)
     /*
       ── WHICH INSTRUMENT THIS SITTING IS ON ─────────────────────────────────────────────────────
 
@@ -16757,7 +16803,10 @@ private suspend fun trySaveOffline(
  * and anything saved now waits on the device. Shown at the foot of every screen while offline.
  */
 @Composable
-private fun OfflineNotice(modifier: Modifier = Modifier) {
+private fun OfflineNotice(
+    modifier: Modifier = Modifier,
+    text: String = "You're offline. Showing what was last loaded; anything you save stays on this device until you're back online."
+) {
     val ink = MaterialTheme.field.onBrandTile
     Row(
         modifier = modifier
@@ -16768,7 +16817,7 @@ private fun OfflineNotice(modifier: Modifier = Modifier) {
     ) {
         Icon(Icons.Filled.CloudOff, contentDescription = null, tint = ink, modifier = Modifier.size(16.dp))
         Text(
-            "You're offline. Showing what was last loaded; anything you save stays on this device until you're back online.",
+            text,
             color = ink,
             fontSize = 12.sp
         )
@@ -17498,6 +17547,10 @@ private fun moveIds(ids: List<String>, index: Int, direction: Int): List<String>
 
 private fun String.blankToNull(): String? = trim().takeIf { it.isNotEmpty() }
 
+
+/** Under a batch whose remaining files all failed: nothing is uploading, so say what happens next. */
+private fun uploadStalledSentence(failed: Int): String =
+    "$failed file${if (failed == 1) "" else "s"} did not upload. Saving tries again, or tap Retry below."
 
 /** The island bar's height, reported up so the app-level offline and outbox lines sit above it. */
 private val LocalIslandClearance = staticCompositionLocalOf<MutableState<androidx.compose.ui.unit.Dp>?> { null }

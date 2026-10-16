@@ -351,7 +351,13 @@ fun MediaThumb(
     title: String,
     subtitle: String?,
     onOpen: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /**
+     * Drawn at the row's END, after Open — the discard control. It used to be overlaid on the tile's
+     * top-right corner, and once it became a 48dp target it sat on top of "Open" (smoke test
+     * 2026-10-16). In the row, the two never share pixels.
+     */
+    trailing: (@Composable () -> Unit)? = null
 ) {
     val loader = rememberMediaImageLoader()
     Row(
@@ -387,5 +393,6 @@ fun MediaThumb(
         TextButton(onClick = onOpen, modifier = Modifier.heightIn(min = 48.dp)) {
             Text("Open", color = MaterialTheme.field.accentOnBrandTile, fontWeight = FontWeight.SemiBold)
         }
+        trailing?.invoke()
     }
 }
