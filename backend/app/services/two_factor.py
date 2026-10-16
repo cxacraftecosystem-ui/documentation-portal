@@ -86,11 +86,14 @@ TOO_MANY_ATTEMPTS_DETAIL = "Too many attempts. Try again later."
 #: signing in again mints a fresh challenge. So every wrong second-factor code — at sign-in, turning
 #: it off, making new recovery codes, minting a dataset token — is also counted against the ACCOUNT,
 #: and ten inside a rolling fifteen minutes lock the second factor: 15 minutes, doubling on each
-#: lockout, capped at 24 hours. A correct code resets all of it. An administrator's reset clears it.
+#: lockout, capped at ONE hour — somebody who only holds the password must not be able to keep the
+#: owner out for a day at a time. The lockout count decays to zero once a day has passed since the
+#: last lock ended. A correct code resets the budget; an administrator's reset clears everything.
 FAILURE_BUDGET = 10
 FAILURE_WINDOW = timedelta(minutes=15)
 FIRST_LOCKOUT = timedelta(minutes=15)
-MAX_LOCKOUT = timedelta(hours=24)
+MAX_LOCKOUT = timedelta(hours=1)
+LOCKOUT_DECAY = timedelta(hours=24)
 
 _ENCRYPTION_LABEL = b"field-repository-totp-v1"
 
@@ -400,27 +403,40 @@ async def consume_any_code(user: Any, code: str) -> bool:
 
 
 # ── The per-account failure budget ──────────────────────────────────────────────────────────────
+#
+# EVERY STEP IS ONE CONDITIONAL WRITE, because every read here is stale by the time it is acted on: a
+# burst of concurrent wrong codes must not each see "not locked" and each get a check. So a code is
+# checked only after it has CLAIMED a slot with an atomic, conditional increment; the lock is written
+# by exactly one request (a compare-and-swap on the window it ends); and a success clears the counter
+# only if nobody else has claimed a slot since it read it.
+#
+# THE COLUMNS. `twoFactorFailedAttempts` counts slots claimed in the live window, which started at
+# `twoFactorFailureWindowStartedAt` (None = no live window). `twoFactorLockedUntil` is when the latest
+# lock ends — kept after it lapses, as the record of when it ended, which is what the decay reads.
+# `twoFactorLockouts` is how many locks in a row, which sets the next one's length.
 
 
 class SecondFactorLocked(Exception):
-    """Too many wrong codes on this account recently; nothing is checked until the lock lapses."""
+    """No slot left: the second factor is locked, or the budget is spent and the lock is being set."""
 
 
 def lockout_duration(previous_lockouts: int) -> timedelta:
-    """15 minutes, doubling with each earlier lockout, never more than 24 hours."""
+    """15 minutes, doubling with each earlier lockout, never more than an hour."""
     return min(FIRST_LOCKOUT * (2 ** min(previous_lockouts, 16)), MAX_LOCKOUT)
 
 
+def _aware(value: datetime | None) -> datetime | None:
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
+
+
 def is_locked(user: Any, now: datetime | None = None) -> bool:
-    until = _user_field(user, "twoFactorLockedUntil")
-    if until is None:
-        return False
-    if until.tzinfo is None:
-        until = until.replace(tzinfo=UTC)
-    return until > (now or datetime.now(UTC))
+    until = _aware(_user_field(user, "twoFactorLockedUntil"))
+    return until is not None and until > (now or datetime.now(UTC))
 
 
-#: The columns a success, a switch-off or an administrator's reset puts back to "no failures".
+#: What a correct code, a switch-off or an administrator's reset puts back.
 CLEAR_FAILURES: dict[str, Any] = {
     "twoFactorFailedAttempts": 0,
     "twoFactorFailureWindowStartedAt": None,
@@ -429,50 +445,110 @@ CLEAR_FAILURES: dict[str, Any] = {
 }
 
 
-async def record_failure(user_id: str) -> None:
-    """Count one wrong code against the account, and lock it when the budget is spent.
+async def _start_window_if_lapsed(row: Any, now: datetime) -> None:
+    """Begin a fresh window when there is none live (never started, older than fifteen minutes, or
+    ended by a lock that has since lapsed). Conditional on the window and the lock being what this
+    request read, so only one of a burst restarts it. The lockout count DECAYS to zero here when the
+    last lock ended more than a day ago: somebody who merely knows the password cannot ratchet the
+    owner's lock up for ever."""
+    started = _aware(_user_field(row, "twoFactorFailureWindowStartedAt"))
+    if started is not None and now - started <= FAILURE_WINDOW:
+        return
+    last_lock_end = _aware(_user_field(row, "twoFactorLockedUntil"))
+    data: dict[str, Any] = {"twoFactorFailedAttempts": 0, "twoFactorFailureWindowStartedAt": now}
+    if last_lock_end is not None and now - last_lock_end > LOCKOUT_DECAY:
+        data["twoFactorLockouts"] = 0
+    await db.user.update_many(
+        where={
+            "id": _user_field(row, "id"),
+            "twoFactorFailureWindowStartedAt": _user_field(row, "twoFactorFailureWindowStartedAt"),
+            "twoFactorLockedUntil": _user_field(row, "twoFactorLockedUntil"),
+        },
+        data=data,
+    )
 
-    The count is an atomic increment inside a live window; a lapsed window is restarted with a
-    compare-and-swap on its start, so two failures arriving together cannot both restart it.
+
+async def claim_attempt_slot(user_id: str) -> int:
+    """Claim one of the account's slots BEFORE any code is checked; the count after claiming.
+
+    One `update_many` whose condition IS the rule — not locked, and fewer than the budget used — with
+    an atomic increment. Zero rows means there is no slot: SecondFactorLocked.
     """
     now = datetime.now(UTC)
-    row = None
-    for _ in range(5):
-        row = await db.user.find_unique(where={"id": user_id})
-        if row is None:
-            return
-        started = _user_field(row, "twoFactorFailureWindowStartedAt")
-        if started is not None and started.tzinfo is None:
-            started = started.replace(tzinfo=UTC)
-        if started is None or now - started > FAILURE_WINDOW:
-            restarted = await db.user.update_many(
-                where={"id": user_id, "twoFactorFailureWindowStartedAt": _user_field(row, "twoFactorFailureWindowStartedAt")},
-                data={"twoFactorFailedAttempts": 1, "twoFactorFailureWindowStartedAt": now},
-            )
-            if restarted:
-                row = await db.user.find_unique(where={"id": user_id})
-                break
-            continue
-        await db.user.update_many(where={"id": user_id}, data={"twoFactorFailedAttempts": {"increment": 1}})
-        row = await db.user.find_unique(where={"id": user_id})
-        break
-    if row is None:
-        return
+    row = await db.user.find_unique(where={"id": user_id})
+    if row is None or is_locked(row, now):
+        raise SecondFactorLocked()
+    await _start_window_if_lapsed(row, now)
+    claimed = await db.user.update_many(
+        where={
+            "id": user_id,
+            "twoFactorFailedAttempts": {"lt": FAILURE_BUDGET},
+            "OR": [{"twoFactorLockedUntil": None}, {"twoFactorLockedUntil": {"lt": now}}],
+        },
+        data={"twoFactorFailedAttempts": {"increment": 1}},
+    )
+    if not claimed:
+        raise SecondFactorLocked()
     invalidate_cached_user(user_id)
-    if (_user_field(row, "twoFactorFailedAttempts") or 0) < FAILURE_BUDGET:
-        return
-    lockouts = _user_field(row, "twoFactorLockouts") or 0
-    await db.user.update(
-        where={"id": user_id},
+    after = await db.user.find_unique(where={"id": user_id})
+    return int(_user_field(after, "twoFactorFailedAttempts") or 0)
+
+
+async def settle_success(user_id: str, claimed_count: int) -> None:
+    """A correct code clears the budget — but only if nobody has claimed a slot since this request
+    did. If somebody has, only this request's own slot is handed back, so concurrent wrong codes stay
+    counted. A success also ends the lockout run."""
+    cleared = await db.user.update_many(
+        where={"id": user_id, "twoFactorFailedAttempts": claimed_count},
+        data={"twoFactorFailedAttempts": 0, "twoFactorFailureWindowStartedAt": None, "twoFactorLockouts": 0},
+    )
+    if not cleared:
+        await db.user.update_many(
+            where={"id": user_id, "twoFactorFailedAttempts": {"gt": 0}},
+            data={"twoFactorFailedAttempts": {"decrement": 1}},
+        )
+    invalidate_cached_user(user_id)
+
+
+async def lock_if_spent(user_id: str) -> bool:
+    """After a wrong code: when the budget is spent, lock — written by exactly ONE request, by a
+    compare-and-swap on the window the lock ends, and the lockout count escalated by an atomic
+    increment. True when this request wrote the lock."""
+    row = await db.user.find_unique(where={"id": user_id})
+    if row is None or (_user_field(row, "twoFactorFailedAttempts") or 0) < FAILURE_BUDGET:
+        return False
+    window = _user_field(row, "twoFactorFailureWindowStartedAt")
+    if window is None:
+        return False  # another request has already written this window's lock
+    now = datetime.now(UTC)
+    lockouts = int(_user_field(row, "twoFactorLockouts") or 0)
+    until = now + lockout_duration(lockouts)
+    won = await db.user.update_many(
+        where={
+            "id": user_id,
+            "twoFactorFailedAttempts": {"gte": FAILURE_BUDGET},
+            "twoFactorFailureWindowStartedAt": window,
+        },
         data={
-            "twoFactorLockedUntil": now + lockout_duration(lockouts),
-            "twoFactorLockouts": lockouts + 1,
-            "twoFactorFailedAttempts": 0,
+            "twoFactorLockedUntil": until,
             "twoFactorFailureWindowStartedAt": None,
+            "twoFactorLockouts": {"increment": 1},
         },
     )
+    if not won:
+        return False
     invalidate_cached_user(user_id)
-    logger.warning("AUDIT two-factor locked after repeated wrong codes: user=%s lockout=%d", user_id, lockouts + 1)
+    # The audit trail every other two-step change writes to (enable, disable, reset): WARNING lines
+    # that reach journald on the box, where an administrator looking into a lock-out finds them.
+    logger.warning(
+        "AUDIT two-factor locked after %d wrong codes: user=%s (%s) lockout=%d until=%s",
+        FAILURE_BUDGET,
+        user_id,
+        _user_field(row, "email"),
+        lockouts + 1,
+        until.isoformat(),
+    )
+    return True
 
 
 async def clear_failures(user_id: str) -> None:
@@ -481,20 +557,18 @@ async def clear_failures(user_id: str) -> None:
 
 
 async def check_second_factor(user: Any, code: str, *, allow_recovery: bool = True) -> bool:
-    """THE one way a second-factor code is checked outside enrolment: the lock, then the code (spent
-    if right), then the budget. Raises SecondFactorLocked while locked, without checking anything."""
-    if is_locked(user):
-        raise SecondFactorLocked()
+    """THE one way a second-factor code is checked outside enrolment: claim a slot (or
+    SecondFactorLocked, with nothing checked), check the code — spent if right — then settle."""
     user_id = _user_field(user, "id")
+    claimed = await claim_attempt_slot(user_id)
     if allow_recovery:
         accepted = await consume_any_code(user, code)
     else:
         accepted = code_kind(code) == "totp" and await consume_totp(user, code)
     if accepted:
-        if _user_field(user, "twoFactorFailedAttempts") or _user_field(user, "twoFactorLockouts"):
-            await clear_failures(user_id)
+        await settle_success(user_id, claimed)
         return True
-    await record_failure(user_id)
+    await lock_if_spent(user_id)
     return False
 
 

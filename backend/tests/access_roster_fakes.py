@@ -103,6 +103,9 @@ def _matches(row: Any, where: dict[str, Any] | None) -> bool:
             elif "gt" in expected:
                 if actual is None or not actual > expected["gt"]:
                     return False
+            elif "gte" in expected:
+                if actual is None or not actual >= expected["gte"]:
+                    return False
             else:  # pragma: no cover - a query shape the fake has not been taught
                 raise NotImplementedError(f"fake db cannot match {field}={expected!r}")
         elif actual != expected:
@@ -235,6 +238,8 @@ class FakeTable:
             for field, value in data.items():
                 if isinstance(value, dict) and "increment" in value:
                     value = (getattr(row, field, 0) or 0) + value["increment"]
+                elif isinstance(value, dict) and "decrement" in value:
+                    value = (getattr(row, field, 0) or 0) - value["decrement"]
                 setattr(row, field, value)
             row.updatedAt = _now()
         self.writes.append(("update_many", dict(data)))

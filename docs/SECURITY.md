@@ -373,13 +373,20 @@ Android. RFC 6238: SHA-1, 6 digits, 30-second steps, ±1 step accepted. Implemen
   conditional update (`last step < this step`), so a code replayed inside its 90-second window, or two
   submissions racing, are refused. The enrolment code is recorded the same way.
 - **A per-account failure budget**, because the five-code cap is per challenge and signing in again
-  mints a fresh one. Every wrong second-factor code — at `verify`, `disable`, `recovery-codes` and
-  `POST /api/datasets/token` — is counted on the account (`twoFactorFailedAttempts` inside a rolling
-  15-minute window). Ten lock the second factor for 15 minutes, doubling with each lockout
-  (`twoFactorLockouts`) to a 24-hour cap (`twoFactorLockedUntil`). While locked, `/auth/login` answers
-  exactly as it always does (a challenge — the lock is not an oracle), and every code, right or wrong,
-  is refused with `429 "Too many attempts. Try again later."` without being checked. A correct code,
-  turning it off, or an administrator's reset clears the budget and the lock.
+  mints a fresh one. Every second-factor code — at `verify`, `disable`, `recovery-codes` and
+  `POST /api/datasets/token` — first CLAIMS a slot with one conditional, atomic update
+  (`twoFactorFailedAttempts < 10`, not locked, increment); no slot means `429 "Too many attempts. Try
+  again later."` and the code is not checked, so a burst of concurrent guesses gets ten checks, not N.
+  The window is a rolling 15 minutes (`twoFactorFailureWindowStartedAt`). When the tenth slot is spent
+  on a wrong code, exactly one request writes the lock (a compare-and-swap on the window it closes) and
+  increments `twoFactorLockouts`: 15 minutes, then 30, capped at **one hour**
+  (`twoFactorLockedUntil`), so somebody holding only the password cannot keep the owner out for long;
+  the lockout count decays to zero when a new window starts more than 24 hours after the last lock
+  ended. Each lock is an `AUDIT two-factor locked …` line, beside enable/disable/reset. While locked,
+  `/auth/login` mints **no challenge** and answers exactly as a wrong password does (401, the same
+  sentence), so challenges cannot be stockpiled and the lock is not confirmed. A correct code clears
+  the budget only if nobody claimed a slot after it (otherwise it hands back its own slot, so racing
+  failures stay counted); turning it off or an administrator's reset clears everything.
 - **The dataset token is a sign-in too.** `POST /api/datasets/token` for an account with two-step
   verification on requires `code`, checked by the same path (spent once, recovery codes allowed,
   counted against the budget); missing or wrong is one generic `401`.
