@@ -2671,6 +2671,7 @@ function ClipRecorder({
               key={item.key}
               item={item}
               onOpen={() => onOpenPreview(item)}
+              downloadFile={files[index] ?? null}
               action={
                 <button type="button" className="text-xs font-semibold text-red-700" onClick={() => onRemove(index)}>
                   Remove

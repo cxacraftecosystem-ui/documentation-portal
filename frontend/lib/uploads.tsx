@@ -282,7 +282,8 @@ export function useEagerStaging(files: File[], label = "Attach media"): EagerSta
       totalBytes,
       fraction: summary.fraction,
       etaSeconds: rate > 0 ? Math.max(0, Math.round((totalBytes - uploadedBytes) / rate)) : null,
-      currentFileName: active?.file.name ?? files[0]?.name ?? ""
+      currentFileName: active?.file.name ?? files[0]?.name ?? "",
+      files
     });
   }, [files, label, ownerId, reportSection, summary]);
 

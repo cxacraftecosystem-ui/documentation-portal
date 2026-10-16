@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { FileText, Headphones, Image as ImageIcon, Video } from "lucide-react";
 
+import { DownloadMediaButton, LocalFileDownloads } from "@/components/media/DownloadMediaButton";
 import { MediaLightbox, type PreviewMedia } from "@/components/media/MediaLightbox";
 import { bytes } from "@/lib/format";
 import type { BatchProgress } from "@/lib/media";
@@ -50,8 +51,8 @@ export function UploadedMediaChips({ items, showSection = false }: { items: Comp
     <>
       <div className="flex flex-wrap gap-2">
         {items.map((item) => (
+          <span key={item.key} className="inline-flex max-w-full items-center gap-1.5">
           <button
-            key={item.key}
             type="button"
             onClick={() => setActive(toPreview(item))}
             title={`Preview ${item.file.originalFilename}`}
@@ -62,6 +63,8 @@ export function UploadedMediaChips({ items, showSection = false }: { items: Comp
             {showSection ? <span className="shrink-0 text-ink-500">· {item.sectionLabel}</span> : null}
             <span className="shrink-0 text-ink-500">{bytes(item.file.sizeBytes)}</span>
           </button>
+          <DownloadMediaButton url={item.file.url} name={item.file.originalFilename} mimeType={item.file.mimeType} />
+          </span>
         ))}
       </div>
       {active ? <MediaLightbox item={active} onClose={() => setActive(null)} /> : null}
@@ -129,6 +132,7 @@ export function UploadProgress({
           </div>
         </div>
       ) : null}
+      {progress ? <LocalFileDownloads files={progress.files} className="px-1" /> : null}
       {done.length ? (
         <div className="grid gap-1.5">
           <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
