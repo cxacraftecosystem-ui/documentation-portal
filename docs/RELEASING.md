@@ -106,6 +106,11 @@ reach a phone, and that stays true.
   runs the file *as of the tagged commit*, unlike the `workflow_run` stages, which are read from the
   default branch. Tag a commit that does not contain this file and nothing happens at all — no run,
   no red X, silence.
+- **The server goes first when a build depends on it.** The Android capture work of 2026-10-17
+  (question-to-artisan mapping, unnamed process steps) talks to fields the server learns in the web
+  capture migration `20261020121500_web_capture_fields`. An unchanged question save keeps the old
+  body, but changing a mapping, or saving a step without a name, is refused (422) by a server
+  without it. Do not tag that build until the documentation backend with that migration is live.
 
 ### The five steps
 
