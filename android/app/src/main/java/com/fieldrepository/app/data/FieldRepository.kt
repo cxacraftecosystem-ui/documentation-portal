@@ -372,14 +372,13 @@ internal const val LIST_PAGE_CEILING = 100
 internal const val ARTISAN_PAGE_BUDGET = 5
 
 /**
- * PAGES A RECORD PICKER WALKS BEFORE IT STOPS — 20 pages of 100.
+ * PAGES A BOUNDED WALK STOPS AT — 20 pages of 100.
  *
- * The app-wide craft, artisan and interview pickers used to hold page one of their table and then
- * print "the other N are not on this list, and typing here searches only the 100 shown" — an
- * admission that a record existed and could not be picked. They now hold the whole table up to this
- * budget, so typing in the picker searches every row a deployment of this size has. Past it (2,000
- * rows of one type) the picker says how many it shows and points at Search, which asks the server.
- * Pages are fetched one after another, not all at once, so a large table never bursts the API.
+ * The record pickers used to walk this many pages of their table up front (2,000 rows) and filter the
+ * copy on the device. They no longer do: since DC-A09 a picker holds one page and sends what is typed
+ * to the list route's `search`, with "Load more" for the next page (`ui/ServerSearch.kt`). What still
+ * walks this budget is a question bounded by its own filter — one artisan's interviews, for example.
+ * Pages are fetched one after another, not all at once, so a large answer never bursts the API.
  */
 internal const val LOOKUP_PAGE_BUDGET = 20
 
@@ -1494,11 +1493,71 @@ class FieldRepository(
      * and call it a craft's roster. The two clients deploy separately from the API; see
      * `MeasurementMarkers.body` for the same argument made about a request key.
      */
-    suspend fun artisansForCraftsPage(craftIds: List<String>): PageResponse<ArtisanDto> =
+    suspend fun artisansForCraftsPage(
+        craftIds: List<String>,
+        search: String? = null,
+        page: Int = 1
+    ): PageResponse<ArtisanDto> =
         api.artisans(
+            page = page,
             pageSize = 100,
             craftId = craftIds.singleOrNull()?.blankToNull(),
-            craftIds = craftIds.toQueryCsv()
+            craftIds = craftIds.toQueryCsv(),
+            search = search?.blankToNull()
+        )
+
+    /**
+     * ONE PAGE OF A RECORD PICKER, searched by the SERVER (`ui/ServerSearch.kt`). [search] null is the
+     * plain list; [page] is what "Load more" asks for next. Same ordering as the list route.
+     */
+    suspend fun artisansSearchPage(
+        search: String?,
+        page: Int,
+        workshopIds: List<String>? = null
+    ): PageResponse<ArtisanDto> =
+        api.artisans(
+            page = page,
+            pageSize = 100,
+            workshopIds = workshopIds.toQueryCsv(),
+            search = search?.blankToNull()
+        )
+
+    /** [artisansSearchPage] for crafts. */
+    suspend fun craftsSearchPage(search: String?, page: Int): PageResponse<CraftDto> =
+        api.crafts(page = page, pageSize = 100, search = search?.blankToNull())
+
+    /** [artisansSearchPage] for products. */
+    suspend fun productsSearchPage(search: String?, page: Int): PageResponse<ProductDetailDto> =
+        api.products(page = page, pageSize = 100, search = search?.blankToNull())
+
+    /** [artisansSearchPage] for tools. */
+    suspend fun toolsSearchPage(search: String?, page: Int): PageResponse<ToolDetailDto> =
+        api.tools(page = page, pageSize = 100, search = search?.blankToNull())
+
+    /** [artisansSearchPage] for processes. */
+    suspend fun processesSearchPage(search: String?, page: Int): PageResponse<ProcessDetailDto> =
+        api.processes(page = page, pageSize = 100, search = search?.blankToNull())
+
+    /** [artisansSearchPage] for workshops. */
+    suspend fun workshopsSearchPage(search: String?, page: Int): PageResponse<WorkshopDetailDto> =
+        api.workshops(page = page, pageSize = 100, search = search?.blankToNull())
+
+    /** [artisansSearchPage] for media files. */
+    suspend fun mediaSearchPage(search: String?, page: Int): PageResponse<MediaFileDto> =
+        api.media(page = page, pageSize = 100, search = search?.blankToNull())
+
+    /** [artisansSearchPage] for interviews, inside the workshop scope on screen. */
+    suspend fun interviewsSearchPage(
+        workshopIds: List<String>?,
+        search: String?,
+        page: Int
+    ): PageResponse<QuestionnaireInterviewDetailDto> =
+        api.interviews(
+            page = page,
+            pageSize = 100,
+            workshopIds = workshopIds.toQueryCsv(),
+            workshopId = workshopIds.singleWorkshopIdOrNull(),
+            search = search?.blankToNull()
         )
 
     /**
@@ -1586,9 +1645,11 @@ class FieldRepository(
     suspend fun searchInterviews(query: String, pageSize: Int = 10): List<QuestionnaireInterviewDetailDto> =
         api.interviews(pageSize = pageSize, search = query.trim()).items
 
-    /** [crafts] with the envelope kept, for the same reason as [artisansPage]. */
-    suspend fun craftsPage(): PageResponse<CraftDto> =
-        walkPages(LOOKUP_PAGE_BUDGET) { api.crafts(page = it, pageSize = 100) }
+    /**
+     * [crafts] with the envelope kept, for the same reason as [artisansPage]. ONE page: the pickers
+     * reach the rest through the server's search (`ui/ServerSearch.kt`).
+     */
+    suspend fun craftsPage(): PageResponse<CraftDto> = api.crafts(page = 1, pageSize = 100)
 
     suspend fun products(): List<ProductDetailDto> = api.products(pageSize = 100).items
 
@@ -1678,18 +1739,6 @@ class FieldRepository(
     suspend fun artisanQuestionnaire(id: String): ArtisanQuestionnaireDto = api.artisanQuestionnaire(id)
 
     suspend fun media(): List<MediaFileDto> = api.media(pageSize = 20).items
-
-    /*
-     * THE "UPDATE EXISTING" LISTS, WHOLE. The dashboard's Update picker used to hold page one of
-     * each table (100 rows; media 20) and say nothing about the rest, so an older record could not be
-     * opened from it at all. These walk [LOOKUP_PAGE_BUDGET] pages and keep `total`, so the screen
-     * can say so in the one case a table outgrows even that.
-     */
-    suspend fun productsAll(): PageResponse<ProductDetailDto> = walkPages(LOOKUP_PAGE_BUDGET) { api.products(page = it, pageSize = 100) }
-    suspend fun toolsAll(): PageResponse<ToolDetailDto> = walkPages(LOOKUP_PAGE_BUDGET) { api.tools(page = it, pageSize = 100) }
-    suspend fun processesAll(): PageResponse<ProcessDetailDto> = walkPages(LOOKUP_PAGE_BUDGET) { api.processes(page = it, pageSize = 100) }
-    suspend fun workshopsAll(): PageResponse<WorkshopDetailDto> = walkPages(LOOKUP_PAGE_BUDGET) { api.workshops(page = it, pageSize = 100) }
-    suspend fun mediaAll(): PageResponse<MediaFileDto> = walkPages(LOOKUP_PAGE_BUDGET) { api.media(page = it, pageSize = 100) }
 
     /** A broader media list for the View Data "Miscellaneous Media" browser (most recent first). */
     suspend fun mediaList(): List<MediaFileDto> = api.media(pageSize = 100).items
@@ -2218,6 +2267,22 @@ class FieldRepository(
      * gather — the caller would have scoped the RECORD rather than the LIST, which is the one place
      * scoping is wrong.
      */
+    /**
+     * One artisan's interviews INSIDE the workshop scope on screen — the View Data filter's dependent
+     * list. Asked per ticked artisan rather than by walking every interview in the scope, so the
+     * request is bounded by the selection and not by the size of the repository.
+     */
+    suspend fun interviewsForArtisanInScope(artisanId: String, workshopIds: List<String>?): List<QuestionnaireInterviewDetailDto> =
+        walkPages(LOOKUP_PAGE_BUDGET) { page ->
+            api.interviews(
+                page = page,
+                pageSize = 100,
+                artisanId = artisanId,
+                workshopIds = workshopIds.toQueryCsv(),
+                workshopId = workshopIds.singleWorkshopIdOrNull()
+            )
+        }.items
+
     suspend fun interviewsForArtisan(artisanId: String): List<QuestionnaireInterviewDetailDto> =
         api.interviews(pageSize = 100, artisanId = artisanId).items
 

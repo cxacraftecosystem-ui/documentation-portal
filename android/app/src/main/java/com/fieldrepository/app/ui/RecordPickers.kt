@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import com.fieldrepository.app.data.ArtisanDto
 import com.fieldrepository.app.data.CraftDto
 import com.fieldrepository.app.data.FieldRepository
+import com.fieldrepository.app.data.PageResponse
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -286,8 +287,8 @@ fun listCutNotice(
         // arithmetic is still worth the line — a reader looking at 100 rows and no sentence cannot
         // tell whether that is the workshop or the ceiling, and the two call for different actions.
         ListCutReach.SEARCH -> "Showing $loaded of $total $noun — type to search all $total."
-        // The picker already holds every row up to LOOKUP_PAGE_BUDGET pages, so this arm is reached
-        // only past it — and it names the place that DOES reach the rest rather than the limit.
+        // No Android picker prints this arm since DC-A09: they search the server and page, so nothing
+        // is out of reach. It stays word for word with the web twin, which the parity tests compare.
         ListCutReach.NONE ->
             "Showing $loaded of $total $noun. To find another, use Browse records from the menu."
     }
@@ -507,7 +508,8 @@ fun rememberCraftOptions(
  *   `CarryContextPrefill` reads it to decide whether a carried artisan is reachable AT ALL, and that
  *   judgement is about the repository rather than about one craft.
  * @param options the same list plus the chosen craft's roster and the record's own artisan.
- * @param craftRosterCut the sentence for the craft-scoped load, or null when it is whole.
+ * @param search the server-searched list the sheet shows (`ui/ServerSearch.kt`): the chosen crafts'
+ *   roster, or the whole table when no craft is chosen. Typing asks the server; "Load more" pages.
  * @param loadedForCraft WHICH crafts the roster belongs to — not a boolean. "No artisans are linked
  *   to this craft yet" is a claim about the repository, and printing it off the PREVIOUS craft's
  *   rows while the new craft's request is still in flight makes that claim before the answer
@@ -520,7 +522,7 @@ fun rememberCraftOptions(
  */
 data class ArtisanPickerState(
     val options: List<ArtisanDto>,
-    val craftRosterCut: String?,
+    val search: ServerSearchState<ArtisanDto>,
     val loadedForCraft: String?
 ) {
     /** Has the roster for exactly these crafts arrived? See [loadedForCraft]. */
@@ -539,9 +541,13 @@ data class ArtisanPickerState(
 private fun craftScopeKey(craftIds: List<String>): String =
     craftIds.filter { it.isNotBlank() }.distinct().sorted().joinToString(",")
 
-/** "artisans of this craft" / "artisans of these crafts" — the noun [listCutNotice] prints. */
-private fun craftRosterNoun(crafts: Int): String =
-    if (crafts <= 1) "artisans of this craft" else "artisans of these crafts"
+/** What a typed term is matched against offline: the same fields the server's `search` reads. */
+fun artisanSearchText(artisan: ArtisanDto): String =
+    listOfNotNull(artisan.name, artisan.place, artisan.craft?.name).joinToString(" ")
+
+/** The sheet row every artisan picker draws: name · place. */
+fun artisanSelectOption(artisan: ArtisanDto): SelectOption =
+    SelectOption(artisan.id, "${artisan.name} · ${artisan.place}")
 
 /**
  * The two follow-up requests that close the ceiling defect, held for one form.
@@ -589,25 +595,33 @@ fun rememberArtisanPicker(
     artisans: List<ArtisanDto>,
     craftIds: List<String>,
     artisanIds: List<String>,
-    hydrated: List<ArtisanDto> = emptyList()
+    hydrated: List<ArtisanDto> = emptyList(),
+    /**
+     * Page 1 of the whole table when the caller already holds it (the app-wide lookup), so a form with
+     * no craft chosen costs no request until somebody types. Null asks for it.
+     */
+    seed: PageResponse<ArtisanDto>? = null
 ): ArtisanPickerState {
-    var roster by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
-    var rosterCut by remember { mutableStateOf<String?>(null) }
-    var loadedForCraft by remember { mutableStateOf<String?>(null) }
     var offPage by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
     val attempted = remember { mutableSetOf<String>() }
 
     val scopeKey = craftScopeKey(craftIds)
-    LaunchedEffect(scopeKey) {
-        if (scopeKey.isEmpty()) return@LaunchedEffect
-        val wanted = craftIds.filter { it.isNotBlank() }.distinct()
-        runCatching { repository.artisansForCraftsPage(wanted) }
-            .onSuccess { page ->
-                roster = page.items
-                rosterCut = listCutNotice(page.items.size, page.total, craftRosterNoun(wanted.size))
-                loadedForCraft = scopeKey
-            }
+    val wanted = craftIds.filter { it.isNotBlank() }.distinct()
+    // THE CHOSEN CRAFTS' ROSTER, asked of the server with `craftIds` — and now searched and paged there
+    // too, so a craft with three hundred people is as reachable as one with three. Offline, the rows
+    // already on the device for these crafts are what the sheet filters.
+    val search = rememberServerSearch(
+        key = scopeKey,
+        cached = if (wanted.isEmpty()) artisans else artisans.filter { it.craftId in wanted },
+        seed = if (wanted.isEmpty()) seed else null,
+        idOf = { it.id },
+        textOf = ::artisanSearchText
+    ) { term, page ->
+        if (wanted.isEmpty()) repository.artisansSearchPage(term, page)
+        else repository.artisansForCraftsPage(wanted, term, page)
     }
+    val roster = if (scopeKey.isNotEmpty() && search.browseKey == scopeKey) search.browse else emptyList()
+    val loadedForCraft = if (scopeKey.isNotEmpty() && search.browseLoaded && search.browseKey == scopeKey) scopeKey else null
 
     // A row supplied for an id that is no longer selected must never stay in the options: the
     // researcher has unticked it and it would show as an entry that is neither on a page nor chosen.
@@ -615,9 +629,16 @@ fun rememberArtisanPicker(
     val wantedArtisans = artisanIds.filter { it.isNotBlank() }.distinct()
     val embedded = hydrated.filter { it.id in wantedArtisans }
     val rescued = offPage.filter { it.id in wantedArtisans }
+    // EVERY row a search or a page has answered stays offered, not only the selected ones: the forms
+    // read a picked row back in the same tap that picks it (the product form fills artisan + place,
+    // the process form remembers the carry), and at that moment the pick is not yet selected. The
+    // sheet itself lists the server's rows, so a wider `options` shows nobody extra.
     val known = mergeArtisansById(
-        mergeArtisansById(mergeArtisansById(artisans, roster), embedded),
-        rescued
+        mergeArtisansById(
+            mergeArtisansById(mergeArtisansById(artisans, roster), embedded),
+            rescued
+        ),
+        search.seen
     )
 
     val missing = wantedArtisans.filterNot { id -> known.any { it.id == id } }
@@ -654,7 +675,7 @@ fun rememberArtisanPicker(
         }
     }
 
-    return ArtisanPickerState(options = known, craftRosterCut = rosterCut, loadedForCraft = loadedForCraft)
+    return ArtisanPickerState(options = known, search = search, loadedForCraft = loadedForCraft)
 }
 
 /**
@@ -669,10 +690,69 @@ fun rememberArtisanPicker(
     repository: FieldRepository,
     artisans: List<ArtisanDto>,
     craftId: String,
-    artisanId: String
+    artisanId: String,
+    seed: PageResponse<ArtisanDto>? = null
 ): ArtisanPickerState = rememberArtisanPicker(
     repository = repository,
     artisans = artisans,
     craftIds = listOfNotNull(craftId.ifBlank { null }),
-    artisanIds = listOfNotNull(artisanId.ifBlank { null })
+    artisanIds = listOfNotNull(artisanId.ifBlank { null }),
+    seed = seed
 )
+
+/**
+ * THE CRAFT PICKER'S HALF OF [rememberArtisanPicker]: [rememberCraftOptions] for the chosen crafts,
+ * plus the server-searched list the sheet shows.
+ *
+ * @param seed page 1 of `GET /crafts` when the caller holds it (the app-wide lookup).
+ */
+data class CraftPickerState(val options: List<CraftDto>, val search: ServerSearchState<CraftDto>)
+
+/** Offline match text for a craft: what the server's `search` reads that a row can show. */
+fun craftSearchText(craft: CraftDto): String =
+    listOfNotNull(craft.name, craft.place).joinToString(" ")
+
+@Composable
+fun rememberCraftPicker(
+    repository: FieldRepository,
+    crafts: List<CraftDto>,
+    craftIds: List<String>,
+    hydrated: List<CraftDto> = emptyList(),
+    seed: PageResponse<CraftDto>? = null
+): CraftPickerState {
+    val search = rememberServerSearch(
+        key = Unit,
+        cached = crafts,
+        seed = seed,
+        idOf = { it.id },
+        textOf = ::craftSearchText
+    ) { term, page -> repository.craftsSearchPage(term, page) }
+    // Every craft a search or a page has answered, for the same reason as the artisan picker's
+    // `known`: the forms read a picked craft's NAME back in the tap that picks it.
+    val fromSearch = search.seen.filter { craft -> crafts.none { it.id == craft.id } }
+    val base = if (fromSearch.isEmpty()) crafts else crafts + fromSearch
+    return CraftPickerState(rememberCraftOptions(repository, base, craftIds, hydrated), search)
+}
+
+/** The one-craft form of [rememberCraftPicker]. */
+@Composable
+fun rememberCraftPicker(
+    repository: FieldRepository,
+    crafts: List<CraftDto>,
+    craftId: String,
+    seed: PageResponse<CraftDto>? = null
+): CraftPickerState =
+    rememberCraftPicker(repository, crafts, listOfNotNull(craftId.ifBlank { null }), seed = seed)
+
+/**
+ * WHAT A LOOKUP PAGE MAY SAY ABOUT A CARRIED RECORD (`ui/CarryContextPrefill.kt`).
+ *
+ * The app-wide lookups hold ONE page now and reach the rest through the server's search, so a carried
+ * id absent from the page is no evidence that the record is gone. Only a page that is the whole list
+ * can vouch for an absence; any other answer leaves the offer standing, exactly as "no signal" does.
+ */
+fun carryScopeStateFor(vararg pages: PageResponse<*>?): CarryScopeState = when {
+    pages.any { it == null } -> CarryScopeState.UNAVAILABLE
+    pages.all { it!!.items.size >= it.total } -> CarryScopeState.LOADED
+    else -> CarryScopeState.UNAVAILABLE
+}

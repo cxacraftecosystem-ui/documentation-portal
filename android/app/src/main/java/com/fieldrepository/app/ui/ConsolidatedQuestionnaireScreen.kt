@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
@@ -193,10 +194,11 @@ private fun shortDate(value: String?): String {
 private data class PickedArtisan(val id: String, val name: String)
 
 /**
- * The whole feature, hosted in the shared chrome: a bare [Column] and nothing else, because HomeScreen
- * draws the scaffold, the app bar, the scroll and the back button. Nothing here may scroll itself — a
- * nested `verticalScroll` (or a `LazyColumn`, which this screen used to be) is measured with an
- * infinite height budget inside the parent's scroll and throws before it can draw.
+ * The whole feature, hosted in the shared chrome as a LAZY PAGE (`ui/LazyPage.kt`): HomeScreen draws
+ * the scaffold, the app bar and the back button and hands over [LazyPageChrome], and this screen lays
+ * out the page's one LazyColumn — its own header card, then the artisan rows as lazy items. It is not
+ * inside the page column's `verticalScroll`, which a LazyColumn cannot be (it is measured with an
+ * infinite height budget there and throws before it can draw).
  *
  * TWO VIEWS, ONE DESTINATION. The web gives the document its own URL, and that is the point there: the
  * document is the thing a researcher quotes, so it needs an address. Android has no addresses, so the
@@ -206,25 +208,33 @@ private data class PickedArtisan(val id: String, val name: String)
 @Composable
 fun ConsolidatedQuestionnaireScreen(
     repository: FieldRepository,
-    onError: (String) -> Unit
+    onError: (String) -> Unit,
+    /** The page's own scroller: the index IS the list (`ui/LazyPage.kt`). */
+    chrome: LazyPageChrome
 ) {
     var opened by remember { mutableStateOf<PickedArtisan?>(null) }
     val picked = opened
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-        if (picked == null) {
-            ConsolidatedIndex(
-                repository = repository,
-                onError = onError,
-                onOpen = { artisan -> opened = PickedArtisan(artisan.id, artisan.name) }
-            )
-        } else {
-            ConsolidatedDocument(
-                repository = repository,
-                picked = picked,
-                onError = onError,
-                onBack = { opened = null }
-            )
+    if (picked == null) {
+        ConsolidatedIndex(
+            repository = repository,
+            onError = onError,
+            onOpen = { artisan -> opened = PickedArtisan(artisan.id, artisan.name) },
+            chrome = chrome
+        )
+    } else {
+        // The document is one reading, not a list: one item, laid out as it always was.
+        PageLazyColumn(chrome, spacing = 12.dp) {
+            item(key = "document:${picked.id}") {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    ConsolidatedDocument(
+                        repository = repository,
+                        picked = picked,
+                        onError = onError,
+                        onBack = { opened = null }
+                    )
+                }
+            }
         }
     }
 }
@@ -240,143 +250,168 @@ fun ConsolidatedQuestionnaireScreen(
  * other screen that reads a workshop's output. It deliberately does NOT ride into the document — see
  * [ConsolidatedDocument] for why the document is read whole by default, and for the one sentence on
  * this screen that keeps the difference from being a surprise.
+ *
+ * THE LIST IS THE SERVER'S, A PAGE AT A TIME (DC-A09, DC-A34). It used to walk twenty pages of the
+ * scope (2,000 artisans) and filter that copy as the box was typed into, composing every row inside
+ * the page column. Now the box types into `GET /artisans?search=` inside the scope, "Load more" pages,
+ * and the rows are lazy items of the page's own list — see `ui/ServerSearch.kt` and `ui/LazyPage.kt`.
  */
 @Composable
 private fun ConsolidatedIndex(
     repository: FieldRepository,
     onError: (String) -> Unit,
-    onOpen: (ArtisanDto) -> Unit
+    onOpen: (ArtisanDto) -> Unit,
+    chrome: LazyPageChrome
 ) {
     val scope = rememberWorkshopScope(repository = repository, onError = onError)
-    var artisans by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var query by remember { mutableStateOf("") }
-    /**
-     * What this list is NOT showing, already worded (`ui/RecordPickers.listCutNotice`), or null when
-     * it is whole — which is the ordinary case for one workshop and prints nothing.
-     *
-     * The scope above is what usually makes this null: one workshop's artisans fit inside the
-     * hundred-row ceiling `normalize_pagination` clamps every list route to. "Usually" is not a
-     * property of the code, though, and an artisan who is silently absent from a picker is
-     * indistinguishable from an artisan who was never recorded — so the count comes back with the
-     * page and the screen says the number when it has to. `ListCutReach.NONE` is the honest reach
-     * here: the search box below filters the rows already loaded and does not reach the server.
-     */
-    var listCut by remember { mutableStateOf<String?>(null) }
+    // Held until the picker has settled, or the first request goes out unscoped and is replaced a
+    // moment later — two requests, and a visible flash of the wrong list.
+    val search = rememberServerSearch(
+        key = scope.requestKey,
+        cached = emptyList<ArtisanDto>(),
+        seed = null,
+        idOf = { it.id },
+        textOf = ::artisanSearchText,
+        enabled = scope.settled
+    ) { term, page -> repository.artisansSearchPage(term, page, scope.workshopIds) }
+    val query = search.query
+    val rows = search.rows
+    val searching = query.isNotBlank()
+    val loading = !scope.settled || (search.loading && rows.isEmpty())
+    val failed = scope.settled && !search.browseLoaded && search.note != null && !search.loading
 
-    LaunchedEffect(scope.settled, scope.requestKey) {
-        // Held until the picker has settled, or the first request goes out unscoped and is replaced a
-        // moment later — two requests, and a visible flash of the wrong list.
-        if (!scope.settled) return@LaunchedEffect
-        loading = true
-        // Cleared BEFORE the request: a failed load followed by a scope change would otherwise keep
-        // the old error card over a request already in flight, which reads as the retry not happening.
-        // The cut notice goes with it, for the same reason — it describes a list that is no longer
-        // the one being loaded.
-        error = null
-        listCut = null
-        runCatching { repository.artisansPage(workshopIds = scope.workshopIds, pageBudget = com.fieldrepository.app.data.LOOKUP_PAGE_BUDGET) }
-            .onSuccess { page ->
-                artisans = page.items
-                listCut = listCutNotice(page.items.size, page.total, "artisans")
-                error = null
-                loading = false
-            }
-            .onFailure { failure ->
-                // Re-keying this effect cancels the call in flight and `runCatching` catches that
-                // cancellation like any other Throwable. Rethrowing also skips `loading = false`, and
-                // must: the pass that replaced this one already owns the flag.
-                if (failure is CancellationException) throw failure
-                val message = failure.apiErrorMessage("Unable to load artisans.")
-                error = message
-                onError(message)
-                loading = false
-            }
-    }
+    // No spacing from the list itself: the artisan card is drawn as touching segments, so every other
+    // item carries its own gap instead.
+    PageLazyColumn(chrome, spacing = 0.dp) {
+        item(key = "index-header", contentType = "card") {
+            Box(modifier = Modifier.padding(top = 12.dp, bottom = 12.dp)) {
+            ConsolidatedCard(title = "Consolidated questionnaire", icon = Icons.Filled.Layers) {
+                Text(
+                    "Pick an artisan to read all their answers as one document.",
+                    color = MaterialTheme.field.muted,
+                    fontSize = 12.sp
+                )
 
-    val filtered = remember(artisans, query) {
-        val needle = query.trim().lowercase()
-        if (needle.isEmpty()) artisans
-        else artisans.filter { artisan ->
-            listOfNotNull(artisan.name, artisan.craft?.name, artisan.place)
-                .joinToString(" ")
-                .lowercase()
-                .contains(needle)
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { search.updateQuery(it) },
+                    label = { Text("Search artisans by name, craft or place") },
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                    trailingIcon = {
+                        if (query.isNotBlank()) {
+                            IconButton(onClick = { search.updateQuery("") }) {
+                                Icon(Icons.Filled.Close, contentDescription = "Clear search", modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                WorkshopScopeSelect(scope = scope, label = "Workshops to read")
+
+                HorizontalDivider(color = MaterialTheme.field.hairline)
+
+                // The one sentence that stops a narrowed list from being read as a narrowed document. On
+                // the web the chosen scope rides the link into the document; here the document opens on
+                // every interview and carries its own control, so this line names the difference rather
+                // than leaving a reader to assume the two match.
+                Text(
+                    "Artisans in the chosen workshops.",
+                    color = MaterialTheme.field.muted,
+                    fontSize = 12.sp
+                )
+                search.note?.let { Text(it, color = MaterialTheme.field.muted, fontSize = 12.sp) }
+            }
+            }
         }
-    }
 
-    ConsolidatedCard(title = "Consolidated questionnaire", icon = Icons.Filled.Layers) {
-        Text(
-            "Pick an artisan to read all their answers as one document.",
-            color = MaterialTheme.field.muted,
-            fontSize = 12.sp
-        )
+        when {
+            failed -> item(key = "index-failed", contentType = "card") {
+                ConsolidatedCard(title = "Could not load artisans") {
+                    Text("Check the connection and try again.", color = MaterialTheme.field.body, fontSize = 13.sp)
+                    TextButton(onClick = { search.retry() }) { Text("Try again") }
+                }
+            }
 
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            label = { Text("Search artisans by name, craft or place") },
-            singleLine = true,
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
-            trailingIcon = {
-                if (query.isNotBlank()) {
-                    IconButton(onClick = { query = "" }) {
-                        Icon(Icons.Filled.Close, contentDescription = "Clear search", modifier = Modifier.size(18.dp))
+            loading -> item(key = "index-loading", contentType = "card") {
+                ConsolidatedCard(title = "Loading artisans…") {
+                    Text("Loading artisans…", color = MaterialTheme.field.muted, fontSize = 12.sp)
+                }
+            }
+
+            rows.isEmpty() -> item(key = "index-empty", contentType = "card") {
+                ConsolidatedCard(title = if (searching) "No artisans match" else "No artisans yet") {
+                    Text(
+                        when {
+                            searching -> "Try a different name, craft or place."
+                            !scope.isAllRecords -> "No matches in these workshops."
+                            else -> "No artisans recorded yet."
+                        },
+                        color = MaterialTheme.field.muted,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+
+            else -> {
+                // ONE CARD DRAWN AS SEGMENTS — its title, one item per artisan, its foot — so the
+                // rows are lazy items of the page's list and still read as one card.
+                item(key = "index-top", contentType = "segmentTop") {
+                    IndexSegment(SegmentEdge.TOP) {
+                        Text(
+                            "Artisans (${search.total ?: rows.size})",
+                            display = true,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(top = 16.dp, bottom = 6.dp)
+                        )
                     }
                 }
-            },
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        WorkshopScopeSelect(scope = scope, label = "Workshops to read")
-
-        HorizontalDivider(color = MaterialTheme.field.hairline)
-
-        // The one sentence that stops a narrowed list from being read as a narrowed document. On the
-        // web the chosen scope rides the link into the document; here the document opens on every
-        // interview and carries its own control, so this line names the difference rather than leaving
-        // a reader to assume the two match.
-        Text(
-            "Artisans in the chosen workshops.",
-            color = MaterialTheme.field.muted,
-            fontSize = 12.sp
-        )
+                items(rows, key = { "artisan:${it.id}" }, contentType = { "artisanRow" }) { artisan ->
+                    IndexSegment(SegmentEdge.MIDDLE) {
+                        ArtisanPickRow(artisan = artisan, onOpen = { onOpen(artisan) })
+                    }
+                }
+                item(key = "index-foot", contentType = "segmentFoot") {
+                    IndexSegment(SegmentEdge.BOTTOM) {
+                        if (search.hasMore) {
+                            Box(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
+                                TextButton(onClick = { search.loadMore() }, enabled = !search.loading) {
+                                    Text(if (search.loading) "Loading…" else "Load more")
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(10.dp))
+                    }
+                }
+            }
+        }
     }
+}
 
-    when {
-        error != null -> ConsolidatedCard(title = "Could not load artisans") {
-            Text(error.orEmpty(), color = MaterialTheme.field.body, fontSize = 13.sp)
-        }
+private enum class SegmentEdge { TOP, MIDDLE, BOTTOM }
 
-        loading -> ConsolidatedCard(title = "Loading artisans…") {
-            Text(
-                "Loading artisans…",
-                color = MaterialTheme.field.muted,
-                fontSize = 12.sp
-            )
-        }
-
-        filtered.isEmpty() -> ConsolidatedCard(title = "No artisans match") {
-            Text(
-                if (!scope.isAllRecords) {
-                    "No matches in these workshops."
-                } else {
-                    "Try a different name, craft or place."
-                },
-                color = MaterialTheme.field.muted,
-                fontSize = 13.sp
-            )
-        }
-
-        else -> ConsolidatedCard(title = "Artisans (${filtered.size})") {
-            filtered.forEach { artisan ->
-                ArtisanPickRow(artisan = artisan, onOpen = { onOpen(artisan) })
-            }
-            listCut?.let {
-                Text(it, color = MaterialTheme.field.muted, fontSize = 12.sp)
-            }
-        }
+/**
+ * One horizontal slice of a card, so a card's rows can be separate lazy items and the card still reads
+ * as one: rounded at its top and bottom slices, square between.
+ */
+@Composable
+private fun IndexSegment(edge: SegmentEdge, content: @Composable () -> Unit) {
+    val radius = 16.dp
+    val shape = when (edge) {
+        SegmentEdge.TOP -> RoundedCornerShape(topStart = radius, topEnd = radius)
+        SegmentEdge.MIDDLE -> RoundedCornerShape(0.dp)
+        SegmentEdge.BOTTOM -> RoundedCornerShape(bottomStart = radius, bottomEnd = radius)
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface, shape)
+            .padding(horizontal = 16.dp)
+    ) {
+        content()
     }
 }
 
