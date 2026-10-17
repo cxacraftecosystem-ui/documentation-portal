@@ -114,6 +114,11 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [{ source: "/settings/workshop-access", destination: "/workshop-access", permanent: false }];
   },
+  // The App Link verification file, served by app/asset-links/route.ts: the prebuilt deploy drops
+  // public/.well-known/ from the upload, so the static path alone 404s in production.
+  async rewrites() {
+    return [{ source: "/.well-known/assetlinks.json", destination: "/asset-links" }];
+  },
   async headers() {
     return [
       {
