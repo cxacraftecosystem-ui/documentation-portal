@@ -599,6 +599,15 @@ async def preview_merge(keep_id: str, merge_id: str) -> dict[str, Any]:
             {"code": "merge_unfinished", "message": "An earlier merge of one of these did not finish. Undo it first."},
         )
     warnings: list[str] = []
+    # Merging away an artisan that KEPT an earlier merge still inside its undo window ends that
+    # undo for good: the earlier survivor would no longer exist to be split apart again.
+    now = datetime.now(UTC)
+    for earlier in await db.artisanmerge.find_many(where={"survivorId": merge_id, "status": STATUS_DONE}):
+        if can_undo(earlier, now):
+            warnings.append(
+                f"{merge.get('name') or 'This artisan'} kept an earlier merge of {earlier.mergedName}. "
+                "Merging it away means that merge can no longer be undone."
+            )
     if keep.get("aadhaarNumber") and merge.get("aadhaarNumber") and keep["aadhaarNumber"] != merge["aadhaarNumber"]:
         warnings.append("Their Aadhaar numbers differ. Check that these are the same person.")
     if keep.get("pehchanCardNumber") and merge.get("pehchanCardNumber") and keep["pehchanCardNumber"] != merge["pehchanCardNumber"]:
@@ -886,6 +895,14 @@ async def undo_merge(merge_id: str, user: Any) -> dict[str, Any]:
     survivor_id, merged_id = record.survivorId, record.mergedId
     survivor_row = await db.artisan.find_unique(where={"id": survivor_id})
     if survivor_row is None:
+        # Gone because a later merge folded it into another record, or because someone deleted it.
+        later = await db.artisanmerge.find_first(where={"mergedId": survivor_id, "status": STATUS_DONE})
+        if later is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"{record.survivorName} has since been merged into {later.survivorName}. "
+                "Undo that merge first.",
+            )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="The kept artisan has since been deleted, so this merge cannot be undone.",
@@ -1206,3 +1223,22 @@ async def scrub_expired_merge_snapshots(now: datetime | None = None) -> int:
 async def survivor_of(artisan_id: str) -> str | None:
     """The artisan a merged-away id now lives on, or None."""
     return (await merged_redirects()).get(artisan_id)
+
+
+async def created_merged_record(merged_id: str, user_id: str | None) -> bool:
+    """Whether ``user_id`` created the artisan record ``merged_id`` before it was merged away.
+
+    THE QUEUED-REPLAY POLICY. A researcher's phone queues an edit of the artisan THEY recorded; an
+    admin then merges that artisan into a duplicate someone else recorded. The redirect lands the
+    edit on the survivor, which the researcher does not own, so the ordinary owner check would
+    refuse it and the entry would sit in their outbox for ever. They recorded this same person, and
+    the merge folded their record into this one, so a write that names THEIR old id is treated as
+    theirs. A write naming the survivor's own id gets no such allowance.
+    """
+    if not user_id:
+        return False
+    try:
+        rows = await db.artisanmerge.find_many(where={"mergedId": merged_id, "status": STATUS_DONE})
+    except Exception:  # noqa: BLE001 - never the reason a write fails
+        return False
+    return any((unjson(row.mergedSnapshot) or {}).get("createdById") == user_id for row in rows)

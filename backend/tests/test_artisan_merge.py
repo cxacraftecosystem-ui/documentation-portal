@@ -50,6 +50,12 @@ class _Table(FakeTable):
     async def update_many(self, where: dict[str, Any], data: dict[str, Any], **kwargs: Any) -> int:
         return await super().update_many(where, {k: _unwrap_set(v) for k, v in data.items()}, **kwargs)
 
+    async def create_many(self, data: list[dict[str, Any]], **kwargs: Any) -> int:
+        """Row by row, so the fake's unique indexes still refuse a clash as Postgres would."""
+        for row in data:
+            await self.create(data=row)
+        return len(data)
+
 
 class _Db:
     UNIQUE_KEYS: dict[str, tuple[tuple[str, ...], ...]] = {
@@ -438,3 +444,101 @@ def test_candidates_pair_the_same_phone_or_the_same_name_in_the_same_place() -> 
 def test_the_candidates_route_answers(db: _Db) -> None:
     body = _call("GET", "/artisans/merge/candidates").json()
     assert body["items"][0]["keepId"] == "keep" and body["items"][0]["mergeId"] == "dup"
+
+
+# --- queued replays through every route the phone queues -----------------------------------------
+
+
+OTHER = "u-other"
+
+
+def _merged_away_from_the_researcher(db: _Db) -> None:
+    """Merge ``dup`` (the researcher's) into ``keep``, then make ``keep`` someone else's record."""
+    assert _merge().status_code == 200
+    _row(db, "artisan", "keep").createdById = OTHER
+
+
+def test_a_queued_workshop_patch_naming_the_merged_artisan_keeps_the_roster(db: _Db) -> None:
+    _merge()
+    response = _call("PATCH", "/workshops/w1", {"artisanIds": ["dup", "other"]})
+    assert response.status_code == 200, response.text
+    roster = sorted(row.artisanId for row in db.workshopartisan.rows if row.workshopId == "w1")
+    assert roster == ["keep", "other"]
+
+
+def test_a_queued_workshop_create_naming_the_merged_artisan_links_the_survivor(db: _Db) -> None:
+    _merge()
+    response = _call("POST", "/workshops", {"title": "4th Workshop", "place": "Bagru", "artisanIds": ["dup"], "clientKey": "ck-1",
+         "location": {"latitude": 26.81, "longitude": 75.54, "state": "Rajasthan", "district": "Jaipur"}})
+    assert response.status_code == 201, response.text
+    created = response.json()["id"]
+    assert [row.artisanId for row in db.workshopartisan.rows if row.workshopId == created] == ["keep"]
+
+
+def test_a_queued_tool_assignment_naming_the_merged_artisan_lands_on_the_survivor(
+    db: _Db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.api.routes import tools as tool_routes
+
+    async def assigned(tool_id: str) -> list[dict[str, str]]:  # the fake carries no ``include``
+        return [{"id": row.artisanId} for row in db.toolartisan.rows if row.toolId == tool_id]
+
+    monkeypatch.setattr(tool_routes, "_assigned_artisans", assigned)
+    _merged_away_from_the_researcher(db)
+    db.tooldocumentation.rows.append(SimpleNamespace(id="t2", artisanId=None, artisanName=None, createdById=OTHER))
+    _CURRENT["user"] = _user(RESEARCHER, "RESEARCHER")
+    response = _call("POST", "/tools/t2/artisans", {"artisanIds": ["dup"]})
+    assert response.status_code == 200, response.text
+    assert response.json() == [{"id": "keep"}]
+
+
+def test_a_queued_comment_on_the_merged_artisan_lands_on_the_survivor(
+    db: _Db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.api.routes import data_access
+
+    # The route's owner table binds its delegates at import, before the fake is installed.
+    monkeypatch.setitem(data_access.RECORD_DELEGATES, "artisan", (db.artisan, "createdById"))
+    _merge()
+    response = _call("POST", "/data-access/comments", {"recordType": "artisan", "recordId": "dup", "body": "Seen"})
+    assert response.status_code == 201, response.text
+    assert response.json()["recordId"] == "keep"
+
+
+def test_a_queued_delete_of_the_merged_artisan_is_already_done(db: _Db) -> None:
+    _merge()
+    assert _call("DELETE", "/artisans/dup").status_code == 204
+    assert _row(db, "artisan", "keep") is not None
+
+
+def test_the_researcher_who_recorded_the_merged_artisan_may_still_edit_it(db: _Db) -> None:
+    _merged_away_from_the_researcher(db)
+    _CURRENT["user"] = _user(RESEARCHER, "RESEARCHER")
+    response = _call("PATCH", "/artisans/dup", {"notes": "Moved to Sanganer."})
+    assert response.status_code == 200, response.text
+    assert _row(db, "artisan", "keep").notes == "Moved to Sanganer."
+
+
+def test_anyone_else_gets_no_allowance_through_the_old_id(db: _Db) -> None:
+    _merged_away_from_the_researcher(db)
+    db.user.rows.append(SimpleNamespace(id="u-r2", name="Second", role="RESEARCHER"))
+    _CURRENT["user"] = _user("u-r2", "RESEARCHER")
+    assert _call("PATCH", "/artisans/dup", {"notes": "Not mine."}).status_code == 403
+    # And the researcher gets none through the survivor's own id.
+    _CURRENT["user"] = _user(RESEARCHER, "RESEARCHER")
+    assert _call("PATCH", "/artisans/keep", {"notes": "Not mine."}).status_code == 403
+
+
+# --- merging a survivor -------------------------------------------------------------------------
+
+
+def test_merging_away_a_survivor_warns_and_the_old_undo_says_why_it_cannot(db: _Db) -> None:
+    first = _merge().json()["id"]
+    preview = _call("GET", "/artisans/merge/preview", keepId="other", mergeId="keep").json()
+    assert any("can no longer be undone" in warning for warning in preview["warnings"])
+    db.questionnaireinterview.rows.clear()
+    db.questionnaireinterviewartisan.rows.clear()
+    assert _call("POST", "/artisans/merge", {"keepId": "other", "mergeId": "keep", "picks": {}}).status_code == 200
+    response = _call("POST", f"/artisans/merge/{first}/undo")
+    assert response.status_code == 409
+    assert "merged into Sita Devi" in response.json()["detail"]
