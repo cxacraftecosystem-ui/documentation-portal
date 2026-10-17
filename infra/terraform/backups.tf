@@ -47,6 +47,12 @@ variable "noncurrent_version_days" {
   default     = 90
 }
 
+variable "weekly_dump_days" {
+  description = "Days the weekly dump copy under backups/<portal>/weekly/ is kept, in both buckets."
+  type        = number
+  default     = 365
+}
+
 variable "offsite_lock_days" {
   description = "Object Lock (governance) retention on every version in the off-site bucket."
   type        = number
@@ -164,8 +170,10 @@ resource "aws_s3_bucket_policy" "offsite" {
 }
 
 # S3 does not replicate the delete markers that the source's lifecycle rules
-# create, so the 30-day expiry of backups/ has to be repeated here. 35 days
-# matches the lock, and the old version is then kept for 90 more.
+# create, so the expiry of the dumps has to be repeated here. Nightly dumps:
+# 35 days, which matches the lock. Weekly copies: 365 days, as in Mumbai. An
+# expired version is then kept for 90 more. The nightly rule names the dated
+# keys only (`…/20`), because the shorter of two overlapping expiries wins.
 resource "aws_s3_bucket_lifecycle_configuration" "offsite" {
   provider = aws.offsite
   bucket   = aws_s3_bucket.offsite.id
@@ -190,10 +198,21 @@ resource "aws_s3_bucket_lifecycle_configuration" "offsite" {
     id     = "expire-database-backups"
     status = "Enabled"
     filter {
-      prefix = "backups/"
+      prefix = "backups/documentation-portal/20"
     }
     expiration {
       days = var.offsite_lock_days
+    }
+  }
+
+  rule {
+    id     = "keep-weekly-dumps"
+    status = "Enabled"
+    filter {
+      prefix = "backups/documentation-portal/weekly/"
+    }
+    expiration {
+      days = var.weekly_dump_days
     }
   }
 

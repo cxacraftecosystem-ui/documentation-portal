@@ -25,17 +25,22 @@ name: Nightly database backup
 # overwrite, a deletion and a regional outage. It does not survive the loss of the AWS account.
 # infra/terraform/backups.tf declares all of it.
 #
-# ─── WHY 03:30 UTC ────────────────────────────────────────────────────────────────────────
-# Deliberately off 20:00, which is when keep-supabase-active.yml pings the database to stop the
-# free tier idling out: two scheduled workflows opening session-mode connections to the same
-# pooler at the same minute is how a backup starts failing with EMAXCONNSESSION and gets read as
-# a database fault. And deliberately 30 minutes off the sibling repository's 03:00, which backs
-# up a DIFFERENT Supabase project in the SAME organisation — staggering them keeps one
-# organisation-level rate limit from turning two green jobs into one red one.
+# ─── WHEN IT RUNS: 21:47 UTC, PLUS A FRESHNESS CHECK AT 09:53 UTC (changed 2026-10-18) ──
+# It was 03:30 UTC. GitHub starts scheduled jobs late under load, worst on the hour: from 3 to 17
+# October 2026 that run started between 07:57 and 11:12 UTC (13:27-16:42 IST), in the field working
+# day (restore drill gap 6). 21:47 UTC is 03:17 IST: a delay of the same size still lands the dump
+# before the field day, and an odd minute stays out of the top-of-the-hour queue.
 #
-# 03:30 UTC is 09:00 IST — after the overnight lull, before the field day starts, so a red run
-# is seen the same morning rather than a day later. GitHub's cron is best-effort and drifts
-# under load; a run that starts at 03:50 is normal and is not a defect.
+# It stays clear of 20:00, when keep-supabase-active.yml pings the database: two scheduled workflows
+# opening session-mode connections to the same pooler at the same minute is how a backup starts
+# failing with EMAXCONNSESSION and gets read as a database fault. The sibling repository runs at
+# 21:17, 30 minutes earlier, so the two Supabase projects in one organisation are never dumped at
+# the same minute.
+#
+# A late or missing run used to pass in silence. The `freshness` job below runs on its own
+# schedule and fails if the newest nightly dump is over 26 hours old or the newest weekly copy over
+# 8 days old. GitHub e-mails a failed scheduled run to whoever last changed the schedule. Run it by
+# hand with Run workflow → task: freshness-check.
 #
 # ─── THE SECRETS ──────────────────────────────────────────────────────────────────────────
 #   DATABASE_URL                the session-pooler DSN (port 5432, NOT the transaction pooler on
@@ -75,11 +80,16 @@ name: Nightly database backup
 # RETENTION IS NOT SET HERE, AND CANNOT BE. A workflow can write an object; it cannot express
 # "expire it in thirty days" without holding a delete right, and this job holds none anywhere in
 # the account — deliberately. Expiry belongs to the bucket and is declared in
-# infra/terraform/main.tf as an `aws_s3_bucket_lifecycle_configuration` scoped to the `backups/`
-# prefix (30 days). With versioning on, an expired or overwritten dump stays as a noncurrent
+# infra/terraform/main.tf as an `aws_s3_bucket_lifecycle_configuration` scoped to the dated
+# nightly keys under `backups/` (30 days). With versioning on, an expired or overwritten dump stays as a noncurrent
 # version for 90 more days, and the Hyderabad copy keeps its own 35-day expiry. If that rule
 # is ever removed this job keeps working and the bucket grows forever — a cost problem, not a
 # data-loss one, which is the right way round.
+#
+# ONE DUMP A WEEK IS KEPT FOR A YEAR (2026-10-18, drill gap 4). The first run of each ISO week also
+# uploads the dump as `weekly/YYYY-Www_YYYY-MM-DD.sql.gz` under the same prefix. The bucket keeps
+# those 365 days (`keep-weekly-dumps`, Hyderabad too); the 30-day rule names only the dated nightly
+# keys (`<prefix>/20…`), because with two overlapping expiries S3 applies the shorter.
 #
 # ─── NO `|| true` ANYWHERE IN THIS FILE, DELIBERATELY ─────────────────────────────────────
 # A backup job that swallows its own errors is worse than no backup job: it manufactures a green
@@ -91,23 +101,31 @@ name: Nightly database backup
 
 on:
   schedule:
-    - cron: "30 3 * * *"
+    - cron: "47 21 * * *"   # the dump
+    - cron: "53 9 * * *"    # the freshness check
   workflow_dispatch:
+    inputs:
+      task:
+        description: What to run
+        type: choice
+        options: [backup, freshness-check]
+        default: backup
 
 permissions:
   contents: read
 
-concurrency:
-  # Never two dumps at once. Each holds a session-mode connection for the length of the dump, and
-  # the second would fight the running app for the pooler's remaining client slots.
-  group: backup-db
-  cancel-in-progress: false
-
 jobs:
   dump:
     name: pg_dump to S3
+    if: github.event.schedule == '47 21 * * *' || (github.event_name == 'workflow_dispatch' && inputs.task != 'freshness-check')
     runs-on: ubuntu-26.04
     timeout-minutes: 30
+
+    concurrency:
+      # Never two dumps at once. Each holds a session-mode connection for the length of the dump, and
+      # the second would fight the running app for the pooler's remaining client slots.
+      group: backup-db
+      cancel-in-progress: false
 
     env:
       AWS_DEFAULT_REGION: ap-south-1
@@ -166,7 +184,10 @@ jobs:
             echo "::error::the DATABASE_URL secret is not set on this repository. This job cannot back up a database it cannot name — create it (session-pooler DSN, port 5432) in Settings → Secrets and variables → Actions."
             exit 1
           fi
-          stamp="$(date -u +%F)"
+          # The INDIA date, not the UTC one: the run is scheduled for 21:17/21:47 UTC (02:47/03:17
+          # IST) and GitHub may start it hours late, often past midnight UTC. In IST every start
+          # time falls on the same day, so each night gets exactly one key.
+          stamp="$(TZ=Asia/Kolkata date +%F)"
           echo "stamp=${stamp}" >> "$GITHUB_ENV"
           # --no-owner / --no-privileges: the dump has to be restorable into a DIFFERENT database
           # whose roles do not exist — which is exactly the database a restore is performed onto,
@@ -273,3 +294,101 @@ jobs:
             echo ""
             echo "Reading it back needs operator credentials, not this workflow's — the key it runs under can write to \`backups/\` and list it, and nothing else."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep this week's copy for a year
+        # Restore drill gap 4 (2026-10-18). The first successful run of each ISO week uploads the same
+        # file a second time, under weekly/, which the bucket keeps for 365 days (`keep-weekly-dumps`
+        # in infra/terraform/main.tf) instead of 30. "First run of the week" rather than "Sunday's
+        # run", so a skipped or failed night never costs a week. Same key, same prefix, no new grant:
+        # listing says whether this week is already held, so a re-run adds nothing.
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_BACKUP_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_BACKUP_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          week="$(TZ=Asia/Kolkata date +%G-W%V)"
+          wprefix="${BACKUP_PREFIX}/weekly/${week}_"
+          held="$(aws s3api list-objects-v2 --bucket "${BACKUP_BUCKET}" --prefix "${wprefix}" \
+            --query 'length(Contents || `[]`)' --output text)"
+          if [ "${held}" != "0" ]; then
+            echo "week ${week} is already held under ${wprefix}"
+            exit 0
+          fi
+          wkey="${wprefix}${stamp}.sql.gz"
+          aws s3 cp "backup-${stamp}.sql.gz" "s3://${BACKUP_BUCKET}/${wkey}" --only-show-errors
+          size="$(aws s3api list-objects-v2 --bucket "${BACKUP_BUCKET}" --prefix "${wkey}" \
+            --query "Contents[?Key=='${wkey}'].Size | [0]" --output text)"
+          case "${size}" in
+            ''|*[!0-9]*)
+              echo "::error::S3 does not list the weekly copy ${wkey} after the upload (it answered '${size}')."
+              exit 1
+              ;;
+          esac
+          if [ "${size}" -lt 102400 ]; then
+            echo "::error::the weekly copy ${wkey} is ${size} bytes, below the 100 KB floor."
+            exit 1
+          fi
+          echo "weekly copy: s3://${BACKUP_BUCKET}/${wkey} (${size} bytes)"
+          {
+            echo ""
+            echo "Weekly copy, kept for a year: \`s3://${BACKUP_BUCKET}/${wkey}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  freshness:
+    # Restore drill gap 6 (2026-10-18). Runs on its own schedule and fails when the newest nightly
+    # dump is more than 26 hours old, or the newest weekly copy more than 8 days old. A late or
+    # skipped night then shows as a red run, and GitHub e-mails whoever last changed the schedule.
+    # Same writer key: listing gives the name and the time, never the bytes.
+    name: Newest dump is fresh
+    if: github.event.schedule == '53 9 * * *' || inputs.task == 'freshness-check'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+
+    env:
+      AWS_DEFAULT_REGION: ap-south-1
+      BACKUP_BUCKET: fieldrepo-media-626159998512
+      BACKUP_PREFIX: backups/documentation-portal
+
+    steps:
+      - name: Check the newest nightly and weekly dumps
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_BACKUP_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_BACKUP_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          now="$(date -u +%s)"
+          # Prints "<key> <LastModified>" for the newest object under the prefix, or "None".
+          newest() {
+            aws s3api list-objects-v2 --bucket "${BACKUP_BUCKET}" --prefix "$1" \
+              --query 'sort_by(Contents || `[]`, &LastModified)[-1].[Key, LastModified]' --output text
+          }
+          read -r nkey nwhen <<< "$(newest "${BACKUP_PREFIX}/20")"
+          if [ "${nkey}" = "None" ] || [ -z "${nwhen:-}" ]; then
+            echo "::error::no nightly dump under ${BACKUP_PREFIX}/. Treat the database as having NO backup."
+            exit 1
+          fi
+          nage=$(( (now - $(date -u -d "${nwhen}" +%s)) / 3600 ))
+          echo "newest nightly: ${nkey}, ${nage} h old"
+          read -r wkey wwhen <<< "$(newest "${BACKUP_PREFIX}/weekly/")"
+          wage=""
+          if [ "${wkey}" = "None" ] || [ -z "${wwhen:-}" ]; then
+            echo "::warning::no weekly copy yet. The next nightly run writes one."
+          else
+            wage=$(( (now - $(date -u -d "${wwhen}" +%s)) / 3600 ))
+            echo "newest weekly: ${wkey}, ${wage} h old"
+          fi
+          {
+            echo "### Backup freshness"
+            echo ""
+            echo "Nightly: \`${nkey}\`, ${nage} h old"
+            [ -n "${wage}" ] && echo "" && echo "Weekly: \`${wkey}\`, ${wage} h old"
+            true
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${nage}" -gt 26 ]; then
+            echo "::error::the newest nightly dump is ${nage} hours old (limit 26). Last night's run did not land: check this workflow's scheduled runs and run it by hand."
+            exit 1
+          fi
+          if [ -n "${wage}" ] && [ "${wage}" -gt 192 ]; then
+            echo "::error::the newest weekly copy is ${wage} hours old (limit 8 days)."
+            exit 1
+          fi

@@ -135,14 +135,22 @@ resource "aws_s3_bucket_cors_configuration" "media" {
 # hours or days, not months. If a retention obligation is ever placed on this ministry data, this
 # number is the one to change and this is the only place to change it.
 #
-# THE FILTER IS THE WHOLE SAFETY PROPERTY. `prefix = "backups/"` scopes the rule to the dumps.
+# THE FILTER IS THE WHOLE SAFETY PROPERTY. `prefix = "backups/documentation-portal/20"` scopes the
+# rule to the nightly dumps.
 # Without a filter — or with an empty one — this rule expires EVERY OBJECT IN THIS BUCKET after
 # thirty days, which is 1,071 objects and 11.5 GB of artisan photographs, audio and video as of
 # 2026-09-13. Versioning (backups.tf, 2026-10-17) would turn that into delete markers that can be
 # undone, but only for 90 days and only if somebody notices. Any edit to this resource must be read
 # with that sentence in mind.
 #
-# The second rule is the one place an empty filter is safe, because it names no current-version
+# ONE DUMP A WEEK IS KEPT FOR A YEAR (2026-10-18, drill gap 4). The first run of each ISO week also
+# writes `backups/documentation-portal/weekly/YYYY-Www_YYYY-MM-DD.sql.gz`, and `keep-weekly-dumps`
+# expires those at 365 days. S3 cannot exclude a prefix from a rule, and with two overlapping
+# expiries the shorter one wins, so the 30-day rule is narrowed to the dated nightly keys,
+# `backups/documentation-portal/20…` (every key the job writes starts with the year). The weekly
+# copies sit inside the backup writer's existing prefix: no IAM change.
+#
+# The third rule is the one place an empty filter is safe, because it names no current-version
 # expiry. It removes versions 90 days after they stop being current (an overwritten or deleted
 # file, an expired dump) and delete markers with nothing left behind them.
 #
@@ -158,11 +166,28 @@ resource "aws_s3_bucket_lifecycle_configuration" "media" {
     status = "Enabled"
 
     filter {
-      prefix = "backups/"
+      prefix = "backups/documentation-portal/20"
     }
 
     expiration {
       days = 30
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
+
+  rule {
+    id     = "keep-weekly-dumps"
+    status = "Enabled"
+
+    filter {
+      prefix = "backups/documentation-portal/weekly/"
+    }
+
+    expiration {
+      days = var.weekly_dump_days
     }
 
     abort_incomplete_multipart_upload {
