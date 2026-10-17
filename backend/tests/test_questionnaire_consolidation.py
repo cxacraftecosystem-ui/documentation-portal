@@ -455,7 +455,8 @@ def test_a_consolidated_document_groups_by_instrument_before_section(two_instrum
 def test_the_csv_header_and_every_row_have_the_same_width(two_instrument_payload):
     """CSV_COLUMNS and _csv_row are two independent positional lists. A header added without its
     value shifts every field one column to the right, silently, in a file people join on."""
-    assert len(CSV_COLUMNS) == 22
+    # 23 since C28 appended "Answer origin" as the last column.
+    assert len(CSV_COLUMNS) == 23
     rows = consolidated_rows(two_instrument_payload)
     # All three row shapes the flattener produces: an answer, a section recording, an unfiled clip.
     assert len(rows) >= 4

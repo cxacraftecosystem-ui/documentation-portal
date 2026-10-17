@@ -644,6 +644,8 @@ export type QuestionnaireResponse = {
   questionId: string;
   answerText?: string | null;
   notes?: string | null;
+  /** C28: null = typed by a person; MACHINE_SUGGESTED / MACHINE_SUGGESTED_EDITED = drafted from the transcript. */
+  answerOrigin?: string | null;
   question?: QuestionnaireQuestion;
   answeredBy?: User;
 };

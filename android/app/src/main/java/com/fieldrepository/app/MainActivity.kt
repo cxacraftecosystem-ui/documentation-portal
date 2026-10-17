@@ -1,5 +1,8 @@
 package com.fieldrepository.app
 
+import com.fieldrepository.app.data.AnswerDrafts
+import com.fieldrepository.app.ui.AnswerDraftsCard
+import com.fieldrepository.app.ui.SharingConsentRow
 import android.Manifest
 import android.app.DownloadManager
 import android.content.ContentValues
@@ -7232,6 +7235,8 @@ private fun ArtisanForm(
                 .fillMaxWidth()
                 .focusRequester(pehchanFocus)
         )
+        // C27: the artisan's agreement to be looked up from the Designer Portal (drawn only while on).
+        if (isEdit) SharingConsentRow(artisanId = editing!!.id)
         NumberedListInput(
             label = "Do's",
             items = dosItems,
@@ -13888,6 +13893,8 @@ private fun QuestionnaireForm(
     val titleFocus = remember { FocusRequester() }
     val questions = remember(sections) { sections.flatMap { it.questions }.filter { it.isActive } }
     // Seed answers from existing responses so an interviewer can fill remaining questions.
+    // C28: answers accepted from a transcript draft on this screen, by question id.
+    val acceptedMachine = remember(editing) { mutableStateListOf<String>() }
     val answers = remember(questions, editing) {
         questions.associate { q ->
             q.id to mutableStateOf(editing?.responses?.firstOrNull { it.questionId == q.id }?.answerText ?: "")
@@ -14472,8 +14479,23 @@ private fun QuestionnaireForm(
                                 )
                                 HorizontalDivider()
                             }
+                            editing?.let { interview ->
+                                AnswerDraftsCard(
+                                    interviewId = interview.id,
+                                    sectionId = section.id,
+                                    questions = activeQuestions.map { it.id to "${it.sortOrder}. ${it.prompt}" },
+                                ) { kept ->
+                                    kept.forEach { (id, text) -> answers[id]?.let { state -> state.value = text } }
+                                    acceptedMachine.addAll(kept.keys)
+                                }
+                            }
                             activeQuestions.forEach { question ->
                                 Text("${question.sortOrder}. ${question.prompt}", color = Muted, fontSize = 12.sp)
+                                val origin = editing?.responses?.firstOrNull { it.questionId == question.id }?.answerOrigin
+                                    ?: if (question.id in acceptedMachine) AnswerDrafts.ORIGIN_MACHINE else null
+                                AnswerDrafts.badge(origin)?.let { badge ->
+                                    Text(badge, color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                }
                                 if (recordMode == "INDIVIDUAL") {
                                     AudioClipRecorder(
                                         clips = questionAudio[question.id] ?: emptyList(),

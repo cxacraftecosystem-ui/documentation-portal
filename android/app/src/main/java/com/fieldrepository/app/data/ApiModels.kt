@@ -1447,7 +1447,9 @@ data class InterviewResponseDto(
     val questionId: String,
     val answerText: String? = null,
     val notes: String? = null,
-    val answeredBy: UserDto? = null
+    val answeredBy: UserDto? = null,
+    /** C28: null = typed by a person; MACHINE_SUGGESTED / MACHINE_SUGGESTED_EDITED = drafted from the transcript. */
+    val answerOrigin: String? = null
 )
 
 @Serializable

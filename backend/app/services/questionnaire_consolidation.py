@@ -32,6 +32,7 @@ from typing import Any
 
 from app.core.db import db
 from app.core.deps import get_value, is_empty_value
+from app.services import answer_drafts
 from app.services.concurrency import gather_reads
 from app.services.record_filters import resolve_workshop_ids, workshop_clause
 from app.services.records import media_url_owners, public_encode, viewable_where
@@ -316,6 +317,8 @@ async def consolidate_for_artisan(
                 "sourceId": response.id,
                 "answerText": response.answerText,
                 "notes": response.notes,
+                # C28: drafted by a model from the transcript and kept by a person; None = typed.
+                "answerOrigin": get_value(response, "answerOrigin"),
                 "recordedByName": get_value(get_value(response, "answeredBy"), "name"),
                 "sortAt": _aware(meta["date"]),
                 **_provenance(meta),
@@ -530,6 +533,9 @@ CSV_COLUMNS = (
     "Recorded by",
     "Interview ID",
     "Source file",
+    # C28, appended so every earlier column keeps its position: "machine-suggested" (kept as the
+    # model drafted it), "machine-suggested, edited", or blank for an answer a person typed.
+    "Answer origin",
 )
 
 
@@ -567,6 +573,7 @@ def _csv_row(
         row.get("recordedByName") or "",
         row.get("interviewId"),
         row.get("filename") or "",
+        answer_drafts.origin_label(row.get("answerOrigin")),
     ]
 
 

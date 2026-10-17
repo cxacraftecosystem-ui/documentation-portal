@@ -36,7 +36,8 @@ import { requiredText, textValue } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, type BatchProgress } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
-import { canManageCrafts } from "@/lib/permissions";
+import { canManageCrafts, isAdmin } from "@/lib/permissions";
+import { UnmappedCraftsPanel } from "@/components/crafts/UnmappedCraftsPanel";
 import { UploadsProvider, useUploads } from "@/lib/uploads";
 import type { Craft, PageResult } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
@@ -357,6 +358,8 @@ function CraftsPageBody() {
   return (
     <>
       <PageHeader title="Crafts" description="The list of crafts." icon={<Landmark className="h-5 w-5" aria-hidden />} />
+      {/* C26: an administrator maps crafts to the shared code both portals carry. */}
+      {isAdmin(user) && adminMode ? <UnmappedCraftsPanel /> : null}
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       {deepLinkLoading ? (
         <div className="mb-4 rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-muted">

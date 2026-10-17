@@ -361,6 +361,28 @@ class Settings(BaseSettings):
     # a 1 GiB box — so it is worth doing only when a genuine replica exists to point it at.
     database_read_replica_url: str | None = Field(default=None, alias="DATABASE_READ_REPLICA_URL")
 
+    # ── AI-DRAFTED ANSWERS FROM A TRANSCRIPT (C28; docs/ENVIRONMENT.md) ───────────────────────────
+    # OFF BY DEFAULT. On, a researcher may ask a model to draft a section's unanswered questions from
+    # the interview's transcript; drafts are accepted or edited by a person and every accepted answer
+    # is labelled machine-suggested. Runs on the researcher's own AI key or the deployment's.
+    ai_answer_drafts_enabled: bool = Field(default=False, alias="AI_ANSWER_DRAFTS_ENABLED")
+
+    # ── CROSS-PORTAL ARTISAN IDENTITY (C27; docs/ENVIRONMENT.md) ────────────────────────────────
+    #
+    # OFF BY DEFAULT, AND OFF UNTIL BOTH PORTALS HAVE IT. The lookup works only when the flag is on
+    # AND both secrets are set (32 characters or more) on BOTH servers. Anything missing and
+    # the routes answer 404 and neither client draws a single element. The token authenticates each
+    # server to the other (a bearer on the request, an HMAC of the body on the answer); the HMAC key
+    # turns an Aadhaar number into a code both servers can compare, so the number itself never leaves
+    # either system. Both values are the SAME on the two servers. Never commit either.
+    cross_portal_identity_enabled: bool = Field(
+        default=False, alias="CROSS_PORTAL_IDENTITY_ENABLED"
+    )
+    cross_portal_token: str | None = Field(default=None, alias="CROSS_PORTAL_TOKEN")
+    cross_portal_aadhaar_hmac_key: str | None = Field(
+        default=None, alias="CROSS_PORTAL_AADHAAR_HMAC_KEY"
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
