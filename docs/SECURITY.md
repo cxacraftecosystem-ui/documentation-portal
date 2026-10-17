@@ -564,7 +564,7 @@ misrepresents the subject's location; publishing it at all discloses the researc
 
 ## 4B. E-mail
 
-The product e-mails exactly four things, through Amazon SES, and only when `MAIL_FROM_ADDRESS` is set
+The product e-mails exactly five things, through Amazon SES, and only when `MAIL_FROM_ADDRESS` is set
 ([ENVIRONMENT.md](ENVIRONMENT.md)):
 
 1. **"You can now sign in"**, to an address an administrator admits on the access roster — only when
@@ -575,6 +575,12 @@ The product e-mails exactly four things, through Amazon SES, and only when `MAIL
 4. **"Someone used your password"**, to an account whose two-step verification has just been locked
    by wrong codes (§3.3B): when the pause ends and that the password should be changed now. No code, no
    IP address. Always sent — it cannot be switched off.
+5. **The Monday summary**, to each Master Admin, Admin, Professor and review-grant holder: COUNTS
+   ONLY (records to review, tasks to check, overdue reviews and tasks, records and media new this
+   week, districts documented). Artisan records are personal data held under consent, so no record
+   label, name, place or note is in the e-mail, the in-app notice or the stored `WeeklyDigest.payload`
+   (purged after 26 weeks, cascade-deleted with the account). Its page `/digest/<id>` answers 404 to
+   anyone but its owner. Switched off in Settings (`UserPreference.weeklyDigest`), honoured at send time.
 
 (2) and (3) name the task's title and who moved it, and link to Tasks; each person can switch them off
 in Settings (`UserPreference.emailTaskUpdates`, opt-out). Nobody is e-mailed about their own move.

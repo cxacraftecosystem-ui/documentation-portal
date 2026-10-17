@@ -151,6 +151,13 @@ interface FieldRepositoryApi {
     @POST("notifications/read")
     suspend fun markNotificationsRead(@Body body: NotificationReadBody): NotificationReadResultDto
 
+    // THE MONDAY SUMMARY'S SWITCH (data/WeeklyDigestPreference.kt). Its own route, so it works with mail off.
+    @GET("notifications/digest")
+    suspend fun weeklyDigestPreference(): WeeklyDigestPreferenceDto
+
+    @PUT("notifications/digest")
+    suspend fun updateWeeklyDigestPreference(@Body body: WeeklyDigestPreferenceBody): WeeklyDigestPreferenceDto
+
     @POST("access-roster")
     suspend fun addToAccessRoster(@Body body: AccessRosterCreateBody): AccessRosterDto
 

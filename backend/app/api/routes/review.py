@@ -7,15 +7,12 @@ from pydantic import Field, ValidationError
 
 from app.core.db import db
 from app.core.deps import (
-    ROLE_RANK,
     can_edit_others_record,
     can_review_record,
     enum_or_raw,
     get_value,
     is_admin,
-    is_master_admin,
     require_reviewer,
-    role_rank,
     values_match,
 )
 from app.schemas.common import APIModel, ReviewAction
@@ -32,6 +29,7 @@ from app.services.access import record_revision
 from app.services.records import clean_data, decimal_to_string, jsonify_metadata, merge_field_provenance
 from app.services.records import review_update
 from app.services.records import public_encode
+from app.services.review_queue import pending_where, reviewable_creator_roles
 from app.services.workshop_access import record_needs_admin_approval, stamp_workshop_submission
 
 router = APIRouter(prefix="/review", tags=["review"])
@@ -87,24 +85,9 @@ PENDING_TAKE = 200
 
 
 def _reviewable_creator_roles(reviewer: Any) -> list[str] | None:
-    """The creator roles this reviewer may act on, or None for "everyone" (the master admin).
-
-    The peer-review ladder as DATA, so it can go into the query. The queue used to read the newest
-    200 pending rows per record type and drop the unreviewable ones in Python afterwards: a
-    professor whose researchers' submissions all sat behind 200 newer admin-created rows opened an
-    EMPTY queue, and ``total`` counted rows they had no authority to touch. Filtering in the
-    database makes the take apply to rows the caller can actually review.
-
-    Same comparison ``can_review_record`` makes — ranks STRICTLY below the reviewer — expressed
-    against the creator's role column. The two cannot drift apart over a missing role either: every
-    reviewable model has a required ``createdById``, and ``UserRole`` is NOT NULL with a default, so
-    the "no creator role on file" case ``can_review_record`` defends against does not exist in the
-    rows this query walks.
-    """
-    if is_master_admin(reviewer):
-        return None
-    rank = role_rank(reviewer)
-    return [role for role, value in ROLE_RANK.items() if value < rank]
+    """The creator roles this reviewer may act on, or None for everyone. The rule lives in
+    :func:`app.services.review_queue.reviewable_creator_roles`, shared with the Monday summary."""
+    return reviewable_creator_roles(reviewer)
 
 
 def _label_for(row: Any, fields: tuple[str, ...]) -> str:
@@ -166,16 +149,13 @@ async def list_pending_reviews(
       ``page * pageSize`` rows from each type, which is exactly enough to know the newest
       ``page * pageSize`` overall."""
     paged = page is not None
-    roles = _reviewable_creator_roles(reviewer)
-    if roles is not None and not roles:
+    where = pending_where(reviewer)
+    if where is None:
         # Review access with nobody beneath them on the ladder — a granted ``canReview`` on the
         # bottom tier. There is no record they may act on; six queries to prove it are wasted.
         if paged:
             return {"items": [], "total": 0, "page": page, "pageSize": page_size}
         return {"items": [], "total": 0, "truncated": False}
-    where: dict[str, Any] = {"status": "PENDING"}
-    if roles is not None:
-        where["createdBy"] = {"is": {"role": {"in": roles}}}
 
     take = page * page_size if paged else PENDING_TAKE
     items: list[dict[str, Any]] = []

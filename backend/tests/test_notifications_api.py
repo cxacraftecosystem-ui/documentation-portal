@@ -192,3 +192,97 @@ def test_a_batch_marks_the_named_ones_and_all_marks_the_rest(table: Any) -> None
 def test_the_page_size_is_bounded(table: Any) -> None:
     assert _call("GET", "/api/notifications?limit=0").status_code == 422
     assert _call("GET", f"/api/notifications?limit={routes.MAX_PAGE + 1}").status_code == 422
+
+
+# --- the Monday summary's switch and page (app/services/weekly_digest.py) -------------------------
+
+
+class _Digests:
+    def __init__(self) -> None:
+        self.rows: list[SimpleNamespace] = []
+
+    async def find_first(self, where: dict[str, Any], order: Any = None) -> Any:
+        hits = [r for r in self.rows if all(getattr(r, k) == v for k, v in where.items())]
+        return max(hits, key=lambda r: r.weekStart) if hits else None
+
+
+class _Preferences:
+    def __init__(self) -> None:
+        self.saved: dict[str, dict[str, Any]] = {}
+
+    async def find_unique(self, where: dict[str, Any]) -> Any:
+        row = self.saved.get(where["userId"])
+        return SimpleNamespace(**row) if row else None
+
+    async def upsert(self, where: dict[str, Any], data: dict[str, Any]) -> Any:
+        self.saved.setdefault(where["userId"], {}).update(data["update"])
+        return SimpleNamespace(**self.saved[where["userId"]])
+
+
+@pytest.fixture
+def digests(monkeypatch: pytest.MonkeyPatch) -> Any:
+    from app.services import notifications as service
+
+    rows, preferences = _Digests(), _Preferences()
+    fake = SimpleNamespace(notification=_Table(), weeklydigest=rows, userpreference=preferences)
+    monkeypatch.setattr(routes, "db", fake)
+    monkeypatch.setattr(service, "db", fake)
+    _CURRENT["user"] = SimpleNamespace(id="asha", email="asha@example.org", name="Asha", role="PROFESSOR", canReview=False)
+    yield rows
+    _CURRENT["user"] = None
+
+
+def _digest_row(**overrides: Any) -> SimpleNamespace:
+    payload = {
+        "sections": [
+            {"key": "waiting", "label": "Waiting for you", "total": 4, "items": [],
+             "lines": [{"key": "records", "label": "Records to review", "count": 4, "link": "/review"}]},
+            {"key": "overdue", "label": "Overdue", "total": 0, "lines": [], "items": []},
+            {"key": "new", "label": "New this week", "total": 2, "items": [],
+             "lines": [{"key": "artisans", "label": "Artisans", "count": 2, "link": "/artisans"}]},
+        ],
+        "coverage": {"label": "Districts documented", "value": 41, "of": None, "percent": None},
+    }
+    values = {"id": "dg1", "userId": "asha", "status": "DELIVERED", "weekStart": datetime(2026, 10, 19, tzinfo=UTC),
+              "payload": payload, "createdAt": datetime(2026, 10, 19, 2, 31, tzinfo=UTC),
+              "updatedAt": datetime(2026, 10, 19, 2, 32, tzinfo=UTC)}
+    return SimpleNamespace(**{**values, **overrides})
+
+
+def test_the_digest_switch_reads_on_by_default_with_the_latest_summary(digests: Any) -> None:
+    digests.rows.append(_digest_row())
+    body = _call("GET", "/api/notifications/digest").json()
+    assert body["eligible"] is True and body["enabled"] is True
+    assert body["schedule"] == "Mondays, 08:00 IST"
+    assert body["latest"] == {"id": "dg1", "weekStart": "2026-10-19", "waiting": 4, "overdue": 0, "newThisWeek": 2,
+                              "coverage": {"label": "Districts documented", "value": 41, "of": None, "percent": None}}
+
+
+def test_the_digest_switch_saves_and_answers_with_the_same_shape(digests: Any) -> None:
+    answer = _call("PUT", "/api/notifications/digest", {"enabled": False})
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["enabled"] is False and answer.json()["latest"] is None
+    assert _call("GET", "/api/notifications/digest").json()["enabled"] is False
+    assert _call("PUT", "/api/notifications/digest", {"enabled": "maybe"}).status_code == 422
+
+
+def test_an_account_that_gets_no_summary_cannot_switch_it(digests: Any) -> None:
+    _CURRENT["user"] = SimpleNamespace(id="ravi", email="ravi@example.org", name="Ravi", role="RESEARCHER", canReview=False)
+    refused = _call("PUT", "/api/notifications/digest", {"enabled": False})
+    assert refused.status_code == 403
+    assert refused.json()["detail"] == "The weekly summary is for reviewers and officials."
+    body = _call("GET", "/api/notifications/digest").json()
+    assert body["eligible"] is False and body["enabled"] is False and body["latest"] is None
+
+
+def test_a_summary_is_read_by_its_owner_only(digests: Any) -> None:
+    digests.rows.append(_digest_row())
+    digests.rows.append(_digest_row(id="dg2", userId="bina"))
+    digests.rows.append(_digest_row(id="dg3", status="SKIPPED_EMPTY"))
+    mine = _call("GET", "/api/notifications/digests/dg1")
+    assert mine.status_code == 200
+    page = mine.json()
+    assert page["weekStart"] == "2026-10-19" and [s["key"] for s in page["sections"]] == ["waiting", "overdue", "new"]
+    assert page["sections"][1]["lines"] == []
+    assert _call("GET", "/api/notifications/digests/dg2").status_code == 404
+    assert _call("GET", "/api/notifications/digests/dg3").status_code == 404

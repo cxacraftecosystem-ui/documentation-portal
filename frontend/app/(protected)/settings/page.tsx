@@ -12,6 +12,7 @@ import { EmailNotificationsCard } from "@/components/settings/EmailNotifications
 import { GetTheAppPanel } from "@/components/settings/GetTheAppPanel";
 import { PublishAppUpdatePanel } from "@/components/settings/PublishAppUpdatePanel";
 import { TwoStepVerificationCard } from "@/components/settings/TwoStepVerificationCard";
+import { WeeklyDigestCard } from "@/components/settings/WeeklyDigestCard";
 import { MyAiKeysPanel } from "@/components/settings/MyAiKeysPanel";
 import { AccessibilityCard, AppearanceCard } from "@/components/settings/PersonalSettingsCards";
 import { WorkshopAccessRequestPanel } from "@/components/settings/WorkshopAccessRequestPanel";
@@ -128,6 +129,7 @@ export default function SettingsPage() {
 
         {/* This account's e-mail opt-out. Draws nothing on a deployment that sends no e-mail. */}
         <EmailNotificationsCard />
+        <WeeklyDigestCard />
 
         {/* Everyone sees this: the two apps are one product and each is better at half the job. */}
         <GetTheAppPanel />

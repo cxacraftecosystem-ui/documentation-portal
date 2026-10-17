@@ -212,6 +212,11 @@ class Settings(BaseSettings):
     mail_max_attempts: int = Field(default=5, alias="MAIL_MAX_ATTEMPTS")
     mail_batch_size: int = Field(default=10, alias="MAIL_BATCH_SIZE")
 
+    # The Monday summary for reviewers and administrators (app/services/weekly_digest.py), written by
+    # the queue worker at 08:00 IST. A KILL SWITCH for the scheduler only: off, no new summary is
+    # written; the Settings switch and the summaries already written still work.
+    weekly_digest_enabled: bool = Field(default=True, alias="WEEKLY_DIGEST_ENABLED")
+
     next_public_app_url: AnyHttpUrl | str = Field(
         default="http://localhost:3000", alias="NEXT_PUBLIC_APP_URL"
     )
