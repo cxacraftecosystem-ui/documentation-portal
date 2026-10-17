@@ -65,6 +65,11 @@ import { UploadsProvider, useEagerStaging, useUploads } from "@/lib/uploads";
 import type { MediaFile, PageResult, Questionnaire, QuestionnaireInterview, QuestionnaireQuestion, QuestionnaireSection } from "@/lib/types";
 import { Toggle } from "@/components/ui/Toggle";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
+import { DraftOfferCard, useFormDraft } from "@/components/forms/FormDraft";
+import { artisanStatedSource } from "@/components/forms/statedPrefill";
+import { ARTISAN_FIELD_OPTIONS, artisanFieldLabel, artisanPrefill, automaticInterviewTitle } from "@/lib/questionArtisanFields";
+import { applyTranscripts, TRANSCRIPT_SOURCE, transcriptAnswerText, transcriptOffer } from "@/lib/transcriptAnswer";
 
 /**
  * The API's own ceiling on an interview title — `QuestionnaireInterviewCreate.title` is
@@ -476,6 +481,20 @@ function QuestionnairePageBody() {
   const [title, setTitle] = useState("");
   const [place, setPlace] = useState("");
   const [language, setLanguage] = useState("");
+  /**
+   * A7 — THE ANSWERS WHOSE WORDS CAME FROM THEIR CLIP'S TRANSCRIPT and have not been edited since.
+   * Drawn as "From transcript" beside the box and sent as `answerSource: "TRANSCRIPT"`; a keystroke
+   * in the box takes the question out, because the words are then the researcher's.
+   */
+  const [fromTranscript, setFromTranscript] = useState<Set<string>>(() => new Set());
+  /** B6 — set by the researcher's own typing in an answer box; part of the draft's `dirty`. */
+  const [answersTouched, setAnswersTouched] = useState(false);
+  /** B6 — interview notes restored from a draft, and the remount that seeds them. */
+  const [restoredNotes, setRestoredNotes] = useState<string | null>(null);
+  const [draftNonce, setDraftNonce] = useState(0);
+  /** B8 — the place this form filled from the artisan, so a different artisan may replace it. */
+  const placeFromArtisan = useRef<string | null>(null);
+  const [placeFilled, setPlaceFilled] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -627,19 +646,9 @@ function QuestionnairePageBody() {
 
   useEffect(() => {
     if (!selectedArtisan || questions.length === 0) return;
-    const respondentAnswers: Record<string, string> = {};
-    questions
-      .filter((question) => question.sectionCode === "RESP")
-      .forEach((question) => {
-        const prompt = question.prompt.toLowerCase();
-        if (prompt.includes("name")) respondentAnswers[question.id] = selectedArtisan.name;
-        else if (prompt.includes("craft")) respondentAnswers[question.id] = selectedArtisan.craft?.name ?? "";
-        else if (prompt.includes("state") || prompt.includes("district") || prompt.includes("village")) respondentAnswers[question.id] = selectedArtisan.place;
-        else if (prompt.includes("gender")) respondentAnswers[question.id] = selectedArtisan.gender ?? "";
-        else if (prompt.includes("contact")) respondentAnswers[question.id] = selectedArtisan.phone ?? selectedArtisan.email ?? "";
-        else if (prompt.includes("date")) respondentAnswers[question.id] = new Date().toLocaleDateString("en-IN");
-        else if (prompt.includes("interviewer")) respondentAnswers[question.id] = user?.name ?? user?.email ?? "";
-      });
+    // B8: a question the builder MAPPED to an artisan field fills from that field, on any section;
+    // an unmapped respondent question keeps the older keyword guess (`lib/questionArtisanFields`).
+    const respondentAnswers = artisanPrefill(questions, selectedArtisan, user);
     // Overwrite only what is still blank or still exactly what this effect put there last time.
     // The old rule kept every existing answer ahead of the new prefill, which read as "never clobber
     // the researcher" but really meant the RESP block froze on the FIRST artisan picked: change the
@@ -660,6 +669,128 @@ function QuestionnairePageBody() {
       return changed ? next : current;
     });
   }, [questions, selectedArtisan, user]);
+
+  /*
+    B8 — THE PLACE COMES FROM THE ARTISAN. Written only into an empty box, or over the place this
+    effect wrote for the previously picked artisan; a typed place is the researcher's and stays. An
+    edit never moves it: the stored sitting already says where it was taken.
+  */
+  useEffect(() => {
+    if (editing || !selectedArtisan) return;
+    const offered = selectedArtisan.place?.trim() ?? "";
+    if (!offered) return;
+    setPlace((current) => {
+      if (current.trim() && current !== placeFromArtisan.current) return current;
+      placeFromArtisan.current = offered;
+      return offered;
+    });
+    setPlaceFilled(offered);
+  }, [selectedArtisan, editing]);
+
+  /** B8 — the title an empty box saves under: "Ramesh · Craft questionnaire · 17 Oct". */
+  const automaticTitle = automaticInterviewTitle(
+    selectedArtisan?.name,
+    selectedArtisanIds.length,
+    instruments.find((instrument) => instrument.id === questionnaireId)?.title
+  );
+
+  /**
+   * A7 — EACH QUESTION'S NEWEST TRANSCRIBED CLIP, as answer text. Only clips recorded against ONE
+   * question count (the caption rule above); a whole-section take answers no single question. Saved
+   * clips exist only on an edit, which is where a transcript has had time to arrive.
+   */
+  const transcriptByQuestion = useMemo(() => {
+    const out: Record<string, string> = {};
+    const media = [...(editing?.media ?? [])].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+    for (const question of questions) {
+      const clip = media.find((item) => captionAnswersQuestion(item.caption, question) && transcriptAnswerText(item.transcriptText));
+      if (clip) out[question.id] = transcriptAnswerText(clip.transcriptText);
+    }
+    return out;
+  }, [editing, questions]);
+  const transcriptsReady = Object.entries(transcriptByQuestion).filter(([id, text]) => transcriptOffer(answers[id], text) !== null).length;
+
+  /*
+    B6 — THE SITTING KEEPS A DRAFT: the header, every answer, the artisans and every clip recorded
+    so far, autosaved while anything has been entered and offered back after a closed tab. An
+    interview is the one record that cannot be re-taken — the artisan has gone home.
+  */
+  const interviewDirty = Boolean(
+    title.trim() ||
+      language.trim() ||
+      answersTouched ||
+      mediaFiles.length ||
+      Object.values(questionAudioFiles).some((files) => files.length) ||
+      fromTranscript.size
+  );
+  const interviewDraft = useFormDraft({
+    kind: "questionnaire",
+    recordId: editing?.id ?? null,
+    parentId: editing ? null : searchParams.get("artisanId"),
+    parentLabel: editing ? null : (selectedArtisan?.name ?? null),
+    dirty: interviewDirty,
+    label: title.trim() || automaticTitle,
+    fields: {
+      title,
+      place,
+      language,
+      answers,
+      selectedArtisanIds,
+      questionAudioFiles,
+      mediaFiles,
+      fromTranscript: Array.from(fromTranscript),
+      questionnaireId,
+      workshopId: workshop.workshopId
+    },
+    collect: () => {
+      const notes = formRef.current ? new FormData(formRef.current).get("notes") : null;
+      return typeof notes === "string" ? { notes } : {};
+    },
+    onRestore: (fields) => {
+      const text = (key: string) => (typeof fields[key] === "string" ? (fields[key] as string) : "");
+      setTitle(text("title"));
+      setPlace(text("place"));
+      setLanguage(text("language"));
+      if (fields.answers && typeof fields.answers === "object") setAnswers(fields.answers as Record<string, string>);
+      if (Array.isArray(fields.selectedArtisanIds)) setSelectedArtisanIds(fields.selectedArtisanIds as string[]);
+      if (fields.questionAudioFiles && typeof fields.questionAudioFiles === "object") {
+        setQuestionAudioFiles(fields.questionAudioFiles as Record<string, File[]>);
+      }
+      if (Array.isArray(fields.mediaFiles)) setMediaFiles(fields.mediaFiles as File[]);
+      if (Array.isArray(fields.fromTranscript)) setFromTranscript(new Set(fields.fromTranscript as string[]));
+      const instrument = text("questionnaireId");
+      if (instrument && !editing) {
+        instrumentTouched.current = true;
+        setQuestionnaireId(instrument);
+        void loadMeta(instrument);
+      }
+      const workshopId = text("workshopId");
+      if (workshopId) workshop.setWorkshopId(workshopId);
+      setAnswersTouched(true);
+      setRestoredNotes(text("notes") || null);
+      setDraftNonce((nonce) => nonce + 1);
+    }
+  });
+
+  /** "Use as answer": one tap fills the empty box and marks it as the transcript's. */
+  function takeTranscriptAsAnswer(questionId: string) {
+    const offer = transcriptOffer(answers[questionId], transcriptByQuestion[questionId]);
+    if (offer === null) return;
+    setAnswers((current) => ({ ...current, [questionId]: offer }));
+    setFromTranscript((current) => new Set(current).add(questionId));
+  }
+
+  /** "Use all transcripts": every empty answer that has one, at once. A typed answer is never touched. */
+  function takeAllTranscripts() {
+    const { answers: next, filled } = applyTranscripts(answers, transcriptByQuestion);
+    if (!filled.length) return;
+    setAnswers(next);
+    setFromTranscript((current) => {
+      const out = new Set(current);
+      filled.forEach((id) => out.add(id));
+      return out;
+    });
+  }
 
   /**
    * THE INSTRUMENT AND ITS SECTIONS. They change only when an admin edits the questionnaire, so they
@@ -1077,6 +1208,9 @@ function QuestionnairePageBody() {
     setTitle("");
     setPlace("");
     setLanguage("");
+    placeFromArtisan.current = null;
+    setPlaceFilled(null);
+    setFromTranscript(new Set());
   }
 
   /**
@@ -1102,6 +1236,7 @@ function QuestionnairePageBody() {
     // drawing answer boxes on a BLANK capture form for question ids the previous sitting answered —
     // overriding the researcher's hidden-answers preference on a screen with no record behind it.
     setAnsweredOnRecord(new Set());
+    setFromTranscript(new Set());
     setMergeConflicts([]);
     setMergeNotice(null);
   }
@@ -1148,6 +1283,13 @@ function QuestionnairePageBody() {
       )
     );
     setSelectedArtisanIds((interview.artisans ?? []).map((link) => link.artisan?.id).filter(Boolean) as string[]);
+    setFromTranscript(
+      new Set(
+        (interview.responses ?? [])
+          .filter((response) => response.questionId && response.answerSource === TRANSCRIPT_SOURCE)
+          .map((response) => response.questionId)
+      )
+    );
     setMediaFiles([]);
     setQuestionAudioFiles({});
     /*
@@ -1300,12 +1442,19 @@ function QuestionnairePageBody() {
     const artisanIds = selectedArtisanIds;
     const responses = Object.entries(answers)
       .filter(([, answerText]) => answerText.trim())
-      .map(([questionId, answerText]) => ({ questionId, answerText: answerText.trim() }));
+      .map(([questionId, answerText]) => ({
+        questionId,
+        answerText: answerText.trim(),
+        // A7: only when the words are still the transcript's. The key is left off otherwise, so a
+        // body with no transcript answer is byte-for-byte what older builds sent.
+        ...(fromTranscript.has(questionId) ? { answerSource: TRANSCRIPT_SOURCE } : {})
+      }));
     try {
       const location = locationFromForm(form);
       const recordedAt = recordedAtFromForm(form);
       const recordedTimezone = recordedTimezoneFromForm(form);
-      const interviewTitle = textValue(form, "title") || `Interview ${new Date().toLocaleDateString()}`;
+      // B8: an empty title is named for who, what and when — the same words the server would use.
+      const interviewTitle = textValue(form, "title") || automaticTitle;
       /*
         THE SHARED HALF OF BOTH BODIES. Every key here is legal on a create AND on an update —
         `QuestionnaireInterviewUpdate` (backend/app/schemas/questionnaire.py:159) declares each one.
@@ -1396,6 +1545,10 @@ function QuestionnairePageBody() {
           })
         ]
       });
+      // Saved or queued: the draft has done its job.
+      interviewDraft.clear();
+      setAnswersTouched(false);
+      setRestoredNotes(null);
       if (outcome.queued) {
         // OutboxBanner at the top of the page names the entry and says where it lives.
         if (editingId) {
@@ -1779,7 +1932,7 @@ function QuestionnairePageBody() {
         box behind on a form that says it is blank. Same rule the other three inline forms keep.
       */}
       <form
-        key={editing?.id ?? "new"}
+        key={`${editing?.id ?? "new"}-${draftNonce}`}
         ref={formRef}
         onSubmit={submit}
         onKeyDown={handleFormEnter}
@@ -1800,9 +1953,16 @@ function QuestionnairePageBody() {
                 Existing recordings are kept.
               </span>
             </div>
-            <button type="button" className="field-button-secondary" onClick={resetToCreate} disabled={saving}>
-              Cancel edit
-            </button>
+            <ButtonRow align="end">
+              {transcriptsReady > 0 ? (
+                <button type="button" className="field-button-secondary" onClick={takeAllTranscripts} disabled={saving}>
+                  Use {transcriptsReady} transcript{transcriptsReady === 1 ? "" : "s"} as answers
+                </button>
+              ) : null}
+              <button type="button" className="field-button-secondary" onClick={resetToCreate} disabled={saving}>
+                Cancel edit
+              </button>
+            </ButtonRow>
           </div>
         ) : null}
         {deepLinkLoading ? (
@@ -1810,6 +1970,7 @@ function QuestionnairePageBody() {
             Loading that interview...
           </div>
         ) : null}
+        <DraftOfferCard draft={interviewDraft} />
         {/* The carried context seeds a NEW sitting; on an edit the record itself is the context. */}
         {editing ? null : <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />}
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
@@ -1840,11 +2001,12 @@ function QuestionnairePageBody() {
             so without the hint the value simply changes after saving and the form and the record
             disagree with no one having been told.
           */}
+          {/* B8: optional. Left empty, the sitting is saved under the automatic title shown here. */}
           <DictatedTextInput
             name="title"
             label="Interview title"
-            required
             titleCased
+            placeholder={automaticTitle}
             maxLength={INTERVIEW_TITLE_MAX}
             explainWhenUnavailable={false}
             value={title}
@@ -1855,14 +2017,17 @@ function QuestionnairePageBody() {
               field to tab past that could only ever be wrong. AND NO MICROPHONE ON A DATE even if one
               were re-added: a spoken date is the one thing a recogniser gets wrong in a way that
               still parses. */}
-          <DictatedTextInput
-            name="place"
-            label="Place"
-            titleCased
-            explainWhenUnavailable={false}
-            value={place}
-            onChange={setPlace}
-          />
+          <div className="grid content-start gap-1">
+            <DictatedTextInput
+              name="place"
+              label="Place"
+              titleCased
+              explainWhenUnavailable={false}
+              value={place}
+              onChange={setPlace}
+            />
+            {placeFilled && place === placeFilled ? <p className="text-xs text-ink-500">From the artisan.</p> : null}
+          </div>
           {/*
             Language is FREE TEXT here and not a closed vocabulary, which is why it gets a microphone
             at all. The column is `str | None` with no enum behind it on either side — the placeholder
@@ -2195,7 +2360,7 @@ function QuestionnairePageBody() {
           allowedTypes={["AUDIO"]}
         />
         <UploadProgress progress={interviewProgress} sectionId={INTERVIEW_SECTION} label={INTERVIEW_SECTION_LABEL} />
-        <LocationFields />
+        <LocationFields prefillFrom={editing ? null : artisanStatedSource(selectedArtisan)} />
         <div className="grid gap-3">
           {orderedGroups.map(([code, group], index) => {
             const tally = sectionTally(group);
@@ -2356,17 +2521,45 @@ function QuestionnairePageBody() {
                       condition, and adding `editing &&` would state the same fact twice and invite the
                       two to drift.
                     */}
-                    {capture.hideAnswers && !answeredOnRecord.has(question.id) ? null : (
+                    {transcriptOffer(answers[question.id], transcriptByQuestion[question.id]) !== null ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-950">
+                        <span>Transcript ready.</span>
+                        <button
+                          type="button"
+                          className="rounded-md border border-purple-300 bg-white px-3 py-1.5 font-semibold text-purple-800 transition-colors hover:bg-purple-100"
+                          onClick={() => takeTranscriptAsAnswer(question.id)}
+                        >
+                          Use as answer
+                        </button>
+                      </div>
+                    ) : null}
+                    {capture.hideAnswers && !answeredOnRecord.has(question.id) && !fromTranscript.has(question.id) ? null : (
                       <>
-                        {capture.hideAnswers ? (
+                        {capture.hideAnswers && !fromTranscript.has(question.id) ? (
                           <p className="text-xs leading-5 text-ink-500">
                             Shown because this question already has an answer.
                           </p>
                         ) : null}
+                        {fromTranscript.has(question.id) ? (
+                          <span className="w-fit rounded-full border border-purple-300 bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-800">
+                            From transcript
+                          </span>
+                        ) : null}
                         <TextArea
                           aria-labelledby={`question-label-${question.id}`}
                           value={answers[question.id] ?? ""}
-                          onChange={(event) => setAnswers((current) => ({ ...current, [question.id]: event.target.value }))}
+                          onChange={(event) => {
+                            const next = event.target.value;
+                            setAnswersTouched(true);
+                            setAnswers((current) => ({ ...current, [question.id]: next }));
+                            // Edited words are the researcher's, whatever they started from.
+                            setFromTranscript((current) => {
+                              if (!current.has(question.id)) return current;
+                              const out = new Set(current);
+                              out.delete(question.id);
+                              return out;
+                            });
+                          }}
                         />
                         {/*
                           THE ANSWER BOX IS THE REASON THIS PAGE HAS MICROPHONES AT ALL. A researcher
@@ -2451,7 +2644,7 @@ function QuestionnairePageBody() {
           onOpenPreview={setActivePreview}
         />
         {/* `defaultValue` is read once per mount, which is why the form above is keyed on the record. */}
-        <MultiNoteField name="notes" label="Interview notes" defaultValue={editing?.notes ?? null} />
+        <MultiNoteField name="notes" label="Interview notes" defaultValue={restoredNotes ?? editing?.notes ?? null} />
         <ButtonRow>
           <button className="field-button" disabled={saving}>
             {editing ? <Save className="h-4 w-4" aria-hidden /> : <Plus className="h-4 w-4" aria-hidden />}
@@ -3244,13 +3437,23 @@ function QuestionnaireAdminEditor({
     await onChanged();
   }
 
-  async function saveQuestion(question: QuestionnaireQuestion, prompt: string, isActive: boolean): Promise<boolean> {
+  async function saveQuestion(
+    question: QuestionnaireQuestion,
+    prompt: string,
+    isActive: boolean,
+    artisanField: string
+  ): Promise<boolean> {
     setBusy(true);
     setMessage(null);
     try {
       await apiFetch(`/questionnaire/questions/${question.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ prompt: prompt.trim(), isActive })
+        body: JSON.stringify({
+          prompt: prompt.trim(),
+          isActive,
+          // B8: sent only when it changed, so an unchanged save reads exactly as it always did.
+          ...(artisanField !== (question.artisanField ?? "") ? { artisanField: artisanField || null } : {})
+        })
       });
       await onChanged();
       return true;
@@ -3495,7 +3698,7 @@ function QuestionnaireAdminEditor({
                       onMoveUp={() => keyboardMove(section, question, -1)}
                       onMoveDown={() => keyboardMove(section, question, 1)}
                       onMoveToSection={(toSectionId) => moveQuestionToSection(question, section.id, toSectionId)}
-                      onSave={(prompt, isActive) => saveQuestion(question, prompt, isActive)}
+                      onSave={(prompt, isActive, artisanField) => saveQuestion(question, prompt, isActive, artisanField)}
                       onRemove={() => removeQuestion(question)}
                     />
                   </div>
@@ -3609,18 +3812,20 @@ function QuestionTile({
   onMoveUp: () => void;
   onMoveDown: () => void;
   onMoveToSection: (toSectionId: string) => void;
-  onSave: (prompt: string, isActive: boolean) => Promise<boolean>;
+  onSave: (prompt: string, isActive: boolean, artisanField: string) => Promise<boolean>;
   onRemove: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [prompt, setPrompt] = useState(question.prompt);
   const [isActive, setIsActive] = useState(question.isActive);
+  const [artisanField, setArtisanField] = useState(question.artisanField ?? "");
   const [savingTile, setSavingTile] = useState(false);
 
   useEffect(() => {
     setPrompt(question.prompt);
     setIsActive(question.isActive);
-  }, [question.id, question.prompt, question.isActive]);
+    setArtisanField(question.artisanField ?? "");
+  }, [question.id, question.prompt, question.isActive, question.artisanField]);
 
   function pointerAfter(event: React.DragEvent) {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -3631,7 +3836,7 @@ function QuestionTile({
 
   async function handleSave() {
     setSavingTile(true);
-    const ok = await onSave(prompt, isActive);
+    const ok = await onSave(prompt, isActive, artisanField);
     setSavingTile(false);
     if (ok) setEditing(false);
   }
@@ -3694,12 +3899,29 @@ function QuestionTile({
               disabled={disabled || savingTile}
               onCommit={(phrase) => setPrompt((current) => appendDictatedPhrase(current, phrase))}
             />
+            {/* B8: which artisan field answers this question in an interview. */}
+            <div className="mt-2 grid gap-1 sm:max-w-xs">
+              <span className="field-label" id={`artisan-field-${question.id}`}>Fill from artisan</span>
+              <SearchableSelect
+                value={artisanField}
+                onChange={setArtisanField}
+                options={[{ value: "", label: "Nothing" }, ...ARTISAN_FIELD_OPTIONS]}
+                ariaLabel={`Fill question ${question.sectionCode}${question.sortOrder} from the artisan`}
+                advanceOnSelect={false}
+                disabled={disabled || savingTile}
+              />
+            </div>
           </>
         ) : (
           <p className="text-sm text-ink-900">
             <span className="mr-1 font-semibold text-ink-500">{question.sortOrder}.</span>
             {question.prompt}
             {!question.isActive ? <span className="ml-2 rounded bg-line-200 px-1.5 py-0.5 text-xs text-ink-500">inactive</span> : null}
+            {artisanFieldLabel(question.artisanField) ? (
+              <span className="ml-2 rounded-full border border-purple-300 bg-purple-50 px-2 py-0.5 text-xs text-purple-800">
+                From artisan: {artisanFieldLabel(question.artisanField)}
+              </span>
+            ) : null}
           </p>
         )}
 
@@ -3717,6 +3939,7 @@ function QuestionTile({
                 onClick={() => {
                   setPrompt(question.prompt);
                   setIsActive(question.isActive);
+                  setArtisanField(question.artisanField ?? "");
                   setEditing(false);
                 }}
               >
