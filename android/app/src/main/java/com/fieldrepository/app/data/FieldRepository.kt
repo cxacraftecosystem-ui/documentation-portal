@@ -1506,25 +1506,27 @@ class FieldRepository(
      * [search] is null for the ordinary load and non-null only when the switcher has established that
      * the list IS cut — see `shouldSearchServer` there for why searching unconditionally would be
      * worse than the on-device filter it would replace, and would fail in a courtyard with no signal.
+     *
+     * A blank [workshopId] is "All workshops": no filter, every record the account may see.
      */
     suspend fun artisansForWorkshopPage(workshopId: String, search: String? = null): PageResponse<ArtisanDto> =
-        api.artisans(pageSize = 100, workshopId = workshopId, search = search?.ifBlank { null })
+        api.artisans(pageSize = 100, workshopId = workshopId.ifBlank { null }, search = search?.ifBlank { null })
 
     /** One workshop's crafts. See [artisansForWorkshopPage]. */
     suspend fun craftsForWorkshopPage(workshopId: String, search: String? = null): PageResponse<CraftDto> =
-        api.crafts(pageSize = 100, workshopId = workshopId, search = search?.ifBlank { null })
+        api.crafts(pageSize = 100, workshopId = workshopId.ifBlank { null }, search = search?.ifBlank { null })
 
     /** One workshop's products. See [artisansForWorkshopPage]. */
     suspend fun productsForWorkshopPage(workshopId: String, search: String? = null): PageResponse<ProductDetailDto> =
-        api.products(pageSize = 100, workshopId = workshopId, search = search?.ifBlank { null })
+        api.products(pageSize = 100, workshopId = workshopId.ifBlank { null }, search = search?.ifBlank { null })
 
     /** One workshop's tools. See [artisansForWorkshopPage]. */
     suspend fun toolsForWorkshopPage(workshopId: String, search: String? = null): PageResponse<ToolDetailDto> =
-        api.tools(pageSize = 100, workshopId = workshopId, search = search?.ifBlank { null })
+        api.tools(pageSize = 100, workshopId = workshopId.ifBlank { null }, search = search?.ifBlank { null })
 
     /** One workshop's processes. See [artisansForWorkshopPage]. */
     suspend fun processesForWorkshopPage(workshopId: String, search: String? = null): PageResponse<ProcessDetailDto> =
-        api.processes(pageSize = 100, workshopId = workshopId, search = search?.ifBlank { null })
+        api.processes(pageSize = 100, workshopId = workshopId.ifBlank { null }, search = search?.ifBlank { null })
 
     suspend fun crafts(): List<CraftDto> = api.crafts(pageSize = 100).items
 
@@ -3368,7 +3370,8 @@ class FieldRepository(
                 url = target.publicUrl,
                 caption = pm.caption.blankToNull(),
                 linkedRecordType = linkedRecordType,
-                linkedRecordId = linkedRecordId,
+                // Blank for a batch queued from Upload media with no entry picked: unlinked, as online.
+                linkedRecordId = linkedRecordId.blankToNull(),
                 // When it was captured, not when the signal came back.
                 recordedAt = pm.capturedAt ?: Instant.now().toString(),
                 location = pm.location,

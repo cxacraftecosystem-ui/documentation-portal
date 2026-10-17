@@ -72,6 +72,8 @@ import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Timeline
 import com.fieldrepository.app.ui.trace.TracePanel
 import com.fieldrepository.app.ui.MediaDownloadButton
+import com.fieldrepository.app.ui.TILE_OUTLINE_ALPHA
+import androidx.compose.foundation.BorderStroke
 import com.fieldrepository.app.ui.OutboxPendingBanner
 import com.fieldrepository.app.ui.FormDraft
 import com.fieldrepository.app.ui.RECORD_UPDATE_LABEL
@@ -102,6 +104,7 @@ import com.fieldrepository.app.ui.rememberQuickReturnHeader
 import com.fieldrepository.app.ui.rememberIslandImeVisible
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import com.fieldrepository.app.ui.AppSearchItem
 import com.fieldrepository.app.ui.AppSearchPanel
 import com.fieldrepository.app.ui.AppSearchSettingTarget
@@ -117,6 +120,14 @@ import com.fieldrepository.app.ui.closeAppMenu
 import com.fieldrepository.app.ui.openAppMenu
 import com.fieldrepository.app.ui.Text
 import com.fieldrepository.app.ui.AppMessageBanner
+import com.fieldrepository.app.ui.BANNER_STACK_GAP
+import com.fieldrepository.app.ui.LocalBannerClearance
+import com.fieldrepository.app.ui.bannerAlreadySays
+import com.fieldrepository.app.ui.bannerClearance
+import com.fieldrepository.app.ui.readAdminView
+import com.fieldrepository.app.ui.restoredAdminView
+import com.fieldrepository.app.ui.writeAdminView
+import com.fieldrepository.app.ui.pageBottomReserve
 import com.fieldrepository.app.ui.AppMessageState
 import com.fieldrepository.app.ui.AppMessageTone
 import com.fieldrepository.app.ui.CAMERA_PERMISSION
@@ -954,6 +965,16 @@ private fun RepositoryApp(
     val serverUnreachable by com.fieldrepository.app.data.ServerReachability.unreachable.collectAsState()
     // How tall the island bar currently is, reported up by HomeScreen; 0 where there is no bar.
     val islandClearance = remember { mutableStateOf(0.dp) }
+    // How tall the offline / outbox banner stack is, measured below and handed to every page so its
+    // last button scrolls clear of the banners too (ui/BannerClearance.kt).
+    var bannerStackHeight by remember { mutableStateOf(0.dp) }
+    // Stood down while the keyboard is up: the window is short then, and two cards over the field
+    // being typed into would hide it. They are back the moment the keyboard closes.
+    val rootImeOpen by com.fieldrepository.app.ui.rememberIslandImeVisible()
+    val bannersShown = user != null && !rootImeOpen && (pendingUploads > 0 || !online || serverUnreachable)
+    val bannerReserve = remember { mutableStateOf(0.dp) }
+    bannerReserve.value = bannerClearance(bannerStackHeight, bannersShown)
+    val rootDensity = LocalDensity.current
     LaunchedEffect(user) {
         if (user == null || mustChangePasswordBlocks(user)) return@LaunchedEffect
         // The background half (data/OutboxSyncWorker.kt): carries on after the app is closed.
@@ -1168,7 +1189,10 @@ private fun RepositoryApp(
                     }
                 }
             )
-            else -> CompositionLocalProvider(LocalIslandClearance provides islandClearance) { HomeScreen(
+            else -> CompositionLocalProvider(
+                LocalIslandClearance provides islandClearance,
+                LocalBannerClearance provides bannerReserve
+            ) { HomeScreen(
                 repository = repository,
                 user = user!!,
                 preferences = preferences,
@@ -1192,14 +1216,17 @@ private fun RepositoryApp(
                 }
             ) }
         }
-        if (user != null && (pendingUploads > 0 || !online || serverUnreachable)) {
+        if (bannersShown) {
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     // Above the island bar, never over it: offline, the bar is the only way around
                     // the app, and this line used to sit on top of it (release smoke test 2026-10-16).
-                    .padding(bottom = 8.dp + islandClearance.value),
+                    .padding(bottom = BANNER_STACK_GAP + islandClearance.value)
+                    // After the padding, so this is the banners alone: the page adds it to its own
+                    // bottom padding and lifts the message surface over it.
+                    .onSizeChanged { bannerStackHeight = with(rootDensity) { it.height.toDp() } },
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 if (!online) {
@@ -1447,6 +1474,8 @@ private fun HomeScreen(
     var searchOpen by remember { mutableStateOf(false) }
     // The designer portal's AppMessageState: `message = "…"` is a success, showMessage an error.
     val appMessage = remember { AppMessageState() }
+    // The offline / outbox banners' footprint, measured by the root (ui/BannerClearance.kt).
+    val bannerReserve = LocalBannerClearance.current?.value ?: 0.dp
     var message by appMessage
     // Every gate below mirrors one backend dependency (see the capability block near ROLE_RANK).
     // Do not re-derive a rule inline here: this screen used to hard-code admin-only variants of half
@@ -1481,7 +1510,17 @@ private fun HomeScreen(
     // with no chip left to turn it off, and the "Turn admin view back on" card is reachable by a
     // user who never had the switch in the first place. ANDing the gate in at every read means a
     // stale ON simply cannot survive the gate failing, which a one-shot reset would not guarantee.
-    var adminViewRequested by remember { mutableStateOf(isMasterAdmin) }
+    //
+    // Remembered per account across restarts and sign-ins (ui/AdminViewMemory.kt): every write goes
+    // through requestAdminView below, so a flip from the drawer and "Turn admin view back on" stick.
+    val adminViewContext = LocalContext.current.applicationContext
+    var adminViewRequested by remember(user.id) {
+        mutableStateOf(restoredAdminView(readAdminView(adminViewContext, user.id), isMasterAdmin))
+    }
+    fun requestAdminView(on: Boolean) {
+        adminViewRequested = on
+        writeAdminView(adminViewContext, user.id, on)
+    }
     val adminView = canToggleAdminView && adminViewRequested
 
     /**
@@ -1586,6 +1625,10 @@ private fun HomeScreen(
         if (text.isNullOrBlank()) return
         val lower = text.lowercase()
         if ("left the composition" in lower || "was cancelled" in lower || "job was cancelled" in lower) return
+        // Offline, the banner at the foot of the screen already says so; a second card would not.
+        val bannerShowing = !repository.isOnline(context) ||
+            com.fieldrepository.app.data.ServerReachability.unreachable.value
+        if (bannerAlreadySays(text, tone, bannerShowing)) return
         appMessage.show(text, tone, onRetry)
     }
 
@@ -1968,7 +2011,7 @@ private fun HomeScreen(
                             ?: emptyMap(),
                         onNavigate = ::navigate,
                         pushingUpdate = pushingUpdate,
-                        onToggleAdminView = { adminViewRequested = !adminView },
+                        onToggleAdminView = { requestAdminView(!adminView) },
                         onPushUpdate = {
                             scope.launch { drawerState.closeAppMenu(reducedMotion) }
                             if (!pushingUpdate) {
@@ -2005,7 +2048,16 @@ private fun HomeScreen(
             ) {
             // The page gets back the 16dp the drawer bleeds through, and leaves the accessibility
             // tree while the menu is over it. See AppMenuDrawer.kt.
-            Box(modifier = Modifier.padding(16.dp).appMenuHidesPage(drawerState.appMenuShowing)) {
+            // The screens hosted outside the scrolling page own their whole viewport, so for them
+            // the banners' footprint comes off the bottom of that viewport instead.
+            val ownsViewport = screen is Screen.DataBrowser || screen is Screen.Appearance ||
+                screen is Screen.TwoStepVerification || screen is Screen.MyAiKeys
+            Box(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .padding(bottom = if (ownsViewport) bannerReserve else 0.dp)
+                    .appMenuHidesPage(drawerState.appMenuShowing)
+            ) {
                 /*
                  * Two hosting shapes. Almost everything renders into the scrolling Column below,
                  * under the app's own header. The two screens branched off here own
@@ -2122,6 +2174,8 @@ private fun HomeScreen(
         val quickReturn = rememberQuickReturnHeader(pageScroll, pinned = searchOpen)
         val pageImeOpen by rememberIslandImeVisible()
         val clearance = LocalIslandClearance.current
+        // The bar AND the offline / outbox banners over it: the page's end clears both.
+        val pageReserve = pageBottomReserve(islandReserve, bannerReserve)
         SideEffect { clearance?.value = islandReserve }
         DisposableEffect(clearance) { onDispose { clearance?.value = 0.dp } }
         Box(Modifier.fillMaxSize()) {
@@ -2131,8 +2185,8 @@ private fun HomeScreen(
                 .nestedScroll(quickReturn.connection)
                 .verticalScroll(pageScroll)
                 .padding(top = with(LocalDensity.current) { quickReturn.reservePx.toDp() })
-                // Inside the scroller, so it is the END of the page that clears the bar.
-                .padding(bottom = islandReserve),
+                // Inside the scroller, so it is the END of the page that clears the bar and banners.
+                .padding(bottom = pageReserve),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
 
@@ -2368,6 +2422,7 @@ private fun HomeScreen(
                         message = "$count media file${if (count == 1) "" else "s"} uploaded and queued"
                         refresh()
                     },
+                    onQueued = { count -> message = queuedMediaSentence(count) },
                     onError = { showMessage(it) }
                 )
                 EntryMode.QUESTIONNAIRE -> QuestionnaireForm(
@@ -2437,7 +2492,7 @@ private fun HomeScreen(
                         label = "User management",
                         blurb = "Roles, promotions, capability grants and account administration live there.",
                         canToggle = canToggleAdminView,
-                        onEnable = { adminViewRequested = true }
+                        onEnable = { requestAdminView(true) }
                     )
                 }
             }
@@ -2537,13 +2592,13 @@ private fun HomeScreen(
                     label = "The access roster",
                     blurb = "It decides who may sign in at all, and holds the pending requests from people who were turned away.",
                     canToggle = canToggleAdminView,
-                    onEnable = { adminViewRequested = true }
+                    onEnable = { requestAdminView(true) }
                 )
                 else -> AdminViewHiddenCard(
                     label = "The settings hub",
                     blurb = "It gathers reviews, recovered recordings, feedback, tool assignment and user management in one place.",
                     canToggle = canToggleAdminView,
-                    onEnable = { adminViewRequested = true }
+                    onEnable = { requestAdminView(true) }
                 )
             }
 
@@ -2577,11 +2632,12 @@ private fun HomeScreen(
         // The shared message surface floats over the bottom of the viewport, just above the island,
         // so a save confirmation or a failure is on screen wherever the reader has scrolled to —
         // and over the search panel too, so a failure raised from it is seen.
+        // Above the offline / outbox banners, never under them: they are drawn later, by the root.
         AppMessageBanner(
             state = appMessage,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = islandReserve)
+                .padding(bottom = pageReserve)
         )
         }
                 }
@@ -6118,7 +6174,9 @@ private fun RecordPickerScreen(
      */
     val switchKind = recordSwitchKindFor(mode)
     if (switchKind != null) {
-        val switchWorkshop = rememberWorkshopPicker(repository, isEdit = false, initialId = null)
+        // `isEdit = true` only to skip the most-recent-workshop default: the switcher opens on
+        // "All workshops" (ui/RecordSwitcher.kt, ALL_WORKSHOPS_LABEL).
+        val switchWorkshop = rememberWorkshopPicker(repository, isEdit = true, initialId = null)
         val switcher = rememberRecordSwitcher(repository, switchKind, switchWorkshop)
         RecordCard(title = recordSwitcherTitle(switchKind)) {
             RecordSwitcher(
@@ -6330,20 +6388,15 @@ private fun EditScreen(
     /*
      * THE PICKER, ABOVE THE FORM AND ONLY FOR THE KINDS THAT HAVE ONE.
      *
-     * `isEdit = false` on the workshop picker even though this is the edit screen, and that is not a
-     * slip. The flag means "is this picker bound to a stored column that must not be clobbered" — on
-     * a record FORM it is, and the create-time default is suppressed so opening a record never
-     * rewrites its workshop link. Here the picker is bound to nothing; it filters a list. Suppressing
-     * the default would leave the dropdown empty and the control useless, and there is no link for it
-     * to damage because this picker writes nothing at all.
-     *
-     * `initialId = null` for the same reason: the requirement is that it open on the most recent
-     * workshop the account may submit to, not on whichever workshop the record in front of them
-     * happens to belong to. The shortcut above covers the times they want the latter.
+     * `isEdit = true` suppresses the most-recent-workshop default walk. That default pre-selected a
+     * workshop the open record had nothing to do with and announced "No artisans in this workshop"
+     * (release smoke test 2026-10-17, doc/70). The switcher now opens on "All workshops" and moves to
+     * the record's own workshop as soon as the record has loaded — see `recordSwitchWorkshopFor`.
+     * This picker writes nothing, so there is no stored link for the flag to protect here.
      */
     val switchKind = recordSwitchKindFor(mode)
     if (switchKind != null) {
-        val switchWorkshop = rememberWorkshopPicker(repository, isEdit = false, initialId = null)
+        val switchWorkshop = rememberWorkshopPicker(repository, isEdit = true, initialId = null)
         val switcher = rememberRecordSwitcher(repository, switchKind, switchWorkshop)
         RecordCard(title = recordSwitcherTitle(switchKind)) {
             RecordSwitcher(
@@ -12607,6 +12660,8 @@ private val mediaLinkModes = listOf(
 private fun AndroidMediaForm(
     repository: FieldRepository,
     onUploaded: (Int) -> Unit,
+    /** The batch went to the outbox (no signal): how many files it holds. */
+    onQueued: (Int) -> Unit = {},
     onError: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -12832,16 +12887,27 @@ private fun AndroidMediaForm(
                         context = context,
                         uri = uri,
                         downloadable = true,
+                        onTile = true,
                         onRemove = { selectedUris = selectedUris.filterNot { it == uri } }
                     )
                 }
+                // On the purple tile every action is drawn in the tile's own ink: the theme's
+                // primary is purple too, and "Download" and "Clear batch" all but vanished (doc/75).
+                val tileInk = MaterialTheme.field.onBrandTile
                 if (selectedUris.size > batchCap) {
-                    TextButton(onClick = { batchExpanded = !batchExpanded }) {
-                        Text(if (batchExpanded) "Show fewer" else "+${selectedUris.size - batchCap} more")
+                    TextButton(
+                        onClick = { batchExpanded = !batchExpanded },
+                        colors = ButtonDefaults.textButtonColors(contentColor = tileInk)
+                    ) {
+                        Text(if (batchExpanded) "Show fewer" else "+${selectedUris.size - batchCap} more", color = tileInk)
                     }
                 }
-                TextButton(onClick = { selectedUris = emptyList() }) {
-                    Text("Clear batch")
+                OutlinedButton(
+                    onClick = { selectedUris = emptyList() },
+                    border = BorderStroke(1.dp, tileInk.copy(alpha = TILE_OUTLINE_ALPHA)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = tileInk)
+                ) {
+                    Text("Clear batch", color = tileInk, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -12857,6 +12923,40 @@ private fun AndroidMediaForm(
                     uploadFraction = 0f
                     uploadProgressText = null
                     val uris = selectedUris
+                    // Copy [files] into the outbox, to upload (and attach, when an entry is picked)
+                    // once the connection returns; the form is cleared as after an upload.
+                    suspend fun queueBatch(files: List<Uri>): Boolean {
+                        val mode = linkedMode ?: return false
+                        val title = mediaTitle.ifBlank { caption }
+                        val queued = runCatching {
+                            repository.queueAttachments(
+                                context, mode.linkedRecordType(), linkedEntryId,
+                                title.trim().ifBlank { "Media" },
+                                files.map { uri ->
+                                    OfflineMediaSpec(
+                                        uri = uri, caption = caption.ifBlank { null }, recordName = title,
+                                        batchIndex = uris.indexOf(uri) + 1, location = location
+                                    )
+                                }
+                            )
+                        }.isSuccess
+                        if (queued) {
+                            draft.clear()
+                            selectedUris = emptyList()
+                            mediaTitle = ""
+                            caption = ""
+                            localMessage = null
+                            uploadStatus = ActionStatus.SUCCESS
+                            onQueued(files.size)
+                        }
+                        return queued
+                    }
+                    // No signal: straight to the outbox. The offline banner already says why, so
+                    // trying each file only to report "Could not connect" under it told nobody anything.
+                    if (!repository.isOnline(context) && queueBatch(uris)) {
+                        uploading = false
+                        return@launch
+                    }
                     // Sizes drive the overall %/ETA across the whole batch (cheap metadata reads).
                     val sizes = uris.map { queryMediaSize(context, it) }
                     val totalBytes = sizes.sum().coerceAtLeast(1L)
@@ -12933,6 +13033,10 @@ private fun AndroidMediaForm(
                             caption = ""
                             localMessage = null
                             uploadStatus = ActionStatus.SUCCESS
+                            if (success > 0) refreshMedia()
+                        }
+                        // No entry to attach to, and the signal went part-way: the rest wait unlinked.
+                        linkedEntryId.isBlank() && !repository.isOnline(context) && queueBatch(failedUris.toList()) -> {
                             if (success > 0) refreshMedia()
                         }
                         else -> {
@@ -13032,7 +13136,9 @@ private fun AndroidUriPreview(
     // (`saveToDownloads`) — before, during and after the upload, so the media is never lost to a
     // failing network and the upload is never waited on.
     onRetry: (() -> Unit)? = null,
-    downloadable: Boolean = false
+    downloadable: Boolean = false,
+    /** Drawn on the brand tile (the "N files ready" card): actions in the tile's ink, outlined. */
+    onTile: Boolean = false
 ) {
     val mimeType = remember(uri) { context.contentResolver.getType(uri) }
     val mediaType = remember(mimeType) { mediaTypeFromMime(mimeType) }
@@ -13086,7 +13192,16 @@ private fun AndroidUriPreview(
                 }
             }
             if (downloadable) {
-                MediaDownloadButton(source = uri, mimeType = mimeType)
+                if (onTile) {
+                    MediaDownloadButton(
+                        source = uri,
+                        mimeType = mimeType,
+                        contentColor = MaterialTheme.field.onBrandTile,
+                        outlined = true
+                    )
+                } else {
+                    MediaDownloadButton(source = uri, mimeType = mimeType)
+                }
             }
         }
     }
@@ -17647,6 +17762,11 @@ private fun moveIds(ids: List<String>, index: Int, direction: Int): List<String>
 
 private fun String.blankToNull(): String? = trim().takeIf { it.isNotEmpty() }
 
+
+/** Upload media's batch went to the outbox; the banner below carries the count from here on. */
+internal fun queuedMediaSentence(count: Int): String =
+    if (count == 1) "1 file saved on this device. It uploads when you're back online."
+    else "$count files saved on this device. They upload when you're back online."
 
 /** Under a batch whose remaining files all failed: nothing is uploading, so say what happens next. */
 private fun uploadStalledSentence(failed: Int): String =
