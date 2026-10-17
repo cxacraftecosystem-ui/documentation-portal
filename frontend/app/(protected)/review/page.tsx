@@ -19,6 +19,8 @@ import { formatDateTime } from "@/lib/format";
 import { isAdmin, roleLabel } from "@/lib/permissions";
 import { recordViewHref } from "@/lib/recordView";
 import {
+  alsoApprovesLine,
+  approvedReceipt,
   bulkApprove,
   bulkReceipt,
   decisionBody,
@@ -61,6 +63,8 @@ type PendingItem = {
   /** Sent back (or rejected) before and fixed since: the reviewer sees what was asked last time. */
   resubmitted?: boolean;
   previousReview?: PreviousReview | null;
+  /** Files still pending that approving this record approves with it (owner decision 2026-10-18). */
+  pendingMediaCount?: number;
 };
 
 /** Identifies one queue row. Type + id, because ids are only unique within a record type. */
@@ -280,9 +284,10 @@ export default function ReviewPage() {
    * that failed stay ticked, so a retry is one more click and nothing is approved twice.
    */
   async function approveSelected(rows: PendingItem[]) {
+    const files = alsoApprovesLine(rows.reduce((sum, row) => sum + (row.pendingMediaCount ?? 0), 0));
     const ok = await confirm({
       title: `Approve ${rows.length} record${rows.length === 1 ? "" : "s"}?`,
-      body: "Approved as they are, with no note.",
+      body: files ? `Approved as they are, with no note. ${files}` : "Approved as they are, with no note.",
       note: "Can’t be undone here.",
       confirmLabel: `Approve ${rows.length}`
     });
@@ -358,7 +363,7 @@ export default function ReviewPage() {
     }
     setSubmitting(true);
     try {
-      await apiFetch(`/review/${item.recordType}/${item.id}/${action}`, {
+      const answer = await apiFetch<{ mediaApproved?: number }>(`/review/${item.recordType}/${item.id}/${action}`, {
         method: "POST",
         body: JSON.stringify(decisionBody(notes, sentReason))
       });
@@ -366,7 +371,13 @@ export default function ReviewPage() {
       setNote("");
       setReasonCode("");
       setError(null);
-      setInfo(action === "reject" && refusalOutcome(reason) === "NEEDS_REVISION" ? `Sent “${item.label}” back for revision.` : null);
+      setInfo(
+        action === "reject" && refusalOutcome(reason) === "NEEDS_REVISION"
+          ? `Sent “${item.label}” back for revision.`
+          : action === "approve" && answer?.mediaApproved
+            ? approvedReceipt(answer.mediaApproved)
+            : null
+      );
       await load(page);
     } catch (err) {
       const verb = action === "revise" ? "send this record for revision" : `${action} this record`;
@@ -492,6 +503,9 @@ export default function ReviewPage() {
           <p className="mt-1 text-xs text-ink-500">
             Comments required.
           </p>
+        ) : null}
+        {activeAction === "approve" && alsoApprovesLine(item.pendingMediaCount) ? (
+          <p className="mt-1 text-xs text-ink-700">{alsoApprovesLine(item.pendingMediaCount)}</p>
         ) : null}
         <ButtonRow size="sm" className="mt-2">
           <button

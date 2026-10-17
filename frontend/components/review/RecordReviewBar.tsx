@@ -10,6 +10,8 @@ import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { apiFetch } from "@/lib/api";
 import { canReview as mayReview } from "@/lib/permissions";
 import {
+  alsoApprovesLine,
+  approvedReceipt,
   decisionBody,
   fetchLatestReview,
   fetchReviewReasons,
@@ -28,16 +30,21 @@ type Panel = "revise" | "reject" | null;
  * A reviewer who opened a record to read it all used to have to go back to the queue and find the
  * row again to decide. The bar is drawn only when the server says this reader may review this record
  * (`canReview` on `GET /review/{type}/{id}/latest`), so it never offers a decision the API refuses.
+ *
+ * Approving also approves the record's files that are still pending; with any, Approve asks first
+ * and says how many (`approvesWith`, from `GET /review/{type}/{id}/media`).
  */
 export function RecordReviewBar({
   recordType,
   recordId,
   status,
+  approvesWith = 0,
   onDecided
 }: {
   recordType: string;
   recordId: string;
   status: string | null | undefined;
+  approvesWith?: number;
   onDecided: (message: string) => void;
 }) {
   const confirm = useConfirm();
@@ -93,21 +100,26 @@ export function RecordReviewBar({
       });
       if (!ok) return;
     }
+    const files = alsoApprovesLine(approvesWith);
+    if (action === "approve" && files) {
+      const ok = await confirm({ title: "Approve this record?", body: files, confirmLabel: "Approve" });
+      if (!ok) return;
+    }
     setBusy(true);
     setError(null);
     try {
       // A reason on "Send for revision" is optional and only a fixable one is offered.
       const sent = action === "approve" ? null : action === "revise" ? (reason?.fixable ? reason : null) : reason;
       const body = decisionBody(notes, sent);
-      await apiFetch(`/review/${encodeURIComponent(recordType)}/${encodeURIComponent(recordId)}/${action}`, {
-        method: "POST",
-        body: JSON.stringify(body)
-      });
+      const answer = await apiFetch<{ mediaApproved?: number }>(
+        `/review/${encodeURIComponent(recordType)}/${encodeURIComponent(recordId)}/${action}`,
+        { method: "POST", body: JSON.stringify(body) }
+      );
       setPanel(null);
       setNote("");
       onDecided(
         action === "approve"
-          ? "Approved."
+          ? approvedReceipt(answer?.mediaApproved)
           : action === "revise" || refusalOutcome(reason) === "NEEDS_REVISION"
             ? "Sent back for revision."
             : "Rejected."

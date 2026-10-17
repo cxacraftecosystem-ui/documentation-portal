@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
 import { TranscriptBlock } from "@/components/media/TranscriptBlock";
+import { MediaRejectAction } from "@/components/review/MediaReview";
 import { ApiError, apiFetch, listResource } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import type { MediaFile } from "@/lib/types";
@@ -134,6 +135,7 @@ export function ExistingMedia({
                   Uploaded by {media.uploadedBy?.name ?? "Unknown"} · {formatDateTime(media.createdAt)}
                 </div>
                 <TranscriptBlock media={media} />
+                {readOnly ? <MediaRejectAction mediaId={media.id} label={media.caption || media.originalFilename} /> : null}
               </div>
             </div>
           );

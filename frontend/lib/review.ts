@@ -102,6 +102,11 @@ export function refusalButtonLabel(reason: ReviewReason | null | undefined): str
   return refusalOutcome(reason) === "NEEDS_REVISION" ? "Send for revision" : "Reject record";
 }
 
+/** The same label on one file's Reject panel. */
+export function fileRefusalLabel(reason: ReviewReason | null | undefined): string {
+  return refusalOutcome(reason) === "NEEDS_REVISION" ? "Send for revision" : "Reject file";
+}
+
 /** The reasons offered on "Send for revision": only the fixable ones, and picking one is optional. */
 export function reviseReasons(reasons: ReviewReason[]): ReviewReason[] {
   return reasons.filter((reason) => reason.fixable);
@@ -185,6 +190,8 @@ export type BulkResult = {
   results: { recordType: string; id: string; outcome: "APPROVED" | "FAILED"; detail?: unknown }[];
   approved: number;
   failed: number;
+  /** Files approved with those records. */
+  mediaApproved?: number;
 };
 
 export async function bulkApprove(items: { recordType: string; id: string }[]): Promise<BulkResult> {
@@ -198,6 +205,39 @@ export async function bulkApprove(items: { recordType: string; id: string }[]): 
 export function bulkReceipt(approved: number, failed: number): string {
   if (failed === 0) return `${plural(approved, "record")} approved.`;
   return `${approved} approved, ${failed} failed (still ticked).`;
+}
+
+/**
+ * Approving a record approves its files that are still pending (owner decision 2026-10-18); the
+ * confirmation says how many. Null when there are none, so nothing is drawn.
+ */
+export function alsoApprovesLine(files: number | null | undefined): string | null {
+  return files && files > 0 ? `Also approves ${plural(files, "file")}.` : null;
+}
+
+/** The receipt after approving one record. */
+export function approvedReceipt(files: number | null | undefined): string {
+  return files && files > 0 ? `Approved, with ${plural(files, "file")}.` : "Approved.";
+}
+
+/** `GET /review/{type}/{id}/media`: what a reviewer may do with a record's files. */
+export type RecordMediaReview = {
+  /** Files approving the record now would approve with it; 0 once it is decided. */
+  approvesWith: number;
+  /** Files this reviewer may still reject one by one — pending, or approved with their record. */
+  rejectable: string[];
+};
+
+export async function fetchRecordMediaReview(recordType: string, recordId: string): Promise<RecordMediaReview> {
+  return apiFetch<RecordMediaReview>(`/review/${encodeURIComponent(recordType)}/${encodeURIComponent(recordId)}/media`);
+}
+
+/** Reject one file, whatever became of its record. A fixable reason sends it back instead. */
+export async function rejectMedia(mediaId: string, notes: string, reason: ReviewReason | null | undefined): Promise<{ status?: string }> {
+  return apiFetch<{ status?: string }>(`/review/media/${encodeURIComponent(mediaId)}/reject`, {
+    method: "POST",
+    body: JSON.stringify(decisionBody(notes, reason))
+  });
 }
 
 /** The Data page's review-status choices (C21). "Approved" is what an export means. */

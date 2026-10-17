@@ -20,6 +20,7 @@ import { CollabPanel } from "@/components/CollabPanel";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { PageHeader } from "@/components/PageHeader";
 import { RecordMediaList } from "@/components/records/RecordMediaList";
+import { MediaReviewProvider } from "@/components/review/MediaReview";
 import { RecordReviewBar } from "@/components/review/RecordReviewBar";
 import { ReviewNoteBanner } from "@/components/review/ReviewNoteBanner";
 import {
@@ -31,8 +32,9 @@ import {
 import { StatusBadge } from "@/components/StatusBadge";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
-import { canCreateRecords } from "@/lib/permissions";
+import { canCreateRecords, canReview as mayReview } from "@/lib/permissions";
 import { canUpdateRecord, recordUpdateHref, type RecordViewType } from "@/lib/recordView";
+import { fetchRecordMediaReview, type RecordMediaReview } from "@/lib/review";
 import type { Artisan, MediaFile, QuestionnaireResponse, RecordStatus, User } from "@/lib/types";
 
 const ICON: Record<RecordViewType, LucideIcon> = {
@@ -68,7 +70,28 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
   const [error, setError] = useState<string | null>(null);
   const [reloads, setReloads] = useState(0);
   const [decided, setDecided] = useState<string | null>(null);
+  /** What this reviewer may do with the record's files: the approval's count and each file's Reject. */
+  const [mediaReview, setMediaReview] = useState<RecordMediaReview | null>(null);
+  const reviewer = mayReview(user);
   const noun = RECORD_VIEW_NOUN[type];
+
+  useEffect(() => {
+    if (!reviewer || type === "craft") {
+      setMediaReview(null);
+      return;
+    }
+    let cancelled = false;
+    fetchRecordMediaReview(type, id)
+      .then((answer) => {
+        if (!cancelled) setMediaReview(answer);
+      })
+      .catch(() => {
+        if (!cancelled) setMediaReview(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [type, id, reviewer, reloads]);
 
   useEffect(() => {
     let cancelled = false;
@@ -122,6 +145,7 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
                 recordType={type}
                 recordId={record.id}
                 status={record.status}
+                approvesWith={mediaReview?.approvesWith ?? 0}
                 onDecided={(message) => {
                   setDecided(message);
                   setReloads((n) => n + 1);
@@ -148,7 +172,21 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
               ))}
             </dl>
           </section>
-          <TypeExtras type={type} record={record} user={user} />
+          <MediaReviewProvider
+            value={
+              mediaReview
+                ? {
+                    rejectable: new Set(mediaReview.rejectable),
+                    onRejected: (message) => {
+                      setDecided(message);
+                      setReloads((n) => n + 1);
+                    }
+                  }
+                : null
+            }
+          >
+            <TypeExtras type={type} record={record} user={user} />
+          </MediaReviewProvider>
           <section className="panel p-4">
             <CollabPanel recordType={type} recordId={record.id} />
           </section>
