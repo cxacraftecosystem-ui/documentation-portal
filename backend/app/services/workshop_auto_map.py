@@ -42,6 +42,12 @@ CHECK_EVERY = timedelta(minutes=10)
 
 _last_checked: dict[str, datetime] = {}
 
+#: When this process last scrubbed merge snapshots. Its OWN gate, deliberately not the filing's:
+#: switching nightly filing off on the /workshops card must never switch off a privacy job. The
+#: scrub is idempotent, so two processes both running it on the same night is harmless and needs
+#: no claim.
+_last_scrubbed: dict[str, datetime] = {}
+
 
 #: India Standard Time as a fixed offset — the fallback when the zone database cannot be read (a
 #: Windows checkout without ``tzdata``) or a stored name is not a zone. IST has no daylight saving, so
@@ -128,9 +134,11 @@ async def maybe_run_nightly_auto_map(now: datetime | None = None, *, force_check
     row = await load_app_settings()
     if row is None:
         row = await get_or_create_app_settings(None)
+    zone = _zone(row)
+    # ABOVE THE ENABLED CHECK, and that ordering is the point: see ``_last_scrubbed``.
+    await maybe_scrub_merge_snapshots(now, zone)
     if not getattr(row, "workshopAutoMapEnabled", True):
         return None
-    zone = _zone(row)
     if not is_due(getattr(row, "workshopAutoMapLastRunAt", None), now, zone):
         return None
     start = night_start(now, zone)
@@ -152,10 +160,24 @@ async def maybe_run_nightly_auto_map(now: datetime | None = None, *, force_check
         where={"id": SINGLETON_ID}, data={"workshopAutoMapLastResult": Json(stored)}
     )
     logger.info("Nightly workshop filing: %s record(s) filed", result["applied"])
-    # The same night's other piece of hygiene: merges past their undo window stop holding a raw copy
-    # of anybody's identity numbers (services/artisan_merge).
-    try:
-        await scrub_expired_merge_snapshots(now)
-    except Exception:  # noqa: BLE001 - the filing above already ran; this retries tomorrow
-        logger.exception("Scrubbing expired artisan-merge snapshots failed")
     return stored
+
+
+async def maybe_scrub_merge_snapshots(now: datetime, zone: tzinfo) -> int | None:
+    """Once a night per process, whatever the filing switch says: merges past their undo window
+    stop holding a raw copy of anybody's identity numbers (services/artisan_merge). Returns how many
+    merges it masked, or None when it did not run.
+
+    An IN_PROGRESS merge keeps its raw numbers: undoing it is the only way to finish it, and the
+    undo puts those numbers back. The admin screen blocks any further merge of either artisan until
+    it is undone, so such a row is never forgotten.
+    """
+    if not is_due(_last_scrubbed.get("at"), now, zone):
+        return None
+    try:
+        scrubbed = await scrub_expired_merge_snapshots(now)
+    except Exception:  # noqa: BLE001 - one bad night must not stop the filing; retried next check
+        logger.exception("Scrubbing expired artisan-merge snapshots failed")
+        return None
+    _last_scrubbed["at"] = now
+    return scrubbed

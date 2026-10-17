@@ -79,6 +79,7 @@ def db(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(workshop_inference, "run_ladder", fake_ladder)
     workshop_auto_map._last_checked.clear()
+    workshop_auto_map._last_scrubbed.clear()
     return fake
 
 
@@ -186,3 +187,30 @@ def test_only_an_admin_may_switch_it(db: _Db) -> None:
     _CURRENT["user"] = _user("PROFESSOR")
     assert _call("PUT", "/workshops/unmapped/auto", {"enabled": False}).status_code == 403
     assert db.appsetting.rows[0].workshopAutoMapEnabled is True
+
+
+# --- the privacy scrub rides its own gate --------------------------------------------------------
+
+
+def test_switching_the_filing_off_never_switches_off_the_snapshot_scrub(db: _Db) -> None:
+    from prisma import Json
+
+    db.appsetting.rows[0].workshopAutoMapEnabled = False
+    long_ago = datetime(2026, 8, 1, tzinfo=UTC)
+    db.artisanmerge.rows.append(
+        SimpleNamespace(
+            id="mg1",
+            status="DONE",
+            createdAt=long_ago,
+            mergedSnapshot=Json({"aadhaarNumber": "234123412346", "pehchanCardNumber": "PC12345678"}),
+            survivorBefore=Json({}),
+            survivorAfter=Json({}),
+        )
+    )
+    now = datetime(2026, 10, 20, 2, 30, tzinfo=IST)
+    assert asyncio.run(maybe_run_nightly_auto_map(now, force_check=True)) is None
+    snap = db.artisanmerge.rows[0].mergedSnapshot
+    snap = getattr(snap, "data", snap)
+    assert snap["aadhaarNumber"] == "XXXX XXXX 2346" and snap["pehchanCardNumber"] == "XXXX5678"
+    # Once a night: a second ask the same night does not scrub again.
+    assert workshop_auto_map._last_scrubbed["at"] == now
